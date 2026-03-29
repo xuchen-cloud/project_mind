@@ -1,0 +1,9 @@
+node_modules
+dist
+target
+src-tauri/target
+src-tauri/gen
+.DS_Store
+.tmp-*.png
+project_mind_app_window*.png
+project_mind_overview.png
