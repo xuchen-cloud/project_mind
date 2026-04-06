@@ -1,0 +1,164 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useUiStore } from "../../state/ui-store";
+import type { TodoRecord } from "../../lib/types";
+import { TodoRail } from "./TodoRail";
+
+const todoWithHistory: TodoRecord = {
+  id: 1,
+  projectId: 1,
+  activityId: 11,
+  content: "Prepare demo notes",
+  status: "unfinished",
+  priority: "not_urgent_important",
+  createdAt: "2026-04-06T08:00:00.000Z",
+  updatedAt: "2026-04-06T10:00:00.000Z",
+  progresses: [
+    {
+      id: 101,
+      todoId: 1,
+      content: "已同步法务",
+      progressDate: "2026-04-06",
+      createdAt: "2026-04-06T10:00:00.000Z",
+    },
+    {
+      id: 102,
+      todoId: 1,
+      content: "等待财务确认",
+      progressDate: "2026-04-05",
+      createdAt: "2026-04-05T09:00:00.000Z",
+    },
+  ],
+};
+
+const anotherTodoWithHistory: TodoRecord = {
+  ...todoWithHistory,
+  id: 3,
+  content: "Sync with finance",
+  updatedAt: "2026-04-06T11:00:00.000Z",
+  progresses: [
+    {
+      id: 103,
+      todoId: 3,
+      content: "已和税务对齐方案",
+      progressDate: "2026-04-06",
+      createdAt: "2026-04-06T11:00:00.000Z",
+    },
+    {
+      id: 105,
+      todoId: 3,
+      content: "已收集财务问题",
+      progressDate: "2026-04-05",
+      createdAt: "2026-04-05T10:00:00.000Z",
+    },
+  ],
+};
+
+const todoWithoutHistory: TodoRecord = {
+  ...todoWithHistory,
+  id: 4,
+  content: "No progress yet",
+  updatedAt: "2026-04-06T07:00:00.000Z",
+  progresses: [],
+};
+
+const finishedTodo: TodoRecord = {
+  ...todoWithHistory,
+  id: 2,
+  status: "finished",
+  content: "Done item",
+  updatedAt: "2026-04-06T12:00:00.000Z",
+  progresses: [
+    {
+      id: 104,
+      todoId: 2,
+      content: "已发出最终版本",
+      progressDate: "2026-04-06",
+      createdAt: "2026-04-06T12:00:00.000Z",
+    },
+  ],
+};
+
+describe("TodoRail", () => {
+  beforeEach(() => {
+    useUiStore.setState({
+      createProjectOpen: false,
+      createActivityOpen: false,
+      projectComposer: null,
+      projectSidebarCollapsed: false,
+      todoRailCollapsed: false,
+    });
+  });
+
+  it("creates todos, supports multiple inline expansions, and toggles collapse", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn();
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithHistory, anotherTodoWithHistory]}
+        finishedTodos={[finishedTodo]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={onCreateTodo}
+        onToggleStatus={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "Ship checklist");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "Ship checklist",
+      priority: "not_urgent_important",
+    });
+
+    const expandButtons = screen.getAllByRole("button", { name: "展开历史进展" });
+    await user.click(expandButtons[0]);
+    await user.click(expandButtons[1]);
+
+    expect(screen.getByText("等待财务确认")).toBeInTheDocument();
+    expect(screen.getByText("已收集财务问题")).toBeInTheDocument();
+    expect(screen.getAllByText("已同步法务")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
+    expect(useUiStore.getState().todoRailCollapsed).toBe(true);
+    expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
+  });
+
+  it("disables expand without history and still toggles finished status", async () => {
+    const user = userEvent.setup();
+    const onToggleStatus = vi.fn();
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithoutHistory]}
+        finishedTodos={[finishedTodo]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={onToggleStatus}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "展开历史进展" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+    expect(screen.getByText("Done item")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开历史进展" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "标记为未完成" }));
+    expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");
+  });
+});

@@ -1,31 +1,45 @@
-import "@fontsource/fraunces/600.css";
-import "@fontsource/fraunces/700.css";
 import "@fontsource/work-sans/400.css";
 import "@fontsource/work-sans/500.css";
 import "@fontsource/work-sans/600.css";
-import "./styles.css";
+import "@fontsource-variable/noto-sans-sc/wght.css";
+import "./styles/app.css";
 
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RouterProvider, createHashRouter } from "react-router-dom";
+import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 
-import App from "./App";
+import { WorkspaceLayout } from "./App";
+import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
+import { ActivityPage } from "./components/activity/ActivityPage";
+import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 
 const router = createHashRouter([
   {
-    path: "/",
-    element: <App />,
-  },
-  {
-    path: "/projects/:projectId",
-    element: <App />,
-  },
-  {
-    path: "/projects/:projectId/activities/:activityId",
-    element: <App />,
+    element: <WorkspaceLayout />,
+    children: [
+      { index: true, element: <Navigate to="/projects" replace /> },
+      { path: "projects", element: <EmptyProjectRedirect /> },
+      { path: "projects/:projectId", element: <ProjectOverviewPage /> },
+      {
+        path: "projects/:projectId/activities/:activityId",
+        element: <ActivityPage />,
+      },
+      {
+        path: "settings/:section",
+        element: <SettingsRouteBridge />,
+      },
+    ],
   },
 ]);
+
+function EmptyProjectRedirect() {
+  return (
+    <div className="flex h-full items-center justify-center text-body text-text-soft">
+      选择一个项目，或新建一个开始使用。
+    </div>
+  );
+}
 
 const queryClient = new QueryClient();
 

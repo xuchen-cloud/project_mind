@@ -3,6 +3,7 @@ export interface ProjectRecord {
   name: string;
   status: string;
   rootPath: string;
+  fileLayoutVersion: number;
   summary: string;
   isArchived: boolean;
   createdAt: string;
@@ -15,11 +16,13 @@ export interface ProjectListItem extends ProjectRecord {
   openTodoCount: number;
 }
 
+export type NoteTemplateKey = "quick_note" | "meeting_minutes";
+
 export interface NoteRecord {
   id: number;
   projectId: number;
   activityId: number;
-  noteType: "quick_note" | "meeting_minutes";
+  noteType: NoteTemplateKey;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
@@ -32,18 +35,26 @@ export interface ConclusionRecord {
   projectId: number;
   activityId?: number | null;
   noteId?: number | null;
-  content: string;
+  contentMarkdown: string;
+  contentHtml: string;
   promotedToProject: boolean;
   sourceActivityTitle?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
+export type TodoStatus = "unfinished" | "finished";
+export type TodoPriority =
+  | "urgent_important"
+  | "urgent_not_important"
+  | "not_urgent_important"
+  | "not_urgent_not_important";
+
 export interface TodoProgressRecord {
   id: number;
   todoId: number;
   content: string;
-  statusSnapshot: string;
+  progressDate: string;
   createdAt: string;
 }
 
@@ -51,15 +62,11 @@ export interface TodoRecord {
   id: number;
   projectId: number;
   activityId?: number | null;
-  sourceNoteId?: number | null;
-  title: string;
-  description?: string | null;
-  status: "todo" | "doing" | "done" | "blocked" | "cancelled";
-  priority: "low" | "medium" | "high";
-  dueDate?: string | null;
+  content: string;
+  status: TodoStatus;
+  priority: TodoPriority;
   createdAt: string;
   updatedAt: string;
-  sourceActivityTitle?: string | null;
   progresses: TodoProgressRecord[];
 }
 
@@ -68,27 +75,62 @@ export interface DocumentRecord {
   projectId: number;
   activityId?: number | null;
   name: string;
+  baseName: string;
   originalPath: string;
   managedPath: string;
+  historyDirPath: string;
   storageMode: string;
   mimeType: string;
-  role: "key_material" | "reference_material";
   isStarred: boolean;
-  promotedToProject: boolean;
+  currentVersionNumber: number;
+  versionCount: number;
   sourceActivityTitle?: string | null;
   health: "normal" | "missing";
   createdAt: string;
   updatedAt: string;
 }
 
+export interface DocumentVersionRecord {
+  id: number;
+  documentId: number;
+  versionNumber: number;
+  name: string;
+  sourcePath: string;
+  managedPath: string;
+  createdAt: string;
+}
+
+export interface ActivityAttributeOption {
+  id: number;
+  label: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActivityStatusOption {
+  id: number;
+  label: string;
+  needsAttention: boolean;
+  isSystem: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActivitySettingsSnapshot {
+  activityAttributeOptions: ActivityAttributeOption[];
+  activityStatusOptions: ActivityStatusOption[];
+}
+
 export interface ActivityDigest {
   id: number;
   projectId: number;
-  category: string;
+  attributeOptionId?: number | null;
+  attributeLabel?: string | null;
   title: string;
   activityTime: string;
-  reviewStatus: "needs_review" | "organized";
-  organizeStatus: "needs_review" | "organized";
+  statusOptionId: number;
+  statusLabel: string;
+  statusNeedsAttention: boolean;
   isPinned: boolean;
   noteCount: number;
   conclusionCount: number;
@@ -116,12 +158,15 @@ export interface AiSuggestionRecord {
 export interface ActivityCardData {
   id: number;
   projectId: number;
-  category: string;
+  attributeOptionId?: number | null;
+  attributeLabel?: string | null;
   title: string;
   activityTime: string;
+  statusOptionId: number;
+  statusLabel: string;
+  statusNeedsAttention: boolean;
   isPinned: boolean;
   isExpanded: boolean;
-  organizeStatus: "unorganized" | "organized";
   createdAt: string;
   updatedAt: string;
   digest: ActivityDigest;
@@ -150,7 +195,7 @@ export interface ConclusionGroup {
 export interface ProjectOverviewData {
   project: ProjectRecord;
   activityFeed: ActivityDigest[];
-  keyDocuments: DocumentRecord[];
+  projectDocuments: DocumentRecord[];
   conclusionGroups: ConclusionGroup[];
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
@@ -199,7 +244,7 @@ export interface ProjectArchiveInput {
 
 export interface ActivityCreateInput {
   projectId: number;
-  category: string;
+  attributeOptionId?: number | null;
   title?: string;
   activityTime: string;
 }
@@ -207,24 +252,34 @@ export interface ActivityCreateInput {
 export interface ActivityUpdateMetaInput {
   activityId: number;
   title?: string;
-  category?: string;
+  attributeOptionId?: number | null;
+  clearAttributeOption?: boolean;
   activityTime?: string;
   isPinned?: boolean;
   isExpanded?: boolean;
-  organizeStatus?: "needs_review" | "organized";
+  statusOptionId?: number;
 }
 
-export interface NoteAppendQuickInput {
-  projectId: number;
-  activityId: number;
-  title?: string;
-  content: string;
+export interface ActivityAttributeOptionUpsertInput {
+  id?: number;
+  label: string;
 }
 
-export interface NoteUpsertMinutesInput {
+export interface ActivityStatusOptionUpsertInput {
+  id?: number;
+  label: string;
+  needsAttention: boolean;
+}
+
+export interface ActivityOptionDeleteInput {
+  optionId: number;
+}
+
+export interface NoteUpsertInput {
   projectId: number;
   activityId: number;
   noteId?: number;
+  noteType: NoteTemplateKey;
   title?: string;
   markdown: string;
   html: string;
@@ -234,7 +289,8 @@ export interface ConclusionCreateInput {
   projectId: number;
   activityId?: number;
   noteId?: number;
-  content: string;
+  markdown: string;
+  html: string;
   promotedToProject: boolean;
 }
 
@@ -245,51 +301,60 @@ export interface ConclusionListInput {
 
 export interface ConclusionUpdateInput {
   conclusionId: number;
-  content: string;
+  markdown: string;
+  html: string;
   promotedToProject?: boolean;
 }
 
 export interface TodoCreateInput {
   projectId: number;
   activityId?: number;
-  sourceNoteId?: number;
-  title: string;
-  description?: string;
-  status?: TodoRecord["status"];
-  priority?: TodoRecord["priority"];
-  dueDate?: string;
+  content: string;
+  priority: TodoPriority;
+}
+
+export interface TodoUpdateContentInput {
+  todoId: number;
+  content: string;
 }
 
 export interface TodoUpdateStatusInput {
   todoId: number;
-  status: TodoRecord["status"];
+  status: TodoStatus;
 }
 
 export interface TodoAddProgressInput {
   todoId: number;
   content: string;
-  statusSnapshot: TodoRecord["status"];
+  progressDate: string;
 }
 
 export interface DocumentImportInput {
   projectId: number;
   activityId?: number;
   sourcePath: string;
-  role: DocumentRecord["role"];
   isStarred: boolean;
-  promotedToProject?: boolean;
 }
 
 export interface DocumentUpdateMetaInput {
   documentId: number;
-  role?: DocumentRecord["role"];
+  activityId?: number | null;
+  baseName?: string;
   isStarred?: boolean;
-  promotedToProject?: boolean;
 }
 
 export interface DocumentRelocateInput {
   documentId: number;
   newSourcePath: string;
+}
+
+export interface DocumentListVersionsInput {
+  documentId: number;
+}
+
+export interface DocumentAddVersionInput {
+  documentId: number;
+  sourcePath: string;
 }
 
 export interface AiGenerateInput {
@@ -306,4 +371,120 @@ export interface AcceptedSuggestionResult {
   suggestion: AiSuggestionRecord;
   entityKind: string;
   entityId: number;
+}
+
+export type AiProviderFamily =
+  | "openai_compatible"
+  | "anthropic_compatible"
+  | "gemini_compatible";
+
+export type AiCapability =
+  | "default"
+  | "assistant"
+  | "summary"
+  | "suggestion_generation";
+
+export interface AiProviderProfileRecord {
+  id: number;
+  name: string;
+  providerFamily: AiProviderFamily;
+  baseUrl: string;
+  apiKeyLast4: string;
+  hasStoredKey: boolean;
+  defaultModel: string;
+  supportsText: boolean;
+  supportsImage: boolean;
+  supportsFile: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiCapabilityBindingRecord {
+  capability: AiCapability;
+  useDefault: boolean;
+  profileId?: number | null;
+  model?: string | null;
+  updatedAt: string;
+}
+
+export interface AiSettingsSnapshot {
+  profiles: AiProviderProfileRecord[];
+  bindings: AiCapabilityBindingRecord[];
+  hasUsableDefault: boolean;
+  securityMode: string;
+}
+
+export type RichTextFontPreset =
+  | "workspace_sans"
+  | "work_sans"
+  | "noto_sans_sc"
+  | "source_serif";
+
+export interface RichTextStyleBlockSettings {
+  fontPreset: RichTextFontPreset;
+  fontSizePx: number;
+  lineHeight: number;
+  paragraphSpacingPx: number;
+}
+
+export interface RichTextHeadingStyleSettings {
+  fontPreset: RichTextFontPreset;
+  lineHeight: number;
+  paragraphSpacingPx: number;
+  h1SizePx: number;
+  h2SizePx: number;
+  h3SizePx: number;
+}
+
+export interface RichTextStyleSettings {
+  body: RichTextStyleBlockSettings;
+  headings: RichTextHeadingStyleSettings;
+  list: RichTextStyleBlockSettings;
+}
+
+export type RichTextStyleUpsertInput = RichTextStyleSettings;
+
+export interface AiProviderProfileUpsertInput {
+  id?: number;
+  name: string;
+  providerFamily: AiProviderFamily;
+  baseUrl: string;
+  apiKey?: string;
+  defaultModel: string;
+  supportsText: boolean;
+  supportsImage: boolean;
+  supportsFile: boolean;
+  enabled: boolean;
+}
+
+export interface AiProviderProfileDeleteInput {
+  profileId: number;
+}
+
+export interface AiProfileTestInput {
+  id?: number;
+  name: string;
+  providerFamily: AiProviderFamily;
+  baseUrl: string;
+  apiKey?: string;
+  defaultModel: string;
+  supportsText: boolean;
+  supportsImage: boolean;
+  supportsFile: boolean;
+  enabled: boolean;
+}
+
+export interface AiProfileTestResult {
+  success: boolean;
+  message: string;
+  latencyMs?: number | null;
+  resolvedModel?: string | null;
+}
+
+export interface AiCapabilityBindingUpsertInput {
+  capability: AiCapability;
+  useDefault: boolean;
+  profileId?: number;
+  model?: string;
 }

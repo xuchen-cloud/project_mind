@@ -1,0 +1,66 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { projectMindApi } from "../services/projectMindApi";
+import { useFeedbackStore } from "../state/feedback-store";
+import { refreshAll } from "./shared";
+import type { TodoRecord } from "../lib/types";
+
+export function useTodoMutations(allTodos?: TodoRecord[]) {
+  const queryClient = useQueryClient();
+  const { pushToast, setStatus } = useFeedbackStore();
+
+  const todoMutation = useMutation({
+    mutationFn: projectMindApi.todoCreate,
+    onSuccess: async (todo) => {
+      setStatus({ tone: "success", label: "Created", message: "待办已创建" });
+      await refreshAll(queryClient, todo.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "新增待办失败" });
+      pushToast({ tone: "error", title: "新增待办失败", detail: String(error) });
+    },
+  });
+
+  const todoContentMutation = useMutation({
+    mutationFn: projectMindApi.todoUpdateContent,
+    onSuccess: async (todo) => {
+      setStatus({ tone: "success", label: "Saved", message: "待办内容已更新" });
+      await refreshAll(queryClient, todo.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "更新待办内容失败" });
+      pushToast({ tone: "error", title: "更新待办内容失败", detail: String(error) });
+    },
+  });
+
+  const todoStatusMutation = useMutation({
+    mutationFn: projectMindApi.todoUpdateStatus,
+    onSuccess: async (todo) => {
+      setStatus({
+        tone: "success",
+        label: todo.status === "finished" ? "Completed" : "Active",
+        message: "待办状态已更新",
+      });
+      await refreshAll(queryClient, todo.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "更新待办失败" });
+      pushToast({ tone: "error", title: "更新待办失败", detail: String(error) });
+    },
+  });
+
+  const todoProgressMutation = useMutation({
+    mutationFn: projectMindApi.todoAddProgress,
+    onSuccess: async (_, variables) => {
+      const source = allTodos?.find((t) => t.id === variables.todoId);
+      if (!source) return;
+      setStatus({ tone: "success", label: "Updated", message: "进展已追加" });
+      await refreshAll(queryClient, source.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "追加进展失败" });
+      pushToast({ tone: "error", title: "追加进展失败", detail: String(error) });
+    },
+  });
+
+  return { todoMutation, todoContentMutation, todoStatusMutation, todoProgressMutation };
+}

@@ -21,9 +21,8 @@ pub fn generate(activity_title: &str, source_text: &str) -> Vec<DraftSuggestion>
             title: "待办候选".to_string(),
             preview: "整理本次活动的关键结论并确认下一步".to_string(),
             payload: json!({
-                "title": "整理本次活动的关键结论并确认下一步",
-                "description": "当前记录内容较少，建议先完成本次活动的沉淀。",
-                "priority": "medium"
+                "content": "整理本次活动的关键结论并确认下一步",
+                "priority": "not_urgent_important"
             }),
         }];
     }
@@ -65,9 +64,8 @@ pub fn generate(activity_title: &str, source_text: &str) -> Vec<DraftSuggestion>
             title: "待办候选".to_string(),
             preview: item.clone(),
             payload: json!({
-                "title": item,
-                "description": "来自 AI Mock 的活动跟进行动建议。",
-                "priority": "medium"
+                "content": item,
+                "priority": "not_urgent_important"
             }),
         });
     }

@@ -1,37 +1,94 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 use crate::{
-    mock_ai,
+    ai_provider::{self, ResolvedAiProfile},
     models::{
-        AcceptedSuggestionResult, ActivityCardData, ActivityCreateInput, ActivityDigest,
-        ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiGenerateInput, AiSuggestionRecord,
-        ConclusionCreateInput, ConclusionGroup, ConclusionListInput, ConclusionRecord,
-        ConclusionUpdateInput, DocumentImportInput, DocumentRecord, DocumentRelocateInput,
-        DocumentUpdateMetaInput, NoteAppendQuickInput, NoteRecord, NoteUpsertMinutesInput,
+        AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
+        ActivityCardData, ActivityCreateInput, ActivityDigest, ActivityOptionDeleteInput,
+        ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
+        ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiCapabilityBindingRecord,
+        AiCapabilityBindingUpsertInput, AiGenerateInput, AiProfileTestInput, AiProfileTestResult,
+        AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
+        AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionGroup,
+        ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, DocumentAddVersionInput,
+        DocumentImportInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
+        DocumentUpdateMetaInput, DocumentVersionRecord, NoteRecord, NoteUpsertInput,
         ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
         ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
+        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
         TodoAddProgressInput, TodoCreateInput, TodoProgressRecord, TodoRecord,
-        TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        TodoUpdateContentInput, TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
+    secret_crypto,
 };
+
+const TODO_SCHEMA_VERSION: i64 = 2;
+const FILE_LAYOUT_SCHEMA_VERSION: i64 = 3;
+const DOCUMENT_SCHEMA_VERSION: i64 = 4;
+const ACTIVITY_SETTINGS_SCHEMA_VERSION: i64 = 5;
+const LEGACY_FILE_LAYOUT_VERSION: i64 = 1;
+const CURRENT_FILE_LAYOUT_VERSION: i64 = 2;
+const AI_CAPABILITIES: [&str; 4] = ["default", "assistant", "summary", "suggestion_generation"];
+const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
+    "workspace_sans",
+    "work_sans",
+    "noto_sans_sc",
+    "source_serif",
+];
+const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
+const SYSTEM_ACTIVITY_STATUS_PENDING: &str = "pending";
+const SYSTEM_ACTIVITY_STATUS_PENDING_LABEL: &str = "待启动";
+const LEGACY_ACTIVITY_STATUS_REVIEW_LABEL: &str = "待复核";
+const LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL: &str = "已整理";
 
 pub struct Database {
     conn: Connection,
 }
 
+struct AiProfileStorage {
+    id: i64,
+    name: String,
+    provider_family: String,
+    base_url: String,
+    api_key_ciphertext: String,
+    api_key_nonce: String,
+    api_key_salt: String,
+    api_key_last4: String,
+    default_model: String,
+    supports_text: bool,
+    supports_image: bool,
+    supports_file: bool,
+    enabled: bool,
+    created_at: String,
+    updated_at: String,
+}
+
+struct ActivityFsRecord {
+    project_id: i64,
+    attribute_option_id: Option<i64>,
+    title: String,
+    activity_time: String,
+    status_option_id: Option<i64>,
+    is_pinned: bool,
+    is_expanded: bool,
+    folder_name: String,
+}
+
 impl Database {
     pub fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create app data dir at {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create app data dir at {}", parent.display())
+            })?;
         }
 
         let conn = Connection::open(db_path)
@@ -50,8 +107,25 @@ impl Database {
               name TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'active',
               root_path TEXT NOT NULL,
+              file_layout_version INTEGER NOT NULL DEFAULT 1,
               summary TEXT NOT NULL DEFAULT '',
               is_archived INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS activity_attribute_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS activity_status_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              system_key TEXT UNIQUE,
+              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              needs_attention INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -60,14 +134,19 @@ impl Database {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
               category TEXT NOT NULL,
+              attribute_option_id INTEGER,
               title TEXT NOT NULL DEFAULT '',
+              folder_name TEXT NOT NULL DEFAULT '',
               activity_time TEXT NOT NULL,
               is_pinned INTEGER NOT NULL DEFAULT 0,
               is_expanded INTEGER NOT NULL DEFAULT 0,
               organize_status TEXT NOT NULL DEFAULT 'needs_review',
+              status_option_id INTEGER,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(attribute_option_id) REFERENCES activity_attribute_options(id) ON DELETE SET NULL,
+              FOREIGN KEY(status_option_id) REFERENCES activity_status_options(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS notes (
@@ -89,6 +168,8 @@ impl Database {
               project_id INTEGER NOT NULL,
               activity_id INTEGER,
               note_id INTEGER,
+              content_markdown TEXT NOT NULL DEFAULT '',
+              content_html TEXT NOT NULL DEFAULT '',
               content TEXT NOT NULL,
               promoted_to_project INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
@@ -102,24 +183,20 @@ impl Database {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
               activity_id INTEGER,
-              source_note_id INTEGER,
-              title TEXT NOT NULL,
-              description TEXT,
-              status TEXT NOT NULL DEFAULT 'todo',
-              priority TEXT NOT NULL DEFAULT 'medium',
-              due_date TEXT,
+              content TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'unfinished',
+              priority TEXT NOT NULL,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL,
-              FOREIGN KEY(source_note_id) REFERENCES notes(id) ON DELETE SET NULL
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS todo_progresses (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               todo_id INTEGER NOT NULL,
               content TEXT NOT NULL,
-              status_snapshot TEXT NOT NULL,
+              progress_date TEXT NOT NULL,
               created_at TEXT NOT NULL,
               FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
             );
@@ -129,18 +206,32 @@ impl Database {
               project_id INTEGER NOT NULL,
               activity_id INTEGER,
               name TEXT NOT NULL,
+              base_name TEXT NOT NULL DEFAULT '',
               original_path TEXT NOT NULL,
               managed_path TEXT NOT NULL,
+              history_dir_path TEXT NOT NULL DEFAULT '',
               storage_mode TEXT NOT NULL,
               mime_type TEXT NOT NULL,
-              role TEXT NOT NULL,
               is_starred INTEGER NOT NULL DEFAULT 0,
-              promoted_to_project INTEGER NOT NULL DEFAULT 0,
+              current_version_number INTEGER NOT NULL DEFAULT 1,
+              version_count INTEGER NOT NULL DEFAULT 1,
               health TEXT NOT NULL DEFAULT 'normal',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
               FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS document_versions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              document_id INTEGER NOT NULL,
+              version_number INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              source_path TEXT NOT NULL,
+              managed_path TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+              UNIQUE(document_id, version_number)
             );
 
             CREATE TABLE IF NOT EXISTS ai_suggestions (
@@ -160,6 +251,39 @@ impl Database {
               FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS ai_provider_profiles (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              provider_family TEXT NOT NULL,
+              base_url TEXT NOT NULL,
+              api_key_ciphertext TEXT NOT NULL,
+              api_key_nonce TEXT NOT NULL,
+              api_key_salt TEXT NOT NULL,
+              api_key_last4 TEXT NOT NULL DEFAULT '',
+              default_model TEXT NOT NULL,
+              supports_text INTEGER NOT NULL DEFAULT 1,
+              supports_image INTEGER NOT NULL DEFAULT 0,
+              supports_file INTEGER NOT NULL DEFAULT 0,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_capability_bindings (
+              capability TEXT PRIMARY KEY,
+              use_default INTEGER NOT NULL DEFAULT 1,
+              profile_id INTEGER,
+              model TEXT,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(profile_id) REFERENCES ai_provider_profiles(id) ON DELETE RESTRICT
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY,
+              value_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
             "#,
         )?;
         self.ensure_column(
@@ -168,26 +292,106 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
         )?;
         self.ensure_column(
+            "projects",
+            "file_layout_version",
+            "ALTER TABLE projects ADD COLUMN file_layout_version INTEGER NOT NULL DEFAULT 1",
+        )?;
+        self.ensure_column(
+            "activities",
+            "folder_name",
+            "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "activities",
+            "attribute_option_id",
+            "ALTER TABLE activities ADD COLUMN attribute_option_id INTEGER REFERENCES activity_attribute_options(id) ON DELETE SET NULL",
+        )?;
+        self.ensure_column(
+            "conclusions",
+            "content_markdown",
+            "ALTER TABLE conclusions ADD COLUMN content_markdown TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "conclusions",
+            "content_html",
+            "ALTER TABLE conclusions ADD COLUMN content_html TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
             "documents",
-            "promoted_to_project",
-            "ALTER TABLE documents ADD COLUMN promoted_to_project INTEGER NOT NULL DEFAULT 0",
+            "base_name",
+            "ALTER TABLE documents ADD COLUMN base_name TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "documents",
+            "history_dir_path",
+            "ALTER TABLE documents ADD COLUMN history_dir_path TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "documents",
+            "current_version_number",
+            "ALTER TABLE documents ADD COLUMN current_version_number INTEGER NOT NULL DEFAULT 1",
+        )?;
+        self.ensure_column(
+            "documents",
+            "version_count",
+            "ALTER TABLE documents ADD COLUMN version_count INTEGER NOT NULL DEFAULT 1",
+        )?;
+        self.ensure_column(
+            "activities",
+            "status_option_id",
+            "ALTER TABLE activities ADD COLUMN status_option_id INTEGER REFERENCES activity_status_options(id) ON DELETE SET NULL",
         )?;
         self.conn.execute(
             "UPDATE activities SET organize_status = 'needs_review' WHERE organize_status = 'unorganized'",
             [],
         )?;
+        self.conn.execute(
+            r#"
+            UPDATE conclusions
+            SET content_markdown = content
+            WHERE TRIM(COALESCE(content_markdown, '')) = ''
+              AND TRIM(COALESCE(content, '')) <> ''
+            "#,
+            [],
+        )?;
+        if self.schema_version()? < TODO_SCHEMA_VERSION {
+            self.rebuild_todo_schema()?;
+            self.set_schema_version(TODO_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < FILE_LAYOUT_SCHEMA_VERSION {
+            self.set_schema_version(FILE_LAYOUT_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < DOCUMENT_SCHEMA_VERSION {
+            self.rebuild_document_schema()?;
+            self.set_schema_version(DOCUMENT_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < ACTIVITY_SETTINGS_SCHEMA_VERSION {
+            self.migrate_activity_settings_schema()?;
+            self.set_schema_version(ACTIVITY_SETTINGS_SCHEMA_VERSION)?;
+        } else {
+            self.ensure_activity_settings_seeded()?;
+        }
         self.conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_projects_archived_updated ON projects(is_archived, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_activities_project_time ON activities(project_id, activity_time DESC);
+            CREATE INDEX IF NOT EXISTS idx_activities_project_folder ON activities(project_id, folder_name);
+            CREATE INDEX IF NOT EXISTS idx_activities_attribute_option ON activities(attribute_option_id);
+            CREATE INDEX IF NOT EXISTS idx_activities_status_option ON activities(status_option_id);
             CREATE INDEX IF NOT EXISTS idx_notes_activity ON notes(activity_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_conclusions_project ON conclusions(project_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_todos_activity ON todos(activity_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_todo_progresses_todo_date ON todo_progresses(todo_id, progress_date DESC, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_documents_project_promoted ON documents(project_id, promoted_to_project, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_documents_project_activity_base ON documents(project_id, activity_id, base_name);
+            CREATE INDEX IF NOT EXISTS idx_documents_project_starred ON documents(project_id, is_starred, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_document_versions_document_version ON document_versions(document_id, version_number DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_suggestions_activity ON ai_suggestions(activity_id, status, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
             "#,
         )?;
+        self.backfill_file_layout_metadata()?;
         Ok(())
     }
 
@@ -196,10 +400,15 @@ impl Database {
         let sql = format!(
             r#"
             SELECT
-              p.id, p.name, p.status, p.root_path, p.summary, p.is_archived, p.created_at, p.updated_at,
+              p.id, p.name, p.status, p.root_path, p.file_layout_version, p.summary, p.is_archived, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM activities a WHERE a.project_id = p.id) AS activity_count,
-              (SELECT COUNT(*) FROM activities a WHERE a.project_id = p.id AND a.organize_status = 'needs_review') AS unorganized_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status IN ('todo', 'doing', 'blocked')) AS open_todo_count
+              (
+                SELECT COUNT(*)
+                FROM activities a
+                LEFT JOIN activity_status_options s ON s.id = a.status_option_id
+                WHERE a.project_id = p.id AND COALESCE(s.needs_attention, 1) = 1
+              ) AS unorganized_count,
+              (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
             ORDER BY p.updated_at DESC
@@ -218,17 +427,19 @@ impl Database {
                 name: row.get(1)?,
                 status: row.get(2)?,
                 root_path: row.get(3)?,
-                summary: row.get(4)?,
-                is_archived: int_to_bool(row.get::<_, i64>(5)?),
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                activity_count: row.get(8)?,
-                unorganized_count: row.get(9)?,
-                open_todo_count: row.get(10)?,
+                file_layout_version: row.get(4)?,
+                summary: row.get(5)?,
+                is_archived: int_to_bool(row.get::<_, i64>(6)?),
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                activity_count: row.get(9)?,
+                unorganized_count: row.get(10)?,
+                open_todo_count: row.get(11)?,
             })
         })?;
 
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn project_create(&mut self, input: ProjectCreateInput) -> Result<ProjectRecord> {
@@ -244,17 +455,18 @@ impl Database {
         }
 
         let project_dir = base.join(project_name);
-        fs::create_dir_all(project_dir.join("documents"))?;
+        fs::create_dir_all(&project_dir)?;
 
         self.conn.execute(
             r#"
-            INSERT INTO projects (name, status, root_path, summary, is_archived, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
+            INSERT INTO projects (name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)
             "#,
             params![
                 project_name,
                 input.status.unwrap_or_else(|| "active".to_string()),
                 project_dir.to_string_lossy().to_string(),
+                CURRENT_FILE_LAYOUT_VERSION,
                 input.summary.unwrap_or_default(),
                 timestamp,
                 timestamp
@@ -266,10 +478,11 @@ impl Database {
     }
 
     pub fn project_get_overview(&mut self, input: ProjectIdInput) -> Result<ProjectOverviewData> {
+        self.ensure_project_file_layout(input.project_id)?;
         self.refresh_document_health(input.project_id)?;
         let project = self.project_record(input.project_id)?;
         let activity_feed = self.activity_digests(input.project_id, None)?;
-        let key_documents = self.fetch_key_documents_for_project(input.project_id)?;
+        let project_documents = self.fetch_project_documents_for_project(input.project_id)?;
         let conclusion_groups = self.fetch_conclusion_groups(input.project_id)?;
         let unfinished_todos = self.fetch_project_todos(input.project_id, false)?;
         let finished_todos = self.fetch_project_todos(input.project_id, true)?;
@@ -277,7 +490,7 @@ impl Database {
         Ok(ProjectOverviewData {
             project,
             activity_feed,
-            key_documents,
+            project_documents,
             conclusion_groups,
             unfinished_todos,
             finished_todos,
@@ -285,6 +498,7 @@ impl Database {
     }
 
     pub fn project_get_dashboard(&mut self, input: ProjectIdInput) -> Result<ProjectDashboard> {
+        self.ensure_project_file_layout(input.project_id)?;
         self.refresh_document_health(input.project_id)?;
 
         let project = self.project_record(input.project_id)?;
@@ -293,7 +507,12 @@ impl Database {
         let starred_documents = self.fetch_documents_for_project(input.project_id, true)?;
         let recent_activities = self.activity_digests(input.project_id, Some(6))?;
         let unorganized_count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM activities WHERE project_id = ?1 AND organize_status = 'needs_review'",
+            r#"
+            SELECT COUNT(*)
+            FROM activities a
+            LEFT JOIN activity_status_options s ON s.id = a.status_option_id
+            WHERE a.project_id = ?1 AND COALESCE(s.needs_attention, 1) = 1
+            "#,
             [input.project_id],
             |row| row.get(0),
         )?;
@@ -308,7 +527,10 @@ impl Database {
         })
     }
 
-    pub fn project_update_summary(&mut self, input: ProjectUpdateSummaryInput) -> Result<ProjectRecord> {
+    pub fn project_update_summary(
+        &mut self,
+        input: ProjectUpdateSummaryInput,
+    ) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
         self.conn.execute(
             "UPDATE projects SET summary = ?1, status = ?2, updated_at = ?3 WHERE id = ?4",
@@ -331,29 +553,50 @@ impl Database {
     }
 
     pub fn activity_create(&mut self, input: ActivityCreateInput) -> Result<ActivityCardData> {
+        self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
+        let activity_title = input.title.unwrap_or_default();
+        let attribute_option = match input.attribute_option_id {
+            Some(option_id) => Some(self.activity_attribute_option_record(option_id)?),
+            None => None,
+        };
+        let pending_status = self.pending_activity_status_option()?;
         self.conn.execute(
             r#"
             INSERT INTO activities (
-              project_id, category, title, activity_time, is_pinned, is_expanded, organize_status, created_at, updated_at
+              project_id, category, attribute_option_id, title, folder_name, activity_time, is_pinned,
+              is_expanded, organize_status, status_option_id, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, 0, 0, 'needs_review', ?5, ?6)
+            VALUES (?1, ?2, ?3, ?4, '', ?5, 0, 0, ?6, NULL, ?7, ?8)
             "#,
             params![
                 input.project_id,
-                input.category,
-                input.title.unwrap_or_default(),
+                attribute_option
+                    .as_ref()
+                    .map(|option| option.label.as_str())
+                    .unwrap_or(""),
+                input.attribute_option_id,
+                activity_title,
                 input.activity_time,
+                legacy_review_status_for_attention(pending_status.needs_attention),
                 timestamp,
                 timestamp
             ],
         )?;
         let activity_id = self.conn.last_insert_rowid();
+        let project = self.project_record(input.project_id)?;
+        let folder_name = self.default_activity_folder_name(&activity_title, activity_id);
+        self.create_activity_directory(&project.root_path, &folder_name)?;
+        self.conn.execute(
+            "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
+            params![folder_name, activity_id],
+        )?;
         self.touch_project(input.project_id)?;
         self.activity_card(activity_id)
     }
 
     pub fn activity_list(&mut self, input: ProjectIdInput) -> Result<Vec<ActivityCardData>> {
+        self.ensure_project_file_layout(input.project_id)?;
         self.refresh_document_health(input.project_id)?;
         let mut stmt = self.conn.prepare(
             "SELECT id FROM activities WHERE project_id = ?1 ORDER BY activity_time DESC, updated_at DESC",
@@ -365,74 +608,191 @@ impl Database {
         ids.into_iter().map(|id| self.activity_card(id)).collect()
     }
 
-    pub fn activity_update_meta(&mut self, input: ActivityUpdateMetaInput) -> Result<ActivityCardData> {
+    pub fn activity_update_meta(
+        &mut self,
+        input: ActivityUpdateMetaInput,
+    ) -> Result<ActivityCardData> {
+        let timestamp = now_iso();
         let current = self.activity_row(input.activity_id)?;
-        let next_status = input
-            .organize_status
-            .map(normalize_review_status)
-            .unwrap_or(current.6);
+        let next_title = input.title.unwrap_or_else(|| current.title.clone());
+        let next_activity_time = input
+            .activity_time
+            .unwrap_or_else(|| current.activity_time.clone());
+        let next_attribute_option_id = if input.clear_attribute_option.unwrap_or(false) {
+            None
+        } else if let Some(option_id) = input.attribute_option_id {
+            self.activity_attribute_option_record(option_id)?;
+            Some(option_id)
+        } else {
+            current.attribute_option_id
+        };
+        let next_attribute_label = match next_attribute_option_id {
+            Some(option_id) => Some(self.activity_attribute_option_record(option_id)?.label),
+            None => None,
+        };
+        let next_status_option_id = if let Some(option_id) = input.status_option_id {
+            self.activity_status_option_record(option_id)?;
+            Some(option_id)
+        } else {
+            current.status_option_id
+        };
+        let next_status = self.resolve_activity_status_option(next_status_option_id)?;
+
+        if next_title != current.title {
+            self.ensure_project_file_layout(current.project_id)?;
+            self.rename_activity_folder(input.activity_id, &current, &next_title, &timestamp)?;
+        }
         self.conn.execute(
             r#"
             UPDATE activities
             SET title = ?1,
                 category = ?2,
-                activity_time = ?3,
-                is_pinned = ?4,
-                is_expanded = ?5,
-                organize_status = ?6,
-                updated_at = ?7
-            WHERE id = ?8
+                attribute_option_id = ?3,
+                activity_time = ?4,
+                is_pinned = ?5,
+                is_expanded = ?6,
+                organize_status = ?7,
+                status_option_id = ?8,
+                updated_at = ?9
+            WHERE id = ?10
             "#,
             params![
-                input.title.unwrap_or(current.2),
-                input.category.unwrap_or(current.1),
-                input.activity_time.unwrap_or(current.3),
-                bool_to_int(input.is_pinned.unwrap_or(current.4)),
-                bool_to_int(input.is_expanded.unwrap_or(current.5)),
-                next_status,
-                now_iso(),
+                next_title,
+                next_attribute_label.unwrap_or_default(),
+                next_attribute_option_id,
+                next_activity_time,
+                bool_to_int(input.is_pinned.unwrap_or(current.is_pinned)),
+                bool_to_int(input.is_expanded.unwrap_or(current.is_expanded)),
+                legacy_review_status_for_attention(next_status.needs_attention),
+                next_status_option_id,
+                timestamp,
                 input.activity_id
             ],
         )?;
-        self.touch_project(current.0)?;
+        self.touch_project(current.project_id)?;
         self.activity_card(input.activity_id)
     }
 
-    pub fn note_append_quick(&mut self, input: NoteAppendQuickInput) -> Result<NoteRecord> {
-        let timestamp = now_iso();
-        self.conn.execute(
-            r#"
-            INSERT INTO notes (
-              project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
-            )
-            VALUES (?1, ?2, 'quick_note', ?3, ?4, ?5, ?6, ?7)
-            "#,
-            params![
-                input.project_id,
-                input.activity_id,
-                input.title,
-                input.content,
-                input.content,
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let note_id = self.conn.last_insert_rowid();
-        self.touch_activity(input.activity_id)?;
-        self.note_record(note_id)
+    pub fn activity_settings_get(&mut self) -> Result<ActivitySettingsSnapshot> {
+        self.ensure_activity_settings_seeded()?;
+        Ok(ActivitySettingsSnapshot {
+            activity_attribute_options: self.fetch_activity_attribute_options()?,
+            activity_status_options: self.fetch_activity_status_options()?,
+        })
     }
 
-    pub fn note_upsert_minutes(&mut self, input: NoteUpsertMinutesInput) -> Result<NoteRecord> {
+    pub fn activity_attribute_option_upsert(
+        &mut self,
+        input: ActivityAttributeOptionUpsertInput,
+    ) -> Result<ActivityAttributeOption> {
+        let label = validate_activity_option_label(&input.label)?;
+        let now = now_iso();
+
+        if let Some(option_id) = input.id {
+            self.activity_attribute_option_record(option_id)?;
+            self.conn.execute(
+                "UPDATE activity_attribute_options SET label = ?1, updated_at = ?2 WHERE id = ?3",
+                params![label, now, option_id],
+            )?;
+            return self.activity_attribute_option_record(option_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO activity_attribute_options (label, created_at, updated_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![label, now, now],
+        )?;
+
+        self.activity_attribute_option_record(self.conn.last_insert_rowid())
+    }
+
+    pub fn activity_attribute_option_delete(
+        &mut self,
+        input: ActivityOptionDeleteInput,
+    ) -> Result<ActivitySettingsSnapshot> {
+        self.activity_attribute_option_record(input.option_id)?;
+        self.conn.execute(
+            "DELETE FROM activity_attribute_options WHERE id = ?1",
+            params![input.option_id],
+        )?;
+        self.activity_settings_get()
+    }
+
+    pub fn activity_status_option_upsert(
+        &mut self,
+        input: ActivityStatusOptionUpsertInput,
+    ) -> Result<ActivityStatusOption> {
+        let label = validate_activity_option_label(&input.label)?;
+        let now = now_iso();
+
+        if let Some(option_id) = input.id {
+            let current = self.activity_status_option_record(option_id)?;
+            if current.is_system {
+                return Err(anyhow!("system activity status cannot be edited"));
+            }
+
+            self.conn.execute(
+                r#"
+                UPDATE activity_status_options
+                SET label = ?1, needs_attention = ?2, updated_at = ?3
+                WHERE id = ?4
+                "#,
+                params![label, bool_to_int(input.needs_attention), now, option_id],
+            )?;
+            return self.activity_status_option_record(option_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
+            VALUES (NULL, ?1, ?2, ?3, ?4)
+            "#,
+            params![label, bool_to_int(input.needs_attention), now, now],
+        )?;
+
+        self.activity_status_option_record(self.conn.last_insert_rowid())
+    }
+
+    pub fn activity_status_option_delete(
+        &mut self,
+        input: ActivityOptionDeleteInput,
+    ) -> Result<ActivitySettingsSnapshot> {
+        let current = self.activity_status_option_record(input.option_id)?;
+        if current.is_system {
+            return Err(anyhow!("system activity status cannot be deleted"));
+        }
+
+        self.conn.execute(
+            "DELETE FROM activity_status_options WHERE id = ?1",
+            params![input.option_id],
+        )?;
+        self.activity_settings_get()
+    }
+
+    pub fn note_upsert(&mut self, input: NoteUpsertInput) -> Result<NoteRecord> {
         let timestamp = now_iso();
         match input.note_id {
             Some(note_id) => {
                 self.conn.execute(
                     r#"
                     UPDATE notes
-                    SET title = ?1, content_markdown = ?2, content_html = ?3, updated_at = ?4
-                    WHERE id = ?5
+                    SET note_type = ?1,
+                        title = ?2,
+                        content_markdown = ?3,
+                        content_html = ?4,
+                        updated_at = ?5
+                    WHERE id = ?6
                     "#,
-                    params![input.title, input.markdown, input.html, timestamp, note_id],
+                    params![
+                        input.note_type,
+                        input.title,
+                        input.markdown,
+                        input.html,
+                        timestamp,
+                        note_id
+                    ],
                 )?;
                 self.touch_activity(input.activity_id)?;
                 self.note_record(note_id)
@@ -443,11 +803,12 @@ impl Database {
                     INSERT INTO notes (
                       project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
                     )
-                    VALUES (?1, ?2, 'meeting_minutes', ?3, ?4, ?5, ?6, ?7)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                     "#,
                     params![
                         input.project_id,
                         input.activity_id,
+                        input.note_type,
                         input.title,
                         input.markdown,
                         input.html,
@@ -467,15 +828,17 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO conclusions (
-              project_id, activity_id, note_id, content, promoted_to_project, created_at, updated_at
+              project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 input.project_id,
                 input.activity_id,
                 input.note_id,
-                input.content,
+                input.markdown,
+                input.html,
+                input.markdown,
                 bool_to_int(input.promoted_to_project),
                 timestamp,
                 timestamp
@@ -499,9 +862,13 @@ impl Database {
                 "#,
             )?;
             let ids = stmt
-                .query_map(params![input.project_id, activity_id], |row| row.get::<_, i64>(0))?
+                .query_map(params![input.project_id, activity_id], |row| {
+                    row.get::<_, i64>(0)
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            ids.into_iter().map(|id| self.conclusion_record(id)).collect()
+            ids.into_iter()
+                .map(|id| self.conclusion_record(id))
+                .collect()
         } else {
             self.list_project_conclusions(input.project_id, false)
         }
@@ -512,14 +879,22 @@ impl Database {
         self.conn.execute(
             r#"
             UPDATE conclusions
-            SET content = ?1,
-                promoted_to_project = ?2,
-                updated_at = ?3
-            WHERE id = ?4
+            SET content_markdown = ?1,
+                content_html = ?2,
+                content = ?3,
+                promoted_to_project = ?4,
+                updated_at = ?5
+            WHERE id = ?6
             "#,
             params![
-                input.content,
-                bool_to_int(input.promoted_to_project.unwrap_or(current.promoted_to_project)),
+                input.markdown,
+                input.html,
+                input.markdown,
+                bool_to_int(
+                    input
+                        .promoted_to_project
+                        .unwrap_or(current.promoted_to_project)
+                ),
                 now_iso(),
                 input.conclusion_id
             ],
@@ -536,19 +911,15 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO todos (
-              project_id, activity_id, source_note_id, title, description, status, priority, due_date, created_at, updated_at
+              project_id, activity_id, content, status, priority, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            VALUES (?1, ?2, ?3, 'unfinished', ?4, ?5, ?6)
             "#,
             params![
                 input.project_id,
                 input.activity_id,
-                input.source_note_id,
-                input.title,
-                input.description,
-                input.status.unwrap_or_else(|| "todo".to_string()),
-                input.priority.unwrap_or_else(|| "medium".to_string()),
-                input.due_date,
+                input.content,
+                input.priority,
                 timestamp,
                 timestamp
             ],
@@ -559,6 +930,19 @@ impl Database {
         }
         self.touch_project(input.project_id)?;
         self.todo_record(id)
+    }
+
+    pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+        self.conn.execute(
+            "UPDATE todos SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            params![input.content, now_iso(), input.todo_id],
+        )?;
+        let record = self.todo_record(input.todo_id)?;
+        self.touch_project(record.project_id)?;
+        if let Some(activity_id) = record.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(record)
     }
 
     pub fn todo_update_status(&mut self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
@@ -579,14 +963,14 @@ impl Database {
         let todo = self.todo_record(input.todo_id)?;
         self.conn.execute(
             r#"
-            INSERT INTO todo_progresses (todo_id, content, status_snapshot, created_at)
+            INSERT INTO todo_progresses (todo_id, content, progress_date, created_at)
             VALUES (?1, ?2, ?3, ?4)
             "#,
-            params![input.todo_id, input.content, input.status_snapshot, timestamp],
+            params![input.todo_id, input.content, input.progress_date, timestamp],
         )?;
         self.conn.execute(
-            "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
-            params![input.status_snapshot, now_iso(), input.todo_id],
+            "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
+            params![now_iso(), input.todo_id],
         )?;
         let progress_id = self.conn.last_insert_rowid();
         self.touch_project(todo.project_id)?;
@@ -600,7 +984,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id FROM todos
-            WHERE project_id = ?1 AND status IN ('todo', 'doing', 'blocked')
+            WHERE project_id = ?1 AND status = 'unfinished'
             ORDER BY updated_at DESC
             "#,
         )?;
@@ -611,6 +995,7 @@ impl Database {
     }
 
     pub fn document_import(&mut self, input: DocumentImportInput) -> Result<DocumentRecord> {
+        self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
         let source = PathBuf::from(&input.source_path);
         if !source.exists() {
@@ -618,18 +1003,20 @@ impl Database {
         }
 
         let project = self.project_record(input.project_id)?;
-        let documents_dir = PathBuf::from(&project.root_path).join("documents");
-        fs::create_dir_all(&documents_dir)?;
+        let target_dir = self.document_target_dir(input.project_id, input.activity_id)?;
 
         let file_name = source
             .file_name()
             .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow!("invalid file name"))?
             .to_string();
-        let managed_name = unique_file_name(&file_name);
-        let managed_path = documents_dir.join(managed_name);
-        fs::copy(&source, &managed_path)
-            .with_context(|| format!("failed to copy file from {}", source.display()))?;
+        self.ensure_document_name_available(input.project_id, input.activity_id, &file_name, None)?;
+        let managed_path = target_dir.join(&file_name);
+        let storage_mode = self.materialize_file_for_target(
+            Path::new(&project.root_path),
+            &source,
+            &managed_path,
+        )?;
 
         let mime = mime_guess::from_path(&source)
             .first_or_octet_stream()
@@ -639,29 +1026,45 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO documents (
-              project_id, activity_id, name, original_path, managed_path, storage_mode, mime_type, role, is_starred, promoted_to_project, health, created_at, updated_at
+              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, 'managed_copy', ?6, ?7, ?8, ?9, 'normal', ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9, 1, 1, 'normal', ?10, ?11)
             "#,
             params![
                 input.project_id,
                 input.activity_id,
                 file_name,
+                file_name,
                 source.to_string_lossy().to_string(),
                 managed_path.to_string_lossy().to_string(),
+                storage_mode,
                 mime,
-                input.role,
                 bool_to_int(input.is_starred),
-                bool_to_int(
-                    input
-                        .promoted_to_project
-                        .unwrap_or(input.activity_id.is_none())
-                ),
                 timestamp,
                 timestamp
             ],
         )?;
         let id = self.conn.last_insert_rowid();
+        let history_dir = self.history_dir_path_for(&managed_path, id);
+        self.conn.execute(
+            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
+            params![history_dir.to_string_lossy().to_string(), id],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO document_versions (
+              document_id, version_number, name, source_path, managed_path, created_at
+            )
+            VALUES (?1, 1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                id,
+                file_name,
+                source.to_string_lossy().to_string(),
+                managed_path.to_string_lossy().to_string(),
+                timestamp
+            ],
+        )?;
         self.touch_project(input.project_id)?;
         if let Some(activity_id) = input.activity_id {
             self.touch_activity(activity_id)?;
@@ -669,19 +1072,30 @@ impl Database {
         self.document_record(id)
     }
 
-    pub fn document_update_meta(&mut self, input: DocumentUpdateMetaInput) -> Result<DocumentRecord> {
+    pub fn document_update_meta(
+        &mut self,
+        input: DocumentUpdateMetaInput,
+    ) -> Result<DocumentRecord> {
+        let timestamp = now_iso();
         let current = self.document_record(input.document_id)?;
+        self.ensure_project_file_layout(current.project_id)?;
+        let next_activity_id = input.activity_id.unwrap_or(current.activity_id);
+        let next_base_name = match input.base_name.as_deref() {
+            Some(base_name) => self.normalize_document_base_name(base_name, &current.base_name)?,
+            None => current.base_name.clone(),
+        };
+
+        if next_activity_id != current.activity_id || next_base_name != current.base_name {
+            self.move_document_storage(&current, next_activity_id, &next_base_name)?;
+        }
+
         self.conn.execute(
-            "UPDATE documents SET role = ?1, is_starred = ?2, promoted_to_project = ?3, updated_at = ?4 WHERE id = ?5",
+            "UPDATE documents SET activity_id = ?1, base_name = ?2, is_starred = ?3, updated_at = ?4 WHERE id = ?5",
             params![
-                input.role.unwrap_or(current.role),
+                next_activity_id,
+                next_base_name,
                 bool_to_int(input.is_starred.unwrap_or(current.is_starred)),
-                bool_to_int(
-                    input
-                        .promoted_to_project
-                        .unwrap_or(current.promoted_to_project)
-                ),
-                now_iso(),
+                timestamp,
                 input.document_id
             ],
         )?;
@@ -689,11 +1103,17 @@ impl Database {
         if let Some(activity_id) = current.activity_id {
             self.touch_activity(activity_id)?;
         }
+        if let Some(activity_id) = next_activity_id {
+            if Some(activity_id) != current.activity_id {
+                self.touch_activity(activity_id)?;
+            }
+        }
         self.document_record(input.document_id)
     }
 
     pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
         let current = self.document_record(input.document_id)?;
+        self.ensure_project_file_layout(current.project_id)?;
         let new_source = PathBuf::from(&input.new_source_path);
         if !new_source.exists() {
             return Err(anyhow!("relocation source file does not exist"));
@@ -717,45 +1137,222 @@ impl Database {
                 input.document_id
             ],
         )?;
+        self.conn.execute(
+            r#"
+            UPDATE document_versions
+            SET source_path = ?1
+            WHERE document_id = ?2 AND version_number = ?3
+            "#,
+            params![
+                new_source.to_string_lossy().to_string(),
+                input.document_id,
+                current.current_version_number
+            ],
+        )?;
         self.touch_project(current.project_id)?;
         self.document_record(input.document_id)
     }
 
-    pub fn ai_generate_note_suggestions(&mut self, input: AiGenerateInput) -> Result<Vec<AiSuggestionRecord>> {
-        let (activity_title, source_text) = self.ai_source(input.project_id, input.activity_id, input.note_id)?;
+    pub fn document_list_versions(
+        &mut self,
+        input: DocumentListVersionsInput,
+    ) -> Result<Vec<DocumentVersionRecord>> {
+        let document = self.document_record(input.document_id)?;
+        self.ensure_project_file_layout(document.project_id)?;
+        self.fetch_document_versions(input.document_id)
+    }
+
+    pub fn document_add_version(
+        &mut self,
+        input: DocumentAddVersionInput,
+    ) -> Result<DocumentRecord> {
+        let timestamp = now_iso();
+        let current = self.document_record(input.document_id)?;
+        self.ensure_project_file_layout(current.project_id)?;
+        let source = PathBuf::from(&input.source_path);
+        if !source.exists() {
+            return Err(anyhow!("version source file does not exist"));
+        }
+
+        let current_path = PathBuf::from(&current.managed_path);
+        if !current_path.exists() {
+            return Err(anyhow!(
+                "current document file is missing; please relocate it before adding a version"
+            ));
+        }
+
+        let project = self.project_record(current.project_id)?;
+        let target_dir = self.document_target_dir(current.project_id, current.activity_id)?;
+        let history_dir = PathBuf::from(&current.history_dir_path);
+        let previous_version_name =
+            versioned_file_name(&current.base_name, current.current_version_number);
+        let previous_history_path = history_dir.join(&previous_version_name);
+        let next_version_number = current.current_version_number + 1;
+        let next_name = versioned_file_name(&current.base_name, next_version_number);
+        let next_path = target_dir.join(&next_name);
+
+        if source == current_path {
+            return Err(anyhow!(
+                "cannot add a version from the current managed file"
+            ));
+        }
+        if next_path.exists() && next_path != source {
+            return Err(anyhow!("target version file already exists"));
+        }
+
+        fs::create_dir_all(&history_dir)?;
+        fs::rename(&current_path, &previous_history_path).with_context(|| {
+            format!(
+                "failed to archive current version from {} to {}",
+                current_path.display(),
+                previous_history_path.display()
+            )
+        })?;
+
+        let storage_mode = match self.materialize_file_for_target(
+            Path::new(&project.root_path),
+            &source,
+            &next_path,
+        ) {
+            Ok(storage_mode) => storage_mode,
+            Err(error) => {
+                let _ = fs::rename(&previous_history_path, &current_path);
+                return Err(error);
+            }
+        };
+
+        self.conn.execute(
+            r#"
+            UPDATE documents
+            SET name = ?1,
+                original_path = ?2,
+                managed_path = ?3,
+                storage_mode = ?4,
+                current_version_number = ?5,
+                version_count = ?6,
+                updated_at = ?7
+            WHERE id = ?8
+            "#,
+            params![
+                next_name,
+                source.to_string_lossy().to_string(),
+                next_path.to_string_lossy().to_string(),
+                storage_mode,
+                next_version_number,
+                current.version_count + 1,
+                timestamp,
+                input.document_id
+            ],
+        )?;
+        self.conn.execute(
+            r#"
+            UPDATE document_versions
+            SET name = ?1, managed_path = ?2
+            WHERE document_id = ?3 AND version_number = ?4
+            "#,
+            params![
+                previous_version_name,
+                previous_history_path.to_string_lossy().to_string(),
+                input.document_id,
+                current.current_version_number
+            ],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO document_versions (
+              document_id, version_number, name, source_path, managed_path, created_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                input.document_id,
+                next_version_number,
+                next_name,
+                source.to_string_lossy().to_string(),
+                next_path.to_string_lossy().to_string(),
+                timestamp
+            ],
+        )?;
+
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.document_record(input.document_id)
+    }
+
+    pub fn ai_generate_note_suggestions(
+        &mut self,
+        input: AiGenerateInput,
+    ) -> Result<Vec<AiSuggestionRecord>> {
+        let (activity_title, source_text) =
+            self.ai_source(input.project_id, input.activity_id, input.note_id)?;
+        let profile = self.resolve_profile_for_capability("suggestion_generation")?;
         self.conn.execute(
             "DELETE FROM ai_suggestions WHERE project_id = ?1 AND activity_id = ?2 AND status = 'pending'",
             params![input.project_id, input.activity_id],
         )?;
 
-        let drafts = mock_ai::generate(&activity_title, &source_text);
+        let payload = ai_provider::generate_suggestions(&profile, &activity_title, &source_text)?;
         let timestamp = now_iso();
 
-        for draft in drafts {
-            self.conn.execute(
-                r#"
-                INSERT INTO ai_suggestions (
-                  project_id, activity_id, note_id, suggestion_type, title, preview, payload_json, status, created_at
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)
-                "#,
-                params![
-                    input.project_id,
-                    input.activity_id,
-                    input.note_id,
-                    draft.suggestion_type,
-                    draft.title,
-                    draft.preview,
-                    draft.payload.to_string(),
-                    timestamp
-                ],
+        if let Some(proposed_title) = payload
+            .activity_title
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty() && *value != activity_title.trim())
+        {
+            self.insert_ai_suggestion(
+                input.project_id,
+                Some(input.activity_id),
+                input.note_id,
+                "activity_title",
+                "活动标题建议",
+                proposed_title,
+                json!({ "proposedTitle": proposed_title }),
+                &timestamp,
+            )?;
+        }
+
+        for content in payload.conclusions.iter().take(3) {
+            self.insert_ai_suggestion(
+                input.project_id,
+                Some(input.activity_id),
+                input.note_id,
+                "conclusion",
+                "结论候选",
+                content,
+                json!({
+                    "content": content,
+                    "promotedToProject": true
+                }),
+                &timestamp,
+            )?;
+        }
+
+        for content in payload.todos.iter().take(3) {
+            self.insert_ai_suggestion(
+                input.project_id,
+                Some(input.activity_id),
+                input.note_id,
+                "todo",
+                "待办候选",
+                content,
+                json!({
+                    "content": content,
+                    "priority": "not_urgent_important"
+                }),
+                &timestamp,
             )?;
         }
 
         self.fetch_ai_suggestions(Some(input.activity_id))
     }
 
-    pub fn ai_accept_suggestion(&mut self, input: AiAcceptSuggestionInput) -> Result<AcceptedSuggestionResult> {
+    pub fn ai_accept_suggestion(
+        &mut self,
+        input: AiAcceptSuggestionInput,
+    ) -> Result<AcceptedSuggestionResult> {
         let suggestion = self.ai_suggestion_record(input.suggestion_id)?;
         let timestamp = now_iso();
 
@@ -771,6 +1368,9 @@ impl Database {
                 let activity_id = suggestion
                     .activity_id
                     .ok_or_else(|| anyhow!("title suggestion requires activity"))?;
+                self.ensure_project_file_layout(suggestion.project_id)?;
+                let current = self.activity_row(activity_id)?;
+                self.rename_activity_folder(activity_id, &current, proposed_title, &timestamp)?;
                 self.conn.execute(
                     "UPDATE activities SET title = ?1, updated_at = ?2 WHERE id = ?3",
                     params![proposed_title, timestamp, activity_id],
@@ -787,14 +1387,16 @@ impl Database {
                 self.conn.execute(
                     r#"
                     INSERT INTO conclusions (
-                      project_id, activity_id, note_id, content, promoted_to_project, created_at, updated_at
+                      project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                     "#,
                     params![
                         suggestion.project_id,
                         suggestion.activity_id,
                         suggestion.note_id,
+                        content,
+                        "",
                         content,
                         bool_to_int(
                             suggestion
@@ -811,34 +1413,27 @@ impl Database {
                 entity_id = self.conn.last_insert_rowid();
             }
             "todo" => {
-                let title = suggestion
+                let content = suggestion
                     .payload
-                    .get("title")
+                    .get("content")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("missing todo title"))?;
-                let description = suggestion
-                    .payload
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
+                    .ok_or_else(|| anyhow!("missing todo content"))?;
                 let priority = suggestion
                     .payload
                     .get("priority")
                     .and_then(Value::as_str)
-                    .unwrap_or("medium");
+                    .unwrap_or("not_urgent_important");
                 self.conn.execute(
                     r#"
                     INSERT INTO todos (
-                      project_id, activity_id, source_note_id, title, description, status, priority, created_at, updated_at
+                      project_id, activity_id, content, status, priority, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, 'todo', ?6, ?7, ?8)
+                    VALUES (?1, ?2, ?3, 'unfinished', ?4, ?5, ?6)
                     "#,
                     params![
                         suggestion.project_id,
                         suggestion.activity_id,
-                        suggestion.note_id,
-                        title,
-                        description,
+                        content,
                         priority,
                         timestamp,
                         timestamp
@@ -866,7 +1461,261 @@ impl Database {
         })
     }
 
-    pub fn workspace_search(&mut self, input: WorkspaceSearchInput) -> Result<Vec<WorkspaceSearchResult>> {
+    pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
+        let profiles = self.fetch_ai_profiles()?;
+        let bindings = self.fetch_ai_bindings()?;
+
+        Ok(AiSettingsSnapshot {
+            has_usable_default: self.resolve_profile_for_capability("default").is_ok(),
+            profiles,
+            bindings,
+            security_mode: "device_bound_encrypted".to_string(),
+        })
+    }
+
+    pub fn rich_text_style_get(&mut self) -> Result<RichTextStyleSettings> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = ?1",
+                params![APP_SETTING_KEY_RICH_TEXT_STYLE],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if let Some(value_json) = stored {
+            let settings: RichTextStyleSettings =
+                serde_json::from_str(&value_json).context("failed to parse rich text style")?;
+            validate_rich_text_style_settings(&settings)?;
+            return Ok(settings);
+        }
+
+        Ok(default_rich_text_style_settings())
+    }
+
+    pub fn rich_text_style_upsert(
+        &mut self,
+        input: RichTextStyleUpsertInput,
+    ) -> Result<RichTextStyleSettings> {
+        validate_rich_text_style_settings(&input)?;
+        let now = now_iso();
+        let value_json = serde_json::to_string(&input)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(key) DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            "#,
+            params![APP_SETTING_KEY_RICH_TEXT_STYLE, value_json, now],
+        )?;
+
+        self.rich_text_style_get()
+    }
+
+    pub fn ai_profile_upsert(
+        &mut self,
+        input: AiProviderProfileUpsertInput,
+    ) -> Result<AiProviderProfileRecord> {
+        validate_ai_profile_fields(
+            &input.name,
+            &input.provider_family,
+            &input.base_url,
+            &input.default_model,
+        )?;
+
+        let now = now_iso();
+        let encrypted = match input.api_key.as_deref().map(str::trim) {
+            Some("") | None => None,
+            Some(api_key) => Some(secret_crypto::encrypt_secret(api_key)?),
+        };
+
+        if let Some(profile_id) = input.id {
+            let current = self.ai_profile_storage(profile_id)?;
+            let encrypted = if let Some(encrypted) = encrypted {
+                encrypted
+            } else {
+                secret_crypto::EncryptedSecret {
+                    ciphertext_b64: current.api_key_ciphertext.clone(),
+                    nonce_b64: current.api_key_nonce.clone(),
+                    salt_b64: current.api_key_salt.clone(),
+                    last4: current.api_key_last4.clone(),
+                }
+            };
+
+            self.conn.execute(
+                r#"
+                UPDATE ai_provider_profiles
+                SET name = ?1,
+                    provider_family = ?2,
+                    base_url = ?3,
+                    api_key_ciphertext = ?4,
+                    api_key_nonce = ?5,
+                    api_key_salt = ?6,
+                    api_key_last4 = ?7,
+                    default_model = ?8,
+                    supports_text = ?9,
+                    supports_image = ?10,
+                    supports_file = ?11,
+                    enabled = ?12,
+                    updated_at = ?13
+                WHERE id = ?14
+                "#,
+                params![
+                    input.name.trim(),
+                    input.provider_family.trim(),
+                    normalize_base_url(&input.base_url),
+                    encrypted.ciphertext_b64,
+                    encrypted.nonce_b64,
+                    encrypted.salt_b64,
+                    encrypted.last4,
+                    input.default_model.trim(),
+                    bool_to_int(input.supports_text),
+                    bool_to_int(input.supports_image),
+                    bool_to_int(input.supports_file),
+                    bool_to_int(input.enabled),
+                    now,
+                    profile_id
+                ],
+            )?;
+
+            return self.ai_profile_record(profile_id);
+        }
+
+        let encrypted =
+            encrypted.ok_or_else(|| anyhow!("a new AI profile must include an API key"))?;
+        self.conn.execute(
+            r#"
+            INSERT INTO ai_provider_profiles (
+              name, provider_family, base_url, api_key_ciphertext, api_key_nonce, api_key_salt,
+              api_key_last4, default_model, supports_text, supports_image, supports_file, enabled,
+              created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            "#,
+            params![
+                input.name.trim(),
+                input.provider_family.trim(),
+                normalize_base_url(&input.base_url),
+                encrypted.ciphertext_b64,
+                encrypted.nonce_b64,
+                encrypted.salt_b64,
+                encrypted.last4,
+                input.default_model.trim(),
+                bool_to_int(input.supports_text),
+                bool_to_int(input.supports_image),
+                bool_to_int(input.supports_file),
+                bool_to_int(input.enabled),
+                now,
+                now
+            ],
+        )?;
+
+        self.ai_profile_record(self.conn.last_insert_rowid())
+    }
+
+    pub fn ai_profile_delete(
+        &mut self,
+        input: AiProviderProfileDeleteInput,
+    ) -> Result<AiSettingsSnapshot> {
+        let bindings = self.fetch_ai_bindings()?;
+        if let Some(binding) = bindings
+            .iter()
+            .find(|binding| binding.profile_id == Some(input.profile_id))
+        {
+            return Err(anyhow!(
+                "profile is still used by '{}' binding; update the binding first",
+                binding.capability
+            ));
+        }
+
+        self.conn.execute(
+            "DELETE FROM ai_provider_profiles WHERE id = ?1",
+            params![input.profile_id],
+        )?;
+        self.ai_settings_get()
+    }
+
+    pub fn ai_profile_test(&mut self, input: AiProfileTestInput) -> Result<AiProfileTestResult> {
+        validate_ai_profile_fields(
+            &input.name,
+            &input.provider_family,
+            &input.base_url,
+            &input.default_model,
+        )?;
+
+        let api_key = if let Some(api_key) = input.api_key.as_ref().map(|value| value.trim()) {
+            if api_key.is_empty() {
+                None
+            } else {
+                Some(api_key.to_string())
+            }
+        } else {
+            None
+        }
+        .or_else(|| {
+            input
+                .id
+                .and_then(|profile_id| self.decrypt_api_key_for_profile(profile_id).ok())
+        })
+        .ok_or_else(|| anyhow!("testing an AI profile requires an API key"))?;
+
+        let profile = ResolvedAiProfile {
+            provider_family: input.provider_family.trim().to_string(),
+            base_url: normalize_base_url(&input.base_url),
+            api_key,
+            model: input.default_model.trim().to_string(),
+            supports_text: input.supports_text,
+        };
+        let outcome = ai_provider::test_profile(&profile)?;
+
+        Ok(AiProfileTestResult {
+            success: true,
+            message: outcome.message,
+            latency_ms: Some(outcome.latency_ms),
+            resolved_model: outcome.resolved_model,
+        })
+    }
+
+    pub fn ai_binding_upsert(
+        &mut self,
+        input: AiCapabilityBindingUpsertInput,
+    ) -> Result<AiCapabilityBindingRecord> {
+        validate_ai_binding(&input)?;
+
+        if let Some(profile_id) = input.profile_id {
+            self.ai_profile_record(profile_id)?;
+        }
+
+        let now = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO ai_capability_bindings (capability, use_default, profile_id, model, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(capability) DO UPDATE SET
+              use_default = excluded.use_default,
+              profile_id = excluded.profile_id,
+              model = excluded.model,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                input.capability.trim(),
+                bool_to_int(input.use_default),
+                input.profile_id,
+                nullable_trimmed(input.model.as_deref()),
+                now
+            ],
+        )?;
+
+        self.ai_binding_record(input.capability.trim())
+    }
+
+    pub fn workspace_search(
+        &mut self,
+        input: WorkspaceSearchInput,
+    ) -> Result<Vec<WorkspaceSearchResult>> {
         let query = input.query.trim();
         if query.is_empty() {
             return Ok(Vec::new());
@@ -901,10 +1750,11 @@ impl Database {
 
         let activity_sql = format!(
             r#"
-            SELECT a.id, a.project_id, a.title, a.category, p.name
+            SELECT a.id, a.project_id, a.title, COALESCE(ao.label, ''), p.name
             FROM activities a
             INNER JOIN projects p ON p.id = a.project_id
-            WHERE (a.title LIKE ?1 OR a.category LIKE ?1) {}
+            LEFT JOIN activity_attribute_options ao ON ao.id = a.attribute_option_id
+            WHERE (a.title LIKE ?1 OR COALESCE(ao.label, '') LIKE ?1 OR a.category LIKE ?1) {}
             ORDER BY a.updated_at DESC
             LIMIT 5
             "#,
@@ -912,7 +1762,7 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&activity_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let category: String = row.get(3)?;
+            let attribute_label: String = row.get(3)?;
             let project_name: String = row.get(4)?;
             Ok(WorkspaceSearchResult {
                 kind: "activity".to_string(),
@@ -920,7 +1770,11 @@ impl Database {
                 project_id: row.get(1)?,
                 activity_id: row.get(0)?,
                 title: row.get(2)?,
-                subtitle: format!("{} · {}", project_name, category.to_uppercase()),
+                subtitle: if attribute_label.trim().is_empty() {
+                    project_name
+                } else {
+                    format!("{} · {}", project_name, attribute_label)
+                },
                 matched_text: query.to_string(),
             })
         })?;
@@ -928,11 +1782,16 @@ impl Database {
 
         let conclusion_sql = format!(
             r#"
-            SELECT c.id, c.project_id, c.activity_id, c.content, COALESCE(a.title, p.name)
+            SELECT
+              c.id,
+              c.project_id,
+              c.activity_id,
+              COALESCE(NULLIF(c.content_markdown, ''), c.content),
+              COALESCE(a.title, p.name)
             FROM conclusions c
             INNER JOIN projects p ON p.id = c.project_id
             LEFT JOIN activities a ON a.id = c.activity_id
-            WHERE c.content LIKE ?1 {}
+            WHERE COALESCE(NULLIF(c.content_markdown, ''), c.content) LIKE ?1 {}
             ORDER BY c.updated_at DESC
             LIMIT 5
             "#,
@@ -955,11 +1814,11 @@ impl Database {
 
         let todo_sql = format!(
             r#"
-            SELECT t.id, t.project_id, t.activity_id, t.title, COALESCE(t.description, ''), COALESCE(a.title, p.name)
+            SELECT t.id, t.project_id, t.activity_id, t.content, COALESCE(a.title, p.name)
             FROM todos t
             INNER JOIN projects p ON p.id = t.project_id
             LEFT JOIN activities a ON a.id = t.activity_id
-            WHERE (t.title LIKE ?1 OR COALESCE(t.description, '') LIKE ?1) {}
+            WHERE t.content LIKE ?1 {}
             ORDER BY t.updated_at DESC
             LIMIT 5
             "#,
@@ -967,19 +1826,14 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&todo_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let title: String = row.get(3)?;
-            let description: String = row.get(4)?;
+            let content: String = row.get(3)?;
             Ok(WorkspaceSearchResult {
                 kind: "todo".to_string(),
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 activity_id: row.get(2)?,
-                title,
-                subtitle: if description.is_empty() {
-                    row.get::<_, String>(5)?
-                } else {
-                    truncate_text(&description, 72)
-                },
+                title: truncate_text(&content, 72),
+                subtitle: row.get::<_, String>(4)?,
                 matched_text: query.to_string(),
             })
         })?;
@@ -1018,7 +1872,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, name, status, root_path, summary, is_archived, created_at, updated_at
+                SELECT id, name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
                 [project_id],
@@ -1028,34 +1882,38 @@ impl Database {
                         name: row.get(1)?,
                         status: row.get(2)?,
                         root_path: row.get(3)?,
-                        summary: row.get(4)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(5)?),
-                        created_at: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        file_layout_version: row.get(4)?,
+                        summary: row.get(5)?,
+                        is_archived: int_to_bool(row.get::<_, i64>(6)?),
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
                     })
                 },
             )
             .map_err(Into::into)
     }
 
-    fn activity_row(&self, activity_id: i64) -> Result<(i64, String, String, String, bool, bool, String)> {
+    fn activity_row(&self, activity_id: i64) -> Result<ActivityFsRecord> {
         self.conn
             .query_row(
                 r#"
-                SELECT project_id, category, title, activity_time, is_pinned, is_expanded, organize_status
+                SELECT
+                  project_id, attribute_option_id, title, activity_time, status_option_id,
+                  is_pinned, is_expanded, folder_name
                 FROM activities WHERE id = ?1
                 "#,
                 [activity_id],
                 |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        int_to_bool(row.get::<_, i64>(4)?),
-                        int_to_bool(row.get::<_, i64>(5)?),
-                        normalize_review_status(row.get::<_, String>(6)?),
-                    ))
+                    Ok(ActivityFsRecord {
+                        project_id: row.get(0)?,
+                        attribute_option_id: row.get(1)?,
+                        title: row.get(2)?,
+                        activity_time: row.get(3)?,
+                        status_option_id: row.get(4)?,
+                        is_pinned: int_to_bool(row.get::<_, i64>(5)?),
+                        is_expanded: int_to_bool(row.get::<_, i64>(6)?),
+                        folder_name: row.get(7)?,
+                    })
                 },
             )
             .map_err(Into::into)
@@ -1091,8 +1949,16 @@ impl Database {
             .query_row(
                 r#"
                 SELECT
-                  c.id, c.project_id, c.activity_id, c.note_id, c.content, c.promoted_to_project,
-                  a.title, c.created_at, c.updated_at
+                  c.id,
+                  c.project_id,
+                  c.activity_id,
+                  c.note_id,
+                  COALESCE(NULLIF(c.content_markdown, ''), c.content),
+                  c.content_html,
+                  c.promoted_to_project,
+                  a.title,
+                  c.created_at,
+                  c.updated_at
                 FROM conclusions c
                 LEFT JOIN activities a ON a.id = c.activity_id
                 WHERE c.id = ?1
@@ -1104,11 +1970,12 @@ impl Database {
                         project_id: row.get(1)?,
                         activity_id: row.get(2)?,
                         note_id: row.get(3)?,
-                        content: row.get(4)?,
-                        promoted_to_project: int_to_bool(row.get::<_, i64>(5)?),
-                        source_activity_title: row.get(6)?,
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
+                        content_markdown: row.get(4)?,
+                        content_html: row.get(5)?,
+                        promoted_to_project: int_to_bool(row.get::<_, i64>(6)?),
+                        source_activity_title: row.get(7)?,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
                     })
                 },
             )
@@ -1119,7 +1986,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, todo_id, content, status_snapshot, created_at
+                SELECT id, todo_id, content, progress_date, created_at
                 FROM todo_progresses WHERE id = ?1
                 "#,
                 [progress_id],
@@ -1128,7 +1995,7 @@ impl Database {
                         id: row.get(0)?,
                         todo_id: row.get(1)?,
                         content: row.get(2)?,
-                        status_snapshot: row.get(3)?,
+                        progress_date: row.get(3)?,
                         created_at: row.get(4)?,
                     })
                 },
@@ -1140,10 +2007,8 @@ impl Database {
         let base = self.conn.query_row(
             r#"
             SELECT
-              t.id, t.project_id, t.activity_id, t.source_note_id, t.title, t.description, t.status,
-              t.priority, t.due_date, t.created_at, t.updated_at, a.title
+              t.id, t.project_id, t.activity_id, t.content, t.status, t.priority, t.created_at, t.updated_at
             FROM todos t
-            LEFT JOIN activities a ON a.id = t.activity_id
             WHERE t.id = ?1
             "#,
             [todo_id],
@@ -1152,15 +2017,11 @@ impl Database {
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, String>(10)?,
-                    row.get::<_, Option<String>>(11)?,
                 ))
             },
         )?;
@@ -1169,15 +2030,11 @@ impl Database {
             id: base.0,
             project_id: base.1,
             activity_id: base.2,
-            source_note_id: base.3,
-            title: base.4,
-            description: base.5,
-            status: base.6,
-            priority: base.7,
-            due_date: base.8,
-            created_at: base.9,
-            updated_at: base.10,
-            source_activity_title: base.11,
+            content: base.3,
+            status: base.4,
+            priority: base.5,
+            created_at: base.6,
+            updated_at: base.7,
             progresses,
         })
     }
@@ -1187,8 +2044,9 @@ impl Database {
             .query_row(
                 r#"
                 SELECT
-                  d.id, d.project_id, d.activity_id, d.name, d.original_path, d.managed_path, d.storage_mode,
-                  d.mime_type, d.role, d.is_starred, d.promoted_to_project, d.health, a.title, d.created_at, d.updated_at
+                  d.id, d.project_id, d.activity_id, d.name, d.base_name, d.original_path, d.managed_path,
+                  d.history_dir_path, d.storage_mode, d.mime_type, d.is_starred, d.current_version_number,
+                  d.version_count, d.health, a.title, d.created_at, d.updated_at
                 FROM documents d
                 LEFT JOIN activities a ON a.id = d.activity_id
                 WHERE d.id = ?1
@@ -1200,17 +2058,19 @@ impl Database {
                         project_id: row.get(1)?,
                         activity_id: row.get(2)?,
                         name: row.get(3)?,
-                        original_path: row.get(4)?,
-                        managed_path: row.get(5)?,
-                        storage_mode: row.get(6)?,
-                        mime_type: row.get(7)?,
-                        role: row.get(8)?,
-                        is_starred: int_to_bool(row.get::<_, i64>(9)?),
-                        promoted_to_project: int_to_bool(row.get::<_, i64>(10)?),
-                        health: row.get(11)?,
-                        source_activity_title: row.get(12)?,
-                        created_at: row.get(13)?,
-                        updated_at: row.get(14)?,
+                        base_name: row.get(4)?,
+                        original_path: row.get(5)?,
+                        managed_path: row.get(6)?,
+                        history_dir_path: row.get(7)?,
+                        storage_mode: row.get(8)?,
+                        mime_type: row.get(9)?,
+                        is_starred: int_to_bool(row.get::<_, i64>(10)?),
+                        current_version_number: row.get(11)?,
+                        version_count: row.get(12)?,
+                        health: row.get(13)?,
+                        source_activity_title: row.get(14)?,
+                        created_at: row.get(15)?,
+                        updated_at: row.get(16)?,
                     })
                 },
             )
@@ -1247,9 +2107,203 @@ impl Database {
             .map_err(Into::into)
     }
 
+    fn ai_profile_storage(&self, profile_id: i64) -> Result<AiProfileStorage> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                  id, name, provider_family, base_url, api_key_ciphertext, api_key_nonce,
+                  api_key_salt, api_key_last4, default_model, supports_text, supports_image,
+                  supports_file, enabled, created_at, updated_at
+                FROM ai_provider_profiles
+                WHERE id = ?1
+                "#,
+                [profile_id],
+                |row| {
+                    Ok(AiProfileStorage {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        provider_family: row.get(2)?,
+                        base_url: row.get(3)?,
+                        api_key_ciphertext: row.get(4)?,
+                        api_key_nonce: row.get(5)?,
+                        api_key_salt: row.get(6)?,
+                        api_key_last4: row.get(7)?,
+                        default_model: row.get(8)?,
+                        supports_text: int_to_bool(row.get::<_, i64>(9)?),
+                        supports_image: int_to_bool(row.get::<_, i64>(10)?),
+                        supports_file: int_to_bool(row.get::<_, i64>(11)?),
+                        enabled: int_to_bool(row.get::<_, i64>(12)?),
+                        created_at: row.get(13)?,
+                        updated_at: row.get(14)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
+    fn ai_profile_record(&self, profile_id: i64) -> Result<AiProviderProfileRecord> {
+        let profile = self.ai_profile_storage(profile_id)?;
+        Ok(AiProviderProfileRecord {
+            id: profile.id,
+            name: profile.name,
+            provider_family: profile.provider_family,
+            base_url: profile.base_url,
+            api_key_last4: profile.api_key_last4,
+            has_stored_key: true,
+            default_model: profile.default_model,
+            supports_text: profile.supports_text,
+            supports_image: profile.supports_image,
+            supports_file: profile.supports_file,
+            enabled: profile.enabled,
+            created_at: profile.created_at,
+            updated_at: profile.updated_at,
+        })
+    }
+
+    fn fetch_ai_profiles(&self) -> Result<Vec<AiProviderProfileRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM ai_provider_profiles ORDER BY enabled DESC, updated_at DESC",
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|profile_id| self.ai_profile_record(profile_id))
+            .collect()
+    }
+
+    fn ai_binding_record(&self, capability: &str) -> Result<AiCapabilityBindingRecord> {
+        let binding = self
+            .conn
+            .query_row(
+                r#"
+                SELECT capability, use_default, profile_id, model, updated_at
+                FROM ai_capability_bindings
+                WHERE capability = ?1
+                "#,
+                [capability],
+                |row| {
+                    Ok(AiCapabilityBindingRecord {
+                        capability: row.get(0)?,
+                        use_default: int_to_bool(row.get::<_, i64>(1)?),
+                        profile_id: row.get(2)?,
+                        model: row.get(3)?,
+                        updated_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(binding.unwrap_or_else(|| AiCapabilityBindingRecord {
+            capability: capability.to_string(),
+            use_default: capability != "default",
+            profile_id: None,
+            model: None,
+            updated_at: String::new(),
+        }))
+    }
+
+    fn fetch_ai_bindings(&self) -> Result<Vec<AiCapabilityBindingRecord>> {
+        AI_CAPABILITIES
+            .iter()
+            .map(|capability| self.ai_binding_record(capability))
+            .collect()
+    }
+
+    fn decrypt_api_key_for_profile(&self, profile_id: i64) -> Result<String> {
+        let profile = self.ai_profile_storage(profile_id)?;
+        secret_crypto::decrypt_secret(
+            &profile.api_key_ciphertext,
+            &profile.api_key_nonce,
+            &profile.api_key_salt,
+        )
+    }
+
+    fn resolve_profile_for_capability(&self, capability: &str) -> Result<ResolvedAiProfile> {
+        let default_binding = self.ai_binding_record("default")?;
+        let binding = if capability == "default" {
+            default_binding.clone()
+        } else {
+            self.ai_binding_record(capability)?
+        };
+
+        let effective_binding = if capability != "default" && binding.use_default {
+            default_binding
+        } else {
+            binding
+        };
+
+        let profile_id = effective_binding
+            .profile_id
+            .ok_or_else(|| anyhow!("AI capability '{}' is not configured yet", capability))?;
+        let profile = self.ai_profile_storage(profile_id)?;
+        if !profile.enabled {
+            return Err(anyhow!(
+                "AI capability '{}' points to a disabled profile",
+                capability
+            ));
+        }
+
+        let api_key = self.decrypt_api_key_for_profile(profile_id)?;
+        let model = effective_binding
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(profile.default_model.trim());
+
+        if model.is_empty() {
+            return Err(anyhow!(
+                "AI capability '{}' does not have a model configured",
+                capability
+            ));
+        }
+
+        Ok(ResolvedAiProfile {
+            provider_family: profile.provider_family,
+            base_url: profile.base_url,
+            api_key,
+            model: model.to_string(),
+            supports_text: profile.supports_text,
+        })
+    }
+
+    fn insert_ai_suggestion(
+        &self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        note_id: Option<i64>,
+        suggestion_type: &str,
+        title: &str,
+        preview: &str,
+        payload: Value,
+        created_at: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO ai_suggestions (
+              project_id, activity_id, note_id, suggestion_type, title, preview, payload_json, status, created_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)
+            "#,
+            params![
+                project_id,
+                activity_id,
+                note_id,
+                suggestion_type,
+                title,
+                preview,
+                payload.to_string(),
+                created_at
+            ],
+        )?;
+        Ok(())
+    }
+
     fn fetch_notes(&self, activity_id: i64) -> Result<Vec<NoteRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE activity_id = ?1 ORDER BY created_at DESC",
+            "SELECT id FROM notes WHERE activity_id = ?1 ORDER BY updated_at DESC, created_at DESC",
         )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
@@ -1264,13 +2318,15 @@ impl Database {
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.conclusion_record(id)).collect()
+        ids.into_iter()
+            .map(|id| self.conclusion_record(id))
+            .collect()
     }
 
     fn fetch_todos_for_activity(&self, activity_id: i64) -> Result<Vec<TodoRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM todos WHERE activity_id = ?1 ORDER BY updated_at DESC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM todos WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1279,25 +2335,31 @@ impl Database {
 
     fn fetch_todo_progresses(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY created_at DESC",
+            "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY progress_date DESC, created_at DESC",
         )?;
         let ids = stmt
             .query_map([todo_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.todo_progress_record(id)).collect()
+        ids.into_iter()
+            .map(|id| self.todo_progress_record(id))
+            .collect()
     }
 
     fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM documents WHERE activity_id = ?1 ORDER BY updated_at DESC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM documents WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
-    fn fetch_documents_for_project(&self, project_id: i64, starred_only: bool) -> Result<Vec<DocumentRecord>> {
+    fn fetch_documents_for_project(
+        &self,
+        project_id: i64,
+        starred_only: bool,
+    ) -> Result<Vec<DocumentRecord>> {
         let query = if starred_only {
             "SELECT id FROM documents WHERE project_id = ?1 AND is_starred = 1 ORDER BY updated_at DESC"
         } else {
@@ -1310,13 +2372,13 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
-    fn fetch_key_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
+    fn fetch_project_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
             FROM documents
             WHERE project_id = ?1
-              AND (activity_id IS NULL OR promoted_to_project = 1)
+              AND (activity_id IS NULL OR is_starred = 1)
             ORDER BY updated_at DESC
             LIMIT 18
             "#,
@@ -1327,11 +2389,47 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
+    fn document_version_record(&self, version_id: i64) -> Result<DocumentVersionRecord> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT id, document_id, version_number, name, source_path, managed_path, created_at
+                FROM document_versions
+                WHERE id = ?1
+                "#,
+                [version_id],
+                |row| {
+                    Ok(DocumentVersionRecord {
+                        id: row.get(0)?,
+                        document_id: row.get(1)?,
+                        version_number: row.get(2)?,
+                        name: row.get(3)?,
+                        source_path: row.get(4)?,
+                        managed_path: row.get(5)?,
+                        created_at: row.get(6)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
+    fn fetch_document_versions(&self, document_id: i64) -> Result<Vec<DocumentVersionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM document_versions WHERE document_id = ?1 ORDER BY version_number DESC",
+        )?;
+        let ids = stmt
+            .query_map([document_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|version_id| self.document_version_record(version_id))
+            .collect()
+    }
+
     fn fetch_project_todos(&self, project_id: i64, finished: bool) -> Result<Vec<TodoRecord>> {
         let query = if finished {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status IN ('done', 'cancelled') ORDER BY updated_at DESC"
+            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'finished' ORDER BY updated_at DESC"
         } else {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status IN ('todo', 'doing', 'blocked') ORDER BY updated_at DESC"
+            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY updated_at DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -1350,7 +2448,726 @@ impl Database {
                 .query_map([activity_id], |row| row.get::<_, i64>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
         }
-        ids.into_iter().map(|id| self.ai_suggestion_record(id)).collect()
+        ids.into_iter()
+            .map(|id| self.ai_suggestion_record(id))
+            .collect()
+    }
+
+    fn backfill_file_layout_metadata(&self) -> Result<()> {
+        self.conn.execute(
+            "UPDATE projects SET file_layout_version = ?1 WHERE file_layout_version < 1",
+            params![LEGACY_FILE_LAYOUT_VERSION],
+        )?;
+        self.conn.execute(
+            "UPDATE documents SET base_name = name WHERE base_name = ''",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE documents SET current_version_number = 1 WHERE current_version_number < 1",
+            [],
+        )?;
+        self.conn.execute(
+            r#"
+            UPDATE documents
+            SET version_count = CASE
+              WHEN version_count < current_version_number THEN current_version_number
+              WHEN version_count < 1 THEN 1
+              ELSE version_count
+            END
+            "#,
+            [],
+        )?;
+        Ok(())
+    }
+
+    fn ensure_project_file_layout(&mut self, project_id: i64) -> Result<()> {
+        let project = self.project_record(project_id)?;
+        if project.file_layout_version >= CURRENT_FILE_LAYOUT_VERSION {
+            return Ok(());
+        }
+        self.migrate_project_file_layout(&project)
+    }
+
+    fn migrate_project_file_layout(&mut self, project: &ProjectRecord) -> Result<()> {
+        let project_root = PathBuf::from(&project.root_path);
+        let legacy_documents_dir = project_root.join("documents");
+        fs::create_dir_all(&project_root)?;
+
+        let mut activity_stmt = self
+            .conn
+            .prepare("SELECT id, title FROM activities WHERE project_id = ?1 ORDER BY id ASC")?;
+        let activities = activity_stmt
+            .query_map([project.id], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(activity_stmt);
+
+        let mut seen_folders = HashSet::new();
+        let mut activity_folders = Vec::new();
+        for (activity_id, title) in activities {
+            let folder_name = self.default_activity_folder_name(&title, activity_id);
+            if !seen_folders.insert(folder_name.clone()) {
+                return Err(anyhow!(
+                    "legacy project migration failed because multiple activities map to the same folder name: {}",
+                    folder_name
+                ));
+            }
+
+            let activity_dir = project_root.join(&folder_name);
+            if activity_dir.exists() {
+                return Err(anyhow!(
+                    "legacy project migration failed because target activity folder already exists: {}",
+                    activity_dir.display()
+                ));
+            }
+
+            activity_folders.push((activity_id, folder_name, activity_dir));
+        }
+
+        let mut document_stmt = self
+            .conn
+            .prepare("SELECT id FROM documents WHERE project_id = ?1 ORDER BY id ASC")?;
+        let document_ids = document_stmt
+            .query_map([project.id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(document_stmt);
+        let documents = document_ids
+            .into_iter()
+            .map(|document_id| self.document_record(document_id))
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut planned_targets = HashSet::new();
+        let mut document_updates = Vec::new();
+        for document in &documents {
+            let target_dir = if let Some(activity_id) = document.activity_id {
+                let (_, _, activity_dir) = activity_folders
+                    .iter()
+                    .find(|(candidate_id, _, _)| *candidate_id == activity_id)
+                    .ok_or_else(|| {
+                        anyhow!("activity for document {} was not found", document.id)
+                    })?;
+                activity_dir.clone()
+            } else {
+                project_root.clone()
+            };
+            let target_path = target_dir.join(&document.name);
+            let current_path = PathBuf::from(&document.managed_path);
+            if target_path.exists() && target_path != current_path {
+                return Err(anyhow!(
+                    "legacy project migration failed because target file already exists: {}",
+                    target_path.display()
+                ));
+            }
+            let target_key = target_path.to_string_lossy().to_string();
+            if !planned_targets.insert(target_key.clone()) {
+                return Err(anyhow!(
+                    "legacy project migration failed because multiple documents would resolve to {}",
+                    target_key
+                ));
+            }
+
+            document_updates.push((
+                document.clone(),
+                target_path.clone(),
+                self.history_dir_path_for(&target_path, document.id),
+            ));
+        }
+
+        let mut created_dirs = Vec::new();
+        for (_, _, activity_dir) in &activity_folders {
+            fs::create_dir_all(activity_dir)?;
+            created_dirs.push(activity_dir.clone());
+        }
+
+        let mut moved_files = Vec::new();
+        for (document, target_path, _) in &document_updates {
+            let current_path = PathBuf::from(&document.managed_path);
+            if current_path.exists() && current_path != *target_path {
+                if let Some(parent) = target_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                if let Err(error) = fs::rename(&current_path, target_path) {
+                    for (from, to) in moved_files.iter().rev() {
+                        let _ = fs::rename(to, from);
+                    }
+                    for created_dir in created_dirs.iter().rev() {
+                        let _ = fs::remove_dir(created_dir);
+                    }
+                    return Err(anyhow!(
+                        "legacy project migration failed while moving {} to {}: {}",
+                        current_path.display(),
+                        target_path.display(),
+                        error
+                    ));
+                }
+                moved_files.push((current_path, target_path.clone()));
+            }
+        }
+
+        let timestamp = now_iso();
+        let tx = self.conn.transaction()?;
+        for (activity_id, folder_name, _) in &activity_folders {
+            tx.execute(
+                "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
+                params![folder_name, activity_id],
+            )?;
+        }
+        for (document, target_path, history_dir) in &document_updates {
+            tx.execute(
+                r#"
+                UPDATE documents
+                SET name = ?1,
+                    base_name = ?2,
+                    managed_path = ?3,
+                    history_dir_path = ?4,
+                    current_version_number = 1,
+                    version_count = 1
+                WHERE id = ?5
+                "#,
+                params![
+                    document.name,
+                    document.name,
+                    target_path.to_string_lossy().to_string(),
+                    history_dir.to_string_lossy().to_string(),
+                    document.id
+                ],
+            )?;
+            tx.execute(
+                "DELETE FROM document_versions WHERE document_id = ?1",
+                params![document.id],
+            )?;
+            tx.execute(
+                r#"
+                INSERT INTO document_versions (
+                  document_id, version_number, name, source_path, managed_path, created_at
+                )
+                VALUES (?1, 1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    document.id,
+                    document.name,
+                    document.original_path,
+                    target_path.to_string_lossy().to_string(),
+                    document.created_at
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE projects SET file_layout_version = ?1, updated_at = ?2 WHERE id = ?3",
+            params![CURRENT_FILE_LAYOUT_VERSION, timestamp, project.id],
+        )?;
+        if let Err(error) = tx.commit() {
+            for (from, to) in moved_files.iter().rev() {
+                let _ = fs::rename(to, from);
+            }
+            for created_dir in created_dirs.iter().rev() {
+                let _ = fs::remove_dir(created_dir);
+            }
+            return Err(error.into());
+        }
+
+        if legacy_documents_dir.exists() {
+            let _ = fs::remove_dir(&legacy_documents_dir);
+        }
+
+        Ok(())
+    }
+
+    fn default_activity_folder_name(&self, title: &str, activity_id: i64) -> String {
+        let raw = if title.trim().is_empty() {
+            format!("未命名 Activity {}", activity_id)
+        } else {
+            title.trim().to_string()
+        };
+
+        let sanitized = raw
+            .chars()
+            .map(|ch| match ch {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                _ => ch,
+            })
+            .collect::<String>()
+            .trim()
+            .to_string();
+
+        if sanitized.is_empty() {
+            format!("未命名 Activity {}", activity_id)
+        } else {
+            sanitized
+        }
+    }
+
+    fn create_activity_directory(&self, project_root: &str, folder_name: &str) -> Result<PathBuf> {
+        let activity_dir = PathBuf::from(project_root).join(folder_name);
+        if activity_dir.exists() {
+            return Err(anyhow!(
+                "activity folder rename failed: target folder already exists at {}",
+                activity_dir.display()
+            ));
+        }
+        fs::create_dir_all(&activity_dir)?;
+        Ok(activity_dir)
+    }
+
+    fn document_target_dir(
+        &mut self,
+        project_id: i64,
+        activity_id: Option<i64>,
+    ) -> Result<PathBuf> {
+        let project = self.project_record(project_id)?;
+        let project_root = PathBuf::from(&project.root_path);
+        fs::create_dir_all(&project_root)?;
+
+        if let Some(activity_id) = activity_id {
+            let activity = self.activity_row(activity_id)?;
+            if activity.project_id != project_id {
+                return Err(anyhow!("activity does not belong to the selected project"));
+            }
+            let folder_name = if activity.folder_name.trim().is_empty() {
+                let computed = self.default_activity_folder_name(&activity.title, activity_id);
+                self.conn.execute(
+                    "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
+                    params![computed, activity_id],
+                )?;
+                computed
+            } else {
+                activity.folder_name
+            };
+            let activity_dir = project_root.join(folder_name);
+            fs::create_dir_all(&activity_dir)?;
+            Ok(activity_dir)
+        } else {
+            Ok(project_root)
+        }
+    }
+
+    fn ensure_document_name_available(
+        &self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        base_name: &str,
+        exclude_document_id: Option<i64>,
+    ) -> Result<()> {
+        let duplicate = self
+            .conn
+            .query_row(
+                r#"
+                SELECT id
+                FROM documents
+                WHERE project_id = ?1
+                  AND ((activity_id IS NULL AND ?2 IS NULL) OR activity_id = ?2)
+                  AND base_name = ?3
+                  AND id != ?4
+                LIMIT 1
+                "#,
+                params![
+                    project_id,
+                    activity_id,
+                    base_name,
+                    exclude_document_id.unwrap_or(-1)
+                ],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        if duplicate.is_some() {
+            return Err(anyhow!(
+                "a file named '{}' already exists in the target location; rename it or add a new version instead",
+                base_name
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn normalize_document_base_name(&self, raw: &str, current_base_name: &str) -> Result<String> {
+        let sanitized = raw
+            .chars()
+            .map(|ch| match ch {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                _ => ch,
+            })
+            .collect::<String>()
+            .trim()
+            .trim_matches('.')
+            .to_string();
+
+        if sanitized.is_empty() {
+            return Err(anyhow!("file name cannot be empty"));
+        }
+
+        let stem = Path::new(&sanitized)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if stem.is_empty() {
+            return Err(anyhow!("file name cannot be empty"));
+        }
+
+        let has_extension = Path::new(&sanitized)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        if has_extension {
+            return Ok(sanitized);
+        }
+
+        let current_extension = Path::new(current_base_name)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        Ok(match current_extension {
+            Some(extension) => format!("{sanitized}.{extension}"),
+            None => sanitized,
+        })
+    }
+
+    fn materialize_file_for_target(
+        &self,
+        project_root: &Path,
+        source: &Path,
+        target_path: &Path,
+    ) -> Result<String> {
+        if source == target_path {
+            return Ok("managed_existing".to_string());
+        }
+
+        if target_path.exists() {
+            return Err(anyhow!(
+                "target file already exists at {}",
+                target_path.display()
+            ));
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        if path_is_within(source, project_root) {
+            fs::rename(source, target_path).with_context(|| {
+                format!(
+                    "failed to move file from {} to {}",
+                    source.display(),
+                    target_path.display()
+                )
+            })?;
+            Ok("managed_move".to_string())
+        } else {
+            fs::copy(source, target_path).with_context(|| {
+                format!(
+                    "failed to copy file from {} to {}",
+                    source.display(),
+                    target_path.display()
+                )
+            })?;
+            Ok("managed_copy".to_string())
+        }
+    }
+
+    fn history_dir_path_for(&self, managed_path: &Path, document_id: i64) -> PathBuf {
+        managed_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(format!(".{}.pm-versions", document_id))
+    }
+
+    fn move_document_storage(
+        &mut self,
+        document: &DocumentRecord,
+        next_activity_id: Option<i64>,
+        next_base_name: &str,
+    ) -> Result<()> {
+        struct VersionStoragePlan {
+            version_id: i64,
+            source_path: PathBuf,
+            temp_path: Option<PathBuf>,
+            final_name: String,
+            final_path: PathBuf,
+        }
+
+        let target_dir = self.document_target_dir(document.project_id, next_activity_id)?;
+        self.ensure_document_name_available(
+            document.project_id,
+            next_activity_id,
+            next_base_name,
+            Some(document.id),
+        )?;
+
+        let history_dir = PathBuf::from(&document.history_dir_path);
+        let next_current_name =
+            versioned_file_name(next_base_name, document.current_version_number);
+        let next_current_path = target_dir.join(&next_current_name);
+        let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
+        let versions = self.fetch_document_versions(document.id)?;
+        let known_paths = versions
+            .iter()
+            .map(|version| PathBuf::from(&version.managed_path))
+            .collect::<HashSet<_>>();
+
+        if next_history_dir.exists() && next_history_dir != history_dir {
+            return Err(anyhow!(
+                "target history folder already exists at {}",
+                next_history_dir.display()
+            ));
+        }
+
+        if let Some(parent) = next_current_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let needs_history_dir = versions
+            .iter()
+            .any(|version| version.version_number != document.current_version_number);
+        if needs_history_dir {
+            fs::create_dir_all(&next_history_dir)?;
+        }
+
+        let mut plans = Vec::with_capacity(versions.len());
+        for version in versions {
+            let source_path = PathBuf::from(&version.managed_path);
+            let final_name = versioned_file_name(next_base_name, version.version_number);
+            let final_path = if version.version_number == document.current_version_number {
+                next_current_path.clone()
+            } else {
+                next_history_dir.join(&final_name)
+            };
+
+            if final_path.exists() && !known_paths.contains(&final_path) {
+                return Err(anyhow!(
+                    "target file already exists at {}",
+                    final_path.display()
+                ));
+            }
+
+            let temp_path = if source_path.exists() && source_path != final_path {
+                let temp_name =
+                    format!(".{}.pm-rename-{}.tmp", document.id, version.version_number);
+                let candidate = source_path.with_file_name(temp_name);
+                if candidate.exists() {
+                    return Err(anyhow!(
+                        "temporary rename path already exists at {}",
+                        candidate.display()
+                    ));
+                }
+                Some(candidate)
+            } else {
+                None
+            };
+
+            plans.push(VersionStoragePlan {
+                version_id: version.id,
+                source_path,
+                temp_path,
+                final_name,
+                final_path,
+            });
+        }
+
+        let rollback_file_moves = |plans: &[VersionStoragePlan], finalized_count: usize| {
+            for plan in plans.iter().take(finalized_count).rev() {
+                if plan.final_path.exists() && plan.final_path != plan.source_path {
+                    let _ = fs::rename(&plan.final_path, &plan.source_path);
+                }
+            }
+            for plan in plans.iter().skip(finalized_count) {
+                if let Some(temp_path) = &plan.temp_path {
+                    if temp_path.exists() {
+                        let _ = fs::rename(temp_path, &plan.source_path);
+                    }
+                }
+            }
+        };
+
+        for plan in &plans {
+            if let Some(temp_path) = &plan.temp_path {
+                fs::rename(&plan.source_path, temp_path).with_context(|| {
+                    format!(
+                        "failed to prepare file rename from {} to {}",
+                        plan.source_path.display(),
+                        temp_path.display()
+                    )
+                })?;
+            }
+        }
+
+        let mut finalized_count = 0usize;
+        for plan in &plans {
+            if let Some(temp_path) = &plan.temp_path {
+                if let Some(parent) = plan.final_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                if let Err(error) = fs::rename(temp_path, &plan.final_path).with_context(|| {
+                    format!(
+                        "failed to move renamed file from {} to {}",
+                        temp_path.display(),
+                        plan.final_path.display()
+                    )
+                }) {
+                    rollback_file_moves(&plans, finalized_count);
+                    return Err(error);
+                }
+                finalized_count += 1;
+            }
+        }
+
+        let tx = match self.conn.transaction() {
+            Ok(tx) => tx,
+            Err(error) => {
+                rollback_file_moves(&plans, finalized_count);
+                return Err(error.into());
+            }
+        };
+
+        let update_result: Result<()> = (|| {
+            tx.execute(
+                "UPDATE documents SET name = ?1, managed_path = ?2, history_dir_path = ?3 WHERE id = ?4",
+                params![
+                    next_current_name,
+                    next_current_path.to_string_lossy().to_string(),
+                    next_history_dir.to_string_lossy().to_string(),
+                    document.id
+                ],
+            )?;
+
+            for plan in &plans {
+                tx.execute(
+                    "UPDATE document_versions SET name = ?1, managed_path = ?2 WHERE id = ?3",
+                    params![
+                        plan.final_name,
+                        plan.final_path.to_string_lossy().to_string(),
+                        plan.version_id
+                    ],
+                )?;
+            }
+
+            tx.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = update_result {
+            rollback_file_moves(&plans, finalized_count);
+            return Err(error);
+        }
+
+        if history_dir != next_history_dir && history_dir.exists() {
+            let _ = fs::remove_dir(&history_dir);
+        }
+
+        Ok(())
+    }
+
+    fn rename_activity_folder(
+        &mut self,
+        activity_id: i64,
+        current: &ActivityFsRecord,
+        next_title: &str,
+        _timestamp: &str,
+    ) -> Result<()> {
+        let project = self.project_record(current.project_id)?;
+        let project_root = PathBuf::from(&project.root_path);
+        let current_folder = if current.folder_name.trim().is_empty() {
+            self.default_activity_folder_name(&current.title, activity_id)
+        } else {
+            current.folder_name.clone()
+        };
+        let next_folder = self.default_activity_folder_name(next_title, activity_id);
+
+        if current_folder == next_folder {
+            if current.folder_name != next_folder {
+                self.conn.execute(
+                    "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
+                    params![next_folder, activity_id],
+                )?;
+            }
+            return Ok(());
+        }
+
+        let current_dir = project_root.join(&current_folder);
+        let next_dir = project_root.join(&next_folder);
+        if next_dir.exists() {
+            return Err(anyhow!("文件夹名称已被占用，activity 名称未保存"));
+        }
+
+        let documents = self.fetch_documents(activity_id)?;
+        let mut document_versions = Vec::new();
+        let mut next_document_paths = Vec::new();
+        for document in &documents {
+            document_versions.push((document.id, self.fetch_document_versions(document.id)?));
+            let next_current_path = next_dir.join(&document.name);
+            let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
+            next_document_paths.push((document.id, next_current_path, next_history_dir));
+        }
+
+        let renamed_existing_dir = current_dir.exists();
+        if renamed_existing_dir {
+            fs::rename(&current_dir, &next_dir).with_context(|| {
+                format!(
+                    "failed to rename activity folder from {} to {}",
+                    current_dir.display(),
+                    next_dir.display()
+                )
+            })?;
+        } else {
+            fs::create_dir_all(&next_dir)?;
+        }
+
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
+            params![next_folder, activity_id],
+        )?;
+        for document in &documents {
+            let (_, next_current_path, next_history_dir) = next_document_paths
+                .iter()
+                .find(|(document_id, _, _)| *document_id == document.id)
+                .cloned()
+                .ok_or_else(|| anyhow!("missing path update for document {}", document.id))?;
+            tx.execute(
+                "UPDATE documents SET managed_path = ?1, history_dir_path = ?2 WHERE id = ?3",
+                params![
+                    next_current_path.to_string_lossy().to_string(),
+                    next_history_dir.to_string_lossy().to_string(),
+                    document.id
+                ],
+            )?;
+            let versions = document_versions
+                .iter()
+                .find(|(document_id, _)| *document_id == document.id)
+                .map(|(_, versions)| versions.clone())
+                .unwrap_or_default();
+            for version in versions {
+                let file_name = Path::new(&version.managed_path)
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| version.name.clone());
+                let next_version_path = if version.version_number == document.current_version_number
+                {
+                    next_dir.join(file_name)
+                } else {
+                    next_history_dir.join(file_name)
+                };
+                tx.execute(
+                    "UPDATE document_versions SET managed_path = ?1 WHERE id = ?2",
+                    params![next_version_path.to_string_lossy().to_string(), version.id],
+                )?;
+            }
+        }
+
+        if let Err(error) = tx.commit() {
+            if renamed_existing_dir {
+                let _ = fs::rename(&next_dir, &current_dir);
+            } else {
+                let _ = fs::remove_dir(&next_dir);
+            }
+            return Err(error.into());
+        }
+
+        Ok(())
     }
 
     fn fetch_conclusion_groups(&self, project_id: i64) -> Result<Vec<ConclusionGroup>> {
@@ -1415,15 +3232,26 @@ impl Database {
         let base = format!(
             r#"
             SELECT
-              a.id, a.project_id, a.category, a.title, a.activity_time, a.organize_status, a.is_pinned,
+              a.id,
+              a.project_id,
+              a.attribute_option_id,
+              ao.label,
+              a.title,
+              a.activity_time,
+              COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_option_id,
+              COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_label,
+              COALESCE(so.needs_attention, 1) AS status_needs_attention,
+              a.is_pinned,
               (SELECT COUNT(*) FROM notes n WHERE n.activity_id = a.id) AS note_count,
               (SELECT COUNT(*) FROM conclusions c WHERE c.activity_id = a.id) AS conclusion_count,
               (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS todo_count,
               (SELECT COUNT(*) FROM documents d WHERE d.activity_id = a.id) AS document_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id AND t.status IN ('done', 'cancelled')) AS completed_todo_count,
+              (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id AND t.status = 'finished') AS completed_todo_count,
               (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS total_todo_count,
-              EXISTS(SELECT 1 FROM todos t WHERE t.activity_id = a.id AND t.status IN ('todo', 'doing', 'blocked')) AS has_open_todos
+              EXISTS(SELECT 1 FROM todos t WHERE t.activity_id = a.id AND t.status = 'unfinished') AS has_open_todos
             FROM activities a
+            LEFT JOIN activity_attribute_options ao ON ao.id = a.attribute_option_id
+            LEFT JOIN activity_status_options so ON so.id = a.status_option_id
             WHERE a.project_id = ?1
             ORDER BY a.activity_time DESC, a.updated_at DESC
             {}
@@ -1445,23 +3273,40 @@ impl Database {
         let base = self.conn.query_row(
             r#"
             SELECT
-              id, project_id, category, title, activity_time, is_pinned, is_expanded,
-              organize_status, created_at, updated_at
-            FROM activities WHERE id = ?1
+              a.id,
+              a.project_id,
+              a.attribute_option_id,
+              ao.label,
+              a.title,
+              a.activity_time,
+              COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
+              COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
+              COALESCE(so.needs_attention, 1),
+              a.is_pinned,
+              a.is_expanded,
+              a.created_at,
+              a.updated_at
+            FROM activities a
+            LEFT JOIN activity_attribute_options ao ON ao.id = a.attribute_option_id
+            LEFT JOIN activity_status_options so ON so.id = a.status_option_id
+            WHERE a.id = ?1
             "#,
-            [activity_id],
+            params![activity_id, SYSTEM_ACTIVITY_STATUS_PENDING],
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
-                    int_to_bool(row.get::<_, i64>(5)?),
-                    int_to_bool(row.get::<_, i64>(6)?),
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
                     row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
+                    int_to_bool(row.get::<_, i64>(8)?),
+                    int_to_bool(row.get::<_, i64>(9)?),
+                    int_to_bool(row.get::<_, i64>(10)?),
+                    row.get::<_, String>(11)?,
+                    row.get::<_, String>(12)?,
                 ))
             },
         )?;
@@ -1473,37 +3318,40 @@ impl Database {
         let digest = ActivityDigest {
             id: base.0,
             project_id: base.1,
-            category: base.2.clone(),
-            title: base.3.clone(),
-            activity_time: base.4.clone(),
-            review_status: normalize_review_status(base.7.clone()),
-            organize_status: normalize_review_status(base.7.clone()),
-            is_pinned: base.5,
+            attribute_option_id: base.2,
+            attribute_label: base.3.clone(),
+            title: base.4.clone(),
+            activity_time: base.5.clone(),
+            status_option_id: base.6,
+            status_label: base.7.clone(),
+            status_needs_attention: base.8,
+            is_pinned: base.9,
             note_count: notes.len() as i64,
             conclusion_count: conclusions.len() as i64,
             todo_count: todos.len() as i64,
             document_count: documents.len() as i64,
             completed_todo_count: todos
                 .iter()
-                .filter(|todo| matches!(todo.status.as_str(), "done" | "cancelled"))
+                .filter(|todo| todo.status == "finished")
                 .count() as i64,
             total_todo_count: todos.len() as i64,
-            has_open_todos: todos
-                .iter()
-                .any(|todo| matches!(todo.status.as_str(), "todo" | "doing" | "blocked")),
+            has_open_todos: todos.iter().any(|todo| todo.status == "unfinished"),
         };
 
         Ok(ActivityCardData {
             id: base.0,
             project_id: base.1,
-            category: base.2,
-            title: base.3,
-            activity_time: base.4,
-            is_pinned: base.5,
-            is_expanded: base.6,
-            organize_status: normalize_review_status(base.7),
-            created_at: base.8,
-            updated_at: base.9,
+            attribute_option_id: base.2,
+            attribute_label: base.3,
+            title: base.4,
+            activity_time: base.5,
+            status_option_id: base.6,
+            status_label: base.7,
+            status_needs_attention: base.8,
+            is_pinned: base.9,
+            is_expanded: base.10,
+            created_at: base.11,
+            updated_at: base.12,
             digest,
             notes,
             conclusions,
@@ -1513,7 +3361,11 @@ impl Database {
         })
     }
 
-    fn list_project_conclusions(&self, project_id: i64, promoted_only: bool) -> Result<Vec<ConclusionRecord>> {
+    fn list_project_conclusions(
+        &self,
+        project_id: i64,
+        promoted_only: bool,
+    ) -> Result<Vec<ConclusionRecord>> {
         let query = if promoted_only {
             "SELECT id FROM conclusions WHERE project_id = ?1 AND promoted_to_project = 1 ORDER BY updated_at DESC LIMIT 8"
         } else {
@@ -1523,10 +3375,17 @@ impl Database {
         let ids = stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.conclusion_record(id)).collect()
+        ids.into_iter()
+            .map(|id| self.conclusion_record(id))
+            .collect()
     }
 
-    fn ai_source(&self, project_id: i64, activity_id: i64, note_id: Option<i64>) -> Result<(String, String)> {
+    fn ai_source(
+        &self,
+        project_id: i64,
+        activity_id: i64,
+        note_id: Option<i64>,
+    ) -> Result<(String, String)> {
         let title: String = self.conn.query_row(
             "SELECT title FROM activities WHERE id = ?1 AND project_id = ?2",
             params![activity_id, project_id],
@@ -1548,9 +3407,9 @@ impl Database {
     }
 
     fn refresh_document_health(&mut self, project_id: i64) -> Result<()> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, managed_path, health FROM documents WHERE project_id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, managed_path, health FROM documents WHERE project_id = ?1")?;
         let rows = stmt
             .query_map([project_id], |row| {
                 Ok((
@@ -1595,13 +3454,359 @@ impl Database {
         self.touch_project(project_id)
     }
 
-    fn ensure_column(&self, table: &str, column: &str, sql: &str) -> Result<()> {
+    fn rebuild_todo_schema(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS todo_progresses;
+            DROP TABLE IF EXISTS todos;
+
+            CREATE TABLE todos (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              activity_id INTEGER,
+              content TEXT NOT NULL,
+              priority TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'unfinished',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE todo_progresses (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              todo_id INTEGER NOT NULL,
+              content TEXT NOT NULL,
+              progress_date TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
+            );
+            "#,
+        )?;
+        Ok(())
+    }
+
+    fn rebuild_document_schema(&self) -> Result<()> {
+        let promoted_expr = if self.has_column("documents", "promoted_to_project")? {
+            "COALESCE(promoted_to_project, 0)"
+        } else {
+            "0"
+        };
+        let role_expr = if self.has_column("documents", "role")? {
+            "COALESCE(role, '') = 'key_material'"
+        } else {
+            "0"
+        };
+        let sql = format!(
+            r#"
+            PRAGMA foreign_keys = OFF;
+            BEGIN IMMEDIATE;
+
+            CREATE TABLE documents_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              activity_id INTEGER,
+              name TEXT NOT NULL,
+              base_name TEXT NOT NULL DEFAULT '',
+              original_path TEXT NOT NULL,
+              managed_path TEXT NOT NULL,
+              history_dir_path TEXT NOT NULL DEFAULT '',
+              storage_mode TEXT NOT NULL,
+              mime_type TEXT NOT NULL,
+              is_starred INTEGER NOT NULL DEFAULT 0,
+              current_version_number INTEGER NOT NULL DEFAULT 1,
+              version_count INTEGER NOT NULL DEFAULT 1,
+              health TEXT NOT NULL DEFAULT 'normal',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+            );
+
+            INSERT INTO documents_new (
+              id, project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path,
+              storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+            )
+            SELECT
+              id,
+              project_id,
+              activity_id,
+              name,
+              COALESCE(NULLIF(base_name, ''), name),
+              original_path,
+              managed_path,
+              COALESCE(history_dir_path, ''),
+              storage_mode,
+              mime_type,
+              CASE
+                WHEN is_starred = 1 OR {promoted_expr} = 1 OR {role_expr} THEN 1
+                ELSE 0
+              END,
+              COALESCE(current_version_number, 1),
+              COALESCE(version_count, 1),
+              COALESCE(NULLIF(health, ''), 'normal'),
+              created_at,
+              updated_at
+            FROM documents;
+
+            DROP TABLE documents;
+            ALTER TABLE documents_new RENAME TO documents;
+
+            COMMIT;
+            PRAGMA foreign_keys = ON;
+            "#
+        );
+        self.conn.execute_batch(&sql)?;
+        Ok(())
+    }
+
+    fn migrate_activity_settings_schema(&mut self) -> Result<()> {
+        self.ensure_system_pending_activity_status()?;
+        let review_status_id = self.find_or_create_custom_activity_status_option(
+            LEGACY_ACTIVITY_STATUS_REVIEW_LABEL,
+            true,
+        )?;
+        let organized_status_id = self.find_or_create_custom_activity_status_option(
+            LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL,
+            false,
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT category
+            FROM activities
+            WHERE attribute_option_id IS NULL AND TRIM(COALESCE(category, '')) <> ''
+            ORDER BY id ASC
+            "#,
+        )?;
+        let categories = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        for category in categories {
+            let label = legacy_activity_attribute_label(&category);
+            let option_id = self.find_or_create_activity_attribute_option(&label)?;
+            self.conn.execute(
+                "UPDATE activities SET attribute_option_id = ?1 WHERE attribute_option_id IS NULL AND category = ?2",
+                params![option_id, category],
+            )?;
+        }
+
+        self.conn.execute(
+            "UPDATE activities SET status_option_id = ?1 WHERE status_option_id IS NULL AND organize_status = 'organized'",
+            params![organized_status_id],
+        )?;
+        self.conn.execute(
+            "UPDATE activities SET status_option_id = ?1 WHERE status_option_id IS NULL",
+            params![review_status_id],
+        )?;
+
+        Ok(())
+    }
+
+    fn ensure_activity_settings_seeded(&mut self) -> Result<()> {
+        self.ensure_system_pending_activity_status()?;
+        Ok(())
+    }
+
+    fn ensure_system_pending_activity_status(&mut self) -> Result<ActivityStatusOption> {
+        let now = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
+            VALUES (?1, ?2, 1, ?3, ?4)
+            ON CONFLICT(system_key) DO UPDATE SET
+              label = excluded.label,
+              needs_attention = excluded.needs_attention,
+              updated_at = excluded.updated_at
+            "#,
+            params![SYSTEM_ACTIVITY_STATUS_PENDING, SYSTEM_ACTIVITY_STATUS_PENDING_LABEL, now, now],
+        )?;
+        self.pending_activity_status_option()
+    }
+
+    fn find_or_create_activity_attribute_option(&mut self, label: &str) -> Result<i64> {
+        let normalized = validate_activity_option_label(label)?;
+        let existing = self
+            .conn
+            .query_row(
+                "SELECT id FROM activity_attribute_options WHERE label = ?1 COLLATE NOCASE",
+                params![normalized.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        if let Some(option_id) = existing {
+            return Ok(option_id);
+        }
+
+        let now = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO activity_attribute_options (label, created_at, updated_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![normalized, now, now],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    fn find_or_create_custom_activity_status_option(
+        &mut self,
+        label: &str,
+        needs_attention: bool,
+    ) -> Result<i64> {
+        let normalized = validate_activity_option_label(label)?;
+        let existing = self
+            .conn
+            .query_row(
+                "SELECT id FROM activity_status_options WHERE label = ?1 COLLATE NOCASE",
+                params![normalized.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        let now = now_iso();
+        if let Some(option_id) = existing {
+            self.conn.execute(
+                r#"
+                UPDATE activity_status_options
+                SET needs_attention = ?1, updated_at = ?2
+                WHERE id = ?3 AND system_key IS NULL
+                "#,
+                params![bool_to_int(needs_attention), now, option_id],
+            )?;
+            return Ok(option_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
+            VALUES (NULL, ?1, ?2, ?3, ?4)
+            "#,
+            params![normalized, bool_to_int(needs_attention), now, now],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    fn activity_attribute_option_record(&self, option_id: i64) -> Result<ActivityAttributeOption> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT id, label, created_at, updated_at
+                FROM activity_attribute_options
+                WHERE id = ?1
+                "#,
+                [option_id],
+                |row| {
+                    Ok(ActivityAttributeOption {
+                        id: row.get(0)?,
+                        label: row.get(1)?,
+                        created_at: row.get(2)?,
+                        updated_at: row.get(3)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
+    fn fetch_activity_attribute_options(&self) -> Result<Vec<ActivityAttributeOption>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM activity_attribute_options ORDER BY created_at ASC, id ASC")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|option_id| self.activity_attribute_option_record(option_id))
+            .collect()
+    }
+
+    fn activity_status_option_record(&self, option_id: i64) -> Result<ActivityStatusOption> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT id, label, needs_attention, system_key, created_at, updated_at
+                FROM activity_status_options
+                WHERE id = ?1
+                "#,
+                [option_id],
+                |row| {
+                    let system_key = row.get::<_, Option<String>>(3)?;
+                    Ok(ActivityStatusOption {
+                        id: row.get(0)?,
+                        label: row.get(1)?,
+                        needs_attention: int_to_bool(row.get::<_, i64>(2)?),
+                        is_system: system_key.is_some(),
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
+    fn pending_activity_status_option(&self) -> Result<ActivityStatusOption> {
+        let option_id = self.conn.query_row(
+            "SELECT id FROM activity_status_options WHERE system_key = ?1 LIMIT 1",
+            params![SYSTEM_ACTIVITY_STATUS_PENDING],
+            |row| row.get::<_, i64>(0),
+        )?;
+        self.activity_status_option_record(option_id)
+    }
+
+    fn resolve_activity_status_option(
+        &self,
+        option_id: Option<i64>,
+    ) -> Result<ActivityStatusOption> {
+        match option_id {
+            Some(option_id) => self.activity_status_option_record(option_id),
+            None => self.pending_activity_status_option(),
+        }
+    }
+
+    fn fetch_activity_status_options(&self) -> Result<Vec<ActivityStatusOption>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id
+            FROM activity_status_options
+            ORDER BY
+              CASE WHEN system_key IS NOT NULL THEN 0 ELSE 1 END,
+              created_at ASC,
+              id ASC
+            "#,
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|option_id| self.activity_status_option_record(option_id))
+            .collect()
+    }
+
+    fn schema_version(&self) -> Result<i64> {
+        self.conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(Into::into)
+    }
+
+    fn set_schema_version(&self, version: i64) -> Result<()> {
+        self.conn.pragma_update(None, "user_version", version)?;
+        Ok(())
+    }
+
+    fn has_column(&self, table: &str, column: &str) -> Result<bool> {
         let pragma = format!("PRAGMA table_info({})", table);
         let mut stmt = self.conn.prepare(&pragma)?;
         let columns = stmt
             .query_map([], |row| row.get::<_, String>(1))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        if !columns.iter().any(|existing| existing == column) {
+        Ok(columns.iter().any(|existing| existing == column))
+    }
+
+    fn ensure_column(&self, table: &str, column: &str, sql: &str) -> Result<()> {
+        if !self.has_column(table, column)? {
             self.conn.execute(sql, [])?;
         }
         Ok(())
@@ -1609,32 +3814,25 @@ impl Database {
 }
 
 fn activity_digest_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActivityDigest> {
-    let organize_status = normalize_review_status(row.get(5)?);
     Ok(ActivityDigest {
         id: row.get(0)?,
         project_id: row.get(1)?,
-        category: row.get(2)?,
-        title: row.get(3)?,
-        activity_time: row.get(4)?,
-        review_status: organize_status.clone(),
-        organize_status,
-        is_pinned: int_to_bool(row.get::<_, i64>(6)?),
-        note_count: row.get(7)?,
-        conclusion_count: row.get(8)?,
-        todo_count: row.get(9)?,
-        document_count: row.get(10)?,
-        completed_todo_count: row.get(11)?,
-        total_todo_count: row.get(12)?,
-        has_open_todos: int_to_bool(row.get::<_, i64>(13)?),
+        attribute_option_id: row.get(2)?,
+        attribute_label: row.get(3)?,
+        title: row.get(4)?,
+        activity_time: row.get(5)?,
+        status_option_id: row.get(6)?,
+        status_label: row.get(7)?,
+        status_needs_attention: int_to_bool(row.get::<_, i64>(8)?),
+        is_pinned: int_to_bool(row.get::<_, i64>(9)?),
+        note_count: row.get(10)?,
+        conclusion_count: row.get(11)?,
+        todo_count: row.get(12)?,
+        document_count: row.get(13)?,
+        completed_todo_count: row.get(14)?,
+        total_todo_count: row.get(15)?,
+        has_open_todos: int_to_bool(row.get::<_, i64>(16)?),
     })
-}
-
-fn normalize_review_status(value: String) -> String {
-    if value == "unorganized" {
-        "needs_review".to_string()
-    } else {
-        value
-    }
 }
 
 fn bool_to_int(value: bool) -> i64 {
@@ -1649,19 +3847,34 @@ fn int_to_bool(value: i64) -> bool {
     value != 0
 }
 
-fn now_iso() -> String {
-    Utc::now().to_rfc3339()
+fn legacy_review_status_for_attention(needs_attention: bool) -> &'static str {
+    if needs_attention {
+        "needs_review"
+    } else {
+        "organized"
+    }
 }
 
-fn unique_file_name(name: &str) -> String {
-    let clean = name
-        .chars()
-        .map(|ch| match ch {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => ch,
-        })
-        .collect::<String>();
-    format!("{}-{}", Utc::now().timestamp_millis(), clean)
+fn legacy_activity_attribute_label(raw: &str) -> String {
+    match raw.trim() {
+        "product" => "PRODUCT".to_string(),
+        "legal" => "LEGAL".to_string(),
+        "engineering" => "ENGINEERING".to_string(),
+        "planning" => "PLANNING".to_string(),
+        "meeting" => "MEETING".to_string(),
+        "finance" => "FINANCE".to_string(),
+        "accounting" => "ACCOUNTING".to_string(),
+        "operations" => "OPERATIONS".to_string(),
+        "compliance" => "COMPLIANCE".to_string(),
+        "reporting" => "REPORTING".to_string(),
+        "other" => "OTHER".to_string(),
+        value if !value.is_empty() => value.to_uppercase(),
+        _ => String::new(),
+    }
+}
+
+fn now_iso() -> String {
+    Utc::now().to_rfc3339()
 }
 
 fn truncate_text(value: &str, max_chars: usize) -> String {
@@ -1672,4 +3885,939 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     } else {
         truncated
     }
+}
+
+fn versioned_file_name(base_name: &str, version_number: i64) -> String {
+    if version_number <= 1 {
+        return base_name.to_string();
+    }
+
+    let path = Path::new(base_name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(base_name);
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    match extension {
+        Some(extension) if !extension.is_empty() => format!("{stem}_v{version_number}.{extension}"),
+        _ => format!("{stem}_v{version_number}"),
+    }
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    match (path.canonicalize(), root.canonicalize()) {
+        (Ok(path), Ok(root)) => path.starts_with(root),
+        _ => path.starts_with(root),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestHarness {
+        root: PathBuf,
+        workspace_root: PathBuf,
+    }
+
+    impl Drop for TestHarness {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn setup_database() -> (TestHarness, Database) {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("project-mind-db-test-{unique}"));
+        let workspace_root = root.join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+        let database = Database::open(&root.join("app.sqlite3")).unwrap();
+
+        (
+            TestHarness {
+                root,
+                workspace_root,
+            },
+            database,
+        )
+    }
+
+    fn create_project(database: &mut Database, workspace_root: &Path) -> ProjectRecord {
+        database
+            .project_create(ProjectCreateInput {
+                name: "Alpha".to_string(),
+                summary: None,
+                status: None,
+                workspace_root: workspace_root.to_string_lossy().to_string(),
+            })
+            .unwrap()
+    }
+
+    fn create_activity(database: &mut Database, project_id: i64, title: &str) -> ActivityCardData {
+        database
+            .activity_create(ActivityCreateInput {
+                project_id,
+                attribute_option_id: None,
+                title: Some(title.to_string()),
+                activity_time: "2026-04-06T08:00:00.000Z".to_string(),
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn legacy_activity_settings_migration_backfills_existing_rows() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("project-mind-activity-settings-legacy-{unique}"));
+        let workspace_root = root.join("workspace");
+        let project_root = workspace_root.join("Alpha");
+        fs::create_dir_all(&project_root).unwrap();
+        let db_path = root.join("app.sqlite3");
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active',
+              root_path TEXT NOT NULL,
+              file_layout_version INTEGER NOT NULL DEFAULT 2,
+              summary TEXT NOT NULL DEFAULT '',
+              is_archived INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE activities (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              category TEXT NOT NULL,
+              title TEXT NOT NULL DEFAULT '',
+              activity_time TEXT NOT NULL,
+              is_pinned INTEGER NOT NULL DEFAULT 0,
+              is_expanded INTEGER NOT NULL DEFAULT 0,
+              organize_status TEXT NOT NULL DEFAULT 'needs_review',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO projects (id, name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at)
+            VALUES (?1, ?2, 'active', ?3, 2, '', 0, ?4, ?5)
+            "#,
+            params![
+                1,
+                "Alpha",
+                project_root.to_string_lossy().to_string(),
+                "2026-04-06T08:00:00.000Z",
+                "2026-04-06T08:00:00.000Z",
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO activities (
+              project_id, category, title, activity_time, is_pinned, is_expanded, organize_status, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, 0, 1, 'organized', ?5, ?6)
+            "#,
+            params![
+                1,
+                "legal",
+                "法务确认",
+                "2026-04-06T10:00:00.000Z",
+                "2026-04-06T10:00:00.000Z",
+                "2026-04-06T10:00:00.000Z",
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let mut database = Database::open(&db_path).unwrap();
+        let settings = database.activity_settings_get().unwrap();
+        let activities = database
+            .activity_list(ProjectIdInput { project_id: 1 })
+            .unwrap();
+
+        assert!(settings
+            .activity_attribute_options
+            .iter()
+            .any(|option| option.label == "LEGAL"));
+        assert!(settings
+            .activity_status_options
+            .iter()
+            .any(|option| option.label == "待启动" && option.is_system));
+        assert_eq!(activities[0].attribute_label.as_deref(), Some("LEGAL"));
+        assert_eq!(activities[0].status_label, "已整理");
+        assert!(!activities[0].status_needs_attention);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn deleting_activity_options_updates_existing_activities() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let attribute = database
+            .activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
+                id: None,
+                label: "LEGAL".to_string(),
+            })
+            .unwrap();
+        let status = database
+            .activity_status_option_upsert(ActivityStatusOptionUpsertInput {
+                id: None,
+                label: "待外部反馈".to_string(),
+                needs_attention: true,
+            })
+            .unwrap();
+
+        let activity = database
+            .activity_create(ActivityCreateInput {
+                project_id: project.id,
+                attribute_option_id: Some(attribute.id),
+                title: Some("合同同步".to_string()),
+                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
+            })
+            .unwrap();
+
+        database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: None,
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: Some(status.id),
+            })
+            .unwrap();
+
+        database
+            .activity_attribute_option_delete(ActivityOptionDeleteInput {
+                option_id: attribute.id,
+            })
+            .unwrap();
+        database
+            .activity_status_option_delete(ActivityOptionDeleteInput {
+                option_id: status.id,
+            })
+            .unwrap();
+
+        let refreshed = database.activity_card(activity.id).unwrap();
+        assert_eq!(refreshed.attribute_option_id, None);
+        assert_eq!(refreshed.attribute_label, None);
+        assert_eq!(refreshed.status_label, "待启动");
+        assert!(refreshed.status_needs_attention);
+    }
+
+    #[test]
+    fn rich_text_style_get_returns_defaults_when_absent() {
+        let (_harness, mut database) = setup_database();
+
+        let settings = database.rich_text_style_get().unwrap();
+
+        assert_eq!(settings.body.font_preset, "workspace_sans");
+        assert_eq!(settings.body.font_size_px, 14);
+        assert_eq!(settings.body.line_height, 1.6);
+        assert_eq!(settings.body.paragraph_spacing_px, 12);
+        assert_eq!(settings.headings.h1_size_px, 24);
+        assert_eq!(settings.headings.h2_size_px, 20);
+        assert_eq!(settings.headings.h3_size_px, 16);
+        assert_eq!(settings.list.font_preset, "workspace_sans");
+    }
+
+    #[test]
+    fn rich_text_style_upsert_round_trips_saved_values() {
+        let (_harness, mut database) = setup_database();
+
+        let saved = database
+            .rich_text_style_upsert(RichTextStyleSettings {
+                body: RichTextStyleBlockSettings {
+                    font_preset: "work_sans".to_string(),
+                    font_size_px: 15,
+                    line_height: 1.7,
+                    paragraph_spacing_px: 14,
+                },
+                headings: crate::models::RichTextHeadingStyleSettings {
+                    font_preset: "source_serif".to_string(),
+                    line_height: 1.3,
+                    paragraph_spacing_px: 10,
+                    h1_size_px: 28,
+                    h2_size_px: 22,
+                    h3_size_px: 18,
+                },
+                list: RichTextStyleBlockSettings {
+                    font_preset: "noto_sans_sc".to_string(),
+                    font_size_px: 15,
+                    line_height: 1.65,
+                    paragraph_spacing_px: 10,
+                },
+            })
+            .unwrap();
+        let loaded = database.rich_text_style_get().unwrap();
+
+        assert_eq!(loaded.body.font_preset, "work_sans");
+        assert_eq!(loaded.body.font_size_px, 15);
+        assert_eq!(loaded.headings.font_preset, "source_serif");
+        assert_eq!(loaded.headings.h1_size_px, 28);
+        assert_eq!(loaded.list.font_preset, "noto_sans_sc");
+        assert_eq!(loaded.list.paragraph_spacing_px, 10);
+        assert_eq!(style_json_signature(&loaded), style_json_signature(&saved));
+    }
+
+    #[test]
+    fn migration_adds_app_settings_without_affecting_ai_profiles() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("project-mind-db-legacy-{unique}"));
+        fs::create_dir_all(&root).unwrap();
+        let db_path = root.join("app.sqlite3");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE ai_provider_profiles (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              provider_family TEXT NOT NULL,
+              base_url TEXT NOT NULL,
+              api_key_ciphertext TEXT NOT NULL,
+              api_key_nonce TEXT NOT NULL,
+              api_key_salt TEXT NOT NULL,
+              api_key_last4 TEXT NOT NULL DEFAULT '',
+              default_model TEXT NOT NULL,
+              supports_text INTEGER NOT NULL DEFAULT 1,
+              supports_image INTEGER NOT NULL DEFAULT 0,
+              supports_file INTEGER NOT NULL DEFAULT 0,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE ai_capability_bindings (
+              capability TEXT PRIMARY KEY,
+              use_default INTEGER NOT NULL DEFAULT 1,
+              profile_id INTEGER,
+              model TEXT,
+              updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO ai_provider_profiles (
+              name, provider_family, base_url, api_key_ciphertext, api_key_nonce, api_key_salt,
+              api_key_last4, default_model, supports_text, supports_image, supports_file, enabled,
+              created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, 0, 0, 1, ?9, ?10)
+            "#,
+            params![
+                "Legacy AI",
+                "openai_compatible",
+                "https://api.openai.com/v1",
+                "cipher",
+                "nonce",
+                "salt",
+                "1234",
+                "gpt-4.1-mini",
+                "2026-04-06T08:00:00.000Z",
+                "2026-04-06T08:00:00.000Z",
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let mut database = Database::open(&db_path).unwrap();
+        let ai_settings = database.ai_settings_get().unwrap();
+        let rich_text = database.rich_text_style_get().unwrap();
+
+        assert_eq!(ai_settings.profiles.len(), 1);
+        assert_eq!(ai_settings.profiles[0].name, "Legacy AI");
+        assert_eq!(rich_text.headings.h2_size_px, 20);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn document_import_moves_project_file_into_activity_folder() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let source_path = PathBuf::from(&project.root_path).join("brief.pdf");
+        fs::write(&source_path, b"brief").unwrap();
+
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        assert!(!source_path.exists());
+        assert!(Path::new(&document.managed_path).exists());
+        assert!(document.managed_path.contains("Kickoff"));
+        assert_eq!(document.base_name, "brief.pdf");
+        assert_eq!(document.version_count, 1);
+    }
+
+    #[test]
+    fn activity_rename_moves_folder_and_document_paths() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let source_path = harness.root.join("agenda.pdf");
+        fs::write(&source_path, b"agenda").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
+        let updated_activity = database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: Some("Review Final".to_string()),
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: None,
+            })
+            .unwrap();
+        let updated_document = database.document_record(document.id).unwrap();
+
+        assert_eq!(updated_activity.title, "Review Final");
+        assert!(!old_folder.exists());
+        assert!(updated_document.managed_path.contains("Review Final"));
+        assert!(Path::new(&updated_document.managed_path).exists());
+    }
+
+    #[test]
+    fn document_add_version_moves_previous_current_into_history_dir() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let source_v1 = harness.root.join("proposal-v1-source.pdf");
+        fs::write(&source_v1, b"version1").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_v1.to_string_lossy().to_string(),
+                is_starred: true,
+            })
+            .unwrap();
+
+        let source_v2 = harness.root.join("proposal-v2-source.pdf");
+        fs::write(&source_v2, b"version2").unwrap();
+        let versioned_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: document.id,
+                source_path: source_v2.to_string_lossy().to_string(),
+            })
+            .unwrap();
+        let versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: document.id,
+            })
+            .unwrap();
+        let history_path =
+            PathBuf::from(&versioned_document.history_dir_path).join("proposal-v1-source.pdf");
+
+        assert_eq!(versioned_document.current_version_number, 2);
+        assert_eq!(versioned_document.name, "proposal-v1-source_v2.pdf");
+        assert!(Path::new(&versioned_document.managed_path).exists());
+        assert!(history_path.exists());
+        assert_eq!(
+            versions
+                .iter()
+                .map(|version| version.version_number)
+                .collect::<Vec<_>>(),
+            vec![2, 1]
+        );
+    }
+
+    #[test]
+    fn document_rename_updates_current_and_history_file_names() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let source_v1 = harness.root.join("brief-source.pdf");
+        fs::write(&source_v1, b"version1").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_v1.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let source_v2 = harness.root.join("brief-source-v2.pdf");
+        fs::write(&source_v2, b"version2").unwrap();
+        let versioned_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: document.id,
+                source_path: source_v2.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        let renamed_document = database
+            .document_update_meta(DocumentUpdateMetaInput {
+                document_id: document.id,
+                activity_id: None,
+                base_name: Some("final-summary.pdf".to_string()),
+                is_starred: None,
+            })
+            .unwrap();
+        let versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: document.id,
+            })
+            .unwrap();
+
+        let history_v1 =
+            PathBuf::from(&renamed_document.history_dir_path).join("final-summary.pdf");
+
+        assert_eq!(versioned_document.current_version_number, 2);
+        assert_eq!(renamed_document.base_name, "final-summary.pdf");
+        assert_eq!(renamed_document.name, "final-summary_v2.pdf");
+        assert!(Path::new(&renamed_document.managed_path).exists());
+        assert!(history_v1.exists());
+        assert_eq!(versions[0].name, "final-summary_v2.pdf");
+        assert_eq!(versions[1].name, "final-summary.pdf");
+    }
+
+    #[test]
+    fn legacy_project_layout_migrates_on_project_access() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let external_source = harness.root.join("brief-source.pdf");
+        fs::write(&external_source, b"brief").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: external_source.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let legacy_dir = PathBuf::from(&project.root_path).join("documents");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        let legacy_path = legacy_dir.join(&document.name);
+        fs::rename(&document.managed_path, &legacy_path).unwrap();
+        let activity_dir = PathBuf::from(&project.root_path).join("Kickoff");
+        let _ = fs::remove_dir(&activity_dir);
+
+        database
+            .conn
+            .execute(
+                "UPDATE projects SET file_layout_version = 1 WHERE id = ?1",
+                params![project.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE activities SET folder_name = '' WHERE id = ?1",
+                params![activity.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE documents SET base_name = '', managed_path = ?1, history_dir_path = '' WHERE id = ?2",
+                params![legacy_path.to_string_lossy().to_string(), document.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "DELETE FROM document_versions WHERE document_id = ?1",
+                params![document.id],
+            )
+            .unwrap();
+
+        let overview = database
+            .project_get_overview(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        let migrated_document = database.document_record(document.id).unwrap();
+        let versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: document.id,
+            })
+            .unwrap();
+
+        assert_eq!(
+            overview.project.file_layout_version,
+            CURRENT_FILE_LAYOUT_VERSION
+        );
+        assert_eq!(migrated_document.base_name, document.name);
+        assert!(migrated_document.managed_path.contains("Kickoff"));
+        assert!(Path::new(&migrated_document.managed_path).exists());
+        assert_eq!(versions.len(), 1);
+    }
+
+    #[test]
+    fn project_overview_lists_project_root_documents_and_starred_activity_documents() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let root_source = harness.root.join("root-brief.pdf");
+        fs::write(&root_source, b"root").unwrap();
+        let root_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: root_source.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let activity_source = harness.root.join("activity-note.pdf");
+        fs::write(&activity_source, b"activity").unwrap();
+        let activity_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: activity_source.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let starred_source = harness.root.join("activity-starred.pdf");
+        fs::write(&starred_source, b"starred").unwrap();
+        let starred_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: starred_source.to_string_lossy().to_string(),
+                is_starred: true,
+            })
+            .unwrap();
+
+        let overview = database
+            .project_get_overview(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        let document_ids = overview
+            .project_documents
+            .iter()
+            .map(|document| document.id)
+            .collect::<Vec<_>>();
+
+        assert!(document_ids.contains(&root_document.id));
+        assert!(document_ids.contains(&starred_document.id));
+        assert!(!document_ids.contains(&activity_document.id));
+    }
+
+    #[test]
+    fn document_schema_migration_folds_legacy_priority_flags_into_starred() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let role_source = harness.root.join("role-key.pdf");
+        fs::write(&role_source, b"role").unwrap();
+        let role_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: role_source.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let promoted_source = harness.root.join("promoted.pdf");
+        fs::write(&promoted_source, b"promoted").unwrap();
+        let promoted_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: promoted_source.to_string_lossy().to_string(),
+                is_starred: false,
+            })
+            .unwrap();
+
+        let starred_source = harness.root.join("starred.pdf");
+        fs::write(&starred_source, b"starred").unwrap();
+        let starred_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: starred_source.to_string_lossy().to_string(),
+                is_starred: true,
+            })
+            .unwrap();
+
+        database
+            .conn
+            .execute(
+                "ALTER TABLE documents ADD COLUMN role TEXT NOT NULL DEFAULT 'reference_material'",
+                [],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "ALTER TABLE documents ADD COLUMN promoted_to_project INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE documents SET role = 'key_material' WHERE id = ?1",
+                params![role_document.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE documents SET promoted_to_project = 1 WHERE id = ?1",
+                params![promoted_document.id],
+            )
+            .unwrap();
+        database
+            .set_schema_version(FILE_LAYOUT_SCHEMA_VERSION)
+            .unwrap();
+
+        drop(database);
+        let reopened = Database::open(&harness.root.join("app.sqlite3")).unwrap();
+
+        assert!(!reopened.has_column("documents", "role").unwrap());
+        assert!(!reopened
+            .has_column("documents", "promoted_to_project")
+            .unwrap());
+        assert!(
+            reopened
+                .document_record(role_document.id)
+                .unwrap()
+                .is_starred
+        );
+        assert!(
+            reopened
+                .document_record(promoted_document.id)
+                .unwrap()
+                .is_starred
+        );
+        assert!(
+            reopened
+                .document_record(starred_document.id)
+                .unwrap()
+                .is_starred
+        );
+    }
+}
+
+#[cfg(test)]
+fn style_json_signature(settings: &RichTextStyleSettings) -> String {
+    serde_json::to_string(settings).unwrap()
+}
+
+fn default_rich_text_style_settings() -> RichTextStyleSettings {
+    RichTextStyleSettings {
+        body: RichTextStyleBlockSettings {
+            font_preset: "workspace_sans".to_string(),
+            font_size_px: 14,
+            line_height: 1.6,
+            paragraph_spacing_px: 12,
+        },
+        headings: crate::models::RichTextHeadingStyleSettings {
+            font_preset: "workspace_sans".to_string(),
+            line_height: 1.35,
+            paragraph_spacing_px: 12,
+            h1_size_px: 24,
+            h2_size_px: 20,
+            h3_size_px: 16,
+        },
+        list: RichTextStyleBlockSettings {
+            font_preset: "workspace_sans".to_string(),
+            font_size_px: 14,
+            line_height: 1.6,
+            paragraph_spacing_px: 12,
+        },
+    }
+}
+
+fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result<()> {
+    validate_rich_text_style_block(&settings.body, "body")?;
+    validate_rich_text_font_preset(&settings.headings.font_preset, "headings.fontPreset")?;
+
+    if !(1.0..=2.4).contains(&settings.headings.line_height) {
+        return Err(anyhow!("headings.lineHeight must be between 1.0 and 2.4"));
+    }
+
+    if !(0..=48).contains(&settings.headings.paragraph_spacing_px) {
+        return Err(anyhow!(
+            "headings.paragraphSpacingPx must be between 0 and 48"
+        ));
+    }
+
+    validate_px_value(settings.headings.h1_size_px, "headings.h1SizePx", 14, 48)?;
+    validate_px_value(settings.headings.h2_size_px, "headings.h2SizePx", 14, 40)?;
+    validate_px_value(settings.headings.h3_size_px, "headings.h3SizePx", 12, 32)?;
+
+    if settings.headings.h1_size_px < settings.headings.h2_size_px
+        || settings.headings.h2_size_px < settings.headings.h3_size_px
+    {
+        return Err(anyhow!("heading sizes must descend from h1 to h3"));
+    }
+
+    validate_rich_text_style_block(&settings.list, "list")?;
+    Ok(())
+}
+
+fn validate_rich_text_style_block(
+    settings: &RichTextStyleBlockSettings,
+    prefix: &str,
+) -> Result<()> {
+    validate_rich_text_font_preset(&settings.font_preset, &format!("{prefix}.fontPreset"))?;
+    validate_px_value(
+        settings.font_size_px,
+        &format!("{prefix}.fontSizePx"),
+        12,
+        28,
+    )?;
+
+    if !(1.0..=2.4).contains(&settings.line_height) {
+        return Err(anyhow!("{prefix}.lineHeight must be between 1.0 and 2.4"));
+    }
+
+    if !(0..=48).contains(&settings.paragraph_spacing_px) {
+        return Err(anyhow!(
+            "{prefix}.paragraphSpacingPx must be between 0 and 48"
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_rich_text_font_preset(value: &str, field: &str) -> Result<()> {
+    if !RICH_TEXT_FONT_PRESETS.contains(&value) {
+        return Err(anyhow!("{field} is not a supported font preset"));
+    }
+    Ok(())
+}
+
+fn validate_px_value(value: i64, field: &str, min: i64, max: i64) -> Result<()> {
+    if !(min..=max).contains(&value) {
+        return Err(anyhow!("{field} must be between {min} and {max}"));
+    }
+    Ok(())
+}
+
+fn validate_activity_option_label(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("activity option label cannot be empty"));
+    }
+    if normalized.chars().count() > 32 {
+        return Err(anyhow!(
+            "activity option label must be 32 characters or fewer"
+        ));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_ai_profile_fields(
+    name: &str,
+    provider_family: &str,
+    base_url: &str,
+    default_model: &str,
+) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(anyhow!("AI profile name cannot be empty"));
+    }
+
+    match provider_family.trim() {
+        "openai_compatible" | "anthropic_compatible" | "gemini_compatible" => {}
+        _ => return Err(anyhow!("unsupported AI provider family")),
+    }
+
+    let normalized_url = normalize_base_url(base_url);
+    if !(normalized_url.starts_with("https://") || normalized_url.starts_with("http://")) {
+        return Err(anyhow!("AI base URL must start with http:// or https://"));
+    }
+
+    if default_model.trim().is_empty() {
+        return Err(anyhow!("AI default model cannot be empty"));
+    }
+
+    Ok(())
+}
+
+fn validate_ai_binding(input: &AiCapabilityBindingUpsertInput) -> Result<()> {
+    let capability = input.capability.trim();
+    if !AI_CAPABILITIES.contains(&capability) {
+        return Err(anyhow!("unsupported AI capability"));
+    }
+
+    if capability == "default" {
+        if input.use_default {
+            return Err(anyhow!("the default AI binding cannot inherit from itself"));
+        }
+        if input.profile_id.is_none() {
+            return Err(anyhow!("the default AI binding must choose a profile"));
+        }
+        return Ok(());
+    }
+
+    if input.use_default {
+        if input.profile_id.is_some() || nullable_trimmed(input.model.as_deref()).is_some() {
+            return Err(anyhow!(
+                "a binding that uses the default profile cannot also override profile or model"
+            ));
+        }
+    } else if input.profile_id.is_none() {
+        return Err(anyhow!("a custom AI binding must choose a profile"));
+    }
+
+    Ok(())
+}
+
+fn normalize_base_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+fn nullable_trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
