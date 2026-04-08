@@ -103,6 +103,7 @@ pub struct DocumentRecord {
     pub version_count: i64,
     pub source_activity_title: Option<String>,
     pub health: String,
+    pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -121,9 +122,43 @@ pub struct DocumentVersionRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DocumentTagRecord {
+    pub id: i64,
+    pub label: String,
+    pub color_key: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTagRecord {
+    pub id: i64,
+    pub label: String,
+    pub color_key: String,
+    pub usage_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTypeRecord {
+    pub id: i64,
+    pub key: String,
+    pub label: String,
+    pub color_key: String,
+    pub template_html: String,
+    pub is_default: bool,
+    pub usage_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActivityAttributeOption {
     pub id: i64,
     pub label: String,
+    pub color_key: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -133,6 +168,7 @@ pub struct ActivityAttributeOption {
 pub struct ActivityStatusOption {
     pub id: i64,
     pub label: String,
+    pub color_key: String,
     pub needs_attention: bool,
     pub is_system: bool,
     pub created_at: String,
@@ -148,15 +184,29 @@ pub struct ActivitySettingsSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileTagSettingsSnapshot {
+    pub tags: Vec<FileTagRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTypeSettingsSnapshot {
+    pub record_types: Vec<RecordTypeRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActivityDigest {
     pub id: i64,
     pub project_id: i64,
     pub attribute_option_id: Option<i64>,
     pub attribute_label: Option<String>,
+    pub attribute_color_key: Option<String>,
     pub title: String,
     pub activity_time: String,
     pub status_option_id: i64,
     pub status_label: String,
+    pub status_color_key: String,
     pub status_needs_attention: bool,
     pub is_pinned: bool,
     pub note_count: i64,
@@ -227,7 +277,8 @@ pub struct RichTextStyleBlockSettings {
     pub font_preset: String,
     pub font_size_px: i64,
     pub line_height: f64,
-    pub paragraph_spacing_px: i64,
+    pub paragraph_spacing_before_px: i64,
+    pub paragraph_spacing_after_px: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,7 +286,8 @@ pub struct RichTextStyleBlockSettings {
 pub struct RichTextHeadingStyleSettings {
     pub font_preset: String,
     pub line_height: f64,
-    pub paragraph_spacing_px: i64,
+    pub paragraph_spacing_before_px: i64,
+    pub paragraph_spacing_after_px: i64,
     pub h1_size_px: i64,
     pub h2_size_px: i64,
     pub h3_size_px: i64,
@@ -265,10 +317,12 @@ pub struct ActivityCardData {
     pub project_id: i64,
     pub attribute_option_id: Option<i64>,
     pub attribute_label: Option<String>,
+    pub attribute_color_key: Option<String>,
     pub title: String,
     pub activity_time: String,
     pub status_option_id: i64,
     pub status_label: String,
+    pub status_color_key: String,
     pub status_needs_attention: bool,
     pub is_pinned: bool,
     pub is_expanded: bool,
@@ -345,6 +399,7 @@ pub struct ProjectCreateInput {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectUpdateSummaryInput {
     pub project_id: i64,
+    pub name: Option<String>,
     pub summary: String,
     pub status: Option<String>,
 }
@@ -402,6 +457,7 @@ pub struct ActivityUpdateMetaInput {
 pub struct ActivityAttributeOptionUpsertInput {
     pub id: Option<i64>,
     pub label: String,
+    pub color_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -409,13 +465,43 @@ pub struct ActivityAttributeOptionUpsertInput {
 pub struct ActivityStatusOptionUpsertInput {
     pub id: Option<i64>,
     pub label: String,
-    pub needs_attention: bool,
+    pub color_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityOptionDeleteInput {
     pub option_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTagOptionUpsertInput {
+    pub id: Option<i64>,
+    pub label: String,
+    pub color_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTagOptionDeleteInput {
+    pub tag_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTypeOptionUpsertInput {
+    pub id: Option<i64>,
+    pub label: String,
+    pub color_key: String,
+    pub template_html: String,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTypeOptionDeleteInput {
+    pub type_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -482,6 +568,13 @@ pub struct TodoUpdateStatusInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TodoUpdatePriorityInput {
+    pub todo_id: i64,
+    pub priority: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TodoAddProgressInput {
     pub todo_id: i64,
     pub content: String,
@@ -495,6 +588,7 @@ pub struct DocumentImportInput {
     pub activity_id: Option<i64>,
     pub source_path: String,
     pub is_starred: bool,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -504,6 +598,7 @@ pub struct DocumentUpdateMetaInput {
     pub activity_id: Option<Option<i64>>,
     pub base_name: Option<String>,
     pub is_starred: Option<bool>,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

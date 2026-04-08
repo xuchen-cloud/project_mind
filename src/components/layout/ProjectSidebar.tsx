@@ -1,22 +1,24 @@
 import { ChevronLeft, ChevronRight, FolderKanban } from "lucide-react";
 
-import { activityAttributeLabel, activityStatusTone } from "../../lib/constants";
+import type { FileTagColorKey } from "../../lib/types";
 import { formatDateTime } from "../../lib/formatters";
-import { desktopApi } from "../../services/desktopApi";
 import { useUiStore } from "../../state/ui-store";
 import { IconButton, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { ActivityAttributeTag } from "../activity/ActivityAttributeTag";
+import { ActivityStatusTag } from "../activity/ActivityStatusTag";
 
 export interface ProjectSidebarActivityItem {
   id: number;
   title: string;
   activityTime: string;
   attributeLabel?: string | null;
+  attributeColorKey?: FileTagColorKey | null;
   documentCount: number;
   completedTodoCount: number;
   totalTodoCount: number;
   statusLabel: string;
-  statusNeedsAttention: boolean;
+  statusColorKey: FileTagColorKey;
 }
 
 interface ProjectSidebarProps {
@@ -44,10 +46,6 @@ export function ProjectSidebar({
   onOpenActivity,
 }: ProjectSidebarProps) {
   const { projectSidebarCollapsed, toggleProjectSidebarCollapsed } = useUiStore();
-  const handleOpenProject = () => {
-    onOpenProject();
-    void desktopApi.openFolder(project.rootPath).catch(() => undefined);
-  };
 
   return (
     <aside
@@ -68,15 +66,12 @@ export function ProjectSidebar({
             type="button"
             title={`${project.name}\n${project.rootPath}`}
             className={cn(
-              "rounded-[var(--radius-8)] border transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
-              activeActivityId === null
-                ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                : "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-bg-hover hover:text-text",
+              "rounded-[var(--radius-8)] border border-transparent bg-transparent text-text transition-[border-color,background-color,color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg hover:shadow-[var(--shadow-sm)]",
               projectSidebarCollapsed
                 ? "flex h-9 w-9 items-center justify-center"
                 : "flex flex-1 items-center gap-3 px-3 py-3 text-left",
             )}
-            onClick={handleOpenProject}
+            onClick={onOpenProject}
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-8)] bg-bg text-text-muted">
               <FolderKanban size={16} />
@@ -87,7 +82,7 @@ export function ProjectSidebar({
                   {project.name}
                 </span>
                 <span className="mt-1 flex items-center gap-2">
-                  <StatusBadge tone={project.isArchived ? "neutral" : "accent"}>
+                  <StatusBadge tone="neutral">
                     {project.isArchived ? "archived" : "overview"}
                   </StatusBadge>
                 </span>
@@ -145,9 +140,7 @@ export function ProjectSidebar({
                 onClick={() => onOpenActivity(activity.id)}
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <StatusBadge tone={activityStatusTone(activity.statusNeedsAttention)}>
-                    {activity.statusLabel}
-                  </StatusBadge>
+                  <ActivityStatusTag label={activity.statusLabel} colorKey={activity.statusColorKey} />
                   <span className="text-caption text-text-soft">
                     {formatDateTime(activity.activityTime)}
                   </span>
@@ -155,10 +148,16 @@ export function ProjectSidebar({
                 <p className="line-clamp-2 text-body font-medium leading-5 text-text">
                   {activity.title || "Untitled Activity"}
                 </p>
-                <p className="mt-2 text-ui text-text-soft">
-                  {activityAttributeLabel(activity.attributeLabel)} · {activity.documentCount} files ·{" "}
-                  {activity.completedTodoCount}/{activity.totalTodoCount} todos
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-ui text-text-soft">
+                  <ActivityAttributeTag
+                    label={activity.attributeLabel}
+                    colorKey={activity.attributeColorKey ?? null}
+                  />
+                  <span>{activity.documentCount} files</span>
+                  <span>
+                    {activity.completedTodoCount}/{activity.totalTodoCount} todos
+                  </span>
+                </div>
               </button>
             ))}
           </div>

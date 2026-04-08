@@ -9,18 +9,20 @@ import {
 } from "react";
 import { ChevronDown, LoaderCircle, PencilLine, Plus, Sparkles } from "lucide-react";
 
-import { RichEditor } from "../rich-editor";
+import { normalizeRichEditorValue, RichEditor } from "../rich-editor";
 import type { RichEditorPersistState, RichEditorValue } from "../rich-editor";
-import { desktopApi } from "../../services/desktopApi";
+import { fileTagColorValue } from "../../lib/constants";
 import { fileHref, formatDateTime } from "../../lib/formatters";
 import {
   createDraftNote,
+  defaultNoteTemplateKey,
   getRenderableNoteHtml,
   isDefaultNoteTitle,
+  noteTemplateColorKey,
   noteTemplateDefaultHtml,
   noteTemplateDefaultTitle,
-  NOTE_TEMPLATE_OPTIONS,
-  NOTE_TEMPLATES,
+  noteTemplateLabel,
+  noteTemplateOptions,
   noteTemplatePlaceholder,
   summarizeNoteContent,
 } from "../../lib/note-templates";
@@ -31,7 +33,10 @@ import type {
   NoteRecord,
   NoteTemplateKey,
   NoteUpsertInput,
+  RecordTypeSettingsSnapshot,
 } from "../../lib/types";
+import { desktopApi } from "../../services/desktopApi";
+import { useFeedbackStore } from "../../state/feedback-store";
 import {
   Button,
   Dialog,
@@ -47,6 +52,7 @@ interface ActivityNotesPanelProps {
   projectId: number;
   activityId: number;
   notes: NoteRecord[];
+  recordTypeSettings?: RecordTypeSettingsSnapshot | null;
   saving: boolean;
   onUpsertNote: (input: NoteUpsertInput) => Promise<NoteRecord>;
   onImportDocument: (sourcePath: string) => Promise<DocumentRecord>;
@@ -54,6 +60,7 @@ interface ActivityNotesPanelProps {
   aiBusy?: boolean;
   onGenerateAiSuggestions?: (noteId: number) => Promise<AiSuggestionRecord[]>;
   onAcceptAiSuggestion?: (suggestionId: number) => Promise<AcceptedSuggestionResult>;
+  onManageRecordTypes?: () => void;
 }
 
 interface DraftNoteState {
@@ -64,9 +71,7 @@ interface DraftNoteState {
   contentHtml: string;
 }
 
-type ActiveItem =
-  | { kind: "draft" }
-  | { kind: "saved"; noteId: number };
+type ActiveItem = { kind: "empty" } | { kind: "draft" } | { kind: "saved"; noteId: number };
 
 interface ComposerState {
   key: string;
@@ -96,6 +101,7 @@ export function ActivityNotesPanel({
   projectId,
   activityId,
   notes,
+  recordTypeSettings = null,
   saving,
   onUpsertNote,
   onImportDocument,
@@ -103,29 +109,28 @@ export function ActivityNotesPanel({
   aiBusy = false,
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
+  onManageRecordTypes,
 }: ActivityNotesPanelProps) {
+  const { pushToast } = useFeedbackStore();
   const sortedNotes = useMemo(
     () =>
-      [...notes].sort(
-        (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
-      ),
+      [...notes].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
     [notes],
   );
-
-  const initialDraftRef = useRef<DraftNoteState | null>(
-    sortedNotes.length === 0 ? createDraftNote("quick_note") : null,
+  const defaultRecordType = defaultNoteTemplateKey(recordTypeSettings);
+  const recordTypeMenuOptions = useMemo(
+    () => noteTemplateOptions(recordTypeSettings),
+    [recordTypeSettings],
   );
   const initialSelectedNote = sortedNotes[0] ?? null;
 
-  const [draftNote, setDraftNote] = useState<DraftNoteState | null>(initialDraftRef.current);
+  const [draftNote, setDraftNote] = useState<DraftNoteState | null>(null);
   const [activeItem, setActiveItem] = useState<ActiveItem>(() =>
-    initialSelectedNote ? { kind: "saved", noteId: initialSelectedNote.id } : { kind: "draft" },
+    initialSelectedNote ? { kind: "saved", noteId: initialSelectedNote.id } : { kind: "empty" },
   );
   const [editorPersistState, setEditorPersistState] = useState<RichEditorPersistState>("idle");
-  const [composer, setComposer] = useState<ComposerState>(() =>
-    initialSelectedNote
-      ? buildComposerFromNote(initialSelectedNote)
-      : buildComposerFromDraft(initialDraftRef.current ?? createDraftNote("quick_note")),
+  const [composer, setComposer] = useState<ComposerState | null>(() =>
+    initialSelectedNote ? buildComposerFromNote(initialSelectedNote, recordTypeSettings) : null,
   );
   const [aiPreview, setAiPreview] = useState<AiRefinePreview | null>(null);
   const [aiPreparing, setAiPreparing] = useState(false);
@@ -147,59 +152,68 @@ export function ActivityNotesPanel({
 
     previousActivityIdRef.current = activityId;
     setAiPreview(null);
+    setDraftNote(null);
 
     if (sortedNotes.length > 0) {
-      setDraftNote(null);
       setActiveItem({ kind: "saved", noteId: sortedNotes[0].id });
-      setComposer(buildComposerFromNote(sortedNotes[0]));
+      setComposer(buildComposerFromNote(sortedNotes[0], recordTypeSettings));
       return;
     }
 
-    const nextDraft = createDraftNote("quick_note");
-    setDraftNote(nextDraft);
-    setActiveItem({ kind: "draft" });
-    setComposer(buildComposerFromDraft(nextDraft));
-  }, [activityId, sortedNotes]);
+    setActiveItem({ kind: "empty" });
+    setComposer(null);
+  }, [activityId, recordTypeSettings, sortedNotes]);
 
   useEffect(() => {
-    if (
-      activeItem.kind === "saved" &&
-      !activeNote &&
-      composer.noteId !== activeItem.noteId
-    ) {
+    if (activeItem.kind === "saved" && !activeNote) {
       if (sortedNotes.length > 0) {
         setActiveItem({ kind: "saved", noteId: sortedNotes[0].id });
-        setComposer(buildComposerFromNote(sortedNotes[0]));
+        setComposer(buildComposerFromNote(sortedNotes[0], recordTypeSettings));
         return;
       }
 
-      const nextDraft = draftNote ?? createDraftNote("quick_note");
-      setDraftNote(nextDraft);
-      setActiveItem({ kind: "draft" });
-      setComposer(buildComposerFromDraft(nextDraft));
-    }
-  }, [activeItem, activeNote, composer.noteId, draftNote, sortedNotes]);
+      if (draftNote) {
+        setActiveItem({ kind: "draft" });
+        setComposer(buildComposerFromDraft(draftNote, recordTypeSettings));
+        return;
+      }
 
-  const handleCreateNote = useCallback((template: NoteTemplateKey = "quick_note") => {
-    if (draftNote) {
-      const nextDraft = updateDraftTemplate(
-        draftNote,
-        activeItem.kind === "draft" ? composer : buildComposerFromDraft(draftNote),
-        template,
-      );
-      setDraftNote(nextDraft);
-      setActiveItem({ kind: "draft" });
-      setComposer(buildComposerFromDraft(nextDraft));
-      setCreateMenuOpen(false);
+      setActiveItem({ kind: "empty" });
+      setComposer(null);
       return;
     }
 
-    const nextDraft = createDraftNote(template);
-    setDraftNote(nextDraft);
-    setActiveItem({ kind: "draft" });
-    setComposer(buildComposerFromDraft(nextDraft));
-    setCreateMenuOpen(false);
-  }, [activeItem.kind, composer, draftNote]);
+    if (activeItem.kind === "draft" && draftNote && composer === null) {
+      setComposer(buildComposerFromDraft(draftNote, recordTypeSettings));
+      return;
+    }
+
+    if (activeItem.kind === "empty" && sortedNotes.length > 0) {
+      setActiveItem({ kind: "saved", noteId: sortedNotes[0].id });
+      setComposer(buildComposerFromNote(sortedNotes[0], recordTypeSettings));
+    }
+  }, [activeItem.kind, activeNote, composer, draftNote, recordTypeSettings, sortedNotes]);
+
+  const handleCreateNote = useCallback(
+    (template: NoteTemplateKey) => {
+      if (draftNote && !isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings)) {
+        pushToast({
+          tone: "info",
+          title: "请先保存当前草稿",
+          detail: "当前已有未保存内容。保存后再新建其他记录类型，能避免草稿被覆盖。",
+        });
+        setCreateMenuOpen(false);
+        return;
+      }
+
+      const nextDraft = createDraftNote(template, recordTypeSettings);
+      setDraftNote(nextDraft);
+      setActiveItem({ kind: "draft" });
+      setComposer(buildComposerFromDraft(nextDraft, recordTypeSettings));
+      setCreateMenuOpen(false);
+    },
+    [draftNote, pushToast, recordTypeSettings],
+  );
 
   const handleEditRecord = useCallback(
     (value: string) => {
@@ -209,7 +223,7 @@ export function ActivityNotesPanel({
         }
 
         setActiveItem({ kind: "draft" });
-        setComposer(buildComposerFromDraft(draftNote));
+        setComposer(buildComposerFromDraft(draftNote, recordTypeSettings));
         setExpandedRecordValue(value);
         return;
       }
@@ -222,19 +236,23 @@ export function ActivityNotesPanel({
       }
 
       setActiveItem({ kind: "saved", noteId });
-      setComposer(buildComposerFromNote(nextNote));
+      setComposer(buildComposerFromNote(nextNote, recordTypeSettings));
       setExpandedRecordValue(value);
     },
-    [draftNote, sortedNotes],
+    [draftNote, recordTypeSettings, sortedNotes],
   );
 
   const handleEditorChange = useCallback(
     (value: RichEditorValue) => {
-      setComposer((current) => ({
-        ...current,
-        contentMarkdown: value.text,
-        contentHtml: value.html,
-      }));
+      setComposer((current) =>
+        current
+          ? {
+              ...current,
+              contentMarkdown: value.text,
+              contentHtml: value.html,
+            }
+          : current,
+      );
 
       if (activeItem.kind === "draft") {
         setDraftNote((current) =>
@@ -252,25 +270,33 @@ export function ActivityNotesPanel({
   );
 
   const handleSave = useCallback(
-    async (value: RichEditorValue) =>
-      persistComposerNote({
+    async (value: RichEditorValue) => {
+      if (!composer || activeItem.kind === "empty") {
+        return undefined;
+      }
+
+      return persistComposerNote({
         activeItem,
         activeNote,
         activityId,
         composer,
         draftNote,
+        noteTemplateSettings: recordTypeSettings,
         onUpsertNote,
         projectId,
         setActiveItem,
         setComposer,
         setDraftNote,
         value,
-      }),
-    [activeItem, activeNote, activityId, composer, draftNote, onUpsertNote, projectId],
+      });
+    },
+    [activeItem, activeNote, activityId, composer, draftNote, onUpsertNote, projectId, recordTypeSettings],
   );
 
   const handleAiRefine = useCallback(async () => {
     if (
+      !composer ||
+      activeItem.kind === "empty" ||
       !aiEnabled ||
       aiBusy ||
       aiPreparing ||
@@ -290,6 +316,7 @@ export function ActivityNotesPanel({
         activityId,
         composer,
         draftNote,
+        noteTemplateSettings: recordTypeSettings,
         onUpsertNote,
         projectId,
         setActiveItem,
@@ -312,7 +339,9 @@ export function ActivityNotesPanel({
       );
 
       setAiPreview({
-        noteTitle: savedNote.title?.trim() || noteTemplateDefaultTitle(savedNote.noteType),
+        noteTitle:
+          savedNote.title?.trim() ||
+          noteTemplateDefaultTitle(savedNote.noteType, recordTypeSettings),
         conclusions: currentNoteSuggestions.filter(
           (suggestion) => suggestion.suggestionType === "conclusion",
         ),
@@ -334,6 +363,7 @@ export function ActivityNotesPanel({
     onGenerateAiSuggestions,
     onUpsertNote,
     projectId,
+    recordTypeSettings,
   ]);
 
   const handleConfirmAiRefine = useCallback(async () => {
@@ -363,29 +393,35 @@ export function ActivityNotesPanel({
 
   const editorKey =
     activeItem.kind === "draft"
-      ? `draft:${draftNote?.localId ?? "new"}:${composer.noteType}`
-      : `note:${composer.noteId ?? "unknown"}:${composer.noteType}`;
+      ? `draft:${draftNote?.localId ?? "new"}:${composer?.noteType ?? defaultRecordType}`
+      : activeItem.kind === "saved"
+        ? `note:${composer?.noteId ?? "unknown"}:${composer?.noteType ?? defaultRecordType}`
+        : "record-empty";
   const recordResultItems = useMemo<RecordResultItem[]>(
     () => buildRecordResultItems({ activeItem, draftNote, notes: sortedNotes }),
     [activeItem, draftNote, sortedNotes],
   );
-  const noteHasContent = composer.contentMarkdown.trim().length > 0;
-  const recordMetaCopy = activeNote ? `更新于 ${formatDateTime(activeNote.updatedAt)}` : "新记录";
+  const noteHasContent = composer?.contentMarkdown.trim().length ? true : false;
+  const recordMetaCopy =
+    activeNote ? `更新于 ${formatDateTime(activeNote.updatedAt)}` : activeItem.kind === "draft" ? "新记录" : "尚未创建";
   const persistStateCopy =
-    editorPersistState === "saving"
-      ? activeItem.kind === "draft"
-        ? "首次保存中"
-        : "自动保存中"
-      : editorPersistState === "error"
-        ? "保存失败"
-        : editorPersistState === "dirty"
-          ? "等待保存"
-          : activeNote
-            ? "已保存"
-            : noteHasContent
-              ? "待保存"
-              : "空白草稿";
+    activeItem.kind === "empty"
+      ? "尚未创建"
+      : editorPersistState === "saving"
+        ? activeItem.kind === "draft"
+          ? "首次保存中"
+          : "自动保存中"
+        : editorPersistState === "error"
+          ? "保存失败"
+          : editorPersistState === "dirty"
+            ? "等待保存"
+            : activeNote
+              ? "已保存"
+              : noteHasContent
+                ? "待保存"
+                : "空白草稿";
   const aiActionDisabled =
+    activeItem.kind === "empty" ||
     !aiEnabled ||
     !noteHasContent ||
     saving ||
@@ -422,7 +458,7 @@ export function ActivityNotesPanel({
     <>
       <section className="activity-notes min-w-0">
         <SectionHeader
-          eyebrow={NOTE_TEMPLATES.quick_note.eyebrow}
+          eyebrow="Activity Notes"
           title="记录"
           className="activity-notes__header"
           actions={
@@ -443,21 +479,42 @@ export function ActivityNotesPanel({
                 </Button>
                 {createMenuOpen ? (
                   <PopoverPanel
-                    className="absolute left-0 top-[calc(100%+8px)] z-10 grid min-w-44 gap-1 p-1"
+                    className="absolute left-0 top-[calc(100%+8px)] z-10 grid min-w-48 gap-1 p-1"
                     role="menu"
                     aria-label="新建记录菜单"
                   >
-                    {NOTE_TEMPLATE_OPTIONS.map((option) => (
+                    {recordTypeMenuOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
                         role="menuitem"
-                        className="rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
+                        className="flex items-center gap-2 rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
                         onClick={() => handleCreateNote(option.value)}
                       >
-                        {option.label}
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: fileTagColorValue(option.colorKey) }}
+                          aria-hidden="true"
+                        />
+                        <span>{option.label}</span>
                       </button>
                     ))}
+                    {onManageRecordTypes ? (
+                      <div className="mt-1 border-t border-border pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="w-full justify-start px-3"
+                          onClick={() => {
+                            onManageRecordTypes();
+                            setCreateMenuOpen(false);
+                          }}
+                        >
+                          管理记录类型
+                        </Button>
+                      </div>
+                    ) : null}
                   </PopoverPanel>
                 ) : null}
               </div>
@@ -485,67 +542,76 @@ export function ActivityNotesPanel({
         <div className="activity-notes__workspace">
           <div className="activity-notes__editor-column">
             <div className="activity-notes__editor-card">
-              <div className="activity-notes__editor-topbar">
-                <div className="activity-notes__editor-topbar-meta">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {composer.noteType === "meeting_minutes" ? (
-                      <StatusBadge tone="neutral">会议记录</StatusBadge>
-                    ) : (
-                      <StatusBadge tone="neutral">记录</StatusBadge>
-                    )}
-                    {activeItem.kind === "draft" ? (
-                      <StatusBadge tone="warning">未保存草稿</StatusBadge>
-                    ) : null}
+              {composer ? (
+                <>
+                  <div className="activity-notes__editor-topbar">
+                    <div className="activity-notes__editor-topbar-meta">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <RecordTypeBadge
+                          label={noteTemplateLabel(composer.noteType, recordTypeSettings)}
+                          colorKey={noteTemplateColorKey(composer.noteType, recordTypeSettings)}
+                        />
+                        {activeItem.kind === "draft" ? <StatusBadge tone="warning">未保存草稿</StatusBadge> : null}
+                      </div>
+                      <span className="text-ui text-text-soft">{recordMetaCopy}</span>
+                    </div>
+                    <span
+                      className={[
+                        "activity-notes__persist-state",
+                        `activity-notes__persist-state--${editorPersistState}`,
+                        editorPersistState === "error" ? "text-danger" : "",
+                      ].join(" ")}
+                    >
+                      {persistStateCopy}
+                    </span>
                   </div>
-                  <span className="text-ui text-text-soft">{recordMetaCopy}</span>
-                </div>
-                <span
-                  className={[
-                    "activity-notes__persist-state",
-                    `activity-notes__persist-state--${editorPersistState}`,
-                    editorPersistState === "error" ? "text-danger" : "",
-                  ].join(" ")}
-                >
-                  {persistStateCopy}
-                </span>
-              </div>
 
-              <RichEditor
-                key={editorKey}
-                html={composer.contentHtml}
-                variant="toolbar"
-                autosave={{ delay: 800 }}
-                placeholder={noteTemplatePlaceholder(composer.noteType)}
-                onChange={handleEditorChange}
-                onPersistStateChange={setEditorPersistState}
-                onSave={handleSave}
-                assetHandlers={{
-                  insertImage: async (sourcePath) => {
-                    const doc = await onImportDocument(sourcePath);
-                    return {
-                      kind: "image" as const,
-                      title: doc.name,
-                      path: doc.managedPath,
-                      src: desktopApi.toFileUrl(doc.managedPath),
-                      mimeType: doc.mimeType,
-                      documentId: doc.id,
-                    };
-                  },
-                  insertFile: async (sourcePath) => {
-                    const doc = await onImportDocument(sourcePath);
-                    return {
-                      kind: "file" as const,
-                      title: doc.name,
-                      path: doc.managedPath,
-                      href: fileHref(doc.managedPath),
-                      mimeType: doc.mimeType,
-                      documentId: doc.id,
-                      meta: doc.mimeType,
-                    };
-                  },
-                }}
-                onOpenAsset={(asset) => (asset.path ? desktopApi.revealPath(asset.path) : undefined)}
-              />
+                  <RichEditor
+                    key={editorKey}
+                    html={composer.contentHtml}
+                    variant="toolbar"
+                    autosave={{ delay: 800 }}
+                    placeholder={noteTemplatePlaceholder(composer.noteType, recordTypeSettings)}
+                    onChange={handleEditorChange}
+                    onPersistStateChange={setEditorPersistState}
+                    onSave={handleSave}
+                    assetHandlers={{
+                      insertImage: async (sourcePath) => {
+                        const doc = await onImportDocument(sourcePath);
+                        return {
+                          kind: "image" as const,
+                          title: doc.name,
+                          path: doc.managedPath,
+                          src: desktopApi.toFileUrl(doc.managedPath),
+                          mimeType: doc.mimeType,
+                          documentId: doc.id,
+                        };
+                      },
+                      insertFile: async (sourcePath) => {
+                        const doc = await onImportDocument(sourcePath);
+                        return {
+                          kind: "file" as const,
+                          title: doc.name,
+                          path: doc.managedPath,
+                          href: fileHref(doc.managedPath),
+                          mimeType: doc.mimeType,
+                          documentId: doc.id,
+                          meta: doc.mimeType,
+                        };
+                      },
+                    }}
+                    onOpenAsset={(asset) => (asset.path ? desktopApi.revealPath(asset.path) : undefined)}
+                  />
+                </>
+              ) : (
+                <div className="p-4">
+                  <EmptyState
+                    title="还没有记录"
+                    text="点“新建”后选择记录类型，再开始记录当前 activity 的内容。"
+                    className="w-full"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -587,7 +653,10 @@ export function ActivityNotesPanel({
                         >
                           <div className="min-w-0 grid gap-1.5 text-left">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              <StatusBadge tone="neutral">{recordTypeLabel(item.noteType)}</StatusBadge>
+                              <RecordTypeBadge
+                                label={noteTemplateLabel(item.noteType, recordTypeSettings)}
+                                colorKey={noteTemplateColorKey(item.noteType, recordTypeSettings)}
+                              />
                               <span className="text-ui text-text-soft">{statusText}</span>
                             </div>
                             <p className="activity-notes__result-summary text-body font-medium text-text">
@@ -651,12 +720,7 @@ export function ActivityNotesPanel({
         widthClassName="max-w-3xl"
         footer={
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setAiPreview(null)}
-              disabled={aiApplying}
-            >
+            <Button type="button" variant="ghost" onClick={() => setAiPreview(null)} disabled={aiApplying}>
               取消
             </Button>
             <Button
@@ -730,13 +794,35 @@ export function ActivityNotesPanel({
   );
 }
 
-function buildComposerFromDraft(draft: DraftNoteState): ComposerState {
+function RecordTypeBadge({
+  label,
+  colorKey,
+}: {
+  label: string;
+  colorKey: ReturnType<typeof noteTemplateColorKey>;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-4)] px-2 py-1 text-caption font-medium tracking-[0.08em] text-text" style={{ backgroundColor: `color-mix(in srgb, ${fileTagColorValue(colorKey)} 14%, var(--color-bg))`, color: fileTagColorValue(colorKey) }}>
+      <span
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: fileTagColorValue(colorKey) }}
+        aria-hidden="true"
+      />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function buildComposerFromDraft(
+  draft: DraftNoteState,
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
+): ComposerState {
   return {
     key: `draft:${draft.localId}:${draft.noteType}`,
     noteType: draft.noteType,
-    title: draft.title || noteTemplateDefaultTitle(draft.noteType),
+    title: draft.title || noteTemplateDefaultTitle(draft.noteType, noteTemplateSettings),
     contentMarkdown: draft.contentMarkdown,
-    contentHtml: draft.contentHtml || noteTemplateDefaultHtml(draft.noteType),
+    contentHtml: draft.contentHtml || noteTemplateDefaultHtml(draft.noteType, noteTemplateSettings),
   };
 }
 
@@ -751,8 +837,7 @@ function buildRecordResultItems({
 }): RecordResultItem[] {
   const items: RecordResultItem[] = [];
 
-  if (draftNote) {
-    if (activeItem.kind !== "draft") {
+  if (draftNote && activeItem.kind !== "draft") {
     items.push({
       value: `draft:${draftNote.localId}`,
       noteType: draftNote.noteType,
@@ -764,7 +849,6 @@ function buildRecordResultItems({
       updatedAt: null,
       isDraft: true,
     });
-    }
   }
 
   for (const note of notes) {
@@ -785,46 +869,30 @@ function buildRecordResultItems({
   return items;
 }
 
-function buildComposerFromNote(note: NoteRecord): ComposerState {
+function buildComposerFromNote(
+  note: NoteRecord,
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
+): ComposerState {
   return {
     key: `note:${note.id}:${note.updatedAt}:${note.noteType}`,
     noteId: note.id,
     noteType: note.noteType,
-    title: note.title?.trim() || noteTemplateDefaultTitle(note.noteType),
+    title: note.title?.trim() || noteTemplateDefaultTitle(note.noteType, noteTemplateSettings),
     contentMarkdown: note.contentMarkdown,
     contentHtml: getRenderableNoteHtml(note),
-  };
-}
-
-function updateDraftTemplate(
-  draft: DraftNoteState | null,
-  composer: ComposerState,
-  nextTemplate: NoteTemplateKey,
-): DraftNoteState {
-  const baseDraft = draft ?? createDraftNote(composer.noteType);
-  const replaceTemplateContent = isDraftPristine(baseDraft, composer.noteType);
-
-  return {
-    ...baseDraft,
-    noteType: nextTemplate,
-    title: resolveNoteTitle(baseDraft.title, composer.noteType, nextTemplate),
-    contentMarkdown: replaceTemplateContent ? "" : composer.contentMarkdown,
-    contentHtml: replaceTemplateContent
-      ? noteTemplateDefaultHtml(nextTemplate)
-      : composer.contentHtml,
   };
 }
 
 function resolveNoteTitle(
   currentTitle: string | null | undefined,
   currentTemplate: NoteTemplateKey,
-  nextTemplate: NoteTemplateKey,
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
 ) {
-  if (isDefaultNoteTitle(currentTitle, currentTemplate)) {
-    return noteTemplateDefaultTitle(nextTemplate);
+  if (isDefaultNoteTitle(currentTitle, currentTemplate, noteTemplateSettings)) {
+    return noteTemplateDefaultTitle(currentTemplate, noteTemplateSettings);
   }
 
-  return currentTitle?.trim() || noteTemplateDefaultTitle(nextTemplate);
+  return currentTitle?.trim() || noteTemplateDefaultTitle(currentTemplate, noteTemplateSettings);
 }
 
 function persistComposerNote({
@@ -833,6 +901,7 @@ function persistComposerNote({
   activityId,
   composer,
   draftNote,
+  noteTemplateSettings,
   onUpsertNote,
   projectId,
   setActiveItem,
@@ -845,26 +914,29 @@ function persistComposerNote({
   activityId: number;
   composer: ComposerState;
   draftNote: DraftNoteState | null;
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null;
   onUpsertNote: (input: NoteUpsertInput) => Promise<NoteRecord>;
   projectId: number;
   setActiveItem: Dispatch<SetStateAction<ActiveItem>>;
-  setComposer: Dispatch<SetStateAction<ComposerState>>;
+  setComposer: Dispatch<SetStateAction<ComposerState | null>>;
   setDraftNote: Dispatch<SetStateAction<DraftNoteState | null>>;
   value: RichEditorValue;
 }) {
+  const normalizedValue = normalizeRichEditorValue(value);
+
   if (activeItem.kind === "draft") {
-    const currentDraft = draftNote ?? createDraftNote(composer.noteType);
+    const currentDraft = draftNote ?? createDraftNote(composer.noteType, noteTemplateSettings);
     const nextDraft = {
       ...currentDraft,
       noteType: composer.noteType,
       title: composer.title,
-      contentMarkdown: value.text,
-      contentHtml: value.html,
+      contentMarkdown: normalizedValue.text,
+      contentHtml: normalizedValue.html,
     };
 
     setDraftNote(nextDraft);
 
-    if (isDraftPristine(nextDraft, composer.noteType)) {
+    if (isDraftPristine(nextDraft, composer.noteType, noteTemplateSettings)) {
       return Promise.resolve(undefined);
     }
 
@@ -872,13 +944,13 @@ function persistComposerNote({
       projectId,
       activityId,
       noteType: composer.noteType,
-      title: resolveNoteTitle(nextDraft.title, nextDraft.noteType, composer.noteType),
-      markdown: value.text,
-      html: value.html,
+      title: resolveNoteTitle(nextDraft.title, nextDraft.noteType, noteTemplateSettings),
+      markdown: normalizedValue.text,
+      html: normalizedValue.html,
     }).then((createdNote) => {
       setDraftNote(null);
       setActiveItem({ kind: "saved", noteId: createdNote.id });
-      setComposer(buildComposerFromNote(createdNote));
+      setComposer(buildComposerFromNote(createdNote, noteTemplateSettings));
       return createdNote;
     });
   }
@@ -892,11 +964,11 @@ function persistComposerNote({
     activityId,
     noteId: activeNote.id,
     noteType: composer.noteType,
-    title: resolveNoteTitle(activeNote.title, activeNote.noteType, composer.noteType),
-    markdown: value.text,
-    html: value.html,
+    title: resolveNoteTitle(activeNote.title, activeNote.noteType, noteTemplateSettings),
+    markdown: normalizedValue.text,
+    html: normalizedValue.html,
   }).then((updatedNote) => {
-    setComposer(buildComposerFromNote(updatedNote));
+    setComposer(buildComposerFromNote(updatedNote, noteTemplateSettings));
     return updatedNote;
   });
 }
@@ -904,18 +976,21 @@ function persistComposerNote({
 function isDraftPristine(
   draft: Pick<DraftNoteState, "contentHtml" | "contentMarkdown">,
   template: NoteTemplateKey,
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
 ) {
   return (
-    normalizeEditorHtml(draft.contentHtml) === normalizeEditorHtml(noteTemplateDefaultHtml(template)) &&
+    normalizeEditorHtml(draft.contentHtml, noteTemplateSettings) ===
+      normalizeEditorHtml(noteTemplateDefaultHtml(template, noteTemplateSettings), noteTemplateSettings) &&
     draft.contentMarkdown.trim().length === 0
   );
 }
 
-function normalizeEditorHtml(html: string) {
+function normalizeEditorHtml(
+  html: string,
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
+) {
   const normalized = html.trim();
-  return normalized.length > 0 ? normalized : noteTemplateDefaultHtml("quick_note");
-}
-
-function recordTypeLabel(template: NoteTemplateKey) {
-  return template === "meeting_minutes" ? "会议记录" : "记录";
+  return normalized.length > 0
+    ? normalized
+    : noteTemplateDefaultHtml(defaultNoteTemplateKey(noteTemplateSettings), noteTemplateSettings);
 }

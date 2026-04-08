@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle, MoreHorizontal, Plus, Share2 } from "lucide-react";
@@ -10,7 +10,6 @@ import type {
   ConclusionGroup,
   ConclusionRecord,
 } from "../../lib/types";
-import { activityAttributeLabel } from "../../lib/constants";
 import {
   formatOverviewDate,
   parseRouteId,
@@ -34,14 +33,17 @@ import {
   SurfaceCard,
   TextField,
 } from "../../ui/components";
+import { cn } from "../../ui/lib/cn";
 import {
   getRenderableRichTextHtml,
+  normalizeRichEditorValue,
   RichEditor,
   type RichEditorValue,
 } from "../rich-editor";
 import { ProjectSidebar, type ProjectSidebarActivityItem } from "../layout/ProjectSidebar";
 import { TodoRail } from "../todo";
 import { ManagedDocumentSection } from "../document/ManagedDocumentSection";
+import { ActivityAttributeTag } from "../activity/ActivityAttributeTag";
 
 export function ProjectOverviewPage() {
   const navigate = useNavigate();
@@ -86,21 +88,42 @@ export function ProjectOverviewPage() {
     navigate(path),
   );
   const { createActivityMutation, conclusionUpdateMutation } = useActivityMutations();
-  const { todoMutation, todoContentMutation, todoStatusMutation, todoProgressMutation } =
-    useTodoMutations([
-      ...(overviewQuery.data?.unfinishedTodos ?? []),
-      ...(overviewQuery.data?.finishedTodos ?? []),
-    ]);
+  const {
+    todoMutation,
+    todoContentMutation,
+    todoStatusMutation,
+    todoPriorityMutation,
+    todoProgressMutation,
+  } = useTodoMutations([
+    ...(overviewQuery.data?.unfinishedTodos ?? []),
+    ...(overviewQuery.data?.finishedTodos ?? []),
+  ]);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
+  const nameSkipBlurRef = useRef(false);
+  const summarySkipBlurRef = useRef(false);
+  const summaryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (activeProject) {
+      setNameDraft(activeProject.name);
+      setNameEditing(false);
       setSummaryDraft(activeProject.summary);
       setSummaryEditing(false);
     }
-  }, [activeProject?.id, activeProject?.summary]);
+  }, [activeProject?.id, activeProject?.name, activeProject?.summary]);
+
+  useEffect(() => {
+    if (!summaryEditing || !summaryTextareaRef.current) {
+      return;
+    }
+    const textarea = summaryTextareaRef.current;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 120)}px`;
+  }, [summaryDraft, summaryEditing]);
 
   const overview = overviewQuery.data;
   useFocusTarget(focusId, [overview]);
@@ -120,14 +143,73 @@ export function ProjectOverviewPage() {
         title: activity.title,
         activityTime: activity.activityTime,
         attributeLabel: activity.attributeLabel,
+        attributeColorKey: activity.attributeColorKey,
         documentCount: activity.documentCount,
         completedTodoCount: activity.completedTodoCount,
         totalTodoCount: activity.totalTodoCount,
         statusLabel: activity.statusLabel,
-        statusNeedsAttention: activity.statusNeedsAttention,
+        statusColorKey: activity.statusColorKey,
       })) ?? [],
     [overview?.activityFeed],
   );
+
+  function handleOpenProjectFolder(rootPath: string) {
+    void desktopApi.openFolder(rootPath).catch((error) => {
+      pushToast({
+        tone: "error",
+        title: "打开项目目录失败",
+        detail: String(error),
+      });
+    });
+  }
+
+  function handleSaveProjectName() {
+    if (!activeProject) {
+      return;
+    }
+    const nextName = nameDraft.trim();
+    if (!nextName) {
+      pushToast({
+        tone: "error",
+        title: "项目名称不能为空",
+      });
+      setNameDraft(activeProject.name);
+      setNameEditing(false);
+      return;
+    }
+    if (nextName === activeProject.name.trim()) {
+      setNameDraft(activeProject.name);
+      setNameEditing(false);
+      return;
+    }
+    summaryMutation.mutate({
+      projectId: activeProject.id,
+      name: nextName,
+      summary: activeProject.summary,
+      status: activeProject.status,
+    });
+    setNameDraft(nextName);
+    setNameEditing(false);
+  }
+
+  function handleSaveProjectSummary() {
+    if (!activeProject) {
+      return;
+    }
+    const nextSummary = summaryDraft.trim();
+    if (nextSummary === activeProject.summary.trim()) {
+      setSummaryDraft(activeProject.summary);
+      setSummaryEditing(false);
+      return;
+    }
+    summaryMutation.mutate({
+      projectId: activeProject.id,
+      summary: nextSummary,
+      status: activeProject.status,
+    });
+    setSummaryDraft(nextSummary);
+    setSummaryEditing(false);
+  }
 
   if (!activeProject || !overview) {
     return (
@@ -156,78 +238,102 @@ export function ProjectOverviewPage() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-display font-medium tracking-tight text-text">
-                  {activeProject.name}
-                </h1>
+                {nameEditing ? (
+                  <TextField
+                    aria-label="项目名称"
+                    value={nameDraft}
+                    autoFocus
+                    className="h-11 min-w-[16rem] max-w-[28rem] rounded-[var(--radius-8)] border-border-strong bg-bg px-3 text-display font-medium tracking-tight"
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    onBlur={() => {
+                      if (nameSkipBlurRef.current) {
+                        nameSkipBlurRef.current = false;
+                        return;
+                      }
+                      handleSaveProjectName();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        nameSkipBlurRef.current = true;
+                        setNameDraft(activeProject.name);
+                        setNameEditing(false);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-display font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
+                    onClick={() => setNameEditing(true)}
+                  >
+                    {activeProject.name}
+                  </button>
+                )}
                 {activeProject.isArchived ? (
                   <StatusBadge tone="neutral">archived</StatusBadge>
                 ) : null}
               </div>
-              <div className="mt-2 flex max-w-4xl flex-wrap items-center gap-x-3 gap-y-1 text-ui text-text-soft">
-                <span className="truncate" title={activeProject.rootPath}>
-                  项目目录：{activeProject.rootPath}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 bg-transparent text-ui text-text-soft transition-colors hover:text-text"
-                  onClick={() => {
-                    void desktopApi.openFolder(activeProject.rootPath).catch((error) => {
-                      pushToast({
-                        tone: "error",
-                        title: "打开项目目录失败",
-                        detail: String(error),
-                      });
-                    });
-                  }}
-                >
-                  在资源管理器中打开项目目录
-                </button>
-              </div>
+              <button
+                type="button"
+                className="mt-2 inline-flex max-w-4xl items-center rounded-[var(--radius-6)] bg-transparent px-2 py-1 text-left text-ui text-text-soft transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover hover:text-text"
+                title={activeProject.rootPath}
+                onClick={() => handleOpenProjectFolder(activeProject.rootPath)}
+              >
+                <span className="truncate">项目目录：{activeProject.rootPath}</span>
+              </button>
 
               {summaryEditing ? (
-                <div className="mt-4 max-w-3xl">
-                  <textarea
-                    value={summaryDraft}
-                    onChange={(event) => setSummaryDraft(event.target.value)}
-                    rows={4}
-                    className="w-full rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3 text-body leading-6 text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-                  />
-                  <div className="mt-2 flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="primary"
-                      onClick={() => {
-                        summaryMutation.mutate({
-                          projectId: activeProject.id,
-                          summary: summaryDraft,
-                          status: activeProject.status,
-                        });
-                        setSummaryEditing(false);
-                      }}
-                    >
-                      保存
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setSummaryDraft(activeProject.summary);
-                        setSummaryEditing(false);
-                      }}
-                    >
-                      取消
-                    </Button>
-                  </div>
-                </div>
+                <textarea
+                  ref={summaryTextareaRef}
+                  aria-label="项目简介"
+                  value={summaryDraft}
+                  rows={4}
+                  autoFocus
+                  placeholder="填写项目当前阶段、目标和关键约束。"
+                  className="mt-4 min-h-[7.5rem] w-full max-w-3xl resize-none overflow-hidden rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 text-body leading-6 text-text outline-none transition-[border-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+                  onChange={(event) => setSummaryDraft(event.target.value)}
+                  onBlur={() => {
+                    if (summarySkipBlurRef.current) {
+                      summarySkipBlurRef.current = false;
+                      return;
+                    }
+                    handleSaveProjectSummary();
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      summarySkipBlurRef.current = true;
+                      setSummaryDraft(activeProject.summary);
+                      setSummaryEditing(false);
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
               ) : (
                 <button
                   type="button"
-                  className="mt-3 max-w-3xl rounded-[var(--radius-8)] bg-transparent p-0 text-left text-body leading-6 text-text-muted transition-colors hover:text-text"
+                  className="mt-4 w-full max-w-3xl rounded-[var(--radius-8)] border border-transparent bg-bg-subtle px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg hover:shadow-[var(--shadow-sm)]"
                   onClick={() => setSummaryEditing(true)}
                 >
-                  {activeProject.summary || "点击添加项目简介，说明当前阶段、目标和关键约束。"}
+                  <span
+                    className={cn(
+                      "block whitespace-pre-wrap text-body leading-6",
+                      activeProject.summary ? "text-text-muted" : "text-text-soft",
+                    )}
+                  >
+                    {activeProject.summary || "点击添加项目简介，说明当前阶段、目标和关键约束。"}
+                  </span>
                 </button>
               )}
             </div>
@@ -339,12 +445,19 @@ export function ProjectOverviewPage() {
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={(payload) => todoMutation.mutate({ projectId: activeProject.id, ...payload })}
         onToggleStatus={(todoId, status) => todoStatusMutation.mutateAsync({ todoId, status })}
+        onUpdatePriority={(todoId, priority) =>
+          todoPriorityMutation.mutateAsync({ todoId, priority })
+        }
         onUpdateContent={(todoId, content) =>
           todoContentMutation.mutateAsync({ todoId, content })
         }
         onAddProgress={(todoId, payload) =>
           todoProgressMutation.mutateAsync({ todoId, ...payload })
         }
+        onOpenTodoSource={(todo) => {
+          if (!todo.activityId) return;
+          navigate(activityPath(activeProject.id, todo.activityId, `todo-${todo.id}`));
+        }}
         onError={(message) =>
           pushToast({ tone: "error", title: "进展保存失败", detail: message })
         }
@@ -446,21 +559,21 @@ function ConclusionGroupSection({
     promotedToProject: boolean,
   ) => void;
 }) {
-  const tone =
-    activity?.statusNeedsAttention
-      ? "warning"
-      : index % 2 === 0
-        ? "accent"
-        : "success";
+  const tone = index % 2 === 0 ? "accent" : "success";
 
   return (
     <SurfaceCard as="article" className="grid gap-2 px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={tone}>
-              {activity ? activityAttributeLabel(activity.attributeLabel) : "project"}
-            </StatusBadge>
+            {activity ? (
+              <ActivityAttributeTag
+                label={activity.attributeLabel}
+                colorKey={activity.attributeColorKey ?? null}
+              />
+            ) : (
+              <StatusBadge tone={tone}>project</StatusBadge>
+            )}
             <span className="text-caption text-text-soft">{group.conclusions.length} 条结论</span>
           </div>
           <h3 className="mt-1 line-clamp-1 text-body font-medium leading-5 text-text">
@@ -542,10 +655,12 @@ function InlineConclusionEditor({
               size="sm"
               variant="primary"
               onClick={() => {
+                const normalizedDraft = normalizeRichEditorValue(draft);
+
                 onSave(
                   conclusion.id,
-                  draft.markdown,
-                  draft.html,
+                  normalizedDraft.markdown,
+                  normalizedDraft.html,
                   conclusion.promotedToProject,
                 );
                 setEditing(false);

@@ -1,7 +1,7 @@
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { noteTemplateLabel } from "../lib/note-templates";
 import { projectMindApi } from "../services/projectMindApi";
-import type { ActivityCardData, NoteRecord } from "../lib/types";
+import type { ActivityCardData, NoteRecord, RecordTypeSettingsSnapshot } from "../lib/types";
 import { useFeedbackStore } from "../state/feedback-store";
 import { useUiStore } from "../state/ui-store";
 import { refreshAll } from "./shared";
@@ -39,10 +39,13 @@ export function useActivityMutations() {
   const noteMutation = useMutation({
     mutationFn: projectMindApi.noteUpsert,
     onSuccess: async (note, input) => {
+      const recordTypeSettings = queryClient.getQueryData<RecordTypeSettingsSnapshot>([
+        "record-type-settings",
+      ]);
       setStatus({
         tone: "success",
         label: input.noteId ? "Saved" : "Created",
-        message: `${noteTemplateLabel(note.noteType)}已保存`,
+        message: `${noteTemplateLabel(note.noteType, recordTypeSettings)}已保存`,
       });
       upsertNoteInCache(queryClient, note);
       if (!input.noteId) {

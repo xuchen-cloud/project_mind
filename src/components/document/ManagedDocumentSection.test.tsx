@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DocumentRecord } from "../../lib/types";
+import type { DocumentRecord, FileTagRecord } from "../../lib/types";
 
 const documentMutationMocks = vi.hoisted(() => ({
   documentImportMutation: { mutate: vi.fn(), isPending: false },
@@ -13,10 +13,18 @@ const documentMutationMocks = vi.hoisted(() => ({
 }));
 
 const desktopApiMocks = vi.hoisted(() => ({
-  pickFile: vi.fn<(input?: unknown) => Promise<string | null>>(async () => null),
+  pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
   openFile: vi.fn(async () => undefined),
   openFolder: vi.fn(async () => undefined),
   revealInExplorer: vi.fn(async () => undefined),
+}));
+
+const projectMindApiMocks = vi.hoisted(() => ({
+  fileTagSettingsGet: vi.fn(async () => ({ tags: [] as FileTagRecord[] })),
+}));
+
+const uiStoreMocks = vi.hoisted(() => ({
+  openSettings: vi.fn(),
 }));
 
 vi.mock("../../hooks/useDocumentMutations", () => ({
@@ -25,11 +33,24 @@ vi.mock("../../hooks/useDocumentMutations", () => ({
 
 vi.mock("../../services/desktopApi", () => ({
   desktopApi: {
-    pickFile: desktopApiMocks.pickFile,
+    pickFiles: desktopApiMocks.pickFiles,
     openFile: desktopApiMocks.openFile,
     openFolder: desktopApiMocks.openFolder,
     revealInExplorer: desktopApiMocks.revealInExplorer,
   },
+}));
+
+vi.mock("../../services/projectMindApi", () => ({
+  projectMindApi: {
+    fileTagSettingsGet: projectMindApiMocks.fileTagSettingsGet,
+  },
+}));
+
+vi.mock("../../state/ui-store", () => ({
+  useUiStore: (selector: (state: { openSettings: typeof uiStoreMocks.openSettings }) => unknown) =>
+    selector({
+      openSettings: uiStoreMocks.openSettings,
+    }),
 }));
 
 import { ManagedDocumentSection } from "./ManagedDocumentSection";
@@ -40,15 +61,18 @@ describe("ManagedDocumentSection", () => {
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentRelocateMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
-    desktopApiMocks.pickFile.mockReset();
+    desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.openFolder.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
+    projectMindApiMocks.fileTagSettingsGet.mockReset();
+    uiStoreMocks.openSettings.mockReset();
 
-    desktopApiMocks.pickFile.mockResolvedValue(null);
+    desktopApiMocks.pickFiles.mockResolvedValue([]);
     desktopApiMocks.openFile.mockResolvedValue(undefined);
     desktopApiMocks.openFolder.mockResolvedValue(undefined);
     desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
   });
 
   it("does not show a version badge for single-version documents", () => {
@@ -144,18 +168,118 @@ describe("ManagedDocumentSection", () => {
     });
   });
 
-  it("imports a file without legacy role or project visibility fields", async () => {
+  it("renders tag dots on the card without showing the tag names inside the card body", async () => {
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
+      tags: [buildFileTag({ id: 1, label: "法务", colorKey: "blue" })],
+    });
+
+    renderSection([
+      buildDocument({
+        id: 13,
+        tags: [buildDocumentTag({ id: 1, label: "法务", colorKey: "blue" })],
+      }),
+    ]);
+
+    const documentCard = await screen.findByRole("button", { name: /文件标签：法务/ });
+    expect(within(documentCard).queryByText("法务")).not.toBeInTheDocument();
+    expect(documentCard.querySelector(".rounded-full")).not.toBeNull();
+  });
+
+  it("filters documents with OR logic across multiple selected tags", async () => {
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
+      tags: [
+        buildFileTag({ id: 1, label: "法务", colorKey: "blue" }),
+        buildFileTag({ id: 2, label: "紧急", colorKey: "red" }),
+      ],
+    });
+
     const user = userEvent.setup();
-    desktopApiMocks.pickFile.mockResolvedValueOnce("/tmp/project/brief.pdf");
+
+    renderSection([
+      buildDocument({
+        id: 1,
+        baseName: "合同审阅.pdf",
+        tags: [buildDocumentTag({ id: 1, label: "法务", colorKey: "blue" })],
+      }),
+      buildDocument({
+        id: 2,
+        baseName: "风险说明.pdf",
+        tags: [buildDocumentTag({ id: 2, label: "紧急", colorKey: "red" })],
+      }),
+      buildDocument({
+        id: 3,
+        baseName: "周报.pdf",
+        tags: [],
+      }),
+    ]);
+
+    const allFilterButton = await screen.findByRole("button", { name: "全部" });
+    const filterBar = allFilterButton.parentElement?.parentElement as HTMLElement;
+
+    await user.click(within(filterBar).getByRole("button", { name: /法务/ }));
+    expect(screen.getByText("合同审阅.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("风险说明.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText("周报.pdf")).not.toBeInTheDocument();
+
+    await user.click(within(filterBar).getByRole("button", { name: /紧急/ }));
+    expect(screen.getByText("合同审阅.pdf")).toBeInTheDocument();
+    expect(screen.getByText("风险说明.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("周报.pdf")).not.toBeInTheDocument();
+
+    await user.click(within(filterBar).getByRole("button", { name: "全部" }));
+    expect(screen.getByText("周报.pdf")).toBeInTheDocument();
+  });
+
+  it("imports selected files without legacy role or project visibility fields", async () => {
+    const user = userEvent.setup();
+    desktopApiMocks.pickFiles.mockResolvedValueOnce([
+      "/tmp/project/brief.pdf",
+      "/tmp/project/notes.docx",
+    ]);
 
     renderSection([]);
 
     await user.click(screen.getByRole("button", { name: "导入文件" }));
 
-    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenCalledWith({
+    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
       projectId: 1,
       sourcePath: "/tmp/project/brief.pdf",
       isStarred: false,
+    });
+    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
+      projectId: 1,
+      sourcePath: "/tmp/project/notes.docx",
+      isStarred: false,
+    });
+  });
+
+  it("imports dropped windows file uris using native windows paths", async () => {
+    const { container } = renderSection([]);
+    const dropTarget = container.querySelector("[class~='grid'][class~='gap-4'] > div");
+
+    expect(dropTarget).not.toBeNull();
+
+    fireEvent.drop(dropTarget as HTMLElement, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) =>
+          type === "text/uri-list"
+            ? "file:///C:/Users/demo/brief.pdf\nfile://server/share/notes.docx"
+            : "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
+        projectId: 1,
+        sourcePath: "C:\\Users\\demo\\brief.pdf",
+        isStarred: false,
+      });
+      expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
+        projectId: 1,
+        sourcePath: "\\\\server\\share\\notes.docx",
+        isStarred: false,
+      });
     });
   });
 
@@ -179,6 +303,70 @@ describe("ManagedDocumentSection", () => {
     expect(documentMutationMocks.documentMetaMutation.mutate).toHaveBeenCalledWith({
       documentId: 7,
       isStarred: true,
+    });
+  });
+
+  it("opens a tag context menu on right click and updates tag ids immediately", async () => {
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
+      tags: [
+        buildFileTag({ id: 1, label: "法务", colorKey: "blue" }),
+        buildFileTag({ id: 2, label: "紧急", colorKey: "red" }),
+      ],
+    });
+
+    renderSection([
+      buildDocument({
+        id: 7,
+        tags: [buildDocumentTag({ id: 1, label: "法务", colorKey: "blue" })],
+      }),
+    ]);
+
+    const documentCard = document.getElementById("document-7");
+    expect(documentCard).not.toBeNull();
+
+    fireEvent.contextMenu(documentCard as HTMLElement);
+
+    const urgentCheckbox = await screen.findByLabelText("紧急");
+    fireEvent.click(urgentCheckbox);
+
+    expect(documentMutationMocks.documentMetaMutation.mutate).toHaveBeenCalledWith(
+      {
+        documentId: 7,
+        tagIds: [1, 2],
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("opens an import tag dialog when workspace tags exist and applies selected tag ids to every file", async () => {
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
+      tags: [buildFileTag({ id: 3, label: "待审核", colorKey: "amber" })],
+    });
+    desktopApiMocks.pickFiles.mockResolvedValueOnce([
+      "/tmp/project/brief.pdf",
+      "/tmp/project/notes.docx",
+    ]);
+
+    const user = userEvent.setup();
+    renderSection([]);
+
+    await user.click(await screen.findByRole("button", { name: "导入文件" }));
+    expect(await screen.findByRole("dialog", { name: "选择导入标签" })).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("待审核"));
+    await user.click(screen.getByRole("button", { name: "开始导入" }));
+
+    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
+      projectId: 1,
+      sourcePath: "/tmp/project/brief.pdf",
+      isStarred: false,
+      tagIds: [3],
+    });
+    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
+      projectId: 1,
+      sourcePath: "/tmp/project/notes.docx",
+      isStarred: false,
+      tagIds: [3],
     });
   });
 });
@@ -214,7 +402,29 @@ function buildDocument(partial: Partial<DocumentRecord> = {}): DocumentRecord {
     versionCount: partial.versionCount ?? 1,
     sourceActivityTitle: partial.sourceActivityTitle ?? null,
     health: partial.health ?? "normal",
+    tags: partial.tags ?? [],
     createdAt: partial.createdAt ?? "2026-04-06T08:00:00.000Z",
     updatedAt: partial.updatedAt ?? "2026-04-06T09:00:00.000Z",
+  };
+}
+
+function buildDocumentTag(
+  partial: Partial<DocumentRecord["tags"][number]> = {},
+): DocumentRecord["tags"][number] {
+  return {
+    id: partial.id ?? 1,
+    label: partial.label ?? "法务",
+    colorKey: partial.colorKey ?? "blue",
+  };
+}
+
+function buildFileTag(partial: Partial<FileTagRecord> = {}): FileTagRecord {
+  return {
+    id: partial.id ?? 1,
+    label: partial.label ?? "法务",
+    colorKey: partial.colorKey ?? "blue",
+    usageCount: partial.usageCount ?? 0,
+    createdAt: partial.createdAt ?? "2026-04-06T08:00:00.000Z",
+    updatedAt: partial.updatedAt ?? "2026-04-06T08:00:00.000Z",
   };
 }

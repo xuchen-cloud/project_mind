@@ -39,12 +39,12 @@ export function useProjectMutations(
   const summaryMutation = useMutation({
     mutationFn: projectMindApi.projectUpdateSummary,
     onSuccess: async (_, input) => {
-      setStatus({ tone: "success", label: "Saved", message: "项目摘要已保存" });
+      setStatus({ tone: "success", label: "Synced", message: "项目信息已同步" });
       await refreshProjectScope(queryClient, input.projectId);
     },
     onError: (error) => {
-      setStatus({ tone: "error", label: "Error", message: "保存摘要失败" });
-      pushToast({ tone: "error", title: "保存摘要失败", detail: String(error) });
+      setStatus({ tone: "error", label: "Error", message: "保存项目信息失败" });
+      pushToast({ tone: "error", title: "保存项目信息失败", detail: String(error) });
     },
   });
 

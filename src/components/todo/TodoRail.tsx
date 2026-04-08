@@ -7,7 +7,12 @@ import { Button, IconButton, SurfaceCard, TextField } from "../../ui/components"
 import { cn } from "../../ui/lib/cn";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
-import { sortTodos, TODO_PRIORITY_OPTIONS, type TodoSortMode } from "./todo-utils";
+import {
+  priorityColorValue,
+  sortTodos,
+  TODO_PRIORITY_OPTIONS,
+  type TodoSortMode,
+} from "./todo-utils";
 
 interface TodoRailProps {
   title: string;
@@ -18,11 +23,13 @@ interface TodoRailProps {
   createPlaceholder: string;
   onCreateTodo: (payload: { content: string; priority: TodoPriority }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
+  onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
 }
 
@@ -58,21 +65,30 @@ export function TodoRail({
   createPlaceholder,
   onCreateTodo,
   onToggleStatus,
+  onUpdatePriority,
   onUpdateContent,
   onAddProgress,
+  onOpenTodoSource,
   onError,
 }: TodoRailProps) {
   const { todoRailCollapsed, setTodoRailCollapsed, toggleTodoRailCollapsed } = useUiStore();
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
+  const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [content, setContent] = useState("");
   const [priority, setPriority] = useState<TodoPriority>("not_urgent_important");
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
 
-  const activeTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
-  const todos = useMemo(() => sortTodos(activeTodos, sortMode), [activeTodos, sortMode]);
-  const showSortSwitch = activeTodos.length > 1;
+  const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
+  const todos = useMemo(() => {
+    const filteredTodos =
+      priorityFilter === null
+        ? tabTodos
+        : tabTodos.filter((todo) => todo.priority === priorityFilter);
+    return sortTodos(filteredTodos, sortMode);
+  }, [priorityFilter, sortMode, tabTodos]);
+  const showSortSwitch = todos.length > 1;
   const summaryText = useMemo(
     () => `${unfinishedTodos.length} 未完成 · ${finishedTodos.length} 已完成`,
     [finishedTodos.length, unfinishedTodos.length],
@@ -190,7 +206,7 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center rounded-full border border-border bg-bg p-1">
             <RailTabButton active={tab === "unfinished"} onClick={() => setTab("unfinished")}>
               未完成
@@ -198,6 +214,22 @@ export function TodoRail({
             <RailTabButton active={tab === "finished"} onClick={() => setTab("finished")}>
               已完成
             </RailTabButton>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+            <div className="flex items-center gap-1">
+              {TODO_PRIORITY_OPTIONS.map((option) => (
+                <PriorityPillButton
+                  key={option.value}
+                  priority={option.value}
+                  active={priorityFilter === option.value}
+                  title={option.optionLabel}
+                  onClick={() =>
+                    setPriorityFilter((current) => (current === option.value ? null : option.value))
+                  }
+                >
+                  {option.code}
+                </PriorityPillButton>
+              ))}
+            </div>
           </div>
 
           {showSortSwitch ? <TodoSortSwitch value={sortMode} onChange={setSortMode} /> : null}
@@ -216,18 +248,20 @@ export function TodoRail({
               }}
               placeholder={createPlaceholder}
             />
-            <div className="flex items-center gap-2">
-              <select
-                value={priority}
-                onChange={(event) => setPriority(event.target.value as TodoPriority)}
-                className="h-8 flex-1 rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-              >
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+                  <PriorityPillButton
+                    key={option.value}
+                    priority={option.value}
+                    active={priority === option.value}
+                    title={option.optionLabel}
+                    onClick={() => setPriority(option.value)}
+                  >
+                    {option.code}
+                  </PriorityPillButton>
                 ))}
-              </select>
+              </div>
               <Button type="button" size="sm" variant="primary" onClick={submitCreate}>
                 保存
               </Button>
@@ -246,12 +280,50 @@ export function TodoRail({
             onToggleExpanded={toggleExpanded}
             emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
             onToggleStatus={onToggleStatus}
+            onUpdatePriority={onUpdatePriority}
             onUpdateContent={onUpdateContent}
             onAddProgress={onAddProgress}
+            onOpenTodoSource={onOpenTodoSource}
             onError={onError}
           />
         </div>
       </div>
     </aside>
+  );
+}
+
+function PriorityPillButton({
+  active,
+  children,
+  priority,
+  title,
+  onClick,
+}: {
+  active: boolean;
+  children: string;
+  priority: TodoPriority;
+  title?: string;
+  onClick: () => void;
+}) {
+  const colorValue = priorityColorValue(priority);
+
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      title={title}
+      className="h-7 rounded-full border px-2.5 text-caption font-medium tracking-[0.1em] transition-[background-color,border-color,color,opacity] duration-[160ms] ease-[var(--ease-soft)] hover:opacity-100"
+      style={{
+        borderColor: `color-mix(in srgb, ${colorValue} ${active ? 28 : 18}%, var(--color-border))`,
+        backgroundColor: active
+          ? `color-mix(in srgb, ${colorValue} 16%, var(--color-bg))`
+          : `color-mix(in srgb, ${colorValue} 6%, var(--color-bg))`,
+        color: colorValue,
+        opacity: active ? 1 : 0.82,
+      }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }

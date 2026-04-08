@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde_json::{json, Value};
 
 use crate::{
@@ -21,12 +21,15 @@ use crate::{
         AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionGroup,
         ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, DocumentAddVersionInput,
         DocumentImportInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
-        DocumentUpdateMetaInput, DocumentVersionRecord, NoteRecord, NoteUpsertInput,
-        ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
-        ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
-        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
-        TodoAddProgressInput, TodoCreateInput, TodoProgressRecord, TodoRecord,
-        TodoUpdateContentInput, TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        DocumentTagRecord, DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
+        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteRecord,
+        NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
+        ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
+        ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
+        RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextStyleBlockSettings,
+        RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
+        TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
+        TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
 };
@@ -35,6 +38,10 @@ const TODO_SCHEMA_VERSION: i64 = 2;
 const FILE_LAYOUT_SCHEMA_VERSION: i64 = 3;
 const DOCUMENT_SCHEMA_VERSION: i64 = 4;
 const ACTIVITY_SETTINGS_SCHEMA_VERSION: i64 = 5;
+const FILE_TAG_SCHEMA_VERSION: i64 = 6;
+const ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION: i64 = 7;
+const ACTIVITY_STATUS_COLOR_SCHEMA_VERSION: i64 = 8;
+const RECORD_TYPE_SCHEMA_VERSION: i64 = 8;
 const LEGACY_FILE_LAYOUT_VERSION: i64 = 1;
 const CURRENT_FILE_LAYOUT_VERSION: i64 = 2;
 const AI_CAPABILITIES: [&str; 4] = ["default", "assistant", "summary", "suggestion_generation"];
@@ -44,11 +51,31 @@ const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
     "noto_sans_sc",
     "source_serif",
 ];
+const FILE_TAG_COLOR_KEYS: [&str; 8] = [
+    "slate", "blue", "teal", "green", "amber", "orange", "red", "rose",
+];
+const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
+const DEFAULT_RECORD_TYPE_KEY: &str = "quick_note";
+const DEFAULT_RECORD_TYPE_LABEL: &str = "原始记录";
+const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
+const DEFAULT_RECORD_TYPE_TEMPLATE_HTML: &str = "<p></p>";
+const MEETING_RECORD_TYPE_KEY: &str = "meeting_minutes";
+const MEETING_RECORD_TYPE_LABEL: &str = "会议记录";
+const MEETING_RECORD_TYPE_COLOR_KEY: &str = "blue";
+const MEETING_RECORD_TYPE_TEMPLATE_HTML: &str =
+    "<h2>背景</h2><p></p><h2>讨论要点</h2><p></p><h2>初步结论</h2><p></p><h2>行动项</h2><p></p>";
 const SYSTEM_ACTIVITY_STATUS_PENDING: &str = "pending";
 const SYSTEM_ACTIVITY_STATUS_PENDING_LABEL: &str = "待启动";
 const LEGACY_ACTIVITY_STATUS_REVIEW_LABEL: &str = "待复核";
 const LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL: &str = "已整理";
+const DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY: &str = "slate";
+const DEFAULT_ACTIVITY_STATUS_COLOR_KEY: &str = "amber";
+const LEGACY_ACTIVITY_STATUS_REVIEW_COLOR_KEY: &str = "orange";
+const LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY: &str = "green";
 
 pub struct Database {
     conn: Connection,
@@ -81,6 +108,17 @@ struct ActivityFsRecord {
     is_pinned: bool,
     is_expanded: bool,
     folder_name: String,
+}
+
+struct RecordTypeStorage {
+    id: i64,
+    key: String,
+    label: String,
+    color_key: String,
+    template_html: String,
+    is_default: bool,
+    created_at: String,
+    updated_at: String,
 }
 
 impl Database {
@@ -117,6 +155,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS activity_attribute_options (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              color_key TEXT NOT NULL DEFAULT 'slate',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -125,6 +164,7 @@ impl Database {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               system_key TEXT UNIQUE,
               label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              color_key TEXT NOT NULL DEFAULT 'amber',
               needs_attention INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
@@ -234,6 +274,34 @@ impl Database {
               UNIQUE(document_id, version_number)
             );
 
+            CREATE TABLE IF NOT EXISTS file_tag_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              color_key TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS record_type_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              key TEXT NOT NULL UNIQUE,
+              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              color_key TEXT NOT NULL,
+              template_html TEXT NOT NULL DEFAULT '<p></p>',
+              is_default INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS document_tag_links (
+              document_id INTEGER NOT NULL,
+              tag_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(document_id, tag_id),
+              FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+              FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS ai_suggestions (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
@@ -300,6 +368,16 @@ impl Database {
             "activities",
             "folder_name",
             "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "activity_attribute_options",
+            "color_key",
+            "ALTER TABLE activity_attribute_options ADD COLUMN color_key TEXT NOT NULL DEFAULT 'slate'",
+        )?;
+        self.ensure_column(
+            "activity_status_options",
+            "color_key",
+            "ALTER TABLE activity_status_options ADD COLUMN color_key TEXT NOT NULL DEFAULT 'amber'",
         )?;
         self.ensure_column(
             "activities",
@@ -371,6 +449,23 @@ impl Database {
         } else {
             self.ensure_activity_settings_seeded()?;
         }
+        if self.schema_version()? < FILE_TAG_SCHEMA_VERSION {
+            self.set_schema_version(FILE_TAG_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION {
+            self.migrate_activity_attribute_color_schema()?;
+            self.set_schema_version(ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < ACTIVITY_STATUS_COLOR_SCHEMA_VERSION {
+            self.migrate_activity_status_color_schema()?;
+            self.set_schema_version(ACTIVITY_STATUS_COLOR_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < RECORD_TYPE_SCHEMA_VERSION {
+            self.migrate_record_type_schema()?;
+            self.set_schema_version(RECORD_TYPE_SCHEMA_VERSION)?;
+        } else {
+            self.ensure_record_type_settings_seeded()?;
+        }
         self.conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_projects_archived_updated ON projects(is_archived, updated_at DESC);
@@ -387,6 +482,10 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_documents_project_activity_base ON documents(project_id, activity_id, base_name);
             CREATE INDEX IF NOT EXISTS idx_documents_project_starred ON documents(project_id, is_starred, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_document_versions_document_version ON document_versions(document_id, version_number DESC);
+            CREATE INDEX IF NOT EXISTS idx_file_tag_options_created ON file_tag_options(created_at ASC, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_record_type_options_default_created ON record_type_options(is_default DESC, created_at ASC, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_document_tag_links_tag ON document_tag_links(tag_id, document_id);
+            CREATE INDEX IF NOT EXISTS idx_document_tag_links_document ON document_tag_links(document_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_ai_suggestions_activity ON ai_suggestions(activity_id, status, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
             "#,
@@ -405,8 +504,11 @@ impl Database {
               (
                 SELECT COUNT(*)
                 FROM activities a
-                LEFT JOIN activity_status_options s ON s.id = a.status_option_id
-                WHERE a.project_id = p.id AND COALESCE(s.needs_attention, 1) = 1
+                WHERE a.project_id = p.id
+                  AND COALESCE(
+                    a.status_option_id,
+                    (SELECT id FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)
+                  ) = (SELECT id FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)
               ) AS unorganized_count,
               (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
@@ -454,7 +556,18 @@ impl Database {
             return Err(anyhow!("project name is required"));
         }
 
-        let project_dir = base.join(project_name);
+        let project_dir_name = normalize_windows_safe_component(project_name);
+        if project_dir_name.is_empty() {
+            return Err(anyhow!("project name must contain at least one usable character"));
+        }
+
+        let project_dir = base.join(project_dir_name);
+        if project_dir.exists() {
+            return Err(anyhow!(
+                "project folder already exists at {}",
+                project_dir.display()
+            ));
+        }
         fs::create_dir_all(&project_dir)?;
 
         self.conn.execute(
@@ -510,10 +623,13 @@ impl Database {
             r#"
             SELECT COUNT(*)
             FROM activities a
-            LEFT JOIN activity_status_options s ON s.id = a.status_option_id
-            WHERE a.project_id = ?1 AND COALESCE(s.needs_attention, 1) = 1
+            WHERE a.project_id = ?1
+              AND COALESCE(
+                a.status_option_id,
+                (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)
+              ) = (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)
             "#,
-            [input.project_id],
+            params![input.project_id, SYSTEM_ACTIVITY_STATUS_PENDING],
             |row| row.get(0),
         )?;
 
@@ -532,9 +648,20 @@ impl Database {
         input: ProjectUpdateSummaryInput,
     ) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
+        let project_name = match input.name.as_deref() {
+            Some(value) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    return Err(anyhow!("project name is required"));
+                }
+                trimmed.to_string()
+            }
+            None => current.name,
+        };
         self.conn.execute(
-            "UPDATE projects SET summary = ?1, status = ?2, updated_at = ?3 WHERE id = ?4",
+            "UPDATE projects SET name = ?1, summary = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
             params![
+                project_name,
                 input.summary,
                 input.status.unwrap_or(current.status),
                 now_iso(),
@@ -578,7 +705,7 @@ impl Database {
                 input.attribute_option_id,
                 activity_title,
                 input.activity_time,
-                legacy_review_status_for_attention(pending_status.needs_attention),
+                legacy_organize_status_for_system(pending_status.is_system),
                 timestamp,
                 timestamp
             ],
@@ -663,7 +790,7 @@ impl Database {
                 next_activity_time,
                 bool_to_int(input.is_pinned.unwrap_or(current.is_pinned)),
                 bool_to_int(input.is_expanded.unwrap_or(current.is_expanded)),
-                legacy_review_status_for_attention(next_status.needs_attention),
+                legacy_organize_status_for_system(next_status.is_system),
                 next_status_option_id,
                 timestamp,
                 input.activity_id
@@ -686,23 +813,24 @@ impl Database {
         input: ActivityAttributeOptionUpsertInput,
     ) -> Result<ActivityAttributeOption> {
         let label = validate_activity_option_label(&input.label)?;
+        let color_key = validate_activity_attribute_color_key(&input.color_key)?;
         let now = now_iso();
 
         if let Some(option_id) = input.id {
             self.activity_attribute_option_record(option_id)?;
             self.conn.execute(
-                "UPDATE activity_attribute_options SET label = ?1, updated_at = ?2 WHERE id = ?3",
-                params![label, now, option_id],
+                "UPDATE activity_attribute_options SET label = ?1, color_key = ?2, updated_at = ?3 WHERE id = ?4",
+                params![label, color_key, now, option_id],
             )?;
             return self.activity_attribute_option_record(option_id);
         }
 
         self.conn.execute(
             r#"
-            INSERT INTO activity_attribute_options (label, created_at, updated_at)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO activity_attribute_options (label, color_key, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4)
             "#,
-            params![label, now, now],
+            params![label, color_key, now, now],
         )?;
 
         self.activity_attribute_option_record(self.conn.last_insert_rowid())
@@ -725,31 +853,28 @@ impl Database {
         input: ActivityStatusOptionUpsertInput,
     ) -> Result<ActivityStatusOption> {
         let label = validate_activity_option_label(&input.label)?;
+        let color_key = validate_activity_status_color_key(&input.color_key)?;
+        let needs_attention = bool_to_int(color_key_implies_attention(&color_key));
         let now = now_iso();
 
         if let Some(option_id) = input.id {
-            let current = self.activity_status_option_record(option_id)?;
-            if current.is_system {
-                return Err(anyhow!("system activity status cannot be edited"));
-            }
-
             self.conn.execute(
                 r#"
                 UPDATE activity_status_options
-                SET label = ?1, needs_attention = ?2, updated_at = ?3
-                WHERE id = ?4
+                SET label = ?1, color_key = ?2, needs_attention = ?3, updated_at = ?4
+                WHERE id = ?5
                 "#,
-                params![label, bool_to_int(input.needs_attention), now, option_id],
+                params![label, color_key, needs_attention, now, option_id],
             )?;
             return self.activity_status_option_record(option_id);
         }
 
         self.conn.execute(
             r#"
-            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
-            VALUES (NULL, ?1, ?2, ?3, ?4)
+            INSERT INTO activity_status_options (system_key, label, color_key, needs_attention, created_at, updated_at)
+            VALUES (NULL, ?1, ?2, ?3, ?4, ?5)
             "#,
-            params![label, bool_to_int(input.needs_attention), now, now],
+            params![label, color_key, needs_attention, now, now],
         )?;
 
         self.activity_status_option_record(self.conn.last_insert_rowid())
@@ -771,10 +896,176 @@ impl Database {
         self.activity_settings_get()
     }
 
+    pub fn file_tag_settings_get(&mut self) -> Result<FileTagSettingsSnapshot> {
+        Ok(FileTagSettingsSnapshot {
+            tags: self.fetch_file_tag_records()?,
+        })
+    }
+
+    pub fn file_tag_option_upsert(&mut self, input: FileTagOptionUpsertInput) -> Result<FileTagRecord> {
+        let label = validate_file_tag_label(&input.label)?;
+        let color_key = validate_file_tag_color_key(&input.color_key)?;
+        let now = now_iso();
+
+        if let Some(tag_id) = input.id {
+            self.file_tag_record(tag_id)?;
+            self.conn.execute(
+                r#"
+                UPDATE file_tag_options
+                SET label = ?1, color_key = ?2, updated_at = ?3
+                WHERE id = ?4
+                "#,
+                params![label, color_key, now, tag_id],
+            )?;
+            return self.file_tag_record(tag_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO file_tag_options (label, color_key, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![label, color_key, now, now],
+        )?;
+        self.file_tag_record(self.conn.last_insert_rowid())
+    }
+
+    pub fn file_tag_option_delete(
+        &mut self,
+        input: FileTagOptionDeleteInput,
+    ) -> Result<FileTagSettingsSnapshot> {
+        self.file_tag_record(input.tag_id)?;
+        self.conn
+            .execute("DELETE FROM file_tag_options WHERE id = ?1", params![input.tag_id])?;
+        self.file_tag_settings_get()
+    }
+
+    pub fn record_type_settings_get(&mut self) -> Result<RecordTypeSettingsSnapshot> {
+        self.ensure_record_type_settings_seeded()?;
+        Ok(RecordTypeSettingsSnapshot {
+            record_types: self.fetch_record_type_records()?,
+        })
+    }
+
+    pub fn record_type_option_upsert(
+        &mut self,
+        input: RecordTypeOptionUpsertInput,
+    ) -> Result<RecordTypeRecord> {
+        self.ensure_record_type_settings_seeded()?;
+        let label = validate_record_type_label(&input.label)?;
+        let color_key = validate_file_tag_color_key(&input.color_key)?;
+        let template_html = normalize_record_type_template_html(&input.template_html);
+        let now = now_iso();
+        let key = if input.id.is_none() {
+            Some(self.generate_unique_record_type_key(&label)?)
+        } else {
+            None
+        };
+        let tx = self.conn.transaction()?;
+
+        if let Some(type_id) = input.id {
+            let current = record_type_storage_with_tx(&tx, type_id)?;
+
+            if current.is_default && !input.is_default {
+                return Err(anyhow!("default record type cannot be unset directly"));
+            }
+
+            if input.is_default {
+                tx.execute("UPDATE record_type_options SET is_default = 0", [])?;
+            }
+
+            tx.execute(
+                r#"
+                UPDATE record_type_options
+                SET label = ?1,
+                    color_key = ?2,
+                    template_html = ?3,
+                    is_default = ?4,
+                    updated_at = ?5
+                WHERE id = ?6
+                "#,
+                params![
+                    label,
+                    color_key,
+                    template_html,
+                    bool_to_int(input.is_default || current.is_default),
+                    now,
+                    type_id
+                ],
+            )?;
+
+            tx.commit()?;
+            self.normalize_record_type_defaults()?;
+            return self.record_type_record(type_id);
+        }
+
+        let should_be_default = input.is_default
+            || tx.query_row("SELECT COUNT(*) FROM record_type_options", [], |row| {
+                row.get::<_, i64>(0)
+            })? == 0;
+
+        if should_be_default {
+            tx.execute("UPDATE record_type_options SET is_default = 0", [])?;
+        }
+
+        tx.execute(
+            r#"
+            INSERT INTO record_type_options (
+              key, label, color_key, template_html, is_default, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![
+                key.expect("record type key is generated for create"),
+                label,
+                color_key,
+                template_html,
+                bool_to_int(should_be_default),
+                now,
+                now
+            ],
+        )?;
+
+        let type_id = tx.last_insert_rowid();
+        tx.commit()?;
+        self.normalize_record_type_defaults()?;
+        self.record_type_record(type_id)
+    }
+
+    pub fn record_type_option_delete(
+        &mut self,
+        input: RecordTypeOptionDeleteInput,
+    ) -> Result<RecordTypeSettingsSnapshot> {
+        self.ensure_record_type_settings_seeded()?;
+        let current = self.record_type_record(input.type_id)?;
+
+        if current.is_default {
+            return Err(anyhow!("default record type cannot be deleted"));
+        }
+
+        if current.usage_count > 0 {
+            return Err(anyhow!("record type in use cannot be deleted"));
+        }
+
+        self.conn.execute(
+            "DELETE FROM record_type_options WHERE id = ?1",
+            params![input.type_id],
+        )?;
+
+        self.record_type_settings_get()
+    }
+
     pub fn note_upsert(&mut self, input: NoteUpsertInput) -> Result<NoteRecord> {
+        self.ensure_record_type_settings_seeded()?;
         let timestamp = now_iso();
+        let note_type = validate_record_type_key(&input.note_type)?;
         match input.note_id {
             Some(note_id) => {
+                let current = self.note_record(note_id)?;
+                if current.note_type != note_type {
+                    return Err(anyhow!("note type cannot be changed after creation"));
+                }
+
                 self.conn.execute(
                     r#"
                     UPDATE notes
@@ -786,7 +1077,7 @@ impl Database {
                     WHERE id = ?6
                     "#,
                     params![
-                        input.note_type,
+                        current.note_type,
                         input.title,
                         input.markdown,
                         input.html,
@@ -798,6 +1089,7 @@ impl Database {
                 self.note_record(note_id)
             }
             None => {
+                let record_type = self.record_type_record_by_key(&note_type)?;
                 self.conn.execute(
                     r#"
                     INSERT INTO notes (
@@ -808,7 +1100,7 @@ impl Database {
                     params![
                         input.project_id,
                         input.activity_id,
-                        input.note_type,
+                        record_type.key,
                         input.title,
                         input.markdown,
                         input.html,
@@ -958,6 +1250,19 @@ impl Database {
         Ok(record)
     }
 
+    pub fn todo_update_priority(&mut self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
+        self.conn.execute(
+            "UPDATE todos SET priority = ?1, updated_at = ?2 WHERE id = ?3",
+            params![input.priority, now_iso(), input.todo_id],
+        )?;
+        let record = self.todo_record(input.todo_id)?;
+        self.touch_project(record.project_id)?;
+        if let Some(activity_id) = record.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(record)
+    }
+
     pub fn todo_add_progress(&mut self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
@@ -1065,6 +1370,9 @@ impl Database {
                 timestamp
             ],
         )?;
+        if let Some(tag_ids) = input.tag_ids.as_deref() {
+            self.replace_document_tags(id, tag_ids, &timestamp)?;
+        }
         self.touch_project(input.project_id)?;
         if let Some(activity_id) = input.activity_id {
             self.touch_activity(activity_id)?;
@@ -1099,6 +1407,9 @@ impl Database {
                 input.document_id
             ],
         )?;
+        if let Some(tag_ids) = input.tag_ids.as_deref() {
+            self.replace_document_tags(input.document_id, tag_ids, &timestamp)?;
+        }
         self.touch_project(current.project_id)?;
         if let Some(activity_id) = current.activity_id {
             self.touch_activity(activity_id)?;
@@ -1484,8 +1795,11 @@ impl Database {
             .optional()?;
 
         if let Some(value_json) = stored {
-            let settings: RichTextStyleSettings =
+            let mut value: Value =
                 serde_json::from_str(&value_json).context("failed to parse rich text style")?;
+            normalize_rich_text_style_value(&mut value)?;
+            let settings: RichTextStyleSettings =
+                serde_json::from_value(value).context("failed to parse rich text style")?;
             validate_rich_text_style_settings(&settings)?;
             return Ok(settings);
         }
@@ -2040,7 +2354,8 @@ impl Database {
     }
 
     fn document_record(&self, document_id: i64) -> Result<DocumentRecord> {
-        self.conn
+        let base = self
+            .conn
             .query_row(
                 r#"
                 SELECT
@@ -2053,28 +2368,48 @@ impl Database {
                 "#,
                 [document_id],
                 |row| {
-                    Ok(DocumentRecord {
-                        id: row.get(0)?,
-                        project_id: row.get(1)?,
-                        activity_id: row.get(2)?,
-                        name: row.get(3)?,
-                        base_name: row.get(4)?,
-                        original_path: row.get(5)?,
-                        managed_path: row.get(6)?,
-                        history_dir_path: row.get(7)?,
-                        storage_mode: row.get(8)?,
-                        mime_type: row.get(9)?,
-                        is_starred: int_to_bool(row.get::<_, i64>(10)?),
-                        current_version_number: row.get(11)?,
-                        version_count: row.get(12)?,
-                        health: row.get(13)?,
-                        source_activity_title: row.get(14)?,
-                        created_at: row.get(15)?,
-                        updated_at: row.get(16)?,
-                    })
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
+                        int_to_bool(row.get::<_, i64>(10)?),
+                        row.get::<_, i64>(11)?,
+                        row.get::<_, i64>(12)?,
+                        row.get::<_, String>(13)?,
+                        row.get::<_, Option<String>>(14)?,
+                        row.get::<_, String>(15)?,
+                        row.get::<_, String>(16)?,
+                    ))
                 },
-            )
-            .map_err(Into::into)
+            )?;
+        let tags = self.fetch_document_tags(document_id)?;
+        Ok(DocumentRecord {
+            id: base.0,
+            project_id: base.1,
+            activity_id: base.2,
+            name: base.3,
+            base_name: base.4,
+            original_path: base.5,
+            managed_path: base.6,
+            history_dir_path: base.7,
+            storage_mode: base.8,
+            mime_type: base.9,
+            is_starred: base.10,
+            current_version_number: base.11,
+            version_count: base.12,
+            health: base.13,
+            source_activity_title: base.14,
+            tags,
+            created_at: base.15,
+            updated_at: base.16,
+        })
     }
 
     fn ai_suggestion_record(&self, suggestion_id: i64) -> Result<AiSuggestionRecord> {
@@ -2355,6 +2690,27 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
+    fn fetch_document_tags(&self, document_id: i64) -> Result<Vec<DocumentTagRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT f.id, f.label, f.color_key
+            FROM document_tag_links l
+            INNER JOIN file_tag_options f ON f.id = l.tag_id
+            WHERE l.document_id = ?1
+            ORDER BY f.created_at ASC, f.id ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([document_id], |row| {
+            Ok(DocumentTagRecord {
+                id: row.get(0)?,
+                label: row.get(1)?,
+                color_key: row.get(2)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     fn fetch_documents_for_project(
         &self,
         project_id: i64,
@@ -2423,6 +2779,173 @@ impl Database {
         ids.into_iter()
             .map(|version_id| self.document_version_record(version_id))
             .collect()
+    }
+
+    fn file_tag_record(&self, tag_id: i64) -> Result<FileTagRecord> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                  f.id,
+                  f.label,
+                  f.color_key,
+                  COUNT(l.document_id) AS usage_count,
+                  f.created_at,
+                  f.updated_at
+                FROM file_tag_options f
+                LEFT JOIN document_tag_links l ON l.tag_id = f.id
+                WHERE f.id = ?1
+                GROUP BY f.id, f.label, f.color_key, f.created_at, f.updated_at
+                "#,
+                [tag_id],
+                |row| {
+                    Ok(FileTagRecord {
+                        id: row.get(0)?,
+                        label: row.get(1)?,
+                        color_key: row.get(2)?,
+                        usage_count: row.get(3)?,
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
+    fn fetch_file_tag_records(&self) -> Result<Vec<FileTagRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM file_tag_options ORDER BY created_at ASC, id ASC")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|tag_id| self.file_tag_record(tag_id))
+            .collect()
+    }
+
+    fn record_type_storage(&self, type_id: i64) -> Result<RecordTypeStorage> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT id, key, label, color_key, template_html, is_default, created_at, updated_at
+                FROM record_type_options
+                WHERE id = ?1
+                "#,
+                [type_id],
+                record_type_storage_from_row,
+            )
+            .map_err(Into::into)
+    }
+
+    fn record_type_record(&self, type_id: i64) -> Result<RecordTypeRecord> {
+        let storage = self.record_type_storage(type_id)?;
+        let usage_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM notes WHERE note_type = ?1",
+            params![storage.key.as_str()],
+            |row| row.get(0),
+        )?;
+
+        Ok(RecordTypeRecord {
+            id: storage.id,
+            key: storage.key,
+            label: storage.label,
+            color_key: storage.color_key,
+            template_html: storage.template_html,
+            is_default: storage.is_default,
+            usage_count,
+            created_at: storage.created_at,
+            updated_at: storage.updated_at,
+        })
+    }
+
+    fn record_type_record_by_key(&self, key: &str) -> Result<RecordTypeRecord> {
+        let type_id = self.conn.query_row(
+            "SELECT id FROM record_type_options WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, i64>(0),
+        )?;
+        self.record_type_record(type_id)
+    }
+
+    fn fetch_record_type_records(&self) -> Result<Vec<RecordTypeRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id
+            FROM record_type_options
+            ORDER BY is_default DESC, created_at ASC, id ASC
+            "#,
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        ids.into_iter()
+            .map(|type_id| self.record_type_record(type_id))
+            .collect()
+    }
+
+    fn record_type_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM record_type_options", [], |row| row.get(0))
+            .map_err(Into::into)
+    }
+
+    fn generate_unique_record_type_key(&self, label: &str) -> Result<String> {
+        let base = normalize_record_type_key_from_label(label);
+        let base_candidate = if base.is_empty() {
+            format!("record_type_{}", Utc::now().timestamp_millis())
+        } else {
+            base
+        };
+        let mut candidate = base_candidate.clone();
+        let mut suffix = 2;
+
+        while self
+            .conn
+            .query_row(
+                "SELECT id FROM record_type_options WHERE key = ?1",
+                params![candidate.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some()
+        {
+            candidate = format!("{base_candidate}-{suffix}");
+            suffix += 1;
+        }
+
+        Ok(candidate)
+    }
+
+    fn replace_document_tags(
+        &mut self,
+        document_id: i64,
+        tag_ids: &[i64],
+        timestamp: &str,
+    ) -> Result<()> {
+        let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
+        for &tag_id in &normalized_tag_ids {
+            self.file_tag_record(tag_id)?;
+        }
+
+        self.conn.execute(
+            "DELETE FROM document_tag_links WHERE document_id = ?1",
+            params![document_id],
+        )?;
+
+        for tag_id in normalized_tag_ids {
+            self.conn.execute(
+                r#"
+                INSERT INTO document_tag_links (document_id, tag_id, created_at)
+                VALUES (?1, ?2, ?3)
+                "#,
+                params![document_id, tag_id, timestamp],
+            )?;
+        }
+
+        Ok(())
     }
 
     fn fetch_project_todos(&self, project_id: i64, finished: bool) -> Result<Vec<TodoRecord>> {
@@ -2681,18 +3204,10 @@ impl Database {
             title.trim().to_string()
         };
 
-        let sanitized = raw
-            .chars()
-            .map(|ch| match ch {
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                _ => ch,
-            })
-            .collect::<String>()
-            .trim()
-            .to_string();
+        let sanitized = normalize_windows_safe_component(&raw);
 
         if sanitized.is_empty() {
-            format!("未命名 Activity {}", activity_id)
+            normalize_windows_safe_component(&format!("未命名 Activity {}", activity_id))
         } else {
             sanitized
         }
@@ -2782,16 +3297,7 @@ impl Database {
     }
 
     fn normalize_document_base_name(&self, raw: &str, current_base_name: &str) -> Result<String> {
-        let sanitized = raw
-            .chars()
-            .map(|ch| match ch {
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                _ => ch,
-            })
-            .collect::<String>()
-            .trim()
-            .trim_matches('.')
-            .to_string();
+        let sanitized = normalize_windows_safe_component(raw);
 
         if sanitized.is_empty() {
             return Err(anyhow!("file name cannot be empty"));
@@ -3236,11 +3742,17 @@ impl Database {
               a.project_id,
               a.attribute_option_id,
               ao.label,
+              ao.color_key,
               a.title,
               a.activity_time,
               COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_option_id,
               COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_label,
-              COALESCE(so.needs_attention, 1) AS status_needs_attention,
+              COALESCE(so.color_key, (SELECT color_key FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1), '{DEFAULT_ACTIVITY_STATUS_COLOR_KEY}') AS status_color_key,
+              COALESCE(
+                so.needs_attention,
+                (SELECT needs_attention FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1),
+                1
+              ) AS status_needs_attention,
               a.is_pinned,
               (SELECT COUNT(*) FROM notes n WHERE n.activity_id = a.id) AS note_count,
               (SELECT COUNT(*) FROM conclusions c WHERE c.activity_id = a.id) AS conclusion_count,
@@ -3277,11 +3789,17 @@ impl Database {
               a.project_id,
               a.attribute_option_id,
               ao.label,
+              ao.color_key,
               a.title,
               a.activity_time,
               COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
               COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
-              COALESCE(so.needs_attention, 1),
+              COALESCE(so.color_key, (SELECT color_key FROM activity_status_options WHERE system_key = ?2 LIMIT 1), ?3),
+              COALESCE(
+                so.needs_attention,
+                (SELECT needs_attention FROM activity_status_options WHERE system_key = ?2 LIMIT 1),
+                1
+              ),
               a.is_pinned,
               a.is_expanded,
               a.created_at,
@@ -3291,22 +3809,24 @@ impl Database {
             LEFT JOIN activity_status_options so ON so.id = a.status_option_id
             WHERE a.id = ?1
             "#,
-            params![activity_id, SYSTEM_ACTIVITY_STATUS_PENDING],
+            params![activity_id, SYSTEM_ACTIVITY_STATUS_PENDING, DEFAULT_ACTIVITY_STATUS_COLOR_KEY],
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, Option<i64>>(2)?,
                     row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(4)?,
                     row.get::<_, String>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, String>(7)?,
-                    int_to_bool(row.get::<_, i64>(8)?),
-                    int_to_bool(row.get::<_, i64>(9)?),
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
                     int_to_bool(row.get::<_, i64>(10)?),
-                    row.get::<_, String>(11)?,
-                    row.get::<_, String>(12)?,
+                    int_to_bool(row.get::<_, i64>(11)?),
+                    int_to_bool(row.get::<_, i64>(12)?),
+                    row.get::<_, String>(13)?,
+                    row.get::<_, String>(14)?,
                 ))
             },
         )?;
@@ -3320,12 +3840,14 @@ impl Database {
             project_id: base.1,
             attribute_option_id: base.2,
             attribute_label: base.3.clone(),
-            title: base.4.clone(),
-            activity_time: base.5.clone(),
-            status_option_id: base.6,
-            status_label: base.7.clone(),
-            status_needs_attention: base.8,
-            is_pinned: base.9,
+            attribute_color_key: base.4.clone(),
+            title: base.5.clone(),
+            activity_time: base.6.clone(),
+            status_option_id: base.7,
+            status_label: base.8.clone(),
+            status_color_key: base.9.clone(),
+            status_needs_attention: base.10,
+            is_pinned: base.11,
             note_count: notes.len() as i64,
             conclusion_count: conclusions.len() as i64,
             todo_count: todos.len() as i64,
@@ -3343,15 +3865,17 @@ impl Database {
             project_id: base.1,
             attribute_option_id: base.2,
             attribute_label: base.3,
-            title: base.4,
-            activity_time: base.5,
-            status_option_id: base.6,
-            status_label: base.7,
-            status_needs_attention: base.8,
-            is_pinned: base.9,
-            is_expanded: base.10,
-            created_at: base.11,
-            updated_at: base.12,
+            attribute_color_key: base.4,
+            title: base.5,
+            activity_time: base.6,
+            status_option_id: base.7,
+            status_label: base.8,
+            status_color_key: base.9,
+            status_needs_attention: base.10,
+            is_pinned: base.11,
+            is_expanded: base.12,
+            created_at: base.13,
+            updated_at: base.14,
             digest,
             notes,
             conclusions,
@@ -3564,11 +4088,11 @@ impl Database {
         self.ensure_system_pending_activity_status()?;
         let review_status_id = self.find_or_create_custom_activity_status_option(
             LEGACY_ACTIVITY_STATUS_REVIEW_LABEL,
-            true,
+            LEGACY_ACTIVITY_STATUS_REVIEW_COLOR_KEY,
         )?;
         let organized_status_id = self.find_or_create_custom_activity_status_option(
             LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL,
-            false,
+            LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY,
         )?;
 
         let mut stmt = self.conn.prepare(
@@ -3605,8 +4129,132 @@ impl Database {
         Ok(())
     }
 
+    fn migrate_activity_attribute_color_schema(&mut self) -> Result<()> {
+        self.conn.execute(
+            r#"
+            UPDATE activity_attribute_options
+            SET color_key = ?1
+            WHERE TRIM(COALESCE(color_key, '')) = ''
+               OR color_key NOT IN ('slate', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'rose')
+            "#,
+            params![DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY],
+        )?;
+        Ok(())
+    }
+
+    fn migrate_activity_status_color_schema(&mut self) -> Result<()> {
+        self.conn.execute(
+            r#"
+            UPDATE activity_status_options
+            SET color_key = CASE
+              WHEN system_key = ?1 THEN ?2
+              WHEN needs_attention = 1 THEN ?3
+              ELSE ?4
+            END
+            WHERE TRIM(COALESCE(color_key, '')) = ''
+               OR color_key NOT IN ('slate', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'rose')
+            "#,
+            params![
+                SYSTEM_ACTIVITY_STATUS_PENDING,
+                DEFAULT_ACTIVITY_STATUS_COLOR_KEY,
+                LEGACY_ACTIVITY_STATUS_REVIEW_COLOR_KEY,
+                LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY,
+            ],
+        )?;
+        Ok(())
+    }
+
     fn ensure_activity_settings_seeded(&mut self) -> Result<()> {
         self.ensure_system_pending_activity_status()?;
+        Ok(())
+    }
+
+    fn migrate_record_type_schema(&mut self) -> Result<()> {
+        self.ensure_record_type_settings_seeded()
+    }
+
+    fn ensure_record_type_settings_seeded(&mut self) -> Result<()> {
+        if self.record_type_count()? == 0 {
+            let now = now_iso();
+            self.conn.execute(
+                r#"
+                INSERT INTO record_type_options (
+                  key, label, color_key, template_html, is_default, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)
+                "#,
+                params![
+                    DEFAULT_RECORD_TYPE_KEY,
+                    DEFAULT_RECORD_TYPE_LABEL,
+                    DEFAULT_RECORD_TYPE_COLOR_KEY,
+                    DEFAULT_RECORD_TYPE_TEMPLATE_HTML,
+                    now,
+                    now
+                ],
+            )?;
+
+            self.conn.execute(
+                r#"
+                INSERT INTO record_type_options (
+                  key, label, color_key, template_html, is_default, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
+                "#,
+                params![
+                    MEETING_RECORD_TYPE_KEY,
+                    MEETING_RECORD_TYPE_LABEL,
+                    MEETING_RECORD_TYPE_COLOR_KEY,
+                    MEETING_RECORD_TYPE_TEMPLATE_HTML,
+                    now,
+                    now
+                ],
+            )?;
+        }
+
+        self.normalize_record_type_defaults()
+    }
+
+    fn normalize_record_type_defaults(&mut self) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, key, is_default
+            FROM record_type_options
+            ORDER BY
+              CASE WHEN key = ?1 THEN 0 ELSE 1 END,
+              is_default DESC,
+              created_at ASC,
+              id ASC
+            "#,
+        )?;
+        let rows = stmt
+            .query_map(params![DEFAULT_RECORD_TYPE_KEY], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    int_to_bool(row.get::<_, i64>(2)?),
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        if rows.is_empty() {
+            return Err(anyhow!("record type dictionary is empty"));
+        }
+
+        let preferred_id = rows
+            .iter()
+            .find(|(_id, key, is_default)| *is_default && key == DEFAULT_RECORD_TYPE_KEY)
+            .map(|(id, _, _)| *id)
+            .or_else(|| rows.iter().find(|(_, _, is_default)| *is_default).map(|(id, _, _)| *id))
+            .unwrap_or(rows[0].0);
+
+        self.conn
+            .execute("UPDATE record_type_options SET is_default = 0", [])?;
+        self.conn.execute(
+            "UPDATE record_type_options SET is_default = 1 WHERE id = ?1",
+            params![preferred_id],
+        )?;
+
         Ok(())
     }
 
@@ -3614,14 +4262,18 @@ impl Database {
         let now = now_iso();
         self.conn.execute(
             r#"
-            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
-            VALUES (?1, ?2, 1, ?3, ?4)
-            ON CONFLICT(system_key) DO UPDATE SET
-              label = excluded.label,
-              needs_attention = excluded.needs_attention,
-              updated_at = excluded.updated_at
+            INSERT INTO activity_status_options (system_key, label, color_key, needs_attention, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(system_key) DO NOTHING
             "#,
-            params![SYSTEM_ACTIVITY_STATUS_PENDING, SYSTEM_ACTIVITY_STATUS_PENDING_LABEL, now, now],
+            params![
+                SYSTEM_ACTIVITY_STATUS_PENDING,
+                SYSTEM_ACTIVITY_STATUS_PENDING_LABEL,
+                DEFAULT_ACTIVITY_STATUS_COLOR_KEY,
+                bool_to_int(color_key_implies_attention(DEFAULT_ACTIVITY_STATUS_COLOR_KEY)),
+                now,
+                now
+            ],
         )?;
         self.pending_activity_status_option()
     }
@@ -3644,10 +4296,10 @@ impl Database {
         let now = now_iso();
         self.conn.execute(
             r#"
-            INSERT INTO activity_attribute_options (label, created_at, updated_at)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO activity_attribute_options (label, color_key, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4)
             "#,
-            params![normalized, now, now],
+            params![normalized, DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY, now, now],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -3655,9 +4307,11 @@ impl Database {
     fn find_or_create_custom_activity_status_option(
         &mut self,
         label: &str,
-        needs_attention: bool,
+        color_key: &str,
     ) -> Result<i64> {
         let normalized = validate_activity_option_label(label)?;
+        let color_key = validate_activity_status_color_key(color_key)?;
+        let needs_attention = bool_to_int(color_key_implies_attention(&color_key));
         let existing = self
             .conn
             .query_row(
@@ -3672,20 +4326,20 @@ impl Database {
             self.conn.execute(
                 r#"
                 UPDATE activity_status_options
-                SET needs_attention = ?1, updated_at = ?2
-                WHERE id = ?3 AND system_key IS NULL
+                SET color_key = ?1, needs_attention = ?2, updated_at = ?3
+                WHERE id = ?4 AND system_key IS NULL
                 "#,
-                params![bool_to_int(needs_attention), now, option_id],
+                params![color_key, needs_attention, now, option_id],
             )?;
             return Ok(option_id);
         }
 
         self.conn.execute(
             r#"
-            INSERT INTO activity_status_options (system_key, label, needs_attention, created_at, updated_at)
-            VALUES (NULL, ?1, ?2, ?3, ?4)
+            INSERT INTO activity_status_options (system_key, label, color_key, needs_attention, created_at, updated_at)
+            VALUES (NULL, ?1, ?2, ?3, ?4, ?5)
             "#,
-            params![normalized, bool_to_int(needs_attention), now, now],
+            params![normalized, color_key, needs_attention, now, now],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -3694,7 +4348,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, label, created_at, updated_at
+                SELECT id, label, color_key, created_at, updated_at
                 FROM activity_attribute_options
                 WHERE id = ?1
                 "#,
@@ -3703,8 +4357,9 @@ impl Database {
                     Ok(ActivityAttributeOption {
                         id: row.get(0)?,
                         label: row.get(1)?,
-                        created_at: row.get(2)?,
-                        updated_at: row.get(3)?,
+                        color_key: row.get(2)?,
+                        created_at: row.get(3)?,
+                        updated_at: row.get(4)?,
                     })
                 },
             )
@@ -3727,20 +4382,21 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, label, needs_attention, system_key, created_at, updated_at
+                SELECT id, label, color_key, needs_attention, system_key, created_at, updated_at
                 FROM activity_status_options
                 WHERE id = ?1
                 "#,
                 [option_id],
                 |row| {
-                    let system_key = row.get::<_, Option<String>>(3)?;
+                    let system_key = row.get::<_, Option<String>>(4)?;
                     Ok(ActivityStatusOption {
                         id: row.get(0)?,
                         label: row.get(1)?,
-                        needs_attention: int_to_bool(row.get::<_, i64>(2)?),
+                        color_key: row.get(2)?,
+                        needs_attention: int_to_bool(row.get::<_, i64>(3)?),
                         is_system: system_key.is_some(),
-                        created_at: row.get(4)?,
-                        updated_at: row.get(5)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
                     })
                 },
             )
@@ -3819,19 +4475,21 @@ fn activity_digest_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Activit
         project_id: row.get(1)?,
         attribute_option_id: row.get(2)?,
         attribute_label: row.get(3)?,
-        title: row.get(4)?,
-        activity_time: row.get(5)?,
-        status_option_id: row.get(6)?,
-        status_label: row.get(7)?,
-        status_needs_attention: int_to_bool(row.get::<_, i64>(8)?),
-        is_pinned: int_to_bool(row.get::<_, i64>(9)?),
-        note_count: row.get(10)?,
-        conclusion_count: row.get(11)?,
-        todo_count: row.get(12)?,
-        document_count: row.get(13)?,
-        completed_todo_count: row.get(14)?,
-        total_todo_count: row.get(15)?,
-        has_open_todos: int_to_bool(row.get::<_, i64>(16)?),
+        attribute_color_key: row.get(4)?,
+        title: row.get(5)?,
+        activity_time: row.get(6)?,
+        status_option_id: row.get(7)?,
+        status_label: row.get(8)?,
+        status_color_key: row.get(9)?,
+        status_needs_attention: int_to_bool(row.get::<_, i64>(10)?),
+        is_pinned: int_to_bool(row.get::<_, i64>(11)?),
+        note_count: row.get(12)?,
+        conclusion_count: row.get(13)?,
+        todo_count: row.get(14)?,
+        document_count: row.get(15)?,
+        completed_todo_count: row.get(16)?,
+        total_todo_count: row.get(17)?,
+        has_open_todos: int_to_bool(row.get::<_, i64>(18)?),
     })
 }
 
@@ -3847,12 +4505,16 @@ fn int_to_bool(value: i64) -> bool {
     value != 0
 }
 
-fn legacy_review_status_for_attention(needs_attention: bool) -> &'static str {
-    if needs_attention {
+fn legacy_organize_status_for_system(is_system: bool) -> &'static str {
+    if is_system {
         "needs_review"
     } else {
         "organized"
     }
+}
+
+fn color_key_implies_attention(color_key: &str) -> bool {
+    matches!(color_key.trim(), "amber" | "orange" | "red" | "rose")
 }
 
 fn legacy_activity_attribute_label(raw: &str) -> String {
@@ -3889,7 +4551,7 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
 
 fn versioned_file_name(base_name: &str, version_number: i64) -> String {
     if version_number <= 1 {
-        return base_name.to_string();
+        return normalize_windows_safe_component(base_name);
     }
 
     let path = Path::new(base_name);
@@ -3900,8 +4562,62 @@ fn versioned_file_name(base_name: &str, version_number: i64) -> String {
     let extension = path.extension().and_then(|value| value.to_str());
 
     match extension {
-        Some(extension) if !extension.is_empty() => format!("{stem}_v{version_number}.{extension}"),
-        _ => format!("{stem}_v{version_number}"),
+        Some(extension) if !extension.is_empty() => {
+            normalize_windows_safe_component(&format!("{stem}_v{version_number}.{extension}"))
+        }
+        _ => normalize_windows_safe_component(&format!("{stem}_v{version_number}")),
+    }
+}
+
+fn normalize_windows_safe_component(raw: &str) -> String {
+    let sanitized = raw
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            ch if ch.is_control() => '_',
+            _ => ch,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_end_matches(|ch| ch == '.' || ch == ' ')
+        .to_string();
+
+    if sanitized.is_empty() {
+        return sanitized;
+    }
+
+    if uses_windows_reserved_path_name(&sanitized) {
+        append_suffix_before_extension(&sanitized, "_")
+    } else {
+        sanitized
+    }
+}
+
+fn uses_windows_reserved_path_name(value: &str) -> bool {
+    let candidate = value.trim_end_matches(|ch| ch == '.' || ch == ' ');
+    if candidate.is_empty() {
+        return false;
+    }
+
+    let stem = Path::new(candidate)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(candidate)
+        .trim_end_matches(|ch| ch == '.' || ch == ' ');
+
+    WINDOWS_RESERVED_PATH_NAMES
+        .iter()
+        .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+}
+
+fn append_suffix_before_extension(value: &str, suffix: &str) -> String {
+    let path = Path::new(value);
+    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or(value);
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    match extension {
+        Some(extension) if !extension.is_empty() => format!("{stem}{suffix}.{extension}"),
+        _ => format!("{stem}{suffix}"),
     }
 }
 
@@ -3917,7 +4633,8 @@ mod tests {
     use super::*;
     use std::{
         fs,
-        time::{SystemTime, UNIX_EPOCH},
+        thread,
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     struct TestHarness {
@@ -3970,6 +4687,149 @@ mod tests {
                 activity_time: "2026-04-06T08:00:00.000Z".to_string(),
             })
             .unwrap()
+    }
+
+    fn create_todo(
+        database: &mut Database,
+        project_id: i64,
+        activity_id: Option<i64>,
+        content: &str,
+        priority: &str,
+    ) -> TodoRecord {
+        database
+            .todo_create(TodoCreateInput {
+                project_id,
+                activity_id,
+                content: content.to_string(),
+                priority: priority.to_string(),
+            })
+            .unwrap()
+    }
+
+    fn create_note(
+        database: &mut Database,
+        project_id: i64,
+        activity_id: i64,
+        note_type: &str,
+        markdown: &str,
+    ) -> NoteRecord {
+        database
+            .note_upsert(NoteUpsertInput {
+                project_id,
+                activity_id,
+                note_id: None,
+                note_type: note_type.to_string(),
+                title: Some("记录".to_string()),
+                markdown: markdown.to_string(),
+                html: format!("<p>{markdown}</p>"),
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn windows_safe_component_normalizes_reserved_names() {
+        assert_eq!(normalize_windows_safe_component("CON"), "CON_");
+        assert_eq!(normalize_windows_safe_component("NUL.txt"), "NUL_.txt");
+        assert_eq!(normalize_windows_safe_component(" report. "), "report");
+        assert_eq!(normalize_windows_safe_component("bad\u{0007}name"), "bad_name");
+        assert_eq!(normalize_windows_safe_component(".env"), ".env");
+    }
+
+    #[test]
+    fn project_create_uses_windows_safe_directory_name() {
+        let (harness, mut database) = setup_database();
+        let project = database
+            .project_create(ProjectCreateInput {
+                name: "CON".to_string(),
+                summary: None,
+                status: None,
+                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            Path::new(&project.root_path)
+                .file_name()
+                .and_then(|value| value.to_str()),
+            Some("CON_")
+        );
+        assert!(Path::new(&project.root_path).exists());
+    }
+
+    #[test]
+    fn document_base_name_normalization_handles_windows_only_restrictions() {
+        let (_harness, database) = setup_database();
+
+        assert_eq!(
+            database
+                .normalize_document_base_name("AUX.txt", "brief.pdf")
+                .unwrap(),
+            "AUX_.txt"
+        );
+        assert_eq!(
+            database
+                .normalize_document_base_name("final summary. ", "brief.pdf")
+                .unwrap(),
+            "final summary.pdf"
+        );
+    }
+
+    #[test]
+    fn todo_update_priority_persists_new_priority_and_returns_updated_record() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+
+        thread::sleep(Duration::from_millis(5));
+
+        let updated = database
+            .todo_update_priority(TodoUpdatePriorityInput {
+                todo_id: todo.id,
+                priority: "urgent_important".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(updated.id, todo.id);
+        assert_eq!(updated.priority, "urgent_important");
+        assert_ne!(updated.updated_at, todo.updated_at);
+
+        let refreshed = database.todo_record(todo.id).unwrap();
+        assert_eq!(refreshed.priority, "urgent_important");
+        assert_eq!(refreshed.updated_at, updated.updated_at);
+    }
+
+    #[test]
+    fn project_update_summary_can_rename_project_and_refresh_updated_at() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        thread::sleep(Duration::from_millis(5));
+
+        let updated = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: "最新项目简介".to_string(),
+                status: Some("active".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(updated.id, project.id);
+        assert_eq!(updated.name, "Alpha Prime");
+        assert_eq!(updated.summary, "最新项目简介");
+        assert_ne!(updated.updated_at, project.updated_at);
+
+        let refreshed = database.project_record(project.id).unwrap();
+        assert_eq!(refreshed.name, "Alpha Prime");
+        assert_eq!(refreshed.summary, "最新项目简介");
+        assert_eq!(refreshed.updated_at, updated.updated_at);
     }
 
     #[test]
@@ -4059,11 +4919,20 @@ mod tests {
             .iter()
             .any(|option| option.label == "LEGAL"));
         assert!(settings
+            .activity_attribute_options
+            .iter()
+            .any(|option| option.label == "LEGAL" && option.color_key == DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY));
+        assert!(settings
             .activity_status_options
             .iter()
             .any(|option| option.label == "待启动" && option.is_system));
         assert_eq!(activities[0].attribute_label.as_deref(), Some("LEGAL"));
+        assert_eq!(
+            activities[0].attribute_color_key.as_deref(),
+            Some(DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY)
+        );
         assert_eq!(activities[0].status_label, "已整理");
+        assert_eq!(activities[0].status_color_key, LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY);
         assert!(!activities[0].status_needs_attention);
 
         fs::remove_dir_all(root).unwrap();
@@ -4077,13 +4946,14 @@ mod tests {
             .activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
                 id: None,
                 label: "LEGAL".to_string(),
+                color_key: "blue".to_string(),
             })
             .unwrap();
         let status = database
             .activity_status_option_upsert(ActivityStatusOptionUpsertInput {
                 id: None,
                 label: "待外部反馈".to_string(),
-                needs_attention: true,
+                color_key: "orange".to_string(),
             })
             .unwrap();
 
@@ -4123,8 +4993,55 @@ mod tests {
         let refreshed = database.activity_card(activity.id).unwrap();
         assert_eq!(refreshed.attribute_option_id, None);
         assert_eq!(refreshed.attribute_label, None);
+        assert_eq!(refreshed.attribute_color_key, None);
         assert_eq!(refreshed.status_label, "待启动");
+        assert_eq!(refreshed.status_color_key, DEFAULT_ACTIVITY_STATUS_COLOR_KEY);
         assert!(refreshed.status_needs_attention);
+    }
+
+    #[test]
+    fn system_activity_status_can_be_edited_and_remains_non_deletable() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let pending_status = database
+            .activity_settings_get()
+            .unwrap()
+            .activity_status_options
+            .into_iter()
+            .find(|option| option.is_system)
+            .unwrap();
+
+        let updated = database
+            .activity_status_option_upsert(ActivityStatusOptionUpsertInput {
+                id: Some(pending_status.id),
+                label: "待排期".to_string(),
+                color_key: "green".to_string(),
+            })
+            .unwrap();
+
+        assert!(updated.is_system);
+        assert_eq!(updated.label, "待排期");
+        assert_eq!(updated.color_key, "green");
+        assert!(!updated.needs_attention);
+
+        let activity = database
+            .activity_create(ActivityCreateInput {
+                project_id: project.id,
+                attribute_option_id: None,
+                title: Some("合同同步".to_string()),
+                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
+            })
+            .unwrap();
+        let refreshed = database.activity_card(activity.id).unwrap();
+
+        assert_eq!(refreshed.status_label, "待排期");
+        assert_eq!(refreshed.status_color_key, "green");
+        assert!(!refreshed.status_needs_attention);
+        assert!(database
+            .activity_status_option_delete(ActivityOptionDeleteInput {
+                option_id: pending_status.id,
+            })
+            .is_err());
     }
 
     #[test]
@@ -4136,7 +5053,8 @@ mod tests {
         assert_eq!(settings.body.font_preset, "workspace_sans");
         assert_eq!(settings.body.font_size_px, 14);
         assert_eq!(settings.body.line_height, 1.6);
-        assert_eq!(settings.body.paragraph_spacing_px, 12);
+        assert_eq!(settings.body.paragraph_spacing_before_px, 12);
+        assert_eq!(settings.body.paragraph_spacing_after_px, 0);
         assert_eq!(settings.headings.h1_size_px, 24);
         assert_eq!(settings.headings.h2_size_px, 20);
         assert_eq!(settings.headings.h3_size_px, 16);
@@ -4153,12 +5071,14 @@ mod tests {
                     font_preset: "work_sans".to_string(),
                     font_size_px: 15,
                     line_height: 1.7,
-                    paragraph_spacing_px: 14,
+                    paragraph_spacing_before_px: 14,
+                    paragraph_spacing_after_px: 2,
                 },
                 headings: crate::models::RichTextHeadingStyleSettings {
                     font_preset: "source_serif".to_string(),
                     line_height: 1.3,
-                    paragraph_spacing_px: 10,
+                    paragraph_spacing_before_px: 10,
+                    paragraph_spacing_after_px: 4,
                     h1_size_px: 28,
                     h2_size_px: 22,
                     h3_size_px: 18,
@@ -4167,7 +5087,8 @@ mod tests {
                     font_preset: "noto_sans_sc".to_string(),
                     font_size_px: 15,
                     line_height: 1.65,
-                    paragraph_spacing_px: 10,
+                    paragraph_spacing_before_px: 10,
+                    paragraph_spacing_after_px: 3,
                 },
             })
             .unwrap();
@@ -4178,8 +5099,57 @@ mod tests {
         assert_eq!(loaded.headings.font_preset, "source_serif");
         assert_eq!(loaded.headings.h1_size_px, 28);
         assert_eq!(loaded.list.font_preset, "noto_sans_sc");
-        assert_eq!(loaded.list.paragraph_spacing_px, 10);
+        assert_eq!(loaded.list.paragraph_spacing_before_px, 10);
+        assert_eq!(loaded.list.paragraph_spacing_after_px, 3);
         assert_eq!(style_json_signature(&loaded), style_json_signature(&saved));
+    }
+
+    #[test]
+    fn rich_text_style_get_normalizes_legacy_paragraph_spacing() {
+        let (_harness, mut database) = setup_database();
+
+        database
+            .conn
+            .execute(
+                "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    APP_SETTING_KEY_RICH_TEXT_STYLE,
+                    json!({
+                        "body": {
+                            "fontPreset": "workspace_sans",
+                            "fontSizePx": 14,
+                            "lineHeight": 1.6,
+                            "paragraphSpacingPx": 12
+                        },
+                        "headings": {
+                            "fontPreset": "workspace_sans",
+                            "lineHeight": 1.35,
+                            "paragraphSpacingPx": 10,
+                            "h1SizePx": 24,
+                            "h2SizePx": 20,
+                            "h3SizePx": 16
+                        },
+                        "list": {
+                            "fontPreset": "workspace_sans",
+                            "fontSizePx": 14,
+                            "lineHeight": 1.6,
+                            "paragraphSpacingPx": 8
+                        }
+                    })
+                    .to_string(),
+                    now_iso()
+                ],
+            )
+            .unwrap();
+
+        let settings = database.rich_text_style_get().unwrap();
+
+        assert_eq!(settings.body.paragraph_spacing_before_px, 12);
+        assert_eq!(settings.body.paragraph_spacing_after_px, 0);
+        assert_eq!(settings.headings.paragraph_spacing_before_px, 10);
+        assert_eq!(settings.headings.paragraph_spacing_after_px, 0);
+        assert_eq!(settings.list.paragraph_spacing_before_px, 8);
+        assert_eq!(settings.list.paragraph_spacing_after_px, 0);
     }
 
     #[test]
@@ -4272,6 +5242,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4296,6 +5267,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4333,6 +5305,7 @@ mod tests {
                 activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: true,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4378,6 +5351,7 @@ mod tests {
                 activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4396,6 +5370,7 @@ mod tests {
                 activity_id: None,
                 base_name: Some("final-summary.pdf".to_string()),
                 is_starred: None,
+                tag_ids: None,
             })
             .unwrap();
         let versions = database
@@ -4430,6 +5405,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: external_source.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4505,6 +5481,7 @@ mod tests {
                 activity_id: None,
                 source_path: root_source.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4516,6 +5493,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: activity_source.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4527,6 +5505,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: starred_source.to_string_lossy().to_string(),
                 is_starred: true,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4547,6 +5526,356 @@ mod tests {
     }
 
     #[test]
+    fn file_tag_settings_round_trip_usage_counts_and_document_payloads() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let legal_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "法务".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+        let urgent_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "紧急".to_string(),
+                color_key: "red".to_string(),
+            })
+            .unwrap();
+
+        let source_path = harness.root.join("contract.pdf");
+        fs::write(&source_path, b"contract").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: Some(vec![legal_tag.id, urgent_tag.id, legal_tag.id]),
+            })
+            .unwrap();
+        let overview = database
+            .project_get_overview(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        let settings = database.file_tag_settings_get().unwrap();
+
+        assert_eq!(
+            document.tags.iter().map(|tag| tag.id).collect::<Vec<_>>(),
+            vec![legal_tag.id, urgent_tag.id]
+        );
+        assert_eq!(
+            overview.project_documents[0]
+                .tags
+                .iter()
+                .map(|tag| tag.id)
+                .collect::<Vec<_>>(),
+            vec![legal_tag.id, urgent_tag.id]
+        );
+        assert_eq!(
+            settings
+                .tags
+                .iter()
+                .find(|tag| tag.id == legal_tag.id)
+                .map(|tag| tag.usage_count),
+            Some(1)
+        );
+        assert_eq!(
+            settings
+                .tags
+                .iter()
+                .find(|tag| tag.id == urgent_tag.id)
+                .map(|tag| tag.usage_count),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn document_update_meta_replaces_document_tags_without_losing_other_changes() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let draft_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "草稿".to_string(),
+                color_key: "slate".to_string(),
+            })
+            .unwrap();
+        let review_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "待审核".to_string(),
+                color_key: "amber".to_string(),
+            })
+            .unwrap();
+        let final_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "定稿".to_string(),
+                color_key: "green".to_string(),
+            })
+            .unwrap();
+
+        let source_path = harness.root.join("brief.pdf");
+        fs::write(&source_path, b"brief").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: Some(vec![draft_tag.id, review_tag.id]),
+            })
+            .unwrap();
+
+        let updated = database
+            .document_update_meta(DocumentUpdateMetaInput {
+                document_id: document.id,
+                activity_id: None,
+                base_name: Some("brief-final.pdf".to_string()),
+                is_starred: Some(true),
+                tag_ids: Some(vec![final_tag.id]),
+            })
+            .unwrap();
+        let settings = database.file_tag_settings_get().unwrap();
+
+        assert_eq!(updated.base_name, "brief-final.pdf");
+        assert!(updated.is_starred);
+        assert_eq!(
+            updated.tags.iter().map(|tag| tag.id).collect::<Vec<_>>(),
+            vec![final_tag.id]
+        );
+        assert_eq!(
+            settings
+                .tags
+                .iter()
+                .find(|tag| tag.id == draft_tag.id)
+                .map(|tag| tag.usage_count),
+            Some(0)
+        );
+        assert_eq!(
+            settings
+                .tags
+                .iter()
+                .find(|tag| tag.id == review_tag.id)
+                .map(|tag| tag.usage_count),
+            Some(0)
+        );
+        assert_eq!(
+            settings
+                .tags
+                .iter()
+                .find(|tag| tag.id == final_tag.id)
+                .map(|tag| tag.usage_count),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn deleting_file_tag_cascades_document_links() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "合同".to_string(),
+                color_key: "teal".to_string(),
+            })
+            .unwrap();
+
+        let source_path = harness.root.join("agreement.pdf");
+        fs::write(&source_path, b"agreement").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: Some(vec![tag.id]),
+            })
+            .unwrap();
+        assert_eq!(document.tags.len(), 1);
+
+        let refreshed_settings = database
+            .file_tag_option_delete(FileTagOptionDeleteInput { tag_id: tag.id })
+            .unwrap();
+        let refreshed_document = database.document_record(document.id).unwrap();
+
+        assert!(refreshed_settings.tags.iter().all(|item| item.id != tag.id));
+        assert!(refreshed_document.tags.is_empty());
+    }
+
+    #[test]
+    fn file_tag_color_key_is_validated() {
+        let (_harness, mut database) = setup_database();
+
+        let error = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "非法颜色".to_string(),
+                color_key: "purple".to_string(),
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("file tag color is not supported"));
+    }
+
+    #[test]
+    fn activity_attribute_color_key_is_validated() {
+        let (_harness, mut database) = setup_database();
+
+        let error = database
+            .activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
+                id: None,
+                label: "非法属性颜色".to_string(),
+                color_key: "purple".to_string(),
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("activity attribute color is not supported"));
+    }
+
+    #[test]
+    fn record_type_settings_are_seeded_with_legacy_defaults() {
+        let (_harness, mut database) = setup_database();
+
+        let snapshot = database.record_type_settings_get().unwrap();
+
+        assert_eq!(snapshot.record_types.len(), 2);
+        assert_eq!(snapshot.record_types[0].key, DEFAULT_RECORD_TYPE_KEY);
+        assert!(snapshot.record_types[0].is_default);
+        assert_eq!(snapshot.record_types[1].key, MEETING_RECORD_TYPE_KEY);
+        assert!(!snapshot.record_types[1].is_default);
+    }
+
+    #[test]
+    fn record_type_upsert_round_trips_template_color_and_default_selection() {
+        let (_harness, mut database) = setup_database();
+
+        let created = database
+            .record_type_option_upsert(RecordTypeOptionUpsertInput {
+                id: None,
+                label: "Research Note".to_string(),
+                color_key: "teal".to_string(),
+                template_html: "<h2>背景</h2><p></p>".to_string(),
+                is_default: false,
+            })
+            .unwrap();
+
+        assert_eq!(created.label, "Research Note");
+        assert_eq!(created.color_key, "teal");
+        assert_eq!(created.template_html, "<h2>背景</h2><p></p>");
+        assert_eq!(created.key, "research_note");
+
+        let updated = database
+            .record_type_option_upsert(RecordTypeOptionUpsertInput {
+                id: Some(created.id),
+                label: "Research Note".to_string(),
+                color_key: "green".to_string(),
+                template_html: "<h2>结论</h2><p></p>".to_string(),
+                is_default: true,
+            })
+            .unwrap();
+
+        assert!(updated.is_default);
+        assert_eq!(updated.color_key, "green");
+        assert_eq!(updated.template_html, "<h2>结论</h2><p></p>");
+
+        let snapshot = database.record_type_settings_get().unwrap();
+        assert_eq!(snapshot.record_types[0].id, updated.id);
+        assert!(snapshot.record_types[0].is_default);
+        assert!(snapshot
+            .record_types
+            .iter()
+            .filter(|record_type| record_type.is_default)
+            .count()
+            == 1);
+    }
+
+    #[test]
+    fn record_type_delete_rejects_default_and_in_use_types() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let snapshot = database.record_type_settings_get().unwrap();
+        let default_type = snapshot
+            .record_types
+            .iter()
+            .find(|record_type| record_type.is_default)
+            .cloned()
+            .unwrap();
+        let meeting_type = snapshot
+            .record_types
+            .iter()
+            .find(|record_type| record_type.key == MEETING_RECORD_TYPE_KEY)
+            .cloned()
+            .unwrap();
+
+        let default_error = database
+            .record_type_option_delete(RecordTypeOptionDeleteInput {
+                type_id: default_type.id,
+            })
+            .unwrap_err();
+        assert!(default_error
+            .to_string()
+            .contains("default record type cannot be deleted"));
+
+        create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            MEETING_RECORD_TYPE_KEY,
+            "会议结论",
+        );
+
+        let in_use_error = database
+            .record_type_option_delete(RecordTypeOptionDeleteInput {
+                type_id: meeting_type.id,
+            })
+            .unwrap_err();
+        assert!(in_use_error
+            .to_string()
+            .contains("record type in use cannot be deleted"));
+    }
+
+    #[test]
+    fn note_upsert_rejects_record_type_changes_after_creation() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "Captured detail",
+        );
+
+        let error = database
+            .note_upsert(NoteUpsertInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: Some(note.id),
+                note_type: MEETING_RECORD_TYPE_KEY.to_string(),
+                title: Some("记录".to_string()),
+                markdown: "Updated detail".to_string(),
+                html: "<p>Updated detail</p>".to_string(),
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("note type cannot be changed after creation"));
+    }
+
+    #[test]
     fn document_schema_migration_folds_legacy_priority_flags_into_starred() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -4560,6 +5889,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: role_source.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4571,6 +5901,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: promoted_source.to_string_lossy().to_string(),
                 is_starred: false,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4582,6 +5913,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 source_path: starred_source.to_string_lossy().to_string(),
                 is_starred: true,
+                tag_ids: None,
             })
             .unwrap();
 
@@ -4656,12 +5988,14 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             font_preset: "workspace_sans".to_string(),
             font_size_px: 14,
             line_height: 1.6,
-            paragraph_spacing_px: 12,
+            paragraph_spacing_before_px: 12,
+            paragraph_spacing_after_px: 0,
         },
         headings: crate::models::RichTextHeadingStyleSettings {
             font_preset: "workspace_sans".to_string(),
             line_height: 1.35,
-            paragraph_spacing_px: 12,
+            paragraph_spacing_before_px: 12,
+            paragraph_spacing_after_px: 0,
             h1_size_px: 24,
             h2_size_px: 20,
             h3_size_px: 16,
@@ -4670,9 +6004,50 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             font_preset: "workspace_sans".to_string(),
             font_size_px: 14,
             line_height: 1.6,
-            paragraph_spacing_px: 12,
+            paragraph_spacing_before_px: 12,
+            paragraph_spacing_after_px: 0,
         },
     }
+}
+
+fn normalize_rich_text_style_value(value: &mut Value) -> Result<()> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("rich text style must be an object"))?;
+
+    normalize_rich_text_style_block_value(object.get_mut("body"))?;
+    normalize_rich_text_style_heading_value(object.get_mut("headings"))?;
+    normalize_rich_text_style_block_value(object.get_mut("list"))?;
+
+    Ok(())
+}
+
+fn normalize_rich_text_style_block_value(value: Option<&mut Value>) -> Result<()> {
+    let Some(value) = value else {
+        return Err(anyhow!("rich text style block is missing"));
+    };
+
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("rich text style block must be an object"))?;
+    let legacy_spacing = object
+        .get("paragraphSpacingPx")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(0);
+
+    if !object.contains_key("paragraphSpacingBeforePx") {
+        object.insert("paragraphSpacingBeforePx".to_string(), json!(legacy_spacing));
+    }
+
+    if !object.contains_key("paragraphSpacingAfterPx") {
+        object.insert("paragraphSpacingAfterPx".to_string(), json!(0));
+    }
+
+    Ok(())
+}
+
+fn normalize_rich_text_style_heading_value(value: Option<&mut Value>) -> Result<()> {
+    normalize_rich_text_style_block_value(value)
 }
 
 fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result<()> {
@@ -4683,9 +6058,15 @@ fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result
         return Err(anyhow!("headings.lineHeight must be between 1.0 and 2.4"));
     }
 
-    if !(0..=48).contains(&settings.headings.paragraph_spacing_px) {
+    if !(0..=48).contains(&settings.headings.paragraph_spacing_before_px) {
         return Err(anyhow!(
-            "headings.paragraphSpacingPx must be between 0 and 48"
+            "headings.paragraphSpacingBeforePx must be between 0 and 48"
+        ));
+    }
+
+    if !(0..=48).contains(&settings.headings.paragraph_spacing_after_px) {
+        return Err(anyhow!(
+            "headings.paragraphSpacingAfterPx must be between 0 and 48"
         ));
     }
 
@@ -4719,9 +6100,15 @@ fn validate_rich_text_style_block(
         return Err(anyhow!("{prefix}.lineHeight must be between 1.0 and 2.4"));
     }
 
-    if !(0..=48).contains(&settings.paragraph_spacing_px) {
+    if !(0..=48).contains(&settings.paragraph_spacing_before_px) {
         return Err(anyhow!(
-            "{prefix}.paragraphSpacingPx must be between 0 and 48"
+            "{prefix}.paragraphSpacingBeforePx must be between 0 and 48"
+        ));
+    }
+
+    if !(0..=48).contains(&settings.paragraph_spacing_after_px) {
+        return Err(anyhow!(
+            "{prefix}.paragraphSpacingAfterPx must be between 0 and 48"
         ));
     }
 
@@ -4753,6 +6140,136 @@ fn validate_activity_option_label(value: &str) -> Result<String> {
         ));
     }
     Ok(normalized.to_string())
+}
+
+fn validate_record_type_label(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("record type label cannot be empty"));
+    }
+    if normalized.chars().count() > 32 {
+        return Err(anyhow!("record type label must be 32 characters or fewer"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_record_type_key(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("record type key cannot be empty"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_file_tag_label(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("file tag label cannot be empty"));
+    }
+    if normalized.chars().count() > 32 {
+        return Err(anyhow!("file tag label must be 32 characters or fewer"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_file_tag_color_key(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
+        return Err(anyhow!("file tag color is not supported"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_activity_attribute_color_key(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
+        return Err(anyhow!("activity attribute color is not supported"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_activity_status_color_key(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
+        return Err(anyhow!("activity status color is not supported"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn normalize_record_type_template_html(value: &str) -> String {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        DEFAULT_RECORD_TYPE_TEMPLATE_HTML.to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn normalize_record_type_key_from_label(label: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_separator = false;
+
+    for ch in label.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+            continue;
+        }
+
+        if ch == '_' || ch == '-' {
+            if !previous_was_separator && !normalized.is_empty() {
+                normalized.push(ch);
+                previous_was_separator = true;
+            }
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            if !previous_was_separator && !normalized.is_empty() {
+                normalized.push('_');
+                previous_was_separator = true;
+            }
+        }
+    }
+
+    normalized.trim_matches(|ch| ch == '_' || ch == '-').to_string()
+}
+
+fn record_type_storage_from_row(row: &Row<'_>) -> rusqlite::Result<RecordTypeStorage> {
+    Ok(RecordTypeStorage {
+        id: row.get(0)?,
+        key: row.get(1)?,
+        label: row.get(2)?,
+        color_key: row.get(3)?,
+        template_html: row.get(4)?,
+        is_default: int_to_bool(row.get::<_, i64>(5)?),
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn record_type_storage_with_tx(tx: &Transaction<'_>, type_id: i64) -> Result<RecordTypeStorage> {
+    tx.query_row(
+        r#"
+        SELECT id, key, label, color_key, template_html, is_default, created_at, updated_at
+        FROM record_type_options
+        WHERE id = ?1
+        "#,
+        [type_id],
+        record_type_storage_from_row,
+    )
+    .map_err(Into::into)
+}
+
+fn normalize_file_tag_ids(tag_ids: &[i64]) -> Vec<i64> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for &tag_id in tag_ids {
+        if seen.insert(tag_id) {
+            normalized.push(tag_id);
+        }
+    }
+    normalized
 }
 
 fn validate_ai_profile_fields(

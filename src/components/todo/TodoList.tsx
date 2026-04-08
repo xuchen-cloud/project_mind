@@ -1,4 +1,4 @@
-import type { TodoRecord } from "../../lib/types";
+import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 
@@ -12,8 +12,10 @@ export function TodoList({
   onToggleExpanded,
   emptyText,
   onToggleStatus,
+  onUpdatePriority,
   onUpdateContent,
   onAddProgress,
+  onOpenTodoSource,
   onError,
 }: {
   todos: TodoRecord[];
@@ -25,11 +27,13 @@ export function TodoList({
   onToggleExpanded: (todoId: number) => void;
   emptyText: string;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
+  onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
 }) {
   return (
@@ -49,8 +53,10 @@ export function TodoList({
               onError={onError}
               onToggleExpanded={onToggleExpanded}
               onToggleStatus={onToggleStatus}
+              onUpdatePriority={onUpdatePriority}
               onUpdateContent={onUpdateContent}
               onAddProgress={onAddProgress}
+              onOpenTodoSource={onOpenTodoSource}
             />
           ))}
         </div>

@@ -21,6 +21,14 @@
   --color-danger: #d44c47;
   --color-success: #0f7b6c;
   --color-warning: #9b6b24;
+  --color-file-tag-slate: #6b7280;
+  --color-file-tag-blue: #2383e2;
+  --color-file-tag-teal: #0f7b6c;
+  --color-file-tag-green: #2f855a;
+  --color-file-tag-amber: #b7791f;
+  --color-file-tag-orange: #dd6b20;
+  --color-file-tag-red: #d44c47;
+  --color-file-tag-rose: #c85c8e;
   --color-overlay: color-mix(in srgb, var(--color-text) 28%, transparent);
   --scrollbar-size: 8px;
   --scrollbar-track: color-mix(in srgb, var(--color-bg-muted) 36%, transparent);
@@ -47,17 +55,20 @@
   --rich-text-body-font-family: var(--font-editor-workspace-sans);
   --rich-text-body-font-size: 14px;
   --rich-text-body-line-height: 1.6;
-  --rich-text-body-paragraph-spacing: 12px;
+  --rich-text-body-paragraph-spacing-before: 12px;
+  --rich-text-body-paragraph-spacing-after: 0px;
   --rich-text-heading-font-family: var(--font-editor-workspace-sans);
   --rich-text-heading-line-height: 1.35;
-  --rich-text-heading-paragraph-spacing: 12px;
+  --rich-text-heading-paragraph-spacing-before: 12px;
+  --rich-text-heading-paragraph-spacing-after: 0px;
   --rich-text-h1-font-size: 24px;
   --rich-text-h2-font-size: 20px;
   --rich-text-h3-font-size: 16px;
   --rich-text-list-font-family: var(--font-editor-workspace-sans);
   --rich-text-list-font-size: 14px;
   --rich-text-list-line-height: 1.6;
-  --rich-text-list-paragraph-spacing: 12px;
+  --rich-text-list-paragraph-spacing-before: 12px;
+  --rich-text-list-paragraph-spacing-after: 0px;
 }
 
 @theme inline {
@@ -279,6 +290,8 @@
 }
 
 .rich-editor__surface {
+  display: flex;
+  flex-direction: column;
   min-height: 280px;
   padding: 18px 16px;
   color: var(--color-text);
@@ -296,29 +309,19 @@
   margin: 0;
 }
 
-.rich-editor__surface > * + p,
-.rich-editor__surface > * + blockquote,
-.rich-editor__surface > * + pre,
-.rich-editor__surface > * + table,
-.rich-editor__surface > * + .rich-editor__attachment,
-.rich-editor__surface > * + img.rich-editor__image {
-  margin-top: var(--rich-text-body-paragraph-spacing);
+.rich-editor__surface > :first-child {
+  margin-block-start: 0;
 }
 
-.rich-editor__surface > * + h1,
-.rich-editor__surface > * + h2,
-.rich-editor__surface > * + h3 {
-  margin-top: var(--rich-text-heading-paragraph-spacing);
-}
-
-.rich-editor__surface > * + ul,
-.rich-editor__surface > * + ol {
-  margin-top: var(--rich-text-list-paragraph-spacing);
+.rich-editor__surface > :last-child {
+  margin-block-end: 0;
 }
 
 .rich-editor__surface h1,
 .rich-editor__surface h2,
 .rich-editor__surface h3 {
+  margin-block-start: var(--rich-text-heading-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-heading-paragraph-spacing-after);
   color: var(--color-text);
   font-weight: 600;
   font-family: var(--rich-text-heading-font-family);
@@ -338,6 +341,8 @@
 }
 
 .rich-editor__surface p {
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   font-family: var(--rich-text-body-font-family);
   font-size: var(--rich-text-body-font-size);
   line-height: var(--rich-text-body-line-height);
@@ -366,10 +371,25 @@
 
 .rich-editor__surface ul,
 .rich-editor__surface ol {
+  margin-block-start: var(--rich-text-list-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-list-paragraph-spacing-after);
   padding-left: 1.25rem;
   font-family: var(--rich-text-list-font-family);
   font-size: var(--rich-text-list-font-size);
   line-height: var(--rich-text-list-line-height);
+}
+
+.rich-editor__surface ul:not([data-type="taskList"]) {
+  list-style-type: disc;
+}
+
+.rich-editor__surface ol {
+  list-style-type: decimal;
+}
+
+.rich-editor__surface ul:not([data-type="taskList"]) li::marker,
+.rich-editor__surface ol li::marker {
+  color: var(--color-text-soft);
 }
 
 .rich-editor__surface ul[data-type="taskList"] {
@@ -394,7 +414,8 @@
 }
 
 .rich-editor__surface blockquote {
-  margin: 0;
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   border-left: 2px solid var(--color-border-strong);
   padding-left: 0.875rem;
   color: var(--color-text-muted);
@@ -402,7 +423,8 @@
 
 .rich-editor__surface pre {
   overflow-x: auto;
-  margin: 0;
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-8);
@@ -430,6 +452,8 @@
 }
 
 .rich-editor__surface table {
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   width: 100%;
   border-collapse: collapse;
   overflow: hidden;
@@ -452,6 +476,8 @@
 
 .rich-editor__surface img.rich-editor__image {
   display: block;
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   max-width: 100%;
   border-radius: var(--radius-8);
 }
@@ -461,7 +487,8 @@
 }
 
 .rich-editor__attachment {
-  margin: 0;
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
 }
 
 .rich-editor__attachment-link {

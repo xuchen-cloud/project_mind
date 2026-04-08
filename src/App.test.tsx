@@ -16,12 +16,14 @@ vi.mock("./services/projectMindApi", () => ({
         fontPreset: "workspace_sans",
         fontSizePx: 14,
         lineHeight: 1.6,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
       },
       headings: {
         fontPreset: "workspace_sans",
         lineHeight: 1.35,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
         h1SizePx: 24,
         h2SizePx: 20,
         h3SizePx: 16,
@@ -30,7 +32,8 @@ vi.mock("./services/projectMindApi", () => ({
         fontPreset: "workspace_sans",
         fontSizePx: 14,
         lineHeight: 1.6,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
       },
     })),
     activitySettingsGet: vi.fn(async () => ({
@@ -39,8 +42,26 @@ vi.mock("./services/projectMindApi", () => ({
         {
           id: 1,
           label: "待启动",
-          needsAttention: true,
+          colorKey: "amber",
           isSystem: true,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+    })),
+    fileTagSettingsGet: vi.fn(async () => ({
+      tags: [],
+    })),
+    recordTypeSettingsGet: vi.fn(async () => ({
+      recordTypes: [
+        {
+          id: 1,
+          key: "quick_note",
+          label: "原始记录",
+          colorKey: "slate",
+          templateHtml: "<p></p>",
+          isDefault: true,
+          usageCount: 0,
           createdAt: "",
           updatedAt: "",
         },
@@ -127,6 +148,8 @@ describe("WorkspaceLayout", () => {
     await user.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /活动标签/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /文件标签/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /记录类型/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 设置/ })).toBeInTheDocument();
   });
 
@@ -155,5 +178,32 @@ describe("WorkspaceLayout", () => {
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /富文本样式/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "富文本样式" })).toBeInTheDocument();
+  });
+
+  it("opens file tag settings from the route bridge", async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            { index: true, element: <div>workspace outlet</div> },
+            { path: "projects", element: <div>projects route</div> },
+            { path: "settings/:section", element: <SettingsRouteBridge /> },
+          ],
+        },
+      ],
+      { initialEntries: ["/settings/file-tags"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /文件标签/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "文件标签" })).toBeInTheDocument();
   });
 });

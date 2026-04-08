@@ -1,10 +1,12 @@
+import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const DEV_URL = "http://localhost:1420";
-const VITE_ENTRY =
-  process.platform === "win32"
-    ? "node_modules/vite/bin/vite.js"
-    : "node_modules/.bin/vite";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+const VITE_ENTRY = path.join(PROJECT_ROOT, "node_modules", "vite", "bin", "vite.js");
 
 async function main() {
   if (await isReusableDevServerRunning()) {
@@ -12,14 +14,10 @@ async function main() {
     return;
   }
 
-  const child = spawn(
-    VITE_ENTRY,
-    ["--host", "0.0.0.0", "--port", "1420"],
-    {
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    },
-  );
+  const child = spawn(process.execPath, [VITE_ENTRY, "--host", "0.0.0.0", "--port", "1420"], {
+    cwd: PROJECT_ROOT,
+    stdio: "inherit",
+  });
 
   child.on("exit", (code) => {
     process.exit(code ?? 0);

@@ -2,16 +2,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockOpenFolder } = vi.hoisted(() => ({
-  mockOpenFolder: vi.fn(async () => undefined),
-}));
-
-vi.mock("../../services/desktopApi", () => ({
-  desktopApi: {
-    openFolder: mockOpenFolder,
-  },
-}));
-
 import { useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
@@ -42,22 +32,24 @@ describe("ProjectSidebar", () => {
             title: "Kickoff Review",
             activityTime: "2026-04-06T08:00:00.000Z",
             attributeLabel: "产品评审",
+            attributeColorKey: "blue",
             documentCount: 3,
             completedTodoCount: 1,
             totalTodoCount: 2,
             statusLabel: "已整理",
-            statusNeedsAttention: false,
+            statusColorKey: "green",
           },
           {
             id: 12,
             title: "Budget Sync",
             activityTime: "2026-04-06T09:00:00.000Z",
             attributeLabel: "预算同步",
+            attributeColorKey: "amber",
             documentCount: 1,
             completedTodoCount: 0,
             totalTodoCount: 1,
             statusLabel: "待复核",
-            statusNeedsAttention: true,
+            statusColorKey: "amber",
           },
         ]}
         activeActivityId={11}
@@ -68,7 +60,6 @@ describe("ProjectSidebar", () => {
 
     await user.click(screen.getByText("Alpha Project").closest("button")!);
     expect(onOpenProject).toHaveBeenCalledTimes(1);
-    expect(mockOpenFolder).toHaveBeenCalledWith("/tmp/alpha-project");
 
     await user.click(screen.getByText("Budget Sync").closest("button")!);
     expect(onOpenActivity).toHaveBeenCalledWith(12);

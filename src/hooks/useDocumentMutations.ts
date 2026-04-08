@@ -11,7 +11,10 @@ export function useDocumentMutations() {
     mutationFn: projectMindApi.documentImport,
     onSuccess: async (document) => {
       setStatus({ tone: "success", label: "Imported", message: `文件 ${document.name} 已导入` });
-      await refreshAll(queryClient, document.projectId);
+      await Promise.all([
+        refreshAll(queryClient, document.projectId),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+      ]);
     },
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "导入文件失败" });
@@ -27,7 +30,10 @@ export function useDocumentMutations() {
         label: "Updated",
         message: `文件 ${document.baseName} 已更新`,
       });
-      await refreshAll(queryClient, document.projectId);
+      await Promise.all([
+        refreshAll(queryClient, document.projectId),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+      ]);
     },
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "更新文件失败" });
@@ -43,7 +49,10 @@ export function useDocumentMutations() {
         label: "Relinked",
         message: `文件 ${document.name} 已重新定位`,
       });
-      await refreshAll(queryClient, document.projectId);
+      await Promise.all([
+        refreshAll(queryClient, document.projectId),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+      ]);
     },
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "重新定位失败" });
@@ -61,6 +70,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
         queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
       ]);
     },

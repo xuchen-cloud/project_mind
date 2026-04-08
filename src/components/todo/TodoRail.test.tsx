@@ -106,8 +106,10 @@ describe("TodoRail", () => {
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={onCreateTodo}
         onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
         onAddProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
       />,
     );
 
@@ -147,8 +149,10 @@ describe("TodoRail", () => {
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={vi.fn()}
         onToggleStatus={onToggleStatus}
+        onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
         onAddProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
       />,
     );
 
@@ -160,5 +164,82 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "标记为未完成" }));
     expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");
+  });
+
+  it("filters by priority and keeps the selection across tabs", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[
+          {
+            ...todoWithHistory,
+            id: 11,
+            content: "Critical legal review",
+            priority: "urgent_important",
+            updatedAt: "2026-04-06T12:00:00.000Z",
+          },
+          {
+            ...todoWithHistory,
+            id: 12,
+            content: "Prepare board memo",
+            priority: "not_urgent_important",
+            updatedAt: "2026-04-06T11:00:00.000Z",
+          },
+          {
+            ...todoWithHistory,
+            id: 13,
+            content: "Capture follow-up notes",
+            priority: "not_urgent_important",
+            updatedAt: "2026-04-06T09:00:00.000Z",
+          },
+        ]}
+        finishedTodos={[
+          {
+            ...finishedTodo,
+            id: 14,
+            content: "Finished critical item",
+            priority: "urgent_important",
+          },
+          {
+            ...finishedTodo,
+            id: 15,
+            content: "Finished low item",
+            priority: "not_urgent_not_important",
+          },
+        ]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "P3" }));
+    expect(screen.getByText("Prepare board memo")).toBeInTheDocument();
+    expect(screen.getByText("Capture follow-up notes")).toBeInTheDocument();
+    expect(screen.queryByText("Critical legal review")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "P3" }));
+    expect(screen.getByText("Critical legal review")).toBeInTheDocument();
+    expect(screen.getByText("Prepare board memo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+    expect(screen.getByText("Finished critical item")).toBeInTheDocument();
+    expect(screen.getByText("Finished low item")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "P1" }));
+    expect(screen.getByText("Finished critical item")).toBeInTheDocument();
+    expect(screen.queryByText("Finished low item")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "未完成" }));
+    expect(screen.getByText("Critical legal review")).toBeInTheDocument();
+    expect(screen.queryByText("Prepare board memo")).not.toBeInTheDocument();
   });
 });

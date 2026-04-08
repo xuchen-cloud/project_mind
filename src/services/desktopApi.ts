@@ -35,12 +35,27 @@ export const desktopApi = {
     return Array.isArray(selected) ? selected[0] ?? null : selected;
   },
 
+  async pickFiles(options: PickFileOptions = {}) {
+    const selected = await open({
+      title: options.title,
+      directory: false,
+      multiple: true,
+      filters: options.filters,
+    });
+
+    if (!selected) {
+      return [];
+    }
+
+    return Array.isArray(selected) ? selected : [selected];
+  },
+
   openFile(path: string) {
     return invoke<void>("desktop_open_file", { path });
   },
 
   revealPath(path: string) {
-    return this.openFile(path);
+    return this.revealInExplorer(path);
   },
 
   openFolder(path: string) {

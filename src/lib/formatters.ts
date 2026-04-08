@@ -79,7 +79,55 @@ export function taskTone(todo: TodoRecord) {
 }
 
 export function fileHref(path: string) {
-  return `file://${encodeURI(path)}`;
+  const normalized = path.replace(/\\/g, "/");
+
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+
+  if (normalized.startsWith("//")) {
+    return `file:${encodeURI(normalized)}`;
+  }
+
+  return `file://${encodeURI(normalized)}`;
+}
+
+export function fileUriToPath(fileUri: string) {
+  try {
+    const url = new URL(fileUri);
+    if (url.protocol !== "file:") {
+      return "";
+    }
+
+    const pathname = decodeURIComponent(url.pathname);
+    if (url.host && url.host.toLowerCase() !== "localhost") {
+      return `\\\\${url.host}${pathname.replace(/\//g, "\\")}`;
+    }
+
+    if (/^\/[A-Za-z]:\//.test(pathname)) {
+      return pathname.slice(1).replace(/\//g, "\\");
+    }
+
+    return pathname;
+  } catch {
+    const fallback = fileUri.replace(/^file:\/\//, "");
+
+    try {
+      const decoded = decodeURIComponent(fallback);
+
+      if (decoded.startsWith("//")) {
+        return `\\\\${decoded.slice(2).replace(/\//g, "\\")}`;
+      }
+
+      if (/^[A-Za-z]:\//.test(decoded)) {
+        return decoded.replace(/\//g, "\\");
+      }
+
+      return decoded;
+    } catch {
+      return fallback;
+    }
+  }
 }
 
 export function projectPath(projectId: number, focus?: string) {

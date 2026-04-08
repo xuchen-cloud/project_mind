@@ -29,6 +29,26 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps project summary update with rename payload to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 1, name: "Project Prime" });
+
+    await projectMindApi.projectUpdateSummary({
+      projectId: 1,
+      name: "Project Prime",
+      summary: "最新项目简介",
+      status: "active",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_update_summary", {
+      input: {
+        projectId: 1,
+        name: "Project Prime",
+        summary: "最新项目简介",
+        status: "active",
+      },
+    });
+  });
+
   it("maps workspace search to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce([]);
 
@@ -105,6 +125,22 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps todo priority update to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 5, priority: "urgent_important" });
+
+    await projectMindApi.todoUpdatePriority({
+      todoId: 5,
+      priority: "urgent_important",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_priority", {
+      input: {
+        todoId: 5,
+        priority: "urgent_important",
+      },
+    });
+  });
+
   it("maps ai settings fetch without payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       profiles: [],
@@ -129,20 +165,143 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("activity_settings_get");
   });
 
+  it("maps file tag settings fetch without payload", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      tags: [],
+    });
+
+    await projectMindApi.fileTagSettingsGet();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_settings_get");
+  });
+
+  it("maps record type settings fetch without payload", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      recordTypes: [],
+    });
+
+    await projectMindApi.recordTypeSettingsGet();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("record_type_settings_get");
+  });
+
+  it("maps file tag save to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 4,
+      label: "法务",
+      colorKey: "blue",
+      usageCount: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await projectMindApi.fileTagOptionUpsert({
+      id: 4,
+      label: "法务",
+      colorKey: "blue",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_option_upsert", {
+      input: {
+        id: 4,
+        label: "法务",
+        colorKey: "blue",
+      },
+    });
+  });
+
+  it("maps record type save to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 3,
+      key: "research_note",
+      label: "调研记录",
+      colorKey: "teal",
+      templateHtml: "<h2>背景</h2><p></p>",
+      isDefault: false,
+      usageCount: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await projectMindApi.recordTypeOptionUpsert({
+      id: 3,
+      label: "调研记录",
+      colorKey: "teal",
+      templateHtml: "<h2>背景</h2><p></p>",
+      isDefault: false,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("record_type_option_upsert", {
+      input: {
+        id: 3,
+        label: "调研记录",
+        colorKey: "teal",
+        templateHtml: "<h2>背景</h2><p></p>",
+        isDefault: false,
+      },
+    });
+  });
+
+  it("maps activity attribute save to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 4,
+      label: "法务",
+      colorKey: "blue",
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await projectMindApi.activityAttributeOptionUpsert({
+      id: 4,
+      label: "法务",
+      colorKey: "blue",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("activity_attribute_option_upsert", {
+      input: {
+        id: 4,
+        label: "法务",
+        colorKey: "blue",
+      },
+    });
+  });
+
+  it("maps document import with tag ids to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 12 });
+
+    await projectMindApi.documentImport({
+      projectId: 1,
+      activityId: 2,
+      sourcePath: "/tmp/brief.pdf",
+      isStarred: false,
+      tagIds: [3, 5],
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import", {
+      input: {
+        projectId: 1,
+        activityId: 2,
+        sourcePath: "/tmp/brief.pdf",
+        isStarred: false,
+        tagIds: [3, 5],
+      },
+    });
+  });
+
   it("maps activity status save to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 3, label: "待法务确认" });
 
     await projectMindApi.activityStatusOptionUpsert({
       id: 3,
       label: "待法务确认",
-      needsAttention: true,
+      colorKey: "amber",
     });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("activity_status_option_upsert", {
       input: {
         id: 3,
         label: "待法务确认",
-        needsAttention: true,
+        colorKey: "amber",
       },
     });
   });
@@ -153,12 +312,14 @@ describe("projectMindApi", () => {
         fontPreset: "workspace_sans",
         fontSizePx: 14,
         lineHeight: 1.6,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
       },
       headings: {
         fontPreset: "workspace_sans",
         lineHeight: 1.35,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
         h1SizePx: 24,
         h2SizePx: 20,
         h3SizePx: 16,
@@ -167,7 +328,8 @@ describe("projectMindApi", () => {
         fontPreset: "workspace_sans",
         fontSizePx: 14,
         lineHeight: 1.6,
-        paragraphSpacingPx: 12,
+        paragraphSpacingBeforePx: 12,
+        paragraphSpacingAfterPx: 0,
       },
     });
 
@@ -184,12 +346,14 @@ describe("projectMindApi", () => {
         fontPreset: "work_sans",
         fontSizePx: 15,
         lineHeight: 1.7,
-        paragraphSpacingPx: 14,
+        paragraphSpacingBeforePx: 14,
+        paragraphSpacingAfterPx: 2,
       },
       headings: {
         fontPreset: "source_serif",
         lineHeight: 1.3,
-        paragraphSpacingPx: 10,
+        paragraphSpacingBeforePx: 10,
+        paragraphSpacingAfterPx: 4,
         h1SizePx: 28,
         h2SizePx: 22,
         h3SizePx: 18,
@@ -198,7 +362,8 @@ describe("projectMindApi", () => {
         fontPreset: "noto_sans_sc",
         fontSizePx: 15,
         lineHeight: 1.65,
-        paragraphSpacingPx: 10,
+        paragraphSpacingBeforePx: 10,
+        paragraphSpacingAfterPx: 3,
       },
     });
 
@@ -208,12 +373,14 @@ describe("projectMindApi", () => {
           fontPreset: "work_sans",
           fontSizePx: 15,
           lineHeight: 1.7,
-          paragraphSpacingPx: 14,
+          paragraphSpacingBeforePx: 14,
+          paragraphSpacingAfterPx: 2,
         },
         headings: {
           fontPreset: "source_serif",
           lineHeight: 1.3,
-          paragraphSpacingPx: 10,
+          paragraphSpacingBeforePx: 10,
+          paragraphSpacingAfterPx: 4,
           h1SizePx: 28,
           h2SizePx: 22,
           h3SizePx: 18,
@@ -222,7 +389,8 @@ describe("projectMindApi", () => {
           fontPreset: "noto_sans_sc",
           fontSizePx: 15,
           lineHeight: 1.65,
-          paragraphSpacingPx: 10,
+          paragraphSpacingBeforePx: 10,
+          paragraphSpacingAfterPx: 3,
         },
       },
     });

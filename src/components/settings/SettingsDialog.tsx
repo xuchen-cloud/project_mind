@@ -1,4 +1,4 @@
-import { Settings2, Sparkles, Tags } from "lucide-react";
+import { FileText, Files, Settings2, Sparkles, Tags } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -8,6 +8,8 @@ import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { ActivitySettingsPanel } from "./ActivitySettingsPanel";
 import { AiSettingsPanel } from "./AiSettingsPanel";
+import { FileTagSettingsPanel } from "./FileTagSettingsPanel";
+import { RecordTypeSettingsPanel } from "./RecordTypeSettingsPanel";
 import { RichTextStylePanel } from "./RichTextStylePanel";
 
 interface SettingsDialogProps {
@@ -20,25 +22,31 @@ interface SettingsDialogProps {
 const SETTINGS_SECTIONS: Array<{
   value: SettingsSection;
   label: string;
-  description: string;
   icon: typeof Settings2;
 }> = [
   {
     value: "activity",
     label: "活动标签",
-    description: "活动属性与状态字典、提醒语义",
     icon: Tags,
+  },
+  {
+    value: "file-tags",
+    label: "文件标签",
+    icon: Files,
+  },
+  {
+    value: "record-types",
+    label: "记录类型",
+    icon: FileText,
   },
   {
     value: "ai",
     label: "AI 设置",
-    description: "模型接入、能力绑定与安全存储",
     icon: Settings2,
   },
   {
     value: "rich-text",
     label: "富文本样式",
-    description: "正文、标题和列表的全局排版",
     icon: Sparkles,
   },
 ];
@@ -58,9 +66,9 @@ export function SettingsDialog({
       widthClassName="max-w-6xl"
       bodyClassName="px-0 py-0"
     >
-      <div className="grid min-h-[36rem] gap-0 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <aside className="border-b border-border bg-bg-subtle/70 p-3 lg:border-b-0 lg:border-r">
-          <nav className="grid gap-2" aria-label="设置分区">
+      <div className="grid min-h-[34rem] gap-0 lg:grid-cols-[12rem_minmax(0,1fr)]">
+        <aside className="border-b border-border bg-bg-subtle/70 p-2.5 lg:border-b-0 lg:border-r">
+          <nav className="grid gap-1.5" aria-label="设置分区">
             {SETTINGS_SECTIONS.map((section) => {
               const Icon = section.icon;
               const active = section.value === activeSection;
@@ -70,7 +78,7 @@ export function SettingsDialog({
                   key={section.value}
                   type="button"
                   className={cn(
-                    "rounded-[var(--radius-8)] border px-3 py-3 text-left transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+                    "rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
                     active
                       ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
                       : "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-bg hover:text-text",
@@ -81,16 +89,21 @@ export function SettingsDialog({
                     <Icon size={14} className={active ? "text-accent" : "text-text-soft"} />
                     <span className="text-body font-medium">{section.label}</span>
                   </div>
-                  <p className="mt-1 text-ui leading-5 text-text-soft">{section.description}</p>
                 </button>
               );
             })}
           </nav>
         </aside>
 
-        <div className="min-w-0 p-4 sm:p-5">
+        <div className="min-w-0 p-3.5 sm:p-4">
           <section hidden={activeSection !== "activity"} aria-label="活动标签">
             <ActivitySettingsPanel open={open} />
+          </section>
+          <section hidden={activeSection !== "file-tags"} aria-label="文件标签">
+            <FileTagSettingsPanel open={open} />
+          </section>
+          <section hidden={activeSection !== "record-types"} aria-label="记录类型">
+            <RecordTypeSettingsPanel open={open} />
           </section>
           <section hidden={activeSection !== "ai"} aria-label="AI 设置">
             <AiSettingsPanel open={open} />
@@ -120,6 +133,12 @@ export function SettingsRouteBridge() {
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
   if (section === "rich-text") {
     return "rich-text";
+  }
+  if (section === "file-tags") {
+    return "file-tags";
+  }
+  if (section === "record-types") {
+    return "record-types";
   }
   if (section === "ai") {
     return "ai";

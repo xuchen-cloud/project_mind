@@ -5,9 +5,9 @@ mod models;
 mod secret_crypto;
 
 use std::sync::Mutex;
-use std::{path::Path, process::Command};
+use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use db::Database;
 use models::{
     AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
@@ -18,14 +18,18 @@ use models::{
     AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot, AiSuggestionRecord,
     ConclusionCreateInput, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
     DocumentAddVersionInput, DocumentImportInput, DocumentListVersionsInput, DocumentRecord,
-    DocumentRelocateInput, DocumentUpdateMetaInput, DocumentVersionRecord, NoteRecord,
-    NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
-    ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
-    ProjectsListInput, RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput,
-    TodoCreateInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdateStatusInput,
-    WorkspaceSearchInput, WorkspaceSearchResult,
+    DocumentRelocateInput, DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
+    FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteRecord, NoteUpsertInput,
+    ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
+    ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
+    RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput, RecordTypeRecord,
+    RecordTypeSettingsSnapshot, RichTextStyleSettings, RichTextStyleUpsertInput,
+    TodoAddProgressInput, TodoCreateInput, TodoProgressRecord, TodoRecord,
+    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceSearchInput,
+    WorkspaceSearchResult,
 };
 use tauri::{Manager, State};
+use tauri_plugin_opener::{open_path, reveal_item_in_dir};
 
 struct AppState {
     db: Mutex<Database>,
@@ -52,74 +56,14 @@ fn ensure_path_exists(path: &Path) -> Result<()> {
     }
 }
 
-fn run_command(command: &mut Command, action: &str, path: &Path) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("failed to {} {}", action, path.display()))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        bail!(
-            "failed to {} {} (exit status: {})",
-            action,
-            path.display(),
-            status
-        )
-    }
-}
-
 fn open_path_with_system_app(path: &Path) -> Result<()> {
     ensure_path_exists(path)?;
-    open_path_with_system_app_impl(path)
+    open_path(path, None::<&str>).map_err(Into::into)
 }
 
 fn reveal_path_in_explorer(path: &Path) -> Result<()> {
     ensure_path_exists(path)?;
-    reveal_path_in_explorer_impl(path)
-}
-
-#[cfg(target_os = "macos")]
-fn open_path_with_system_app_impl(path: &Path) -> Result<()> {
-    let mut command = Command::new("open");
-    command.arg(path);
-    run_command(&mut command, "open path", path)
-}
-
-#[cfg(target_os = "windows")]
-fn open_path_with_system_app_impl(path: &Path) -> Result<()> {
-    let mut command = Command::new("cmd");
-    command.arg("/C").arg("start").arg("").arg(path.as_os_str());
-    run_command(&mut command, "open path", path)
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn open_path_with_system_app_impl(path: &Path) -> Result<()> {
-    let mut command = Command::new("xdg-open");
-    command.arg(path);
-    run_command(&mut command, "open path", path)
-}
-
-#[cfg(target_os = "macos")]
-fn reveal_path_in_explorer_impl(path: &Path) -> Result<()> {
-    let mut command = Command::new("open");
-    command.arg("-R").arg(path);
-    run_command(&mut command, "reveal path", path)
-}
-
-#[cfg(target_os = "windows")]
-fn reveal_path_in_explorer_impl(path: &Path) -> Result<()> {
-    let mut command = Command::new("explorer");
-    command.arg(format!("/select,{}", path.display()));
-    run_command(&mut command, "reveal path", path)
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn reveal_path_in_explorer_impl(path: &Path) -> Result<()> {
-    let reveal_target = path.parent().unwrap_or(path);
-    let mut command = Command::new("xdg-open");
-    command.arg(reveal_target);
-    run_command(&mut command, "reveal path", path)
+    reveal_item_in_dir(path).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -260,6 +204,50 @@ fn activity_status_option_delete(
 }
 
 #[tauri::command]
+fn file_tag_settings_get(state: State<'_, AppState>) -> CommandResult<FileTagSettingsSnapshot> {
+    with_db(state, |db| db.file_tag_settings_get())
+}
+
+#[tauri::command]
+fn file_tag_option_upsert(
+    state: State<'_, AppState>,
+    input: FileTagOptionUpsertInput,
+) -> CommandResult<FileTagRecord> {
+    with_db(state, |db| db.file_tag_option_upsert(input))
+}
+
+#[tauri::command]
+fn file_tag_option_delete(
+    state: State<'_, AppState>,
+    input: FileTagOptionDeleteInput,
+) -> CommandResult<FileTagSettingsSnapshot> {
+    with_db(state, |db| db.file_tag_option_delete(input))
+}
+
+#[tauri::command]
+fn record_type_settings_get(
+    state: State<'_, AppState>,
+) -> CommandResult<RecordTypeSettingsSnapshot> {
+    with_db(state, |db| db.record_type_settings_get())
+}
+
+#[tauri::command]
+fn record_type_option_upsert(
+    state: State<'_, AppState>,
+    input: RecordTypeOptionUpsertInput,
+) -> CommandResult<RecordTypeRecord> {
+    with_db(state, |db| db.record_type_option_upsert(input))
+}
+
+#[tauri::command]
+fn record_type_option_delete(
+    state: State<'_, AppState>,
+    input: RecordTypeOptionDeleteInput,
+) -> CommandResult<RecordTypeSettingsSnapshot> {
+    with_db(state, |db| db.record_type_option_delete(input))
+}
+
+#[tauri::command]
 fn note_upsert(state: State<'_, AppState>, input: NoteUpsertInput) -> CommandResult<NoteRecord> {
     with_db(state, |db| db.note_upsert(input))
 }
@@ -299,6 +287,14 @@ fn todo_update_status(
     input: TodoUpdateStatusInput,
 ) -> CommandResult<TodoRecord> {
     with_db(state, |db| db.todo_update_status(input))
+}
+
+#[tauri::command]
+fn todo_update_priority(
+    state: State<'_, AppState>,
+    input: TodoUpdatePriorityInput,
+) -> CommandResult<TodoRecord> {
+    with_db(state, |db| db.todo_update_priority(input))
 }
 
 #[tauri::command]
@@ -469,12 +465,19 @@ pub fn run() {
             activity_attribute_option_delete,
             activity_status_option_upsert,
             activity_status_option_delete,
+            file_tag_settings_get,
+            file_tag_option_upsert,
+            file_tag_option_delete,
+            record_type_settings_get,
+            record_type_option_upsert,
+            record_type_option_delete,
             note_upsert,
             conclusion_create,
             conclusion_list,
             conclusion_update,
             todo_create,
             todo_update_status,
+            todo_update_priority,
             todo_update_content,
             todo_add_progress,
             todo_list_open,

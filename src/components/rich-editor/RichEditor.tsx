@@ -25,7 +25,8 @@ import {
 import { desktopApi } from "../../services/desktopApi";
 import { ToolbarButton } from "../../ui/components";
 import { buildRichEditorExtensions } from "./extensions";
-import { serializeEditorMarkdown } from "./markdown";
+import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
+import { normalizeRichEditorValue } from "./normalize";
 import type {
   RichEditorAsset,
   RichEditorAssetHandlers,
@@ -34,7 +35,6 @@ import type {
   RichEditorVariant,
 } from "./types";
 
-const EMPTY_HTML = "<p></p>";
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "avif"];
 
 type SaveReason = "debounced" | "blur" | "queued";
@@ -173,10 +173,16 @@ export function RichEditor({
 
       clearPersistTimer();
 
-      const snapshot = serializeEditor(editor);
+      const snapshot = normalizeRichEditorValue(serializeEditor(editor));
+
+      if (snapshot.html !== normalizeHtml(editor.getHTML())) {
+        editor.commands.setContent(snapshot.html, {
+          emitUpdate: false,
+        });
+      }
 
       if (snapshot.html === lastPersistedHtmlRef.current) {
-        updatePersistState(snapshot.html === EMPTY_HTML ? "idle" : "saved");
+        updatePersistState(snapshot.html === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
         return;
       }
 
@@ -192,7 +198,7 @@ export function RichEditor({
         await onSave(snapshot);
         lastPersistedHtmlRef.current = snapshot.html;
         lastResolvedHtmlRef.current = snapshot.html;
-        updatePersistState(snapshot.html === EMPTY_HTML ? "idle" : "saved");
+        updatePersistState(snapshot.html === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
       } catch (error) {
         updatePersistState("error");
         throw error;
@@ -250,7 +256,7 @@ export function RichEditor({
       });
     }
 
-    updatePersistState(nextHtml === EMPTY_HTML ? "idle" : "saved");
+    updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
   }, [defaultHtml, editor, html, updatePersistState]);
 
   useEffect(() => {
@@ -698,7 +704,7 @@ function insertObjectBlock(editor: Editor, block: JSONContent) {
 
 function normalizeHtml(html?: string) {
   const nextHtml = html?.trim();
-  return nextHtml && nextHtml.length > 0 ? nextHtml : EMPTY_HTML;
+  return nextHtml && nextHtml.length > 0 ? nextHtml : EMPTY_RICH_EDITOR_HTML;
 }
 
 function sanitizePastedHtml(rawHtml: string) {

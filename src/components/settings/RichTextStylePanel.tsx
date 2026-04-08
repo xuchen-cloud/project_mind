@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, RotateCcw, Save, Type } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import {
   buildRichTextStyleInlineCssVariables,
@@ -12,8 +12,20 @@ import {
 import type { RichTextFontPreset, RichTextStyleSettings } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { Button, EmptyState, SectionHeader, StatusBadge, SurfaceCard, TextField } from "../../ui/components";
-import { settingsSelectClassName } from "./shared";
+import {
+  Button,
+  EmptyState,
+  SectionHeader,
+  StatusBadge,
+  SurfaceCard,
+  TextField,
+} from "../../ui/components";
+import {
+  settingsCardClassName,
+  settingsFieldClassName,
+  settingsFieldLabelClassName,
+  settingsSelectClassName,
+} from "./shared";
 
 interface RichTextStylePanelProps {
   open: boolean;
@@ -31,6 +43,7 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
 
   const [draft, setDraft] = useState<RichTextStyleSettings>(DEFAULT_RICH_TEXT_STYLE_SETTINGS);
   const lastSnapshotSignatureRef = useRef<string>("");
+  const lastSubmittedSignatureRef = useRef<string | null>(null);
 
   const snapshot = richTextStyleQuery.data ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS;
   const snapshotSignature = useMemo(() => styleSignature(snapshot), [snapshot]);
@@ -54,15 +67,33 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
     mutationFn: projectMindApi.richTextStyleUpsert,
     onSuccess: (nextSettings) => {
       queryClient.setQueryData(["rich-text-style"], nextSettings);
-      setDraft(cloneRichTextStyleSettings(nextSettings));
       lastSnapshotSignatureRef.current = styleSignature(nextSettings);
-      setStatus({ tone: "success", label: "Saved", message: "富文本排版设置已更新" });
+      lastSubmittedSignatureRef.current = styleSignature(nextSettings);
+      setDraft((current) =>
+        styleSignature(current) === styleSignature(nextSettings)
+          ? cloneRichTextStyleSettings(nextSettings)
+          : current,
+      );
     },
     onError: (error) => {
+      lastSubmittedSignatureRef.current = null;
       setStatus({ tone: "error", label: "Error", message: "保存富文本排版设置失败" });
       pushToast({ tone: "error", title: "保存富文本排版设置失败", detail: String(error) });
     },
   });
+
+  useEffect(() => {
+    if (!open || saveMutation.isPending || !isDirty || lastSubmittedSignatureRef.current === draftSignature) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      lastSubmittedSignatureRef.current = draftSignature;
+      saveMutation.mutate(cloneRichTextStyleSettings(draft));
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [draft, draftSignature, isDirty, open, saveMutation]);
 
   if (richTextStyleQuery.isLoading && !richTextStyleQuery.data) {
     return (
@@ -91,233 +122,252 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
   }
 
   return (
-    <div className="grid gap-4">
-      <SurfaceCard subtle className="px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="max-w-2xl">
-            <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-              Rich Text Style
-            </p>
-            <p className="mt-1 text-body text-text-muted">
-              保存后会统一作用于编辑态、只读态和记录预览区，不改写已有内容本身。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone="neutral">正文</StatusBadge>
-            <StatusBadge tone="neutral">标题</StatusBadge>
-            <StatusBadge tone="neutral">列表</StatusBadge>
-            <StatusBadge tone={isDirty ? "warning" : "success"}>
-              {isDirty ? "未保存更改" : "已同步"}
+    <div className="grid gap-3">
+      <SurfaceCard subtle className="px-3.5 py-3 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+            Rich Text Style
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <StatusBadge tone="neutral">实时预览</StatusBadge>
+            <StatusBadge tone={saveMutation.isPending || isDirty ? "warning" : "success"}>
+              {saveMutation.isPending ? "同步中" : isDirty ? "待同步" : "已同步"}
             </StatusBadge>
           </div>
         </div>
       </SurfaceCard>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
-        <div className="grid gap-4">
-          <StyleSectionCard
-            eyebrow="Body"
-            title="正文"
-            description="控制段落正文的字体、字号、行距和段间距。"
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <FontPresetField
-                label="字体"
-                value={draft.body.fontPreset}
-                onChange={(fontPreset) =>
-                  setDraft((current) => ({
-                    ...current,
-                    body: { ...current.body, fontPreset },
-                  }))
-                }
-              />
-              <NumericField
-                label="字号"
-                value={draft.body.fontSizePx}
-                min={12}
-                max={28}
-                step={1}
-                suffix="px"
-                onChange={(fontSizePx) =>
-                  setDraft((current) => ({
-                    ...current,
-                    body: { ...current.body, fontSizePx },
-                  }))
-                }
-              />
-              <NumericField
-                label="行间距"
-                value={draft.body.lineHeight}
-                min={1}
-                max={2.4}
-                step={0.05}
-                onChange={(lineHeight) =>
-                  setDraft((current) => ({
-                    ...current,
-                    body: { ...current.body, lineHeight },
-                  }))
-                }
-              />
-              <NumericField
-                label="段间距"
-                value={draft.body.paragraphSpacingPx}
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.08fr)_minmax(20rem,0.92fr)]">
+        <div className="grid gap-3">
+          <StyleSectionCard eyebrow="Body" title="正文">
+            <div className="grid gap-2.5">
+              <CompactFieldRow>
+                <FontPresetField
+                  label="字体"
+                  value={draft.body.fontPreset}
+                  onChange={(fontPreset) =>
+                    setDraft((current) => ({
+                      ...current,
+                      body: { ...current.body, fontPreset },
+                    }))
+                  }
+                />
+                <NumericField
+                  label="字号"
+                  value={draft.body.fontSizePx}
+                  min={12}
+                  max={28}
+                  step={1}
+                  suffix="px"
+                  onChange={(fontSizePx) =>
+                    setDraft((current) => ({
+                      ...current,
+                      body: { ...current.body, fontSizePx },
+                    }))
+                  }
+                />
+                <NumericField
+                  label="行距"
+                  value={draft.body.lineHeight}
+                  min={1}
+                  max={2.4}
+                  step={0.05}
+                  onChange={(lineHeight) =>
+                    setDraft((current) => ({
+                      ...current,
+                      body: { ...current.body, lineHeight },
+                    }))
+                  }
+                />
+              </CompactFieldRow>
+
+              <NumericPairField
+                label="段距"
+                firstLabel="段前"
+                firstValue={draft.body.paragraphSpacingBeforePx}
+                secondLabel="段后"
+                secondValue={draft.body.paragraphSpacingAfterPx}
                 min={0}
                 max={48}
                 step={1}
                 suffix="px"
-                onChange={(paragraphSpacingPx) =>
+                onFirstChange={(paragraphSpacingBeforePx) =>
                   setDraft((current) => ({
                     ...current,
-                    body: { ...current.body, paragraphSpacingPx },
+                    body: { ...current.body, paragraphSpacingBeforePx },
+                  }))
+                }
+                onSecondChange={(paragraphSpacingAfterPx) =>
+                  setDraft((current) => ({
+                    ...current,
+                    body: { ...current.body, paragraphSpacingAfterPx },
                   }))
                 }
               />
             </div>
           </StyleSectionCard>
 
-          <StyleSectionCard
-            eyebrow="Headings"
-            title="标题"
-            description="H1/H2/H3 共享字体、行距和段间距，只拆字号层级。"
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <FontPresetField
-                label="字体"
-                value={draft.headings.fontPreset}
-                onChange={(fontPreset) =>
-                  setDraft((current) => ({
-                    ...current,
-                    headings: { ...current.headings, fontPreset },
-                  }))
-                }
-              />
-              <NumericField
-                label="行间距"
-                value={draft.headings.lineHeight}
-                min={1}
-                max={2.4}
-                step={0.05}
-                onChange={(lineHeight) =>
-                  setDraft((current) => ({
-                    ...current,
-                    headings: { ...current.headings, lineHeight },
-                  }))
-                }
-              />
-              <NumericField
-                label="段间距"
-                value={draft.headings.paragraphSpacingPx}
+          <StyleSectionCard eyebrow="Headings" title="标题">
+            <div className="grid gap-2.5">
+              <CompactFieldRow className="md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                <FontPresetField
+                  label="字体"
+                  value={draft.headings.fontPreset}
+                  onChange={(fontPreset) =>
+                    setDraft((current) => ({
+                      ...current,
+                      headings: { ...current.headings, fontPreset },
+                    }))
+                  }
+                />
+                <NumericField
+                  label="行距"
+                  value={draft.headings.lineHeight}
+                  min={1}
+                  max={2.4}
+                  step={0.05}
+                  onChange={(lineHeight) =>
+                    setDraft((current) => ({
+                      ...current,
+                      headings: { ...current.headings, lineHeight },
+                    }))
+                  }
+                />
+              </CompactFieldRow>
+
+              <NumericPairField
+                label="段距"
+                firstLabel="段前"
+                firstValue={draft.headings.paragraphSpacingBeforePx}
+                secondLabel="段后"
+                secondValue={draft.headings.paragraphSpacingAfterPx}
                 min={0}
                 max={48}
                 step={1}
                 suffix="px"
-                onChange={(paragraphSpacingPx) =>
+                onFirstChange={(paragraphSpacingBeforePx) =>
                   setDraft((current) => ({
                     ...current,
-                    headings: { ...current.headings, paragraphSpacingPx },
+                    headings: { ...current.headings, paragraphSpacingBeforePx },
+                  }))
+                }
+                onSecondChange={(paragraphSpacingAfterPx) =>
+                  setDraft((current) => ({
+                    ...current,
+                    headings: { ...current.headings, paragraphSpacingAfterPx },
                   }))
                 }
               />
-              <div />
-              <NumericField
-                label="H1 字号"
-                value={draft.headings.h1SizePx}
-                min={14}
-                max={48}
-                step={1}
-                suffix="px"
-                onChange={(h1SizePx) =>
-                  setDraft((current) => ({
-                    ...current,
-                    headings: { ...current.headings, h1SizePx },
-                  }))
-                }
-              />
-              <NumericField
-                label="H2 字号"
-                value={draft.headings.h2SizePx}
-                min={14}
-                max={40}
-                step={1}
-                suffix="px"
-                onChange={(h2SizePx) =>
-                  setDraft((current) => ({
-                    ...current,
-                    headings: { ...current.headings, h2SizePx },
-                  }))
-                }
-              />
-              <NumericField
-                label="H3 字号"
-                value={draft.headings.h3SizePx}
-                min={12}
-                max={32}
-                step={1}
-                suffix="px"
-                onChange={(h3SizePx) =>
-                  setDraft((current) => ({
-                    ...current,
-                    headings: { ...current.headings, h3SizePx },
-                  }))
-                }
+
+              <NumericTripleField
+                label="标题字号"
+                items={[
+                  {
+                    itemLabel: "H1",
+                    value: draft.headings.h1SizePx,
+                    min: 14,
+                    max: 48,
+                    step: 1,
+                    suffix: "px",
+                    onChange: (h1SizePx) =>
+                      setDraft((current) => ({
+                        ...current,
+                        headings: { ...current.headings, h1SizePx },
+                      })),
+                  },
+                  {
+                    itemLabel: "H2",
+                    value: draft.headings.h2SizePx,
+                    min: 14,
+                    max: 40,
+                    step: 1,
+                    suffix: "px",
+                    onChange: (h2SizePx) =>
+                      setDraft((current) => ({
+                        ...current,
+                        headings: { ...current.headings, h2SizePx },
+                      })),
+                  },
+                  {
+                    itemLabel: "H3",
+                    value: draft.headings.h3SizePx,
+                    min: 12,
+                    max: 32,
+                    step: 1,
+                    suffix: "px",
+                    onChange: (h3SizePx) =>
+                      setDraft((current) => ({
+                        ...current,
+                        headings: { ...current.headings, h3SizePx },
+                      })),
+                  },
+                ]}
               />
             </div>
           </StyleSectionCard>
 
-          <StyleSectionCard
-            eyebrow="Lists"
-            title="列表"
-            description="列表独立控制字体、字号、行距和列表块间距，不改变缩进与标记样式。"
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <FontPresetField
-                label="字体"
-                value={draft.list.fontPreset}
-                onChange={(fontPreset) =>
-                  setDraft((current) => ({
-                    ...current,
-                    list: { ...current.list, fontPreset },
-                  }))
-                }
-              />
-              <NumericField
-                label="字号"
-                value={draft.list.fontSizePx}
-                min={12}
-                max={28}
-                step={1}
-                suffix="px"
-                onChange={(fontSizePx) =>
-                  setDraft((current) => ({
-                    ...current,
-                    list: { ...current.list, fontSizePx },
-                  }))
-                }
-              />
-              <NumericField
-                label="行间距"
-                value={draft.list.lineHeight}
-                min={1}
-                max={2.4}
-                step={0.05}
-                onChange={(lineHeight) =>
-                  setDraft((current) => ({
-                    ...current,
-                    list: { ...current.list, lineHeight },
-                  }))
-                }
-              />
-              <NumericField
-                label="段间距"
-                value={draft.list.paragraphSpacingPx}
+          <StyleSectionCard eyebrow="Lists" title="列表">
+            <div className="grid gap-2.5">
+              <CompactFieldRow>
+                <FontPresetField
+                  label="字体"
+                  value={draft.list.fontPreset}
+                  onChange={(fontPreset) =>
+                    setDraft((current) => ({
+                      ...current,
+                      list: { ...current.list, fontPreset },
+                    }))
+                  }
+                />
+                <NumericField
+                  label="字号"
+                  value={draft.list.fontSizePx}
+                  min={12}
+                  max={28}
+                  step={1}
+                  suffix="px"
+                  onChange={(fontSizePx) =>
+                    setDraft((current) => ({
+                      ...current,
+                      list: { ...current.list, fontSizePx },
+                    }))
+                  }
+                />
+                <NumericField
+                  label="行距"
+                  value={draft.list.lineHeight}
+                  min={1}
+                  max={2.4}
+                  step={0.05}
+                  onChange={(lineHeight) =>
+                    setDraft((current) => ({
+                      ...current,
+                      list: { ...current.list, lineHeight },
+                    }))
+                  }
+                />
+              </CompactFieldRow>
+
+              <NumericPairField
+                label="段距"
+                firstLabel="段前"
+                firstValue={draft.list.paragraphSpacingBeforePx}
+                secondLabel="段后"
+                secondValue={draft.list.paragraphSpacingAfterPx}
                 min={0}
                 max={48}
                 step={1}
                 suffix="px"
-                onChange={(paragraphSpacingPx) =>
+                onFirstChange={(paragraphSpacingBeforePx) =>
                   setDraft((current) => ({
                     ...current,
-                    list: { ...current.list, paragraphSpacingPx },
+                    list: { ...current.list, paragraphSpacingBeforePx },
+                  }))
+                }
+                onSecondChange={(paragraphSpacingAfterPx) =>
+                  setDraft((current) => ({
+                    ...current,
+                    list: { ...current.list, paragraphSpacingAfterPx },
                   }))
                 }
               />
@@ -325,58 +375,37 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
           </StyleSectionCard>
         </div>
 
-        <div className="grid content-start gap-4">
-          <SurfaceCard className="p-4 sm:p-5">
-            <SectionHeader
-              eyebrow="Preview"
-              title="实时预览"
-              actions={<StatusBadge tone="neutral">仅在此面板内预览</StatusBadge>}
-            />
-            <p className="mt-3 text-body text-text-muted">
-              修改后会立即更新这张示例卡；点击保存后才会全局生效。
-            </p>
+        <div className="grid content-start gap-3 xl:sticky xl:top-0">
+          <SurfaceCard className="overflow-hidden">
+            <div className={settingsCardClassName}>
+              <SectionHeader eyebrow="Preview" title="实时预览" />
 
-            <div className="mt-4 overflow-hidden rounded-[var(--radius-8)] border border-border bg-bg">
-              <div
-                className="rich-editor__surface min-h-0 bg-transparent"
-                style={buildRichTextStyleInlineCssVariables(draft)}
-                dangerouslySetInnerHTML={{ __html: RICH_TEXT_STYLE_PREVIEW_HTML }}
-              />
+              <div className="mt-3 overflow-hidden rounded-[var(--radius-8)] border border-border bg-bg">
+                <div
+                  className="rich-editor__surface min-h-0 bg-transparent"
+                  style={{
+                    ...buildRichTextStyleInlineCssVariables(draft),
+                    minHeight: 0,
+                    padding: "12px 14px",
+                  }}
+                  dangerouslySetInnerHTML={{ __html: RICH_TEXT_STYLE_PREVIEW_HTML }}
+                />
+              </div>
             </div>
-          </SurfaceCard>
 
-          <SurfaceCard subtle className="p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="primary"
-                leadingIcon={<Save size={14} />}
-                disabled={!isDirty || saveMutation.isPending}
-                onClick={() => saveMutation.mutate(draft)}
-              >
-                {saveMutation.isPending ? "保存中..." : "保存设置"}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={!isDirty}
-                onClick={() => setDraft(cloneRichTextStyleSettings(snapshot))}
-              >
-                取消更改
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                leadingIcon={<RotateCcw size={14} />}
-                disabled={styleSignature(draft) === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS)}
-                onClick={() => setDraft(cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
-              >
-                恢复默认
-              </Button>
+            <div className="border-t border-border bg-bg-subtle px-3.5 py-3 sm:px-4">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={styleSignature(draft) === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS)}
+                  onClick={() => setDraft(cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
+                >
+                  恢复默认
+                </Button>
+              </div>
             </div>
-            <p className="mt-3 text-ui leading-5 text-text-soft">
-              保存后会同步刷新所有 `.rich-editor__surface` 展示位，包括编辑器正文、只读内容和 HTML 预览区。
-            </p>
           </SurfaceCard>
         </div>
       </div>
@@ -387,21 +416,28 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
 function StyleSectionCard({
   eyebrow,
   title,
-  description,
   children,
 }: {
   eyebrow: string;
   title: string;
-  description: string;
   children: ReactNode;
 }) {
   return (
-    <SurfaceCard className="p-4 sm:p-5">
-      <SectionHeader eyebrow={eyebrow} title={title} actions={<Type size={14} className="text-text-soft" />} />
-      <p className="mt-3 text-body text-text-muted">{description}</p>
-      <div className="mt-4">{children}</div>
+    <SurfaceCard className={settingsCardClassName}>
+      <SectionHeader eyebrow={eyebrow} title={title} />
+      <div className="mt-2.5">{children}</div>
     </SurfaceCard>
   );
+}
+
+function CompactFieldRow({
+  children,
+  className = "md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)_minmax(0,0.85fr)]",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <div className={["grid gap-2.5", className].join(" ")}>{children}</div>;
 }
 
 function FontPresetField({
@@ -413,11 +449,9 @@ function FontPresetField({
   value: RichTextFontPreset;
   onChange: (value: RichTextFontPreset) => void;
 }) {
-  const selected = RICH_TEXT_FONT_PRESET_OPTIONS.find((option) => option.value === value);
-
   return (
-    <label className="grid gap-1.5">
-      <span className="text-ui font-medium text-text-muted">{label}</span>
+    <label className={settingsFieldClassName}>
+      <span className={settingsFieldLabelClassName}>{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as RichTextFontPreset)}
@@ -429,7 +463,6 @@ function FontPresetField({
           </option>
         ))}
       </select>
-      {selected ? <span className="text-ui leading-5 text-text-soft">{selected.description}</span> : null}
     </label>
   );
 }
@@ -452,33 +485,180 @@ function NumericField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="grid gap-1.5">
-      <span className="text-ui font-medium text-text-muted">{label}</span>
-      <div className="relative">
-        <TextField
-          type="number"
+    <label className={settingsFieldClassName}>
+      <span className={settingsFieldLabelClassName}>{label}</span>
+      <NumericInputControl
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        suffix={suffix}
+        onChange={onChange}
+      />
+    </label>
+  );
+}
+
+function NumericPairField({
+  label,
+  firstLabel,
+  firstValue,
+  secondLabel,
+  secondValue,
+  min,
+  max,
+  step,
+  suffix,
+  onFirstChange,
+  onSecondChange,
+}: {
+  label: string;
+  firstLabel: string;
+  firstValue: number;
+  secondLabel: string;
+  secondValue: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix?: string;
+  onFirstChange: (value: number) => void;
+  onSecondChange: (value: number) => void;
+}) {
+  return (
+    <div className={settingsFieldClassName}>
+      <span className={settingsFieldLabelClassName}>{label}</span>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <NumericSubField
+          label={firstLabel}
+          value={firstValue}
           min={min}
           max={max}
           step={step}
-          value={value}
-          onChange={(event) => {
-            const nextValue = event.target.valueAsNumber;
-            if (Number.isFinite(nextValue)) {
-              onChange(nextValue);
-            }
-          }}
-          className={suffix ? "pr-10" : undefined}
+          suffix={suffix}
+          onChange={onFirstChange}
         />
-        {suffix ? (
-          <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-ui text-text-soft">
-            {suffix}
-          </span>
-        ) : null}
+        <NumericSubField
+          label={secondLabel}
+          value={secondValue}
+          min={min}
+          max={max}
+          step={step}
+          suffix={suffix}
+          onChange={onSecondChange}
+        />
       </div>
-      <span className="text-ui text-text-soft">
-        {min} - {max}
+    </div>
+  );
+}
+
+function NumericTripleField({
+  label,
+  items,
+}: {
+  label: string;
+  items: Array<{
+    itemLabel: string;
+    value: number;
+    min: number;
+    max: number;
+    step: number;
+    suffix?: string;
+    onChange: (value: number) => void;
+  }>;
+}) {
+  return (
+    <div className={settingsFieldClassName}>
+      <span className={settingsFieldLabelClassName}>{label}</span>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {items.map((item) => (
+          <NumericSubField
+            key={item.itemLabel}
+            label={item.itemLabel}
+            value={item.value}
+            min={item.min}
+            max={item.max}
+            step={item.step}
+            suffix={item.suffix}
+            onChange={item.onChange}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NumericSubField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  suffix,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-caption font-medium uppercase tracking-[0.12em] text-text-soft">
+        {label}
       </span>
+      <NumericInputControl
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        suffix={suffix}
+        onChange={onChange}
+      />
     </label>
+  );
+}
+
+function NumericInputControl({
+  value,
+  min,
+  max,
+  step,
+  suffix,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="relative">
+      <TextField
+        fieldSize="sm"
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => {
+          const nextValue = event.target.valueAsNumber;
+          if (Number.isFinite(nextValue)) {
+            onChange(nextValue);
+          }
+        }}
+        className={suffix ? "pr-10" : undefined}
+      />
+      {suffix ? (
+        <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-ui text-text-soft">
+          {suffix}
+        </span>
+      ) : null}
+    </div>
   );
 }
 

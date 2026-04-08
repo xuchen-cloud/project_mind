@@ -7,12 +7,14 @@ export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
     fontPreset: "workspace_sans",
     fontSizePx: 14,
     lineHeight: 1.6,
-    paragraphSpacingPx: 12,
+    paragraphSpacingBeforePx: 12,
+    paragraphSpacingAfterPx: 0,
   },
   headings: {
     fontPreset: "workspace_sans",
     lineHeight: 1.35,
-    paragraphSpacingPx: 12,
+    paragraphSpacingBeforePx: 12,
+    paragraphSpacingAfterPx: 0,
     h1SizePx: 24,
     h2SizePx: 20,
     h3SizePx: 16,
@@ -21,7 +23,8 @@ export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
     fontPreset: "workspace_sans",
     fontSizePx: 14,
     lineHeight: 1.6,
-    paragraphSpacingPx: 12,
+    paragraphSpacingBeforePx: 12,
+    paragraphSpacingAfterPx: 0,
   },
 };
 
@@ -56,17 +59,20 @@ type RichTextStyleCssVarName =
   | "--rich-text-body-font-family"
   | "--rich-text-body-font-size"
   | "--rich-text-body-line-height"
-  | "--rich-text-body-paragraph-spacing"
+  | "--rich-text-body-paragraph-spacing-before"
+  | "--rich-text-body-paragraph-spacing-after"
   | "--rich-text-heading-font-family"
   | "--rich-text-heading-line-height"
-  | "--rich-text-heading-paragraph-spacing"
+  | "--rich-text-heading-paragraph-spacing-before"
+  | "--rich-text-heading-paragraph-spacing-after"
   | "--rich-text-h1-font-size"
   | "--rich-text-h2-font-size"
   | "--rich-text-h3-font-size"
   | "--rich-text-list-font-family"
   | "--rich-text-list-font-size"
   | "--rich-text-list-line-height"
-  | "--rich-text-list-paragraph-spacing";
+  | "--rich-text-list-paragraph-spacing-before"
+  | "--rich-text-list-paragraph-spacing-after";
 
 export const RICH_TEXT_STYLE_PREVIEW_HTML = [
   "<h1>项目阶段总结</h1>",
@@ -108,17 +114,20 @@ export function buildRichTextStyleCssVariables(
     "--rich-text-body-font-family": resolveFontFamilyPreset(settings.body.fontPreset),
     "--rich-text-body-font-size": `${settings.body.fontSizePx}px`,
     "--rich-text-body-line-height": String(settings.body.lineHeight),
-    "--rich-text-body-paragraph-spacing": `${settings.body.paragraphSpacingPx}px`,
+    "--rich-text-body-paragraph-spacing-before": `${settings.body.paragraphSpacingBeforePx}px`,
+    "--rich-text-body-paragraph-spacing-after": `${settings.body.paragraphSpacingAfterPx}px`,
     "--rich-text-heading-font-family": resolveFontFamilyPreset(settings.headings.fontPreset),
     "--rich-text-heading-line-height": String(settings.headings.lineHeight),
-    "--rich-text-heading-paragraph-spacing": `${settings.headings.paragraphSpacingPx}px`,
+    "--rich-text-heading-paragraph-spacing-before": `${settings.headings.paragraphSpacingBeforePx}px`,
+    "--rich-text-heading-paragraph-spacing-after": `${settings.headings.paragraphSpacingAfterPx}px`,
     "--rich-text-h1-font-size": `${settings.headings.h1SizePx}px`,
     "--rich-text-h2-font-size": `${settings.headings.h2SizePx}px`,
     "--rich-text-h3-font-size": `${settings.headings.h3SizePx}px`,
     "--rich-text-list-font-family": resolveFontFamilyPreset(settings.list.fontPreset),
     "--rich-text-list-font-size": `${settings.list.fontSizePx}px`,
     "--rich-text-list-line-height": String(settings.list.lineHeight),
-    "--rich-text-list-paragraph-spacing": `${settings.list.paragraphSpacingPx}px`,
+    "--rich-text-list-paragraph-spacing-before": `${settings.list.paragraphSpacingBeforePx}px`,
+    "--rich-text-list-paragraph-spacing-after": `${settings.list.paragraphSpacingAfterPx}px`,
   };
 }
 

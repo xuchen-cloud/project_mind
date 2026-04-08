@@ -4,6 +4,7 @@ export {
   getRenderableRichTextHtml,
   renderMarkdownToHtml,
 } from "./markdown";
+export { normalizeRichEditorHtml, normalizeRichEditorValue } from "./normalize";
 export type {
   RichEditorAsset,
   RichEditorAssetHandlers,

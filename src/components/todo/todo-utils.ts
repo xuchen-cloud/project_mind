@@ -1,23 +1,42 @@
+import {
+  TODO_PRIORITY_META,
+  todoPriorityColorValue,
+  todoPriorityCode,
+  todoPriorityLabel,
+  todoPriorityOptionLabel,
+  todoPriorityOrder,
+  todoPriorityTone,
+} from "../../lib/todo-priority";
 import type { TodoPriority, TodoProgressRecord, TodoRecord } from "../../lib/types";
 
 export type TodoSortMode = "time" | "priority";
 
-export const TODO_PRIORITY_OPTIONS: Array<{ value: TodoPriority; label: string }> = [
-  { value: "urgent_important", label: "紧急且重要" },
-  { value: "urgent_not_important", label: "紧急但不重要" },
-  { value: "not_urgent_important", label: "不紧急但重要" },
-  { value: "not_urgent_not_important", label: "不紧急且不重要" },
-];
-
-const TODO_PRIORITY_ORDER: Record<TodoPriority, number> = {
-  urgent_important: 0,
-  urgent_not_important: 1,
-  not_urgent_important: 2,
-  not_urgent_not_important: 3,
-};
+export const TODO_PRIORITY_OPTIONS = TODO_PRIORITY_META.map((meta) => ({
+  value: meta.value,
+  code: meta.code,
+  label: meta.label,
+  optionLabel: todoPriorityOptionLabel(meta.value),
+  colorValue: meta.colorValue,
+}));
 
 export function priorityLabel(priority: TodoPriority) {
-  return TODO_PRIORITY_OPTIONS.find((option) => option.value === priority)?.label ?? priority;
+  return todoPriorityLabel(priority);
+}
+
+export function priorityCode(priority: TodoPriority) {
+  return todoPriorityCode(priority);
+}
+
+export function priorityOptionLabel(priority: TodoPriority) {
+  return todoPriorityOptionLabel(priority);
+}
+
+export function priorityTone(priority: TodoPriority) {
+  return todoPriorityTone(priority);
+}
+
+export function priorityColorValue(priority: TodoPriority) {
+  return todoPriorityColorValue(priority);
 }
 
 export function latestTodoProgress(todo: TodoRecord): TodoProgressRecord | null {
@@ -38,8 +57,7 @@ export function sortTodoProgresses(progresses: TodoProgressRecord[]) {
 export function sortTodos(todos: TodoRecord[], mode: TodoSortMode) {
   return [...todos].sort((left, right) => {
     if (mode === "priority") {
-      const priorityDelta =
-        TODO_PRIORITY_ORDER[left.priority] - TODO_PRIORITY_ORDER[right.priority];
+      const priorityDelta = todoPriorityOrder(left.priority) - todoPriorityOrder(right.priority);
       if (priorityDelta !== 0) {
         return priorityDelta;
       }
@@ -48,14 +66,24 @@ export function sortTodos(todos: TodoRecord[], mode: TodoSortMode) {
   });
 }
 
-export function resolveTodoSource(
+export function resolveTodoSourceMeta(
   activityId: number | null | undefined,
   activityNameById: ReadonlyMap<number, string>,
 ) {
   if (!activityId) {
-    return "项目级";
+    return { label: "项目级", kind: "project" as const };
   }
-  return activityNameById.get(activityId) ?? "关联 Activity 已删除";
+  const activityName = activityNameById.get(activityId);
+  return activityName
+    ? { label: activityName, kind: "activity" as const }
+    : { label: "关联 Activity 已删除", kind: "deleted" as const };
+}
+
+export function resolveTodoSource(
+  activityId: number | null | undefined,
+  activityNameById: ReadonlyMap<number, string>,
+) {
+  return resolveTodoSourceMeta(activityId, activityNameById).label;
 }
 
 export function formatMonthDay(value: string) {

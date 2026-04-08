@@ -11,6 +11,7 @@ const {
   mockProjectGetOverview,
   mockActivitySettingsGet,
   mockOpenFolder,
+  mockSummaryMutate,
   mockSetCreateActivityOpen,
   mockOpenSettings,
   mockConclusionUpdateMutate,
@@ -20,6 +21,7 @@ const {
   mockProjectGetOverview: vi.fn(),
   mockActivitySettingsGet: vi.fn(),
   mockOpenFolder: vi.fn(async () => undefined),
+  mockSummaryMutate: vi.fn(),
   mockSetCreateActivityOpen: vi.fn(),
   mockOpenSettings: vi.fn(),
   mockConclusionUpdateMutate: vi.fn(),
@@ -42,7 +44,7 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../hooks/useProjectMutations", () => ({
   useProjectMutations: () => ({
-    summaryMutation: { mutate: vi.fn() },
+    summaryMutation: { mutate: mockSummaryMutate },
     archiveMutation: { mutate: vi.fn() },
   }),
 }));
@@ -59,6 +61,7 @@ vi.mock("../../hooks/useTodoMutations", () => ({
     todoMutation: { mutate: vi.fn() },
     todoContentMutation: { mutateAsync: vi.fn() },
     todoStatusMutation: { mutateAsync: vi.fn() },
+    todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
   }),
 }));
@@ -87,6 +90,16 @@ vi.mock("../layout/ProjectSidebar", () => ({
 
 vi.mock("../rich-editor", () => ({
   EMPTY_RICH_EDITOR_HTML: "",
+  normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
+    const normalizedText = value.text.trim();
+    const normalizedMarkdown = value.markdown.trim();
+
+    return {
+      html: toHtml(normalizedText),
+      text: normalizedText,
+      markdown: normalizedMarkdown,
+    };
+  },
   getRenderableRichTextHtml: ({
     html,
     markdown,
@@ -145,6 +158,7 @@ describe("ProjectOverviewPage", () => {
     mockProjectGetOverview.mockReset();
     mockActivitySettingsGet.mockReset();
     mockOpenFolder.mockReset();
+    mockSummaryMutate.mockReset();
     mockSetCreateActivityOpen.mockReset();
     mockOpenSettings.mockReset();
     mockConclusionUpdateMutate.mockReset();
@@ -158,18 +172,56 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
-  it("shows the project root path under the title and reveals it in Finder", async () => {
+  it("opens the project folder from the clickable root path", async () => {
     const user = userEvent.setup();
 
     renderProjectOverviewPage();
 
     expect(await screen.findByText("Project Atlas")).toBeInTheDocument();
-    expect(screen.getByText("项目目录：/tmp/project-atlas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "项目目录：/tmp/project-atlas" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "关键资料" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "在资源管理器中打开项目目录" }));
+    await user.click(screen.getByRole("button", { name: "项目目录：/tmp/project-atlas" }));
 
     expect(mockOpenFolder).toHaveBeenCalledWith("/tmp/project-atlas");
+  });
+
+  it("edits the project name inline and saves automatically on submit", async () => {
+    const user = userEvent.setup();
+
+    renderProjectOverviewPage();
+
+    expect(await screen.findByRole("button", { name: "Project Atlas" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Project Atlas" }));
+    await user.clear(screen.getByLabelText("项目名称"));
+    await user.type(screen.getByLabelText("项目名称"), "Atlas Prime{Enter}");
+
+    expect(mockSummaryMutate).toHaveBeenCalledWith({
+      projectId: 9,
+      name: "Atlas Prime",
+      summary: "阶段目标与风险说明",
+      status: "active",
+    });
+  });
+
+  it("edits the project summary inline and saves automatically on blur", async () => {
+    const user = userEvent.setup();
+
+    renderProjectOverviewPage();
+
+    expect(await screen.findByRole("button", { name: "阶段目标与风险说明" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "阶段目标与风险说明" }));
+    await user.clear(screen.getByLabelText("项目简介"));
+    await user.type(screen.getByLabelText("项目简介"), "更新后的项目简介");
+    await user.tab();
+
+    expect(mockSummaryMutate).toHaveBeenCalledWith({
+      projectId: 9,
+      summary: "更新后的项目简介",
+      status: "active",
+    });
   });
 
   it("renders rich conclusion rows and saves inline edits with markdown/html payload", async () => {
@@ -208,6 +260,49 @@ describe("ProjectOverviewPage", () => {
 
     await user.clear(screen.getByLabelText("结论编辑器"));
     await user.type(screen.getByLabelText("结论编辑器"), "调整后的项目结论");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(mockConclusionUpdateMutate).toHaveBeenCalledWith({
+      conclusionId: 31,
+      markdown: "调整后的项目结论",
+      html: "<p>调整后的项目结论</p>",
+      promotedToProject: true,
+    });
+  });
+
+  it("trims boundary blank lines and spaces before saving an edited conclusion", async () => {
+    const user = userEvent.setup();
+
+    mockProjectGetOverview.mockResolvedValue(
+      buildOverview({
+        conclusionGroups: [
+          {
+            activityId: 11,
+            activityTitle: "预算讨论",
+            conclusions: [
+              {
+                id: 31,
+                projectId: 9,
+                activityId: 11,
+                contentMarkdown: "一个项目级关键结论",
+                contentHtml: "<p>一个项目级关键结论</p>",
+                promotedToProject: true,
+                createdAt: "2026-04-06T10:10:00.000Z",
+                updatedAt: "2026-04-06T10:10:00.000Z",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    renderProjectOverviewPage();
+
+    expect(await screen.findByText("1 条结论")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    await user.clear(screen.getByLabelText("结论编辑器"));
+    await user.type(screen.getByLabelText("结论编辑器"), "  调整后的项目结论  ");
     await user.click(screen.getByRole("button", { name: "保存修改" }));
 
     expect(mockConclusionUpdateMutate).toHaveBeenCalledWith({
@@ -274,11 +369,12 @@ function buildOverview(overrides: Partial<ProjectOverviewData> = {}): ProjectOve
         projectId: project.id,
         attributeOptionId: 4,
         attributeLabel: "预算沟通",
+        attributeColorKey: "teal",
         title: "预算讨论",
         activityTime: "2026-04-06T10:00:00.000Z",
         statusOptionId: 3,
         statusLabel: "已整理",
-        statusNeedsAttention: false,
+        statusColorKey: "green",
         isPinned: false,
         noteCount: 0,
         conclusionCount: 0,

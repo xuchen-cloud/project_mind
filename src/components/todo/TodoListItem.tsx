@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Check, Circle } from "lucide-react";
 
-import type { TodoRecord } from "../../lib/types";
+import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
+import { TodoPriorityDropdown } from "./TodoPriorityDropdown";
 import {
   formatFullDate,
   formatMonthDay,
-  priorityLabel,
-  resolveTodoSource,
+  resolveTodoSourceMeta,
   sortTodoProgresses,
 } from "./todo-utils";
 
@@ -23,8 +23,10 @@ export function TodoListItem({
   allowInlineProgress = false,
   expanded = false,
   onToggleStatus,
+  onUpdatePriority,
   onUpdateContent,
   onAddProgress,
+  onOpenTodoSource,
   onToggleExpanded,
   onError,
 }: {
@@ -36,11 +38,13 @@ export function TodoListItem({
   allowInlineProgress?: boolean;
   expanded?: boolean;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
+  onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onOpenTodoSource: (todo: TodoRecord) => void;
   onToggleExpanded: (todoId: number) => void;
   onError?: (message: string) => void;
 }) {
@@ -48,7 +52,7 @@ export function TodoListItem({
   const sortedProgresses = sortTodoProgresses(todo.progresses);
   const latestProgress = sortedProgresses[0] ?? null;
   const previousProgresses = sortedProgresses.slice(1);
-  const sourceLabel = resolveTodoSource(todo.activityId, activityNameById);
+  const sourceMeta = resolveTodoSourceMeta(todo.activityId, activityNameById);
   const canExpand = previousProgresses.length > 0;
 
   async function handleToggle() {
@@ -78,11 +82,22 @@ export function TodoListItem({
         />
 
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-caption leading-4">
-          <span className={cn("font-medium", priorityMetaClass(todo.priority))}>
-            {priorityLabel(todo.priority)}
-          </span>
+          <TodoPriorityDropdown
+            priority={todo.priority}
+            onSelect={(priority) => onUpdatePriority(todo.id, priority)}
+          />
           <span className="text-text-soft">·</span>
-          <span className="truncate text-text-soft">{sourceLabel}</span>
+          {sourceMeta.kind === "activity" ? (
+            <button
+              type="button"
+              className="max-w-full truncate bg-transparent text-text-soft transition-colors hover:text-text"
+              onClick={() => onOpenTodoSource(todo)}
+            >
+              {sourceMeta.label}
+            </button>
+          ) : (
+            <span className="truncate text-text-soft">{sourceMeta.label}</span>
+          )}
         </div>
 
         <TodoInlineProgressEditor
@@ -148,17 +163,4 @@ export function TodoListItem({
       </div>
     </article>
   );
-}
-
-function priorityMetaClass(priority: TodoRecord["priority"]) {
-  if (priority === "urgent_important") {
-    return "text-danger";
-  }
-  if (priority === "urgent_not_important") {
-    return "text-warning";
-  }
-  if (priority === "not_urgent_important") {
-    return "text-accent";
-  }
-  return "text-text-muted";
 }

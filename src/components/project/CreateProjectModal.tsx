@@ -103,7 +103,7 @@ export function CreateProjectModal({ onClose, onSubmit, isPending }: CreateProje
                 onChange={(e) => setWorkspaceRoot(e.target.value)}
                 required
                 className="flex-1"
-                placeholder="/Users/xuchen/workspaces/project-name"
+                placeholder="例如：D:\\Workspaces\\alpha 或 /Users/alex/workspaces/alpha"
               />
               <Button type="button" variant="secondary" onClick={handlePickFolder}>
                 选择

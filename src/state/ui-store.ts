@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SettingsSection = "activity" | "ai" | "rich-text";
+export type SettingsSection = "activity" | "file-tags" | "record-types" | "ai" | "rich-text";
 
 interface UiStore {
   createProjectOpen: boolean;

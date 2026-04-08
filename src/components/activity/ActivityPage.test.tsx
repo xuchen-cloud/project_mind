@@ -12,9 +12,12 @@ const {
   mockActivityList,
   mockAiSettingsGet,
   mockActivitySettingsGet,
+  mockRecordTypeSettingsGet,
   mockAiGenerateMutateAsync,
   mockAiAcceptMutateAsync,
   mockConclusionMutate,
+  mockConclusionMutateAsync,
+  mockConclusionUpdateMutateAsync,
   mockActivityMetaMutate,
   mockNoteMutateAsync,
   mockOpenSettings,
@@ -25,9 +28,12 @@ const {
   mockActivityList: vi.fn(),
   mockAiSettingsGet: vi.fn(),
   mockActivitySettingsGet: vi.fn(),
+  mockRecordTypeSettingsGet: vi.fn(),
   mockAiGenerateMutateAsync: vi.fn(),
   mockAiAcceptMutateAsync: vi.fn(),
   mockConclusionMutate: vi.fn(),
+  mockConclusionMutateAsync: vi.fn(),
+  mockConclusionUpdateMutateAsync: vi.fn(),
   mockActivityMetaMutate: vi.fn(),
   mockNoteMutateAsync: vi.fn(),
   mockOpenSettings: vi.fn(),
@@ -41,6 +47,7 @@ vi.mock("../../services/projectMindApi", () => ({
     activityList: mockActivityList,
     aiSettingsGet: mockAiSettingsGet,
     activitySettingsGet: mockActivitySettingsGet,
+    recordTypeSettingsGet: mockRecordTypeSettingsGet,
     documentImport: mockDocumentImport,
   },
 }));
@@ -57,7 +64,15 @@ vi.mock("../../hooks/useActivityMutations", () => ({
   useActivityMutations: () => ({
     activityMetaMutation: { mutate: mockActivityMetaMutate },
     noteMutation: { isPending: false, mutateAsync: mockNoteMutateAsync },
-    conclusionMutation: { mutate: mockConclusionMutate },
+    conclusionMutation: {
+      isPending: false,
+      mutate: mockConclusionMutate,
+      mutateAsync: mockConclusionMutateAsync,
+    },
+    conclusionUpdateMutation: {
+      isPending: false,
+      mutateAsync: mockConclusionUpdateMutateAsync,
+    },
   }),
 }));
 
@@ -82,6 +97,7 @@ vi.mock("../../hooks/useTodoMutations", () => ({
     todoMutation: { mutate: vi.fn() },
     todoContentMutation: { mutateAsync: vi.fn() },
     todoStatusMutation: { mutateAsync: vi.fn() },
+    todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
   }),
 }));
@@ -120,6 +136,16 @@ vi.mock("../document/ManagedDocumentSection", () => ({
 
 vi.mock("../rich-editor", () => ({
   EMPTY_RICH_EDITOR_HTML: "",
+  normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
+    const normalizedText = value.text.trim();
+    const normalizedMarkdown = value.markdown.trim();
+
+    return {
+      html: toHtml(normalizedText),
+      text: normalizedText,
+      markdown: normalizedMarkdown,
+    };
+  },
   getRenderableRichTextHtml: ({
     html,
     markdown,
@@ -179,9 +205,12 @@ describe("ActivityPage", () => {
     mockActivityList.mockReset();
     mockAiSettingsGet.mockReset();
     mockActivitySettingsGet.mockReset();
+    mockRecordTypeSettingsGet.mockReset();
     mockAiGenerateMutateAsync.mockReset();
     mockAiAcceptMutateAsync.mockReset();
     mockConclusionMutate.mockReset();
+    mockConclusionMutateAsync.mockReset();
+    mockConclusionUpdateMutateAsync.mockReset();
     mockActivityMetaMutate.mockReset();
     mockNoteMutateAsync.mockReset();
     mockOpenSettings.mockReset();
@@ -193,16 +222,59 @@ describe("ActivityPage", () => {
     mockAiSettingsGet.mockResolvedValue({});
     mockActivitySettingsGet.mockResolvedValue({
       activityAttributeOptions: [
-        { id: 1, label: "MEETING", createdAt: "", updatedAt: "" },
-        { id: 2, label: "LEGAL", createdAt: "", updatedAt: "" },
+        { id: 1, label: "MEETING", colorKey: "blue", createdAt: "", updatedAt: "" },
+        { id: 2, label: "LEGAL", colorKey: "amber", createdAt: "", updatedAt: "" },
       ],
       activityStatusOptions: [
-        { id: 3, label: "待启动", needsAttention: true, isSystem: true, createdAt: "", updatedAt: "" },
-        { id: 4, label: "已整理", needsAttention: false, isSystem: false, createdAt: "", updatedAt: "" },
-        { id: 5, label: "待法务确认", needsAttention: true, isSystem: false, createdAt: "", updatedAt: "" },
+        { id: 3, label: "待启动", colorKey: "amber", isSystem: true, createdAt: "", updatedAt: "" },
+        { id: 4, label: "已整理", colorKey: "green", isSystem: false, createdAt: "", updatedAt: "" },
+        { id: 5, label: "待法务确认", colorKey: "orange", isSystem: false, createdAt: "", updatedAt: "" },
+      ],
+    });
+    mockRecordTypeSettingsGet.mockResolvedValue({
+      recordTypes: [
+        {
+          id: 1,
+          key: "quick_note",
+          label: "原始记录",
+          colorKey: "slate",
+          templateHtml: "<p></p>",
+          isDefault: true,
+          usageCount: 0,
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 2,
+          key: "meeting_minutes",
+          label: "会议记录",
+          colorKey: "blue",
+          templateHtml: "<h2>背景</h2><p></p>",
+          isDefault: false,
+          usageCount: 0,
+          createdAt: "",
+          updatedAt: "",
+        },
       ],
     });
     mockDocumentImport.mockResolvedValue(buildDocumentRecord());
+    mockConclusionMutateAsync.mockResolvedValue({
+      id: 22,
+      projectId: 9,
+      activityId: 11,
+      noteId: null,
+      contentMarkdown: "新增的活动结论",
+      contentHtml: "<p>新增的活动结论</p>",
+      promotedToProject: true,
+      sourceActivityTitle: "预算讨论",
+      createdAt: "2026-04-06T10:40:00.000Z",
+      updatedAt: "2026-04-06T10:40:00.000Z",
+    });
+    mockConclusionUpdateMutateAsync.mockResolvedValue({
+      ...buildActivity().conclusions[0],
+      contentMarkdown: "调整后的活动结论",
+      contentHtml: "<p>调整后的活动结论</p>",
+    });
   });
 
   it("renders record results under the editor and places documents above conclusions", async () => {
@@ -211,12 +283,15 @@ describe("ActivityPage", () => {
     renderActivityPage();
 
     expect(await screen.findByText("文件材料")).toBeInTheDocument();
-    expect(screen.getByText("新增结论")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增结论" })).toBeInTheDocument();
     expect(screen.getByText("当前结论")).toBeInTheDocument();
     expect(screen.getByText("已确认预算分配方案")).toBeInTheDocument();
     expect(screen.getByText("1 条")).toBeInTheDocument();
     expect(screen.queryByText("结论列表")).not.toBeInTheDocument();
     expect(screen.queryByText("AI 辅助提炼")).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText("记录已确认的判断、共识或决定。"),
+    ).not.toBeInTheDocument();
 
     const notesPanel = screen.getByTestId("activity-notes-panel");
     const editorBlock = screen.getByTestId("activity-notes-editor");
@@ -230,13 +305,11 @@ describe("ActivityPage", () => {
       documentsHeading.compareDocumentPosition(conclusionsHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    await user.type(
-      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
-      "新增的活动结论",
-    );
+    await user.click(screen.getByRole("button", { name: "新增结论" }));
+    await user.type(screen.getByPlaceholderText("记录已确认的判断、共识或决定。"), "新增的活动结论");
     await user.click(screen.getByRole("button", { name: "保存结论" }));
 
-    expect(mockConclusionMutate).toHaveBeenCalledWith({
+    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       markdown: "新增的活动结论",
@@ -246,8 +319,8 @@ describe("ActivityPage", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
-      ).toHaveValue(""),
+        screen.queryByPlaceholderText("记录已确认的判断、共识或决定。"),
+      ).not.toBeInTheDocument(),
     );
   });
 
@@ -277,6 +350,48 @@ describe("ActivityPage", () => {
     expect(mockActivityMetaMutate).toHaveBeenCalledWith({
       activityId: 11,
       statusOptionId: 5,
+    });
+  });
+
+  it("trims boundary blank lines and spaces before saving a conclusion", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await screen.findByRole("button", { name: "新增结论" });
+    await user.click(screen.getByRole("button", { name: "新增结论" }));
+
+    await user.type(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+      "  新增的活动结论  ",
+    );
+    await user.click(screen.getByRole("button", { name: "保存结论" }));
+
+    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      markdown: "新增的活动结论",
+      html: "<p>新增的活动结论</p>",
+      promotedToProject: true,
+    });
+  });
+
+  it("edits an existing conclusion in place", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "编辑" }));
+    const editor = screen.getByLabelText("结论编辑器");
+    await user.clear(editor);
+    await user.type(editor, "调整后的活动结论");
+    await user.click(screen.getByRole("button", { name: "保存修改" }));
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "调整后的活动结论",
+      html: "<p>调整后的活动结论</p>",
+      promotedToProject: true,
     });
   });
 
@@ -353,11 +468,12 @@ function buildActivity(): ActivityCardData {
     projectId: 9,
     attributeOptionId: 1,
     attributeLabel: "MEETING",
+    attributeColorKey: "blue",
     title: "预算讨论",
     activityTime: "2026-04-06T10:00:00.000Z",
     statusOptionId: 4,
     statusLabel: "已整理",
-    statusNeedsAttention: false,
+    statusColorKey: "green",
     isPinned: false,
     isExpanded: true,
     createdAt: "2026-04-06T10:00:00.000Z",
@@ -367,11 +483,12 @@ function buildActivity(): ActivityCardData {
       projectId: 9,
       attributeOptionId: 1,
       attributeLabel: "MEETING",
+      attributeColorKey: "blue",
       title: "预算讨论",
       activityTime: "2026-04-06T10:00:00.000Z",
       statusOptionId: 4,
       statusLabel: "已整理",
-      statusNeedsAttention: false,
+      statusColorKey: "green",
       isPinned: false,
       noteCount: 0,
       conclusionCount: 1,
@@ -427,6 +544,7 @@ function buildDocumentRecord() {
     versionCount: 1,
     sourceActivityTitle: "预算讨论",
     health: "normal" as const,
+    tags: [],
     createdAt: "2026-04-06T10:20:00.000Z",
     updatedAt: "2026-04-06T10:20:00.000Z",
   };

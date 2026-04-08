@@ -16,7 +16,8 @@ export interface ProjectListItem extends ProjectRecord {
   openTodoCount: number;
 }
 
-export type NoteTemplateKey = "quick_note" | "meeting_minutes";
+export type RecordTypeKey = string;
+export type NoteTemplateKey = RecordTypeKey;
 
 export interface NoteRecord {
   id: number;
@@ -86,6 +87,7 @@ export interface DocumentRecord {
   versionCount: number;
   sourceActivityTitle?: string | null;
   health: "normal" | "missing";
+  tags: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -100,9 +102,35 @@ export interface DocumentVersionRecord {
   createdAt: string;
 }
 
+export type FileTagColorKey =
+  | "slate"
+  | "blue"
+  | "teal"
+  | "green"
+  | "amber"
+  | "orange"
+  | "red"
+  | "rose";
+
+export interface DocumentTagRecord {
+  id: number;
+  label: string;
+  colorKey: FileTagColorKey;
+}
+
+export interface FileTagRecord {
+  id: number;
+  label: string;
+  colorKey: FileTagColorKey;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ActivityAttributeOption {
   id: number;
   label: string;
+  colorKey: FileTagColorKey;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,7 +138,7 @@ export interface ActivityAttributeOption {
 export interface ActivityStatusOption {
   id: number;
   label: string;
-  needsAttention: boolean;
+  colorKey: FileTagColorKey;
   isSystem: boolean;
   createdAt: string;
   updatedAt: string;
@@ -121,16 +149,37 @@ export interface ActivitySettingsSnapshot {
   activityStatusOptions: ActivityStatusOption[];
 }
 
+export interface FileTagSettingsSnapshot {
+  tags: FileTagRecord[];
+}
+
+export interface RecordTypeRecord {
+  id: number;
+  key: RecordTypeKey;
+  label: string;
+  colorKey: FileTagColorKey;
+  templateHtml: string;
+  isDefault: boolean;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecordTypeSettingsSnapshot {
+  recordTypes: RecordTypeRecord[];
+}
+
 export interface ActivityDigest {
   id: number;
   projectId: number;
   attributeOptionId?: number | null;
   attributeLabel?: string | null;
+  attributeColorKey?: FileTagColorKey | null;
   title: string;
   activityTime: string;
   statusOptionId: number;
   statusLabel: string;
-  statusNeedsAttention: boolean;
+  statusColorKey: FileTagColorKey;
   isPinned: boolean;
   noteCount: number;
   conclusionCount: number;
@@ -160,11 +209,12 @@ export interface ActivityCardData {
   projectId: number;
   attributeOptionId?: number | null;
   attributeLabel?: string | null;
+  attributeColorKey?: FileTagColorKey | null;
   title: string;
   activityTime: string;
   statusOptionId: number;
   statusLabel: string;
-  statusNeedsAttention: boolean;
+  statusColorKey: FileTagColorKey;
   isPinned: boolean;
   isExpanded: boolean;
   createdAt: string;
@@ -220,6 +270,7 @@ export interface ProjectCreateInput {
 
 export interface ProjectUpdateSummaryInput {
   projectId: number;
+  name?: string;
   summary: string;
   status?: string;
 }
@@ -263,16 +314,39 @@ export interface ActivityUpdateMetaInput {
 export interface ActivityAttributeOptionUpsertInput {
   id?: number;
   label: string;
+  colorKey: FileTagColorKey;
 }
 
 export interface ActivityStatusOptionUpsertInput {
   id?: number;
   label: string;
-  needsAttention: boolean;
+  colorKey: FileTagColorKey;
 }
 
 export interface ActivityOptionDeleteInput {
   optionId: number;
+}
+
+export interface FileTagOptionUpsertInput {
+  id?: number;
+  label: string;
+  colorKey: FileTagColorKey;
+}
+
+export interface FileTagOptionDeleteInput {
+  tagId: number;
+}
+
+export interface RecordTypeOptionUpsertInput {
+  id?: number;
+  label: string;
+  colorKey: FileTagColorKey;
+  templateHtml: string;
+  isDefault: boolean;
+}
+
+export interface RecordTypeOptionDeleteInput {
+  typeId: number;
 }
 
 export interface NoteUpsertInput {
@@ -323,6 +397,11 @@ export interface TodoUpdateStatusInput {
   status: TodoStatus;
 }
 
+export interface TodoUpdatePriorityInput {
+  todoId: number;
+  priority: TodoPriority;
+}
+
 export interface TodoAddProgressInput {
   todoId: number;
   content: string;
@@ -334,6 +413,7 @@ export interface DocumentImportInput {
   activityId?: number;
   sourcePath: string;
   isStarred: boolean;
+  tagIds?: number[];
 }
 
 export interface DocumentUpdateMetaInput {
@@ -341,6 +421,7 @@ export interface DocumentUpdateMetaInput {
   activityId?: number | null;
   baseName?: string;
   isStarred?: boolean;
+  tagIds?: number[];
 }
 
 export interface DocumentRelocateInput {
@@ -425,13 +506,15 @@ export interface RichTextStyleBlockSettings {
   fontPreset: RichTextFontPreset;
   fontSizePx: number;
   lineHeight: number;
-  paragraphSpacingPx: number;
+  paragraphSpacingBeforePx: number;
+  paragraphSpacingAfterPx: number;
 }
 
 export interface RichTextHeadingStyleSettings {
   fontPreset: RichTextFontPreset;
   lineHeight: number;
-  paragraphSpacingPx: number;
+  paragraphSpacingBeforePx: number;
+  paragraphSpacingAfterPx: number;
   h1SizePx: number;
   h2SizePx: number;
   h3SizePx: number;

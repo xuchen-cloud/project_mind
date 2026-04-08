@@ -32,6 +32,10 @@ import type {
   DocumentRelocateInput,
   DocumentUpdateMetaInput,
   DocumentVersionRecord,
+  FileTagOptionDeleteInput,
+  FileTagOptionUpsertInput,
+  FileTagRecord,
+  FileTagSettingsSnapshot,
   NoteRecord,
   NoteUpsertInput,
   ProjectArchiveInput,
@@ -43,6 +47,10 @@ import type {
   ProjectRecord,
   ProjectUpdateSummaryInput,
   ProjectsListInput,
+  RecordTypeOptionDeleteInput,
+  RecordTypeOptionUpsertInput,
+  RecordTypeRecord,
+  RecordTypeSettingsSnapshot,
   RichTextStyleSettings,
   RichTextStyleUpsertInput,
   TodoAddProgressInput,
@@ -50,6 +58,7 @@ import type {
   TodoProgressRecord,
   TodoRecord,
   TodoUpdateContentInput,
+  TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
   WorkspaceSearchInput,
   WorkspaceSearchResult,
@@ -84,6 +93,18 @@ export const projectMindApi = {
     desktopApi.command<ActivityStatusOption>("activity_status_option_upsert", { input }),
   activityStatusOptionDelete: (input: ActivityOptionDeleteInput) =>
     desktopApi.command<ActivitySettingsSnapshot>("activity_status_option_delete", { input }),
+  fileTagSettingsGet: () =>
+    desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get"),
+  fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>
+    desktopApi.command<FileTagRecord>("file_tag_option_upsert", { input }),
+  fileTagOptionDelete: (input: FileTagOptionDeleteInput) =>
+    desktopApi.command<FileTagSettingsSnapshot>("file_tag_option_delete", { input }),
+  recordTypeSettingsGet: () =>
+    desktopApi.command<RecordTypeSettingsSnapshot>("record_type_settings_get"),
+  recordTypeOptionUpsert: (input: RecordTypeOptionUpsertInput) =>
+    desktopApi.command<RecordTypeRecord>("record_type_option_upsert", { input }),
+  recordTypeOptionDelete: (input: RecordTypeOptionDeleteInput) =>
+    desktopApi.command<RecordTypeSettingsSnapshot>("record_type_option_delete", { input }),
   noteUpsert: (input: NoteUpsertInput) =>
     desktopApi.command<NoteRecord>("note_upsert", { input }),
   conclusionCreate: (input: ConclusionCreateInput) =>
@@ -96,6 +117,8 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord>("todo_create", { input }),
   todoUpdateContent: (input: TodoUpdateContentInput) =>
     desktopApi.command<TodoRecord>("todo_update_content", { input }),
+  todoUpdatePriority: (input: TodoUpdatePriorityInput) =>
+    desktopApi.command<TodoRecord>("todo_update_priority", { input }),
   todoUpdateStatus: (input: TodoUpdateStatusInput) =>
     desktopApi.command<TodoRecord>("todo_update_status", { input }),
   todoAddProgress: (input: TodoAddProgressInput) =>

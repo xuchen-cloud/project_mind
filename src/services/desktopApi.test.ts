@@ -45,11 +45,26 @@ describe("desktopApi", () => {
     });
   });
 
+  it("returns all selected files when multiple selection is enabled", async () => {
+    tauriMocks.openMock.mockResolvedValueOnce(["/tmp/file-a.md", "/tmp/file-b.md"]);
+
+    await expect(desktopApi.pickFiles({ title: "Pick files" })).resolves.toEqual([
+      "/tmp/file-a.md",
+      "/tmp/file-b.md",
+    ]);
+    expect(tauriMocks.openMock).toHaveBeenCalledWith({
+      title: "Pick files",
+      directory: false,
+      multiple: true,
+      filters: undefined,
+    });
+  });
+
   it("reveals paths and converts file urls", async () => {
     tauriMocks.invokeMock.mockResolvedValueOnce(undefined);
 
     await desktopApi.revealPath("/tmp/demo.txt");
-    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_open_file", {
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_reveal_in_explorer", {
       path: "/tmp/demo.txt",
     });
     expect(desktopApi.toFileUrl("/tmp/demo.txt")).toBe("asset:///tmp/demo.txt");
