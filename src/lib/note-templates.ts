@@ -5,9 +5,13 @@ import type {
   RecordTypeRecord,
   RecordTypeSettingsSnapshot,
 } from "./types";
+import {
+  EMPTY_RICH_TEXT_HTML,
+  getRenderableRichTextHtml,
+  richTextHtmlToPlainText,
+} from "./richTextContent";
 
-const EMPTY_EDITOR_HTML = "<p></p>";
-const HTML_TAG_PATTERN = /<[^>]+>/;
+const EMPTY_EDITOR_HTML = EMPTY_RICH_TEXT_HTML;
 const NOTE_EYEBROW = "Activity Notes";
 const NOTE_DEFAULT_TITLE = "记录";
 const NOTE_PLACEHOLDER = "想到就写。先留下原始信息，再决定是否提炼。";
@@ -184,21 +188,14 @@ export function isDefaultNoteTitle(
 }
 
 export function getRenderableNoteHtml(note: Pick<NoteRecord, "contentHtml" | "contentMarkdown">) {
-  const normalizedHtml = note.contentHtml.trim();
-
-  if (!normalizedHtml) {
-    return note.contentMarkdown.trim() ? plainTextToHtml(note.contentMarkdown) : EMPTY_EDITOR_HTML;
-  }
-
-  if (HTML_TAG_PATTERN.test(normalizedHtml)) {
-    return normalizedHtml;
-  }
-
-  return plainTextToHtml(note.contentMarkdown || normalizedHtml);
+  return getRenderableRichTextHtml({
+    html: note.contentHtml,
+    markdown: note.contentMarkdown,
+  });
 }
 
-export function summarizeNoteContent(note: Pick<NoteRecord, "contentMarkdown">) {
-  const normalized = note.contentMarkdown.replace(/\s+/g, " ").trim();
+export function summarizeNoteContent(note: Pick<NoteRecord, "contentHtml" | "contentMarkdown">) {
+  const normalized = richTextHtmlToPlainText(getRenderableNoteHtml(note));
   return normalized.length > 0 ? normalized.slice(0, 96) : "尚未填写内容";
 }
 

@@ -142,6 +142,10 @@ export function activityPath(projectId: number, activityId: number, focus?: stri
     : `/projects/${projectId}/activities/${activityId}`;
 }
 
+export function todayPath() {
+  return "/today";
+}
+
 export function parseRouteId(value?: string) {
   if (!value) return null;
   const parsed = Number(value);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,9 +20,10 @@ vi.mock("../rich-editor", () => ({
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
     const normalizedText = value.text.trim();
     const normalizedMarkdown = value.markdown.trim();
+    const normalizedHtml = value.html.trim();
 
     return {
-      html: toHtml(normalizedText),
+      html: normalizedHtml.length > 0 ? normalizedHtml : toHtml(normalizedText),
       text: normalizedText,
       markdown: normalizedMarkdown,
     };
@@ -38,10 +39,10 @@ vi.mock("../rich-editor", () => ({
     onChange?: (value: { html: string; text: string; markdown: string }) => void;
     onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown> | unknown;
   }) => {
-    const [value, setValue] = useState(toPlainText(html ?? ""));
+    const [value, setValue] = useState(toMockEditorValue(html ?? ""));
 
     useEffect(() => {
-      setValue(toPlainText(html ?? ""));
+      setValue(toMockEditorValue(html ?? ""));
     }, [html]);
 
     return (
@@ -53,22 +54,12 @@ vi.mock("../rich-editor", () => ({
           onChange={(event) => {
             const nextValue = event.target.value;
             setValue(nextValue);
-            onChange?.({
-              html: toHtml(nextValue),
-              text: nextValue,
-              markdown: nextValue,
-            });
+            onChange?.(buildMockRichValue(nextValue));
           }}
         />
         <button
           type="button"
-          onClick={() =>
-            onSave?.({
-              html: toHtml(value),
-              text: value,
-              markdown: value,
-            })
-          }
+          onClick={() => onSave?.(buildMockRichValue(value))}
         >
           保存编辑器
         </button>
@@ -139,7 +130,7 @@ describe("ActivityNotesPanel", () => {
       onUpsertNote,
     });
 
-    expect(screen.getByText("还没有记录")).toBeInTheDocument();
+    expect(screen.getByText("当前还没有记录，点“新建”开始记录。")).toBeInTheDocument();
     expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "新建" }));
@@ -185,6 +176,40 @@ describe("ActivityNotesPanel", () => {
     });
   });
 
+  it("persists markdown instead of plain text when the editor value carries table markdown", async () => {
+    const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      contentMarkdown: "| 客户 | 状态 |\n| --- | --- |\n| ACME | 跟进中 |",
+      contentHtml:
+        "<table><thead><tr><th>客户</th><th>状态</th></tr></thead><tbody><tr><td>ACME</td><td>跟进中</td></tr></tbody></table>",
+    }));
+
+    renderPanel({
+      notes: [],
+      onUpsertNote,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新建" }));
+    await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
+    fireEvent.change(screen.getByLabelText("记录编辑器"), {
+      target: {
+        value: "table::| 客户 | 状态 |\n| --- | --- |\n| ACME | 跟进中 |",
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "保存编辑器" }));
+
+    expect(onUpsertNote).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      noteType: "quick_note",
+      title: "记录",
+      markdown: "| 客户 | 状态 |\n| --- | --- |\n| ACME | 跟进中 |",
+      html:
+        "<table><thead><tr><th>客户</th><th>状态</th></tr></thead><tbody><tr><td>ACME</td><td>跟进中</td></tr></tbody></table>",
+    });
+  });
+
   it("shows record results, toggles preview, and only switches editor after clicking edit", async () => {
     const user = userEvent.setup();
 
@@ -204,17 +229,21 @@ describe("ActivityNotesPanel", () => {
     });
 
     expect(screen.getByText("会议记录")).toBeInTheDocument();
-    expect(screen.getByText("其他记录")).toBeInTheDocument();
-    expect(screen.getByLabelText("记录编辑器")).toHaveValue("确认本周五前补齐材料");
+    expect(screen.getByText("新建、浏览或继续编辑当前 activity 的记录。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
 
     const recordToggle = screen.getByRole("button", { name: /原始记录/ });
 
     await user.click(recordToggle);
-    expect(screen.getByLabelText("记录编辑器")).toHaveValue("确认本周五前补齐材料");
+    const quickNoteCard = recordToggle.closest("article");
+    expect(within(quickNoteCard!).getAllByText("客户确认需要补充上下文")).toHaveLength(2);
+    expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /原始记录/ }));
-    await user.click(screen.getByRole("button", { name: "编辑这条记录" }));
+    await user.click(within(quickNoteCard!).getByRole("button", { name: "编辑这条记录" }));
     expect(screen.getByLabelText("记录编辑器")).toHaveValue("客户确认需要补充上下文");
+
+    await user.click(screen.getByRole("button", { name: /会议记录/ }));
+    expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
   });
 
   it("creates a meeting-note draft from the new menu and saves it", async () => {
@@ -336,7 +365,7 @@ describe("ActivityNotesPanel", () => {
     ];
     const onUpsertNote = vi.fn(async () => savedNote);
     const onGenerateAiSuggestions = vi.fn(async () => suggestions);
-    const onAcceptAiSuggestion = vi.fn(async (suggestionId: number) => ({
+    const onAcceptAiSuggestion = vi.fn(async ({ suggestionId }: { suggestionId: number }) => ({
       suggestion: suggestions.find((item) => item.id === suggestionId) ?? suggestions[1],
       entityKind: suggestionId === 32 ? "conclusion" : "todo",
       entityId: suggestionId + 100,
@@ -345,7 +374,9 @@ describe("ActivityNotesPanel", () => {
     renderPanel({
       notes: [],
       onUpsertNote,
-      aiEnabled: true,
+      showAiRefine: true,
+      aiReady: true,
+      enabledSuggestionTypes: ["conclusion", "todo"],
       onGenerateAiSuggestions,
       onAcceptAiSuggestion,
     });
@@ -368,31 +399,141 @@ describe("ActivityNotesPanel", () => {
     expect(onGenerateAiSuggestions).toHaveBeenCalledWith(7);
 
     expect(await screen.findByText("确认 AI 提炼")).toBeInTheDocument();
-    expect(screen.getByText("已确认预算范围和审批边界")).toBeInTheDocument();
-    expect(screen.getByText("财务补充预算拆分明细")).toBeInTheDocument();
-    expect(screen.getByText("下次会议前同步审批时间表")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已确认预算范围和审批边界" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "财务补充预算拆分明细" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下次会议前同步审批时间表" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("结论内容 1")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("待办内容 1")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "确认并写入（3项）" }));
+    await user.click(screen.getByRole("button", { name: "已确认预算范围和审批边界" }));
+    await user.clear(screen.getByLabelText("结论内容 1"));
+    await user.type(screen.getByLabelText("结论内容 1"), "已确认预算边界，按现方案推进");
 
-    await waitFor(() => expect(onAcceptAiSuggestion).toHaveBeenCalledTimes(3));
-    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(1, 32);
-    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(2, 33);
-    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(3, 34);
+    await user.click(screen.getByRole("button", { name: "财务补充预算拆分明细" }));
+    await user.clear(screen.getByLabelText("待办内容 1"));
+    await user.type(screen.getByLabelText("待办内容 1"), "财务今天补充预算拆分明细");
+
+    await user.click(
+      screen.getAllByRole("button", { name: "修改优先级：P3 · 不紧急但重要" })[0],
+    );
+    await user.click(screen.getByRole("menuitemradio", { name: "P1 紧急且重要" }));
+    expect(screen.getByText("原推荐为 P3 · 不紧急但重要")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消项目级标星" }));
+    await user.click(screen.getByLabelText("选择待办 2"));
+
+    await user.click(screen.getByRole("button", { name: "确认并写入（2项）" }));
+
+    await waitFor(() => expect(onAcceptAiSuggestion).toHaveBeenCalledTimes(2));
+    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(1, {
+      suggestionId: 32,
+      payloadOverride: {
+        content: "已确认预算边界，按现方案推进",
+        promotedToProject: false,
+      },
+    });
+    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(2, {
+      suggestionId: 33,
+      payloadOverride: {
+        content: "财务今天补充预算拆分明细",
+        priority: "urgent_important",
+      },
+    });
+  });
+
+  it("keeps only enabled suggestion subfeatures in the confirmation dialog", async () => {
+    const user = userEvent.setup();
+    const savedNote = {
+      ...baseNote,
+      id: 8,
+      title: "会议纪要",
+      contentMarkdown: "确认预算范围，需要财务补充拆分明细",
+      contentHtml: "<p>确认预算范围，需要财务补充拆分明细</p>",
+    };
+    const suggestions: AiSuggestionRecord[] = [
+      {
+        id: 41,
+        projectId: 9,
+        activityId: 11,
+        noteId: 8,
+        suggestionType: "conclusion",
+        title: "结论候选",
+        preview: "已确认预算范围和审批边界",
+        payload: { content: "已确认预算范围和审批边界" },
+        status: "pending",
+        createdAt: "2026-04-06T10:10:00.000Z",
+      },
+      {
+        id: 42,
+        projectId: 9,
+        activityId: 11,
+        noteId: 8,
+        suggestionType: "todo",
+        title: "待办候选",
+        preview: "财务补充预算拆分明细",
+        payload: { content: "财务补充预算拆分明细" },
+        status: "pending",
+        createdAt: "2026-04-06T10:10:00.000Z",
+      },
+    ];
+    const onGenerateAiSuggestions = vi.fn(async () => suggestions);
+    const onAcceptAiSuggestion = vi.fn(async ({ suggestionId }: { suggestionId: number }) => ({
+      suggestion: suggestions.find((item) => item.id === suggestionId) ?? suggestions[0],
+      entityKind: "conclusion",
+      entityId: suggestionId + 100,
+    }));
+
+    renderPanel({
+      notes: [],
+      onUpsertNote: vi.fn(async () => savedNote),
+      showAiRefine: true,
+      aiReady: true,
+      enabledSuggestionTypes: ["conclusion"],
+      onGenerateAiSuggestions,
+      onAcceptAiSuggestion,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新建" }));
+    await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
+    await user.type(screen.getByLabelText("记录编辑器"), "确认预算范围，需要财务补充拆分明细");
+    await user.click(screen.getByRole("button", { name: "AI 提炼" }));
+
+    expect(await screen.findByText("会议结论")).toBeInTheDocument();
+    expect(screen.queryByText("待办事项")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已确认预算范围和审批边界" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("结论内容 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("财务补充预算拆分明细")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "确认并写入（1项）" }));
+
+    await waitFor(() => expect(onAcceptAiSuggestion).toHaveBeenCalledTimes(1));
+    expect(onAcceptAiSuggestion).toHaveBeenCalledWith({
+      suggestionId: 41,
+      payloadOverride: {
+        content: "已确认预算范围和审批边界",
+        promotedToProject: true,
+      },
+    });
   });
 });
 
 function renderPanel({
   notes = [],
   onUpsertNote = vi.fn(async () => baseNote) as (input: import("../../lib/types").NoteUpsertInput) => Promise<NoteRecord>,
-  aiEnabled = false,
+  showAiRefine = false,
+  aiReady = false,
+  enabledSuggestionTypes = [],
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
 }: {
   notes?: NoteRecord[];
   onUpsertNote?: (input: import("../../lib/types").NoteUpsertInput) => Promise<NoteRecord>;
-  aiEnabled?: boolean;
+  showAiRefine?: boolean;
+  aiReady?: boolean;
+  enabledSuggestionTypes?: Array<"conclusion" | "todo">;
   onGenerateAiSuggestions?: (noteId: number) => Promise<AiSuggestionRecord[]>;
-  onAcceptAiSuggestion?: (suggestionId: number) => Promise<import("../../lib/types").AcceptedSuggestionResult>;
+  onAcceptAiSuggestion?: (
+    input: import("../../lib/types").AiAcceptSuggestionInput,
+  ) => Promise<import("../../lib/types").AcceptedSuggestionResult>;
 }) {
   return render(
     <ActivityNotesPanel
@@ -403,7 +544,9 @@ function renderPanel({
       saving={false}
       onUpsertNote={onUpsertNote}
       onImportDocument={vi.fn()}
-      aiEnabled={aiEnabled}
+      showAiRefine={showAiRefine}
+      aiReady={aiReady}
+      enabledSuggestionTypes={enabledSuggestionTypes}
       onGenerateAiSuggestions={onGenerateAiSuggestions}
       onAcceptAiSuggestion={onAcceptAiSuggestion}
     />,
@@ -419,7 +562,80 @@ function toPlainText(html: string) {
     .trim();
 }
 
+function toMockEditorValue(html: string) {
+  if (html.includes("<table")) {
+    return `table::${tableHtmlToMarkdown(html)}`;
+  }
+
+  return toPlainText(html);
+}
+
+function buildMockRichValue(source: string) {
+  const normalized = source.trim();
+
+  if (normalized.startsWith("table::")) {
+    const markdown = normalized.slice("table::".length).trim();
+    const lines = markdown.split("\n").filter((line) => line.trim().length > 0);
+
+    if (lines.length >= 3) {
+      return {
+        html: toTableHtml(markdown),
+        text: markdown.replace(/[|\-:]/g, " ").replace(/\s+/g, " ").trim(),
+        markdown,
+      };
+    }
+  }
+
+  return {
+    html: toHtml(normalized),
+    text: normalized,
+    markdown: normalized,
+  };
+}
+
 function toHtml(text: string) {
   const normalized = text.trim();
   return normalized.length > 0 ? `<p>${normalized}</p>` : "<p></p>";
+}
+
+function toTableHtml(markdown: string) {
+  const lines = markdown
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const [headerLine, , ...bodyLines] = lines;
+  const headerCells = parseTableCells(headerLine);
+  const bodyRows = bodyLines.map((line) => parseTableCells(line));
+
+  return `<table><thead><tr>${headerCells.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${bodyRows
+    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+    .join("")}</tbody></table>`;
+}
+
+function parseTableCells(line: string) {
+  return line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function tableHtmlToMarkdown(html: string) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rows = Array.from(doc.querySelectorAll("tr")).map((row) =>
+    Array.from(row.querySelectorAll("th, td"))
+      .map((cell) => cell.textContent?.trim() ?? "")
+      .join(" | "),
+  );
+
+  if (rows.length === 0) {
+    return "";
+  }
+
+  const headerCells = rows[0].split(" | ");
+  const separator = new Array(headerCells.length).fill("---").join(" | ");
+
+  return [`| ${rows[0]} |`, `| ${separator} |`, ...rows.slice(1).map((row) => `| ${row} |`)].join(
+    "\n",
+  );
 }

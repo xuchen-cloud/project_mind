@@ -4,7 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 
 import type { ActivityCardData, ConclusionRecord, DocumentRecord } from "../../lib/types";
-import { isAiCapabilityConfigured } from "../../lib/ai";
+import {
+  isAiCapabilityConfigured,
+  isAiFeatureReady,
+  isAiFeatureVisible,
+  visibleAiSuggestionTypes,
+} from "../../lib/ai";
+import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import { activityAttributeLabel } from "../../lib/constants";
 import { activityPath, formatDateTime, parseRouteId, projectPath } from "../../lib/formatters";
 import { useActivityMutations } from "../../hooks/useActivityMutations";
@@ -25,13 +31,16 @@ import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import {
   Button,
+  DeleteContextMenu,
   EmptyState,
+  ProjectStarButton,
   SectionHeader,
   SurfaceCard,
 } from "../../ui/components";
 import { TodoRail } from "../todo";
 import { ActivityTagDropdown } from "./ActivityTagDropdown";
 import { ActivityNotesPanel } from "./ActivityNotesPanel";
+import { AiArtifactCard } from "../ai/AiArtifactCard";
 
 export function ActivityPage() {
   const navigate = useNavigate();
@@ -92,14 +101,20 @@ export function ActivityPage() {
     [activitiesQuery.data],
   );
 
-  const { activityMetaMutation, noteMutation, conclusionMutation, conclusionUpdateMutation } =
-    useActivityMutations();
+  const {
+    activityMetaMutation,
+    noteMutation,
+    conclusionMutation,
+    conclusionUpdateMutation,
+    conclusionDeleteMutation,
+  } = useActivityMutations();
   const {
     todoMutation,
     todoContentMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoDeleteMutation,
   } = useTodoMutations(activity?.todos);
   const { aiGenerateMutation, aiAcceptMutation } = useAiMutations();
   const { openSettings } = useUiStore();
@@ -110,13 +125,21 @@ export function ActivityPage() {
   const [conclusionDraft, setConclusionDraft] = useState<RichEditorValue>(emptyRichEditorValue());
   const [promoteConclusion, setPromoteConclusion] = useState(true);
   const [conclusionComposerOpen, setConclusionComposerOpen] = useState(false);
+  const [conclusionContextMenu, setConclusionContextMenu] = useState<{
+    conclusionId: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const [pageDragActive, setPageDragActive] = useState(false);
 
-  const busyAi = aiGenerateMutation.isPending || aiAcceptMutation.isPending;
+  const visibleSuggestionTypes = visibleAiSuggestionTypes(aiSettingsQuery.data);
   const suggestionGenerationReady = isAiCapabilityConfigured(
     aiSettingsQuery.data,
     "suggestion_generation",
   );
+  const showAiRefine = visibleSuggestionTypes.length > 0;
+  const showActivitySummary = isAiFeatureVisible(aiSettingsQuery.data, "summary.activity_summary");
+  const summaryReady = isAiFeatureReady(aiSettingsQuery.data, "summary.activity_summary");
   const activityNameById = useMemo(
     () => (activity ? new Map([[activity.id, activity.title]]) : new Map<number, string>()),
     [activity],
@@ -129,6 +152,19 @@ export function ActivityPage() {
     () => activity?.todos.filter((todo) => todo.status === "finished") ?? [],
     [activity?.todos],
   );
+  const contextMenuConclusion = useMemo(
+    () =>
+      conclusionContextMenu && activity
+        ? activity.conclusions.find((item) => item.id === conclusionContextMenu.conclusionId) ?? null
+        : null,
+    [activity, conclusionContextMenu],
+  );
+
+  useEffect(() => {
+    if (conclusionContextMenu && !contextMenuConclusion) {
+      setConclusionContextMenu(null);
+    }
+  }, [conclusionContextMenu, contextMenuConclusion]);
 
   const importDocumentForEditor = useCallback(
     async (sourcePath: string) => {
@@ -147,6 +183,7 @@ export function ActivityPage() {
         appendDocumentToActivityCache(queryClient, document);
         void queryClient.invalidateQueries({ queryKey: ["overview", document.projectId] });
         void queryClient.invalidateQueries({ queryKey: ["dashboard", document.projectId] });
+        void queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
 
         return document;
       } catch (error) {
@@ -173,7 +210,7 @@ export function ActivityPage() {
   );
 
   const acceptAiSuggestion = useCallback(
-    async (suggestionId: number) => aiAcceptMutation.mutateAsync({ suggestionId }),
+    async (input: Parameters<typeof aiAcceptMutation.mutateAsync>[0]) => aiAcceptMutation.mutateAsync(input),
     [aiAcceptMutation],
   );
 
@@ -256,6 +293,7 @@ export function ActivityPage() {
         importedDocuments.forEach((document) => appendDocumentToActivityCache(queryClient, document));
         void queryClient.invalidateQueries({ queryKey: ["overview", activity.projectId] });
         void queryClient.invalidateQueries({ queryKey: ["dashboard", activity.projectId] });
+        void queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       } catch (error) {
         pushToast({ tone: "error", title: "导入文件失败", detail: String(error) });
       }
@@ -305,6 +343,7 @@ export function ActivityPage() {
           onUpdatePriority={() => undefined}
           onUpdateContent={() => undefined}
           onAddProgress={() => undefined}
+          onDeleteTodo={() => undefined}
           onOpenTodoSource={() => undefined}
         />
       </div>
@@ -431,8 +470,9 @@ export function ActivityPage() {
                   notes={activity.notes}
                   recordTypeSettings={recordTypeSettingsQuery.data}
                   saving={noteMutation.isPending}
-                  aiEnabled={suggestionGenerationReady}
-                  aiBusy={busyAi}
+                  showAiRefine={showAiRefine}
+                  aiReady={suggestionGenerationReady}
+                  enabledSuggestionTypes={visibleSuggestionTypes}
                   onUpsertNote={(input) => noteMutation.mutateAsync(input)}
                   onImportDocument={importDocumentForEditor}
                   onGenerateAiSuggestions={generateAiSuggestionsForNote}
@@ -442,6 +482,21 @@ export function ActivityPage() {
               </section>
 
               <section className="activity-page__details-column grid min-w-0 gap-5">
+                {showActivitySummary ? (
+                  <AiArtifactCard
+                    eyebrow="AI Summary"
+                    title="AI 总结"
+                    description="提炼本次活动的概览、关键结论、风险和下一步建议。"
+                    input={{
+                      kind: "activity_summary",
+                      projectId: activity.projectId,
+                      activityId: activity.id,
+                    }}
+                    aiEnabled={summaryReady}
+                    sectionsLayout="single-column"
+                  />
+                ) : null}
+
                 <section className="grid gap-4">
                   <SectionHeader
                     eyebrow="Documents"
@@ -494,19 +549,17 @@ export function ActivityPage() {
                           <RichEditor
                             html={conclusionDraft.html}
                             variant="bare"
+                            enableTables={false}
                             placeholder="记录已确认的判断、共识或决定。"
                             onChange={setConclusionDraft}
                           />
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <label className="flex items-center gap-2 text-ui text-text-muted">
-                            <input
-                              type="checkbox"
-                              checked={promoteConclusion}
-                              onChange={(event) => setPromoteConclusion(event.target.checked)}
-                            />
-                            提升到项目首页
-                          </label>
+                          <ProjectStarButton
+                            active={promoteConclusion}
+                            disabled={conclusionMutation.isPending}
+                            onClick={() => setPromoteConclusion((current) => !current)}
+                          />
                           <div className="flex items-center gap-2">
                             <Button
                               type="button"
@@ -547,7 +600,13 @@ export function ActivityPage() {
                             <InlineActivityConclusionEditor
                               key={item.id}
                               conclusion={item}
-                              busy={conclusionUpdateMutation.isPending}
+                              busy={
+                                conclusionUpdateMutation.isPending ||
+                                conclusionDeleteMutation.isPending
+                              }
+                              onOpenContextMenu={(conclusionId, x, y) =>
+                                setConclusionContextMenu({ conclusionId, x, y })
+                              }
                               onSave={async (conclusionId, markdown, html, promotedToProject) => {
                                 await conclusionUpdateMutation.mutateAsync({
                                   conclusionId,
@@ -566,6 +625,23 @@ export function ActivityPage() {
                         />
                       )}
                     </div>
+                    {conclusionContextMenu && contextMenuConclusion ? (
+                      <DeleteContextMenu
+                        x={conclusionContextMenu.x}
+                        y={conclusionContextMenu.y}
+                        ariaLabel="结论操作"
+                        disabled={conclusionDeleteMutation.isPending}
+                        onClose={() => setConclusionContextMenu(null)}
+                        onDelete={() => {
+                          if (!window.confirm("确定删除这条结论吗？删除后无法恢复。")) {
+                            return;
+                          }
+                          void conclusionDeleteMutation.mutateAsync({
+                            conclusionId: contextMenuConclusion.id,
+                          });
+                        }}
+                      />
+                    ) : null}
                   </SurfaceCard>
                 </section>
               </section>
@@ -599,6 +675,7 @@ export function ActivityPage() {
           onAddProgress={(todoId, payload) =>
             todoProgressMutation.mutateAsync({ todoId, ...payload })
           }
+          onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
           onOpenTodoSource={(todo) => {
             if (!todo.activityId) return;
             navigate(activityPath(activity.projectId, todo.activityId, `todo-${todo.id}`));
@@ -623,10 +700,12 @@ function emptyRichEditorValue(): RichEditorValue {
 function InlineActivityConclusionEditor({
   conclusion,
   busy,
+  onOpenContextMenu,
   onSave,
 }: {
   conclusion: ConclusionRecord;
   busy: boolean;
+  onOpenContextMenu: (conclusionId: number, x: number, y: number) => void;
   onSave: (
     conclusionId: number,
     markdown: string,
@@ -636,6 +715,7 @@ function InlineActivityConclusionEditor({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<RichEditorValue>(() => buildConclusionDraft(conclusion));
+  const [promotedToProject, setPromotedToProject] = useState(conclusion.promotedToProject);
   const renderableHtml = useMemo(
     () =>
       getRenderableRichTextHtml({
@@ -647,13 +727,26 @@ function InlineActivityConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
+    setPromotedToProject(conclusion.promotedToProject);
     setEditing(false);
-  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
+  }, [
+    conclusion.contentHtml,
+    conclusion.contentMarkdown,
+    conclusion.id,
+    conclusion.promotedToProject,
+  ]);
 
   return (
     <article
       id={`conclusion-${conclusion.id}`}
       className="grid gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0"
+      onContextMenu={(event) => {
+        if (editing || shouldIgnoreContextMenuTarget(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        onOpenContextMenu(conclusion.id, event.clientX, event.clientY);
+      }}
     >
       {editing ? (
         <div className="grid gap-2">
@@ -663,6 +756,7 @@ function InlineActivityConclusionEditor({
               if (event.key === "Escape") {
                 event.preventDefault();
                 setDraft(buildConclusionDraft(conclusion));
+                setPromotedToProject(conclusion.promotedToProject);
                 setEditing(false);
               }
             }}
@@ -670,15 +764,20 @@ function InlineActivityConclusionEditor({
             <RichEditor
               html={draft.html}
               variant="bare"
+              enableTables={false}
               placeholder="记录已确认的判断、共识或决定。"
               onChange={setDraft}
             />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-ui text-text-soft">
-              {conclusion.promotedToProject ? "项目级可见" : "活动内结论"} ·{" "}
-              {formatDateTime(conclusion.updatedAt)}
-            </p>
+            <div className="flex items-center gap-2">
+              <ProjectStarButton
+                active={promotedToProject}
+                disabled={busy}
+                onClick={() => setPromotedToProject((current) => !current)}
+              />
+              <p className="text-ui text-text-soft">{formatDateTime(conclusion.updatedAt)}</p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -687,6 +786,7 @@ function InlineActivityConclusionEditor({
                 disabled={busy}
                 onClick={() => {
                   setDraft(buildConclusionDraft(conclusion));
+                  setPromotedToProject(conclusion.promotedToProject);
                   setEditing(false);
                 }}
               >
@@ -709,7 +809,7 @@ function InlineActivityConclusionEditor({
                         conclusion.id,
                         normalizedDraft.markdown,
                         normalizedDraft.html,
-                        conclusion.promotedToProject,
+                        promotedToProject,
                       );
                       setEditing(false);
                     } catch {
@@ -726,22 +826,49 @@ function InlineActivityConclusionEditor({
       ) : (
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
           <div className="min-w-0">
-            <RichEditor html={renderableHtml} variant="bare" readOnly />
-            <p className="mt-2 text-ui text-text-soft">
-              {conclusion.promotedToProject ? "项目级可见" : "活动内结论"} ·{" "}
-              {formatDateTime(conclusion.updatedAt)}
-            </p>
+            <div
+              role="button"
+              tabIndex={busy ? -1 : 0}
+              className="cursor-text rounded-[var(--radius-6)] outline-none transition-colors hover:bg-bg-hover focus-visible:ring-2 focus-visible:ring-accent/40"
+              onClick={() => {
+                if (!busy) {
+                  setEditing(true);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (busy) {
+                  return;
+                }
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setEditing(true);
+                }
+              }}
+            >
+              <RichEditor html={renderableHtml} variant="bare" readOnly />
+              <p className="mt-2 text-ui text-text-soft">{formatDateTime(conclusion.updatedAt)}</p>
+            </div>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="justify-self-start px-2 text-caption sm:justify-self-end"
-            disabled={busy}
-            onClick={() => setEditing(true)}
-          >
-            编辑
-          </Button>
+          <div className="flex items-center gap-1 justify-self-start sm:justify-self-end">
+            <ProjectStarButton
+              active={conclusion.promotedToProject}
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await onSave(
+                      conclusion.id,
+                      conclusion.contentMarkdown,
+                      conclusion.contentHtml,
+                      !conclusion.promotedToProject,
+                    );
+                  } catch {
+                    return;
+                  }
+                })();
+              }}
+            />
+          </div>
         </div>
       )}
     </article>

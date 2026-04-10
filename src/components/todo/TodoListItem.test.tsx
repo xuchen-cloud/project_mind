@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -33,6 +33,7 @@ describe("TodoListItem", () => {
         onAddProgress={vi.fn()}
         onOpenTodoSource={onOpenTodoSource}
         onToggleExpanded={vi.fn()}
+        onOpenContextMenu={vi.fn()}
       />,
     );
 
@@ -43,5 +44,30 @@ describe("TodoListItem", () => {
 
     await user.click(screen.getByRole("button", { name: "预算讨论" }));
     expect(onOpenTodoSource).toHaveBeenCalledWith(todo);
+  });
+
+  it("opens a context menu on right click", () => {
+    const onOpenContextMenu = vi.fn();
+
+    render(
+      <TodoListItem
+        todo={todo}
+        activityNameById={new Map([[11, "预算讨论"]])}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onOpenContextMenu={onOpenContextMenu}
+      />,
+    );
+
+    fireEvent.contextMenu(document.getElementById("todo-7") as HTMLElement, {
+      clientX: 120,
+      clientY: 48,
+    });
+
+    expect(onOpenContextMenu).toHaveBeenCalledWith(7, 120, 48);
   });
 });

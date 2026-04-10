@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
-import type { WorkspaceSearchResult } from "./lib/types";
-import { activityPath, parseRouteId, projectPath } from "./lib/formatters";
+import type { AiAnswerScope, WorkspaceSearchResult } from "./lib/types";
+import { isAiCapabilityVisible, isAiFeatureVisible } from "./lib/ai";
+import { deriveAskScopeContext } from "./lib/aiAsk";
+import { ensureAiJobSync } from "./lib/aiJobs";
+import { activityPath, parseRouteId, projectPath, todayPath } from "./lib/formatters";
 import {
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
   applyRichTextStyleVariables,
@@ -16,14 +19,18 @@ import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
+import { AskPanel } from "./components/ai/AskPanel";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { Button, EmptyState } from "./ui/components";
 
 export function WorkspaceLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const params = useParams();
   const activeProjectId = parseRouteId(params.projectId);
+  const activeActivityId = parseRouteId(params.activityId);
+  const todayActive = location.pathname === todayPath();
 
   const {
     createProjectOpen,
@@ -43,6 +50,10 @@ export function WorkspaceLayout() {
   const richTextStyleQuery = useQuery({
     queryKey: ["rich-text-style"],
     queryFn: projectMindApi.richTextStyleGet,
+  });
+  const aiSettingsQuery = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: projectMindApi.aiSettingsGet,
   });
 
   const visibleProjects = useMemo(
@@ -75,6 +86,14 @@ export function WorkspaceLayout() {
   }, [searchQuery.data]);
 
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  const askScopeContext = useMemo(
+    () => deriveAskScopeContext(location.pathname, activeProjectId, activeActivityId),
+    [activeActivityId, activeProjectId, location.pathname],
+  );
+  const [askScope, setAskScope] = useState<AiAnswerScope>(askScopeContext.defaultScope);
+  const askVisible = isAiCapabilityVisible(aiSettingsQuery.data, "assistant");
+  const todayVisible = isAiFeatureVisible(aiSettingsQuery.data, "summary.daily_brief");
 
   const { createProjectMutation, archiveMutation } = useProjectMutations(
     visibleProjects,
@@ -115,9 +134,16 @@ export function WorkspaceLayout() {
     [navigate],
   );
 
-  const shouldShowEmpty = !projectsQuery.isLoading && visibleProjects.length === 0 && !activeProjectId;
+  const shouldShowEmpty =
+    !projectsQuery.isLoading &&
+    visibleProjects.length === 0 &&
+    !activeProjectId &&
+    !todayActive;
   const shouldAutoNavigate =
-    !projectsQuery.isLoading && visibleProjects.length > 0 && !activeProjectId;
+    !projectsQuery.isLoading &&
+    visibleProjects.length > 0 &&
+    !activeProjectId &&
+    !todayActive;
 
   useEffect(() => {
     if (!projectsQuery.isLoading) {
@@ -150,11 +176,41 @@ export function WorkspaceLayout() {
     );
   }, [richTextStyleQuery.data]);
 
+  useEffect(() => {
+    setAskScope((current) =>
+      askScopeContext.allowedScopes.includes(current)
+        ? current
+        : askScopeContext.defaultScope,
+    );
+  }, [askScopeContext]);
+
+  useEffect(() => {
+    if (askOpen && !askVisible) {
+      setAskOpen(false);
+    }
+  }, [askOpen, askVisible]);
+
+  useEffect(() => {
+    if (!todayActive || todayVisible) {
+      return;
+    }
+
+    navigate("/projects", { replace: true });
+  }, [navigate, todayActive, todayVisible]);
+
+  useEffect(() => {
+    void ensureAiJobSync();
+  }, []);
+
   return (
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
       <WorkspaceTopBar
         projects={visibleProjects}
         activeProjectId={activeProjectId}
+        todayActive={todayActive}
+        showToday={todayVisible}
+        askOpen={askOpen}
+        showAsk={askVisible}
         settingsActive={settingsOpen}
         archivedProjects={archivedProjects}
         searchInput={searchInput}
@@ -167,6 +223,8 @@ export function WorkspaceLayout() {
         onOpenProject={(id) => navigate(projectPath(id))}
         onRestoreProject={(id) => archiveMutation.mutate({ projectId: id, isArchived: false })}
         onCreateProject={() => setCreateProjectOpen(true)}
+        onOpenToday={() => navigate(todayPath())}
+        onOpenAsk={() => setAskOpen(true)}
         onOpenSettings={() => openSettings("activity")}
         onSearchSelect={handleSearchSelect}
       />
@@ -206,9 +264,23 @@ export function WorkspaceLayout() {
         onClose={closeSettings}
       />
 
+      <AskPanel
+        open={askVisible && askOpen}
+        scope={askScope}
+        allowedScopes={askScopeContext.allowedScopes}
+        projectId={activeProjectId}
+        activityId={activeActivityId}
+        aiSettings={aiSettingsQuery.data}
+        aiSettingsLoading={aiSettingsQuery.isLoading}
+        onClose={() => setAskOpen(false)}
+        onScopeChange={setAskScope}
+      />
+
       <StatusBar
         context={
-          activeProjectId !== null
+          todayActive
+            ? "Today"
+            : activeProjectId !== null
             ? visibleProjects.find((project) => project.id === activeProjectId)?.name ?? null
             : null
         }

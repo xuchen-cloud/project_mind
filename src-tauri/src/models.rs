@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -269,6 +271,168 @@ pub struct AiSettingsSnapshot {
     pub bindings: Vec<AiCapabilityBindingRecord>,
     pub has_usable_default: bool,
     pub security_mode: String,
+    pub execution: AiExecutionSettings,
+    pub feature_settings: AiFeatureSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiArtifactSection {
+    pub title: String,
+    pub items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiArtifactPayload {
+    pub overview: String,
+    pub sections: Vec<AiArtifactSection>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiArtifactCitationRecord {
+    pub id: i64,
+    pub artifact_id: i64,
+    pub source_kind: String,
+    pub source_id: i64,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+    pub label: String,
+    pub excerpt: String,
+    pub order_index: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiArtifactRecord {
+    pub id: i64,
+    pub kind: String,
+    pub skill_key: String,
+    pub skill_version: String,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+    pub artifact_date: Option<String>,
+    pub status: String,
+    pub markdown: String,
+    pub json_payload: Value,
+    pub source_updated_at: String,
+    pub generated_at: Option<String>,
+    pub error_message: Option<String>,
+    pub citations: Vec<AiArtifactCitationRecord>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AiAnswerScope {
+    Workspace,
+    Project,
+    Activity,
+}
+
+impl AiAnswerScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::Project => "project",
+            Self::Activity => "activity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAnswerCitationRecord {
+    pub ref_code: String,
+    pub source_kind: String,
+    pub source_id: i64,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+    pub label: String,
+    pub excerpt: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAnswerResult {
+    pub answer_markdown: String,
+    pub citations: Vec<AiAnswerCitationRecord>,
+    pub scope: AiAnswerScope,
+    pub generated_at: String,
+    pub skill_key: String,
+    pub skill_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiJobKind {
+    ArtifactRefresh,
+    AnswerQuestion,
+    NoteSuggestions,
+    ProfileTest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiJobStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl AiJobStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Succeeded | Self::Failed)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExecutionSettings {
+    pub max_concurrency: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiFeatureSettings {
+    pub master_enabled: bool,
+    pub capabilities: BTreeMap<String, bool>,
+    pub features: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AiJobResult {
+    ArtifactRefresh {
+        artifact: AiArtifactRecord,
+    },
+    AnswerQuestion {
+        answer: AiAnswerResult,
+    },
+    NoteSuggestions {
+        suggestions: Vec<AiSuggestionRecord>,
+    },
+    ProfileTest {
+        #[serde(rename = "testResult")]
+        test_result: AiProfileTestResult,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiJobSnapshot {
+    pub id: i64,
+    pub kind: AiJobKind,
+    pub target_key: String,
+    pub status: AiJobStatus,
+    pub queued_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_message: Option<String>,
+    pub result: Option<AiJobResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -545,6 +709,12 @@ pub struct ConclusionUpdateInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConclusionDeleteInput {
+    pub conclusion_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TodoCreateInput {
     pub project_id: i64,
     pub activity_id: Option<i64>,
@@ -579,6 +749,12 @@ pub struct TodoAddProgressInput {
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoDeleteInput {
+    pub todo_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -623,6 +799,12 @@ pub struct DocumentAddVersionInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DocumentDeleteInput {
+    pub document_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiGenerateInput {
     pub project_id: i64,
     pub activity_id: i64,
@@ -633,6 +815,70 @@ pub struct AiGenerateInput {
 #[serde(rename_all = "camelCase")]
 pub struct AiAcceptSuggestionInput {
     pub suggestion_id: i64,
+    pub payload_override: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiArtifactGetInput {
+    pub kind: String,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+    pub artifact_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAnswerQuestionInput {
+    pub scope: AiAnswerScope,
+    pub question: String,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AiJobEnqueueInput {
+    ArtifactRefresh {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiArtifactGetInput,
+    },
+    AnswerQuestion {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiAnswerQuestionInput,
+    },
+    NoteSuggestions {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiGenerateInput,
+    },
+    ProfileTest {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiProfileTestInput,
+    },
+}
+
+impl AiJobEnqueueInput {
+    pub fn kind(&self) -> AiJobKind {
+        match self {
+            Self::ArtifactRefresh { .. } => AiJobKind::ArtifactRefresh,
+            Self::AnswerQuestion { .. } => AiJobKind::AnswerQuestion,
+            Self::NoteSuggestions { .. } => AiJobKind::NoteSuggestions,
+            Self::ProfileTest { .. } => AiJobKind::ProfileTest,
+        }
+    }
+
+    pub fn target_key(&self) -> &str {
+        match self {
+            Self::ArtifactRefresh { target_key, .. }
+            | Self::AnswerQuestion { target_key, .. }
+            | Self::NoteSuggestions { target_key, .. }
+            | Self::ProfileTest { target_key, .. } => target_key,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -681,3 +927,34 @@ pub struct AiCapabilityBindingUpsertInput {
 }
 
 pub type RichTextStyleUpsertInput = RichTextStyleSettings;
+
+#[cfg(test)]
+mod tests {
+    use super::{AiAnswerScope, AiJobEnqueueInput};
+    use serde_json::json;
+
+    #[test]
+    fn ai_job_enqueue_input_accepts_camel_case_target_key() {
+        let input: AiJobEnqueueInput = serde_json::from_value(json!({
+            "kind": "answer_question",
+            "targetKey": "ask:project:7:none",
+            "input": {
+                "scope": "project",
+                "question": "现在最重要的事情是什么？",
+                "projectId": 7
+            }
+        }))
+        .expect("camelCase ai job payload should deserialize");
+
+        match input {
+            AiJobEnqueueInput::AnswerQuestion { target_key, input } => {
+                assert_eq!(target_key, "ask:project:7:none");
+                assert_eq!(input.scope, AiAnswerScope::Project);
+                assert_eq!(input.question, "现在最重要的事情是什么？");
+                assert_eq!(input.project_id, Some(7));
+                assert_eq!(input.activity_id, None);
+            }
+            other => panic!("expected answer question payload, got {other:?}"),
+        }
+    }
+}

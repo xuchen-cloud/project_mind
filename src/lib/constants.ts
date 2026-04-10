@@ -1,4 +1,4 @@
-import type { FileTagColorKey } from "./types";
+import type { AiFeatureKey, AiManagedCapability, FileTagColorKey } from "./types";
 import { TODO_PRIORITY_META, todoPriorityLabel } from "./todo-priority";
 
 export const PROJECT_STATUS_OPTIONS = [
@@ -47,6 +47,47 @@ export const AI_CAPABILITY_OPTIONS = [
   { value: "summary", label: "AI 总结" },
   { value: "suggestion_generation", label: "建议生成" },
 ] as const;
+
+export const AI_VISIBLE_CAPABILITY_OPTIONS: Array<{
+  value: AiManagedCapability;
+  label: string;
+}> = [
+  { value: "assistant", label: "Ask" },
+  { value: "summary", label: "AI 总结" },
+  { value: "suggestion_generation", label: "AI 提炼" },
+];
+
+export const AI_FEATURE_OPTIONS: Array<{
+  value: AiFeatureKey;
+  capability: AiManagedCapability;
+  label: string;
+}> = [
+  {
+    value: "summary.activity_summary",
+    capability: "summary",
+    label: "Activity 总结",
+  },
+  {
+    value: "summary.project_brief",
+    capability: "summary",
+    label: "项目概览",
+  },
+  {
+    value: "summary.daily_brief",
+    capability: "summary",
+    label: "Today",
+  },
+  {
+    value: "suggestion_generation.conclusion",
+    capability: "suggestion_generation",
+    label: "结论候选",
+  },
+  {
+    value: "suggestion_generation.todo",
+    capability: "suggestion_generation",
+    label: "Todo 候选",
+  },
+];
 
 export const FILE_TAG_COLOR_OPTIONS: Array<{
   value: FileTagColorKey;
@@ -100,6 +141,14 @@ export function aiProviderLabel(value: string) {
 
 export function aiCapabilityLabel(value: string) {
   return AI_CAPABILITY_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
+export function aiVisibleCapabilityLabel(value: AiManagedCapability) {
+  return AI_VISIBLE_CAPABILITY_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
+export function aiFeatureLabel(value: AiFeatureKey) {
+  return AI_FEATURE_OPTIONS.find((option) => option.value === value)?.label ?? value;
 }
 
 export function fileTagColorValue(value: FileTagColorKey) {

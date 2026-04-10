@@ -74,11 +74,24 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
     },
   });
 
+  const todoDeleteMutation = useMutation({
+    mutationFn: projectMindApi.todoDelete,
+    onSuccess: async (todo) => {
+      setStatus({ tone: "success", label: "Deleted", message: "待办已删除" });
+      await refreshAll(queryClient, todo.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除待办失败" });
+      pushToast({ tone: "error", title: "删除待办失败", detail: String(error) });
+    },
+  });
+
   return {
     todoMutation,
     todoContentMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoDeleteMutation,
   };
 }

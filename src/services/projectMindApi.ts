@@ -11,9 +11,18 @@ import type {
   ActivityStatusOptionUpsertInput,
   ActivityUpdateMetaInput,
   AiAcceptSuggestionInput,
+  AiAnswerQuestionInput,
+  AiAnswerResult,
+  AiArtifactGetInput,
+  AiArtifactRecord,
   AiCapabilityBindingRecord,
   AiCapabilityBindingUpsertInput,
+  AiExecutionSettings,
+  AiFeatureSettings,
+  AiFeatureSettingsUpsertInput,
   AiGenerateInput,
+  AiJobEnqueueInput,
+  AiJobSnapshot,
   AiProfileTestInput,
   AiProfileTestResult,
   AiProviderProfileDeleteInput,
@@ -22,10 +31,12 @@ import type {
   AiSettingsSnapshot,
   AiSuggestionRecord,
   ConclusionCreateInput,
+  ConclusionDeleteInput,
   ConclusionListInput,
   ConclusionRecord,
   ConclusionUpdateInput,
   DocumentAddVersionInput,
+  DocumentDeleteInput,
   DocumentImportInput,
   DocumentListVersionsInput,
   DocumentRecord,
@@ -55,6 +66,7 @@ import type {
   RichTextStyleUpsertInput,
   TodoAddProgressInput,
   TodoCreateInput,
+  TodoDeleteInput,
   TodoProgressRecord,
   TodoRecord,
   TodoUpdateContentInput,
@@ -113,6 +125,8 @@ export const projectMindApi = {
     desktopApi.command<ConclusionRecord[]>("conclusion_list", { input }),
   conclusionUpdate: (input: ConclusionUpdateInput) =>
     desktopApi.command<ConclusionRecord>("conclusion_update", { input }),
+  conclusionDelete: (input: ConclusionDeleteInput) =>
+    desktopApi.command<ConclusionRecord>("conclusion_delete", { input }),
   todoCreate: (input: TodoCreateInput) =>
     desktopApi.command<TodoRecord>("todo_create", { input }),
   todoUpdateContent: (input: TodoUpdateContentInput) =>
@@ -123,6 +137,8 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord>("todo_update_status", { input }),
   todoAddProgress: (input: TodoAddProgressInput) =>
     desktopApi.command<TodoProgressRecord>("todo_add_progress", { input }),
+  todoDelete: (input: TodoDeleteInput) =>
+    desktopApi.command<TodoRecord>("todo_delete", { input }),
   todoListOpen: (input: ProjectIdInput) =>
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
   documentImport: (input: DocumentImportInput) =>
@@ -135,10 +151,18 @@ export const projectMindApi = {
     desktopApi.command<DocumentVersionRecord[]>("document_list_versions", { input }),
   documentAddVersion: (input: DocumentAddVersionInput) =>
     desktopApi.command<DocumentRecord>("document_add_version", { input }),
+  documentDelete: (input: DocumentDeleteInput) =>
+    desktopApi.command<DocumentRecord>("document_delete", { input }),
   aiGenerateNoteSuggestions: (input: AiGenerateInput) =>
     desktopApi.command<AiSuggestionRecord[]>("ai_generate_note_suggestions", { input }),
   aiAcceptSuggestion: (input: AiAcceptSuggestionInput) =>
     desktopApi.command<AcceptedSuggestionResult>("ai_accept_suggestion", { input }),
+  aiArtifactGet: (input: AiArtifactGetInput) =>
+    desktopApi.command<AiArtifactRecord | null>("ai_artifact_get", { input }),
+  aiArtifactRefresh: (input: AiArtifactGetInput) =>
+    desktopApi.command<AiArtifactRecord>("ai_artifact_refresh", { input }),
+  aiAnswerQuestion: (input: AiAnswerQuestionInput) =>
+    desktopApi.command<AiAnswerResult>("ai_answer_question", { input }),
   aiSettingsGet: () => desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
   richTextStyleGet: () => desktopApi.command<RichTextStyleSettings>("rich_text_style_get"),
   richTextStyleUpsert: (input: RichTextStyleUpsertInput) =>
@@ -151,6 +175,15 @@ export const projectMindApi = {
     desktopApi.command<AiProfileTestResult>("ai_profile_test", { input }),
   aiBindingUpsert: (input: AiCapabilityBindingUpsertInput) =>
     desktopApi.command<AiCapabilityBindingRecord>("ai_binding_upsert", { input }),
+  aiFeatureSettingsUpsert: (input: AiFeatureSettingsUpsertInput) =>
+    desktopApi.command<AiFeatureSettings>("ai_feature_settings_upsert", { input }),
+  aiJobEnqueue: (input: AiJobEnqueueInput) =>
+    desktopApi.command<AiJobSnapshot>("ai_job_enqueue", { input }),
+  aiJobGet: (jobId: number) =>
+    desktopApi.command<AiJobSnapshot | null>("ai_job_get", { jobId }),
+  aiJobsListActive: () => desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
+  aiExecutionSettingsUpsert: (input: AiExecutionSettings) =>
+    desktopApi.command<AiExecutionSettings>("ai_execution_settings_upsert", { input }),
   workspaceSearch: (input: WorkspaceSearchInput) =>
     desktopApi.command<WorkspaceSearchResult[]>("workspace_search", { input }),
 };

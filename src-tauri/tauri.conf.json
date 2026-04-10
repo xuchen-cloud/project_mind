@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Project Mind Alpha",
         "width": 1540,
         "height": 980,

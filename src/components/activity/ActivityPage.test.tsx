@@ -18,11 +18,17 @@ const {
   mockConclusionMutate,
   mockConclusionMutateAsync,
   mockConclusionUpdateMutateAsync,
+  mockConclusionDeleteMutateAsync,
   mockActivityMetaMutate,
   mockNoteMutateAsync,
   mockOpenSettings,
   mockPushToast,
   mockDocumentImport,
+  mockTodoDeleteMutateAsync,
+  mockIsAiCapabilityConfigured,
+  mockIsAiFeatureReady,
+  mockIsAiFeatureVisible,
+  mockVisibleAiSuggestionTypes,
 } = vi.hoisted(() => ({
   mockProjectsList: vi.fn(),
   mockActivityList: vi.fn(),
@@ -34,11 +40,19 @@ const {
   mockConclusionMutate: vi.fn(),
   mockConclusionMutateAsync: vi.fn(),
   mockConclusionUpdateMutateAsync: vi.fn(),
+  mockConclusionDeleteMutateAsync: vi.fn(),
   mockActivityMetaMutate: vi.fn(),
   mockNoteMutateAsync: vi.fn(),
   mockOpenSettings: vi.fn(),
   mockPushToast: vi.fn(),
   mockDocumentImport: vi.fn(),
+  mockTodoDeleteMutateAsync: vi.fn(),
+  mockIsAiCapabilityConfigured: vi.fn((..._args: unknown[]) => true),
+  mockIsAiFeatureReady: vi.fn((..._args: unknown[]) => true),
+  mockIsAiFeatureVisible: vi.fn((..._args: unknown[]) => true),
+  mockVisibleAiSuggestionTypes: vi.fn(
+    (..._args: unknown[]) => ["conclusion", "todo"] as Array<"conclusion" | "todo">,
+  ),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -73,6 +87,10 @@ vi.mock("../../hooks/useActivityMutations", () => ({
       isPending: false,
       mutateAsync: mockConclusionUpdateMutateAsync,
     },
+    conclusionDeleteMutation: {
+      isPending: false,
+      mutateAsync: mockConclusionDeleteMutateAsync,
+    },
   }),
 }));
 
@@ -88,7 +106,8 @@ vi.mock("../../hooks/useDocumentMutations", () => ({
     documentImportMutation: { mutate: vi.fn() },
     documentMetaMutation: { mutate: vi.fn() },
     documentRelocateMutation: { mutate: vi.fn() },
-    documentAddVersionMutation: { mutate: vi.fn() },
+    documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn() },
+    documentDeleteMutation: { mutate: vi.fn(), isPending: false },
   }),
 }));
 
@@ -99,6 +118,7 @@ vi.mock("../../hooks/useTodoMutations", () => ({
     todoStatusMutation: { mutateAsync: vi.fn() },
     todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
+    todoDeleteMutation: { mutateAsync: mockTodoDeleteMutateAsync },
   }),
 }));
 
@@ -119,7 +139,10 @@ vi.mock("../../state/ui-store", () => ({
 }));
 
 vi.mock("../../lib/ai", () => ({
-  isAiCapabilityConfigured: vi.fn(() => true),
+  isAiCapabilityConfigured: mockIsAiCapabilityConfigured,
+  isAiFeatureReady: mockIsAiFeatureReady,
+  isAiFeatureVisible: mockIsAiFeatureVisible,
+  visibleAiSuggestionTypes: mockVisibleAiSuggestionTypes,
 }));
 
 vi.mock("../layout/ProjectSidebar", () => ({
@@ -197,6 +220,10 @@ vi.mock("./ActivityNotesPanel", () => ({
   ),
 }));
 
+vi.mock("../ai/AiArtifactCard", () => ({
+  AiArtifactCard: () => <section data-testid="ai-artifact-card">AI Artifact</section>,
+}));
+
 import { ActivityPage } from "./ActivityPage";
 
 describe("ActivityPage", () => {
@@ -211,11 +238,21 @@ describe("ActivityPage", () => {
     mockConclusionMutate.mockReset();
     mockConclusionMutateAsync.mockReset();
     mockConclusionUpdateMutateAsync.mockReset();
+    mockConclusionDeleteMutateAsync.mockReset();
     mockActivityMetaMutate.mockReset();
     mockNoteMutateAsync.mockReset();
     mockOpenSettings.mockReset();
     mockPushToast.mockReset();
     mockDocumentImport.mockReset();
+    mockTodoDeleteMutateAsync.mockReset();
+    mockIsAiCapabilityConfigured.mockReset();
+    mockIsAiFeatureReady.mockReset();
+    mockIsAiFeatureVisible.mockReset();
+    mockVisibleAiSuggestionTypes.mockReset();
+    mockIsAiCapabilityConfigured.mockReturnValue(true);
+    mockIsAiFeatureReady.mockReturnValue(true);
+    mockIsAiFeatureVisible.mockReturnValue(true);
+    mockVisibleAiSuggestionTypes.mockReturnValue(["conclusion", "todo"]);
 
     mockProjectsList.mockResolvedValue([buildProject()]);
     mockActivityList.mockResolvedValue([buildActivity()]);
@@ -376,12 +413,33 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("lets the composer star toggle project visibility", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await screen.findByRole("button", { name: "新增结论" });
+    await user.click(screen.getByRole("button", { name: "新增结论" }));
+    await user.type(screen.getByPlaceholderText("记录已确认的判断、共识或决定。"), "只保留在活动内");
+    await user.click(screen.getAllByRole("button", { name: "取消项目级标星" })[0]);
+    await user.click(screen.getByRole("button", { name: "保存结论" }));
+
+    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      markdown: "只保留在活动内",
+      html: "<p>只保留在活动内</p>",
+      promotedToProject: false,
+    });
+  });
+
   it("edits an existing conclusion in place", async () => {
     const user = userEvent.setup();
 
     renderActivityPage();
 
-    await user.click(await screen.findByRole("button", { name: "编辑" }));
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    await user.click(await screen.findByText("已确认预算分配方案"));
     const editor = screen.getByLabelText("结论编辑器");
     await user.clear(editor);
     await user.type(editor, "调整后的活动结论");
@@ -393,6 +451,40 @@ describe("ActivityPage", () => {
       html: "<p>调整后的活动结论</p>",
       promotedToProject: true,
     });
+  });
+
+  it("toggles an existing conclusion with the project star", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "取消项目级标星" }));
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "已确认预算分配方案",
+      html: "<p>已确认预算分配方案</p>",
+      promotedToProject: false,
+    });
+  });
+
+  it("deletes an existing conclusion from the context menu", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderActivityPage();
+
+    fireEvent.contextMenu(await screen.findByText("已确认预算分配方案"), {
+      clientX: 160,
+      clientY: 84,
+    });
+
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("确定删除这条结论吗？删除后无法恢复。");
+    expect(mockConclusionDeleteMutateAsync).toHaveBeenCalledWith({ conclusionId: 21 });
+
+    confirmSpy.mockRestore();
   });
 
   it("imports dropped files into the current activity from anywhere on the page", async () => {
@@ -422,6 +514,19 @@ describe("ActivityPage", () => {
         isStarred: false,
       }),
     );
+  });
+
+  it("hides AI modules when related feature toggles are off", async () => {
+    mockVisibleAiSuggestionTypes.mockReturnValue([]);
+    mockIsAiFeatureVisible.mockImplementation(
+      (_snapshot: unknown, feature: unknown) => feature !== "summary.activity_summary",
+    );
+
+    renderActivityPage();
+
+    await screen.findByText("文件材料");
+    expect(screen.queryByRole("button", { name: "AI 提炼" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-artifact-card")).not.toBeInTheDocument();
   });
 });
 

@@ -125,6 +125,20 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps conclusion delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
+
+    await projectMindApi.conclusionDelete({
+      conclusionId: 11,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("conclusion_delete", {
+      input: {
+        conclusionId: 11,
+      },
+    });
+  });
+
   it("maps todo priority update to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 5, priority: "urgent_important" });
 
@@ -141,12 +155,66 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps todo delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 5 });
+
+    await projectMindApi.todoDelete({
+      todoId: 5,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete", {
+      input: {
+        todoId: 5,
+      },
+    });
+  });
+
+  it("maps ai suggestion accept with edited payload to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ entityKind: "todo", entityId: 12 });
+
+    await projectMindApi.aiAcceptSuggestion({
+      suggestionId: 9,
+      payloadOverride: {
+        content: "财务今天补充预算拆分明细",
+        priority: "urgent_important",
+      },
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_accept_suggestion", {
+      input: {
+        suggestionId: 9,
+        payloadOverride: {
+          content: "财务今天补充预算拆分明细",
+          priority: "urgent_important",
+        },
+      },
+    });
+  });
+
   it("maps ai settings fetch without payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
       securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: true,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": true,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
     });
 
     await projectMindApi.aiSettingsGet();
@@ -288,6 +356,20 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps document delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 12 });
+
+    await projectMindApi.documentDelete({
+      documentId: 12,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_delete", {
+      input: {
+        documentId: 12,
+      },
+    });
+  });
+
   it("maps activity status save to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 3, label: "待法务确认" });
 
@@ -419,6 +501,147 @@ describe("projectMindApi", () => {
         profileId: 3,
         model: "gpt-4.1-mini",
       },
+    });
+  });
+
+  it("maps ai feature settings updates to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      masterEnabled: true,
+      capabilities: {
+        assistant: false,
+        summary: true,
+        suggestion_generation: true,
+      },
+      features: {
+        "summary.activity_summary": true,
+        "summary.project_brief": true,
+        "summary.daily_brief": true,
+        "suggestion_generation.conclusion": true,
+        "suggestion_generation.todo": false,
+      },
+    });
+
+    await projectMindApi.aiFeatureSettingsUpsert({
+      masterEnabled: true,
+      capabilities: {
+        assistant: false,
+        summary: true,
+        suggestion_generation: true,
+      },
+      features: {
+        "summary.activity_summary": true,
+        "summary.project_brief": true,
+        "summary.daily_brief": true,
+        "suggestion_generation.conclusion": true,
+        "suggestion_generation.todo": false,
+      },
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_feature_settings_upsert", {
+      input: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: false,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": true,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": false,
+        },
+      },
+    });
+  });
+
+  it("maps ask question requests to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      answerMarkdown: "目前最重要的是先推进预算确认。",
+      citations: [],
+      scope: "project",
+      generatedAt: "",
+      skillKey: "builtin.ask",
+      skillVersion: "1.0.0",
+    });
+
+    await projectMindApi.aiAnswerQuestion({
+      scope: "project",
+      question: "最近最重要的事情是什么？",
+      projectId: 7,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_answer_question", {
+      input: {
+        scope: "project",
+        question: "最近最重要的事情是什么？",
+        projectId: 7,
+      },
+    });
+  });
+
+  it("maps ai job enqueue to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 1,
+      kind: "answer_question",
+      targetKey: "ask:project:7:none",
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      result: null,
+    });
+
+    await projectMindApi.aiJobEnqueue({
+      kind: "answer_question",
+      targetKey: "ask:project:7:none",
+      input: {
+        scope: "project",
+        question: "现在最重要的事情是什么？",
+        projectId: 7,
+      },
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_enqueue", {
+      input: {
+        kind: "answer_question",
+        targetKey: "ask:project:7:none",
+        input: {
+          scope: "project",
+          question: "现在最重要的事情是什么？",
+          projectId: 7,
+        },
+      },
+    });
+  });
+
+  it("maps ai job get to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce(null);
+
+    await projectMindApi.aiJobGet(12);
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_get", {
+      jobId: 12,
+    });
+  });
+
+  it("maps ai jobs list active without payload", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
+
+    await projectMindApi.aiJobsListActive();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_jobs_list_active");
+  });
+
+  it("maps ai execution settings updates to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ maxConcurrency: 3 });
+
+    await projectMindApi.aiExecutionSettingsUpsert({ maxConcurrency: 3 });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_execution_settings_upsert", {
+      input: { maxConcurrency: 3 },
     });
   });
 });

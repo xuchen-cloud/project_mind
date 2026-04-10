@@ -3,12 +3,16 @@ import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   MarkdownSerializer,
   type MarkdownSerializerState,
-  defaultMarkdownParser,
 } from "@tiptap/pm/markdown";
 
-export const EMPTY_RICH_EDITOR_HTML = "<p></p>";
+import {
+  EMPTY_RICH_TEXT_HTML,
+  getRenderableRichTextHtml,
+  renderMarkdownToHtml,
+} from "../../lib/richTextContent";
 
-const HTML_TAG_PATTERN = /<[^>]+>/;
+export const EMPTY_RICH_EDITOR_HTML = EMPTY_RICH_TEXT_HTML;
+export { getRenderableRichTextHtml, renderMarkdownToHtml };
 type MarkdownStateWithAutolink = MarkdownSerializerState & { inAutolink?: boolean };
 
 const markdownSerializer = new MarkdownSerializer(
@@ -193,35 +197,6 @@ const markdownSerializer = new MarkdownSerializer(
     strict: false,
   },
 );
-
-export function renderMarkdownToHtml(markdown?: string | null) {
-  const normalized = markdown?.trim();
-
-  if (!normalized) {
-    return EMPTY_RICH_EDITOR_HTML;
-  }
-
-  const rendered = defaultMarkdownParser.tokenizer.render(normalized).trim();
-  return rendered.length > 0 ? rendered : EMPTY_RICH_EDITOR_HTML;
-}
-
-export function getRenderableRichTextHtml(content: {
-  html?: string | null;
-  markdown?: string | null;
-}) {
-  const normalizedHtml = content.html?.trim() || "";
-  const normalizedMarkdown = content.markdown?.trim() || "";
-
-  if (!normalizedHtml) {
-    return normalizedMarkdown ? renderMarkdownToHtml(normalizedMarkdown) : EMPTY_RICH_EDITOR_HTML;
-  }
-
-  if (HTML_TAG_PATTERN.test(normalizedHtml)) {
-    return normalizedHtml;
-  }
-
-  return normalizedMarkdown ? renderMarkdownToHtml(normalizedMarkdown) : renderMarkdownToHtml(normalizedHtml);
-}
 
 export function serializeEditorMarkdown(editor: Editor) {
   return markdownSerializer.serialize(editor.state.doc).trim();

@@ -29,6 +29,7 @@ interface TodoRailProps {
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
 }
@@ -68,6 +69,7 @@ export function TodoRail({
   onUpdatePriority,
   onUpdateContent,
   onAddProgress,
+  onDeleteTodo,
   onOpenTodoSource,
   onError,
 }: TodoRailProps) {
@@ -283,6 +285,7 @@ export function TodoRail({
             onUpdatePriority={onUpdatePriority}
             onUpdateContent={onUpdateContent}
             onAddProgress={onAddProgress}
+            onDeleteTodo={onDeleteTodo}
             onOpenTodoSource={onOpenTodoSource}
             onError={onError}
           />

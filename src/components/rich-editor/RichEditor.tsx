@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { EditorContent, useEditor } from "@tiptap/react";
 import {
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ArrowUpToLine,
   Bold,
   Code2,
+  Columns2,
+  Combine,
+  Grid2X2Plus,
   Heading1,
   Heading2,
   Heading3,
@@ -16,14 +24,19 @@ import {
   ListTodo,
   LoaderCircle,
   Paperclip,
+  PanelLeft,
+  PanelTop,
   Pilcrow,
   Quote,
+  Rows2,
+  Split,
   Strikethrough,
   Table2,
+  Trash2,
 } from "lucide-react";
 
 import { desktopApi } from "../../services/desktopApi";
-import { ToolbarButton } from "../../ui/components";
+import { PopoverPanel, ToolbarButton } from "../../ui/components";
 import { buildRichEditorExtensions } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
 import { normalizeRichEditorValue } from "./normalize";
@@ -36,6 +49,8 @@ import type {
 } from "./types";
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "avif"];
+const TABLE_INSERT_GRID_SIZE = 6;
+const DEFAULT_TABLE_DIMENSIONS = { rows: 3, cols: 3 };
 
 type SaveReason = "debounced" | "blur" | "queued";
 
@@ -55,6 +70,7 @@ interface RichEditorProps {
   variant?: RichEditorVariant;
   placeholder?: string;
   readOnly?: boolean;
+  enableTables?: boolean;
   autosave?: boolean | { delay?: number };
   assetHandlers?: RichEditorAssetHandlers;
   onChange?: (value: RichEditorValue) => void;
@@ -69,6 +85,7 @@ export function RichEditor({
   variant = "toolbar",
   placeholder = "输入内容，Markdown 会即时渲染为富文本。",
   readOnly = false,
+  enableTables = true,
   autosave = false,
   assetHandlers,
   onChange,
@@ -295,7 +312,7 @@ export function RichEditor({
     }
   }, [autosaveConfig.enabled, onSave, persistEditor, readOnly]);
 
-  const insertTable = useCallback(() => {
+  const insertTable = useCallback((rows = DEFAULT_TABLE_DIMENSIONS.rows, cols = DEFAULT_TABLE_DIMENSIONS.cols) => {
     if (!editor) {
       return;
     }
@@ -304,7 +321,7 @@ export function RichEditor({
       .chain()
       .focus()
       .command(ensureInsertionCursor)
-      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+      .insertTable({ rows, cols, withHeaderRow: true })
       .run();
   }, [editor]);
 
@@ -428,6 +445,116 @@ export function RichEditor({
     },
     [onOpenAsset],
   );
+
+  const editorHasTableSelection = useMemo(
+    () => Boolean(editor && !readOnly && editor.isEditable && editor.isActive("table")),
+    [editor, readOnly, uiTick],
+  );
+
+  const tableToolbarGroups = useMemo(() => {
+    if (!enableTables || !editor || !editorHasTableSelection) {
+      return [] as ToolbarItem[][];
+    }
+
+    const editorDisabled = () => readOnly || !editor.isEditable;
+
+    return [
+      [
+        {
+          key: "add-row-before",
+          label: "上方插入行",
+          icon: ArrowUpToLine,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().addRowBefore(),
+          run: () => editor.chain().focus().addRowBefore().run(),
+        },
+        {
+          key: "add-row-after",
+          label: "下方插入行",
+          icon: ArrowDownToLine,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().addRowAfter(),
+          run: () => editor.chain().focus().addRowAfter().run(),
+        },
+        {
+          key: "add-column-before",
+          label: "左侧插入列",
+          icon: ArrowLeftToLine,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().addColumnBefore(),
+          run: () => editor.chain().focus().addColumnBefore().run(),
+        },
+        {
+          key: "add-column-after",
+          label: "右侧插入列",
+          icon: ArrowRightToLine,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().addColumnAfter(),
+          run: () => editor.chain().focus().addColumnAfter().run(),
+        },
+      ],
+      [
+        {
+          key: "merge-cells",
+          label: "合并单元格",
+          icon: Combine,
+          isActive: () => editor.state.selection instanceof CellSelection,
+          isDisabled: () => editorDisabled() || !editor.can().mergeCells(),
+          run: () => editor.chain().focus().mergeCells().run(),
+        },
+        {
+          key: "split-cell",
+          label: "拆分单元格",
+          icon: Split,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().splitCell(),
+          run: () => editor.chain().focus().splitCell().run(),
+        },
+        {
+          key: "toggle-header-row",
+          label: "切换首行表头",
+          icon: PanelTop,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().toggleHeaderRow(),
+          run: () => editor.chain().focus().toggleHeaderRow().run(),
+        },
+        {
+          key: "toggle-header-column",
+          label: "切换首列表头",
+          icon: PanelLeft,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().toggleHeaderColumn(),
+          run: () => editor.chain().focus().toggleHeaderColumn().run(),
+        },
+      ],
+      [
+        {
+          key: "delete-row",
+          label: "删除当前行",
+          icon: Rows2,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().deleteRow(),
+          run: () => editor.chain().focus().deleteRow().run(),
+        },
+        {
+          key: "delete-column",
+          label: "删除当前列",
+          icon: Columns2,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().deleteColumn(),
+          run: () => editor.chain().focus().deleteColumn().run(),
+        },
+        {
+          key: "delete-table",
+          label: "删除表格",
+          icon: Trash2,
+          isActive: () => false,
+          isDisabled: () => editorDisabled() || !editor.can().deleteTable(),
+          run: () => editor.chain().focus().deleteTable().run(),
+        },
+      ],
+    ];
+  }, [editor, editorHasTableSelection, enableTables, readOnly, uiTick]);
 
   const toolbarGroups = useMemo(() => {
     if (!editor) {
@@ -557,14 +684,18 @@ export function RichEditor({
           run: handleInsertImage,
           busy: assetBusy === "image",
         },
-        {
-          key: "table",
-          label: "表格",
-          icon: Table2,
-          isActive: () => editor.isActive("table"),
-          isDisabled: editorDisabled,
-          run: insertTable,
-        },
+        ...(enableTables
+          ? [
+              {
+                key: "table",
+                label: "表格",
+                icon: Table2,
+                isActive: () => editor.isActive("table"),
+                isDisabled: editorDisabled,
+                run: insertTable,
+              } satisfies ToolbarItem,
+            ]
+          : []),
         {
           key: "file",
           label: "文件",
@@ -576,7 +707,18 @@ export function RichEditor({
         },
       ],
     ];
-  }, [assetBusy, assetHandlers?.insertFile, assetHandlers?.insertImage, editor, handleInsertFile, handleInsertImage, insertTable, readOnly, uiTick]);
+  }, [
+    assetBusy,
+    assetHandlers?.insertFile,
+    assetHandlers?.insertImage,
+    editor,
+    enableTables,
+    handleInsertFile,
+    handleInsertImage,
+    insertTable,
+    readOnly,
+    uiTick,
+  ]);
 
   if (!editor) {
     return <div className="rich-editor rich-editor--loading">加载编辑器中...</div>;
@@ -598,6 +740,54 @@ export function RichEditor({
           {toolbarGroups.map((group, index) => (
             <div key={index} className="rich-editor__toolbar-group" role="group">
               {group.map((item) => (
+                item.key === "table" ? (
+                  <TableInsertButton
+                    key={item.key}
+                    active={item.isActive()}
+                    disabled={item.isDisabled?.()}
+                    onInsert={insertTable}
+                  />
+                ) : (
+                  <ToolbarButton
+                    key={item.key}
+                    type="button"
+                    active={item.isActive()}
+                    aria-label={item.label}
+                    title={item.label}
+                    disabled={item.isDisabled?.()}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      void Promise.resolve(item.run()).catch(() => {
+                        // The caller owns error presentation.
+                      });
+                    }}
+                  >
+                    {item.busy ? (
+                      <LoaderCircle className="rich-editor__tool-spinner" size={15} />
+                    ) : (
+                      <item.icon size={15} />
+                    )}
+                  </ToolbarButton>
+                )
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {tableToolbarGroups.length > 0 ? (
+        <div
+          className={[
+            "rich-editor__table-toolbar",
+            variant === "bare" ? "rich-editor__table-toolbar--bare" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-label="表格工具栏"
+        >
+          {tableToolbarGroups.map((group, index) => (
+            <div key={index} className="rich-editor__table-toolbar-group" role="group">
+              {group.map((item) => (
                 <ToolbarButton
                   key={item.key}
                   type="button"
@@ -612,11 +802,7 @@ export function RichEditor({
                     });
                   }}
                 >
-                  {item.busy ? (
-                    <LoaderCircle className="rich-editor__tool-spinner" size={15} />
-                  ) : (
-                    <item.icon size={15} />
-                  )}
+                  <item.icon size={15} />
                 </ToolbarButton>
               ))}
             </div>
@@ -624,9 +810,165 @@ export function RichEditor({
         </div>
       ) : null}
 
+      {variant === "bare" && enableTables && !readOnly && isFocused ? (
+        <div className="rich-editor__bare-actions">
+          <TableInsertButton compact onInsert={insertTable} />
+        </div>
+      ) : null}
+
       <div className="rich-editor__frame" onClick={handleAssetClick}>
         <EditorContent editor={editor} onBlur={() => void handleBlur()} />
       </div>
+    </div>
+  );
+}
+
+function TableInsertButton({
+  active = false,
+  compact = false,
+  disabled = false,
+  onInsert,
+}: {
+  active?: boolean;
+  compact?: boolean;
+  disabled?: boolean;
+  onInsert: (rows: number, cols: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hoveredDimensions, setHoveredDimensions] = useState(DEFAULT_TABLE_DIMENSIONS);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+
+      if (!target || rootRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
+
+  const openPicker = useCallback(() => {
+    setHoveredDimensions(DEFAULT_TABLE_DIMENSIONS);
+    setOpen(true);
+  }, []);
+
+  return (
+    <div
+      ref={rootRef}
+      className={[
+        "rich-editor__insert-table",
+        compact ? "rich-editor__insert-table--compact" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {compact ? (
+        <button
+          type="button"
+          className="rich-editor__bare-action-button"
+          disabled={disabled}
+          aria-label="插入表格"
+          title="插入表格"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (open) {
+              setOpen(false);
+              return;
+            }
+
+            openPicker();
+          }}
+        >
+          <Grid2X2Plus size={15} />
+          <span>表格</span>
+        </button>
+      ) : (
+        <ToolbarButton
+          type="button"
+          active={active || open}
+          aria-label="表格"
+          title="表格"
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (open) {
+              setOpen(false);
+              return;
+            }
+
+            openPicker();
+          }}
+        >
+          <Table2 size={15} />
+        </ToolbarButton>
+      )}
+
+      {open ? (
+        <PopoverPanel className="rich-editor__insert-table-panel">
+          <div className="rich-editor__insert-table-grid" role="menu" aria-label="表格尺寸选择">
+            {Array.from({ length: TABLE_INSERT_GRID_SIZE }, (_, rowIndex) =>
+              Array.from({ length: TABLE_INSERT_GRID_SIZE }, (_, colIndex) => {
+                const rows = rowIndex + 1;
+                const cols = colIndex + 1;
+                const selected =
+                  rowIndex < hoveredDimensions.rows && colIndex < hoveredDimensions.cols;
+
+                return (
+                  <button
+                    key={`${rows}:${cols}`}
+                    type="button"
+                    className={[
+                      "rich-editor__insert-table-cell",
+                      selected ? "is-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-label={`插入 ${rows} 行 ${cols} 列表格`}
+                    title={`${rows} x ${cols}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setHoveredDimensions({ rows, cols })}
+                    onFocus={() => setHoveredDimensions({ rows, cols })}
+                    onClick={() => {
+                      onInsert(rows, cols);
+                      setOpen(false);
+                    }}
+                  />
+                );
+              }),
+            )}
+          </div>
+          <p className="rich-editor__insert-table-summary">
+            {hoveredDimensions.rows} x {hoveredDimensions.cols}
+          </p>
+        </PopoverPanel>
+      ) : null}
     </div>
   );
 }

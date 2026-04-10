@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,29 +9,36 @@ import type { ProjectListItem, ProjectOverviewData } from "../../lib/types";
 const {
   mockProjectsList,
   mockProjectGetOverview,
+  mockAiSettingsGet,
   mockActivitySettingsGet,
   mockOpenFolder,
   mockSummaryMutate,
   mockSetCreateActivityOpen,
   mockOpenSettings,
   mockConclusionUpdateMutate,
+  mockConclusionDeleteMutateAsync,
   mockPushToast,
+  mockTodoDeleteMutateAsync,
 } = vi.hoisted(() => ({
   mockProjectsList: vi.fn(),
   mockProjectGetOverview: vi.fn(),
+  mockAiSettingsGet: vi.fn(),
   mockActivitySettingsGet: vi.fn(),
   mockOpenFolder: vi.fn(async () => undefined),
   mockSummaryMutate: vi.fn(),
   mockSetCreateActivityOpen: vi.fn(),
   mockOpenSettings: vi.fn(),
   mockConclusionUpdateMutate: vi.fn(),
+  mockConclusionDeleteMutateAsync: vi.fn(),
   mockPushToast: vi.fn(),
+  mockTodoDeleteMutateAsync: vi.fn(),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     projectsList: mockProjectsList,
     projectGetOverview: mockProjectGetOverview,
+    aiSettingsGet: mockAiSettingsGet,
     activitySettingsGet: mockActivitySettingsGet,
   },
 }));
@@ -52,7 +59,8 @@ vi.mock("../../hooks/useProjectMutations", () => ({
 vi.mock("../../hooks/useActivityMutations", () => ({
   useActivityMutations: () => ({
     createActivityMutation: { mutate: vi.fn() },
-    conclusionUpdateMutation: { mutate: mockConclusionUpdateMutate },
+    conclusionUpdateMutation: { isPending: false, mutate: mockConclusionUpdateMutate },
+    conclusionDeleteMutation: { isPending: false, mutateAsync: mockConclusionDeleteMutateAsync },
   }),
 }));
 
@@ -63,6 +71,7 @@ vi.mock("../../hooks/useTodoMutations", () => ({
     todoStatusMutation: { mutateAsync: vi.fn() },
     todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
+    todoDeleteMutation: { mutateAsync: mockTodoDeleteMutateAsync },
   }),
 }));
 
@@ -150,22 +159,53 @@ vi.mock("../document/ManagedDocumentSection", () => ({
   ManagedDocumentSection: () => <div data-testid="managed-document-section" />,
 }));
 
+vi.mock("../ai/AiArtifactCard", () => ({
+  AiArtifactCard: () => <section data-testid="ai-artifact-card">AI Artifact</section>,
+}));
+
 import { ProjectOverviewPage } from "./ProjectOverviewPage";
 
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
     mockProjectsList.mockReset();
     mockProjectGetOverview.mockReset();
+    mockAiSettingsGet.mockReset();
     mockActivitySettingsGet.mockReset();
     mockOpenFolder.mockReset();
     mockSummaryMutate.mockReset();
     mockSetCreateActivityOpen.mockReset();
     mockOpenSettings.mockReset();
     mockConclusionUpdateMutate.mockReset();
+    mockConclusionDeleteMutateAsync.mockReset();
     mockPushToast.mockReset();
+    mockTodoDeleteMutateAsync.mockReset();
 
     mockProjectsList.mockResolvedValue([buildProject()]);
     mockProjectGetOverview.mockResolvedValue(buildOverview());
+    mockAiSettingsGet.mockResolvedValue({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: true,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": true,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
+    });
     mockActivitySettingsGet.mockResolvedValue({
       activityAttributeOptions: [],
       activityStatusOptions: [],
@@ -255,7 +295,8 @@ describe("ProjectOverviewPage", () => {
     expect(await screen.findByText("1 条结论")).toBeInTheDocument();
     expect(screen.getByText("一个项目级关键结论")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "编辑" }));
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    await user.click(screen.getByText("一个项目级关键结论"));
     expect(screen.getByDisplayValue("一个项目级关键结论")).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("结论编辑器"));
@@ -300,7 +341,8 @@ describe("ProjectOverviewPage", () => {
 
     expect(await screen.findByText("1 条结论")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "编辑" }));
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    await user.click(screen.getByText("一个项目级关键结论"));
     await user.clear(screen.getByLabelText("结论编辑器"));
     await user.type(screen.getByLabelText("结论编辑器"), "  调整后的项目结论  ");
     await user.click(screen.getByRole("button", { name: "保存修改" }));
@@ -311,6 +353,80 @@ describe("ProjectOverviewPage", () => {
       html: "<p>调整后的项目结论</p>",
       promotedToProject: true,
     });
+  });
+
+  it("deletes a conclusion from the context menu", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    mockProjectGetOverview.mockResolvedValue(
+      buildOverview({
+        conclusionGroups: [
+          {
+            activityId: 11,
+            activityTitle: "预算讨论",
+            conclusions: [
+              {
+                id: 31,
+                projectId: 9,
+                activityId: 11,
+                contentMarkdown: "一个项目级关键结论",
+                contentHtml: "<p>一个项目级关键结论</p>",
+                promotedToProject: true,
+                createdAt: "2026-04-06T10:10:00.000Z",
+                updatedAt: "2026-04-06T10:10:00.000Z",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    renderProjectOverviewPage();
+
+    fireEvent.contextMenu(await screen.findByText("一个项目级关键结论"), {
+      clientX: 180,
+      clientY: 96,
+    });
+
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("确定删除这条结论吗？删除后无法恢复。");
+    expect(mockConclusionDeleteMutateAsync).toHaveBeenCalledWith({ conclusionId: 31 });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("hides the AI brief when the project brief feature is turned off", async () => {
+    mockAiSettingsGet.mockResolvedValue({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: true,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": false,
+          "summary.daily_brief": true,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
+    });
+
+    renderProjectOverviewPage();
+
+    expect(await screen.findByText("结论时间线")).toBeInTheDocument();
+    expect(screen.queryByTestId("ai-artifact-card")).not.toBeInTheDocument();
   });
 });
 

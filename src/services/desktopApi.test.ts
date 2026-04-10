@@ -33,6 +33,14 @@ describe("desktopApi", () => {
     });
   });
 
+  it("normalizes invoke failures into readable Error messages", async () => {
+    tauriMocks.invokeMock.mockRejectedValueOnce({ message: "Error: 上游服务返回 401" });
+
+    await expect(desktopApi.command("ai_profile_test")).rejects.toMatchObject({
+      message: "上游服务返回 401",
+    });
+  });
+
   it("normalizes picked file values", async () => {
     tauriMocks.openMock.mockResolvedValueOnce(["/tmp/file.md"]);
 

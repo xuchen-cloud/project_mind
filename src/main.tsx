@@ -13,6 +13,7 @@ import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { ActivityPage } from "./components/activity/ActivityPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
+import { TodayPage } from "./components/today/TodayPage";
 
 const router = createHashRouter([
   {
@@ -20,6 +21,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <Navigate to="/projects" replace /> },
       { path: "projects", element: <EmptyProjectRedirect /> },
+      { path: "today", element: <TodayPage /> },
       { path: "projects/:projectId", element: <ProjectOverviewPage /> },
       {
         path: "projects/:projectId/activities/:activityId",

@@ -1,6 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactElement,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Circle, FilePlus2, Star, Upload } from "lucide-react";
+import { Circle, FilePlus2, FolderOpen, Star, Trash2, Upload } from "lucide-react";
 
 import { fileTagColorValue } from "../../lib/constants";
 import type { DocumentRecord, DocumentTagRecord, FileTagColorKey, FileTagRecord } from "../../lib/types";
@@ -44,6 +53,10 @@ interface ContextMenuState {
   y: number;
 }
 
+const CONTEXT_MENU_WIDTH = 280;
+const CONTEXT_MENU_HEIGHT = 428;
+const CONTEXT_MENU_VIEWPORT_PADDING = 12;
+
 export function ManagedDocumentSection({
   projectId,
   projectRootPath,
@@ -69,7 +82,12 @@ export function ManagedDocumentSection({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const openSettings = useUiStore((state) => state.openSettings);
 
-  const { documentImportMutation, documentMetaMutation } = useDocumentMutations();
+  const {
+    documentImportMutation,
+    documentMetaMutation,
+    documentAddVersionMutation,
+    documentDeleteMutation,
+  } = useDocumentMutations();
   const { pushToast } = useFeedbackStore();
   const fileTagSettingsQuery = useQuery({
     queryKey: ["file-tag-settings"],
@@ -320,6 +338,57 @@ export function ManagedDocumentSection({
     );
   };
 
+  const openDocumentLocation = (document: DocumentRecord) => {
+    if (document.health === "missing") {
+      return;
+    }
+
+    void runDesktopAction(
+      desktopApi.revealInExplorer(document.managedPath),
+      "打开文件所在位置失败",
+      document.managedPath,
+    );
+  };
+
+  const addDocumentVersionAndOpen = async (document: DocumentRecord) => {
+    if (document.health === "missing") {
+      return;
+    }
+
+    const sourcePath = await desktopApi.pickFile({
+      title: `选择新版本 · ${document.baseName}`,
+    });
+    if (!sourcePath) {
+      return;
+    }
+
+    try {
+      const nextDocument = await documentAddVersionMutation.mutateAsync({
+        documentId: document.id,
+        sourcePath,
+      });
+      await runDesktopAction(
+        desktopApi.openFile(nextDocument.managedPath),
+        "打开文件失败",
+        nextDocument.managedPath,
+      );
+    } catch {
+      return;
+    }
+  };
+
+  const deleteDocument = (document: DocumentRecord) => {
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(buildDocumentDeleteConfirmMessage(document));
+    if (!confirmed) {
+      return;
+    }
+
+    documentDeleteMutation.mutate({ documentId: document.id });
+  };
+
   const beginRename = (document: DocumentRecord) => {
     clearPendingOpen();
     setEditingDocumentId(document.id);
@@ -360,10 +429,24 @@ export function ManagedDocumentSection({
 
   const openContextMenu = (documentId: number, x: number, y: number) => {
     clearPendingOpen();
+    const maxX =
+      typeof window === "undefined"
+        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x)
+        : Math.max(
+            CONTEXT_MENU_VIEWPORT_PADDING,
+            window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING,
+          );
+    const maxY =
+      typeof window === "undefined"
+        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y)
+        : Math.max(
+            CONTEXT_MENU_VIEWPORT_PADDING,
+            window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_VIEWPORT_PADDING,
+          );
     setContextMenu({
       documentId,
-      x: Math.max(12, x),
-      y: Math.max(12, y),
+      x: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x), maxX),
+      y: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y), maxY),
     });
   };
 
@@ -680,16 +763,45 @@ export function ManagedDocumentSection({
             left: contextMenu.x,
             top: contextMenu.y,
           }}
+          role="menu"
+          aria-label="文件操作"
           data-document-interactive="true"
           onClick={stopPropagation}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="px-2.5 py-1.5">
-            <p className="truncate text-body font-medium text-text">{contextMenuDocument.baseName}</p>
-            <p className="text-ui text-text-soft">选择这个文件要挂的 tag</p>
+          <div className="grid gap-1">
+            <DocumentContextMenuAction
+              icon={<FolderOpen size={14} />}
+              label="打开文件所在位置"
+              disabled={contextMenuDocument.health === "missing"}
+              onClick={() => {
+                setContextMenu(null);
+                openDocumentLocation(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<FilePlus2 size={14} />}
+              label="新增版本并打开"
+              disabled={contextMenuDocument.health === "missing"}
+              onClick={() => {
+                setContextMenu(null);
+                void addDocumentVersionAndOpen(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<Trash2 size={14} />}
+              label="删除"
+              danger
+              disabled={documentDeleteMutation.isPending}
+              onClick={() => {
+                setContextMenu(null);
+                deleteDocument(contextMenuDocument);
+              }}
+            />
           </div>
 
-          <div className="grid gap-1 border-t border-border pt-1">
+          {fileTagSettingsQuery.isLoading || fileTags.length > 0 ? (
+            <div className="mt-1 grid gap-1 border-t border-border pt-1">
             {fileTagSettingsQuery.isLoading ? (
               <p className="px-2.5 py-2 text-ui text-text-soft">标签加载中...</p>
             ) : fileTags.length > 0 ? (
@@ -718,25 +830,9 @@ export function ManagedDocumentSection({
                   </label>
                 );
               })
-            ) : (
-              <p className="px-2.5 py-2 text-ui text-text-soft">还没有文件标签，先去设置里创建。</p>
-            )}
-          </div>
-
-          <div className="mt-1 border-t border-border pt-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="w-full justify-start px-2.5"
-              onClick={() => {
-                openSettings("file-tags");
-                setContextMenu(null);
-              }}
-            >
-              管理标签
-            </Button>
-          </div>
+            ) : null}
+            </div>
+          ) : null}
         </PopoverPanel>
       ) : null}
 
@@ -782,6 +878,14 @@ function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
   }
 
   return `${baseName}，文件标签：${tags.map((tag) => tag.label).join("、")}`;
+}
+
+function buildDocumentDeleteConfirmMessage(document: DocumentRecord) {
+  return [
+    `确定删除“${document.baseName}”吗？`,
+    "这会把当前受控文件和历史版本移到回收站，并从项目中移除该文件卡片。",
+    "原始来源文件不会删除。",
+  ].join("\n");
 }
 
 function stopPropagation(
@@ -866,6 +970,40 @@ function sameNumberArray(left: number[], right: number[]) {
   const leftSorted = [...left].sort((a, b) => a - b);
   const rightSorted = [...right].sort((a, b) => a - b);
   return leftSorted.every((value, index) => value === rightSorted[index]);
+}
+
+function DocumentContextMenuAction({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+  danger = false,
+}: {
+  icon: ReactElement;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-[var(--radius-6)] px-2.5 py-2 text-left text-ui transition-colors",
+        disabled
+          ? "cursor-not-allowed text-text-soft"
+          : danger
+            ? "text-danger hover:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)]"
+            : "text-text-muted hover:bg-bg-hover hover:text-text",
+      )}
+      onClick={onClick}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="min-w-0 flex-1">{label}</span>
+    </button>
+  );
 }
 
 function FileTagFilterBar({

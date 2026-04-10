@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,11 +67,31 @@ vi.mock("./services/projectMindApi", () => ({
         },
       ],
     })),
+    aiJobsListActive: vi.fn(async () => []),
+    aiJobGet: vi.fn(async () => null),
     aiSettingsGet: vi.fn(async () => ({
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
       securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: true,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": true,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
     })),
     projectGetOverview: vi.fn(async () => ({
       project: null,
@@ -85,6 +105,7 @@ vi.mock("./services/projectMindApi", () => ({
 }));
 
 import { WorkspaceLayout } from "./App";
+import { projectMindApi } from "./services/projectMindApi";
 import { useUiStore } from "./state/ui-store";
 
 describe("WorkspaceLayout", () => {
@@ -205,5 +226,105 @@ describe("WorkspaceLayout", () => {
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /文件标签/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "文件标签" })).toBeInTheDocument();
+  });
+
+  it("hides Ask and Today entries when their AI toggles are off", async () => {
+    vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: false,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": false,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [{ index: true, element: <div>workspace outlet</div> }],
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
+    expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Today" })).not.toBeInTheDocument();
+  });
+
+  it("redirects away from /today when the daily brief feature is off", async () => {
+    vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      securityMode: "device_bound_encrypted",
+      execution: {
+        maxConcurrency: 1,
+      },
+      featureSettings: {
+        masterEnabled: true,
+        capabilities: {
+          assistant: true,
+          summary: true,
+          suggestion_generation: true,
+        },
+        features: {
+          "summary.activity_summary": true,
+          "summary.project_brief": true,
+          "summary.daily_brief": false,
+          "suggestion_generation.conclusion": true,
+          "suggestion_generation.todo": true,
+        },
+      },
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            { index: true, element: <div>workspace outlet</div> },
+            { path: "projects", element: <div>projects route</div> },
+            { path: "today", element: <div>today route</div> },
+          ],
+        },
+      ],
+      { initialEntries: ["/today"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
+    expect(screen.queryByText("today route")).not.toBeInTheDocument();
+    expect(screen.getByText(/当前还没有项目。需要开始整理时再创建即可/i)).toBeInTheDocument();
   });
 });

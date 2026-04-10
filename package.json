@@ -7,6 +7,8 @@
     "dev": "vite --host 0.0.0.0 --port 1420",
     "dev:tauri": "node scripts/start-tauri-dev-server.mjs",
     "build": "tsc && vite build",
+    "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
+    "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "check:ui-standards": "node scripts/check-ui-standards.mjs",

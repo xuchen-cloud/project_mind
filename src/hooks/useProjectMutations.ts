@@ -10,6 +10,7 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
     queryClient.invalidateQueries({ queryKey: ["overview", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["activities", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
 }
 
@@ -63,6 +64,7 @@ export function useProjectMutations(
       });
       await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
       await queryClient.invalidateQueries({ queryKey: ["overview", project.id] });
+      await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       if (project.isArchived) {
         const nextProject = visibleProjects.find((item) => item.id !== project.id);
         if (nextProject) navigate(`/projects/${nextProject.id}`);

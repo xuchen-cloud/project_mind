@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getErrorMessage } from "../lib/errors";
 
 interface PickFilter {
   name: string;
@@ -12,8 +13,12 @@ interface PickFileOptions {
 }
 
 export const desktopApi = {
-  command<T>(name: string, payload?: Record<string, unknown>) {
-    return invoke<T>(name, payload);
+  async command<T>(name: string, payload?: Record<string, unknown>) {
+    try {
+      return await invoke<T>(name, payload);
+    } catch (error) {
+      throw new Error(getErrorMessage(error, `${name} 调用失败`));
+    }
   },
 
   async pickDirectory(title = "选择文件夹") {

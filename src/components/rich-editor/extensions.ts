@@ -34,6 +34,8 @@ export function buildRichEditorExtensions(placeholder: string) {
       nested: true,
     }),
     Table.configure({
+      cellMinWidth: 96,
+      renderWrapper: true,
       resizable: true,
     }),
     TableRow,

@@ -1,9 +1,11 @@
 export { Button } from "./Button";
 export type { ButtonProps, ButtonSize, ButtonVariant } from "./Button";
+export { DeleteContextMenu } from "./DeleteContextMenu";
 export { Dialog } from "./Dialog";
 export { EmptyState } from "./EmptyState";
 export { IconButton } from "./IconButton";
 export { PopoverPanel } from "./PopoverPanel";
+export { ProjectStarButton } from "./ProjectStarButton";
 export { SearchField } from "./SearchField";
 export { SectionHeader } from "./SectionHeader";
 export { StatusBadge } from "./StatusBadge";

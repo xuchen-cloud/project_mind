@@ -1,13 +1,14 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
+use chrono::{Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::{json, Map, Value};
 
 use crate::{
     ai_provider::{self, ResolvedAiProfile},
@@ -15,21 +16,25 @@ use crate::{
         AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
         ActivityCardData, ActivityCreateInput, ActivityDigest, ActivityOptionDeleteInput,
         ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
-        ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiCapabilityBindingRecord,
-        AiCapabilityBindingUpsertInput, AiGenerateInput, AiProfileTestInput, AiProfileTestResult,
+        ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiAnswerCitationRecord,
+        AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope, AiArtifactCitationRecord,
+        AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord, AiCapabilityBindingRecord,
+        AiCapabilityBindingUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
+        AiJobEnqueueInput, AiJobResult, AiProfileTestInput, AiProfileTestResult,
         AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
         AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionGroup,
-        ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, DocumentAddVersionInput,
-        DocumentImportInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
-        DocumentTagRecord, DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
+        ConclusionDeleteInput, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
+        DocumentAddVersionInput, DocumentDeleteInput, DocumentImportInput,
+        DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
+        DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
         FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteRecord,
         NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
         ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
         ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
         RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextStyleBlockSettings,
         RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
-        TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
-        TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        TodoDeleteInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
+        TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
 };
@@ -45,6 +50,14 @@ const RECORD_TYPE_SCHEMA_VERSION: i64 = 8;
 const LEGACY_FILE_LAYOUT_VERSION: i64 = 1;
 const CURRENT_FILE_LAYOUT_VERSION: i64 = 2;
 const AI_CAPABILITIES: [&str; 4] = ["default", "assistant", "summary", "suggestion_generation"];
+const AI_VISIBLE_CAPABILITIES: [&str; 3] = ["assistant", "summary", "suggestion_generation"];
+const AI_FEATURE_KEYS: [&str; 5] = [
+    "summary.activity_summary",
+    "summary.project_brief",
+    "summary.daily_brief",
+    "suggestion_generation.conclusion",
+    "suggestion_generation.todo",
+];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
     "workspace_sans",
     "work_sans",
@@ -59,10 +72,55 @@ const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
+const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
+const APP_SETTING_KEY_AI_FEATURE_SETTINGS: &str = "ai_feature_settings";
 const DEFAULT_RECORD_TYPE_KEY: &str = "quick_note";
 const DEFAULT_RECORD_TYPE_LABEL: &str = "原始记录";
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
 const DEFAULT_RECORD_TYPE_TEMPLATE_HTML: &str = "<p></p>";
+const TODO_PRIORITY_URGENCY_KEYWORDS: [&str; 19] = [
+    "今天",
+    "今日",
+    "当天",
+    "明天",
+    "本周",
+    "周内",
+    "周五前",
+    "尽快",
+    "尽早",
+    "立即",
+    "马上",
+    "立刻",
+    "紧急",
+    "加急",
+    "asap",
+    "urgent",
+    "immediately",
+    "today",
+    "tomorrow",
+];
+const TODO_PRIORITY_IMPORTANCE_KEYWORDS: [&str; 20] = [
+    "预算",
+    "合同",
+    "法务",
+    "审批",
+    "客户",
+    "上线",
+    "发布",
+    "交付",
+    "回款",
+    "付款",
+    "风险",
+    "合规",
+    "方案",
+    "决策",
+    "评审",
+    "blocking",
+    "blocker",
+    "launch",
+    "release",
+    "legal",
+];
 const MEETING_RECORD_TYPE_KEY: &str = "meeting_minutes";
 const MEETING_RECORD_TYPE_LABEL: &str = "会议记录";
 const MEETING_RECORD_TYPE_COLOR_KEY: &str = "blue";
@@ -76,6 +134,12 @@ const DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY: &str = "slate";
 const DEFAULT_ACTIVITY_STATUS_COLOR_KEY: &str = "amber";
 const LEGACY_ACTIVITY_STATUS_REVIEW_COLOR_KEY: &str = "orange";
 const LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY: &str = "green";
+const AI_ARTIFACT_STATUS_FRESH: &str = "fresh";
+const AI_ARTIFACT_STATUS_STALE: &str = "stale";
+const AI_ARTIFACT_STATUS_ERROR: &str = "error";
+const ACTIVITY_SUMMARY_SECTIONS: [&str; 3] = ["关键结论", "未决问题 / 风险", "下一步建议"];
+const PROJECT_BRIEF_SECTIONS: [&str; 4] = ["最近变化", "关键决策", "阻塞", "建议下一步"];
+const DAILY_BRIEF_SECTIONS: [&str; 3] = ["优先做的 3 件事", "等待 / 阻塞项", "建议跟进行动"];
 
 pub struct Database {
     conn: Connection,
@@ -119,6 +183,151 @@ struct RecordTypeStorage {
     is_default: bool,
     created_at: String,
     updated_at: String,
+}
+
+struct ArtifactSkillSpec {
+    kind: &'static str,
+    skill_key: &'static str,
+    skill_version: &'static str,
+    artifact_name: &'static str,
+    section_titles: &'static [&'static str],
+}
+
+struct AskSkillSpec {
+    skill_key: &'static str,
+    skill_version: &'static str,
+}
+
+const ACTIVITY_SUMMARY_SKILL: ArtifactSkillSpec = ArtifactSkillSpec {
+    kind: "activity_summary",
+    skill_key: "builtin.activity_summary",
+    skill_version: "1.0.0",
+    artifact_name: "Activity Summary",
+    section_titles: &ACTIVITY_SUMMARY_SECTIONS,
+};
+
+const PROJECT_BRIEF_SKILL: ArtifactSkillSpec = ArtifactSkillSpec {
+    kind: "project_brief",
+    skill_key: "builtin.project_brief",
+    skill_version: "1.0.0",
+    artifact_name: "Project Brief",
+    section_titles: &PROJECT_BRIEF_SECTIONS,
+};
+
+const DAILY_BRIEF_SKILL: ArtifactSkillSpec = ArtifactSkillSpec {
+    kind: "daily_brief",
+    skill_key: "builtin.daily_brief",
+    skill_version: "1.0.0",
+    artifact_name: "Daily Brief",
+    section_titles: &DAILY_BRIEF_SECTIONS,
+};
+
+const ASK_SKILL: AskSkillSpec = AskSkillSpec {
+    skill_key: "builtin.ask",
+    skill_version: "1.0.0",
+};
+
+#[derive(Clone)]
+struct ArtifactSource {
+    ref_code: String,
+    source_kind: String,
+    source_id: i64,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    label: String,
+    excerpt: String,
+}
+
+struct ArtifactGenerationContext {
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    artifact_date: Option<String>,
+    source_updated_at: String,
+    context_text: String,
+    sources: Vec<ArtifactSource>,
+}
+
+#[derive(Clone)]
+struct AskSource {
+    ref_code: String,
+    source_kind: String,
+    source_id: i64,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    label: String,
+    excerpt: String,
+    body_text: String,
+    updated_at: String,
+}
+
+struct ResolvedArtifactRequest {
+    spec: &'static ArtifactSkillSpec,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    artifact_date: Option<String>,
+}
+
+struct ResolvedAskRequest {
+    scope: AiAnswerScope,
+    question: String,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoSeedResult {
+    pub workspace_root: String,
+    pub project_count: i64,
+    pub activity_count: i64,
+    pub note_count: i64,
+    pub conclusion_count: i64,
+    pub todo_count: i64,
+    pub document_count: i64,
+    pub artifact_count: i64,
+    pub ai_profile_mode: String,
+}
+
+struct DemoSeedCatalog {
+    attribute_ids: HashMap<String, i64>,
+    status_ids: HashMap<String, i64>,
+    tag_ids: HashMap<String, i64>,
+    record_type_keys: HashMap<String, String>,
+}
+
+impl DemoSeedCatalog {
+    fn attribute_id(&self, label: &str) -> Result<i64> {
+        self.attribute_ids
+            .get(label)
+            .copied()
+            .ok_or_else(|| anyhow!("missing demo activity attribute: {label}"))
+    }
+
+    fn status_id(&self, label: &str) -> Result<i64> {
+        self.status_ids
+            .get(label)
+            .copied()
+            .ok_or_else(|| anyhow!("missing demo activity status: {label}"))
+    }
+
+    fn tag_id(&self, label: &str) -> Result<i64> {
+        self.tag_ids
+            .get(label)
+            .copied()
+            .ok_or_else(|| anyhow!("missing demo file tag: {label}"))
+    }
+
+    fn note_type_key(&self, label: &str) -> Result<&str> {
+        self.record_type_keys
+            .get(label)
+            .map(String::as_str)
+            .ok_or_else(|| anyhow!("missing demo record type: {label}"))
+    }
+}
+
+struct SeededProjectRefs {
+    project_id: i64,
+    activity_ids: Vec<i64>,
 }
 
 impl Database {
@@ -346,6 +555,38 @@ impl Database {
               FOREIGN KEY(profile_id) REFERENCES ai_provider_profiles(id) ON DELETE RESTRICT
             );
 
+            CREATE TABLE IF NOT EXISTS ai_artifacts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              scope_key TEXT NOT NULL UNIQUE,
+              kind TEXT NOT NULL,
+              skill_key TEXT NOT NULL DEFAULT '',
+              skill_version TEXT NOT NULL DEFAULT '',
+              project_id INTEGER,
+              activity_id INTEGER,
+              artifact_date TEXT,
+              status TEXT NOT NULL DEFAULT 'stale',
+              markdown TEXT NOT NULL DEFAULT '',
+              json_payload TEXT NOT NULL DEFAULT '{}',
+              source_updated_at TEXT NOT NULL DEFAULT '',
+              generated_at TEXT,
+              error_message TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_artifact_citations (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              artifact_id INTEGER NOT NULL,
+              source_kind TEXT NOT NULL,
+              source_id INTEGER NOT NULL,
+              project_id INTEGER,
+              activity_id INTEGER,
+              label TEXT NOT NULL,
+              excerpt TEXT NOT NULL DEFAULT '',
+              order_index INTEGER NOT NULL DEFAULT 0,
+              FOREIGN KEY(artifact_id) REFERENCES ai_artifacts(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS app_settings (
               key TEXT PRIMARY KEY,
               value_json TEXT NOT NULL,
@@ -488,6 +729,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_document_tag_links_document ON document_tag_links(document_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_ai_suggestions_activity ON ai_suggestions(activity_id, status, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_artifacts_kind_scope ON ai_artifacts(kind, project_id, activity_id, artifact_date);
+            CREATE INDEX IF NOT EXISTS idx_ai_artifacts_status_kind ON ai_artifacts(status, kind, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_artifact_citations_artifact_order ON ai_artifact_citations(artifact_id, order_index ASC, id ASC);
             "#,
         )?;
         self.backfill_file_layout_metadata()?;
@@ -558,7 +802,9 @@ impl Database {
 
         let project_dir_name = normalize_windows_safe_component(project_name);
         if project_dir_name.is_empty() {
-            return Err(anyhow!("project name must contain at least one usable character"));
+            return Err(anyhow!(
+                "project name must contain at least one usable character"
+            ));
         }
 
         let project_dir = base.join(project_dir_name);
@@ -668,6 +914,8 @@ impl Database {
                 input.project_id
             ],
         )?;
+        self.mark_project_artifacts_stale(input.project_id)?;
+        self.mark_daily_artifacts_stale()?;
         self.project_record(input.project_id)
     }
 
@@ -676,6 +924,8 @@ impl Database {
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
         )?;
+        self.mark_project_artifacts_stale(input.project_id)?;
+        self.mark_daily_artifacts_stale()?;
         self.project_record(input.project_id)
     }
 
@@ -796,7 +1046,7 @@ impl Database {
                 input.activity_id
             ],
         )?;
-        self.touch_project(current.project_id)?;
+        self.touch_activity(input.activity_id)?;
         self.activity_card(input.activity_id)
     }
 
@@ -902,7 +1152,10 @@ impl Database {
         })
     }
 
-    pub fn file_tag_option_upsert(&mut self, input: FileTagOptionUpsertInput) -> Result<FileTagRecord> {
+    pub fn file_tag_option_upsert(
+        &mut self,
+        input: FileTagOptionUpsertInput,
+    ) -> Result<FileTagRecord> {
         let label = validate_file_tag_label(&input.label)?;
         let color_key = validate_file_tag_color_key(&input.color_key)?;
         let now = now_iso();
@@ -935,8 +1188,10 @@ impl Database {
         input: FileTagOptionDeleteInput,
     ) -> Result<FileTagSettingsSnapshot> {
         self.file_tag_record(input.tag_id)?;
-        self.conn
-            .execute("DELETE FROM file_tag_options WHERE id = ?1", params![input.tag_id])?;
+        self.conn.execute(
+            "DELETE FROM file_tag_options WHERE id = ?1",
+            params![input.tag_id],
+        )?;
         self.file_tag_settings_get()
     }
 
@@ -1198,6 +1453,17 @@ impl Database {
         self.conclusion_record(input.conclusion_id)
     }
 
+    pub fn conclusion_delete(&mut self, input: ConclusionDeleteInput) -> Result<ConclusionRecord> {
+        let current = self.conclusion_record(input.conclusion_id)?;
+        self.conn
+            .execute("DELETE FROM conclusions WHERE id = ?1", [input.conclusion_id])?;
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(current)
+    }
+
     pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
         let timestamp = now_iso();
         self.conn.execute(
@@ -1283,6 +1549,17 @@ impl Database {
             self.touch_activity(activity_id)?;
         }
         self.todo_progress_record(progress_id)
+    }
+
+    pub fn todo_delete(&mut self, input: TodoDeleteInput) -> Result<TodoRecord> {
+        let current = self.todo_record(input.todo_id)?;
+        self.conn
+            .execute("DELETE FROM todos WHERE id = ?1", [input.todo_id])?;
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(current)
     }
 
     pub fn todo_list_open(&mut self, input: ProjectIdInput) -> Result<Vec<TodoRecord>> {
@@ -1460,7 +1737,11 @@ impl Database {
                 current.current_version_number
             ],
         )?;
-        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        } else {
+            self.touch_project(current.project_id)?;
+        }
         self.document_record(input.document_id)
     }
 
@@ -1592,13 +1873,42 @@ impl Database {
         self.document_record(input.document_id)
     }
 
+    pub fn document_delete(&mut self, input: DocumentDeleteInput) -> Result<DocumentRecord> {
+        let current = self.document_record(input.document_id)?;
+        self.ensure_project_file_layout(current.project_id)?;
+
+        let managed_assets = collect_document_managed_assets_for_delete(&current);
+        move_paths_to_trash(&managed_assets)?;
+
+        self.conn
+            .execute("DELETE FROM documents WHERE id = ?1", [input.document_id])?;
+
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+
+        Ok(current)
+    }
+
     pub fn ai_generate_note_suggestions(
         &mut self,
         input: AiGenerateInput,
     ) -> Result<Vec<AiSuggestionRecord>> {
+        self.ensure_ai_capability_enabled("suggestion_generation")?;
+
         let (activity_title, source_text) =
             self.ai_source(input.project_id, input.activity_id, input.note_id)?;
         let profile = self.resolve_profile_for_capability("suggestion_generation")?;
+        let feature_settings = self.ai_feature_settings_get()?;
+        let allow_conclusions =
+            ai_feature_enabled(&feature_settings, "suggestion_generation.conclusion")?;
+        let allow_todos = ai_feature_enabled(&feature_settings, "suggestion_generation.todo")?;
+        if !allow_conclusions && !allow_todos {
+            return Err(anyhow!(
+                "AI suggestion generation has no enabled output types in workspace settings"
+            ));
+        }
         self.conn.execute(
             "DELETE FROM ai_suggestions WHERE project_id = ?1 AND activity_id = ?2 AND status = 'pending'",
             params![input.project_id, input.activity_id],
@@ -1625,36 +1935,41 @@ impl Database {
             )?;
         }
 
-        for content in payload.conclusions.iter().take(3) {
-            self.insert_ai_suggestion(
-                input.project_id,
-                Some(input.activity_id),
-                input.note_id,
-                "conclusion",
-                "结论候选",
-                content,
-                json!({
-                    "content": content,
-                    "promotedToProject": true
-                }),
-                &timestamp,
-            )?;
+        if allow_conclusions {
+            for content in payload.conclusions.iter().take(3) {
+                self.insert_ai_suggestion(
+                    input.project_id,
+                    Some(input.activity_id),
+                    input.note_id,
+                    "conclusion",
+                    "结论候选",
+                    content,
+                    json!({
+                        "content": content,
+                        "promotedToProject": true
+                    }),
+                    &timestamp,
+                )?;
+            }
         }
 
-        for content in payload.todos.iter().take(3) {
-            self.insert_ai_suggestion(
-                input.project_id,
-                Some(input.activity_id),
-                input.note_id,
-                "todo",
-                "待办候选",
-                content,
-                json!({
-                    "content": content,
-                    "priority": "not_urgent_important"
-                }),
-                &timestamp,
-            )?;
+        if allow_todos {
+            for content in payload.todos.iter().take(3) {
+                let priority = infer_todo_priority(content);
+                self.insert_ai_suggestion(
+                    input.project_id,
+                    Some(input.activity_id),
+                    input.note_id,
+                    "todo",
+                    "待办候选",
+                    content,
+                    json!({
+                        "content": content,
+                        "priority": priority
+                    }),
+                    &timestamp,
+                )?;
+            }
         }
 
         self.fetch_ai_suggestions(Some(input.activity_id))
@@ -1666,16 +1981,18 @@ impl Database {
     ) -> Result<AcceptedSuggestionResult> {
         let suggestion = self.ai_suggestion_record(input.suggestion_id)?;
         let timestamp = now_iso();
+        let merged_payload =
+            merge_ai_suggestion_payload(&suggestion.payload, input.payload_override.as_ref());
 
         let entity_kind;
         let entity_id;
         match suggestion.suggestion_type.as_str() {
             "activity_title" => {
-                let proposed_title = suggestion
-                    .payload
-                    .get("proposedTitle")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("missing proposedTitle"))?;
+                let proposed_title = suggestion_payload_string(
+                    &merged_payload,
+                    "proposedTitle",
+                    "missing proposedTitle",
+                )?;
                 let activity_id = suggestion
                     .activity_id
                     .ok_or_else(|| anyhow!("title suggestion requires activity"))?;
@@ -1690,11 +2007,11 @@ impl Database {
                 entity_id = activity_id;
             }
             "conclusion" => {
-                let content = suggestion
-                    .payload
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("missing conclusion content"))?;
+                let content = suggestion_payload_string(
+                    &merged_payload,
+                    "content",
+                    "missing conclusion content",
+                )?;
                 self.conn.execute(
                     r#"
                     INSERT INTO conclusions (
@@ -1710,8 +2027,7 @@ impl Database {
                         "",
                         content,
                         bool_to_int(
-                            suggestion
-                                .payload
+                            merged_payload
                                 .get("promotedToProject")
                                 .and_then(Value::as_bool)
                                 .unwrap_or(true)
@@ -1724,16 +2040,16 @@ impl Database {
                 entity_id = self.conn.last_insert_rowid();
             }
             "todo" => {
-                let content = suggestion
-                    .payload
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("missing todo content"))?;
-                let priority = suggestion
-                    .payload
+                let content = suggestion_payload_string(
+                    &merged_payload,
+                    "content",
+                    "missing todo content",
+                )?;
+                let priority = merged_payload
                     .get("priority")
                     .and_then(Value::as_str)
-                    .unwrap_or("not_urgent_important");
+                    .filter(|value| is_todo_priority(value))
+                    .unwrap_or_else(|| infer_todo_priority(content));
                 self.conn.execute(
                     r#"
                     INSERT INTO todos (
@@ -1756,9 +2072,10 @@ impl Database {
             _ => return Err(anyhow!("unsupported suggestion type")),
         }
 
+        let preview = ai_suggestion_preview(&suggestion.suggestion_type, &merged_payload)?;
         self.conn.execute(
-            "UPDATE ai_suggestions SET status = 'accepted', accepted_at = ?1 WHERE id = ?2",
-            params![timestamp, input.suggestion_id],
+            "UPDATE ai_suggestions SET payload_json = ?1, preview = ?2, status = 'accepted', accepted_at = ?3 WHERE id = ?4",
+            params![merged_payload.to_string(), preview, timestamp, input.suggestion_id],
         )?;
         self.touch_project(suggestion.project_id)?;
         if let Some(activity_id) = suggestion.activity_id {
@@ -1772,16 +2089,304 @@ impl Database {
         })
     }
 
+    pub fn ai_artifact_get(
+        &mut self,
+        input: AiArtifactGetInput,
+    ) -> Result<Option<AiArtifactRecord>> {
+        let resolved = self.resolve_artifact_request(input)?;
+        if let Some(project_id) = resolved.project_id {
+            self.ensure_project_file_layout(project_id)?;
+            self.refresh_document_health(project_id)?;
+        }
+        self.ai_artifact_record_by_scope(
+            resolved.spec.kind,
+            resolved.project_id,
+            resolved.activity_id,
+            resolved.artifact_date.as_deref(),
+        )
+    }
+
+    pub fn ai_artifact_refresh(&mut self, input: AiArtifactGetInput) -> Result<AiArtifactRecord> {
+        let resolved = self.resolve_artifact_request(input)?;
+        self.ensure_ai_feature_enabled(ai_feature_key_for_artifact_kind(resolved.spec.kind)?)?;
+        if let Some(project_id) = resolved.project_id {
+            self.ensure_project_file_layout(project_id)?;
+            self.refresh_document_health(project_id)?;
+        }
+
+        let profile = self.resolve_profile_for_capability("summary")?;
+        let context = self.build_artifact_context(
+            resolved.spec,
+            resolved.project_id,
+            resolved.activity_id,
+            resolved.artifact_date.clone(),
+        )?;
+        let timestamp = now_iso();
+        match ai_provider::generate_artifact(
+            &profile,
+            resolved.spec.artifact_name,
+            resolved.spec.section_titles,
+            &context.context_text,
+        ) {
+            Ok(payload) => {
+                self.upsert_ai_artifact_success(resolved.spec, context, payload, &timestamp)
+            }
+            Err(error) => self.upsert_ai_artifact_error(
+                resolved.spec,
+                context.project_id,
+                context.activity_id,
+                context.artifact_date.as_deref(),
+                &context.source_updated_at,
+                &timestamp,
+                &error.to_string(),
+            ),
+        }
+    }
+
+    pub fn ai_answer_question(&mut self, input: AiAnswerQuestionInput) -> Result<AiAnswerResult> {
+        self.ensure_ai_capability_enabled("assistant")?;
+        let resolved = self.resolve_ai_answer_request(input)?;
+        if let Some(project_id) = resolved.project_id {
+            self.ensure_project_file_layout(project_id)?;
+            self.refresh_document_health(project_id)?;
+        }
+
+        let profile = self.resolve_profile_for_capability("assistant")?;
+        let context_sources = self.build_ai_answer_sources(
+            &resolved.scope,
+            resolved.project_id,
+            resolved.activity_id,
+        )?;
+        let ranked_sources = rank_ask_sources(&resolved.question, context_sources);
+        if ranked_sources.is_empty() || ranked_sources[0].0 < 12 {
+            return Ok(insufficient_ai_answer(
+                resolved.scope,
+                "当前作用域内没有足够的直接依据，暂时不能可靠回答这个问题。可以换一个更具体的问法，或切到更贴近内容的范围继续提问。",
+            ));
+        }
+
+        let sources = select_ask_sources(ranked_sources, 8);
+        let generated_at = now_iso();
+        let context_text = render_ask_context(
+            resolved.scope.as_str(),
+            resolved.project_id,
+            resolved.activity_id,
+            &resolved.question,
+            &sources,
+        );
+        let payload = ai_provider::generate_answer(
+            &profile,
+            resolved.scope.as_str(),
+            &resolved.question,
+            &context_text,
+        )?;
+        let allowed_refs = sources
+            .iter()
+            .map(|source| (source.ref_code.clone(), source))
+            .collect::<HashMap<_, _>>();
+        let citations =
+            payload
+                .citations
+                .into_iter()
+                .filter_map(|ref_code| {
+                    allowed_refs.get(ref_code.trim()).cloned().map(|source| {
+                        AiAnswerCitationRecord {
+                            ref_code: source.ref_code.clone(),
+                            source_kind: source.source_kind.clone(),
+                            source_id: source.source_id,
+                            project_id: source.project_id,
+                            activity_id: source.activity_id,
+                            label: source.label.clone(),
+                            excerpt: source.excerpt.clone(),
+                        }
+                    })
+                })
+                .fold(Vec::new(), |mut acc, citation| {
+                    if !acc.iter().any(|existing: &AiAnswerCitationRecord| {
+                        existing.ref_code == citation.ref_code
+                    }) {
+                        acc.push(citation);
+                    }
+                    acc
+                });
+
+        if citations.is_empty() {
+            return Ok(insufficient_ai_answer(
+                resolved.scope,
+                "检索到了相关资料，但当前证据还不足以给出可引用的可靠答案。建议换成更具体的问题，或缩小到当前项目 / 当前活动范围继续提问。",
+            ));
+        }
+
+        let answer_markdown = payload.answer_markdown.trim();
+        if answer_markdown.is_empty() {
+            return Ok(insufficient_ai_answer(
+                resolved.scope,
+                "当前资料还不足以形成稳定答案，建议补充更明确的问题或更多记录后再试。",
+            ));
+        }
+
+        Ok(AiAnswerResult {
+            answer_markdown: truncate_text(answer_markdown, 4000),
+            citations,
+            scope: resolved.scope,
+            generated_at,
+            skill_key: ASK_SKILL.skill_key.to_string(),
+            skill_version: ASK_SKILL.skill_version.to_string(),
+        })
+    }
+
     pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
         let profiles = self.fetch_ai_profiles()?;
         let bindings = self.fetch_ai_bindings()?;
+        let execution = self.ai_execution_settings_get()?;
+        let feature_settings = self.ai_feature_settings_get()?;
 
         Ok(AiSettingsSnapshot {
             has_usable_default: self.resolve_profile_for_capability("default").is_ok(),
             profiles,
             bindings,
             security_mode: "device_bound_encrypted".to_string(),
+            execution,
+            feature_settings,
         })
+    }
+
+    pub fn ai_feature_settings_get(&mut self) -> Result<AiFeatureSettings> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = ?1",
+                params![APP_SETTING_KEY_AI_FEATURE_SETTINGS],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if let Some(value_json) = stored {
+            return parse_ai_feature_settings_json(&value_json);
+        }
+
+        Ok(default_ai_feature_settings())
+    }
+
+    pub fn ai_feature_settings_upsert(
+        &mut self,
+        input: AiFeatureSettings,
+    ) -> Result<AiFeatureSettings> {
+        let now = now_iso();
+        let mut value = serde_json::to_value(&input)?;
+        normalize_ai_feature_settings_value(&mut value)?;
+        let settings: AiFeatureSettings = serde_json::from_value(value.clone())
+            .context("failed to decode AI feature settings")?;
+        let value_json = serde_json::to_string(&value)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(key) DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            "#,
+            params![APP_SETTING_KEY_AI_FEATURE_SETTINGS, value_json, now],
+        )?;
+
+        Ok(settings)
+    }
+
+    fn ensure_ai_capability_enabled(&mut self, capability: &str) -> Result<()> {
+        if capability == "default" {
+            return Ok(());
+        }
+
+        let settings = self.ai_feature_settings_get()?;
+        if !settings.master_enabled {
+            return Err(anyhow!("AI is disabled in workspace settings"));
+        }
+
+        if !settings
+            .capabilities
+            .get(capability)
+            .copied()
+            .unwrap_or(true)
+        {
+            return Err(anyhow!(
+                "AI capability '{}' is disabled in workspace settings",
+                capability
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn ensure_ai_feature_enabled(&mut self, feature_key: &str) -> Result<()> {
+        let settings = self.ai_feature_settings_get()?;
+        if !settings.master_enabled {
+            return Err(anyhow!("AI is disabled in workspace settings"));
+        }
+
+        let capability = ai_capability_for_feature(feature_key)?;
+        if !settings
+            .capabilities
+            .get(capability)
+            .copied()
+            .unwrap_or(true)
+        {
+            return Err(anyhow!(
+                "AI capability '{}' is disabled in workspace settings",
+                capability
+            ));
+        }
+
+        if !ai_feature_enabled(&settings, feature_key)? {
+            return Err(anyhow!(
+                "AI feature '{}' is disabled in workspace settings",
+                feature_key
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub fn ai_execution_settings_get(&mut self) -> Result<AiExecutionSettings> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = ?1",
+                params![APP_SETTING_KEY_AI_EXECUTION_SETTINGS],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if let Some(value_json) = stored {
+            let settings: AiExecutionSettings = serde_json::from_str(&value_json)
+                .context("failed to parse AI execution settings")?;
+            validate_ai_execution_settings(&settings)?;
+            return Ok(settings);
+        }
+
+        Ok(default_ai_execution_settings())
+    }
+
+    pub fn ai_execution_settings_upsert(
+        &mut self,
+        input: AiExecutionSettings,
+    ) -> Result<AiExecutionSettings> {
+        validate_ai_execution_settings(&input)?;
+        let now = now_iso();
+        let value_json = serde_json::to_string(&input)?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(key) DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            "#,
+            params![APP_SETTING_KEY_AI_EXECUTION_SETTINGS, value_json, now],
+        )?;
+
+        self.ai_execution_settings_get()
     }
 
     pub fn rich_text_style_get(&mut self) -> Result<RichTextStyleSettings> {
@@ -2026,6 +2631,27 @@ impl Database {
         self.ai_binding_record(input.capability.trim())
     }
 
+    pub fn execute_ai_job(&mut self, input: AiJobEnqueueInput) -> Result<AiJobResult> {
+        match input {
+            AiJobEnqueueInput::ArtifactRefresh { input, .. } => {
+                let artifact = self.ai_artifact_refresh(input)?;
+                Ok(AiJobResult::ArtifactRefresh { artifact })
+            }
+            AiJobEnqueueInput::AnswerQuestion { input, .. } => {
+                let answer = self.ai_answer_question(input)?;
+                Ok(AiJobResult::AnswerQuestion { answer })
+            }
+            AiJobEnqueueInput::NoteSuggestions { input, .. } => {
+                let suggestions = self.ai_generate_note_suggestions(input)?;
+                Ok(AiJobResult::NoteSuggestions { suggestions })
+            }
+            AiJobEnqueueInput::ProfileTest { input, .. } => {
+                let test_result = self.ai_profile_test(input)?;
+                Ok(AiJobResult::ProfileTest { test_result })
+            }
+        }
+    }
+
     pub fn workspace_search(
         &mut self,
         input: WorkspaceSearchInput,
@@ -2180,6 +2806,2488 @@ impl Database {
         results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
 
         Ok(results)
+    }
+
+    pub fn reset_and_seed_demo_data(&mut self, workspace_root: &Path) -> Result<DemoSeedResult> {
+        fs::create_dir_all(workspace_root).with_context(|| {
+            format!(
+                "failed to create demo workspace root at {}",
+                workspace_root.display()
+            )
+        })?;
+
+        self.remove_existing_project_roots_from_disk()?;
+        self.clear_seedable_data()?;
+        self.ensure_activity_settings_seeded()?;
+        self.ensure_record_type_settings_seeded()?;
+
+        let source_root = workspace_root.join("__demo_seed_sources");
+        remove_path_if_exists(&source_root)?;
+        for project_name in [
+            "智能客服知识库升级",
+            "海外销售线索评分 Copilot",
+            "合同审阅 AI 助手试点",
+        ] {
+            remove_path_if_exists(
+                &workspace_root.join(normalize_windows_safe_component(project_name)),
+            )?;
+        }
+        fs::create_dir_all(&source_root)?;
+
+        let catalog = self.build_demo_seed_catalog()?;
+        let project_a =
+            self.seed_demo_customer_service_project(workspace_root, &source_root, &catalog)?;
+        let project_b =
+            self.seed_demo_lead_scoring_project(workspace_root, &source_root, &catalog)?;
+        let project_c =
+            self.seed_demo_contract_review_project(workspace_root, &source_root, &catalog)?;
+
+        let mock_ai_profile_created = self.ensure_demo_mock_ai_profile_if_needed()?;
+        if mock_ai_profile_created {
+            for project_id in [
+                project_a.project_id,
+                project_b.project_id,
+                project_c.project_id,
+            ] {
+                self.ai_artifact_refresh(AiArtifactGetInput {
+                    kind: "project_brief".to_string(),
+                    project_id: Some(project_id),
+                    activity_id: None,
+                    artifact_date: None,
+                })?;
+            }
+            for activity_id in project_a
+                .activity_ids
+                .iter()
+                .chain(project_b.activity_ids.iter())
+                .chain(project_c.activity_ids.iter())
+            {
+                let project_id = self.activity_row(*activity_id)?.project_id;
+                self.ai_artifact_refresh(AiArtifactGetInput {
+                    kind: "activity_summary".to_string(),
+                    project_id: Some(project_id),
+                    activity_id: Some(*activity_id),
+                    artifact_date: None,
+                })?;
+            }
+            self.ai_artifact_refresh(AiArtifactGetInput {
+                kind: "daily_brief".to_string(),
+                project_id: None,
+                activity_id: None,
+                artifact_date: Some(current_workspace_date()),
+            })?;
+        }
+
+        Ok(DemoSeedResult {
+            workspace_root: workspace_root.to_string_lossy().to_string(),
+            project_count: self.count_table_rows("projects")?,
+            activity_count: self.count_table_rows("activities")?,
+            note_count: self.count_table_rows("notes")?,
+            conclusion_count: self.count_table_rows("conclusions")?,
+            todo_count: self.count_table_rows("todos")?,
+            document_count: self.count_table_rows("documents")?,
+            artifact_count: self.count_table_rows("ai_artifacts")?,
+            ai_profile_mode: if mock_ai_profile_created {
+                "mock_seeded".to_string()
+            } else {
+                "preserved".to_string()
+            },
+        })
+    }
+
+    fn remove_existing_project_roots_from_disk(&self) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT root_path FROM projects ORDER BY id ASC")?;
+        let roots = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        for root in roots {
+            remove_path_if_exists(Path::new(&root))
+                .with_context(|| format!("failed to remove existing project root at {}", root))?;
+        }
+
+        Ok(())
+    }
+
+    fn clear_seedable_data(&mut self) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute_batch(
+            r#"
+            DELETE FROM ai_artifact_citations;
+            DELETE FROM ai_artifacts;
+            DELETE FROM ai_suggestions;
+            DELETE FROM document_tag_links;
+            DELETE FROM document_versions;
+            DELETE FROM documents;
+            DELETE FROM todo_progresses;
+            DELETE FROM todos;
+            DELETE FROM conclusions;
+            DELETE FROM notes;
+            DELETE FROM activities;
+            DELETE FROM projects;
+            DELETE FROM file_tag_options;
+            DELETE FROM record_type_options;
+            DELETE FROM activity_attribute_options;
+            DELETE FROM activity_status_options;
+            DELETE FROM sqlite_sequence
+            WHERE name IN (
+              'ai_artifact_citations',
+              'ai_artifacts',
+              'ai_suggestions',
+              'documents',
+              'document_versions',
+              'todos',
+              'todo_progresses',
+              'conclusions',
+              'notes',
+              'activities',
+              'projects',
+              'file_tag_options',
+              'record_type_options',
+              'activity_attribute_options',
+              'activity_status_options'
+            );
+            "#,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn build_demo_seed_catalog(&mut self) -> Result<DemoSeedCatalog> {
+        let mut attribute_ids = HashMap::new();
+        for (label, color_key) in [
+            ("会议", "blue"),
+            ("需求澄清", "teal"),
+            ("数据分析", "amber"),
+            ("法务评审", "rose"),
+            ("实验验证", "green"),
+            ("用户反馈", "orange"),
+        ] {
+            let option =
+                self.activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
+                    id: None,
+                    label: label.to_string(),
+                    color_key: color_key.to_string(),
+                })?;
+            attribute_ids.insert(label.to_string(), option.id);
+        }
+
+        let mut status_ids = HashMap::new();
+        let pending = self.pending_activity_status_option()?;
+        status_ids.insert(pending.label.clone(), pending.id);
+        for (label, color_key) in [
+            ("信息已整理", "green"),
+            ("进行中", "blue"),
+            ("待跟进", "amber"),
+            ("需升级处理", "red"),
+            ("已验证", "teal"),
+        ] {
+            let option = self.activity_status_option_upsert(ActivityStatusOptionUpsertInput {
+                id: None,
+                label: label.to_string(),
+                color_key: color_key.to_string(),
+            })?;
+            status_ids.insert(label.to_string(), option.id);
+        }
+
+        let mut tag_ids = HashMap::new();
+        for (label, color_key) in [
+            ("PRD", "blue"),
+            ("会议纪要", "teal"),
+            ("数据样本", "amber"),
+            ("评审材料", "orange"),
+            ("法务条款", "rose"),
+            ("Prompt草案", "slate"),
+            ("流程清单", "green"),
+        ] {
+            let tag = self.file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: label.to_string(),
+                color_key: color_key.to_string(),
+            })?;
+            tag_ids.insert(label.to_string(), tag.id);
+        }
+
+        for (label, color_key, template_html) in [
+            (
+                "访谈记录",
+                "teal",
+                "<h2>受访对象</h2><p></p><h2>关键反馈</h2><p></p><h2>证据片段</h2><p></p><h2>下一步</h2><p></p>",
+            ),
+            (
+                "实验记录",
+                "amber",
+                "<h2>目标</h2><p></p><h2>样本与方法</h2><p></p><h2>观察</h2><p></p><h2>下一步</h2><p></p>",
+            ),
+            (
+                "法务审查",
+                "rose",
+                "<h2>审查范围</h2><p></p><h2>风险点</h2><p></p><h2>建议口径</h2><p></p><h2>结论</h2><p></p>",
+            ),
+        ] {
+            self.record_type_option_upsert(RecordTypeOptionUpsertInput {
+                id: None,
+                label: label.to_string(),
+                color_key: color_key.to_string(),
+                template_html: template_html.to_string(),
+                is_default: false,
+            })?;
+        }
+
+        let record_type_settings = self.record_type_settings_get()?;
+        let record_type_keys = record_type_settings
+            .record_types
+            .into_iter()
+            .map(|record| (record.label, record.key))
+            .collect();
+
+        Ok(DemoSeedCatalog {
+            attribute_ids,
+            status_ids,
+            tag_ids,
+            record_type_keys,
+        })
+    }
+
+    fn ensure_demo_mock_ai_profile_if_needed(&mut self) -> Result<bool> {
+        if !self.fetch_ai_profiles()?.is_empty() {
+            return Ok(false);
+        }
+
+        let profile = self.ai_profile_upsert(AiProviderProfileUpsertInput {
+            id: None,
+            name: "Demo Mock AI".to_string(),
+            provider_family: "openai_compatible".to_string(),
+            base_url: "https://mock.local/v1".to_string(),
+            api_key: Some("demo-mock-key".to_string()),
+            default_model: "mock-model".to_string(),
+            supports_text: true,
+            supports_image: false,
+            supports_file: false,
+            enabled: true,
+        })?;
+
+        self.ai_binding_upsert(AiCapabilityBindingUpsertInput {
+            capability: "default".to_string(),
+            use_default: false,
+            profile_id: Some(profile.id),
+            model: None,
+        })?;
+        for capability in ["assistant", "summary", "suggestion_generation"] {
+            self.ai_binding_upsert(AiCapabilityBindingUpsertInput {
+                capability: capability.to_string(),
+                use_default: true,
+                profile_id: None,
+                model: None,
+            })?;
+        }
+
+        Ok(true)
+    }
+
+    fn count_table_rows(&self, table: &str) -> Result<i64> {
+        let sql = format!("SELECT COUNT(*) FROM {table}");
+        self.conn
+            .query_row(&sql, [], |row| row.get(0))
+            .map_err(Into::into)
+    }
+
+    fn create_demo_note(
+        &mut self,
+        project_id: i64,
+        activity_id: i64,
+        note_type: &str,
+        title: &str,
+        markdown: &str,
+    ) -> Result<NoteRecord> {
+        self.note_upsert(NoteUpsertInput {
+            project_id,
+            activity_id,
+            note_id: None,
+            note_type: note_type.to_string(),
+            title: Some(title.to_string()),
+            markdown: markdown.to_string(),
+            html: rich_text_html_from_markdown(markdown),
+        })
+    }
+
+    fn create_demo_conclusion(
+        &mut self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        note_id: Option<i64>,
+        markdown: &str,
+        promoted_to_project: bool,
+    ) -> Result<ConclusionRecord> {
+        self.conclusion_create(ConclusionCreateInput {
+            project_id,
+            activity_id,
+            note_id,
+            markdown: markdown.to_string(),
+            html: rich_text_html_from_markdown(markdown),
+            promoted_to_project,
+        })
+    }
+
+    fn create_demo_todo(
+        &mut self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        content: &str,
+        priority: &str,
+        progresses: &[(&str, &str)],
+        finished: bool,
+    ) -> Result<TodoRecord> {
+        let todo = self.todo_create(TodoCreateInput {
+            project_id,
+            activity_id,
+            content: content.to_string(),
+            priority: priority.to_string(),
+        })?;
+
+        for (progress_date, progress_content) in progresses {
+            self.todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: (*progress_content).to_string(),
+                progress_date: (*progress_date).to_string(),
+            })?;
+        }
+
+        if finished {
+            self.todo_update_status(TodoUpdateStatusInput {
+                todo_id: todo.id,
+                status: "finished".to_string(),
+            })?;
+        }
+
+        self.todo_record(todo.id)
+    }
+
+    fn write_demo_source_file(
+        &self,
+        source_root: &Path,
+        scope: &str,
+        file_name: &str,
+        contents: &str,
+    ) -> Result<PathBuf> {
+        let target_dir = source_root.join(scope);
+        fs::create_dir_all(&target_dir)?;
+        let path = target_dir.join(file_name);
+        fs::write(&path, contents)
+            .with_context(|| format!("failed to write demo source file at {}", path.display()))?;
+        Ok(path)
+    }
+
+    fn import_demo_document(
+        &mut self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        source_path: &Path,
+        is_starred: bool,
+        tag_ids: &[i64],
+    ) -> Result<DocumentRecord> {
+        self.document_import(DocumentImportInput {
+            project_id,
+            activity_id,
+            source_path: source_path.to_string_lossy().to_string(),
+            is_starred,
+            tag_ids: if tag_ids.is_empty() {
+                None
+            } else {
+                Some(tag_ids.to_vec())
+            },
+        })
+    }
+
+    fn seed_demo_customer_service_project(
+        &mut self,
+        workspace_root: &Path,
+        source_root: &Path,
+        catalog: &DemoSeedCatalog,
+    ) -> Result<SeededProjectRefs> {
+        let project = self.project_create(ProjectCreateInput {
+            name: "智能客服知识库升级".to_string(),
+            summary: Some("目标是在 6 周内把退款、物流、账户三类高频问题沉淀为可检索知识库，并让 AI 助手引用统一口径。当前处于数据清洗与法务边界确认阶段。".to_string()),
+            status: Some("active".to_string()),
+            workspace_root: workspace_root.to_string_lossy().to_string(),
+        })?;
+
+        let kickoff = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("会议")?),
+            title: Some("Kickoff 范围对齐".to_string()),
+            activity_time: "2026-04-02T01:30:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: kickoff.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(true),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("信息已整理")?),
+        })?;
+        let kickoff_note = self.create_demo_note(
+            project.id,
+            kickoff.id,
+            catalog.note_type_key(MEETING_RECORD_TYPE_LABEL)?,
+            "Kickoff 纪要",
+            "## 背景\n现有客服知识分散在 FAQ 表、培训录屏和飞书文档中，回复口径不一致。\n\n## 讨论要点\n- 本期范围统一为退款、物流、账户三类高频问题。\n- 先做知识清洗，再接 AI 引用，不直接开放自动回复。\n- 知识条目统一采用四段式：问题定义、标准回复、边界条件、升级路径。\n\n## 初步结论\n- 确认第一阶段只覆盖中文场景。\n- 建议把退款时效与物流异常拆成独立知识条目。\n- 需要法务确认赔付承诺相关措辞边界。\n\n## 行动项\n- 待产品在周三前补齐高频问题 Top 50。\n- 需要客服主管输出现有标准话术。\n- 安排法务参加下一轮边界评审。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(kickoff.id),
+            Some(kickoff_note.id),
+            "第一阶段范围锁定为退款、物流、账户问题，先支持辅助检索，不直接自动回复。",
+            true,
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(kickoff.id),
+            Some(kickoff_note.id),
+            "知识条目统一采用“问题定义 / 标准回复 / 边界条件 / 升级路径”四段式模板。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(kickoff.id),
+            "整理近 30 天高频工单 Top 50",
+            "urgent_important",
+            &[(
+                &current_workspace_date(),
+                "已从工单系统导出 4,812 条样本，并完成首轮去重。",
+            )],
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(kickoff.id),
+            "补齐退款与物流场景标准回复草案",
+            "not_urgent_important",
+            &[(
+                &current_workspace_date(),
+                "客服主管已补充 12 条标准口径，待产品统一格式。",
+            )],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(kickoff.id),
+            "与法务确认赔付类敏感措辞",
+            "urgent_not_important",
+            &[("2026-04-07", "已预约本周五法务评审会。")],
+            false,
+        )?;
+
+        let prd_v1 = self.write_demo_source_file(
+            source_root,
+            "customer_service",
+            "kb-upgrade-prd-v1.md",
+            "# 智能客服知识库升级 PRD v1\n\n## 目标\n- 将高频问题从人工经验整理为标准知识条目。\n- 为后续 AI 辅助检索提供统一引用源。\n\n## 首期范围\n- 退款\n- 物流\n- 账户\n\n## 成功指标\n- 首次响应时间下降 20%\n- 口径偏差投诉下降 30%\n",
+        )?;
+        let kickoff_doc = self.import_demo_document(
+            project.id,
+            Some(kickoff.id),
+            &prd_v1,
+            true,
+            &[catalog.tag_id("PRD")?, catalog.tag_id("评审材料")?],
+        )?;
+        let prd_v2 = self.write_demo_source_file(
+            source_root,
+            "customer_service",
+            "kb-upgrade-prd-v2.md",
+            "# 智能客服知识库升级 PRD v2\n\n## 目标\n- 在首期知识清洗完成后接入 AI 检索引用。\n- 回复内容必须可追溯到知识条目。\n\n## 新增约束\n- 敏感话术必须增加“禁止表达”字段。\n- 所有赔付结论默认走人工复核。\n\n## 成功指标\n- 首次响应时间下降 20%\n- 升级工单占比下降 15%\n",
+        )?;
+        self.document_add_version(DocumentAddVersionInput {
+            document_id: kickoff_doc.id,
+            source_path: prd_v2.to_string_lossy().to_string(),
+        })?;
+
+        let labeling = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("数据分析")?),
+            title: Some("历史工单标签梳理".to_string()),
+            activity_time: "2026-04-04T06:00:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: labeling.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("进行中")?),
+        })?;
+        let labeling_note = self.create_demo_note(
+            project.id,
+            labeling.id,
+            catalog.note_type_key("实验记录")?,
+            "标签映射实验",
+            "## 目标\n验证现有工单标签能否直接映射为知识库一级 / 二级分类。\n\n## 样本与方法\n- 抽样退款工单 1200 条、物流工单 900 条、账户工单 600 条。\n- 比较现有 87 个标签与知识条目候选结构的一致性。\n\n## 观察\n- “退款失败”“退款处理中”“退款超时”需要拆成状态维度。\n- 物流问题里“揽收延迟”和“在途异常”被混用。\n- 建议保留一级大类 + 二级问题码，不再沿用自然语言标签。\n\n## 下一步\n- 需要输出旧标签到新问题码的映射表。\n- 待客服团队补充近两周新增标签样本。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(labeling.id),
+            Some(labeling_note.id),
+            "二级问题码需要独立维护，不能直接复用现有工单自然语言标签。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(labeling.id),
+            "输出旧标签到新问题码映射表",
+            "urgent_important",
+            &[("2026-04-08", "已完成 87 个旧标签的首轮聚类。")],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(labeling.id),
+            "补充最近两周新增标签样本",
+            "urgent_not_important",
+            &[("2026-04-08", "客服团队承诺今晚补齐新增标签导出。")],
+            false,
+        )?;
+        let label_mapping = self.write_demo_source_file(
+            source_root,
+            "customer_service",
+            "ticket-tag-mapping.csv",
+            "old_tag,new_code,new_label\n退款失败,refund_status_failed,退款失败\n退款处理中,refund_status_processing,退款处理中\n物流延迟,logistics_delay,物流延迟\n在途异常,logistics_exception,在途异常\n账号冻结,account_locked,账号冻结\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            Some(labeling.id),
+            &label_mapping,
+            false,
+            &[catalog.tag_id("数据样本")?, catalog.tag_id("评审材料")?],
+        )?;
+
+        let legal = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("法务评审")?),
+            title: Some("敏感问题回复边界评审".to_string()),
+            activity_time: "2026-04-07T02:00:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: legal.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("需升级处理")?),
+        })?;
+        let legal_note = self.create_demo_note(
+            project.id,
+            legal.id,
+            catalog.note_type_key("法务审查")?,
+            "敏感话术法务审查",
+            "## 审查范围\n赔付、退款承诺、平台责任、时效承诺。\n\n## 风险点\n- 不能使用“保证到账”“一定补偿”这类绝对表述。\n- 若物流责任未判定，AI 只能使用条件式回应。\n- 涉及现金补偿需引导人工确认，不允许直接承诺金额。\n\n## 建议口径\n- 可使用“我们将协助核查并在 24 小时内同步处理结果”。\n- 需要在知识条目里增加“禁止表达”字段。\n\n## 结论\n所有赔付与责任认定类问题均需人工复核。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(legal.id),
+            Some(legal_note.id),
+            "所有赔付与责任认定类问题必须增加“禁止表达”字段，并走人工复核。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(legal.id),
+            "整理禁止表达黑名单",
+            "urgent_important",
+            &[(
+                "2026-04-08",
+                "法务已圈定 18 条高风险表达，待整理成结构化清单。",
+            )],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(legal.id),
+            "在提示词中加入人工复核 gate",
+            "not_urgent_important",
+            &[("2026-04-08", "已在 prompt 草案中增加 escalation 条件。")],
+            false,
+        )?;
+        let legal_doc = self.write_demo_source_file(
+            source_root,
+            "customer_service",
+            "legal-language-boundary.md",
+            "# 客服敏感话术边界\n\n## 禁止表达\n- 保证到账\n- 一定赔付\n- 平台全责\n\n## 可替代表达\n- 我们将协助核查并同步处理结果\n- 该问题需要人工进一步确认\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            Some(legal.id),
+            &legal_doc,
+            true,
+            &[catalog.tag_id("法务条款")?, catalog.tag_id("Prompt草案")?],
+        )?;
+
+        self.create_demo_conclusion(
+            project.id,
+            None,
+            None,
+            "知识库升级的首期上线条件已经明确：标签映射表完成、敏感话术黑名单确认、标准回复模板统一。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            None,
+            "输出首期上线 checklist",
+            "not_urgent_important",
+            &[("2026-04-08", "已汇总产品、客服、法务三方 gating 条件。")],
+            false,
+        )?;
+
+        Ok(SeededProjectRefs {
+            project_id: project.id,
+            activity_ids: vec![kickoff.id, labeling.id, legal.id],
+        })
+    }
+
+    fn seed_demo_lead_scoring_project(
+        &mut self,
+        workspace_root: &Path,
+        source_root: &Path,
+        catalog: &DemoSeedCatalog,
+    ) -> Result<SeededProjectRefs> {
+        let project = self.project_create(ProjectCreateInput {
+            name: "海外销售线索评分 Copilot".to_string(),
+            summary: Some("为北美 SMB 销售团队做一套线索评分 Copilot，目标是把 SDR 首次筛选时间从 12 分钟降到 4 分钟。当前在验证 CRM 接入与特征字段稳定性。".to_string()),
+            status: Some("active".to_string()),
+            workspace_root: workspace_root.to_string_lossy().to_string(),
+        })?;
+
+        let alignment = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("会议")?),
+            title: Some("北美销售与市场对齐会".to_string()),
+            activity_time: "2026-04-03T00:00:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: alignment.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(true),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("信息已整理")?),
+        })?;
+        let alignment_note = self.create_demo_note(
+            project.id,
+            alignment.id,
+            catalog.note_type_key(MEETING_RECORD_TYPE_LABEL)?,
+            "销售与市场对齐纪要",
+            "## 背景\nSDR 认为当前线索筛选完全依赖个人经验，优先级不稳定。\n\n## 讨论要点\n- 第一阶段只覆盖北美 inbound demo / ebook / webinar 三类线索。\n- 输出建议分，不自动改写 CRM 原始 score。\n- 评分解释必须能追溯到字段与规则。\n\n## 初步结论\n- 确认先做建议分 + 推荐动作，不触发自动分配。\n- 需要市场补齐 campaign taxonomy 与 lead source 映射。\n- 销售只接受 5 档评分，不接受纯文本建议。\n\n## 行动项\n- 待 RevOps 输出字段字典。\n- 需要 SDR 主管提供最近 50 条高转化样本。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(alignment.id),
+            Some(alignment_note.id),
+            "第一阶段只覆盖北美 inbound demo / ebook / webinar leads，先给建议分，不自动改写 CRM 原始 score。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(alignment.id),
+            "让 RevOps 输出字段字典与评分口径说明",
+            "urgent_important",
+            &[(
+                "2026-04-08",
+                "RevOps 已确认 23 个可用字段，并补充字段释义。",
+            )],
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(alignment.id),
+            "补齐 campaign taxonomy 与 lead source 映射",
+            "not_urgent_important",
+            &[("2026-04-08", "市场团队已交付首版渠道映射，待清洗历史别名。")],
+            false,
+        )?;
+
+        let project_scope = self.write_demo_source_file(
+            source_root,
+            "lead_scoring",
+            "lead-scoring-scope.md",
+            "# Lead Scoring Copilot Scope\n\n## Phase 1\n- North America inbound demo\n- Ebook download\n- Webinar registration\n\n## Output\n- 推荐评分档位\n- 推荐动作\n- 解释字段\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            None,
+            &project_scope,
+            true,
+            &[catalog.tag_id("PRD")?, catalog.tag_id("流程清单")?],
+        )?;
+
+        let feature_review = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("实验验证")?),
+            title: Some("评分特征初版评审".to_string()),
+            activity_time: "2026-04-05T02:30:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: feature_review.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("进行中")?),
+        })?;
+        let feature_note = self.create_demo_note(
+            project.id,
+            feature_review.id,
+            catalog.note_type_key("实验记录")?,
+            "评分特征评审记录",
+            "## 目标\n验证首版评分特征是否具备业务解释性与字段稳定性。\n\n## 样本与方法\n- 使用近 90 天 3,200 条北美 inbound leads。\n- 对比行业、员工数、官网质量、回复速度、渠道来源等字段。\n\n## 观察\n- 官网缺失但来自高 intent 渠道的线索不应被直接降分。\n- 员工数字段缺失率高，需要 fallback 规则。\n- 建议把“最近 7 天互动次数”作为单独的加分项。\n\n## 下一步\n- 待数据团队补齐员工数缺失值策略。\n- 需要销售确认各档评分的 follow-up SLA。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(feature_review.id),
+            Some(feature_note.id),
+            "官网质量、渠道来源、最近 7 天互动次数应作为首版评分的核心解释字段。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(feature_review.id),
+            "补齐员工数缺失值 fallback 规则",
+            "urgent_important",
+            &[("2026-04-08", "数据团队建议回退到公司域名解析 + 手工补全。")],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(feature_review.id),
+            "确认 5 档评分对应的 follow-up SLA",
+            "urgent_not_important",
+            &[(
+                "2026-04-08",
+                "SDR 主管已接受 P1/P2/P3 三档差异化 SLA 方案。",
+            )],
+            false,
+        )?;
+        let features_v1 = self.write_demo_source_file(
+            source_root,
+            "lead_scoring",
+            "lead-score-features-v1.csv",
+            "feature,weight,comment\nwebsite_quality,0.25,官网信息完整度\nlead_source,0.20,渠道意图强度\nemployee_size,0.15,公司规模\nrecent_activity_7d,0.10,最近 7 天互动次数\njob_title_match,0.10,职位匹配度\n",
+        )?;
+        let feature_doc = self.import_demo_document(
+            project.id,
+            Some(feature_review.id),
+            &features_v1,
+            false,
+            &[catalog.tag_id("数据样本")?, catalog.tag_id("评审材料")?],
+        )?;
+        let features_v2 = self.write_demo_source_file(
+            source_root,
+            "lead_scoring",
+            "lead-score-features-v2.csv",
+            "feature,weight,comment\nwebsite_quality,0.22,官网信息完整度\nlead_source,0.22,渠道意图强度\nemployee_size,0.12,公司规模\nrecent_activity_7d,0.16,最近 7 天互动次数\njob_title_match,0.10,职位匹配度\ncampaign_fit,0.08,活动匹配度\n",
+        )?;
+        self.document_add_version(DocumentAddVersionInput {
+            document_id: feature_doc.id,
+            source_path: features_v2.to_string_lossy().to_string(),
+        })?;
+
+        let crm = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("需求澄清")?),
+            title: Some("CRM 接入可行性确认".to_string()),
+            activity_time: "2026-04-07T08:30:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: crm.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("待跟进")?),
+        })?;
+        let crm_note = self.create_demo_note(
+            project.id,
+            crm.id,
+            catalog.note_type_key(DEFAULT_RECORD_TYPE_LABEL)?,
+            "CRM 接入可行性记录",
+            "## 背景\n当前 HubSpot webhook 无法稳定覆盖所有 lead 更新事件。\n\n## 关键发现\n- 新增线索事件实时可用，但字段修订事件存在延迟。\n- 若直接做实时重算，会出现解释字段与 CRM 页面不一致。\n- 建议 nightly full sync + webhook incremental 的混合方案。\n\n## 下一步\n- 需要 RevOps 确认 nightly sync 窗口。\n- 待工程确认 webhook 限流策略。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(crm.id),
+            Some(crm_note.id),
+            "CRM 接入采用 webhook 增量 + nightly full sync 的混合方案，优先保证评分解释与页面字段一致。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(crm.id),
+            "确认 nightly sync 时间窗口",
+            "urgent_not_important",
+            &[("2026-04-08", "RevOps 倾向每天美西时间 02:00 执行全量同步。")],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(crm.id),
+            "评估 webhook 限流与补偿重试策略",
+            "not_urgent_important",
+            &[("2026-04-08", "工程建议先做 3 次指数退避重试。")],
+            false,
+        )?;
+        let crm_doc = self.write_demo_source_file(
+            source_root,
+            "lead_scoring",
+            "crm-integration-checklist.md",
+            "# CRM Integration Checklist\n\n- Confirm webhook event coverage\n- Define nightly full sync window\n- Add retry and dead-letter handling\n- Align score explanation fields with CRM UI\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            Some(crm.id),
+            &crm_doc,
+            false,
+            &[catalog.tag_id("流程清单")?, catalog.tag_id("评审材料")?],
+        )?;
+
+        self.create_demo_conclusion(
+            project.id,
+            None,
+            None,
+            "Lead Scoring Copilot 的首版落地前提已经明确：评分可解释、字段稳定、CRM 同步一致。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            None,
+            "准备北美 SDR 内测说明页",
+            "not_urgent_important",
+            &[("2026-04-08", "已收集需要展示的评分解释示例。")],
+            false,
+        )?;
+
+        Ok(SeededProjectRefs {
+            project_id: project.id,
+            activity_ids: vec![alignment.id, feature_review.id, crm.id],
+        })
+    }
+
+    fn seed_demo_contract_review_project(
+        &mut self,
+        workspace_root: &Path,
+        source_root: &Path,
+        catalog: &DemoSeedCatalog,
+    ) -> Result<SeededProjectRefs> {
+        let project = self.project_create(ProjectCreateInput {
+            name: "合同审阅 AI 助手试点".to_string(),
+            summary: Some("面向法务与采购的合同审阅 AI 助手试点，聚焦红线条款识别、审阅意见归类和标准修改建议。当前已完成试点范围确认，Prompt 与复核流程仍在迭代。".to_string()),
+            status: Some("active".to_string()),
+            workspace_root: workspace_root.to_string_lossy().to_string(),
+        })?;
+
+        let scope = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("会议")?),
+            title: Some("试点范围确认".to_string()),
+            activity_time: "2026-04-01T07:30:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: scope.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(true),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("信息已整理")?),
+        })?;
+        let scope_note = self.create_demo_note(
+            project.id,
+            scope.id,
+            catalog.note_type_key(MEETING_RECORD_TYPE_LABEL)?,
+            "试点范围纪要",
+            "## 背景\n法务希望优先验证红线条款识别与修改建议，不希望一开始覆盖所有合同类型。\n\n## 讨论要点\n- 试点仅覆盖 NDA 与采购合同，不覆盖劳动合同。\n- 输出需包含风险等级、风险依据、建议修改文本。\n- 所有 AI 建议必须由法务二次确认后才能对外发送。\n\n## 初步结论\n- 先用匿名化历史合同做离线验证。\n- 红线条款模板由法务统一维护。\n- 采购合同优先关注责任限制、付款条件、自动续约。\n\n## 行动项\n- 待法务提供 20 份匿名化样本。\n- 需要整理红线条款模板 v1。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(scope.id),
+            Some(scope_note.id),
+            "试点仅覆盖 NDA 与采购合同，所有 AI 建议必须经过法务二次确认后才能输出。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(scope.id),
+            "收集 20 份匿名化历史合同样本",
+            "urgent_important",
+            &[("2026-04-08", "法务已完成 12 份 NDA 样本脱敏。")],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(scope.id),
+            "整理红线条款模板 v1",
+            "not_urgent_important",
+            &[("2026-04-08", "已完成责任限制与自动续约两类条款模板。")],
+            false,
+        )?;
+        let scope_doc = self.write_demo_source_file(
+            source_root,
+            "contract_review",
+            "pilot-scope.md",
+            "# 合同审阅 AI 助手试点范围\n\n## Included\n- NDA\n- Procurement Agreement\n\n## Excluded\n- Employment Contract\n- Equity Agreement\n\n## Output Fields\n- 风险等级\n- 风险依据\n- 建议修改文本\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            None,
+            &scope_doc,
+            true,
+            &[catalog.tag_id("PRD")?, catalog.tag_id("法务条款")?],
+        )?;
+
+        let prompt = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("实验验证")?),
+            title: Some("红线条款 Prompt 调整".to_string()),
+            activity_time: "2026-04-06T03:30:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: prompt.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("进行中")?),
+        })?;
+        let prompt_note = self.create_demo_note(
+            project.id,
+            prompt.id,
+            catalog.note_type_key("实验记录")?,
+            "Prompt 调整记录",
+            "## 目标\n减少泛化建议，提升红线条款识别的准确率与依据可读性。\n\n## 样本与方法\n- 使用 12 份匿名 NDA 与 8 份采购合同做离线评估。\n- 对比 prompt v1 / v2 在风险条款召回率上的差异。\n\n## 观察\n- 若不提供条款类别清单，模型会把普通商务条款误判为高风险。\n- 要求输出“风险依据”后，法务对结果的信任度明显提高。\n- 建议把建议修改文本限制在标准模板候选集合内。\n\n## 下一步\n- 待法务补充付款条件与赔偿责任模板。\n- 需要增加拒答条件：当证据不足时输出“需人工判断”。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(prompt.id),
+            Some(prompt_note.id),
+            "Prompt 必须同时输出风险等级与风险依据，并在证据不足时明确回退为“需人工判断”。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(prompt.id),
+            "补充付款条件与赔偿责任模板",
+            "urgent_important",
+            &[("2026-04-08", "法务已提供 6 条标准修改建议模板。")],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(prompt.id),
+            "增加证据不足时的拒答条件",
+            "not_urgent_important",
+            &[("2026-04-08", "prompt v3 已增加“需人工判断”回退语。")],
+            true,
+        )?;
+        let prompt_doc = self.write_demo_source_file(
+            source_root,
+            "contract_review",
+            "clause-risk-matrix.json",
+            "{\n  \"liability_cap\": {\"risk\": \"high\", \"template\": \"责任上限不应低于合同金额 100%\"},\n  \"auto_renewal\": {\"risk\": \"medium\", \"template\": \"自动续约需提供明确取消窗口\"},\n  \"payment_terms\": {\"risk\": \"medium\", \"template\": \"付款条件需与验收节点绑定\"}\n}\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            Some(prompt.id),
+            &prompt_doc,
+            false,
+            &[catalog.tag_id("Prompt草案")?, catalog.tag_id("法务条款")?],
+        )?;
+
+        let review_flow = self.activity_create(ActivityCreateInput {
+            project_id: project.id,
+            attribute_option_id: Some(catalog.attribute_id("法务评审")?),
+            title: Some("法务复核机制设计".to_string()),
+            activity_time: "2026-04-08T01:00:00.000Z".to_string(),
+        })?;
+        self.activity_update_meta(ActivityUpdateMetaInput {
+            activity_id: review_flow.id,
+            title: None,
+            attribute_option_id: None,
+            clear_attribute_option: None,
+            activity_time: None,
+            is_pinned: Some(false),
+            is_expanded: Some(true),
+            status_option_id: Some(catalog.status_id("待跟进")?),
+        })?;
+        let review_note = self.create_demo_note(
+            project.id,
+            review_flow.id,
+            catalog.note_type_key("法务审查")?,
+            "复核流程设计记录",
+            "## 审查范围\nAI 输出的风险等级、风险依据、建议修改文本、拒答原因。\n\n## 风险点\n- 若没有统一复核清单，不同法务对相同结果的判断会不一致。\n- 采购合同的付款与违约条款更依赖业务上下文，不能只看单条条款。\n\n## 建议口径\n- 先按“高风险必审、中风险抽审、低风险 spot check”设计。\n- 对所有拒答结果保留原因与证据片段。\n\n## 结论\n需要一套标准复核清单与升级规则，才能支持试点上线。",
+        )?;
+        self.create_demo_conclusion(
+            project.id,
+            Some(review_flow.id),
+            Some(review_note.id),
+            "试点上线前必须先落地标准复核清单与升级规则，避免同类条款出现不同判定口径。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(review_flow.id),
+            "输出高 / 中 / 低风险分级复核清单",
+            "urgent_important",
+            &[(
+                "2026-04-08",
+                "已初步按责任限制、付款条件、续约条款划分风险级别。",
+            )],
+            false,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            Some(review_flow.id),
+            "定义拒答结果的记录字段",
+            "not_urgent_important",
+            &[("2026-04-08", "建议记录触发原因、证据片段和建议升级人。")],
+            false,
+        )?;
+        let review_doc = self.write_demo_source_file(
+            source_root,
+            "contract_review",
+            "review-checklist.md",
+            "# 法务复核清单\n\n## High Risk\n- Liability cap below threshold\n- One-sided indemnity\n\n## Medium Risk\n- Auto renewal without cancellation window\n- Payment terms detached from acceptance\n\n## Low Risk\n- Standard template wording changes\n",
+        )?;
+        self.import_demo_document(
+            project.id,
+            Some(review_flow.id),
+            &review_doc,
+            false,
+            &[catalog.tag_id("流程清单")?, catalog.tag_id("法务条款")?],
+        )?;
+
+        self.create_demo_conclusion(
+            project.id,
+            None,
+            None,
+            "合同审阅试点已经具备离线验证条件，下一阶段的关键不再是继续堆 prompt，而是把复核机制和升级规则做扎实。",
+            true,
+        )?;
+        self.create_demo_todo(
+            project.id,
+            None,
+            "准备第二批匿名采购合同样本",
+            "not_urgent_important",
+            &[("2026-04-08", "采购团队答应补充 8 份不同付款模式样本。")],
+            false,
+        )?;
+
+        Ok(SeededProjectRefs {
+            project_id: project.id,
+            activity_ids: vec![scope.id, prompt.id, review_flow.id],
+        })
+    }
+
+    fn resolve_artifact_request(
+        &self,
+        input: AiArtifactGetInput,
+    ) -> Result<ResolvedArtifactRequest> {
+        let kind = input.kind.trim();
+        let spec = artifact_skill_spec(kind)?;
+
+        match kind {
+            "activity_summary" => {
+                let project_id = input
+                    .project_id
+                    .ok_or_else(|| anyhow!("activity_summary requires projectId"))?;
+                let activity_id = input
+                    .activity_id
+                    .ok_or_else(|| anyhow!("activity_summary requires activityId"))?;
+                Ok(ResolvedArtifactRequest {
+                    spec,
+                    project_id: Some(project_id),
+                    activity_id: Some(activity_id),
+                    artifact_date: None,
+                })
+            }
+            "project_brief" => {
+                let project_id = input
+                    .project_id
+                    .ok_or_else(|| anyhow!("project_brief requires projectId"))?;
+                Ok(ResolvedArtifactRequest {
+                    spec,
+                    project_id: Some(project_id),
+                    activity_id: None,
+                    artifact_date: None,
+                })
+            }
+            "daily_brief" => Ok(ResolvedArtifactRequest {
+                spec,
+                project_id: None,
+                activity_id: None,
+                artifact_date: Some(
+                    nullable_trimmed(input.artifact_date.as_deref())
+                        .unwrap_or_else(current_workspace_date),
+                ),
+            }),
+            _ => Err(anyhow!("unsupported artifact kind")),
+        }
+    }
+
+    fn resolve_ai_answer_request(
+        &self,
+        input: AiAnswerQuestionInput,
+    ) -> Result<ResolvedAskRequest> {
+        let question = input.question.trim().to_string();
+        if question.is_empty() {
+            return Err(anyhow!("question is required"));
+        }
+
+        match input.scope {
+            AiAnswerScope::Activity => {
+                let project_id = input
+                    .project_id
+                    .ok_or_else(|| anyhow!("activity scope requires projectId"))?;
+                let activity_id = input
+                    .activity_id
+                    .ok_or_else(|| anyhow!("activity scope requires activityId"))?;
+                let activity = self.activity_row(activity_id)?;
+                if activity.project_id != project_id {
+                    return Err(anyhow!("activity does not belong to the selected project"));
+                }
+
+                Ok(ResolvedAskRequest {
+                    scope: AiAnswerScope::Activity,
+                    question,
+                    project_id: Some(project_id),
+                    activity_id: Some(activity_id),
+                })
+            }
+            AiAnswerScope::Project => {
+                let project_id = input
+                    .project_id
+                    .ok_or_else(|| anyhow!("project scope requires projectId"))?;
+                self.project_record(project_id)?;
+                Ok(ResolvedAskRequest {
+                    scope: AiAnswerScope::Project,
+                    question,
+                    project_id: Some(project_id),
+                    activity_id: None,
+                })
+            }
+            AiAnswerScope::Workspace => Ok(ResolvedAskRequest {
+                scope: AiAnswerScope::Workspace,
+                question,
+                project_id: None,
+                activity_id: None,
+            }),
+        }
+    }
+
+    fn build_ai_answer_sources(
+        &mut self,
+        scope: &AiAnswerScope,
+        project_id: Option<i64>,
+        activity_id: Option<i64>,
+    ) -> Result<Vec<AskSource>> {
+        match scope {
+            AiAnswerScope::Activity => self.build_activity_ask_sources(
+                project_id.ok_or_else(|| anyhow!("missing projectId"))?,
+                activity_id.ok_or_else(|| anyhow!("missing activityId"))?,
+            ),
+            AiAnswerScope::Project => self
+                .build_project_ask_sources(project_id.ok_or_else(|| anyhow!("missing projectId"))?),
+            AiAnswerScope::Workspace => self.build_workspace_ask_sources(),
+        }
+    }
+
+    fn build_artifact_context(
+        &mut self,
+        spec: &ArtifactSkillSpec,
+        project_id: Option<i64>,
+        activity_id: Option<i64>,
+        artifact_date: Option<String>,
+    ) -> Result<ArtifactGenerationContext> {
+        match spec.kind {
+            "activity_summary" => self.build_activity_summary_context(
+                project_id.ok_or_else(|| anyhow!("missing projectId"))?,
+                activity_id.ok_or_else(|| anyhow!("missing activityId"))?,
+            ),
+            "project_brief" => self.build_project_brief_context(
+                project_id.ok_or_else(|| anyhow!("missing projectId"))?,
+            ),
+            "daily_brief" => {
+                self.build_daily_brief_context(artifact_date.unwrap_or_else(current_workspace_date))
+            }
+            _ => Err(anyhow!("unsupported artifact kind")),
+        }
+    }
+
+    fn build_activity_summary_context(
+        &mut self,
+        project_id: i64,
+        activity_id: i64,
+    ) -> Result<ArtifactGenerationContext> {
+        let activity = self.activity_card(activity_id)?;
+        let project = self.project_record(project_id)?;
+        let mut sources = Vec::new();
+        let mut latest = project.updated_at.clone();
+
+        push_artifact_source(
+            &mut sources,
+            &mut latest,
+            Some(project.id),
+            Some(activity.id),
+            "ACTIVITY",
+            activity.id,
+            "activity",
+            format!("Activity · {}", activity.title),
+            format!(
+                "项目：{}；时间：{}；状态：{}；属性：{}",
+                project.name,
+                activity.activity_time,
+                activity.status_label,
+                activity
+                    .attribute_label
+                    .clone()
+                    .unwrap_or_else(|| "未设置".to_string())
+            ),
+            &activity.updated_at,
+        );
+
+        for note in &activity.notes {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(note.project_id),
+                Some(note.activity_id),
+                "NOTE",
+                note.id,
+                "note",
+                format!(
+                    "Note · {}",
+                    note.title
+                        .clone()
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| note.note_type.clone())
+                ),
+                note.content_markdown.clone(),
+                &note.updated_at,
+            );
+        }
+
+        for conclusion in &activity.conclusions {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(conclusion.project_id),
+                conclusion.activity_id,
+                "CONCLUSION",
+                conclusion.id,
+                "conclusion",
+                "Conclusion".to_string(),
+                conclusion.content_markdown.clone(),
+                &conclusion.updated_at,
+            );
+        }
+
+        for todo in &activity.todos {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(todo.project_id),
+                todo.activity_id,
+                "TODO",
+                todo.id,
+                "todo",
+                "Todo".to_string(),
+                format!(
+                    "{}；优先级：{}；最近进展：{}",
+                    todo.content,
+                    todo.priority,
+                    todo.progresses
+                        .first()
+                        .map(|item| item.content.clone())
+                        .unwrap_or_else(|| "暂无进展".to_string())
+                ),
+                &todo.updated_at,
+            );
+        }
+
+        for document in &activity.documents {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(document.project_id),
+                document.activity_id,
+                "DOCUMENT",
+                document.id,
+                "document",
+                format!("Document · {}", document.name),
+                format!(
+                    "文件：{}；类型：{}；状态：{}；最近更新时间：{}",
+                    document.name, document.mime_type, document.health, document.updated_at
+                ),
+                &document.updated_at,
+            );
+        }
+
+        Ok(ArtifactGenerationContext {
+            project_id: Some(project_id),
+            activity_id: Some(activity_id),
+            artifact_date: None,
+            source_updated_at: latest,
+            context_text: render_artifact_context(
+                "Activity Summary",
+                &format!("Project: {}\nActivity: {}", project.name, activity.title),
+                &sources,
+            ),
+            sources,
+        })
+    }
+
+    fn build_project_brief_context(
+        &mut self,
+        project_id: i64,
+    ) -> Result<ArtifactGenerationContext> {
+        let dashboard = self.project_get_dashboard(ProjectIdInput { project_id })?;
+        let mut sources = Vec::new();
+        let mut latest = dashboard.project.updated_at.clone();
+
+        push_artifact_source(
+            &mut sources,
+            &mut latest,
+            Some(dashboard.project.id),
+            None,
+            "PROJECT",
+            dashboard.project.id,
+            "project",
+            format!("Project · {}", dashboard.project.name),
+            format!(
+                "状态：{}；简介：{}",
+                dashboard.project.status,
+                if dashboard.project.summary.trim().is_empty() {
+                    "暂无项目简介"
+                } else {
+                    dashboard.project.summary.trim()
+                }
+            ),
+            &dashboard.project.updated_at,
+        );
+
+        for activity in &dashboard.recent_activities {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(activity.project_id),
+                Some(activity.id),
+                "ACTIVITY",
+                activity.id,
+                "activity",
+                format!("Recent Activity · {}", activity.title),
+                format!(
+                    "时间：{}；状态：{}；开放 Todo：{}；记录数：{}",
+                    activity.activity_time,
+                    activity.status_label,
+                    activity.todo_count,
+                    activity.note_count
+                ),
+                &dashboard.project.updated_at,
+            );
+        }
+
+        for conclusion in &dashboard.key_conclusions {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(conclusion.project_id),
+                conclusion.activity_id,
+                "CONCLUSION",
+                conclusion.id,
+                "conclusion",
+                "Project Conclusion".to_string(),
+                conclusion.content_markdown.clone(),
+                &conclusion.updated_at,
+            );
+        }
+
+        for todo in &dashboard.open_todos {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(todo.project_id),
+                todo.activity_id,
+                "TODO",
+                todo.id,
+                "todo",
+                "Open Todo".to_string(),
+                format!(
+                    "{}；优先级：{}；最近进展：{}",
+                    todo.content,
+                    todo.priority,
+                    todo.progresses
+                        .first()
+                        .map(|item| item.content.clone())
+                        .unwrap_or_else(|| "暂无进展".to_string())
+                ),
+                &todo.updated_at,
+            );
+        }
+
+        for document in &dashboard.starred_documents {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(document.project_id),
+                document.activity_id,
+                "DOCUMENT",
+                document.id,
+                "document",
+                format!("Starred Document · {}", document.name),
+                format!(
+                    "文件：{}；类型：{}；状态：{}",
+                    document.name, document.mime_type, document.health
+                ),
+                &document.updated_at,
+            );
+        }
+
+        Ok(ArtifactGenerationContext {
+            project_id: Some(project_id),
+            activity_id: None,
+            artifact_date: None,
+            source_updated_at: latest,
+            context_text: render_artifact_context(
+                "Project Brief",
+                &format!("Project: {}", dashboard.project.name),
+                &sources,
+            ),
+            sources,
+        })
+    }
+
+    fn build_daily_brief_context(
+        &mut self,
+        artifact_date: String,
+    ) -> Result<ArtifactGenerationContext> {
+        let visible_projects = self.projects_list(ProjectsListInput {
+            include_archived: Some(false),
+        })?;
+        let todo_sources = self.workspace_open_todo_sources(10)?;
+        let activity_sources = self.workspace_recent_activity_sources(10)?;
+        let mut sources = Vec::new();
+        let mut latest = now_iso();
+
+        for project in visible_projects.iter().take(6) {
+            push_artifact_source(
+                &mut sources,
+                &mut latest,
+                Some(project.id),
+                None,
+                "PROJECT",
+                project.id,
+                "project",
+                format!("Project · {}", project.name),
+                format!(
+                    "状态：{}；简介：{}；未完成 Todo：{}",
+                    project.status,
+                    if project.summary.trim().is_empty() {
+                        "暂无项目简介"
+                    } else {
+                        project.summary.trim()
+                    },
+                    project.open_todo_count
+                ),
+                &project.updated_at,
+            );
+        }
+
+        for source in todo_sources {
+            push_existing_artifact_source(&mut sources, &mut latest, source, None);
+        }
+
+        for source in activity_sources {
+            push_existing_artifact_source(&mut sources, &mut latest, source, None);
+        }
+
+        Ok(ArtifactGenerationContext {
+            project_id: None,
+            activity_id: None,
+            artifact_date: Some(artifact_date.clone()),
+            source_updated_at: latest,
+            context_text: render_artifact_context(
+                "Daily Brief",
+                &format!("Workspace day: {artifact_date}"),
+                &sources,
+            ),
+            sources,
+        })
+    }
+
+    fn build_activity_ask_sources(
+        &mut self,
+        project_id: i64,
+        activity_id: i64,
+    ) -> Result<Vec<AskSource>> {
+        let project = self.project_record(project_id)?;
+        let activity = self.activity_card(activity_id)?;
+        if activity.project_id != project_id {
+            return Err(anyhow!("activity does not belong to the selected project"));
+        }
+
+        let mut sources = Vec::new();
+        push_ask_source(
+            &mut sources,
+            Some(project.id),
+            Some(activity.id),
+            "ACTIVITY",
+            activity.id,
+            "activity",
+            format!("Activity · {}", activity.title),
+            format!(
+                "项目：{}；时间：{}；状态：{}；属性：{}",
+                project.name,
+                activity.activity_time,
+                activity.status_label,
+                activity
+                    .attribute_label
+                    .clone()
+                    .unwrap_or_else(|| "未设置".to_string())
+            ),
+            format!(
+                "Activity title: {}\nProject: {}\nTime: {}\nStatus: {}\nAttribute: {}",
+                activity.title,
+                project.name,
+                activity.activity_time,
+                activity.status_label,
+                activity
+                    .attribute_label
+                    .clone()
+                    .unwrap_or_else(|| "未设置".to_string())
+            ),
+            &activity.updated_at,
+        );
+
+        for note in &activity.notes {
+            let label = note
+                .title
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| note.note_type.clone());
+            push_ask_source(
+                &mut sources,
+                Some(note.project_id),
+                Some(note.activity_id),
+                "NOTE",
+                note.id,
+                "note",
+                format!("Note · {}", label),
+                note.content_markdown.clone(),
+                truncate_text(&note.content_markdown, 2200),
+                &note.updated_at,
+            );
+        }
+
+        for conclusion in &activity.conclusions {
+            push_ask_source(
+                &mut sources,
+                Some(conclusion.project_id),
+                conclusion.activity_id,
+                "CONCLUSION",
+                conclusion.id,
+                "conclusion",
+                "Conclusion".to_string(),
+                conclusion.content_markdown.clone(),
+                conclusion.content_markdown.clone(),
+                &conclusion.updated_at,
+            );
+        }
+
+        for todo in &activity.todos {
+            let progress = todo
+                .progresses
+                .first()
+                .map(|item| item.content.clone())
+                .unwrap_or_else(|| "暂无进展".to_string());
+            let body_text = format!(
+                "Todo: {}\nPriority: {}\nStatus: {}\nLatest progress: {}",
+                todo.content, todo.priority, todo.status, progress
+            );
+            push_ask_source(
+                &mut sources,
+                Some(todo.project_id),
+                todo.activity_id,
+                "TODO",
+                todo.id,
+                "todo",
+                "Todo".to_string(),
+                format!(
+                    "{}；优先级：{}；最近进展：{}",
+                    todo.content, todo.priority, progress
+                ),
+                body_text,
+                &todo.updated_at,
+            );
+        }
+
+        for document in &activity.documents {
+            let tags = if document.tags.is_empty() {
+                "无标签".to_string()
+            } else {
+                document
+                    .tags
+                    .iter()
+                    .map(|tag| tag.label.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
+            };
+            let body_text = format!(
+                "Document: {}\nType: {}\nHealth: {}\nTags: {}\nActivity: {}",
+                document.name, document.mime_type, document.health, tags, activity.title
+            );
+            push_ask_source(
+                &mut sources,
+                Some(document.project_id),
+                document.activity_id,
+                "DOCUMENT",
+                document.id,
+                "document",
+                format!("Document · {}", document.name),
+                format!(
+                    "文件：{}；类型：{}；状态：{}；标签：{}",
+                    document.name, document.mime_type, document.health, tags
+                ),
+                body_text,
+                &document.updated_at,
+            );
+        }
+
+        Ok(sources)
+    }
+
+    fn build_project_ask_sources(&mut self, project_id: i64) -> Result<Vec<AskSource>> {
+        let dashboard = self.project_get_dashboard(ProjectIdInput { project_id })?;
+        let mut sources = Vec::new();
+
+        push_ask_source(
+            &mut sources,
+            Some(dashboard.project.id),
+            None,
+            "PROJECT",
+            dashboard.project.id,
+            "project",
+            format!("Project · {}", dashboard.project.name),
+            format!(
+                "状态：{}；简介：{}",
+                dashboard.project.status,
+                if dashboard.project.summary.trim().is_empty() {
+                    "暂无项目简介"
+                } else {
+                    dashboard.project.summary.trim()
+                }
+            ),
+            format!(
+                "Project: {}\nStatus: {}\nSummary: {}",
+                dashboard.project.name,
+                dashboard.project.status,
+                if dashboard.project.summary.trim().is_empty() {
+                    "暂无项目简介"
+                } else {
+                    dashboard.project.summary.trim()
+                }
+            ),
+            &dashboard.project.updated_at,
+        );
+
+        for activity in &dashboard.recent_activities {
+            push_ask_source(
+                &mut sources,
+                Some(activity.project_id),
+                Some(activity.id),
+                "ACTIVITY",
+                activity.id,
+                "activity",
+                format!("Recent Activity · {}", activity.title),
+                format!(
+                    "时间：{}；状态：{}；记录数：{}；开放 Todo：{}",
+                    activity.activity_time,
+                    activity.status_label,
+                    activity.note_count,
+                    activity.todo_count
+                ),
+                format!(
+                    "Activity: {}\nTime: {}\nStatus: {}\nNote count: {}\nTodo count: {}",
+                    activity.title,
+                    activity.activity_time,
+                    activity.status_label,
+                    activity.note_count,
+                    activity.todo_count
+                ),
+                &dashboard.project.updated_at,
+            );
+        }
+
+        for conclusion in &dashboard.key_conclusions {
+            push_ask_source(
+                &mut sources,
+                Some(conclusion.project_id),
+                conclusion.activity_id,
+                "CONCLUSION",
+                conclusion.id,
+                "conclusion",
+                "Project Conclusion".to_string(),
+                conclusion.content_markdown.clone(),
+                conclusion.content_markdown.clone(),
+                &conclusion.updated_at,
+            );
+        }
+
+        for todo in &dashboard.open_todos {
+            let progress = todo
+                .progresses
+                .first()
+                .map(|item| item.content.clone())
+                .unwrap_or_else(|| "暂无进展".to_string());
+            push_ask_source(
+                &mut sources,
+                Some(todo.project_id),
+                todo.activity_id,
+                "TODO",
+                todo.id,
+                "todo",
+                "Open Todo".to_string(),
+                format!(
+                    "{}；优先级：{}；最近进展：{}",
+                    todo.content, todo.priority, progress
+                ),
+                format!(
+                    "Todo: {}\nPriority: {}\nStatus: {}\nLatest progress: {}",
+                    todo.content, todo.priority, todo.status, progress
+                ),
+                &todo.updated_at,
+            );
+        }
+
+        for document in self
+            .fetch_project_documents_for_project(project_id)?
+            .into_iter()
+            .take(8)
+        {
+            let tags = if document.tags.is_empty() {
+                "无标签".to_string()
+            } else {
+                document
+                    .tags
+                    .iter()
+                    .map(|tag| tag.label.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
+            };
+            push_ask_source(
+                &mut sources,
+                Some(document.project_id),
+                document.activity_id,
+                "DOCUMENT",
+                document.id,
+                "document",
+                format!("Project Document · {}", document.name),
+                format!(
+                    "文件：{}；类型：{}；状态：{}；标签：{}",
+                    document.name, document.mime_type, document.health, tags
+                ),
+                format!(
+                    "Document: {}\nType: {}\nHealth: {}\nTags: {}",
+                    document.name, document.mime_type, document.health, tags
+                ),
+                &document.updated_at,
+            );
+        }
+
+        let mut note_count = 0usize;
+        for activity in dashboard.recent_activities.iter().take(4) {
+            if note_count >= 6 {
+                break;
+            }
+            for note in self.fetch_notes(activity.id)?.into_iter().take(2) {
+                let label = note
+                    .title
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| note.note_type.clone());
+                let note_excerpt = truncate_text(&note.content_markdown, 360);
+                push_ask_source(
+                    &mut sources,
+                    Some(note.project_id),
+                    Some(note.activity_id),
+                    "NOTE",
+                    note.id,
+                    "note",
+                    format!("Recent Note · {}", label),
+                    note_excerpt.clone(),
+                    note_excerpt,
+                    &note.updated_at,
+                );
+                note_count += 1;
+                if note_count >= 6 {
+                    break;
+                }
+            }
+        }
+
+        Ok(sources)
+    }
+
+    fn build_workspace_ask_sources(&mut self) -> Result<Vec<AskSource>> {
+        let visible_projects = self.projects_list(ProjectsListInput {
+            include_archived: Some(false),
+        })?;
+        let mut sources = Vec::new();
+
+        for project in visible_projects.iter().take(8) {
+            push_ask_source(
+                &mut sources,
+                Some(project.id),
+                None,
+                "PROJECT",
+                project.id,
+                "project",
+                format!("Project · {}", project.name),
+                format!(
+                    "状态：{}；简介：{}；未完成 Todo：{}",
+                    project.status,
+                    if project.summary.trim().is_empty() {
+                        "暂无项目简介"
+                    } else {
+                        project.summary.trim()
+                    },
+                    project.open_todo_count
+                ),
+                format!(
+                    "Project: {}\nStatus: {}\nSummary: {}\nOpen todos: {}",
+                    project.name,
+                    project.status,
+                    if project.summary.trim().is_empty() {
+                        "暂无项目简介"
+                    } else {
+                        project.summary.trim()
+                    },
+                    project.open_todo_count
+                ),
+                &project.updated_at,
+            );
+
+            for conclusion in self
+                .list_project_conclusions(project.id, true)?
+                .into_iter()
+                .take(2)
+            {
+                push_ask_source(
+                    &mut sources,
+                    Some(conclusion.project_id),
+                    conclusion.activity_id,
+                    "CONCLUSION",
+                    conclusion.id,
+                    "conclusion",
+                    format!("Project Conclusion · {}", project.name),
+                    conclusion.content_markdown.clone(),
+                    conclusion.content_markdown.clone(),
+                    &conclusion.updated_at,
+                );
+            }
+        }
+
+        sources.extend(self.workspace_open_todo_ask_sources(12)?);
+        sources.extend(self.workspace_recent_activity_ask_sources(10)?);
+        sources.extend(self.workspace_starred_document_ask_sources(10)?);
+
+        Ok(sources)
+    }
+
+    fn workspace_open_todo_sources(&self, limit: i64) -> Result<Vec<ArtifactSource>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              t.id,
+              t.project_id,
+              t.activity_id,
+              t.content,
+              t.priority,
+              t.updated_at,
+              p.name,
+              COALESCE(a.title, '')
+            FROM todos t
+            INNER JOIN projects p ON p.id = t.project_id
+            LEFT JOIN activities a ON a.id = t.activity_id
+            WHERE p.is_archived = 0
+              AND t.status = 'unfinished'
+            ORDER BY
+              CASE t.priority
+                WHEN 'urgent_important' THEN 0
+                WHEN 'urgent_not_important' THEN 1
+                WHEN 'not_urgent_important' THEN 2
+                ELSE 3
+              END,
+              t.updated_at DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(ArtifactSource {
+                ref_code: format!("TODO-{}", row.get::<_, i64>(0)?),
+                source_kind: "todo".to_string(),
+                source_id: row.get(0)?,
+                project_id: Some(row.get(1)?),
+                activity_id: row.get(2)?,
+                label: format!(
+                    "Todo · {} · {}",
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?
+                ),
+                excerpt: format!(
+                    "{}；优先级：{}",
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?
+                ),
+            })
+        })?;
+        let sources = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(sources)
+    }
+
+    fn workspace_recent_activity_sources(&self, limit: i64) -> Result<Vec<ArtifactSource>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              a.id,
+              a.project_id,
+              a.title,
+              a.activity_time,
+              a.updated_at,
+              p.name,
+              COALESCE(aso.label, '')
+            FROM activities a
+            INNER JOIN projects p ON p.id = a.project_id
+            LEFT JOIN activity_status_options aso ON aso.id = a.status_option_id
+            WHERE p.is_archived = 0
+            ORDER BY a.updated_at DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            Ok(ArtifactSource {
+                ref_code: format!("ACTIVITY-{}", row.get::<_, i64>(0)?),
+                source_kind: "activity".to_string(),
+                source_id: row.get(0)?,
+                project_id: Some(row.get(1)?),
+                activity_id: Some(row.get(0)?),
+                label: format!(
+                    "Activity · {} · {}",
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(2)?
+                ),
+                excerpt: format!(
+                    "时间：{}；状态：{}；最近更新：{}",
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(4)?
+                ),
+            })
+        })?;
+        let sources = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(sources)
+    }
+
+    fn workspace_open_todo_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              t.id,
+              t.project_id,
+              t.activity_id,
+              t.content,
+              t.priority,
+              t.status,
+              t.updated_at,
+              p.name,
+              COALESCE(a.title, '')
+            FROM todos t
+            INNER JOIN projects p ON p.id = t.project_id
+            LEFT JOIN activities a ON a.id = t.activity_id
+            WHERE p.is_archived = 0
+              AND t.status = 'unfinished'
+            ORDER BY
+              CASE t.priority
+                WHEN 'urgent_important' THEN 0
+                WHEN 'urgent_not_important' THEN 1
+                WHEN 'not_urgent_important' THEN 2
+                ELSE 3
+              END,
+              t.updated_at DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            let source_id = row.get::<_, i64>(0)?;
+            let content = row.get::<_, String>(3)?;
+            let priority = row.get::<_, String>(4)?;
+            let status = row.get::<_, String>(5)?;
+            let project_name = row.get::<_, String>(7)?;
+            let activity_title = row.get::<_, String>(8)?;
+            Ok(AskSource {
+                ref_code: format!("TODO-{source_id}"),
+                source_kind: "todo".to_string(),
+                source_id,
+                project_id: Some(row.get(1)?),
+                activity_id: row.get(2)?,
+                label: if activity_title.trim().is_empty() {
+                    format!("Todo · {project_name}")
+                } else {
+                    format!("Todo · {project_name} · {activity_title}")
+                },
+                excerpt: truncate_text(&format!("{content}；优先级：{priority}"), 280),
+                body_text: format!(
+                    "Todo: {content}\nPriority: {priority}\nStatus: {status}\nProject: {project_name}\nActivity: {activity_title}"
+                ),
+                updated_at: row.get(6)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    fn workspace_recent_activity_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              a.id,
+              a.project_id,
+              a.title,
+              a.activity_time,
+              a.updated_at,
+              p.name,
+              COALESCE(aso.label, '')
+            FROM activities a
+            INNER JOIN projects p ON p.id = a.project_id
+            LEFT JOIN activity_status_options aso ON aso.id = a.status_option_id
+            WHERE p.is_archived = 0
+            ORDER BY a.updated_at DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            let activity_id = row.get::<_, i64>(0)?;
+            let title = row.get::<_, String>(2)?;
+            let project_name = row.get::<_, String>(5)?;
+            let status_label = row.get::<_, String>(6)?;
+            Ok(AskSource {
+                ref_code: format!("ACTIVITY-{activity_id}"),
+                source_kind: "activity".to_string(),
+                source_id: activity_id,
+                project_id: Some(row.get(1)?),
+                activity_id: Some(activity_id),
+                label: format!("Activity · {project_name} · {title}"),
+                excerpt: truncate_text(
+                    &format!(
+                        "时间：{}；状态：{}；最近更新：{}",
+                        row.get::<_, String>(3)?,
+                        status_label,
+                        row.get::<_, String>(4)?
+                    ),
+                    280,
+                ),
+                body_text: format!(
+                    "Activity: {title}\nProject: {project_name}\nTime: {}\nStatus: {status_label}",
+                    row.get::<_, String>(3)?
+                ),
+                updated_at: row.get(4)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    fn workspace_starred_document_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              d.id,
+              d.project_id,
+              d.activity_id,
+              d.name,
+              d.mime_type,
+              d.health,
+              d.updated_at,
+              p.name,
+              COALESCE(a.title, '')
+            FROM documents d
+            INNER JOIN projects p ON p.id = d.project_id
+            LEFT JOIN activities a ON a.id = d.activity_id
+            WHERE p.is_archived = 0
+              AND d.is_starred = 1
+            ORDER BY d.updated_at DESC
+            LIMIT ?1
+            "#,
+        )?;
+        let rows = stmt.query_map([limit], |row| {
+            let source_id = row.get::<_, i64>(0)?;
+            let document_name = row.get::<_, String>(3)?;
+            let project_name = row.get::<_, String>(7)?;
+            let activity_title = row.get::<_, String>(8)?;
+            Ok(AskSource {
+                ref_code: format!("DOCUMENT-{source_id}"),
+                source_kind: "document".to_string(),
+                source_id,
+                project_id: Some(row.get(1)?),
+                activity_id: row.get(2)?,
+                label: if activity_title.trim().is_empty() {
+                    format!("Starred Document · {project_name} · {document_name}")
+                } else {
+                    format!("Starred Document · {project_name} · {activity_title} · {document_name}")
+                },
+                excerpt: truncate_text(
+                    &format!(
+                        "文件：{}；类型：{}；状态：{}",
+                        document_name,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?
+                    ),
+                    280,
+                ),
+                body_text: format!(
+                    "Document: {document_name}\nProject: {project_name}\nActivity: {activity_title}\nType: {}\nHealth: {}",
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?
+                ),
+                updated_at: row.get(6)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    fn ai_artifact_record_by_scope(
+        &self,
+        kind: &str,
+        project_id: Option<i64>,
+        activity_id: Option<i64>,
+        artifact_date: Option<&str>,
+    ) -> Result<Option<AiArtifactRecord>> {
+        let scope_key = ai_artifact_scope_key(kind, project_id, activity_id, artifact_date);
+        let artifact_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
+                params![scope_key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        artifact_id
+            .map(|id| self.ai_artifact_record(id))
+            .transpose()
+    }
+
+    fn ai_artifact_record(&self, artifact_id: i64) -> Result<AiArtifactRecord> {
+        let mut record = self.conn.query_row(
+            r#"
+                SELECT
+                  id, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
+                  status, markdown, json_payload, source_updated_at, generated_at, error_message,
+                  created_at, updated_at
+                FROM ai_artifacts
+                WHERE id = ?1
+                "#,
+            [artifact_id],
+            |row| {
+                let payload_json: String = row.get(9)?;
+                let json_payload =
+                    serde_json::from_str::<Value>(&payload_json).unwrap_or_else(|_| {
+                        json!({
+                            "overview": "",
+                            "sections": []
+                        })
+                    });
+
+                Ok(AiArtifactRecord {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    skill_key: row.get(2)?,
+                    skill_version: row.get(3)?,
+                    project_id: row.get(4)?,
+                    activity_id: row.get(5)?,
+                    artifact_date: row.get(6)?,
+                    status: row.get(7)?,
+                    markdown: row.get(8)?,
+                    json_payload,
+                    source_updated_at: row.get(10)?,
+                    generated_at: row.get(11)?,
+                    error_message: row.get(12)?,
+                    citations: Vec::new(),
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
+                })
+            },
+        )?;
+        record.citations = self.fetch_ai_artifact_citations(artifact_id)?;
+        Ok(record)
+    }
+
+    fn fetch_ai_artifact_citations(
+        &self,
+        artifact_id: i64,
+    ) -> Result<Vec<AiArtifactCitationRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, artifact_id, source_kind, source_id, project_id, activity_id, label, excerpt, order_index
+            FROM ai_artifact_citations
+            WHERE artifact_id = ?1
+            ORDER BY order_index ASC, id ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([artifact_id], |row| {
+            Ok(AiArtifactCitationRecord {
+                id: row.get(0)?,
+                artifact_id: row.get(1)?,
+                source_kind: row.get(2)?,
+                source_id: row.get(3)?,
+                project_id: row.get(4)?,
+                activity_id: row.get(5)?,
+                label: row.get(6)?,
+                excerpt: row.get(7)?,
+                order_index: row.get(8)?,
+            })
+        })?;
+        let citations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(citations)
+    }
+
+    fn upsert_ai_artifact_success(
+        &mut self,
+        spec: &ArtifactSkillSpec,
+        context: ArtifactGenerationContext,
+        payload: ai_provider::ArtifactPayload,
+        timestamp: &str,
+    ) -> Result<AiArtifactRecord> {
+        let ai_provider::ArtifactPayload {
+            overview,
+            sections,
+            citations,
+        } = payload;
+        let structured_payload = AiArtifactPayload { overview, sections };
+        let markdown = render_artifact_markdown(&structured_payload);
+        let payload_json = serde_json::to_string(&structured_payload)?;
+        let artifact_date = context.artifact_date.clone();
+        let scope_key = ai_artifact_scope_key(
+            spec.kind,
+            context.project_id,
+            context.activity_id,
+            artifact_date.as_deref(),
+        );
+        self.conn.execute(
+            r#"
+            INSERT INTO ai_artifacts (
+              scope_key, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
+              status, markdown, json_payload, source_updated_at, generated_at, error_message,
+              created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14)
+            ON CONFLICT(scope_key) DO UPDATE SET
+              kind = excluded.kind,
+              skill_key = excluded.skill_key,
+              skill_version = excluded.skill_version,
+              project_id = excluded.project_id,
+              activity_id = excluded.activity_id,
+              artifact_date = excluded.artifact_date,
+              status = excluded.status,
+              markdown = excluded.markdown,
+              json_payload = excluded.json_payload,
+              source_updated_at = excluded.source_updated_at,
+              generated_at = excluded.generated_at,
+              error_message = NULL,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                scope_key,
+                spec.kind,
+                spec.skill_key,
+                spec.skill_version,
+                context.project_id,
+                context.activity_id,
+                artifact_date.clone(),
+                AI_ARTIFACT_STATUS_FRESH,
+                markdown,
+                payload_json,
+                context.source_updated_at,
+                timestamp,
+                timestamp,
+                timestamp
+            ],
+        )?;
+        let artifact_id = self.conn.query_row(
+            "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
+            params![ai_artifact_scope_key(
+                spec.kind,
+                context.project_id,
+                context.activity_id,
+                artifact_date.as_deref()
+            )],
+            |row| row.get::<_, i64>(0),
+        )?;
+        self.replace_ai_artifact_citations(artifact_id, &context.sources, &citations)?;
+        self.ai_artifact_record(artifact_id)
+    }
+
+    fn upsert_ai_artifact_error(
+        &mut self,
+        spec: &ArtifactSkillSpec,
+        project_id: Option<i64>,
+        activity_id: Option<i64>,
+        artifact_date: Option<&str>,
+        source_updated_at: &str,
+        timestamp: &str,
+        error_message: &str,
+    ) -> Result<AiArtifactRecord> {
+        let scope_key = ai_artifact_scope_key(spec.kind, project_id, activity_id, artifact_date);
+        let existing_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
+                params![scope_key.clone()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        if let Some(artifact_id) = existing_id {
+            self.conn.execute(
+                r#"
+                UPDATE ai_artifacts
+                SET kind = ?1,
+                    skill_key = ?2,
+                    skill_version = ?3,
+                    project_id = ?4,
+                    activity_id = ?5,
+                    artifact_date = ?6,
+                    status = ?7,
+                    source_updated_at = ?8,
+                    error_message = ?9,
+                    updated_at = ?10
+                WHERE id = ?11
+                "#,
+                params![
+                    spec.kind,
+                    spec.skill_key,
+                    spec.skill_version,
+                    project_id,
+                    activity_id,
+                    artifact_date,
+                    AI_ARTIFACT_STATUS_ERROR,
+                    source_updated_at,
+                    error_message,
+                    timestamp,
+                    artifact_id
+                ],
+            )?;
+            return self.ai_artifact_record(artifact_id);
+        }
+
+        let empty_payload = serde_json::to_string(&AiArtifactPayload {
+            overview: String::new(),
+            sections: Vec::new(),
+        })?;
+        self.conn.execute(
+            r#"
+            INSERT INTO ai_artifacts (
+              scope_key, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
+              status, markdown, json_payload, source_updated_at, generated_at, error_message,
+              created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', ?9, ?10, NULL, ?11, ?12, ?13)
+            "#,
+            params![
+                scope_key,
+                spec.kind,
+                spec.skill_key,
+                spec.skill_version,
+                project_id,
+                activity_id,
+                artifact_date,
+                AI_ARTIFACT_STATUS_ERROR,
+                empty_payload,
+                source_updated_at,
+                error_message,
+                timestamp,
+                timestamp
+            ],
+        )?;
+        self.ai_artifact_record(self.conn.last_insert_rowid())
+    }
+
+    fn replace_ai_artifact_citations(
+        &mut self,
+        artifact_id: i64,
+        sources: &[ArtifactSource],
+        citation_refs: &[String],
+    ) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM ai_artifact_citations WHERE artifact_id = ?1",
+            params![artifact_id],
+        )?;
+
+        let resolved_refs = if citation_refs.is_empty() {
+            sources
+                .iter()
+                .take(3)
+                .map(|source| source.ref_code.clone())
+                .collect::<Vec<_>>()
+        } else {
+            citation_refs.to_vec()
+        };
+
+        let mut unique_refs = Vec::new();
+        for reference in resolved_refs {
+            if !unique_refs.contains(&reference) {
+                unique_refs.push(reference);
+            }
+        }
+
+        for (index, reference) in unique_refs.iter().enumerate() {
+            if let Some(source) = sources.iter().find(|item| item.ref_code == *reference) {
+                self.conn.execute(
+                    r#"
+                    INSERT INTO ai_artifact_citations (
+                      artifact_id, source_kind, source_id, project_id, activity_id,
+                      label, excerpt, order_index
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    "#,
+                    params![
+                        artifact_id,
+                        source.source_kind,
+                        source.source_id,
+                        source.project_id,
+                        source.activity_id,
+                        source.label,
+                        source.excerpt,
+                        index as i64
+                    ],
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     fn project_record(&self, project_id: i64) -> Result<ProjectRecord> {
@@ -2888,7 +5996,9 @@ impl Database {
 
     fn record_type_count(&self) -> Result<i64> {
         self.conn
-            .query_row("SELECT COUNT(*) FROM record_type_options", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM record_type_options", [], |row| {
+                row.get(0)
+            })
             .map_err(Into::into)
     }
 
@@ -3962,6 +7072,8 @@ impl Database {
             "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
             params![now_iso(), project_id],
         )?;
+        self.mark_project_artifacts_stale(project_id)?;
+        self.mark_daily_artifacts_stale()?;
         Ok(())
     }
 
@@ -3975,7 +7087,38 @@ impl Database {
             "UPDATE activities SET updated_at = ?1 WHERE id = ?2",
             params![now_iso(), activity_id],
         )?;
-        self.touch_project(project_id)
+        self.mark_activity_artifacts_stale(project_id, activity_id)?;
+        self.conn.execute(
+            "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+            params![now_iso(), project_id],
+        )?;
+        self.mark_project_artifacts_stale(project_id)?;
+        self.mark_daily_artifacts_stale()?;
+        Ok(())
+    }
+
+    fn mark_project_artifacts_stale(&self, project_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE project_id = ?3 AND kind = 'project_brief'",
+            params![AI_ARTIFACT_STATUS_STALE, now_iso(), project_id],
+        )?;
+        Ok(())
+    }
+
+    fn mark_activity_artifacts_stale(&self, project_id: i64, activity_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE project_id = ?3 AND activity_id = ?4 AND kind = 'activity_summary'",
+            params![AI_ARTIFACT_STATUS_STALE, now_iso(), project_id, activity_id],
+        )?;
+        Ok(())
+    }
+
+    fn mark_daily_artifacts_stale(&self) -> Result<()> {
+        self.conn.execute(
+            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE kind = 'daily_brief'",
+            params![AI_ARTIFACT_STATUS_STALE, now_iso()],
+        )?;
+        Ok(())
     }
 
     fn rebuild_todo_schema(&self) -> Result<()> {
@@ -4245,7 +7388,11 @@ impl Database {
             .iter()
             .find(|(_id, key, is_default)| *is_default && key == DEFAULT_RECORD_TYPE_KEY)
             .map(|(id, _, _)| *id)
-            .or_else(|| rows.iter().find(|(_, _, is_default)| *is_default).map(|(id, _, _)| *id))
+            .or_else(|| {
+                rows.iter()
+                    .find(|(_, _, is_default)| *is_default)
+                    .map(|(id, _, _)| *id)
+            })
             .unwrap_or(rows[0].0);
 
         self.conn
@@ -4539,6 +7686,428 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
+fn current_workspace_date() -> String {
+    Local::now().format("%Y-%m-%d").to_string()
+}
+
+fn artifact_skill_spec(kind: &str) -> Result<&'static ArtifactSkillSpec> {
+    match kind {
+        "activity_summary" => Ok(&ACTIVITY_SUMMARY_SKILL),
+        "project_brief" => Ok(&PROJECT_BRIEF_SKILL),
+        "daily_brief" => Ok(&DAILY_BRIEF_SKILL),
+        _ => Err(anyhow!("unsupported artifact kind")),
+    }
+}
+
+fn ai_artifact_scope_key(
+    kind: &str,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    artifact_date: Option<&str>,
+) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        kind.trim(),
+        project_id.unwrap_or_default(),
+        activity_id.unwrap_or_default(),
+        artifact_date.unwrap_or_default().trim()
+    )
+}
+
+fn push_artifact_source(
+    sources: &mut Vec<ArtifactSource>,
+    latest: &mut String,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    ref_prefix: &str,
+    source_id: i64,
+    source_kind: &str,
+    label: String,
+    excerpt: String,
+    updated_at: &str,
+) {
+    let normalized_excerpt = truncate_text(&excerpt.replace('\n', " "), 280);
+    sources.push(ArtifactSource {
+        ref_code: format!("{ref_prefix}-{source_id}"),
+        source_kind: source_kind.to_string(),
+        source_id,
+        project_id,
+        activity_id,
+        label,
+        excerpt: normalized_excerpt,
+    });
+    if updated_at > latest.as_str() {
+        *latest = updated_at.to_string();
+    }
+}
+
+fn push_existing_artifact_source(
+    sources: &mut Vec<ArtifactSource>,
+    latest: &mut String,
+    source: ArtifactSource,
+    updated_at: Option<&str>,
+) {
+    if let Some(value) = updated_at {
+        if value > latest.as_str() {
+            *latest = value.to_string();
+        }
+    }
+    sources.push(ArtifactSource {
+        excerpt: truncate_text(&source.excerpt.replace('\n', " "), 280),
+        ..source
+    });
+}
+
+fn render_artifact_context(title: &str, scope: &str, sources: &[ArtifactSource]) -> String {
+    let rendered_sources = sources
+        .iter()
+        .map(|source| {
+            format!(
+                "{} | {} | {}",
+                source.ref_code, source.label, source.excerpt
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!("Artifact:\n{title}\n\nScope:\n{scope}\n\nSources:\n{rendered_sources}")
+}
+
+fn render_artifact_markdown(payload: &AiArtifactPayload) -> String {
+    let mut markdown = String::new();
+    if !payload.overview.trim().is_empty() {
+        markdown.push_str(payload.overview.trim());
+    }
+
+    for section in &payload.sections {
+        if section.title.trim().is_empty() {
+            continue;
+        }
+        if !markdown.is_empty() {
+            markdown.push_str("\n\n");
+        }
+        markdown.push_str("## ");
+        markdown.push_str(section.title.trim());
+        for item in &section.items {
+            markdown.push('\n');
+            markdown.push_str("- ");
+            markdown.push_str(item.trim());
+        }
+    }
+
+    markdown
+}
+
+fn merge_ai_suggestion_payload(base: &Value, override_payload: Option<&Value>) -> Value {
+    let mut merged = match base {
+        Value::Object(map) => map.clone(),
+        _ => Map::new(),
+    };
+
+    if let Some(Value::Object(override_map)) = override_payload {
+        for (key, value) in override_map {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+
+    Value::Object(merged)
+}
+
+fn suggestion_payload_string<'a>(
+    payload: &'a Value,
+    key: &str,
+    error_message: &str,
+) -> Result<&'a str> {
+    payload
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!(error_message.to_string()))
+}
+
+fn ai_suggestion_preview(suggestion_type: &str, payload: &Value) -> Result<String> {
+    match suggestion_type {
+        "activity_title" => Ok(suggestion_payload_string(
+            payload,
+            "proposedTitle",
+            "missing proposedTitle",
+        )?
+        .to_string()),
+        "conclusion" | "todo" => Ok(suggestion_payload_string(
+            payload,
+            "content",
+            "missing suggestion content",
+        )?
+        .to_string()),
+        _ => Err(anyhow!("unsupported suggestion type")),
+    }
+}
+
+fn is_todo_priority(value: &str) -> bool {
+    matches!(
+        value,
+        "urgent_important"
+            | "urgent_not_important"
+            | "not_urgent_important"
+            | "not_urgent_not_important"
+    )
+}
+
+fn infer_todo_priority(content: &str) -> &'static str {
+    let normalized = content.trim().to_lowercase();
+    let has_urgency = TODO_PRIORITY_URGENCY_KEYWORDS
+        .iter()
+        .any(|keyword| normalized.contains(keyword));
+    let has_importance = TODO_PRIORITY_IMPORTANCE_KEYWORDS
+        .iter()
+        .any(|keyword| normalized.contains(keyword));
+
+    if has_urgency && has_importance {
+        "urgent_important"
+    } else if has_urgency {
+        "urgent_not_important"
+    } else if has_importance {
+        "not_urgent_important"
+    } else {
+        "not_urgent_not_important"
+    }
+}
+
+fn push_ask_source(
+    sources: &mut Vec<AskSource>,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    ref_prefix: &str,
+    source_id: i64,
+    source_kind: &str,
+    label: String,
+    excerpt: String,
+    body_text: String,
+    updated_at: &str,
+) {
+    sources.push(AskSource {
+        ref_code: format!("{ref_prefix}-{source_id}"),
+        source_kind: source_kind.to_string(),
+        source_id,
+        project_id,
+        activity_id,
+        label,
+        excerpt: truncate_text(&excerpt.replace('\n', " "), 280),
+        body_text: truncate_text(&body_text.replace('\n', " "), 2400),
+        updated_at: updated_at.to_string(),
+    });
+}
+
+fn render_ask_context(
+    scope: &str,
+    project_id: Option<i64>,
+    activity_id: Option<i64>,
+    question: &str,
+    sources: &[AskSource],
+) -> String {
+    let rendered_sources = sources
+        .iter()
+        .map(|source| {
+            format!(
+                "{} | {} | {} | updatedAt={}\nExcerpt: {}\nBody: {}",
+                source.ref_code,
+                source.source_kind,
+                source.label,
+                source.updated_at,
+                source.excerpt,
+                source.body_text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    format!(
+        "Scope:\n{}\n\nProjectId:\n{}\n\nActivityId:\n{}\n\nQuestion:\n{}\n\nSources:\n{}",
+        scope,
+        project_id
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        activity_id
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        question.trim(),
+        rendered_sources
+    )
+}
+
+fn insufficient_ai_answer(scope: AiAnswerScope, message: &str) -> AiAnswerResult {
+    AiAnswerResult {
+        answer_markdown: message.trim().to_string(),
+        citations: Vec::new(),
+        scope,
+        generated_at: now_iso(),
+        skill_key: ASK_SKILL.skill_key.to_string(),
+        skill_version: ASK_SKILL.skill_version.to_string(),
+    }
+}
+
+fn rank_ask_sources(question: &str, sources: Vec<AskSource>) -> Vec<(i64, AskSource)> {
+    let phrase = compact_ask_text(question);
+    let terms = ask_query_terms(question);
+    let mut ranked = sources
+        .into_iter()
+        .filter_map(|source| {
+            let label = normalize_ask_text(&source.label);
+            let excerpt = normalize_ask_text(&source.excerpt);
+            let body = normalize_ask_text(&source.body_text);
+            let label_compact = compact_ask_text(&source.label);
+            let excerpt_compact = compact_ask_text(&source.excerpt);
+            let body_compact = compact_ask_text(&source.body_text);
+
+            let mut score = ask_source_type_weight(&source.source_kind);
+            let mut hits = 0_i64;
+
+            if phrase.chars().count() >= 2 {
+                if label_compact.contains(&phrase) {
+                    score += 30;
+                    hits += 1;
+                } else if excerpt_compact.contains(&phrase) {
+                    score += 22;
+                    hits += 1;
+                } else if body_compact.contains(&phrase) {
+                    score += 16;
+                    hits += 1;
+                }
+            }
+
+            for term in &terms {
+                if term.chars().count() < 2 {
+                    continue;
+                }
+                if label.contains(term) {
+                    score += 10;
+                    hits += 1;
+                } else if excerpt.contains(term) {
+                    score += 6;
+                    hits += 1;
+                } else if body.contains(term) {
+                    score += 4;
+                    hits += 1;
+                }
+            }
+
+            if hits == 0 {
+                return None;
+            }
+
+            Some((score, source))
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then_with(|| right.1.updated_at.cmp(&left.1.updated_at))
+            .then_with(|| left.1.ref_code.cmp(&right.1.ref_code))
+    });
+    ranked
+}
+
+fn select_ask_sources(ranked: Vec<(i64, AskSource)>, total_limit: usize) -> Vec<AskSource> {
+    let mut per_kind = HashMap::<String, usize>::new();
+    let mut selected = Vec::new();
+
+    for (_, source) in ranked {
+        let current = per_kind.get(&source.source_kind).copied().unwrap_or(0);
+        if current >= ask_source_type_cap(&source.source_kind) {
+            continue;
+        }
+
+        per_kind.insert(source.source_kind.clone(), current + 1);
+        selected.push(source);
+        if selected.len() >= total_limit {
+            break;
+        }
+    }
+
+    selected
+}
+
+fn ask_source_type_weight(source_kind: &str) -> i64 {
+    match source_kind {
+        "conclusion" => 8,
+        "todo" => 7,
+        "note" => 6,
+        "activity" => 5,
+        "project" => 4,
+        "document" => 3,
+        _ => 1,
+    }
+}
+
+fn ask_source_type_cap(source_kind: &str) -> usize {
+    match source_kind {
+        "note" | "todo" | "conclusion" => 3,
+        "activity" | "document" => 2,
+        "project" => 2,
+        _ => 1,
+    }
+}
+
+fn normalize_ask_text(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_space = false;
+    for ch in value.to_lowercase().chars() {
+        if is_ask_lexical_char(ch) {
+            normalized.push(ch);
+            last_space = false;
+        } else if !last_space {
+            normalized.push(' ');
+            last_space = true;
+        }
+    }
+    normalized.trim().to_string()
+}
+
+fn compact_ask_text(value: &str) -> String {
+    normalize_ask_text(value)
+        .split_whitespace()
+        .collect::<String>()
+}
+
+fn ask_query_terms(question: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    for segment in normalize_ask_text(question).split_whitespace() {
+        push_unique_term(&mut terms, segment.to_string());
+
+        let chars = segment.chars().collect::<Vec<_>>();
+        if chars.len() > 2 && chars.iter().all(|ch| is_cjk_char(*ch)) {
+            for window in chars.windows(2) {
+                push_unique_term(&mut terms, window.iter().collect());
+            }
+        }
+    }
+    terms
+}
+
+fn push_unique_term(terms: &mut Vec<String>, term: String) {
+    let normalized = term.trim();
+    if normalized.chars().count() < 2 {
+        return;
+    }
+    if !terms.iter().any(|existing| existing == normalized) {
+        terms.push(normalized.to_string());
+    }
+}
+
+fn is_ask_lexical_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || is_cjk_char(ch)
+}
+
+fn is_cjk_char(ch: char) -> bool {
+    let code = ch as u32;
+    (0x4E00..=0x9FFF).contains(&code)
+        || (0x3400..=0x4DBF).contains(&code)
+        || (0xF900..=0xFAFF).contains(&code)
+}
+
 fn truncate_text(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let truncated = chars.by_ref().take(max_chars).collect::<String>();
@@ -4612,13 +8181,147 @@ fn uses_windows_reserved_path_name(value: &str) -> bool {
 
 fn append_suffix_before_extension(value: &str, suffix: &str) -> String {
     let path = Path::new(value);
-    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or(value);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(value);
     let extension = path.extension().and_then(|value| value.to_str());
 
     match extension {
         Some(extension) if !extension.is_empty() => format!("{stem}{suffix}.{extension}"),
         _ => format!("{stem}{suffix}"),
     }
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+            .with_context(|| format!("failed to remove directory at {}", path.display()))?;
+    } else {
+        fs::remove_file(path)
+            .with_context(|| format!("failed to remove file at {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn collect_document_managed_assets_for_delete(document: &DocumentRecord) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let managed_path = PathBuf::from(&document.managed_path);
+    if managed_path.exists() {
+        paths.push(managed_path);
+    }
+
+    let history_dir = PathBuf::from(&document.history_dir_path);
+    if history_dir.exists() {
+        paths.push(history_dir);
+    }
+
+    paths
+}
+
+fn move_paths_to_trash(paths: &[PathBuf]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    #[cfg(test)]
+    {
+        for path in paths {
+            remove_path_if_exists(path)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(test))]
+    {
+        trash::delete_all(paths).map_err(|error| {
+            anyhow!(
+                "failed to move managed paths to trash: {}",
+                error
+            )
+        })
+    }
+}
+
+fn rich_text_html_from_markdown(markdown: &str) -> String {
+    let mut html = String::new();
+    let mut in_list = false;
+
+    for raw_line in markdown.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            if in_list {
+                html.push_str("</ul>");
+                in_list = false;
+            }
+            continue;
+        }
+
+        if let Some(content) = line.strip_prefix("## ") {
+            if in_list {
+                html.push_str("</ul>");
+                in_list = false;
+            }
+            html.push_str("<h2>");
+            html.push_str(&escape_html(content));
+            html.push_str("</h2>");
+            continue;
+        }
+
+        if let Some(content) = line.strip_prefix("### ") {
+            if in_list {
+                html.push_str("</ul>");
+                in_list = false;
+            }
+            html.push_str("<h3>");
+            html.push_str(&escape_html(content));
+            html.push_str("</h3>");
+            continue;
+        }
+
+        if let Some(content) = line.strip_prefix("- ") {
+            if !in_list {
+                html.push_str("<ul>");
+                in_list = true;
+            }
+            html.push_str("<li>");
+            html.push_str(&escape_html(content));
+            html.push_str("</li>");
+            continue;
+        }
+
+        if in_list {
+            html.push_str("</ul>");
+            in_list = false;
+        }
+        html.push_str("<p>");
+        html.push_str(&escape_html(line));
+        html.push_str("</p>");
+    }
+
+    if in_list {
+        html.push_str("</ul>");
+    }
+
+    if html.trim().is_empty() {
+        "<p></p>".to_string()
+    } else {
+        html
+    }
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn path_is_within(path: &Path, root: &Path) -> bool {
@@ -4633,9 +8336,12 @@ mod tests {
     use super::*;
     use std::{
         fs,
+        sync::atomic::{AtomicU64, Ordering},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    static TEST_UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     struct TestHarness {
         root: PathBuf,
@@ -4648,11 +8354,17 @@ mod tests {
         }
     }
 
-    fn setup_database() -> (TestHarness, Database) {
-        let unique = SystemTime::now()
+    fn next_test_unique() -> String {
+        let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let counter = TEST_UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("{timestamp}-{counter}")
+    }
+
+    fn setup_database() -> (TestHarness, Database) {
+        let unique = next_test_unique();
         let root = std::env::temp_dir().join(format!("project-mind-db-test-{unique}"));
         let workspace_root = root.join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
@@ -4726,12 +8438,99 @@ mod tests {
             .unwrap()
     }
 
+    fn configure_summary_profile(database: &mut Database) -> AiProviderProfileRecord {
+        let profile = database
+            .ai_profile_upsert(AiProviderProfileUpsertInput {
+                id: None,
+                name: "Mock Summary".to_string(),
+                provider_family: "openai_compatible".to_string(),
+                base_url: "https://mock.local/v1".to_string(),
+                api_key: Some("test-key".to_string()),
+                default_model: "mock-model".to_string(),
+                supports_text: true,
+                supports_image: false,
+                supports_file: false,
+                enabled: true,
+            })
+            .unwrap();
+
+        database
+            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
+                capability: "summary".to_string(),
+                use_default: false,
+                profile_id: Some(profile.id),
+                model: None,
+            })
+            .unwrap();
+
+        profile
+    }
+
+    fn configure_assistant_profile(database: &mut Database) -> AiProviderProfileRecord {
+        let profile = database
+            .ai_profile_upsert(AiProviderProfileUpsertInput {
+                id: None,
+                name: "Mock Assistant".to_string(),
+                provider_family: "openai_compatible".to_string(),
+                base_url: "https://mock.local/v1".to_string(),
+                api_key: Some("test-key".to_string()),
+                default_model: "mock-model".to_string(),
+                supports_text: true,
+                supports_image: false,
+                supports_file: false,
+                enabled: true,
+            })
+            .unwrap();
+
+        database
+            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
+                capability: "assistant".to_string(),
+                use_default: false,
+                profile_id: Some(profile.id),
+                model: None,
+            })
+            .unwrap();
+
+        profile
+    }
+
+    fn configure_suggestion_profile(database: &mut Database) -> AiProviderProfileRecord {
+        let profile = database
+            .ai_profile_upsert(AiProviderProfileUpsertInput {
+                id: None,
+                name: "Mock Suggestions".to_string(),
+                provider_family: "openai_compatible".to_string(),
+                base_url: "https://mock.local/v1".to_string(),
+                api_key: Some("test-key".to_string()),
+                default_model: "mock-model".to_string(),
+                supports_text: true,
+                supports_image: false,
+                supports_file: false,
+                enabled: true,
+            })
+            .unwrap();
+
+        database
+            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
+                capability: "suggestion_generation".to_string(),
+                use_default: false,
+                profile_id: Some(profile.id),
+                model: None,
+            })
+            .unwrap();
+
+        profile
+    }
+
     #[test]
     fn windows_safe_component_normalizes_reserved_names() {
         assert_eq!(normalize_windows_safe_component("CON"), "CON_");
         assert_eq!(normalize_windows_safe_component("NUL.txt"), "NUL_.txt");
         assert_eq!(normalize_windows_safe_component(" report. "), "report");
-        assert_eq!(normalize_windows_safe_component("bad\u{0007}name"), "bad_name");
+        assert_eq!(
+            normalize_windows_safe_component("bad\u{0007}name"),
+            "bad_name"
+        );
         assert_eq!(normalize_windows_safe_component(".env"), ".env");
     }
 
@@ -4757,6 +8556,55 @@ mod tests {
     }
 
     #[test]
+    fn reset_and_seed_demo_data_replaces_existing_workspace_data_with_demo_fixture() {
+        let (harness, mut database) = setup_database();
+        let legacy_project = create_project(&mut database, &harness.workspace_root);
+        create_activity(&mut database, legacy_project.id, "Legacy Activity");
+        let legacy_root = PathBuf::from(&legacy_project.root_path);
+
+        let summary = database
+            .reset_and_seed_demo_data(&harness.workspace_root)
+            .unwrap();
+
+        assert_eq!(summary.project_count, 3);
+        assert!(summary.activity_count >= 9);
+        assert!(summary.note_count >= 9);
+        assert!(summary.conclusion_count >= 9);
+        assert!(summary.todo_count >= 12);
+        assert!(summary.document_count >= 8);
+        assert_eq!(summary.ai_profile_mode, "mock_seeded");
+        assert!(summary.artifact_count >= 13);
+        assert!(!legacy_root.exists());
+
+        let projects = database
+            .projects_list(ProjectsListInput {
+                include_archived: Some(true),
+            })
+            .unwrap();
+        let project_names = projects
+            .iter()
+            .map(|project| project.name.clone())
+            .collect::<Vec<_>>();
+        assert!(project_names.contains(&"智能客服知识库升级".to_string()));
+        assert!(project_names.contains(&"海外销售线索评分 Copilot".to_string()));
+        assert!(project_names.contains(&"合同审阅 AI 助手试点".to_string()));
+
+        let search_results = database
+            .workspace_search(WorkspaceSearchInput {
+                query: "法务".to_string(),
+                include_archived: Some(true),
+            })
+            .unwrap();
+        assert!(!search_results.is_empty());
+        assert!(search_results.iter().any(|item| {
+            matches!(
+                item.kind.as_str(),
+                "activity" | "conclusion" | "document" | "todo"
+            )
+        }));
+    }
+
+    #[test]
     fn document_base_name_normalization_handles_windows_only_restrictions() {
         let (_harness, database) = setup_database();
 
@@ -4771,6 +8619,642 @@ mod tests {
                 .normalize_document_base_name("final summary. ", "brief.pdf")
                 .unwrap(),
             "final summary.pdf"
+        );
+    }
+
+    #[test]
+    fn ai_feature_settings_default_and_round_trip_persistence() {
+        let (_harness, mut database) = setup_database();
+
+        let defaults = database.ai_feature_settings_get().unwrap();
+        assert_eq!(defaults, default_ai_feature_settings());
+        assert_eq!(
+            database.ai_settings_get().unwrap().feature_settings,
+            defaults
+        );
+
+        let custom = AiFeatureSettings {
+            master_enabled: false,
+            capabilities: BTreeMap::from([
+                ("assistant".to_string(), false),
+                ("summary".to_string(), true),
+                ("suggestion_generation".to_string(), false),
+            ]),
+            features: BTreeMap::from([
+                ("summary.activity_summary".to_string(), false),
+                ("summary.project_brief".to_string(), true),
+                ("summary.daily_brief".to_string(), false),
+                ("suggestion_generation.conclusion".to_string(), true),
+                ("suggestion_generation.todo".to_string(), false),
+            ]),
+        };
+
+        let saved = database.ai_feature_settings_upsert(custom.clone()).unwrap();
+        assert_eq!(saved, custom);
+        assert_eq!(database.ai_feature_settings_get().unwrap(), custom);
+        assert_eq!(database.ai_settings_get().unwrap().feature_settings, custom);
+    }
+
+    #[test]
+    fn ai_feature_settings_parser_fills_missing_fields_and_rejects_invalid_keys() {
+        let normalized = parse_ai_feature_settings_json(
+            r#"{
+                "capabilities": { "assistant": false },
+                "features": { "suggestion_generation.todo": false }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(normalized.master_enabled);
+        assert!(!normalized.capabilities["assistant"]);
+        assert!(normalized.capabilities["summary"]);
+        assert!(normalized.capabilities["suggestion_generation"]);
+        assert!(normalized.features["summary.activity_summary"]);
+        assert!(normalized.features["summary.project_brief"]);
+        assert!(normalized.features["summary.daily_brief"]);
+        assert!(normalized.features["suggestion_generation.conclusion"]);
+        assert!(!normalized.features["suggestion_generation.todo"]);
+
+        let top_level_error = parse_ai_feature_settings_json(
+            r#"{
+                "masterEnabled": true,
+                "capabilities": {},
+                "features": {},
+                "extra": true
+            }"#,
+        )
+        .unwrap_err();
+        assert!(top_level_error
+            .to_string()
+            .contains("AI feature settings contains unsupported key 'extra'"));
+
+        let nested_error = parse_ai_feature_settings_json(
+            r#"{
+                "masterEnabled": true,
+                "capabilities": { "assistant": true, "unexpected": false },
+                "features": {}
+            }"#,
+        )
+        .unwrap_err();
+        assert!(nested_error
+            .to_string()
+            .contains("AI feature settings capabilities contains unsupported key 'unexpected'"));
+    }
+
+    #[test]
+    fn ai_artifact_refresh_generates_activity_summary_with_skill_metadata() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "确认当前目标与下一步约束",
+        );
+        create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "补充风险清单",
+            "urgent_important",
+        );
+        configure_summary_profile(&mut database);
+
+        let artifact = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "activity_summary".to_string(),
+                project_id: Some(project.id),
+                activity_id: Some(activity.id),
+                artifact_date: None,
+            })
+            .unwrap();
+
+        assert_eq!(artifact.kind, "activity_summary");
+        assert_eq!(artifact.status, AI_ARTIFACT_STATUS_FRESH);
+        assert_eq!(artifact.skill_key, ACTIVITY_SUMMARY_SKILL.skill_key);
+        assert_eq!(artifact.skill_version, ACTIVITY_SUMMARY_SKILL.skill_version);
+        assert!(!artifact.markdown.trim().is_empty());
+        assert!(artifact.generated_at.is_some());
+        assert!(!artifact.citations.is_empty());
+        assert_eq!(
+            artifact.json_payload["overview"].as_str().unwrap_or(""),
+            "AI 已基于当前本地上下文整理出一版概览，方便快速判断当前状态与下一步。"
+        );
+
+        let sections = artifact
+            .json_payload
+            .get("sections")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(sections.len(), ACTIVITY_SUMMARY_SECTIONS.len());
+
+        let loaded = database
+            .ai_artifact_get(AiArtifactGetInput {
+                kind: "activity_summary".to_string(),
+                project_id: Some(project.id),
+                activity_id: Some(activity.id),
+                artifact_date: None,
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.id, artifact.id);
+    }
+
+    #[test]
+    fn ai_artifact_refresh_returns_controlled_error_when_feature_toggle_is_disabled() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "确认当前目标与下一步约束",
+        );
+        configure_summary_profile(&mut database);
+
+        let mut feature_settings = default_ai_feature_settings();
+        feature_settings
+            .features
+            .insert("summary.activity_summary".to_string(), false);
+        database
+            .ai_feature_settings_upsert(feature_settings)
+            .unwrap();
+
+        let error = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "activity_summary".to_string(),
+                project_id: Some(project.id),
+                activity_id: Some(activity.id),
+                artifact_date: None,
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("AI feature 'summary.activity_summary' is disabled in workspace settings"));
+    }
+
+    #[test]
+    fn ai_artifact_stale_marking_only_hits_related_scope() {
+        let (harness, mut database) = setup_database();
+        let project_a = create_project(&mut database, &harness.workspace_root);
+        let activity_a = create_activity(&mut database, project_a.id, "Kickoff");
+        let note_a = create_note(
+            &mut database,
+            project_a.id,
+            activity_a.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "记录 A",
+        );
+
+        let project_b = database
+            .project_create(ProjectCreateInput {
+                name: "Beta".to_string(),
+                summary: Some("Second project".to_string()),
+                status: None,
+                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
+            })
+            .unwrap();
+        create_activity(&mut database, project_b.id, "Review");
+
+        configure_summary_profile(&mut database);
+
+        let activity_a_artifact = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "activity_summary".to_string(),
+                project_id: Some(project_a.id),
+                activity_id: Some(activity_a.id),
+                artifact_date: None,
+            })
+            .unwrap();
+        let project_a_artifact = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "project_brief".to_string(),
+                project_id: Some(project_a.id),
+                activity_id: None,
+                artifact_date: None,
+            })
+            .unwrap();
+        let project_b_artifact = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "project_brief".to_string(),
+                project_id: Some(project_b.id),
+                activity_id: None,
+                artifact_date: None,
+            })
+            .unwrap();
+        let daily_artifact = database
+            .ai_artifact_refresh(AiArtifactGetInput {
+                kind: "daily_brief".to_string(),
+                project_id: None,
+                activity_id: None,
+                artifact_date: Some(current_workspace_date()),
+            })
+            .unwrap();
+
+        assert_eq!(activity_a_artifact.status, AI_ARTIFACT_STATUS_FRESH);
+        assert_eq!(project_a_artifact.status, AI_ARTIFACT_STATUS_FRESH);
+        assert_eq!(project_b_artifact.status, AI_ARTIFACT_STATUS_FRESH);
+        assert_eq!(daily_artifact.status, AI_ARTIFACT_STATUS_FRESH);
+
+        database
+            .note_upsert(NoteUpsertInput {
+                project_id: project_a.id,
+                activity_id: activity_a.id,
+                note_id: Some(note_a.id),
+                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
+                title: Some("记录".to_string()),
+                markdown: "记录 A updated".to_string(),
+                html: "<p>记录 A updated</p>".to_string(),
+            })
+            .unwrap();
+
+        let refreshed_activity_a = database
+            .ai_artifact_get(AiArtifactGetInput {
+                kind: "activity_summary".to_string(),
+                project_id: Some(project_a.id),
+                activity_id: Some(activity_a.id),
+                artifact_date: None,
+            })
+            .unwrap()
+            .unwrap();
+        let refreshed_project_a = database
+            .ai_artifact_get(AiArtifactGetInput {
+                kind: "project_brief".to_string(),
+                project_id: Some(project_a.id),
+                activity_id: None,
+                artifact_date: None,
+            })
+            .unwrap()
+            .unwrap();
+        let refreshed_project_b = database
+            .ai_artifact_get(AiArtifactGetInput {
+                kind: "project_brief".to_string(),
+                project_id: Some(project_b.id),
+                activity_id: None,
+                artifact_date: None,
+            })
+            .unwrap()
+            .unwrap();
+        let refreshed_daily = database
+            .ai_artifact_get(AiArtifactGetInput {
+                kind: "daily_brief".to_string(),
+                project_id: None,
+                activity_id: None,
+                artifact_date: Some(current_workspace_date()),
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(refreshed_activity_a.status, AI_ARTIFACT_STATUS_STALE);
+        assert_eq!(refreshed_project_a.status, AI_ARTIFACT_STATUS_STALE);
+        assert_eq!(refreshed_project_b.status, AI_ARTIFACT_STATUS_FRESH);
+        assert_eq!(refreshed_daily.status, AI_ARTIFACT_STATUS_STALE);
+    }
+
+    #[test]
+    fn ai_answer_question_returns_controlled_error_when_assistant_is_unconfigured() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let error = database
+            .ai_answer_question(AiAnswerQuestionInput {
+                scope: AiAnswerScope::Project,
+                question: "当前重点是什么？".to_string(),
+                project_id: Some(project.id),
+                activity_id: None,
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("AI capability 'assistant' is not configured yet"));
+    }
+
+    #[test]
+    fn ai_answer_question_returns_controlled_error_when_assistant_toggle_is_disabled() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        create_activity(&mut database, project.id, "Budget Review");
+        configure_assistant_profile(&mut database);
+
+        let mut feature_settings = default_ai_feature_settings();
+        feature_settings
+            .capabilities
+            .insert("assistant".to_string(), false);
+        database
+            .ai_feature_settings_upsert(feature_settings)
+            .unwrap();
+
+        let error = database
+            .ai_answer_question(AiAnswerQuestionInput {
+                scope: AiAnswerScope::Project,
+                question: "当前重点是什么？".to_string(),
+                project_id: Some(project.id),
+                activity_id: None,
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("AI capability 'assistant' is disabled in workspace settings"));
+    }
+
+    #[test]
+    fn ai_answer_question_returns_mock_answer_with_citations() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "需要先确认预算范围，再决定是否推进合同。",
+        );
+        create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "确认预算边界",
+            "urgent_important",
+        );
+        configure_assistant_profile(&mut database);
+
+        let answer = database
+            .ai_answer_question(AiAnswerQuestionInput {
+                scope: AiAnswerScope::Activity,
+                question: "预算下一步是什么？".to_string(),
+                project_id: Some(project.id),
+                activity_id: Some(activity.id),
+            })
+            .unwrap();
+
+        assert_eq!(answer.scope, AiAnswerScope::Activity);
+        assert_eq!(answer.skill_key, ASK_SKILL.skill_key);
+        assert_eq!(answer.skill_version, ASK_SKILL.skill_version);
+        assert!(!answer.answer_markdown.trim().is_empty());
+        assert!(!answer.citations.is_empty());
+        assert!(answer
+            .citations
+            .iter()
+            .all(|citation| citation.project_id == Some(project.id)));
+    }
+
+    #[test]
+    fn ai_answer_question_keeps_project_scope_isolated() {
+        let (harness, mut database) = setup_database();
+        let project_a = create_project(&mut database, &harness.workspace_root);
+        let activity_a = create_activity(&mut database, project_a.id, "Alpha Activity");
+        create_todo(
+            &mut database,
+            project_a.id,
+            Some(activity_a.id),
+            "确认预算边界",
+            "urgent_important",
+        );
+
+        let project_b = database
+            .project_create(ProjectCreateInput {
+                name: "Beta".to_string(),
+                summary: Some("Second project".to_string()),
+                status: None,
+                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
+            })
+            .unwrap();
+        let activity_b = create_activity(&mut database, project_b.id, "Beta Activity");
+        create_todo(
+            &mut database,
+            project_b.id,
+            Some(activity_b.id),
+            "法务回款阻塞",
+            "urgent_important",
+        );
+        configure_assistant_profile(&mut database);
+
+        let answer = database
+            .ai_answer_question(AiAnswerQuestionInput {
+                scope: AiAnswerScope::Project,
+                question: "预算当前卡在哪？".to_string(),
+                project_id: Some(project_a.id),
+                activity_id: None,
+            })
+            .unwrap();
+
+        assert!(!answer.citations.is_empty());
+        assert!(answer
+            .citations
+            .iter()
+            .all(|citation| citation.project_id == Some(project_a.id)));
+    }
+
+    #[test]
+    fn ai_answer_question_returns_conservative_result_when_hits_are_insufficient() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        create_activity(&mut database, project.id, "Kickoff");
+        configure_assistant_profile(&mut database);
+
+        let answer = database
+            .ai_answer_question(AiAnswerQuestionInput {
+                scope: AiAnswerScope::Workspace,
+                question: "完全不存在的超长专有词条".to_string(),
+                project_id: None,
+                activity_id: None,
+            })
+            .unwrap();
+
+        assert!(answer.answer_markdown.contains("依据"));
+        assert!(answer.citations.is_empty());
+        assert_eq!(answer.scope, AiAnswerScope::Workspace);
+    }
+
+    #[test]
+    fn ai_generate_note_suggestions_respects_enabled_output_types() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "确认当前阶段目标与约束",
+        );
+        configure_suggestion_profile(&mut database);
+
+        let mut conclusion_only = default_ai_feature_settings();
+        conclusion_only
+            .features
+            .insert("suggestion_generation.conclusion".to_string(), true);
+        conclusion_only
+            .features
+            .insert("suggestion_generation.todo".to_string(), false);
+        database
+            .ai_feature_settings_upsert(conclusion_only)
+            .unwrap();
+
+        let suggestions = database
+            .ai_generate_note_suggestions(AiGenerateInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: Some(note.id),
+            })
+            .unwrap();
+
+        assert!(!suggestions.is_empty());
+        assert!(suggestions
+            .iter()
+            .all(|suggestion| suggestion.suggestion_type == "conclusion"));
+
+        let mut todo_only = default_ai_feature_settings();
+        todo_only
+            .features
+            .insert("suggestion_generation.conclusion".to_string(), false);
+        todo_only
+            .features
+            .insert("suggestion_generation.todo".to_string(), true);
+        database.ai_feature_settings_upsert(todo_only).unwrap();
+
+        let suggestions = database
+            .ai_generate_note_suggestions(AiGenerateInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: Some(note.id),
+            })
+            .unwrap();
+
+        assert!(!suggestions.is_empty());
+        assert!(suggestions
+            .iter()
+            .all(|suggestion| suggestion.suggestion_type == "todo"));
+    }
+
+    #[test]
+    fn ai_generate_note_suggestions_returns_controlled_error_when_capability_is_disabled() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "确认当前阶段目标与约束",
+        );
+        configure_suggestion_profile(&mut database);
+
+        let mut feature_settings = default_ai_feature_settings();
+        feature_settings
+            .capabilities
+            .insert("suggestion_generation".to_string(), false);
+        database
+            .ai_feature_settings_upsert(feature_settings)
+            .unwrap();
+
+        let error = database
+            .ai_generate_note_suggestions(AiGenerateInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: Some(note.id),
+            })
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("AI capability 'suggestion_generation' is disabled in workspace settings"));
+    }
+
+    #[test]
+    fn infer_todo_priority_distinguishes_urgency_and_importance() {
+        assert_eq!(
+            infer_todo_priority("今天确认预算审批边界，并由财务补充拆分明细"),
+            "urgent_important"
+        );
+        assert_eq!(infer_todo_priority("尽快同步会议纪要"), "urgent_not_important");
+        assert_eq!(infer_todo_priority("准备法务评审材料"), "not_urgent_important");
+        assert_eq!(infer_todo_priority("整理一下记录"), "not_urgent_not_important");
+    }
+
+    #[test]
+    fn ai_accept_suggestion_uses_payload_override_for_edited_content() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "确认预算范围，需要财务补充拆分明细",
+        );
+        configure_suggestion_profile(&mut database);
+
+        let suggestions = database
+            .ai_generate_note_suggestions(AiGenerateInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: Some(note.id),
+            })
+            .unwrap();
+
+        let conclusion = suggestions
+            .iter()
+            .find(|suggestion| suggestion.suggestion_type == "conclusion")
+            .unwrap();
+        let todo = suggestions
+            .iter()
+            .find(|suggestion| suggestion.suggestion_type == "todo")
+            .unwrap();
+
+        let accepted_conclusion = database
+            .ai_accept_suggestion(AiAcceptSuggestionInput {
+                suggestion_id: conclusion.id,
+                payload_override: Some(json!({
+                    "content": "已确认预算边界，按现方案推进",
+                    "promotedToProject": false
+                })),
+            })
+            .unwrap();
+        let accepted_todo = database
+            .ai_accept_suggestion(AiAcceptSuggestionInput {
+                suggestion_id: todo.id,
+                payload_override: Some(json!({
+                    "content": "财务今天补充预算拆分明细",
+                    "priority": "urgent_important"
+                })),
+            })
+            .unwrap();
+
+        let saved_conclusion = database
+            .conclusion_record(accepted_conclusion.entity_id)
+            .unwrap();
+        let saved_todo = database.todo_record(accepted_todo.entity_id).unwrap();
+
+        assert_eq!(saved_conclusion.content_markdown, "已确认预算边界，按现方案推进");
+        assert!(!saved_conclusion.promoted_to_project);
+        assert_eq!(saved_todo.content, "财务今天补充预算拆分明细");
+        assert_eq!(saved_todo.priority, "urgent_important");
+        assert_eq!(
+            accepted_todo
+                .suggestion
+                .payload
+                .get("content")
+                .and_then(Value::as_str),
+            Some("财务今天补充预算拆分明细")
+        );
+        assert_eq!(
+            accepted_todo
+                .suggestion
+                .payload
+                .get("priority")
+                .and_then(Value::as_str),
+            Some("urgent_important")
         );
     }
 
@@ -4806,6 +9290,77 @@ mod tests {
     }
 
     #[test]
+    fn conclusion_delete_removes_record_and_returns_deleted_conclusion() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "确认第一阶段只覆盖中文场景".to_string(),
+                html: "<p>确认第一阶段只覆盖中文场景</p>".to_string(),
+                promoted_to_project: true,
+            })
+            .unwrap();
+
+        let deleted = database
+            .conclusion_delete(ConclusionDeleteInput {
+                conclusion_id: conclusion.id,
+            })
+            .unwrap();
+
+        assert_eq!(deleted.id, conclusion.id);
+        assert!(database.conclusion_record(conclusion.id).is_err());
+        assert!(database
+            .conclusion_list(ConclusionListInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+            })
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn todo_delete_removes_record_and_cascades_progresses() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+        database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: "已同步法务".to_string(),
+                progress_date: "2026-04-06".to_string(),
+            })
+            .unwrap();
+
+        let deleted = database
+            .todo_delete(TodoDeleteInput { todo_id: todo.id })
+            .unwrap();
+
+        assert_eq!(deleted.id, todo.id);
+        assert!(database.todo_record(todo.id).is_err());
+
+        let progress_count = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM todo_progresses WHERE todo_id = ?1",
+                [todo.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(progress_count, 0);
+    }
+
+    #[test]
     fn project_update_summary_can_rename_project_and_refresh_updated_at() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -4834,10 +9389,7 @@ mod tests {
 
     #[test]
     fn legacy_activity_settings_migration_backfills_existing_rows() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = next_test_unique();
         let root =
             std::env::temp_dir().join(format!("project-mind-activity-settings-legacy-{unique}"));
         let workspace_root = root.join("workspace");
@@ -4921,7 +9473,8 @@ mod tests {
         assert!(settings
             .activity_attribute_options
             .iter()
-            .any(|option| option.label == "LEGAL" && option.color_key == DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY));
+            .any(|option| option.label == "LEGAL"
+                && option.color_key == DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY));
         assert!(settings
             .activity_status_options
             .iter()
@@ -4932,7 +9485,10 @@ mod tests {
             Some(DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY)
         );
         assert_eq!(activities[0].status_label, "已整理");
-        assert_eq!(activities[0].status_color_key, LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY);
+        assert_eq!(
+            activities[0].status_color_key,
+            LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY
+        );
         assert!(!activities[0].status_needs_attention);
 
         fs::remove_dir_all(root).unwrap();
@@ -4995,7 +9551,10 @@ mod tests {
         assert_eq!(refreshed.attribute_label, None);
         assert_eq!(refreshed.attribute_color_key, None);
         assert_eq!(refreshed.status_label, "待启动");
-        assert_eq!(refreshed.status_color_key, DEFAULT_ACTIVITY_STATUS_COLOR_KEY);
+        assert_eq!(
+            refreshed.status_color_key,
+            DEFAULT_ACTIVITY_STATUS_COLOR_KEY
+        );
         assert!(refreshed.status_needs_attention);
     }
 
@@ -5154,10 +9713,7 @@ mod tests {
 
     #[test]
     fn migration_adds_app_settings_without_affecting_ai_profiles() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = next_test_unique();
         let root = std::env::temp_dir().join(format!("project-mind-db-legacy-{unique}"));
         fs::create_dir_all(&root).unwrap();
         let db_path = root.join("app.sqlite3");
@@ -5222,6 +9778,7 @@ mod tests {
 
         assert_eq!(ai_settings.profiles.len(), 1);
         assert_eq!(ai_settings.profiles[0].name, "Legacy AI");
+        assert_eq!(ai_settings.feature_settings, default_ai_feature_settings());
         assert_eq!(rich_text.headings.h2_size_px, 20);
 
         fs::remove_dir_all(root).unwrap();
@@ -5389,6 +9946,118 @@ mod tests {
         assert!(history_v1.exists());
         assert_eq!(versions[0].name, "final-summary_v2.pdf");
         assert_eq!(versions[1].name, "final-summary.pdf");
+    }
+
+    #[test]
+    fn document_delete_removes_managed_assets_and_cascades_related_rows() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                id: None,
+                label: "待归档".to_string(),
+                color_key: "amber".to_string(),
+            })
+            .unwrap();
+
+        let source_v1 = harness.root.join("delete-me-source-v1.pdf");
+        fs::write(&source_v1, b"version1").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_v1.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: Some(vec![tag.id]),
+            })
+            .unwrap();
+
+        let source_v2 = harness.root.join("delete-me-source-v2.pdf");
+        fs::write(&source_v2, b"version2").unwrap();
+        let versioned_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: document.id,
+                source_path: source_v2.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        let deleted = database
+            .document_delete(DocumentDeleteInput {
+                document_id: document.id,
+            })
+            .unwrap();
+
+        let version_count: i64 = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM document_versions WHERE document_id = ?1",
+                [document.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let tag_link_count: i64 = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM document_tag_links WHERE document_id = ?1",
+                [document.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(deleted.id, document.id);
+        assert_eq!(deleted.current_version_number, versioned_document.current_version_number);
+        assert!(!Path::new(&deleted.managed_path).exists());
+        assert!(!Path::new(&deleted.history_dir_path).exists());
+        assert!(Path::new(&deleted.original_path).exists());
+        assert!(database.document_record(document.id).is_err());
+        assert_eq!(version_count, 0);
+        assert_eq!(tag_link_count, 0);
+    }
+
+    #[test]
+    fn document_delete_skips_missing_managed_file_and_removes_remaining_assets() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let source_v1 = harness.root.join("missing-delete-source-v1.pdf");
+        fs::write(&source_v1, b"version1").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_v1.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let source_v2 = harness.root.join("missing-delete-source-v2.pdf");
+        fs::write(&source_v2, b"version2").unwrap();
+        let versioned_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: document.id,
+                source_path: source_v2.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        fs::remove_file(&versioned_document.managed_path).unwrap();
+        database.refresh_document_health(project.id).unwrap();
+        let missing_document = database.document_record(document.id).unwrap();
+        let history_dir = PathBuf::from(&missing_document.history_dir_path);
+
+        assert_eq!(missing_document.health, "missing");
+        assert!(history_dir.exists());
+
+        let deleted = database
+            .document_delete(DocumentDeleteInput {
+                document_id: document.id,
+            })
+            .unwrap();
+
+        assert_eq!(deleted.health, "missing");
+        assert!(!history_dir.exists());
+        assert!(Path::new(&deleted.original_path).exists());
+        assert!(database.document_record(document.id).is_err());
     }
 
     #[test]
@@ -5722,7 +10391,9 @@ mod tests {
             })
             .unwrap_err();
 
-        assert!(error.to_string().contains("file tag color is not supported"));
+        assert!(error
+            .to_string()
+            .contains("file tag color is not supported"));
     }
 
     #[test]
@@ -5791,12 +10462,14 @@ mod tests {
         let snapshot = database.record_type_settings_get().unwrap();
         assert_eq!(snapshot.record_types[0].id, updated.id);
         assert!(snapshot.record_types[0].is_default);
-        assert!(snapshot
-            .record_types
-            .iter()
-            .filter(|record_type| record_type.is_default)
-            .count()
-            == 1);
+        assert!(
+            snapshot
+                .record_types
+                .iter()
+                .filter(|record_type| record_type.is_default)
+                .count()
+                == 1
+        );
     }
 
     #[test]
@@ -6010,6 +10683,141 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
     }
 }
 
+fn default_ai_execution_settings() -> AiExecutionSettings {
+    AiExecutionSettings { max_concurrency: 1 }
+}
+
+fn default_ai_feature_settings() -> AiFeatureSettings {
+    AiFeatureSettings {
+        master_enabled: true,
+        capabilities: BTreeMap::from([
+            ("assistant".to_string(), true),
+            ("summary".to_string(), true),
+            ("suggestion_generation".to_string(), true),
+        ]),
+        features: BTreeMap::from([
+            ("summary.activity_summary".to_string(), true),
+            ("summary.project_brief".to_string(), true),
+            ("summary.daily_brief".to_string(), true),
+            ("suggestion_generation.conclusion".to_string(), true),
+            ("suggestion_generation.todo".to_string(), true),
+        ]),
+    }
+}
+
+fn parse_ai_feature_settings_json(value_json: &str) -> Result<AiFeatureSettings> {
+    let mut value: Value =
+        serde_json::from_str(value_json).context("failed to parse AI feature settings")?;
+    normalize_ai_feature_settings_value(&mut value)?;
+    serde_json::from_value(value).context("failed to decode AI feature settings")
+}
+
+fn normalize_ai_feature_settings_value(value: &mut Value) -> Result<()> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("AI feature settings must be an object"))?;
+
+    for key in object.keys() {
+        if !matches!(key.as_str(), "masterEnabled" | "capabilities" | "features") {
+            return Err(anyhow!(
+                "AI feature settings contains unsupported key '{}'",
+                key
+            ));
+        }
+    }
+
+    if !object.contains_key("masterEnabled") {
+        object.insert("masterEnabled".to_string(), json!(true));
+    }
+    if !object
+        .get("masterEnabled")
+        .is_some_and(serde_json::Value::is_boolean)
+    {
+        return Err(anyhow!(
+            "AI feature settings masterEnabled must be a boolean"
+        ));
+    }
+
+    if !object.contains_key("capabilities") {
+        object.insert("capabilities".to_string(), json!({}));
+    }
+    if !object.contains_key("features") {
+        object.insert("features".to_string(), json!({}));
+    }
+
+    normalize_ai_toggle_map_value(
+        object.get_mut("capabilities"),
+        &AI_VISIBLE_CAPABILITIES,
+        "AI feature settings capabilities",
+    )?;
+    normalize_ai_toggle_map_value(
+        object.get_mut("features"),
+        &AI_FEATURE_KEYS,
+        "AI feature settings features",
+    )?;
+
+    Ok(())
+}
+
+fn normalize_ai_toggle_map_value(
+    value: Option<&mut Value>,
+    allowed_keys: &[&str],
+    field: &str,
+) -> Result<()> {
+    let Some(value) = value else {
+        return Err(anyhow!("{field} is missing"));
+    };
+
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("{field} must be an object"))?;
+
+    for key in object.keys() {
+        if !allowed_keys.contains(&key.as_str()) {
+            return Err(anyhow!("{field} contains unsupported key '{}'", key));
+        }
+    }
+
+    for &key in allowed_keys {
+        match object.get(key) {
+            Some(existing) if existing.is_boolean() => {}
+            Some(_) => return Err(anyhow!("{field} key '{}' must be a boolean", key)),
+            None => {
+                object.insert(key.to_string(), json!(true));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn ai_capability_for_feature(feature_key: &str) -> Result<&'static str> {
+    if feature_key.starts_with("summary.") {
+        return Ok("summary");
+    }
+    if feature_key.starts_with("suggestion_generation.") {
+        return Ok("suggestion_generation");
+    }
+    Err(anyhow!("unsupported AI feature '{}'", feature_key))
+}
+
+fn ai_feature_key_for_artifact_kind(kind: &str) -> Result<&'static str> {
+    match kind {
+        "activity_summary" => Ok("summary.activity_summary"),
+        "project_brief" => Ok("summary.project_brief"),
+        "daily_brief" => Ok("summary.daily_brief"),
+        _ => Err(anyhow!("unsupported artifact kind")),
+    }
+}
+
+fn ai_feature_enabled(settings: &AiFeatureSettings, feature_key: &str) -> Result<bool> {
+    if !AI_FEATURE_KEYS.contains(&feature_key) {
+        return Err(anyhow!("unsupported AI feature '{}'", feature_key));
+    }
+
+    Ok(settings.features.get(feature_key).copied().unwrap_or(true))
+}
+
 fn normalize_rich_text_style_value(value: &mut Value) -> Result<()> {
     let object = value
         .as_object_mut()
@@ -6036,7 +10844,10 @@ fn normalize_rich_text_style_block_value(value: Option<&mut Value>) -> Result<()
         .unwrap_or(0);
 
     if !object.contains_key("paragraphSpacingBeforePx") {
-        object.insert("paragraphSpacingBeforePx".to_string(), json!(legacy_spacing));
+        object.insert(
+            "paragraphSpacingBeforePx".to_string(),
+            json!(legacy_spacing),
+        );
     }
 
     if !object.contains_key("paragraphSpacingAfterPx") {
@@ -6232,7 +11043,9 @@ fn normalize_record_type_key_from_label(label: &str) -> String {
         }
     }
 
-    normalized.trim_matches(|ch| ch == '_' || ch == '-').to_string()
+    normalized
+        .trim_matches(|ch| ch == '_' || ch == '-')
+        .to_string()
 }
 
 fn record_type_storage_from_row(row: &Row<'_>) -> rusqlite::Result<RecordTypeStorage> {
@@ -6323,6 +11136,14 @@ fn validate_ai_binding(input: &AiCapabilityBindingUpsertInput) -> Result<()> {
         }
     } else if input.profile_id.is_none() {
         return Err(anyhow!("a custom AI binding must choose a profile"));
+    }
+
+    Ok(())
+}
+
+fn validate_ai_execution_settings(settings: &AiExecutionSettings) -> Result<()> {
+    if !(1..=4).contains(&settings.max_concurrency) {
+        return Err(anyhow!("AI maxConcurrency must be between 1 and 4"));
     }
 
     Ok(())

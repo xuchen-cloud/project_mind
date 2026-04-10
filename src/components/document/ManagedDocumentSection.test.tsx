@@ -9,10 +9,12 @@ const documentMutationMocks = vi.hoisted(() => ({
   documentImportMutation: { mutate: vi.fn(), isPending: false },
   documentMetaMutation: { mutate: vi.fn(), isPending: false },
   documentRelocateMutation: { mutate: vi.fn(), isPending: false },
-  documentAddVersionMutation: { mutate: vi.fn(), isPending: false },
+  documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
+  documentDeleteMutation: { mutate: vi.fn(), isPending: false },
 }));
 
 const desktopApiMocks = vi.hoisted(() => ({
+  pickFile: vi.fn<(input?: unknown) => Promise<string | null>>(async () => null),
   pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
   openFile: vi.fn(async () => undefined),
   openFolder: vi.fn(async () => undefined),
@@ -33,6 +35,7 @@ vi.mock("../../hooks/useDocumentMutations", () => ({
 
 vi.mock("../../services/desktopApi", () => ({
   desktopApi: {
+    pickFile: desktopApiMocks.pickFile,
     pickFiles: desktopApiMocks.pickFiles,
     openFile: desktopApiMocks.openFile,
     openFolder: desktopApiMocks.openFolder,
@@ -61,6 +64,9 @@ describe("ManagedDocumentSection", () => {
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentRelocateMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
+    documentMutationMocks.documentDeleteMutation.mutate.mockReset();
+    desktopApiMocks.pickFile.mockReset();
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.openFolder.mockReset();
@@ -68,10 +74,12 @@ describe("ManagedDocumentSection", () => {
     projectMindApiMocks.fileTagSettingsGet.mockReset();
     uiStoreMocks.openSettings.mockReset();
 
+    desktopApiMocks.pickFile.mockResolvedValue(null);
     desktopApiMocks.pickFiles.mockResolvedValue([]);
     desktopApiMocks.openFile.mockResolvedValue(undefined);
     desktopApiMocks.openFolder.mockResolvedValue(undefined);
     desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValue(buildDocument());
     projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
   });
 
@@ -336,6 +344,130 @@ describe("ManagedDocumentSection", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("shows ordered document actions and reveals the file location from the context menu", async () => {
+    const user = userEvent.setup();
+
+    renderSection([
+      buildDocument({
+        id: 21,
+        baseName: "Spec brief.pdf",
+        managedPath: "/tmp/project/Spec brief.pdf",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-21") as HTMLElement);
+
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+      "打开文件所在位置",
+      "新增版本并打开",
+      "删除",
+    ]);
+
+    await user.click(screen.getByRole("menuitem", { name: "打开文件所在位置" }));
+
+    expect(desktopApiMocks.revealInExplorer).toHaveBeenCalledWith("/tmp/project/Spec brief.pdf");
+  });
+
+  it("picks a new version source, adds the version, and opens the new managed file", async () => {
+    const user = userEvent.setup();
+    desktopApiMocks.pickFile.mockResolvedValueOnce("/tmp/source/Spec brief v2.pdf");
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValueOnce(
+      buildDocument({
+        id: 22,
+        baseName: "Spec brief.pdf",
+        managedPath: "/tmp/project/Spec brief_v2.pdf",
+        currentVersionNumber: 2,
+        versionCount: 2,
+      }),
+    );
+
+    renderSection([
+      buildDocument({
+        id: 22,
+        baseName: "Spec brief.pdf",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-22") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "新增版本并打开" }));
+
+    expect(desktopApiMocks.pickFile).toHaveBeenCalledWith({
+      title: "选择新版本 · Spec brief.pdf",
+      filters: undefined,
+    });
+    expect(documentMutationMocks.documentAddVersionMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: 22,
+      sourcePath: "/tmp/source/Spec brief v2.pdf",
+    });
+
+    await waitFor(() => {
+      expect(desktopApiMocks.openFile).toHaveBeenCalledWith("/tmp/project/Spec brief_v2.pdf");
+    });
+  });
+
+  it("confirms before deleting a document from the context menu", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderSection([
+      buildDocument({
+        id: 23,
+        baseName: "Delete me.pdf",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-23") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      [
+        "确定删除“Delete me.pdf”吗？",
+        "这会把当前受控文件和历史版本移到回收站，并从项目中移除该文件卡片。",
+        "原始来源文件不会删除。",
+      ].join("\n"),
+    );
+    expect(documentMutationMocks.documentDeleteMutation.mutate).toHaveBeenCalledWith({
+      documentId: 23,
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("does not delete when the user cancels the delete confirmation", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderSection([
+      buildDocument({
+        id: 24,
+        baseName: "Keep me.pdf",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-24") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    expect(documentMutationMocks.documentDeleteMutation.mutate).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("disables locate and add-version actions for missing files while keeping delete available", () => {
+    renderSection([
+      buildDocument({
+        id: 25,
+        baseName: "Missing brief.pdf",
+        health: "missing",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-25") as HTMLElement);
+
+    expect(screen.getByRole("menuitem", { name: "打开文件所在位置" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "新增版本并打开" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "删除" })).toBeEnabled();
   });
 
   it("opens an import tag dialog when workspace tags exist and applies selected tag ids to every file", async () => {

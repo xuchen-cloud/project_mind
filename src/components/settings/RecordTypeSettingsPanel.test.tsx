@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -167,14 +167,18 @@ describe("RecordTypeSettingsPanel", () => {
     await waitFor(() =>
       expect(screen.queryByPlaceholderText("例如：调研记录 / 复盘记录")).not.toBeInTheDocument(),
     );
+    expect(await screen.findByDisplayValue("调研记录")).toBeInTheDocument();
   });
 
-  it("auto-saves selected type meta without rendering save buttons", async () => {
+  it("expands inline edit mode and auto-saves type meta without rendering save buttons", async () => {
     const user = userEvent.setup();
 
     renderPanel();
 
-    await user.click(await screen.findByRole("button", { name: /会议记录/ }));
+    const row = (await screen.findByRole("button", { name: /会议记录/ })).closest("article");
+    expect(row).not.toBeNull();
+
+    await user.click(within(row!).getByRole("button", { name: "编辑" }));
     const labelField = screen.getByDisplayValue("会议记录");
 
     expect(screen.queryByRole("button", { name: "保存基本信息" })).not.toBeInTheDocument();
@@ -194,7 +198,7 @@ describe("RecordTypeSettingsPanel", () => {
       { timeout: 1500 },
     );
 
-    await user.click(screen.getByRole("button", { name: /颜色/ }));
+    await user.click(within(row!).getByRole("button", { name: /颜色/ }));
     await user.click(screen.getByRole("option", { name: "Rose" }));
 
     await waitFor(
@@ -219,7 +223,10 @@ describe("RecordTypeSettingsPanel", () => {
 
     renderPanel();
 
-    await user.click(await screen.findByRole("button", { name: /会议记录/ }));
+    const row = (await screen.findByRole("button", { name: /会议记录/ })).closest("article");
+    expect(row).not.toBeNull();
+
+    await user.click(within(row!).getByRole("button", { name: "编辑" }));
     const editor = screen.getByLabelText("模板编辑器");
     await user.clear(editor);
     await user.type(editor, "<h2>新的模板</h2><p></p>");
@@ -234,6 +241,24 @@ describe("RecordTypeSettingsPanel", () => {
         isDefault: false,
       }),
     );
+  });
+
+  it("collapses the new record editor after blur when nothing was changed", async () => {
+    const user = userEvent.setup();
+
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: "新建" }));
+    await user.type(screen.getByPlaceholderText("例如：调研记录 / 复盘记录"), "调研记录");
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    const labelField = await screen.findByDisplayValue("调研记录");
+    fireEvent.blur(labelField, { relatedTarget: null });
+
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("调研记录")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /调研记录/ })).toBeInTheDocument();
   });
 });
 

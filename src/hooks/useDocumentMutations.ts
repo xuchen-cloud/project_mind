@@ -80,10 +80,31 @@ export function useDocumentMutations() {
     },
   });
 
+  const documentDeleteMutation = useMutation({
+    mutationFn: projectMindApi.documentDelete,
+    onSuccess: async (document) => {
+      setStatus({
+        tone: "success",
+        label: "Deleted",
+        message: `文件 ${document.baseName} 已删除`,
+      });
+      await Promise.all([
+        refreshAll(queryClient, document.projectId),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
+      ]);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除文件失败" });
+      pushToast({ tone: "error", title: "删除文件失败", detail: String(error) });
+    },
+  });
+
   return {
     documentImportMutation,
     documentMetaMutation,
     documentRelocateMutation,
     documentAddVersionMutation,
+    documentDeleteMutation,
   };
 }

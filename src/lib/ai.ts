@@ -1,10 +1,14 @@
-import { AI_PROVIDER_FAMILY_OPTIONS } from "./constants";
+import { AI_FEATURE_OPTIONS, AI_PROVIDER_FAMILY_OPTIONS } from "./constants";
 import type {
   AiCapability,
   AiCapabilityBindingRecord,
+  AiFeatureKey,
+  AiFeatureSettings,
+  AiManagedCapability,
   AiProviderFamily,
   AiProviderProfileRecord,
   AiProviderProfileUpsertInput,
+  AiSuggestionFeatureType,
   AiSettingsSnapshot,
 } from "./types";
 
@@ -30,6 +34,35 @@ export function createAiProfileDraft(
     supportsFile: false,
     enabled: true,
   };
+}
+
+export function defaultAiFeatureSettings(): AiFeatureSettings {
+  return {
+    masterEnabled: true,
+    capabilities: {
+      assistant: true,
+      summary: true,
+      suggestion_generation: true,
+    },
+    features: {
+      "summary.activity_summary": true,
+      "summary.project_brief": true,
+      "summary.daily_brief": true,
+      "suggestion_generation.conclusion": true,
+      "suggestion_generation.todo": true,
+    },
+  };
+}
+
+export function aiFeatureCapability(feature: AiFeatureKey): AiManagedCapability {
+  return (
+    AI_FEATURE_OPTIONS.find((option) => option.value === feature)?.capability ??
+    (feature.startsWith("summary.") ? "summary" : "suggestion_generation")
+  );
+}
+
+export function featureSettingsFromSnapshot(snapshot?: AiSettingsSnapshot) {
+  return snapshot?.featureSettings ?? defaultAiFeatureSettings();
 }
 
 export function bindingForCapability(
@@ -67,4 +100,47 @@ export function isAiCapabilityConfigured(
 
   const profile = findAiProfile(snapshot.profiles, binding.profileId);
   return Boolean(profile && profile.enabled && profile.hasStoredKey && profile.supportsText);
+}
+
+export function isAiCapabilityVisible(
+  snapshot: AiSettingsSnapshot | undefined,
+  capability: AiManagedCapability,
+) {
+  const featureSettings = featureSettingsFromSnapshot(snapshot);
+  return featureSettings.masterEnabled && featureSettings.capabilities[capability];
+}
+
+export function isAiFeatureVisible(
+  snapshot: AiSettingsSnapshot | undefined,
+  feature: AiFeatureKey,
+) {
+  const featureSettings = featureSettingsFromSnapshot(snapshot);
+  return (
+    featureSettings.masterEnabled &&
+    featureSettings.capabilities[aiFeatureCapability(feature)] &&
+    featureSettings.features[feature]
+  );
+}
+
+export function isAiFeatureReady(
+  snapshot: AiSettingsSnapshot | undefined,
+  feature: AiFeatureKey,
+) {
+  const capability = aiFeatureCapability(feature);
+  return isAiFeatureVisible(snapshot, feature) && isAiCapabilityConfigured(snapshot, capability);
+}
+
+export function visibleAiSuggestionTypes(
+  snapshot: AiSettingsSnapshot | undefined,
+): AiSuggestionFeatureType[] {
+  const visible: AiSuggestionFeatureType[] = [];
+
+  if (isAiFeatureVisible(snapshot, "suggestion_generation.conclusion")) {
+    visible.push("conclusion");
+  }
+  if (isAiFeatureVisible(snapshot, "suggestion_generation.todo")) {
+    visible.push("todo");
+  }
+
+  return visible;
 }

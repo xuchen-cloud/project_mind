@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -109,6 +109,7 @@ describe("TodoRail", () => {
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
         onAddProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
     );
@@ -152,6 +153,7 @@ describe("TodoRail", () => {
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
         onAddProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
     );
@@ -164,6 +166,42 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "标记为未完成" }));
     expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");
+  });
+
+  it("deletes a todo from the context menu", async () => {
+    const user = userEvent.setup();
+    const onDeleteTodo = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithoutHistory]}
+        finishedTodos={[]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+        onDeleteTodo={onDeleteTodo}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(document.getElementById("todo-4") as HTMLElement, {
+      clientX: 140,
+      clientY: 72,
+    });
+
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("确定删除这条代办吗？删除后无法恢复。");
+    expect(onDeleteTodo).toHaveBeenCalledWith(4);
+
+    confirmSpy.mockRestore();
   });
 
   it("filters by priority and keeps the selection across tabs", async () => {
@@ -217,6 +255,7 @@ describe("TodoRail", () => {
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
         onAddProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
     );

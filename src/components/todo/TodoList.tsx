@@ -1,5 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
+
 import type { TodoPriority, TodoRecord } from "../../lib/types";
-import { EmptyState } from "../../ui/components";
+import { DeleteContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 
 export function TodoList({
@@ -15,6 +17,7 @@ export function TodoList({
   onUpdatePriority,
   onUpdateContent,
   onAddProgress,
+  onDeleteTodo,
   onOpenTodoSource,
   onError,
 }: {
@@ -33,9 +36,26 @@ export function TodoList({
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
 }) {
+  const [contextMenu, setContextMenu] = useState<{
+    todoId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const contextMenuTodo = useMemo(
+    () => (contextMenu ? todos.find((todo) => todo.id === contextMenu.todoId) ?? null : null),
+    [contextMenu, todos],
+  );
+
+  useEffect(() => {
+    if (contextMenu && !contextMenuTodo) {
+      setContextMenu(null);
+    }
+  }, [contextMenu, contextMenuTodo]);
+
   return (
     <div className="grid gap-2">
       {todos.length > 0 ? (
@@ -56,6 +76,7 @@ export function TodoList({
               onUpdatePriority={onUpdatePriority}
               onUpdateContent={onUpdateContent}
               onAddProgress={onAddProgress}
+              onOpenContextMenu={(todoId, x, y) => setContextMenu({ todoId, x, y })}
               onOpenTodoSource={onOpenTodoSource}
             />
           ))}
@@ -63,6 +84,20 @@ export function TodoList({
       ) : (
         <EmptyState text={emptyText} compact />
       )}
+      {contextMenu && contextMenuTodo ? (
+        <DeleteContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          ariaLabel="待办操作"
+          onClose={() => setContextMenu(null)}
+          onDelete={() => {
+            if (!window.confirm("确定删除这条代办吗？删除后无法恢复。")) {
+              return;
+            }
+            void Promise.resolve(onDeleteTodo(contextMenuTodo.id));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

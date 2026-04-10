@@ -82,12 +82,25 @@ export function useActivityMutations() {
     },
   });
 
+  const conclusionDeleteMutation = useMutation({
+    mutationFn: projectMindApi.conclusionDelete,
+    onSuccess: async (conclusion) => {
+      setStatus({ tone: "success", label: "Deleted", message: "结论已删除" });
+      await refreshAll(queryClient, conclusion.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除结论失败" });
+      pushToast({ tone: "error", title: "删除结论失败", detail: String(error) });
+    },
+  });
+
   return {
     createActivityMutation,
     activityMetaMutation,
     noteMutation,
     conclusionMutation,
     conclusionUpdateMutation,
+    conclusionDeleteMutation,
   };
 }
 

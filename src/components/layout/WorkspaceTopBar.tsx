@@ -1,10 +1,12 @@
 import {
   Archive,
+  CalendarDays,
   CircleHelp,
   CircleUser,
   FolderKanban,
   LoaderCircle,
   Plus,
+  Sparkles,
   Settings2,
 } from "lucide-react";
 import type { ProjectListItem, WorkspaceSearchResult } from "../../lib/types";
@@ -19,6 +21,10 @@ import {
 interface WorkspaceTopBarProps {
   projects: ProjectListItem[];
   activeProjectId: number | null;
+  todayActive?: boolean;
+  showToday?: boolean;
+  askOpen?: boolean;
+  showAsk?: boolean;
   settingsActive?: boolean;
   archivedProjects: ProjectListItem[];
   searchInput: string;
@@ -31,6 +37,8 @@ interface WorkspaceTopBarProps {
   onOpenProject: (projectId: number) => void;
   onRestoreProject: (projectId: number) => void;
   onCreateProject: () => void;
+  onOpenToday: () => void;
+  onOpenAsk: () => void;
   onOpenSettings: () => void;
   onSearchSelect: (result: WorkspaceSearchResult) => void;
 }
@@ -38,6 +46,10 @@ interface WorkspaceTopBarProps {
 export function WorkspaceTopBar({
   projects,
   activeProjectId,
+  todayActive = false,
+  showToday = true,
+  askOpen = false,
+  showAsk = true,
   settingsActive = false,
   archivedProjects,
   searchInput,
@@ -50,6 +62,8 @@ export function WorkspaceTopBar({
   onOpenProject,
   onRestoreProject,
   onCreateProject,
+  onOpenToday,
+  onOpenAsk,
   onOpenSettings,
   onSearchSelect,
 }: WorkspaceTopBarProps) {
@@ -66,6 +80,21 @@ export function WorkspaceTopBar({
         </div>
 
         <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Projects">
+          {showToday ? (
+            <button
+              type="button"
+              className={[
+                "shrink-0 inline-flex items-center gap-1.5 rounded-[var(--radius-6)] px-2.5 h-8 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)] border",
+                todayActive
+                  ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
+                  : "text-text-muted border-transparent hover:text-text hover:bg-bg-hover",
+              ].join(" ")}
+              onClick={onOpenToday}
+            >
+              <CalendarDays size={14} />
+              <span>Today</span>
+            </button>
+          ) : null}
           {projects.map((project) => (
             <button
               key={project.id}
@@ -88,6 +117,18 @@ export function WorkspaceTopBar({
       </div>
 
       <div className="flex items-center gap-2">
+        {showAsk ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={askOpen ? "secondary" : "ghost"}
+            leadingIcon={<Sparkles size={14} />}
+            onClick={onOpenAsk}
+          >
+            Ask
+          </Button>
+        ) : null}
+
         <div className="relative">
           <SearchField
             value={searchInput}

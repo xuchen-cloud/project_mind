@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Check, Circle } from "lucide-react";
 
+import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -28,6 +29,7 @@ export function TodoListItem({
   onAddProgress,
   onOpenTodoSource,
   onToggleExpanded,
+  onOpenContextMenu,
   onError,
 }: {
   todo: TodoRecord;
@@ -46,6 +48,7 @@ export function TodoListItem({
   ) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onToggleExpanded: (todoId: number) => void;
+  onOpenContextMenu: (todoId: number, x: number, y: number) => void;
   onError?: (message: string) => void;
 }) {
   const [toggling, setToggling] = useState(false);
@@ -73,6 +76,13 @@ export function TodoListItem({
         compact && "py-2.5",
         todo.status === "finished" ? "opacity-72" : "hover:bg-bg-hover",
       )}
+      onContextMenu={(event) => {
+        if (shouldIgnoreContextMenuTarget(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        onOpenContextMenu(todo.id, event.clientX, event.clientY);
+      }}
     >
       <div className="grid min-w-0 gap-2">
         <TodoInlineContentEditor
