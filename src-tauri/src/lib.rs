@@ -37,9 +37,9 @@ use models::{
     RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
     RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
     TodoDeleteInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
-    TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceCreateInput, WorkspaceOpenInput,
-    WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
-    WorkspaceUnlockInput,
+    TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceCreateInput, WorkspaceNoteDeleteInput,
+    WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
+    WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
@@ -686,6 +686,32 @@ fn todo_list_open(
 }
 
 #[tauri::command]
+fn workspace_todo_list(state: State<'_, AppState>) -> CommandResult<Vec<TodoRecord>> {
+    with_db(state, |db| db.workspace_todo_list())
+}
+
+#[tauri::command]
+fn workspace_note_list(state: State<'_, AppState>) -> CommandResult<Vec<WorkspaceNoteRecord>> {
+    with_db(state, |db| db.workspace_note_list())
+}
+
+#[tauri::command]
+fn workspace_note_upsert(
+    state: State<'_, AppState>,
+    input: WorkspaceNoteUpsertInput,
+) -> CommandResult<WorkspaceNoteRecord> {
+    with_db(state, |db| db.workspace_note_upsert(input))
+}
+
+#[tauri::command]
+fn workspace_note_delete(
+    state: State<'_, AppState>,
+    input: WorkspaceNoteDeleteInput,
+) -> CommandResult<WorkspaceNoteRecord> {
+    with_db(state, |db| db.workspace_note_delete(input))
+}
+
+#[tauri::command]
 fn document_import(
     state: State<'_, AppState>,
     input: DocumentImportInput,
@@ -970,6 +996,10 @@ pub fn run() {
             todo_add_progress,
             todo_delete,
             todo_list_open,
+            workspace_todo_list,
+            workspace_note_list,
+            workspace_note_upsert,
+            workspace_note_delete,
             document_import,
             document_import_clipboard_image,
             document_import_note_image,

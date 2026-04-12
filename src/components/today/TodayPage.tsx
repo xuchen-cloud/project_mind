@@ -1,14 +1,24 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
-import { AiArtifactCard } from "../ai/AiArtifactCard";
+import { activityPath, projectPath } from "../../lib/formatters";
 import { workspaceDayString } from "../../lib/aiArtifacts";
 import { isAiFeatureReady, isAiFeatureVisible } from "../../lib/ai";
+import { useWorkspaceNoteMutations } from "../../hooks/useWorkspaceNoteMutations";
+import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { projectMindApi } from "../../services/projectMindApi";
-import { EmptyState } from "../../ui/components";
+import { useFeedbackStore } from "../../state/feedback-store";
+import { EmptyState, SurfaceCard } from "../../ui/components";
+import { AiArtifactCard } from "../ai/AiArtifactCard";
+import { TodayTodoSection } from "./TodayTodoSection";
+import { WorkspaceNotesPanel } from "./WorkspaceNotesPanel";
 
 export function TodayPage() {
+  const navigate = useNavigate();
   const today = useMemo(() => workspaceDayString(), []);
+  const { pushToast } = useFeedbackStore();
+
   const projectsQuery = useQuery({
     queryKey: ["projects", "all"],
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
@@ -17,47 +27,101 @@ export function TodayPage() {
     queryKey: ["ai-settings"],
     queryFn: projectMindApi.aiSettingsGet,
   });
+  const workspaceTodosQuery = useQuery({
+    queryKey: ["workspace-todos"],
+    queryFn: projectMindApi.workspaceTodoList,
+  });
+  const workspaceNotesQuery = useQuery({
+    queryKey: ["workspace-notes"],
+    queryFn: projectMindApi.workspaceNoteList,
+  });
 
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
     [projectsQuery.data],
   );
-  const showToday = isAiFeatureVisible(aiSettingsQuery.data, "summary.daily_brief");
+  const showTodayBrief = isAiFeatureVisible(aiSettingsQuery.data, "summary.daily_brief");
   const aiEnabled = isAiFeatureReady(aiSettingsQuery.data, "summary.daily_brief");
-
-  if (!showToday) {
-    return null;
-  }
+  const allTodos = workspaceTodosQuery.data ?? [];
+  const { workspaceNoteMutation, workspaceNoteDeleteMutation } = useWorkspaceNoteMutations();
+  const {
+    todoContentMutation,
+    todoDeleteMutation,
+    todoPriorityMutation,
+    todoProgressMutation,
+    todoStatusMutation,
+  } = useTodoMutations(allTodos);
 
   return (
     <section className="h-full overflow-y-auto bg-bg">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-8 py-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8">
         <div className="grid gap-2">
           <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
             Workspace
           </p>
           <h1 className="text-display font-medium tracking-tight text-text">Today</h1>
-          <p className="max-w-3xl text-body leading-7 text-text-muted">
-            聚合今天最值得优先处理的事项，帮我们快速判断现在该推进什么。
+          <p className="max-w-4xl text-body leading-7 text-text-muted">
+            这是整个工作区的首页。先看今天的整体判断，再按项目处理 To Do，并把零散线索记在工作区级记录里。
           </p>
           <p className="text-ui text-text-soft">日期：{today}</p>
         </div>
 
-        {!projectsQuery.isLoading && visibleProjects.length === 0 ? (
-          <EmptyState
-            title="还没有可聚合的项目"
-            text="先创建项目并开始记录后，Today 才会汇总全局待办、最近活动和建议跟进。"
-            className="w-full"
-          />
-        ) : (
-          <AiArtifactCard
-            eyebrow="Today"
-            title="今日概览"
-            description="汇总全局 open todos、最近活动变化和建议跟进行动。"
-            input={{ kind: "daily_brief", artifactDate: today }}
-            aiEnabled={aiEnabled}
-          />
-        )}
+        {showTodayBrief ? (
+          !projectsQuery.isLoading && visibleProjects.length === 0 ? (
+            <SurfaceCard className="w-full p-4">
+              <EmptyState
+                compact
+                title="还没有可聚合的项目"
+                text="先创建项目并开始记录后，Today 的 AI 今日概览才会汇总最近变化和建议跟进。"
+              />
+            </SurfaceCard>
+          ) : (
+            <AiArtifactCard
+              eyebrow="Today"
+              title="今日概览"
+              description="汇总整个工作区当前最值得优先处理的事项、最近活动变化和建议跟进行动。"
+              input={{ kind: "daily_brief", artifactDate: today }}
+              aiEnabled={aiEnabled}
+            />
+          )
+        ) : null}
+
+        <TodayTodoSection
+          projects={visibleProjects}
+          todos={allTodos}
+          onToggleStatus={(todoId, status) =>
+            todoStatusMutation.mutateAsync({ todoId, status })
+          }
+          onUpdatePriority={(todoId, priority) =>
+            todoPriorityMutation.mutateAsync({ todoId, priority })
+          }
+          onUpdateContent={(todoId, content) =>
+            todoContentMutation.mutateAsync({ todoId, content })
+          }
+          onAddProgress={(todoId, payload) =>
+            todoProgressMutation.mutateAsync({ todoId, ...payload })
+          }
+          onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
+          onOpenTodoSource={(todo) => {
+            if (todo.activityId) {
+              navigate(activityPath(todo.projectId, todo.activityId, `todo-${todo.id}`));
+              return;
+            }
+
+            navigate(projectPath(todo.projectId, `todo-${todo.id}`));
+          }}
+          onError={(message) => {
+            pushToast({ tone: "error", title: "Todo 处理失败", detail: message });
+          }}
+        />
+
+        <WorkspaceNotesPanel
+          notes={workspaceNotesQuery.data ?? []}
+          saving={workspaceNoteMutation.isPending}
+          deletingNote={workspaceNoteDeleteMutation.isPending}
+          onUpsertNote={(input) => workspaceNoteMutation.mutateAsync(input)}
+          onDeleteNote={(noteId) => workspaceNoteDeleteMutation.mutateAsync({ noteId })}
+        />
       </div>
     </section>
   );

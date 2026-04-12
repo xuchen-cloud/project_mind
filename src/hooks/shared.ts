@@ -6,6 +6,7 @@ export function refreshAll(queryClient: QueryClient, projectId: number) {
     queryClient.invalidateQueries({ queryKey: ["overview", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["activities", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["workspace-todos"] }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
 }

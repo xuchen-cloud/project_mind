@@ -37,9 +37,11 @@
     "@tiptap/pm": "^3.21.0",
     "@tiptap/react": "^3.21.0",
     "@tiptap/starter-kit": "^3.21.0",
+    "konva": "^10.2.5",
     "lucide-react": "^1.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-konva": "^19.2.3",
     "react-router-dom": "^7.13.2",
     "tailwindcss": "^4.2.2",
     "zustand": "^5.0.12"

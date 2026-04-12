@@ -28,6 +28,10 @@ vi.mock("./services/projectMindApi", () => ({
     projectsList: vi.fn(async () => []),
     workspaceSearch: vi.fn(async () => []),
     activityList: vi.fn(async () => []),
+    workspaceTodoList: vi.fn(async () => []),
+    workspaceNoteList: vi.fn(async () => []),
+    workspaceNoteUpsert: vi.fn(),
+    workspaceNoteDelete: vi.fn(),
     richTextStyleGet: vi.fn(async () => ({
       body: {
         fontFamily: { source: "preset", value: "workspace_sans" },
@@ -331,7 +335,7 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByText("project route body")).toBeInTheDocument();
   });
 
-  it("hides Ask and Today entries when their AI toggles are off", async () => {
+  it("keeps Today visible while hiding Ask when assistant is off", async () => {
     vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
       profiles: [],
       bindings: [],
@@ -377,10 +381,10 @@ describe("WorkspaceLayout", () => {
 
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Today" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
   });
 
-  it("redirects away from /today when the daily brief feature is off", async () => {
+  it("keeps /today accessible even when the daily brief feature is off", async () => {
     vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
       profiles: [],
       bindings: [],
@@ -428,10 +432,7 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
-    await waitFor(() => {
-      expect(screen.queryByText("today route")).not.toBeInTheDocument();
-    });
-    expect(screen.getByText(/当前还没有项目。需要开始整理时再创建即可/i)).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/today"));
+    expect(await screen.findByText("today route")).toBeInTheDocument();
   });
 });

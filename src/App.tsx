@@ -10,7 +10,7 @@ import type {
   WorkspaceStatusSnapshot,
   WorkspaceSummary,
 } from "./lib/types";
-import { isAiCapabilityVisible, isAiFeatureVisible } from "./lib/ai";
+import { isAiCapabilityVisible } from "./lib/ai";
 import { deriveAskScopeContext } from "./lib/aiAsk";
 import { ensureAiJobSync, resetAiJobSync } from "./lib/aiJobs";
 import { activityPath, parseRouteId, projectPath, todayPath } from "./lib/formatters";
@@ -43,6 +43,8 @@ function workspaceScopedQueryKeys() {
     ["dashboard"],
     ["activities"],
     ["search"],
+    ["workspace-todos"],
+    ["workspace-notes"],
     ["ai-settings"],
     ["ai-artifact"],
     ["rich-text-style"],
@@ -427,7 +429,7 @@ export function WorkspaceLayout() {
   );
   const [askScope, setAskScope] = useState<AiAnswerScope>(askScopeContext.defaultScope);
   const askVisible = isAiCapabilityVisible(aiSettingsQuery.data, "assistant");
-  const todayVisible = isAiFeatureVisible(aiSettingsQuery.data, "summary.daily_brief");
+  const todayVisible = hasWorkspace;
 
   const { createProjectMutation, archiveMutation } = useProjectMutations(
     visibleProjects,
@@ -698,14 +700,6 @@ export function WorkspaceLayout() {
       setAskOpen(false);
     }
   }, [askOpen, askVisible]);
-
-  useEffect(() => {
-    if (!todayActive || todayVisible || !hasWorkspace) {
-      return;
-    }
-
-    navigate("/projects", { replace: true });
-  }, [hasWorkspace, navigate, todayActive, todayVisible]);
 
   useEffect(() => {
     if (!hasWorkspace) {

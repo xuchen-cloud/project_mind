@@ -55,6 +55,91 @@ beforeAll(() => {
     configurable: true,
     value: vi.fn(() => true),
   });
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({
+      canvas: document.createElement("canvas"),
+      fillRect: vi.fn(),
+      clearRect: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray() })),
+      putImageData: vi.fn(),
+      createImageData: vi.fn(() => []),
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillText: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      closePath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      bezierCurveTo: vi.fn(),
+      quadraticCurveTo: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      arc: vi.fn(),
+      ellipse: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      scale: vi.fn(),
+      measureText: vi.fn(() => ({
+        width: 120,
+        actualBoundingBoxAscent: 10,
+        actualBoundingBoxDescent: 4,
+      })),
+      transform: vi.fn(),
+      resetTransform: vi.fn(),
+      setLineDash: vi.fn(),
+      strokeText: vi.fn(),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      createPattern: vi.fn(() => null),
+      createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    }),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+    configurable: true,
+    value: () => "data:image/png;base64,AAAA",
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+  Object.defineProperty(window, "Image", {
+    configurable: true,
+    writable: true,
+    value: class MockImage {
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+      naturalWidth = 1600;
+      naturalHeight = 900;
+      width = 1600;
+      height = 900;
+      decoding = "async";
+      #src = "";
+
+      get src() {
+        return this.#src;
+      }
+
+      set src(value: string) {
+        this.#src = value;
+        queueMicrotask(() => {
+          this.onload?.();
+        });
+      }
+    },
+  });
+  Object.defineProperty(globalThis, "Image", {
+    configurable: true,
+    writable: true,
+    value: window.Image,
+  });
   Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
     configurable: true,
     get() {
@@ -536,6 +621,91 @@ describe("RichEditor images", () => {
     });
 
     expect(image.getAttribute("src")).toBe("asset:///tmp/fixed.png");
+  });
+
+  it("opens the image browser on double click and keeps saved annotation previews after reopening", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockResolvedValue("/tmp/clip.png");
+    const { container, unmount } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        assetHandlers={{
+          insertImage: async () => ({
+            kind: "image",
+            title: "clip.png",
+            src: "data:image/png;base64,AA==",
+          }),
+        }}
+      />,
+    );
+
+    await user.click(await screen.findByLabelText("图片"));
+
+    const image = await waitFor(() => {
+      const nextImage = container.querySelector("img.rich-editor__image");
+
+      expect(nextImage).toBeTruthy();
+      return nextImage as HTMLImageElement;
+    });
+
+    fireEvent.doubleClick(image);
+    expect(await screen.findByRole("dialog", { name: "clip.png" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "文字" }));
+
+    const stageSurface = await waitFor(() => {
+      const nextSurface = document.querySelector(".konvajs-content");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    Object.defineProperty(stageSurface, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: 640,
+        right: 960,
+        width: 960,
+        height: 640,
+        toJSON: () => ({}),
+      }),
+    });
+
+    fireEvent.mouseDown(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
+    fireEvent.mouseUp(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
+    fireEvent.click(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
+
+    const textarea = await screen.findByTestId("image-annotation-text-editor");
+    await user.type(textarea, "放大看细节");
+    fireEvent.blur(textarea);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("image-annotation-text-editor")).toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: "保存标注" }));
+
+    let savedHtml = "";
+    await waitFor(() => {
+      savedHtml = getLatestHtml(onChange) || "";
+      expect(savedHtml).toContain("data-annotation-state=");
+      expect(container.querySelector(".rich-editor__annotation-preview")).toBeTruthy();
+    });
+
+    unmount();
+    const reopened = render(<RichEditor variant="toolbar" defaultHtml={savedHtml} />);
+
+    await waitFor(() => {
+      expect(reopened.container.querySelector(".rich-editor__annotation-preview")).toBeTruthy();
+    });
+
+    pickFileSpy.mockRestore();
   });
 
   it("reads pasted images from clipboard items when files are empty", async () => {

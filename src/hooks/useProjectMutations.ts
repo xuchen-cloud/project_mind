@@ -10,6 +10,7 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
     queryClient.invalidateQueries({ queryKey: ["overview", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["activities", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["workspace-todos"] }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
 }
@@ -29,6 +30,7 @@ export function useProjectMutations(
       pushToast({ tone: "success", title: "项目已创建", detail: project.name });
       setCreateProjectOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
       navigate(`/projects/${project.id}`);
     },
     onError: (error) => {
@@ -64,6 +66,7 @@ export function useProjectMutations(
       });
       await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
       await queryClient.invalidateQueries({ queryKey: ["overview", project.id] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
       await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       if (project.isArchived) {
         const nextProject = visibleProjects.find((item) => item.id !== project.id);

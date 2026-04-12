@@ -37,7 +37,8 @@ use crate::{
         RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
         RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
         TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
-        TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        TodoUpdateStatusInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
+        WorkspaceNoteUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -407,6 +408,15 @@ impl Database {
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
               FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS workspace_notes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT,
+              content_markdown TEXT NOT NULL DEFAULT '',
+              content_html TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS conclusions (
@@ -1588,6 +1598,69 @@ impl Database {
         Ok(current)
     }
 
+    pub fn workspace_note_list(&mut self) -> Result<Vec<WorkspaceNoteRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id
+            FROM workspace_notes
+            ORDER BY updated_at DESC, created_at DESC
+            "#,
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter()
+            .map(|id| self.workspace_note_record(id))
+            .collect()
+    }
+
+    pub fn workspace_note_upsert(
+        &mut self,
+        input: WorkspaceNoteUpsertInput,
+    ) -> Result<WorkspaceNoteRecord> {
+        let timestamp = now_iso();
+
+        match input.note_id {
+            Some(note_id) => {
+                self.workspace_note_record(note_id)?;
+                self.conn.execute(
+                    r#"
+                    UPDATE workspace_notes
+                    SET title = ?1,
+                        content_markdown = ?2,
+                        content_html = ?3,
+                        updated_at = ?4
+                    WHERE id = ?5
+                    "#,
+                    params![input.title, input.markdown, input.html, timestamp, note_id],
+                )?;
+                self.workspace_note_record(note_id)
+            }
+            None => {
+                self.conn.execute(
+                    r#"
+                    INSERT INTO workspace_notes (
+                      title, content_markdown, content_html, created_at, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5)
+                    "#,
+                    params![input.title, input.markdown, input.html, timestamp, timestamp],
+                )?;
+                self.workspace_note_record(self.conn.last_insert_rowid())
+            }
+        }
+    }
+
+    pub fn workspace_note_delete(
+        &mut self,
+        input: WorkspaceNoteDeleteInput,
+    ) -> Result<WorkspaceNoteRecord> {
+        let current = self.workspace_note_record(input.note_id)?;
+        self.conn
+            .execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        Ok(current)
+    }
+
     pub fn conclusion_create(&mut self, input: ConclusionCreateInput) -> Result<ConclusionRecord> {
         let timestamp = now_iso();
         self.conn.execute(
@@ -1792,6 +1865,24 @@ impl Database {
         )?;
         let ids = stmt
             .query_map([input.project_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| self.todo_record(id)).collect()
+    }
+
+    pub fn workspace_todo_list(&mut self) -> Result<Vec<TodoRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT t.id
+            FROM todos t
+            JOIN projects p ON p.id = t.project_id
+            WHERE p.is_archived = 0
+            ORDER BY
+              CASE WHEN t.status = 'unfinished' THEN 0 ELSE 1 END,
+              t.updated_at DESC
+            "#,
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
@@ -5876,6 +5967,28 @@ impl Database {
             .map_err(Into::into)
     }
 
+    fn workspace_note_record(&self, note_id: i64) -> Result<WorkspaceNoteRecord> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT id, title, content_markdown, content_html, created_at, updated_at
+                FROM workspace_notes WHERE id = ?1
+                "#,
+                [note_id],
+                |row| {
+                    Ok(WorkspaceNoteRecord {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content_markdown: row.get(2)?,
+                        content_html: row.get(3)?,
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
     fn conclusion_record(&self, conclusion_id: i64) -> Result<ConclusionRecord> {
         self.conn
             .query_row(
@@ -5939,8 +6052,9 @@ impl Database {
         let base = self.conn.query_row(
             r#"
             SELECT
-              t.id, t.project_id, t.activity_id, t.content, t.status, t.priority, t.created_at, t.updated_at
+              t.id, t.project_id, t.activity_id, a.title, t.content, t.status, t.priority, t.created_at, t.updated_at
             FROM todos t
+            LEFT JOIN activities a ON a.id = t.activity_id
             WHERE t.id = ?1
             "#,
             [todo_id],
@@ -5949,11 +6063,12 @@ impl Database {
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
                 ))
             },
         )?;
@@ -5962,11 +6077,12 @@ impl Database {
             id: base.0,
             project_id: base.1,
             activity_id: base.2,
-            content: base.3,
-            status: base.4,
-            priority: base.5,
-            created_at: base.6,
-            updated_at: base.7,
+            source_activity_title: base.3,
+            content: base.4,
+            status: base.5,
+            priority: base.6,
+            created_at: base.7,
+            updated_at: base.8,
             progresses,
         })
     }
@@ -11905,6 +12021,99 @@ mod tests {
         assert_eq!(deleted.id, note.id);
         assert!(database.note_record(note.id).is_err());
         assert!(database.fetch_notes(activity.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn workspace_todo_list_only_returns_unarchived_project_todos_with_activity_titles() {
+        let (harness, mut database) = setup_database();
+        let active_project = create_project(&mut database, &harness.workspace_root);
+        let archived_project = database
+            .project_create(ProjectCreateInput {
+                name: "Archived".to_string(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let activity = create_activity(&mut database, active_project.id, "Kickoff");
+        let active_todo = create_todo(
+            &mut database,
+            active_project.id,
+            Some(activity.id),
+            "跟进预算",
+            "urgent_important",
+        );
+        create_todo(
+            &mut database,
+            archived_project.id,
+            None,
+            "归档项目待办",
+            "not_urgent_not_important",
+        );
+        database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: archived_project.id,
+                is_archived: true,
+            })
+            .unwrap();
+
+        let todos = database.workspace_todo_list().unwrap();
+
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].id, active_todo.id);
+        assert_eq!(todos[0].source_activity_title.as_deref(), Some("Kickoff"));
+    }
+
+    #[test]
+    fn workspace_notes_round_trip_create_update_delete_and_sort() {
+        use std::{thread::sleep, time::Duration};
+
+        let (_harness, mut database) = setup_database();
+        let first = database
+            .workspace_note_upsert(WorkspaceNoteUpsertInput {
+                note_id: None,
+                title: Some("第一条".to_string()),
+                markdown: "第一条记录".to_string(),
+                html: "<p>第一条记录</p>".to_string(),
+            })
+            .unwrap();
+
+        sleep(Duration::from_millis(5));
+
+        let second = database
+            .workspace_note_upsert(WorkspaceNoteUpsertInput {
+                note_id: None,
+                title: Some("第二条".to_string()),
+                markdown: "第二条记录".to_string(),
+                html: "<p>第二条记录</p>".to_string(),
+            })
+            .unwrap();
+
+        sleep(Duration::from_millis(5));
+
+        let updated_first = database
+            .workspace_note_upsert(WorkspaceNoteUpsertInput {
+                note_id: Some(first.id),
+                title: Some("第一条（更新）".to_string()),
+                markdown: "第一条记录，补充判断".to_string(),
+                html: "<p>第一条记录，补充判断</p>".to_string(),
+            })
+            .unwrap();
+
+        let listed = database.workspace_note_list().unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].id, updated_first.id);
+        assert_eq!(listed[0].title.as_deref(), Some("第一条（更新）"));
+        assert_eq!(listed[1].id, second.id);
+
+        let deleted = database
+            .workspace_note_delete(WorkspaceNoteDeleteInput { note_id: second.id })
+            .unwrap();
+        assert_eq!(deleted.id, second.id);
+        assert!(database.workspace_note_record(second.id).is_err());
+
+        let remaining = database.workspace_note_list().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, updated_first.id);
     }
 
     #[test]

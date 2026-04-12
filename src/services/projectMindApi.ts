@@ -76,6 +76,9 @@ import type {
   TodoUpdateContentInput,
   TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
+  WorkspaceNoteDeleteInput,
+  WorkspaceNoteRecord,
+  WorkspaceNoteUpsertInput,
   WorkspaceCreateInput,
   WorkspaceOpenInput,
   WorkspaceSearchInput,
@@ -179,6 +182,14 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord>("todo_delete", { input }),
   todoListOpen: (input: ProjectIdInput) =>
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
+  workspaceTodoList: () =>
+    desktopApi.command<TodoRecord[]>("workspace_todo_list"),
+  workspaceNoteList: () =>
+    desktopApi.command<WorkspaceNoteRecord[]>("workspace_note_list"),
+  workspaceNoteUpsert: (input: WorkspaceNoteUpsertInput) =>
+    desktopApi.command<WorkspaceNoteRecord>("workspace_note_upsert", { input }),
+  workspaceNoteDelete: (input: WorkspaceNoteDeleteInput) =>
+    desktopApi.command<WorkspaceNoteRecord>("workspace_note_delete", { input }),
   documentImport: (input: DocumentImportInput) =>
     desktopApi.command<DocumentRecord>("document_import", { input }),
   documentImportClipboardImage: (input: DocumentImportClipboardImageInput) =>

@@ -63,6 +63,44 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps workspace todo list to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
+
+    await projectMindApi.workspaceTodoList();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_todo_list");
+  });
+
+  it("maps workspace note upsert to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 3 });
+
+    await projectMindApi.workspaceNoteUpsert({
+      title: "工作区记录",
+      markdown: "整理一下今天的判断",
+      html: "<p>整理一下今天的判断</p>",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_note_upsert", {
+      input: {
+        title: "工作区记录",
+        markdown: "整理一下今天的判断",
+        html: "<p>整理一下今天的判断</p>",
+      },
+    });
+  });
+
+  it("maps workspace note delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 3 });
+
+    await projectMindApi.workspaceNoteDelete({ noteId: 3 });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_note_delete", {
+      input: {
+        noteId: 3,
+      },
+    });
+  });
+
   it("maps note upsert to the unified note command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 7,

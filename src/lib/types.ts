@@ -62,12 +62,22 @@ export interface TodoRecord {
   id: number;
   projectId: number;
   activityId?: number | null;
+  sourceActivityTitle?: string | null;
   content: string;
   status: TodoStatus;
   priority: TodoPriority;
   createdAt: string;
   updatedAt: string;
   progresses: TodoProgressRecord[];
+}
+
+export interface WorkspaceNoteRecord {
+  id: number;
+  title?: string | null;
+  contentMarkdown: string;
+  contentHtml: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DocumentRecord {
@@ -528,6 +538,17 @@ export interface NoteUpsertInput {
 }
 
 export interface NoteDeleteInput {
+  noteId: number;
+}
+
+export interface WorkspaceNoteUpsertInput {
+  noteId?: number;
+  title?: string;
+  markdown: string;
+  html: string;
+}
+
+export interface WorkspaceNoteDeleteInput {
   noteId: number;
 }
 

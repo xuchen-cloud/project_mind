@@ -7,6 +7,7 @@ import Image from "@tiptap/extension-image";
 import { NodeSelection } from "@tiptap/pm/state";
 import { resolveRichTextImageSrc } from "../../../lib/richTextAssets";
 import { desktopApi } from "../../../services/desktopApi";
+import { buildImageAnnotationPreviewMarkup } from "../image-annotations";
 
 export const ManagedImage = Image.extend({
   addAttributes() {
@@ -50,6 +51,14 @@ export const ManagedImage = Image.extend({
         renderHTML: (attributes: Record<string, unknown>) =>
           typeof attributes.width === "number" ? { width: attributes.width } : {},
       },
+      annotationState: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-annotation-state"),
+        renderHTML: (attributes: Record<string, unknown>) =>
+          typeof attributes.annotationState === "string" && attributes.annotationState.trim().length > 0
+            ? { "data-annotation-state": attributes.annotationState }
+            : {},
+      },
     };
   },
 
@@ -61,6 +70,7 @@ export const ManagedImage = Image.extend({
     return (props: NodeViewRendererProps) => {
       const { node, editor, getPos, HTMLAttributes } = props;
       const image = document.createElement("img");
+      const annotationOverlay = document.createElement("div");
 
       let currentNode = node;
       let recoveringSrc = false;
@@ -79,6 +89,7 @@ export const ManagedImage = Image.extend({
         setAttribute(image, "data-path", nextNode.attrs.path);
         setAttribute(image, "data-mime-type", nextNode.attrs.mimeType);
         setAttribute(image, "data-document-id", nextNode.attrs.documentId);
+        setAttribute(image, "data-annotation-state", nextNode.attrs.annotationState);
         image.className = [this.options.HTMLAttributes?.class, HTMLAttributes.class]
           .filter(Boolean)
           .join(" ");
@@ -86,6 +97,15 @@ export const ManagedImage = Image.extend({
           typeof nextNode.attrs.width === "number" ? `${nextNode.attrs.width}px` : "";
         image.style.maxWidth = "100%";
         image.style.height = "auto";
+      };
+
+      const syncAnnotation = (nextNode = currentNode) => {
+        const markup = buildImageAnnotationPreviewMarkup(asOptionalString(nextNode.attrs.annotationState));
+
+        annotationOverlay.className = "rich-editor__annotation-preview";
+        annotationOverlay.setAttribute("aria-hidden", "true");
+        annotationOverlay.hidden = markup.length === 0;
+        annotationOverlay.innerHTML = markup;
       };
 
       const recoverImageSource = async () => {
@@ -171,6 +191,7 @@ export const ManagedImage = Image.extend({
         onUpdate: (updatedNode) => {
           currentNode = updatedNode;
           syncImage(updatedNode);
+          syncAnnotation(updatedNode);
           return true;
         },
         options: {
@@ -199,6 +220,11 @@ export const ManagedImage = Image.extend({
           },
         },
       });
+
+      const wrapper = view.dom.querySelector<HTMLElement>(".rich-editor__image-wrapper") ?? view.dom;
+
+      wrapper.append(annotationOverlay);
+      syncAnnotation(node);
 
       return {
         dom: view.dom,

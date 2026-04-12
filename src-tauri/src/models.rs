@@ -77,12 +77,24 @@ pub struct TodoRecord {
     pub id: i64,
     pub project_id: i64,
     pub activity_id: Option<i64>,
+    pub source_activity_title: Option<String>,
     pub content: String,
     pub status: String,
     pub priority: String,
     pub created_at: String,
     pub updated_at: String,
     pub progresses: Vec<TodoProgressRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceNoteRecord {
+    pub id: i64,
+    pub title: Option<String>,
+    pub content_markdown: String,
+    pub content_html: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -725,6 +737,21 @@ pub struct NoteUpsertInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteDeleteInput {
+    pub note_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceNoteUpsertInput {
+    pub note_id: Option<i64>,
+    pub title: Option<String>,
+    pub markdown: String,
+    pub html: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceNoteDeleteInput {
     pub note_id: i64,
 }
 

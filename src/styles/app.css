@@ -685,6 +685,22 @@
   max-width: 100%;
 }
 
+.rich-editor__surface .rich-editor__annotation-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-danger) 92%, var(--color-text) 8%);
+}
+
+.rich-editor__surface .rich-editor__annotation-preview-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
 .rich-editor__surface .rich-editor__image-node img.rich-editor__image {
   margin: 0;
 }
@@ -1125,6 +1141,107 @@
   .activity-page__layout {
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     align-items: start;
+  }
+}
+
+.image-annotation-dialog {
+  display: grid;
+  min-height: min(78dvh, 52rem);
+  grid-template-rows: auto minmax(0, 1fr);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 94%, #f4efe8) 0%, var(--color-bg) 100%);
+}
+
+.image-annotation-dialog__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border-strong) 52%, white);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-muted) 86%, white) 0%, var(--color-bg) 100%);
+}
+
+.image-annotation-dialog__tool-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.image-annotation-dialog__tool-button.is-active {
+  border-color: color-mix(in srgb, var(--color-border-strong) 65%, var(--color-accent));
+  background: color-mix(in srgb, var(--color-bg) 72%, #efe8dc);
+  color: var(--color-text);
+}
+
+.image-annotation-dialog__zoom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, white);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-bg) 80%, #f6f1e8);
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.image-annotation-dialog__canvas {
+  position: relative;
+  min-height: 26rem;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--color-bg-muted) 88%, #efe7da) 0, transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-canvas) 76%, #f0ebe2) 0%, #ece7df 100%);
+  cursor: grab;
+}
+
+.image-annotation-dialog__canvas.is-panning {
+  cursor: grabbing;
+}
+
+.image-annotation-dialog__canvas.is-drawing {
+  cursor: crosshair;
+}
+
+.image-annotation-dialog__canvas canvas {
+  display: block;
+}
+
+.image-annotation-dialog__textarea {
+  position: absolute;
+  z-index: 3;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, white);
+  border-radius: var(--radius-6);
+  background: color-mix(in srgb, var(--color-bg) 88%, #fff6f4);
+  color: color-mix(in srgb, var(--color-danger) 78%, var(--color-text) 22%);
+  resize: none;
+  outline: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--color-danger) 16%, transparent),
+    0 10px 24px rgba(44, 34, 26, 0.12);
+}
+
+.image-annotation-dialog__textarea::placeholder {
+  color: color-mix(in srgb, var(--color-danger) 44%, var(--color-text-soft) 56%);
+}
+
+@media (max-width: 720px) {
+  .image-annotation-dialog {
+    min-height: min(72dvh, 42rem);
+  }
+
+  .image-annotation-dialog__toolbar {
+    padding: 12px 14px;
+  }
+
+  .image-annotation-dialog__canvas {
+    min-height: 22rem;
   }
 }
 

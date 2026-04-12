@@ -48,6 +48,7 @@ import { fileUriToPath } from "../../lib/formatters";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
 import { desktopApi } from "../../services/desktopApi";
 import { ActionContextMenu, type ContextMenuAction, PopoverPanel, ToolbarButton } from "../../ui/components";
+import { ImageAnnotationDialog } from "./ImageAnnotationDialog";
 import { buildRichEditorExtensions } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
 import { normalizeRichEditorValue } from "./normalize";
@@ -105,7 +106,19 @@ interface ImageContextMenuTarget {
     path?: string;
     src?: string;
     title?: string;
+    annotationState?: string | null;
     width?: number | null;
+  };
+}
+
+interface ImageAnnotationDialogState {
+  nodePos: number;
+  title: string;
+  imageSrc: string;
+  annotationState?: string | null;
+  imageSize?: {
+    width?: number;
+    height?: number;
   };
 }
 
@@ -169,6 +182,7 @@ export function RichEditor({
   const [isFocused, setIsFocused] = useState(false);
   const [assetBusy, setAssetBusy] = useState<null | "image" | "file">(null);
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
+  const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
   const [uiTick, setUiTick] = useState(0);
 
   const autosaveConfig = useMemo<AutosaveConfig>(() => {
@@ -737,6 +751,78 @@ export function RichEditor({
     [onOpenAsset],
   );
 
+  const openImageAnnotationDialog = useCallback(
+    (imageTarget: ImageContextMenuTarget, target?: Element | null) => {
+      const imageSrc = resolveRichTextImageSrc(imageTarget.attrs.path, imageTarget.attrs.src);
+
+      if (!imageSrc) {
+        return;
+      }
+
+      const imageElement =
+        target instanceof HTMLImageElement && target.matches("img.rich-editor__image")
+          ? target
+          : target?.closest<HTMLElement>(".rich-editor__image-node")?.querySelector<HTMLImageElement>(
+              "img.rich-editor__image",
+            ) ??
+            null;
+
+      setAnnotationDialog({
+        nodePos: imageTarget.nodePos,
+        title: imageTarget.attrs.title?.trim() || imageTarget.attrs.alt?.trim() || "图片浏览",
+        imageSrc,
+        annotationState: imageTarget.attrs.annotationState,
+        imageSize:
+          imageElement && (imageElement.naturalWidth > 0 || imageElement.naturalHeight > 0)
+            ? {
+                width: imageElement.naturalWidth || undefined,
+                height: imageElement.naturalHeight || undefined,
+              }
+            : undefined,
+      });
+    },
+    [],
+  );
+
+  const handleAnnotationSave = useCallback(
+    (nextAnnotationState: string | null) => {
+      if (!editor || !annotationDialog) {
+        return;
+      }
+
+      updateImageNodeAttrs(editor, annotationDialog.nodePos, {
+        annotationState: nextAnnotationState,
+      });
+      setAnnotationDialog(null);
+    },
+    [annotationDialog, editor],
+  );
+
+  const handleEditorDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!editor) {
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target : null;
+
+      if (target?.closest(".rich-editor__image-resize-handle")) {
+        return;
+      }
+
+      const imageTarget = resolveImageContextMenuTarget(editor, target);
+
+      if (!imageTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      selectImageNode(editor, imageTarget.nodePos);
+      openImageAnnotationDialog(imageTarget, target);
+    },
+    [editor, openImageAnnotationDialog],
+  );
+
   const editorHasTableSelection = useMemo(
     () => Boolean(editor && !readOnly && editor.isEditable && editor.isActive("table")),
     [editor, readOnly, uiTick],
@@ -785,7 +871,7 @@ export function RichEditor({
           actions: buildImageContextMenuActions({
             editor,
             imageTarget,
-            onOpenAsset,
+            onBrowseImage: (targetElement) => openImageAnnotationDialog(imageTarget, targetElement),
             readOnly,
           }),
         });
@@ -810,7 +896,7 @@ export function RichEditor({
 
       setContextMenu(null);
     },
-    [editor, enableTables, onOpenAsset, readOnly],
+    [editor, enableTables, openImageAnnotationDialog, readOnly],
   );
 
   const toolbarGroups = useMemo(() => {
@@ -1082,7 +1168,12 @@ export function RichEditor({
         </div>
       ) : null}
 
-      <div className="rich-editor__frame" onClick={handleAssetClick} onContextMenu={handleEditorContextMenu}>
+      <div
+        className="rich-editor__frame"
+        onClick={handleAssetClick}
+        onDoubleClick={handleEditorDoubleClick}
+        onContextMenu={handleEditorContextMenu}
+      >
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
       </div>
       {contextMenu ? (
@@ -1092,6 +1183,18 @@ export function RichEditor({
           ariaLabel={contextMenu.ariaLabel}
           actions={contextMenu.actions}
           onClose={closeContextMenu}
+        />
+      ) : null}
+      {annotationDialog ? (
+        <ImageAnnotationDialog
+          open
+          readOnly={readOnly}
+          title={annotationDialog.title}
+          imageSrc={annotationDialog.imageSrc}
+          initialAnnotationState={annotationDialog.annotationState}
+          imageSize={annotationDialog.imageSize}
+          onClose={() => setAnnotationDialog(null)}
+          onSave={handleAnnotationSave}
         />
       ) : null}
     </div>
@@ -1667,31 +1770,36 @@ function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
 function buildImageContextMenuActions({
   editor,
   imageTarget,
-  onOpenAsset,
+  onBrowseImage,
   readOnly,
 }: {
   editor: Editor;
   imageTarget: ImageContextMenuTarget;
-  onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
+  onBrowseImage: (target?: Element | null) => void;
   readOnly: boolean;
 }) {
-  const imageTitle = imageTarget.attrs.title?.trim() || imageTarget.attrs.alt?.trim() || "图片";
-  const canOpenImage = Boolean(onOpenAsset || imageTarget.attrs.path || imageTarget.attrs.src);
+  const canBrowseImage = Boolean(imageTarget.attrs.path || imageTarget.attrs.src);
+  const canOpenOriginal = Boolean(imageTarget.attrs.path || imageTarget.attrs.src);
   const canRevealPath = Boolean(imageTarget.attrs.path);
   const canEditImage = !readOnly && editor.isEditable;
 
   return [
     {
-      key: "image-open",
-      label: "打开图片",
-      icon: ExternalLink,
-      disabled: !canOpenImage,
+      key: "image-browse",
+      label: "浏览图片",
+      icon: Maximize2,
+      disabled: !canBrowseImage,
       onSelect: () => {
-        void openImageAsset({
-          attrs: imageTarget.attrs,
-          onOpenAsset,
-          title: imageTitle,
-        });
+        onBrowseImage();
+      },
+    },
+    {
+      key: "image-open-original",
+      label: "在系统中打开原图",
+      icon: ExternalLink,
+      disabled: !canOpenOriginal,
+      onSelect: () => {
+        void openImageOriginal(imageTarget.attrs);
       },
     },
     {
@@ -1915,6 +2023,14 @@ function focusTableAtPos(editor: Editor, pos: number) {
 }
 
 function updateImageNodeWidth(editor: Editor, nodePos: number, width: number | null) {
+  updateImageNodeAttrs(editor, nodePos, { width });
+}
+
+function updateImageNodeAttrs(
+  editor: Editor,
+  nodePos: number,
+  attrs: Partial<ImageContextMenuTarget["attrs"]>,
+) {
   const node = editor.state.doc.nodeAt(nodePos);
 
   if (!node || node.type.name !== "image") {
@@ -1926,7 +2042,7 @@ function updateImageNodeWidth(editor: Editor, nodePos: number, width: number | n
   tr.setSelection(NodeSelection.create(tr.doc, nodePos));
   tr.setNodeMarkup(nodePos, undefined, {
     ...node.attrs,
-    width,
+    ...attrs,
   });
   editor.view.dispatch(tr);
 }
@@ -1943,31 +2059,7 @@ function removeNodeAtPos(editor: Editor, nodePos: number) {
   editor.view.dispatch(tr);
 }
 
-async function openImageAsset({
-  attrs,
-  onOpenAsset,
-  title,
-}: {
-  attrs: ImageContextMenuTarget["attrs"];
-  onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
-  title: string;
-}) {
-  if (onOpenAsset) {
-    try {
-      await onOpenAsset({
-        kind: "image",
-        title,
-        path: attrs.path,
-        src: attrs.src,
-        mimeType: attrs.mimeType,
-        documentId: attrs.documentId,
-      });
-      return;
-    } catch {
-      // Fall back to native open behavior when possible.
-    }
-  }
-
+async function openImageOriginal(attrs: ImageContextMenuTarget["attrs"]) {
   if (attrs.path) {
     await desktopApi.openFile(attrs.path);
     return;
