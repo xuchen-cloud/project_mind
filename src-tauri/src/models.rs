@@ -454,8 +454,15 @@ pub struct AiJobSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RichTextFontSelection {
+    pub source: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RichTextStyleBlockSettings {
-    pub font_preset: String,
+    pub font_family: RichTextFontSelection,
     pub font_size_px: i64,
     pub line_height: f64,
     pub paragraph_spacing_before_px: i64,
@@ -465,7 +472,7 @@ pub struct RichTextStyleBlockSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RichTextHeadingStyleSettings {
-    pub font_preset: String,
+    pub font_family: RichTextFontSelection,
     pub line_height: f64,
     pub paragraph_spacing_before_px: i64,
     pub paragraph_spacing_after_px: i64,

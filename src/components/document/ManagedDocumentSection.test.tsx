@@ -371,6 +371,29 @@ describe("ManagedDocumentSection", () => {
     });
   });
 
+  it("starts inline rename from the context menu", async () => {
+    const user = userEvent.setup();
+
+    renderSection([
+      buildDocument({
+        id: 24,
+        baseName: "Context rename.pdf",
+      }),
+    ]);
+
+    fireEvent.contextMenu(document.getElementById("document-24") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
+
+    const input = await screen.findByDisplayValue("Context rename.pdf");
+    await user.clear(input);
+    await user.type(input, "Renamed from menu.pdf{Enter}");
+
+    expect(documentMutationMocks.documentMetaMutation.mutate).toHaveBeenCalledWith({
+      documentId: 24,
+      baseName: "Renamed from menu.pdf",
+    });
+  });
+
   it("prevents native text selection on right mouse down before opening the context menu", async () => {
     renderSection([
       buildDocument({
@@ -445,6 +468,7 @@ describe("ManagedDocumentSection", () => {
 
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
       "打开文件所在位置",
+      "重命名",
       "复制为新版本并打开",
       "标星",
       "删除",
@@ -516,8 +540,26 @@ describe("ManagedDocumentSection", () => {
     fireEvent.contextMenu(document.getElementById("document-25") as HTMLElement);
 
     expect(screen.getByRole("menuitem", { name: "打开文件所在位置" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "复制为新版本并打开" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeEnabled();
+  });
+
+  it("does not enter rename mode for missing files on double click", async () => {
+    const user = userEvent.setup();
+
+    renderSection([
+      buildDocument({
+        id: 26,
+        baseName: "Missing inline.pdf",
+        health: "missing",
+      }),
+    ]);
+
+    await user.dblClick(screen.getByText("Missing inline.pdf"));
+
+    expect(screen.queryByDisplayValue("Missing inline.pdf")).not.toBeInTheDocument();
+    expect(documentMutationMocks.documentMetaMutation.mutate).not.toHaveBeenCalled();
   });
 
   it("opens an import tag dialog when workspace tags exist and applies selected tag ids to every file", async () => {

@@ -34,10 +34,10 @@ use crate::{
         ProjectIdInput, ProjectListItem, ProjectOverviewData, ProjectRecord,
         ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
         RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
-        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
-        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoProgressRecord, TodoRecord,
-        TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateStatusInput,
-        WorkspaceSearchInput, WorkspaceSearchResult,
+        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
+        RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+        TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
+        TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -863,12 +863,7 @@ impl Database {
             return Err(anyhow!("project name is required"));
         }
 
-        let project_dir_name = normalize_windows_safe_component(project_name);
-        if project_dir_name.is_empty() {
-            return Err(anyhow!(
-                "project name must contain at least one usable character"
-            ));
-        }
+        let project_dir_name = project_directory_name(project_name)?;
 
         let project_dir = base.join(project_dir_name);
         if project_dir.exists() {
@@ -951,6 +946,156 @@ impl Database {
         })
     }
 
+    fn rename_project_root(&mut self, current: &ProjectRecord, next_name: &str) -> Result<()> {
+        let current_dir = PathBuf::from(&current.root_path);
+        if !current_dir.exists() {
+            return Err(anyhow!(
+                "project folder does not exist at {}",
+                current_dir.display()
+            ));
+        }
+
+        let next_dir = self
+            .workspace_root
+            .join(project_directory_name(next_name.trim())?);
+        if current_dir == next_dir {
+            return Ok(());
+        }
+
+        if next_dir.exists() {
+            return Err(anyhow!("文件夹名称已被占用，项目名称未保存"));
+        }
+
+        let documents = self.fetch_all_documents_for_project(current.id)?;
+        let mut document_path_updates = Vec::with_capacity(documents.len());
+        let mut version_path_updates = Vec::new();
+        for document in &documents {
+            let next_managed_path =
+                rebase_path_prefix(Path::new(&document.managed_path), &current_dir, &next_dir)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "document {} is outside project root: {}",
+                            document.id,
+                            document.managed_path
+                        )
+                    })?;
+            let next_history_dir = rebase_path_prefix(
+                Path::new(&document.history_dir_path),
+                &current_dir,
+                &next_dir,
+            )
+            .ok_or_else(|| {
+                anyhow!(
+                    "document history {} is outside project root: {}",
+                    document.id,
+                    document.history_dir_path
+                )
+            })?;
+            let next_original_path_ref = self.rewrite_path_ref_prefix_if_within(
+                &self.encode_path_ref(Path::new(&document.original_path)),
+                &current_dir,
+                &next_dir,
+            );
+
+            document_path_updates.push((
+                document.id,
+                self.encode_path_ref(&next_managed_path),
+                self.encode_path_ref(&next_history_dir),
+                next_original_path_ref,
+            ));
+
+            let versions = self.fetch_document_versions(document.id)?;
+            for version in &versions {
+                let next_managed_path =
+                    rebase_path_prefix(Path::new(&version.managed_path), &current_dir, &next_dir)
+                        .ok_or_else(|| {
+                        anyhow!(
+                            "document version {} is outside project root: {}",
+                            version.id,
+                            version.managed_path
+                        )
+                    })?;
+                let next_source_path_ref = self.rewrite_path_ref_prefix_if_within(
+                    &self.encode_path_ref(Path::new(&version.source_path)),
+                    &current_dir,
+                    &next_dir,
+                );
+                version_path_updates.push((
+                    version.id,
+                    self.encode_path_ref(&next_managed_path),
+                    next_source_path_ref,
+                ));
+            }
+        }
+
+        let note_html_updates =
+            self.collect_note_html_rewrites_for_project(current.id, &current_dir, &next_dir)?;
+        let conclusion_html_updates =
+            self.collect_conclusion_html_rewrites_for_project(current.id, &current_dir, &next_dir)?;
+
+        let next_root_path_ref = self.encode_path_ref(&next_dir);
+
+        fs::rename(&current_dir, &next_dir).with_context(|| {
+            format!(
+                "failed to rename project folder from {} to {}",
+                current_dir.display(),
+                next_dir.display()
+            )
+        })?;
+
+        let tx = self.conn.transaction()?;
+        let update_result: Result<()> = (|| {
+            tx.execute(
+                "UPDATE projects SET root_path = ?1 WHERE id = ?2",
+                params![next_root_path_ref, current.id],
+            )?;
+
+            for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
+                &document_path_updates
+            {
+                tx.execute(
+                    r#"
+                    UPDATE documents
+                    SET managed_path = ?1,
+                        history_dir_path = ?2,
+                        original_path = ?3
+                    WHERE id = ?4
+                    "#,
+                    params![
+                        managed_path_ref,
+                        history_dir_ref,
+                        original_path_ref,
+                        document_id
+                    ],
+                )?;
+            }
+
+            for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
+                tx.execute(
+                    r#"
+                    UPDATE document_versions
+                    SET managed_path = ?1,
+                        source_path = ?2
+                    WHERE id = ?3
+                    "#,
+                    params![managed_path_ref, source_path_ref, version_id],
+                )?;
+            }
+
+            apply_note_html_updates(&tx, &note_html_updates)?;
+            apply_conclusion_html_updates(&tx, &conclusion_html_updates)?;
+            tx.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = update_result {
+            let _ = fs::rename(&next_dir, &current_dir);
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
     pub fn project_update_summary(
         &mut self,
         input: ProjectUpdateSummaryInput,
@@ -964,8 +1109,11 @@ impl Database {
                 }
                 trimmed.to_string()
             }
-            None => current.name,
+            None => current.name.clone(),
         };
+        if project_name != current.name {
+            self.rename_project_root(&current, &project_name)?;
+        }
         self.conn.execute(
             "UPDATE projects SET name = ?1, summary = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
             params![
@@ -6164,6 +6312,16 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
+    fn fetch_all_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM documents WHERE project_id = ?1 ORDER BY updated_at DESC")?;
+        let ids = stmt
+            .query_map([project_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| self.document_record(id)).collect()
+    }
+
     fn fetch_document_tags(&self, document_id: i64) -> Result<Vec<DocumentTagRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
@@ -6224,6 +6382,118 @@ impl Database {
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
+    }
+
+    fn collect_note_html_rewrites_for_project(
+        &self,
+        project_id: i64,
+        old_prefix: &Path,
+        new_prefix: &Path,
+    ) -> Result<Vec<(i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, content_html FROM notes WHERE project_id = ?1")?;
+        let rows = stmt.query_map([project_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut updates = Vec::new();
+        for row in rows {
+            let (id, content_html) = row?;
+            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
+            if next_html != content_html {
+                updates.push((id, next_html));
+            }
+        }
+
+        Ok(updates)
+    }
+
+    fn collect_conclusion_html_rewrites_for_project(
+        &self,
+        project_id: i64,
+        old_prefix: &Path,
+        new_prefix: &Path,
+    ) -> Result<Vec<(i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, content_html FROM conclusions WHERE project_id = ?1")?;
+        let rows = stmt.query_map([project_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut updates = Vec::new();
+        for row in rows {
+            let (id, content_html) = row?;
+            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
+            if next_html != content_html {
+                updates.push((id, next_html));
+            }
+        }
+
+        Ok(updates)
+    }
+
+    fn collect_note_html_rewrites_for_activity(
+        &self,
+        activity_id: i64,
+        old_prefix: &Path,
+        new_prefix: &Path,
+    ) -> Result<Vec<(i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, content_html FROM notes WHERE activity_id = ?1")?;
+        let rows = stmt.query_map([activity_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut updates = Vec::new();
+        for row in rows {
+            let (id, content_html) = row?;
+            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
+            if next_html != content_html {
+                updates.push((id, next_html));
+            }
+        }
+
+        Ok(updates)
+    }
+
+    fn collect_conclusion_html_rewrites_for_activity(
+        &self,
+        activity_id: i64,
+        old_prefix: &Path,
+        new_prefix: &Path,
+    ) -> Result<Vec<(i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, content_html FROM conclusions WHERE activity_id = ?1")?;
+        let rows = stmt.query_map([activity_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut updates = Vec::new();
+        for row in rows {
+            let (id, content_html) = row?;
+            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
+            if next_html != content_html {
+                updates.push((id, next_html));
+            }
+        }
+
+        Ok(updates)
+    }
+
+    fn rewrite_path_ref_prefix_if_within(
+        &self,
+        path_ref: &str,
+        old_prefix: &Path,
+        new_prefix: &Path,
+    ) -> String {
+        let decoded = self.decode_path_ref(path_ref);
+        rebase_path_prefix(&decoded, old_prefix, new_prefix)
+            .map(|path| self.encode_path_ref(&path))
+            .unwrap_or_else(|| path_ref.to_string())
     }
 
     fn document_version_record(&self, version_id: i64) -> Result<DocumentVersionRecord> {
@@ -7033,6 +7303,13 @@ impl Database {
                 Ok((document.id, version_updates))
             })
             .collect::<Result<Vec<_>>>()?;
+        let note_html_updates =
+            self.collect_note_html_rewrites_for_activity(activity_id, &current_dir, &next_dir)?;
+        let conclusion_html_updates = self.collect_conclusion_html_rewrites_for_activity(
+            activity_id,
+            &current_dir,
+            &next_dir,
+        )?;
 
         let renamed_existing_dir = current_dir.exists();
         if renamed_existing_dir {
@@ -7104,6 +7381,9 @@ impl Database {
                 )?;
             }
         }
+
+        apply_note_html_updates(&tx, &note_html_updates)?;
+        apply_conclusion_html_updates(&tx, &conclusion_html_updates)?;
 
         if let Err(error) = tx.commit() {
             if renamed_existing_dir {
@@ -8481,6 +8761,181 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     }
 }
 
+fn project_directory_name(project_name: &str) -> Result<String> {
+    let project_dir_name = normalize_windows_safe_component(project_name);
+    if project_dir_name.is_empty() {
+        return Err(anyhow!(
+            "project name must contain at least one usable character"
+        ));
+    }
+
+    Ok(project_dir_name)
+}
+
+fn rebase_path_prefix(path: &Path, old_prefix: &Path, new_prefix: &Path) -> Option<PathBuf> {
+    path.strip_prefix(old_prefix).ok().map(|relative| {
+        if relative.as_os_str().is_empty() {
+            new_prefix.to_path_buf()
+        } else {
+            new_prefix.join(relative)
+        }
+    })
+}
+
+fn rewrite_rich_text_asset_paths(html: &str, old_prefix: &Path, new_prefix: &Path) -> String {
+    if html.is_empty() || old_prefix == new_prefix {
+        return html.to_string();
+    }
+
+    let old_path_prefix = old_prefix.to_string_lossy().to_string();
+    let new_path_prefix = new_prefix.to_string_lossy().to_string();
+    let old_href_prefix = file_href_from_path(old_prefix);
+    let new_href_prefix = file_href_from_path(new_prefix);
+
+    ["data-path", "data-href", "href", "src"].into_iter().fold(
+        html.to_string(),
+        |current, attribute| {
+            rewrite_html_attribute_path_prefix(
+                &current,
+                attribute,
+                &old_path_prefix,
+                &new_path_prefix,
+                &old_href_prefix,
+                &new_href_prefix,
+            )
+        },
+    )
+}
+
+fn rewrite_html_attribute_path_prefix(
+    html: &str,
+    attribute: &str,
+    old_path_prefix: &str,
+    new_path_prefix: &str,
+    old_href_prefix: &str,
+    new_href_prefix: &str,
+) -> String {
+    let needle = format!(r#"{attribute}=""#);
+    let mut rewritten = String::with_capacity(html.len());
+    let mut cursor = 0usize;
+
+    while let Some(start_offset) = html[cursor..].find(&needle) {
+        let start = cursor + start_offset;
+        let value_start = start + needle.len();
+        rewritten.push_str(&html[cursor..value_start]);
+
+        let Some(end_offset) = html[value_start..].find('"') else {
+            rewritten.push_str(&html[value_start..]);
+            return rewritten;
+        };
+        let value_end = value_start + end_offset;
+        let value = &html[value_start..value_end];
+        if let Some(remainder) = value.strip_prefix(old_path_prefix) {
+            rewritten.push_str(new_path_prefix);
+            rewritten.push_str(remainder);
+        } else if let Some(remainder) = value.strip_prefix(old_href_prefix) {
+            rewritten.push_str(new_href_prefix);
+            rewritten.push_str(remainder);
+        } else {
+            rewritten.push_str(value);
+        }
+
+        cursor = value_end;
+    }
+
+    rewritten.push_str(&html[cursor..]);
+    rewritten
+}
+
+fn file_href_from_path(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+
+    if normalized.starts_with("//") {
+        return format!("file:{}", encode_uri_path_preserving_slashes(&normalized));
+    }
+
+    if normalized
+        .as_bytes()
+        .get(1)
+        .is_some_and(|value| *value == b':')
+        && normalized
+            .as_bytes()
+            .first()
+            .is_some_and(|value| value.is_ascii_alphabetic())
+    {
+        return format!(
+            "file:///{}",
+            encode_uri_path_preserving_slashes(&normalized)
+        );
+    }
+
+    format!("file://{}", encode_uri_path_preserving_slashes(&normalized))
+}
+
+fn encode_uri_path_preserving_slashes(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(
+            ch,
+            'A'..='Z'
+                | 'a'..='z'
+                | '0'..='9'
+                | ';'
+                | ','
+                | '/'
+                | '?'
+                | ':'
+                | '@'
+                | '&'
+                | '='
+                | '+'
+                | '$'
+                | '-'
+                | '_'
+                | '.'
+                | '!'
+                | '~'
+                | '*'
+                | '\''
+                | '('
+                | ')'
+                | '#'
+        ) {
+            encoded.push(ch);
+            continue;
+        }
+
+        let mut buffer = [0u8; 4];
+        for byte in ch.encode_utf8(&mut buffer).as_bytes() {
+            encoded.push_str(&format!("%{:02X}", byte));
+        }
+    }
+
+    encoded
+}
+
+fn apply_note_html_updates(tx: &Transaction<'_>, updates: &[(i64, String)]) -> Result<()> {
+    for (note_id, content_html) in updates {
+        tx.execute(
+            "UPDATE notes SET content_html = ?1 WHERE id = ?2",
+            params![content_html, note_id],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn apply_conclusion_html_updates(tx: &Transaction<'_>, updates: &[(i64, String)]) -> Result<()> {
+    for (conclusion_id, content_html) in updates {
+        tx.execute(
+            "UPDATE conclusions SET content_html = ?1 WHERE id = ?2",
+            params![content_html, conclusion_id],
+        )?;
+    }
+
+    Ok(())
+}
+
 fn versioned_file_name(base_name: &str, version_number: i64) -> String {
     if version_number <= 1 {
         return normalize_windows_safe_component(base_name);
@@ -9737,6 +10192,7 @@ mod tests {
     fn project_update_summary_can_rename_project_and_refresh_updated_at() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
+        let old_root = PathBuf::from(&project.root_path);
 
         thread::sleep(Duration::from_millis(5));
 
@@ -9753,11 +10209,275 @@ mod tests {
         assert_eq!(updated.name, "Alpha Prime");
         assert_eq!(updated.summary, "最新项目简介");
         assert_ne!(updated.updated_at, project.updated_at);
+        assert_eq!(
+            updated.root_path,
+            harness
+                .workspace_root
+                .join("Alpha Prime")
+                .to_string_lossy()
+                .to_string()
+        );
+        assert!(!old_root.exists());
+        assert!(Path::new(&updated.root_path).exists());
 
         let refreshed = database.project_record(project.id).unwrap();
         assert_eq!(refreshed.name, "Alpha Prime");
         assert_eq!(refreshed.summary, "最新项目简介");
         assert_eq!(refreshed.updated_at, updated.updated_at);
+        assert_eq!(refreshed.root_path, updated.root_path);
+    }
+
+    #[test]
+    fn project_rename_moves_document_paths_and_rewrites_internal_asset_refs() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let project_source = PathBuf::from(&project.root_path).join("brief.pdf");
+        fs::write(&project_source, b"brief-v1").unwrap();
+        let project_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: project_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        let versioned_project_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: project_document.id,
+                source_path: None,
+            })
+            .unwrap();
+
+        let activity_source = PathBuf::from(&project.root_path)
+            .join("Kickoff")
+            .join("agenda.pdf");
+        fs::write(&activity_source, b"agenda").unwrap();
+        let activity_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: activity_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let external_source = harness.root.join("outside.pdf");
+        fs::write(&external_source, b"outside").unwrap();
+        let external_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: external_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let note_image = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                file_name: "clip.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode(b"clip-image"),
+            })
+            .unwrap();
+
+        let old_note_image_path = note_image.managed_path.clone();
+        let old_project_document_path = versioned_project_document.managed_path.clone();
+        let old_activity_document_path = activity_document.managed_path.clone();
+        let project_document_href =
+            file_href_from_path(Path::new(&versioned_project_document.managed_path));
+        let activity_document_href =
+            file_href_from_path(Path::new(&activity_document.managed_path));
+        let old_project_document_href = project_document_href.clone();
+        let old_activity_document_href = activity_document_href.clone();
+        let rich_html = format!(
+            concat!(
+                r#"<p><img src="data:image/png;base64,AAAA" data-path="{note_image_path}" data-mime-type="image/png" alt="截图" /></p>"#,
+                r#"<div data-type="attachment" data-path="{project_document_path}" data-href="{project_document_href}">"#,
+                r#"<a class="rich-editor__attachment-link" href="{project_document_href}">项目附件</a></div>"#,
+                r#"<div data-type="attachment" data-path="{activity_document_path}" data-href="{activity_document_href}">"#,
+                r#"<a class="rich-editor__attachment-link" href="{activity_document_href}">活动附件</a></div>"#
+            ),
+            note_image_path = note_image.managed_path,
+            project_document_path = versioned_project_document.managed_path,
+            project_document_href = project_document_href,
+            activity_document_path = activity_document.managed_path,
+            activity_document_href = activity_document_href,
+        );
+
+        let note = database
+            .note_upsert(NoteUpsertInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: None,
+                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
+                title: Some("路径联动记录".to_string()),
+                markdown: "[图片] 截图\n[附件] 项目附件\n[附件] 活动附件".to_string(),
+                html: rich_html.clone(),
+            })
+            .unwrap();
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: Some(note.id),
+                markdown: "[附件] 活动附件".to_string(),
+                html: rich_html.clone(),
+                promoted_to_project: false,
+            })
+            .unwrap();
+
+        let old_root = PathBuf::from(&project.root_path);
+        let updated_project = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: project.summary.clone(),
+                status: Some(project.status.clone()),
+            })
+            .unwrap();
+
+        let new_root = PathBuf::from(&updated_project.root_path);
+        let renamed_project_document = database.document_record(project_document.id).unwrap();
+        let renamed_activity_document = database.document_record(activity_document.id).unwrap();
+        let renamed_external_document = database.document_record(external_document.id).unwrap();
+        let renamed_note_image = database.document_record(note_image.id).unwrap();
+        let project_versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: project_document.id,
+            })
+            .unwrap();
+        let activity_versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: activity_document.id,
+            })
+            .unwrap();
+        let external_versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: external_document.id,
+            })
+            .unwrap();
+        let saved_note = database.note_record(note.id).unwrap();
+        let saved_conclusion = database.conclusion_record(conclusion.id).unwrap();
+
+        assert!(!old_root.exists());
+        assert!(new_root.exists());
+        assert!(renamed_project_document
+            .managed_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_project_document
+            .history_dir_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_project_document
+            .original_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_activity_document
+            .managed_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_activity_document
+            .original_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_note_image
+            .managed_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert!(renamed_note_image
+            .original_path
+            .starts_with(updated_project.root_path.as_str()));
+        assert_eq!(
+            renamed_external_document.original_path,
+            external_source.to_string_lossy().to_string()
+        );
+        assert!(project_versions.iter().all(|version| version
+            .managed_path
+            .starts_with(updated_project.root_path.as_str())));
+        assert!(project_versions.iter().all(|version| version
+            .source_path
+            .starts_with(updated_project.root_path.as_str())));
+        assert!(activity_versions.iter().all(|version| version
+            .managed_path
+            .starts_with(updated_project.root_path.as_str())));
+        assert!(activity_versions.iter().all(|version| version
+            .source_path
+            .starts_with(updated_project.root_path.as_str())));
+        assert_eq!(
+            external_versions[0].source_path,
+            external_source.to_string_lossy().to_string()
+        );
+        assert!(saved_note
+            .content_html
+            .contains(&renamed_note_image.managed_path));
+        assert!(saved_note
+            .content_html
+            .contains(&renamed_project_document.managed_path));
+        assert!(saved_note
+            .content_html
+            .contains(&renamed_activity_document.managed_path));
+        assert!(saved_note
+            .content_html
+            .contains(&file_href_from_path(Path::new(
+                &renamed_project_document.managed_path
+            ))));
+        assert!(saved_note
+            .content_html
+            .contains(&file_href_from_path(Path::new(
+                &renamed_activity_document.managed_path
+            ))));
+        assert!(!saved_note.content_html.contains(&old_note_image_path));
+        assert!(!saved_note.content_html.contains(&old_project_document_path));
+        assert!(!saved_note
+            .content_html
+            .contains(&old_activity_document_path));
+        assert!(!saved_note.content_html.contains(&old_project_document_href));
+        assert!(!saved_note
+            .content_html
+            .contains(&old_activity_document_href));
+        assert!(saved_conclusion
+            .content_html
+            .contains(&renamed_note_image.managed_path));
+        assert!(saved_conclusion
+            .content_html
+            .contains(&renamed_activity_document.managed_path));
+        assert!(!saved_conclusion.content_html.contains(&old_note_image_path));
+        assert!(!saved_conclusion
+            .content_html
+            .contains(&old_activity_document_path));
+        assert!(!saved_conclusion
+            .content_html
+            .contains(&old_project_document_href));
+        assert!(!saved_conclusion
+            .content_html
+            .contains(&old_activity_document_href));
+    }
+
+    #[test]
+    fn project_rename_fails_when_target_folder_already_exists_without_mutating_state() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let old_root = PathBuf::from(&project.root_path);
+        let conflicting_root = harness.workspace_root.join("Alpha Prime");
+        fs::create_dir_all(&conflicting_root).unwrap();
+
+        let error = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: project.summary.clone(),
+                status: Some(project.status.clone()),
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("文件夹名称已被占用"));
+        assert!(old_root.exists());
+        assert!(conflicting_root.exists());
+        let refreshed = database.project_record(project.id).unwrap();
+        assert_eq!(refreshed.name, project.name);
+        assert_eq!(refreshed.root_path, project.root_path);
     }
 
     #[test]
@@ -9983,7 +10703,8 @@ mod tests {
 
         let settings = database.rich_text_style_get().unwrap();
 
-        assert_eq!(settings.body.font_preset, "workspace_sans");
+        assert_eq!(settings.body.font_family.source, "preset");
+        assert_eq!(settings.body.font_family.value, "workspace_sans");
         assert_eq!(settings.body.font_size_px, 14);
         assert_eq!(settings.body.line_height, 1.6);
         assert_eq!(settings.body.paragraph_spacing_before_px, 12);
@@ -9991,7 +10712,7 @@ mod tests {
         assert_eq!(settings.headings.h1_size_px, 24);
         assert_eq!(settings.headings.h2_size_px, 20);
         assert_eq!(settings.headings.h3_size_px, 16);
-        assert_eq!(settings.list.font_preset, "workspace_sans");
+        assert_eq!(settings.list.font_family.value, "workspace_sans");
     }
 
     #[test]
@@ -10001,14 +10722,20 @@ mod tests {
         let saved = database
             .rich_text_style_upsert(RichTextStyleSettings {
                 body: RichTextStyleBlockSettings {
-                    font_preset: "work_sans".to_string(),
+                    font_family: RichTextFontSelection {
+                        source: "preset".to_string(),
+                        value: "work_sans".to_string(),
+                    },
                     font_size_px: 15,
                     line_height: 1.7,
                     paragraph_spacing_before_px: 14,
                     paragraph_spacing_after_px: 2,
                 },
                 headings: crate::models::RichTextHeadingStyleSettings {
-                    font_preset: "source_serif".to_string(),
+                    font_family: RichTextFontSelection {
+                        source: "system".to_string(),
+                        value: "SF Pro Text".to_string(),
+                    },
                     line_height: 1.3,
                     paragraph_spacing_before_px: 10,
                     paragraph_spacing_after_px: 4,
@@ -10017,7 +10744,10 @@ mod tests {
                     h3_size_px: 18,
                 },
                 list: RichTextStyleBlockSettings {
-                    font_preset: "noto_sans_sc".to_string(),
+                    font_family: RichTextFontSelection {
+                        source: "preset".to_string(),
+                        value: "noto_sans_sc".to_string(),
+                    },
                     font_size_px: 15,
                     line_height: 1.65,
                     paragraph_spacing_before_px: 10,
@@ -10027,11 +10757,12 @@ mod tests {
             .unwrap();
         let loaded = database.rich_text_style_get().unwrap();
 
-        assert_eq!(loaded.body.font_preset, "work_sans");
+        assert_eq!(loaded.body.font_family.value, "work_sans");
         assert_eq!(loaded.body.font_size_px, 15);
-        assert_eq!(loaded.headings.font_preset, "source_serif");
+        assert_eq!(loaded.headings.font_family.source, "system");
+        assert_eq!(loaded.headings.font_family.value, "SF Pro Text");
         assert_eq!(loaded.headings.h1_size_px, 28);
-        assert_eq!(loaded.list.font_preset, "noto_sans_sc");
+        assert_eq!(loaded.list.font_family.value, "noto_sans_sc");
         assert_eq!(loaded.list.paragraph_spacing_before_px, 10);
         assert_eq!(loaded.list.paragraph_spacing_after_px, 3);
         assert_eq!(style_json_signature(&loaded), style_json_signature(&saved));
@@ -10077,10 +10808,13 @@ mod tests {
 
         let settings = database.rich_text_style_get().unwrap();
 
+        assert_eq!(settings.body.font_family.value, "workspace_sans");
         assert_eq!(settings.body.paragraph_spacing_before_px, 12);
         assert_eq!(settings.body.paragraph_spacing_after_px, 0);
+        assert_eq!(settings.headings.font_family.value, "workspace_sans");
         assert_eq!(settings.headings.paragraph_spacing_before_px, 10);
         assert_eq!(settings.headings.paragraph_spacing_after_px, 0);
+        assert_eq!(settings.list.font_family.value, "workspace_sans");
         assert_eq!(settings.list.paragraph_spacing_before_px, 8);
         assert_eq!(settings.list.paragraph_spacing_after_px, 0);
     }
@@ -10341,6 +11075,36 @@ mod tests {
                 tag_ids: None,
             })
             .unwrap();
+        let document_href = file_href_from_path(Path::new(&document.managed_path));
+        let rich_html = format!(
+            concat!(
+                r#"<div data-type="attachment" data-path="{document_path}" data-href="{document_href}">"#,
+                r#"<a class="rich-editor__attachment-link" href="{document_href}">agenda</a></div>"#
+            ),
+            document_path = document.managed_path,
+            document_href = document_href,
+        );
+        let note = database
+            .note_upsert(NoteUpsertInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: None,
+                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
+                title: Some("活动附件记录".to_string()),
+                markdown: "[附件] agenda".to_string(),
+                html: rich_html.clone(),
+            })
+            .unwrap();
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: Some(note.id),
+                markdown: "[附件] agenda".to_string(),
+                html: rich_html,
+                promoted_to_project: false,
+            })
+            .unwrap();
 
         let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
         let updated_activity = database
@@ -10356,11 +11120,55 @@ mod tests {
             })
             .unwrap();
         let updated_document = database.document_record(document.id).unwrap();
+        let saved_note = database.note_record(note.id).unwrap();
+        let saved_conclusion = database.conclusion_record(conclusion.id).unwrap();
 
         assert_eq!(updated_activity.title, "Review Final");
         assert!(!old_folder.exists());
         assert!(updated_document.managed_path.contains("Review Final"));
         assert!(Path::new(&updated_document.managed_path).exists());
+        assert!(saved_note
+            .content_html
+            .contains(&updated_document.managed_path));
+        assert!(saved_note
+            .content_html
+            .contains(&file_href_from_path(Path::new(
+                &updated_document.managed_path
+            ))));
+        assert!(!saved_note.content_html.contains("/Kickoff/"));
+        assert!(saved_conclusion
+            .content_html
+            .contains(&updated_document.managed_path));
+        assert!(!saved_conclusion.content_html.contains("/Kickoff/"));
+    }
+
+    #[test]
+    fn activity_rename_fails_when_target_folder_already_exists_without_mutating_state() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
+        let conflicting_folder = PathBuf::from(&project.root_path).join("Review Final");
+        fs::create_dir_all(&conflicting_folder).unwrap();
+
+        let error = database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: Some("Review Final".to_string()),
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: None,
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("文件夹名称已被占用"));
+        assert!(old_folder.exists());
+        assert!(conflicting_folder.exists());
+        let refreshed = database.activity_card(activity.id).unwrap();
+        assert_eq!(refreshed.title, "Kickoff");
     }
 
     #[test]
@@ -11262,14 +12070,14 @@ fn style_json_signature(settings: &RichTextStyleSettings) -> String {
 fn default_rich_text_style_settings() -> RichTextStyleSettings {
     RichTextStyleSettings {
         body: RichTextStyleBlockSettings {
-            font_preset: "workspace_sans".to_string(),
+            font_family: preset_font_selection("workspace_sans"),
             font_size_px: 14,
             line_height: 1.6,
             paragraph_spacing_before_px: 12,
             paragraph_spacing_after_px: 0,
         },
         headings: crate::models::RichTextHeadingStyleSettings {
-            font_preset: "workspace_sans".to_string(),
+            font_family: preset_font_selection("workspace_sans"),
             line_height: 1.35,
             paragraph_spacing_before_px: 12,
             paragraph_spacing_after_px: 0,
@@ -11278,7 +12086,7 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             h3_size_px: 16,
         },
         list: RichTextStyleBlockSettings {
-            font_preset: "workspace_sans".to_string(),
+            font_family: preset_font_selection("workspace_sans"),
             font_size_px: 14,
             line_height: 1.6,
             paragraph_spacing_before_px: 12,
@@ -11446,6 +12254,10 @@ fn normalize_rich_text_style_block_value(value: Option<&mut Value>) -> Result<()
         .get("paragraphSpacingPx")
         .and_then(|value| value.as_i64())
         .unwrap_or(0);
+    let legacy_font_preset = object
+        .get("fontPreset")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
 
     if !object.contains_key("paragraphSpacingBeforePx") {
         object.insert(
@@ -11458,6 +12270,20 @@ fn normalize_rich_text_style_block_value(value: Option<&mut Value>) -> Result<()
         object.insert("paragraphSpacingAfterPx".to_string(), json!(0));
     }
 
+    if !object.contains_key("fontFamily") {
+        let font_family = match legacy_font_preset {
+            Some(font_preset) => json!({
+                "source": "preset",
+                "value": font_preset,
+            }),
+            None => json!({
+                "source": "preset",
+                "value": "workspace_sans",
+            }),
+        };
+        object.insert("fontFamily".to_string(), font_family);
+    }
+
     Ok(())
 }
 
@@ -11467,7 +12293,7 @@ fn normalize_rich_text_style_heading_value(value: Option<&mut Value>) -> Result<
 
 fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result<()> {
     validate_rich_text_style_block(&settings.body, "body")?;
-    validate_rich_text_font_preset(&settings.headings.font_preset, "headings.fontPreset")?;
+    validate_rich_text_font_selection(&settings.headings.font_family, "headings.fontFamily")?;
 
     if !(1.0..=2.4).contains(&settings.headings.line_height) {
         return Err(anyhow!("headings.lineHeight must be between 1.0 and 2.4"));
@@ -11503,7 +12329,7 @@ fn validate_rich_text_style_block(
     settings: &RichTextStyleBlockSettings,
     prefix: &str,
 ) -> Result<()> {
-    validate_rich_text_font_preset(&settings.font_preset, &format!("{prefix}.fontPreset"))?;
+    validate_rich_text_font_selection(&settings.font_family, &format!("{prefix}.fontFamily"))?;
     validate_px_value(
         settings.font_size_px,
         &format!("{prefix}.fontSizePx"),
@@ -11530,11 +12356,47 @@ fn validate_rich_text_style_block(
     Ok(())
 }
 
+fn validate_rich_text_font_selection(selection: &RichTextFontSelection, field: &str) -> Result<()> {
+    match selection.source.as_str() {
+        "preset" => validate_rich_text_font_preset(&selection.value, &format!("{field}.value")),
+        "system" => validate_system_font_family(&selection.value, &format!("{field}.value")),
+        _ => Err(anyhow!("{field}.source must be one of: preset, system")),
+    }
+}
+
 fn validate_rich_text_font_preset(value: &str, field: &str) -> Result<()> {
     if !RICH_TEXT_FONT_PRESETS.contains(&value) {
         return Err(anyhow!("{field} is not a supported font preset"));
     }
     Ok(())
+}
+
+fn validate_system_font_family(value: &str, field: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("{field} must not be empty"));
+    }
+
+    if trimmed.len() > 160 {
+        return Err(anyhow!("{field} must be 160 characters or fewer"));
+    }
+
+    if trimmed.contains(',') {
+        return Err(anyhow!("{field} must be a single font family"));
+    }
+
+    if trimmed.chars().any(|character| character.is_control()) {
+        return Err(anyhow!("{field} must not contain control characters"));
+    }
+
+    Ok(())
+}
+
+fn preset_font_selection(value: &str) -> RichTextFontSelection {
+    RichTextFontSelection {
+        source: "preset".to_string(),
+        value: value.to_string(),
+    }
 }
 
 fn validate_px_value(value: i64, field: &str, min: i64, max: i64) -> Result<()> {

@@ -31,4 +31,8 @@ tauri-plugin-opener = "2.5.3"
 trash = "5.2.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+font-kit = "0.14.3"
 winreg = "0.55.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+font-kit = "0.14.3"

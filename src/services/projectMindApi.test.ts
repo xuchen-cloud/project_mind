@@ -528,14 +528,14 @@ describe("projectMindApi", () => {
   it("maps rich text style fetch without payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       body: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         fontSizePx: 14,
         lineHeight: 1.6,
         paragraphSpacingBeforePx: 12,
         paragraphSpacingAfterPx: 0,
       },
       headings: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         lineHeight: 1.35,
         paragraphSpacingBeforePx: 12,
         paragraphSpacingAfterPx: 0,
@@ -544,7 +544,7 @@ describe("projectMindApi", () => {
         h3SizePx: 16,
       },
       list: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         fontSizePx: 14,
         lineHeight: 1.6,
         paragraphSpacingBeforePx: 12,
@@ -564,14 +564,14 @@ describe("projectMindApi", () => {
 
     await projectMindApi.richTextStyleUpsert({
       body: {
-        fontPreset: "work_sans",
+        fontFamily: { source: "preset", value: "work_sans" },
         fontSizePx: 15,
         lineHeight: 1.7,
         paragraphSpacingBeforePx: 14,
         paragraphSpacingAfterPx: 2,
       },
       headings: {
-        fontPreset: "source_serif",
+        fontFamily: { source: "preset", value: "source_serif" },
         lineHeight: 1.3,
         paragraphSpacingBeforePx: 10,
         paragraphSpacingAfterPx: 4,
@@ -580,7 +580,7 @@ describe("projectMindApi", () => {
         h3SizePx: 18,
       },
       list: {
-        fontPreset: "noto_sans_sc",
+        fontFamily: { source: "preset", value: "noto_sans_sc" },
         fontSizePx: 15,
         lineHeight: 1.65,
         paragraphSpacingBeforePx: 10,
@@ -593,14 +593,14 @@ describe("projectMindApi", () => {
       {
         input: {
           body: {
-            fontPreset: "work_sans",
+            fontFamily: { source: "preset", value: "work_sans" },
             fontSizePx: 15,
             lineHeight: 1.7,
             paragraphSpacingBeforePx: 14,
             paragraphSpacingAfterPx: 2,
           },
           headings: {
-            fontPreset: "source_serif",
+            fontFamily: { source: "preset", value: "source_serif" },
             lineHeight: 1.3,
             paragraphSpacingBeforePx: 10,
             paragraphSpacingAfterPx: 4,
@@ -609,7 +609,7 @@ describe("projectMindApi", () => {
             h3SizePx: 18,
           },
           list: {
-            fontPreset: "noto_sans_sc",
+            fontFamily: { source: "preset", value: "noto_sans_sc" },
             fontSizePx: 15,
             lineHeight: 1.65,
             paragraphSpacingBeforePx: 10,

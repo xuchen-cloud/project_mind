@@ -6,6 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 
+vi.mock("./services/desktopApi", () => ({
+  desktopApi: {
+    listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
+  },
+}));
+
 vi.mock("./services/projectMindApi", () => ({
   projectMindApi: {
     workspaceStatusGet: vi.fn(async () => ({
@@ -24,14 +30,14 @@ vi.mock("./services/projectMindApi", () => ({
     activityList: vi.fn(async () => []),
     richTextStyleGet: vi.fn(async () => ({
       body: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         fontSizePx: 14,
         lineHeight: 1.6,
         paragraphSpacingBeforePx: 12,
         paragraphSpacingAfterPx: 0,
       },
       headings: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         lineHeight: 1.35,
         paragraphSpacingBeforePx: 12,
         paragraphSpacingAfterPx: 0,
@@ -40,7 +46,7 @@ vi.mock("./services/projectMindApi", () => ({
         h3SizePx: 16,
       },
       list: {
-        fontPreset: "workspace_sans",
+        fontFamily: { source: "preset", value: "workspace_sans" },
         fontSizePx: 14,
         lineHeight: 1.6,
         paragraphSpacingBeforePx: 12,

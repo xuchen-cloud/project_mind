@@ -97,4 +97,15 @@ describe("desktopApi", () => {
       path: "/tmp/demo.txt",
     });
   });
+
+  it("lists system font families through the desktop command", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce(["Segoe UI", "PingFang SC"]);
+
+    await expect(desktopApi.listSystemFontFamilies()).resolves.toEqual([
+      "Segoe UI",
+      "PingFang SC",
+    ]);
+
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_list_system_font_families");
+  });
 });

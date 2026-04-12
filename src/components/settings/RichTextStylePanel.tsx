@@ -5,11 +5,15 @@ import { LoaderCircle } from "lucide-react";
 import {
   buildRichTextStyleInlineCssVariables,
   cloneRichTextStyleSettings,
+  createPresetFontSelection,
+  createSystemFontSelection,
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
+  isRichTextFontPreset,
   RICH_TEXT_FONT_PRESET_OPTIONS,
   RICH_TEXT_STYLE_PREVIEW_HTML,
 } from "../../lib/richTextStyle";
-import type { RichTextFontPreset, RichTextStyleSettings } from "../../lib/types";
+import type { RichTextFontSelection, RichTextStyleSettings } from "../../lib/types";
+import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
@@ -40,6 +44,13 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
     enabled: open,
     refetchOnWindowFocus: false,
   });
+  const systemFontFamiliesQuery = useQuery({
+    queryKey: ["desktop-system-font-families"],
+    queryFn: desktopApi.listSystemFontFamilies,
+    enabled: open,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
 
   const [draft, setDraft] = useState<RichTextStyleSettings>(DEFAULT_RICH_TEXT_STYLE_SETTINGS);
   const lastSnapshotSignatureRef = useRef<string>("");
@@ -49,6 +60,15 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
   const snapshotSignature = useMemo(() => styleSignature(snapshot), [snapshot]);
   const draftSignature = useMemo(() => styleSignature(draft), [draft]);
   const isDirty = draftSignature !== snapshotSignature;
+  const systemFontFamilies = useMemo(
+    () =>
+      mergeSystemFontFamilies(systemFontFamiliesQuery.data ?? [], [
+        draft.body.fontFamily,
+        draft.headings.fontFamily,
+        draft.list.fontFamily,
+      ]),
+    [draft.body.fontFamily, draft.headings.fontFamily, draft.list.fontFamily, systemFontFamiliesQuery.data],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -142,13 +162,15 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
           <StyleSectionCard eyebrow="Body" title="正文">
             <div className="grid gap-2.5">
               <CompactFieldRow>
-                <FontPresetField
+                <FontSelectionField
                   label="字体"
-                  value={draft.body.fontPreset}
-                  onChange={(fontPreset) =>
+                  value={draft.body.fontFamily}
+                  systemFontFamilies={systemFontFamilies}
+                  systemFontsState={systemFontFamiliesQuery.status}
+                  onChange={(fontFamily) =>
                     setDraft((current) => ({
                       ...current,
-                      body: { ...current.body, fontPreset },
+                      body: { ...current.body, fontFamily },
                     }))
                   }
                 />
@@ -210,13 +232,15 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
           <StyleSectionCard eyebrow="Headings" title="标题">
             <div className="grid gap-2.5">
               <CompactFieldRow className="md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-                <FontPresetField
+                <FontSelectionField
                   label="字体"
-                  value={draft.headings.fontPreset}
-                  onChange={(fontPreset) =>
+                  value={draft.headings.fontFamily}
+                  systemFontFamilies={systemFontFamilies}
+                  systemFontsState={systemFontFamiliesQuery.status}
+                  onChange={(fontFamily) =>
                     setDraft((current) => ({
                       ...current,
-                      headings: { ...current.headings, fontPreset },
+                      headings: { ...current.headings, fontFamily },
                     }))
                   }
                 />
@@ -309,13 +333,15 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
           <StyleSectionCard eyebrow="Lists" title="列表">
             <div className="grid gap-2.5">
               <CompactFieldRow>
-                <FontPresetField
+                <FontSelectionField
                   label="字体"
-                  value={draft.list.fontPreset}
-                  onChange={(fontPreset) =>
+                  value={draft.list.fontFamily}
+                  systemFontFamilies={systemFontFamilies}
+                  systemFontsState={systemFontFamiliesQuery.status}
+                  onChange={(fontFamily) =>
                     setDraft((current) => ({
                       ...current,
-                      list: { ...current.list, fontPreset },
+                      list: { ...current.list, fontFamily },
                     }))
                   }
                 />
@@ -440,29 +466,67 @@ function CompactFieldRow({
   return <div className={["grid gap-2.5", className].join(" ")}>{children}</div>;
 }
 
-function FontPresetField({
+function FontSelectionField({
   label,
   value,
+  systemFontFamilies,
+  systemFontsState,
   onChange,
 }: {
   label: string;
-  value: RichTextFontPreset;
-  onChange: (value: RichTextFontPreset) => void;
+  value: RichTextFontSelection;
+  systemFontFamilies: string[];
+  systemFontsState: "error" | "pending" | "success";
+  onChange: (value: RichTextFontSelection) => void;
 }) {
+  const selectionValue = serializeFontSelection(value);
+  const currentSystemFontMissing =
+    value.source === "system" &&
+    !systemFontFamilies.some(
+      (fontFamily) => fontFamily.localeCompare(value.value, undefined, { sensitivity: "base" }) === 0,
+    );
+
   return (
     <label className={settingsFieldClassName}>
       <span className={settingsFieldLabelClassName}>{label}</span>
       <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as RichTextFontPreset)}
+        value={selectionValue}
+        onChange={(event) => onChange(parseFontSelection(event.target.value))}
         className={settingsSelectClassName}
       >
-        {RICH_TEXT_FONT_PRESET_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
+        <optgroup label="预设字体">
+          {RICH_TEXT_FONT_PRESET_OPTIONS.map((option) => (
+            <option
+              key={option.value}
+              value={serializeFontSelection(createPresetFontSelection(option.value))}
+            >
+              {option.label}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="系统字体">
+          {currentSystemFontMissing ? (
+            <option value={selectionValue}>{value.value}（当前设置）</option>
+          ) : null}
+          {systemFontFamilies.map((fontFamily) => (
+            <option
+              key={fontFamily}
+              value={serializeFontSelection(createSystemFontSelection(fontFamily))}
+            >
+              {fontFamily}
+            </option>
+          ))}
+        </optgroup>
       </select>
+      <span className="text-ui text-text-soft">
+        {systemFontsState === "pending"
+          ? "正在读取本机字体..."
+          : systemFontsState === "error"
+            ? "读取系统字体失败，仍可继续使用预设字体。"
+            : currentSystemFontMissing
+              ? "当前工作区保存了这款字体，但本机暂未检测到。"
+              : "系统字体来自当前设备，Windows 和 macOS 会分别读取本机安装结果。"}
+      </span>
     </label>
   );
 }
@@ -664,4 +728,62 @@ function NumericInputControl({
 
 function styleSignature(settings: RichTextStyleSettings) {
   return JSON.stringify(settings);
+}
+
+function serializeFontSelection(selection: RichTextFontSelection) {
+  return `${selection.source}:${selection.value}`;
+}
+
+function parseFontSelection(serializedSelection: string): RichTextFontSelection {
+  const separatorIndex = serializedSelection.indexOf(":");
+  if (separatorIndex <= 0) {
+    return createPresetFontSelection("workspace_sans");
+  }
+
+  const source = serializedSelection.slice(0, separatorIndex);
+  const value = serializedSelection.slice(separatorIndex + 1);
+
+  if (source === "system") {
+    return createSystemFontSelection(value);
+  }
+
+  if (isRichTextFontPreset(value)) {
+    return createPresetFontSelection(value);
+  }
+
+  return createPresetFontSelection("workspace_sans");
+}
+
+function mergeSystemFontFamilies(
+  systemFontFamilies: string[],
+  selections: RichTextFontSelection[],
+) {
+  const merged = [...systemFontFamilies];
+
+  for (const selection of selections) {
+    if (
+      selection.source === "system" &&
+      selection.value.trim().length > 0 &&
+      !merged.some((fontFamily) => fontFamily.localeCompare(selection.value, undefined, { sensitivity: "base" }) === 0)
+    ) {
+      merged.push(selection.value);
+    }
+  }
+
+  const deduped = new Map<string, string>();
+  for (const fontFamily of merged) {
+    const trimmed = fontFamily.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    const key = trimmed.toLocaleLowerCase();
+    if (!deduped.has(key)) {
+      deduped.set(key, trimmed);
+    }
+  }
+
+  return [...deduped.values()].sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
+  );
 }

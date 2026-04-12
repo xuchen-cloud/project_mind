@@ -75,6 +75,10 @@ export const desktopApi = {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
   },
 
+  listSystemFontFamilies() {
+    return invoke<string[]>("desktop_list_system_font_families");
+  },
+
   toFileUrl(path: string) {
     return convertFileSrc(path);
   },

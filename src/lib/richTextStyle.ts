@@ -1,17 +1,21 @@
 import type { CSSProperties } from "react";
 
-import type { RichTextFontPreset, RichTextStyleSettings } from "./types";
+import type {
+  RichTextFontPreset,
+  RichTextFontSelection,
+  RichTextStyleSettings,
+} from "./types";
 
 export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
   body: {
-    fontPreset: "workspace_sans",
+    fontFamily: createPresetFontSelection("workspace_sans"),
     fontSizePx: 14,
     lineHeight: 1.6,
     paragraphSpacingBeforePx: 12,
     paragraphSpacingAfterPx: 0,
   },
   headings: {
-    fontPreset: "workspace_sans",
+    fontFamily: createPresetFontSelection("workspace_sans"),
     lineHeight: 1.35,
     paragraphSpacingBeforePx: 12,
     paragraphSpacingAfterPx: 0,
@@ -20,7 +24,7 @@ export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
     h3SizePx: 16,
   },
   list: {
-    fontPreset: "workspace_sans",
+    fontFamily: createPresetFontSelection("workspace_sans"),
     fontSizePx: 14,
     lineHeight: 1.6,
     paragraphSpacingBeforePx: 12,
@@ -88,10 +92,35 @@ export function cloneRichTextStyleSettings(
   settings: RichTextStyleSettings,
 ): RichTextStyleSettings {
   return {
-    body: { ...settings.body },
-    headings: { ...settings.headings },
-    list: { ...settings.list },
+    body: {
+      ...settings.body,
+      fontFamily: cloneFontSelection(settings.body.fontFamily),
+    },
+    headings: {
+      ...settings.headings,
+      fontFamily: cloneFontSelection(settings.headings.fontFamily),
+    },
+    list: {
+      ...settings.list,
+      fontFamily: cloneFontSelection(settings.list.fontFamily),
+    },
   };
+}
+
+export function createPresetFontSelection(preset: RichTextFontPreset): RichTextFontSelection {
+  return { source: "preset", value: preset };
+}
+
+export function createSystemFontSelection(fontFamily: string): RichTextFontSelection {
+  return { source: "system", value: fontFamily };
+}
+
+export function cloneFontSelection(selection: RichTextFontSelection): RichTextFontSelection {
+  return { ...selection };
+}
+
+export function isRichTextFontPreset(value: string): value is RichTextFontPreset {
+  return RICH_TEXT_FONT_PRESET_OPTIONS.some((option) => option.value === value);
 }
 
 export function resolveFontFamilyPreset(preset: RichTextFontPreset) {
@@ -107,23 +136,38 @@ export function resolveFontFamilyPreset(preset: RichTextFontPreset) {
   return "var(--font-editor-workspace-sans)";
 }
 
+export function resolveFontFamilySelection(selection: RichTextFontSelection) {
+  if (selection.source === "preset" && isRichTextFontPreset(selection.value)) {
+    return resolveFontFamilyPreset(selection.value);
+  }
+
+  if (selection.source === "system") {
+    const fontFamily = selection.value.trim();
+    if (fontFamily.length > 0) {
+      return `${quoteCssFontFamily(fontFamily)}, var(--font-ui)`;
+    }
+  }
+
+  return resolveFontFamilyPreset("workspace_sans");
+}
+
 export function buildRichTextStyleCssVariables(
   settings: RichTextStyleSettings,
 ): Record<RichTextStyleCssVarName, string> {
   return {
-    "--rich-text-body-font-family": resolveFontFamilyPreset(settings.body.fontPreset),
+    "--rich-text-body-font-family": resolveFontFamilySelection(settings.body.fontFamily),
     "--rich-text-body-font-size": `${settings.body.fontSizePx}px`,
     "--rich-text-body-line-height": String(settings.body.lineHeight),
     "--rich-text-body-paragraph-spacing-before": `${settings.body.paragraphSpacingBeforePx}px`,
     "--rich-text-body-paragraph-spacing-after": `${settings.body.paragraphSpacingAfterPx}px`,
-    "--rich-text-heading-font-family": resolveFontFamilyPreset(settings.headings.fontPreset),
+    "--rich-text-heading-font-family": resolveFontFamilySelection(settings.headings.fontFamily),
     "--rich-text-heading-line-height": String(settings.headings.lineHeight),
     "--rich-text-heading-paragraph-spacing-before": `${settings.headings.paragraphSpacingBeforePx}px`,
     "--rich-text-heading-paragraph-spacing-after": `${settings.headings.paragraphSpacingAfterPx}px`,
     "--rich-text-h1-font-size": `${settings.headings.h1SizePx}px`,
     "--rich-text-h2-font-size": `${settings.headings.h2SizePx}px`,
     "--rich-text-h3-font-size": `${settings.headings.h3SizePx}px`,
-    "--rich-text-list-font-family": resolveFontFamilyPreset(settings.list.fontPreset),
+    "--rich-text-list-font-family": resolveFontFamilySelection(settings.list.fontFamily),
     "--rich-text-list-font-size": `${settings.list.fontSizePx}px`,
     "--rich-text-list-line-height": String(settings.list.lineHeight),
     "--rich-text-list-paragraph-spacing-before": `${settings.list.paragraphSpacingBeforePx}px`,
@@ -145,4 +189,8 @@ export function applyRichTextStyleVariables(
   for (const [key, value] of entries) {
     target.style.setProperty(key, value);
   }
+}
+
+function quoteCssFontFamily(fontFamily: string) {
+  return `"${fontFamily.trim().replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }

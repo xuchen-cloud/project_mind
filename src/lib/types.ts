@@ -765,8 +765,15 @@ export type RichTextFontPreset =
   | "noto_sans_sc"
   | "source_serif";
 
+export type RichTextFontSource = "preset" | "system";
+
+export interface RichTextFontSelection {
+  source: RichTextFontSource;
+  value: string;
+}
+
 export interface RichTextStyleBlockSettings {
-  fontPreset: RichTextFontPreset;
+  fontFamily: RichTextFontSelection;
   fontSizePx: number;
   lineHeight: number;
   paragraphSpacingBeforePx: number;
@@ -774,7 +781,7 @@ export interface RichTextStyleBlockSettings {
 }
 
 export interface RichTextHeadingStyleSettings {
-  fontPreset: RichTextFontPreset;
+  fontFamily: RichTextFontSelection;
   lineHeight: number;
   paragraphSpacingBeforePx: number;
   paragraphSpacingAfterPx: number;

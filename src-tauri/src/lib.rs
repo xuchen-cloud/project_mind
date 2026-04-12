@@ -3,6 +3,7 @@ mod ai_provider;
 mod db;
 mod models;
 mod secret_crypto;
+mod system_fonts;
 mod workspace;
 
 use std::{
@@ -386,6 +387,11 @@ fn desktop_read_file_as_data_url(path: String, mime_type: Option<String>) -> Com
             format!("data:{resolved_mime};base64,{encoded}")
         })
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn desktop_list_system_font_families() -> CommandResult<Vec<String>> {
+    system_fonts::list_system_font_families().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -925,6 +931,7 @@ pub fn run() {
             desktop_open_folder,
             desktop_reveal_in_explorer,
             desktop_read_file_as_data_url,
+            desktop_list_system_font_families,
             workspace_status_get,
             workspace_create,
             workspace_open,

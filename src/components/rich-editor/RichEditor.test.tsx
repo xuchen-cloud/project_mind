@@ -92,6 +92,15 @@ function getLatestHtml(onChange: ReturnType<typeof vi.fn>) {
   return onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]?.html as string | undefined;
 }
 
+async function getEditorSurface(container: HTMLElement) {
+  return waitFor(() => {
+    const nextSurface = container.querySelector(".rich-editor__surface");
+
+    expect(nextSurface).toBeTruthy();
+    return nextSurface as HTMLElement;
+  });
+}
+
 function selectTextContent(node: Text, start: number, end: number) {
   const selection = window.getSelection();
   const range = document.createRange();
@@ -190,6 +199,32 @@ describe("RichEditor tables", () => {
 
       expect(html).toContain('style="width: 312px;"');
     });
+  });
+
+  it("pastes html tables from clipboard rich content", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(<RichEditor variant="toolbar" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [],
+        items: [],
+        getData: (type: string) =>
+          type === "text/html"
+            ? '<table class="MsoNormalTable" style="mso-cellspacing:1.5pt"><tbody><tr><td>客户</td><td>状态</td></tr><tr><td>ACME</td><td>跟进中</td></tr></tbody></table>'
+            : "客户\t状态",
+      },
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector("table")).toBeTruthy();
+    });
+
+    expect(container.querySelectorAll("table tr")).toHaveLength(2);
+    expect(getLatestHtml(onChange)).toContain("<table");
   });
 });
 
@@ -501,6 +536,89 @@ describe("RichEditor images", () => {
     });
 
     expect(image.getAttribute("src")).toBe("asset:///tmp/fixed.png");
+  });
+
+  it("reads pasted images from clipboard items when files are empty", async () => {
+    const user = userEvent.setup();
+    const insertPastedImage = vi.fn(async () => ({
+      kind: "image" as const,
+      title: "pasted-image.png",
+      path: "/tmp/managed/pasted-image.png",
+      mimeType: "image/png",
+      documentId: 12,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        assetHandlers={{
+          insertPastedImage,
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+    const pastedFile = new File(["fake"], "pasted-image.png", { type: "image/png" });
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [],
+        items: [
+          {
+            kind: "file",
+            type: "image/png",
+            getAsFile: () => pastedFile,
+          },
+        ],
+        getData: () => "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(insertPastedImage).toHaveBeenCalledWith(pastedFile);
+    });
+  });
+
+  it("imports pasted html data-url images through the clipboard handler", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const insertPastedImage = vi.fn(async (file: File) => ({
+      kind: "image" as const,
+      title: file.name,
+      path: "/tmp/managed/html-paste.png",
+      mimeType: file.type || "image/png",
+      documentId: 18,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        assetHandlers={{
+          insertPastedImage,
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [],
+        items: [],
+        getData: (type: string) =>
+          type === "text/html"
+            ? '<img src="data:image/png;base64,QUFBQQ==" alt="截图" />'
+            : "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(insertPastedImage).toHaveBeenCalledTimes(1);
+    });
+
+    const pastedFile = insertPastedImage.mock.calls[0]?.[0] as File;
+
+    expect(pastedFile.type).toBe("image/png");
+    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.png"');
   });
 });
 

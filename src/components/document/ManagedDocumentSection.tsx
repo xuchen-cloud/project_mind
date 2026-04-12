@@ -11,7 +11,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, Circle, FilePlus2, FolderOpen, Star, Trash2, Upload } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Circle,
+  FilePlus2,
+  FolderOpen,
+  Pencil,
+  Star,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { fileTagColorValue } from "../../lib/constants";
 import type {
@@ -62,7 +72,7 @@ interface ContextMenuState {
 }
 
 const CONTEXT_MENU_WIDTH = 280;
-const CONTEXT_MENU_HEIGHT = 428;
+const CONTEXT_MENU_HEIGHT = 464;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 
 export function ManagedDocumentSection({
@@ -354,6 +364,9 @@ export function ManagedDocumentSection({
   };
 
   const beginRename = (document: DocumentRecord) => {
+    if (!canRenameDocument(document)) {
+      return;
+    }
     clearPendingOpen();
     setEditingDocumentId(document.id);
     setNameDraft(document.baseName);
@@ -625,10 +638,10 @@ export function ManagedDocumentSection({
                               <p
                                 className="overflow-hidden text-[12px] font-medium leading-4.5 text-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                                 title={document.baseName}
-                                onDoubleClick={(event) => {
-                                  stopPropagation(event);
-                                  beginRename(document);
-                                }}
+                              onDoubleClick={(event) => {
+                                stopPropagation(event);
+                                beginRename(document);
+                              }}
                               >
                                 {document.baseName}
                               </p>
@@ -676,10 +689,10 @@ export function ManagedDocumentSection({
                               <p
                                 className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
                                 title={document.baseName}
-                                onDoubleClick={(event) => {
-                                  stopPropagation(event);
-                                  beginRename(document);
-                                }}
+                              onDoubleClick={(event) => {
+                                stopPropagation(event);
+                                beginRename(document);
+                              }}
                               >
                                 {document.baseName}
                               </p>
@@ -733,6 +746,15 @@ export function ManagedDocumentSection({
               onClick={() => {
                 setContextMenu(null);
                 openDocumentLocation(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<Pencil size={14} />}
+              label="重命名"
+              disabled={!canRenameDocument(contextMenuDocument)}
+              onClick={() => {
+                setContextMenu(null);
+                beginRename(contextMenuDocument);
               }}
             />
             <DocumentContextMenuAction
@@ -830,6 +852,10 @@ function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
   }
 
   return `${baseName}，文件标签：${tags.map((tag) => tag.label).join("、")}`;
+}
+
+function canRenameDocument(document: DocumentRecord) {
+  return document.health !== "missing";
 }
 
 function stopPropagation(

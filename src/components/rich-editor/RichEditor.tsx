@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
+import { fileUriToPath } from "../../lib/formatters";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
 import { desktopApi } from "../../services/desktopApi";
 import { ActionContextMenu, type ContextMenuAction, PopoverPanel, ToolbarButton } from "../../ui/components";
@@ -200,6 +201,7 @@ export function RichEditor({
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const persistStateRef = useRef<RichEditorPersistState>("idle");
+  const syntheticPasteRef = useRef(false);
 
   const handlePastedImages = useCallback(
     async (view: EditorView, files: File[]) => {
@@ -213,7 +215,21 @@ export function RichEditor({
         insertImageAtSelection(view, imageAttrs);
       }
     },
-    [assetHandlers?.insertImage],
+    [assetHandlers],
+  );
+
+  const handlePastedHtml = useCallback(
+    async (view: EditorView, rawHtml: string) => {
+      const nextHtml = await buildPastedHtml(rawHtml, assetHandlers);
+
+      if (!nextHtml) {
+        return;
+      }
+
+      syntheticPasteRef.current = true;
+      view.pasteHTML(nextHtml, createSyntheticPasteEvent());
+    },
+    [assetHandlers],
   );
 
   const updatePersistState = useCallback(
@@ -236,21 +252,41 @@ export function RichEditor({
       },
       transformPastedHTML: (rawHtml) => sanitizePastedHtml(rawHtml),
       handlePaste: (view, event) => {
+        if (syntheticPasteRef.current) {
+          syntheticPasteRef.current = false;
+          return false;
+        }
+
         if (readOnly) {
           return false;
         }
 
-        const imageFiles = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-          file.type.startsWith("image/"),
-        );
+        const imageFiles = extractClipboardImageFiles(event.clipboardData);
 
-        if (imageFiles.length === 0) {
+        if (imageFiles.length > 0) {
+          event.preventDefault();
+          void handlePastedImages(view, imageFiles).catch(() => {
+            // The caller owns error presentation.
+          });
+          return true;
+        }
+
+        const rawHtml = event.clipboardData?.getData("text/html") ?? "";
+
+        if (!shouldHandlePastedHtml(rawHtml, { allowTables: enableTables })) {
           return false;
         }
 
         event.preventDefault();
-        void handlePastedImages(view, imageFiles).catch(() => {
-          // The caller owns error presentation.
+        void handlePastedHtml(view, rawHtml).catch(() => {
+          const fallbackHtml = sanitizePastedHtml(rawHtml);
+
+          if (!fallbackHtml) {
+            return;
+          }
+
+          syntheticPasteRef.current = true;
+          view.pasteHTML(fallbackHtml, createSyntheticPasteEvent());
         });
         return true;
       },
@@ -2129,4 +2165,366 @@ async function resolveStoredImageSrc(asset: RichEditorAsset, file?: File) {
   }
 
   return resolveRichTextImageSrc(asset.path, asset.src);
+}
+
+function extractClipboardImageFiles(clipboardData?: DataTransfer | null) {
+  const directFiles = Array.from(clipboardData?.files ?? []).filter((file) =>
+    file.type.startsWith("image/"),
+  );
+
+  if (directFiles.length > 0) {
+    return directFiles;
+  }
+
+  const itemFiles = Array.from(clipboardData?.items ?? [])
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+
+  return dedupeFiles(itemFiles);
+}
+
+function dedupeFiles(files: File[]) {
+  const seen = new Set<string>();
+
+  return files.filter((file) => {
+    const key = [
+      file.name,
+      file.type,
+      file.size,
+      String((file as File & { path?: string }).path ?? ""),
+    ].join("::");
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function shouldHandlePastedHtml(rawHtml: string, options: { allowTables: boolean }) {
+  const normalized = rawHtml.trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.includes("<img")) {
+    return true;
+  }
+
+  return options.allowTables && normalized.includes("<table");
+}
+
+async function buildPastedHtml(
+  rawHtml: string,
+  assetHandlers?: RichEditorAssetHandlers,
+) {
+  if (!rawHtml || typeof DOMParser === "undefined") {
+    return null;
+  }
+
+  const sanitizedHtml = sanitizePastedHtml(rawHtml);
+  const doc = new DOMParser().parseFromString(sanitizedHtml, "text/html");
+  const images = Array.from(doc.body.querySelectorAll("img"));
+  const hasTable = doc.body.querySelector("table") !== null;
+
+  if (images.length === 0 && !hasTable) {
+    return null;
+  }
+
+  for (const [index, image] of images.entries()) {
+    const replacement = await buildPastedImageElement(doc, image, index, assetHandlers);
+
+    if (replacement) {
+      image.replaceWith(replacement);
+    }
+  }
+
+  appendTrailingParagraphIfNeeded(doc);
+
+  return doc.body.innerHTML.trim();
+}
+
+async function buildPastedImageElement(
+  doc: Document,
+  image: Element,
+  index: number,
+  assetHandlers?: RichEditorAssetHandlers,
+) {
+  const source = image.getAttribute("src")?.trim() ?? "";
+
+  if (!source) {
+    return null;
+  }
+
+  const title = resolvePastedImageTitle(image, index, source);
+  const mimeType = inferImageMimeType(source);
+  const file = buildClipboardImageFile(source, title, mimeType);
+
+  if (file) {
+    const attrs = await buildPastedImageAttrs(file, assetHandlers);
+
+    return attrs ? createPastedImageElement(doc, attrs) : null;
+  }
+
+  const nativePath = resolveClipboardImagePath(source);
+
+  if (nativePath && assetHandlers?.insertImage) {
+    try {
+      const asset = await assetHandlers.insertImage(nativePath);
+      const src = await resolveStoredImageSrc(asset);
+
+      if (src) {
+        return createPastedImageElement(doc, {
+          src,
+          alt: asset.title,
+          title: asset.title,
+          path: asset.path,
+          mimeType: asset.mimeType,
+          documentId: asset.documentId,
+        });
+      }
+    } catch {
+      // Fall through to a best-effort local image reference.
+    }
+  }
+
+  return createPastedImageElement(doc, {
+    src: resolveRichTextImageSrc(nativePath, source) ?? source,
+    alt: title,
+    title,
+    path: nativePath ?? undefined,
+    mimeType: mimeType ?? undefined,
+  });
+}
+
+function resolvePastedImageTitle(image: Element, index: number, source: string) {
+  const preferredTitle =
+    image.getAttribute("title")?.trim() ||
+    image.getAttribute("alt")?.trim() ||
+    image.getAttribute("data-filename")?.trim();
+
+  if (preferredTitle) {
+    return preferredTitle;
+  }
+
+  const sourcePath = resolveClipboardImagePath(source);
+
+  if (sourcePath) {
+    const fileName = sourcePath.split(/[\\/]/).pop()?.trim();
+
+    if (fileName) {
+      return fileName;
+    }
+  }
+
+  return `clipboard-image-${index + 1}.${extensionForMimeType(inferImageMimeType(source) ?? "image/png")}`;
+}
+
+function buildClipboardImageFile(source: string, title: string, mimeType?: string | null) {
+  if (!source.startsWith("data:")) {
+    return null;
+  }
+
+  const parsed = parseDataUrl(source);
+
+  if (!parsed || !parsed.mimeType.startsWith("image/")) {
+    return null;
+  }
+
+  return new File([parsed.bytes], normalizeImageFileName(title, parsed.mimeType), {
+    type: parsed.mimeType,
+  });
+}
+
+function parseDataUrl(source: string) {
+  const match = /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/i.exec(source.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const binary = atob(match[2]);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    return {
+      mimeType: match[1]?.trim().toLowerCase() || "application/octet-stream",
+      bytes,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeImageFileName(title: string, mimeType: string) {
+  const trimmed = title.trim();
+
+  if (trimmed && /\.[A-Za-z0-9]{2,5}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const baseName = trimmed || "clipboard-image";
+
+  return `${baseName}.${extensionForMimeType(mimeType)}`;
+}
+
+function inferImageMimeType(source: string) {
+  const dataUrlMatch = /^data:([^;,]+)[;,]/i.exec(source.trim());
+
+  if (dataUrlMatch) {
+    return dataUrlMatch[1]?.trim().toLowerCase() || null;
+  }
+
+  const normalized = source.toLowerCase();
+
+  if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  if (normalized.endsWith(".gif")) {
+    return "image/gif";
+  }
+
+  if (normalized.endsWith(".webp")) {
+    return "image/webp";
+  }
+
+  if (normalized.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+
+  if (normalized.endsWith(".bmp")) {
+    return "image/bmp";
+  }
+
+  if (normalized.endsWith(".avif")) {
+    return "image/avif";
+  }
+
+  if (normalized.endsWith(".heic")) {
+    return "image/heic";
+  }
+
+  if (normalized.endsWith(".png")) {
+    return "image/png";
+  }
+
+  return null;
+}
+
+function resolveClipboardImagePath(source: string) {
+  const trimmed = source.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith("file:")) {
+    const filePath = fileUriToPath(trimmed);
+
+    return filePath || null;
+  }
+
+  if (trimmed.startsWith("/") || /^[A-Za-z]:[\\/]/.test(trimmed) || /^[/\\]{2}[^/\\]/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+function createPastedImageElement(doc: Document, attrs: {
+  src?: string;
+  alt?: string;
+  title?: string;
+  path?: string;
+  mimeType?: string;
+  documentId?: number;
+}) {
+  const element = doc.createElement("img");
+
+  if (attrs.src) {
+    element.setAttribute("src", attrs.src);
+  }
+
+  if (attrs.alt) {
+    element.setAttribute("alt", attrs.alt);
+  }
+
+  if (attrs.title) {
+    element.setAttribute("title", attrs.title);
+  }
+
+  if (attrs.path) {
+    element.setAttribute("data-path", attrs.path);
+  }
+
+  if (attrs.mimeType) {
+    element.setAttribute("data-mime-type", attrs.mimeType);
+  }
+
+  if (typeof attrs.documentId === "number") {
+    element.setAttribute("data-document-id", String(attrs.documentId));
+  }
+
+  return element;
+}
+
+function appendTrailingParagraphIfNeeded(doc: Document) {
+  const lastElement = doc.body.lastElementChild;
+
+  if (!lastElement) {
+    return;
+  }
+
+  if (lastElement.tagName === "IMG" || lastElement.tagName === "TABLE") {
+    doc.body.appendChild(doc.createElement("p"));
+  }
+}
+
+function createSyntheticPasteEvent() {
+  if (typeof ClipboardEvent !== "undefined") {
+    return new ClipboardEvent("paste");
+  }
+
+  const event = new Event("paste") as ClipboardEvent;
+
+  Object.defineProperty(event, "clipboardData", {
+    configurable: true,
+    value: {
+      files: [] as unknown as FileList,
+      items: [] as unknown as DataTransferItemList,
+      getData: () => "",
+    } satisfies Pick<DataTransfer, "files" | "items" | "getData">,
+  });
+
+  return event;
+}
+
+function extensionForMimeType(mimeType: string) {
+  switch (mimeType.trim().toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/svg+xml":
+      return "svg";
+    case "image/bmp":
+      return "bmp";
+    case "image/avif":
+      return "avif";
+    case "image/heic":
+      return "heic";
+    default:
+      return "png";
+  }
 }
