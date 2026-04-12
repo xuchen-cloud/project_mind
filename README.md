@@ -6,7 +6,7 @@
 - 打开或新建 Workspace，并把数据库、配置、AI 缓存、日志和临时文件统一收纳在 Workspace 下的 `.project-mind/`
 - 记录最近使用的 Workspace，支持切换 Workspace、打开 Workspace 根目录，以及锁定 / 解锁 AI secrets
 - 在当前 Workspace 内创建项目，并在根目录下生成同名项目文件夹
-- 在项目页维护摘要、状态、项目级文件、结论时间线、Todo Rail，并支持归档 / 恢复项目
+- 在项目页维护摘要、项目级文件、结论时间线、Todo Rail，并支持归档 / 恢复项目
 - 在项目内创建 Activity，维护活动属性与活动状态字典，并自动为 Activity 生成独立目录
 - 在 Activity 中编写记录，支持自定义记录类型与模板、富文本正文、图片 / 附件 / 表格、截图粘贴、文件插入和单条记录置顶
 - 在 Activity 中沉淀结论，并提升到项目首页展示

@@ -21,7 +21,10 @@
 
 - [`src/styles/app.css`](../src/styles/app.css)
 - [`src/ui/components`](../src/ui/components)
+- [`src/components/ai`](../src/components/ai)
+- [`src/components/document`](../src/components/document)
 - [`src/components/layout`](../src/components/layout)
+- [`src/components/rich-editor`](../src/components/rich-editor)
 - [`scripts/check-ui-standards.mjs`](../scripts/check-ui-standards.mjs)
 
 ## 2. 设计方向
@@ -77,6 +80,18 @@
 - 记录列表在任意时刻最多保留一条展开结果，切换展开对象时直接替换
 - 当前仅记录条目支持“置顶”；Todo 历史进展不支持
 - 置顶的意义是调整记录排序，不影响展开态是否保留
+
+### 2.3 Workspace First Frame
+
+当前视觉语言已经明确转向 `workspace-first`，因此“先进入工作区，再进入项目”是正式叙事，不是一次性的 onboarding 文案。
+
+具体规则：
+
+- Workspace Gate 应该被做成明确的起始页，而不是一个临时弹窗
+- Workspace 名称、根路径、最近使用记录属于一级上下文，应稳定出现在顶栏或入口页
+- `Today`、`Ask`、全局搜索、设置都属于 Workspace 级工具，不属于单个项目
+- 当用户尚未进入任何项目时，界面仍应显得“可继续工作”，而不是纯空白占位
+- Workspace 相关安全动作，例如锁定 / 解锁 AI secrets，属于基础设施操作，应该收在轻量菜单中，不与业务按钮混排
 
 ## 3. Foundations
 
@@ -341,6 +356,51 @@
 - 归档项目浮层
 - 轻量菜单
 
+### 4.11 `ActionContextMenu`
+
+文件：
+
+- [`src/ui/components/ActionContextMenu.tsx`](../src/ui/components/ActionContextMenu.tsx)
+
+用于：
+
+- 文件卡片右键菜单
+- 富文本图片 / 表格上下文菜单
+- 对象级轻量危险操作与二级动作
+
+约束：
+
+- 菜单本体不承担复杂表单
+- 危险操作用 `danger` tone 明确表达，不靠额外确认文案堆叠
+- 键盘导航、Escape 关闭、视口内定位是默认能力
+
+### 4.12 `DeleteContextMenu`
+
+文件：
+
+- [`src/ui/components/DeleteContextMenu.tsx`](../src/ui/components/DeleteContextMenu.tsx)
+
+用于：
+
+- 把“删除”从普通动作里单独抬出来
+- 在不进入完整 Dialog 的前提下承接轻量破坏性确认
+
+### 4.13 `ProjectStarButton`
+
+文件：
+
+- [`src/ui/components/ProjectStarButton.tsx`](../src/ui/components/ProjectStarButton.tsx)
+
+用于：
+
+- 文档标星
+- 轻量收藏态切换
+
+约束：
+
+- 标星是局部对象状态，不升级成页面级 badge 或提示卡
+- 默认只用图标反馈，不额外补“已标星”说明文案
+
 ## 5. Layout Patterns
 
 ### 5.1 Workspace Top Bar
@@ -352,10 +412,13 @@
 当前承担：
 
 - 项目切换
+- `Today` 入口
+- `Ask` 入口
 - 新建项目
 - 顶部搜索
 - 归档项目入口
 - 设置入口
+- Workspace 菜单
 
 不应在这里堆入复杂业务面板。
 
@@ -459,6 +522,105 @@
 - `结论` 复用记录的 surface 语言，但保留更轻的点击即编辑模型
 - `文件材料` 复用同层 hover 与编辑态语言，但保留文件对象自己的上下文菜单与版本能力
 
+### 5.6 Workspace Gate
+
+文件：
+
+- [`src/App.tsx`](../src/App.tsx)
+
+当前承担：
+
+- Workspace 起始页
+- 最近使用 Workspace 列表
+- 新建 / 打开 Workspace 主操作
+
+设计规则：
+
+- 起始页允许比工作区内部更“宽松”和更“欢迎进入”，但仍然保持同一套颜色和字体体系
+- 最近使用列表应该像“继续工作”的入口，而不是文件浏览器
+- 与 Workspace 相关的安全或迁移提示应放在轻卡片中，不打断主 CTA
+
+### 5.7 AI Artifact Surfaces
+
+文件：
+
+- [`src/components/ai/AiArtifactCard.tsx`](../src/components/ai/AiArtifactCard.tsx)
+- [`src/components/project/ProjectOverviewPage.tsx`](../src/components/project/ProjectOverviewPage.tsx)
+- [`src/components/activity/ActivityPage.tsx`](../src/components/activity/ActivityPage.tsx)
+- [`src/components/today/TodayPage.tsx`](../src/components/today/TodayPage.tsx)
+
+适用对象：
+
+- `Activity Summary`
+- `Project Brief`
+- `Today`
+
+视觉规则：
+
+- AI 概览是“工作台摘要卡”，不是聊天气泡
+- 状态徽标、刷新按钮、时间信息应稳定出现在头部
+- `stale` 和 `error` 采用浅色状态条提示，不把整张卡切成红底或黄底
+- 引用信息优先做成可回跳对象列表，而不是长脚注
+
+### 5.8 Ask Dialog
+
+文件：
+
+- [`src/components/ai/AskPanel.tsx`](../src/components/ai/AskPanel.tsx)
+
+当前承担：
+
+- Workspace / Project / Activity 范围切换
+- 单轮问题输入
+- 答案与引用展示
+
+设计规则：
+
+- Ask 是“范围内检索式提问”，不是开放式聊天产品
+- 范围切换应该在输入区之前明确出现
+- 回答区优先展示可读性和引用回跳，不强调连续对话历史
+- 当能力未配置或 secrets 未解锁时，优先显示下一步动作，而不是堆技术报错
+
+### 5.9 Document Import Tag Dialog
+
+文件：
+
+- [`src/components/document/DocumentImportTagDialog.tsx`](../src/components/document/DocumentImportTagDialog.tsx)
+
+当前承担：
+
+- 批量导入前的标签选择
+- 导入文件清单预览
+- 跳转文件标签设置
+
+设计规则：
+
+- 这是“导入前一步”，不是完整管理页
+- 一屏内完成选择、确认或跳转设置
+- 标签选项需要直接展示色点，不依赖用户记忆颜色
+
+### 5.10 Rich Text Asset Patterns
+
+文件：
+
+- [`src/components/rich-editor/RichEditor.tsx`](../src/components/rich-editor/RichEditor.tsx)
+- [`src/components/rich-editor/extensions/ManagedImage.ts`](../src/components/rich-editor/extensions/ManagedImage.ts)
+- [`src/components/rich-editor/extensions/Attachment.ts`](../src/components/rich-editor/extensions/Attachment.ts)
+- [`src/components/rich-editor/extensions/ManagedTable.ts`](../src/components/rich-editor/extensions/ManagedTable.ts)
+
+适用对象：
+
+- 记录中的图片
+- 记录中的附件
+- 记录中的表格
+
+设计规则：
+
+- 图片、附件、表格都属于“正文内对象”，需要遵守正文排版节奏
+- 图片与表格支持局部上下文菜单和尺寸调整，但不引入漂浮工具面板常驻占位
+- 附件默认表现为轻量块对象，重点传达“这是什么文件、能否打开”
+- 插入型对象的控制信号应尽量靠近对象本身，不额外在页面外层重复出现
+
 ## 6. State Language
 
 ### 6.1 Feedback 状态语言
@@ -519,6 +681,63 @@
 - 保留明显异常提示
 - 不把它伪装成普通文件状态
 
+### 6.5 Workspace Security 状态语言
+
+当前 Workspace secrets 只有两种正式状态：
+
+- `locked`
+- `unlocked`
+
+表现规则：
+
+- `locked`
+  - 不用夸张警报样式
+  - 重点表达“需要先解锁才能继续”
+- `unlocked`
+  - 只作为可继续执行 AI 能力的前提，不额外做炫耀式提示
+
+### 6.6 AI Artifact 状态语言
+
+当前 AI Artifact 正式状态：
+
+- `fresh`
+- `stale`
+- `error`
+
+映射原则：
+
+- `fresh`
+  - 使用 `success`，表达“当前内容与源数据一致”
+- `stale`
+  - 使用 `warning`，表达“可继续读，但建议刷新”
+- `error`
+  - 使用 `danger`，表达“最近一次生成失败”
+
+### 6.7 AI Job 状态语言
+
+来源：
+
+- [`src/lib/aiJobs.ts`](../src/lib/aiJobs.ts)
+- [`src/state/ai-job-store.ts`](../src/state/ai-job-store.ts)
+
+当前状态：
+
+- `queued`
+- `running`
+- `succeeded`
+- `failed`
+
+映射原则：
+
+- `queued`
+  - 表示已接受请求，但还未开始执行
+- `running`
+  - 表示当前正在生成或测试
+- `succeeded`
+  - 表示最近一次请求完成
+- `failed`
+  - 表示最近一次请求失败，应优先给出重试路径
+
 ## 7. Engineering Guardrails
 
 来源：
@@ -527,11 +746,17 @@
 
 当前必须遵守：
 
-- 只允许 [`src/services/desktopApi.ts`](../src/services/desktopApi.ts) 直接引入 `@tauri-apps`
+- 页面业务组件不直接引入 `@tauri-apps`
+- 原生能力优先收敛在 service 或 infra helper 内
 - 不使用非 Lucide 图标库
 - 除明确例外文件外，不写硬编码颜色
 - 不继续使用旧设计系统命名残留
 - 源文件中不引入 emoji
+
+当前边界现实上已有两个 infra 级例外，需要继续收敛并让脚本对齐：
+
+- [`src/lib/aiJobs.ts`](../src/lib/aiJobs.ts)
+- [`src/hooks/useWindowFileDrop.ts`](../src/hooks/useWindowFileDrop.ts)
 
 当前脚本明确防止的旧模式包括：
 
