@@ -3,19 +3,21 @@ import { noteTemplateLabel } from "../lib/note-templates";
 import { projectMindApi } from "../services/projectMindApi";
 import type { ActivityCardData, NoteRecord, RecordTypeSettingsSnapshot } from "../lib/types";
 import { useFeedbackStore } from "../state/feedback-store";
-import { useUiStore } from "../state/ui-store";
 import { refreshAll } from "./shared";
 
-export function useActivityMutations() {
+interface UseActivityMutationsOptions {
+  onCreateActivitySuccess?: (activity: ActivityCardData) => void;
+}
+
+export function useActivityMutations(options: UseActivityMutationsOptions = {}) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
-  const { setCreateActivityOpen } = useUiStore();
 
   const createActivityMutation = useMutation({
     mutationFn: projectMindApi.activityCreate,
     onSuccess: async (activity) => {
       setStatus({ tone: "success", label: "Created", message: "活动已创建" });
-      setCreateActivityOpen(false);
+      options.onCreateActivitySuccess?.(activity);
       await refreshAll(queryClient, activity.projectId);
     },
     onError: (error) => {
@@ -55,6 +57,26 @@ export function useActivityMutations() {
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "保存记录失败" });
       pushToast({ tone: "error", title: "保存记录失败", detail: String(error) });
+    },
+  });
+
+  const noteDeleteMutation = useMutation({
+    mutationFn: projectMindApi.noteDelete,
+    onSuccess: async (note) => {
+      const recordTypeSettings = queryClient.getQueryData<RecordTypeSettingsSnapshot>([
+        "record-type-settings",
+      ]);
+      setStatus({
+        tone: "success",
+        label: "Deleted",
+        message: `${noteTemplateLabel(note.noteType, recordTypeSettings)}已删除`,
+      });
+      deleteNoteFromCache(queryClient, note);
+      await refreshAll(queryClient, note.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除记录失败" });
+      pushToast({ tone: "error", title: "删除记录失败", detail: String(error) });
     },
   });
 
@@ -98,6 +120,7 @@ export function useActivityMutations() {
     createActivityMutation,
     activityMetaMutation,
     noteMutation,
+    noteDeleteMutation,
     conclusionMutation,
     conclusionUpdateMutation,
     conclusionDeleteMutation,
@@ -140,6 +163,40 @@ export function upsertNoteInCache(
           digest: {
             ...activity.digest,
             noteCount: nextNoteCount,
+          },
+        };
+      });
+    },
+  );
+}
+
+export function deleteNoteFromCache(
+  queryClient: QueryClient,
+  note: NoteRecord,
+) {
+  queryClient.setQueryData<ActivityCardData[] | undefined>(
+    ["activities", note.projectId],
+    (currentActivities) => {
+      if (!currentActivities) {
+        return currentActivities;
+      }
+
+      return currentActivities.map((activity) => {
+        if (activity.id !== note.activityId) {
+          return activity;
+        }
+
+        const nextNotes = activity.notes.filter((item) => item.id !== note.id);
+        if (nextNotes.length === activity.notes.length) {
+          return activity;
+        }
+
+        return {
+          ...activity,
+          notes: nextNotes,
+          digest: {
+            ...activity.digest,
+            noteCount: Math.max(0, activity.digest.noteCount - 1),
           },
         };
       });

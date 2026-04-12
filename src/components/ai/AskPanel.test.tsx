@@ -71,7 +71,8 @@ function configuredAiSettings(): AiSettingsSnapshot {
       },
     ],
     hasUsableDefault: true,
-    securityMode: "device_bound_encrypted",
+    securityMode: "workspace_password_encrypted",
+    aiSecretsUnlocked: true,
     execution: {
       maxConcurrency: 1,
     },
@@ -104,6 +105,7 @@ function renderPanel(aiSettings = configuredAiSettings()) {
           projectId={7}
           activityId={null}
           aiSettings={aiSettings}
+          onUnlockAiSecrets={vi.fn(async () => true)}
           onClose={vi.fn()}
           onScopeChange={vi.fn()}
         />
@@ -134,7 +136,8 @@ describe("AskPanel", () => {
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
-      securityMode: "device_bound_encrypted",
+      securityMode: "workspace_password_encrypted",
+      aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
       },

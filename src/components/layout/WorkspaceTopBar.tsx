@@ -3,13 +3,20 @@ import {
   CalendarDays,
   CircleHelp,
   CircleUser,
-  FolderKanban,
+  FolderOpen,
+  Lock,
   LoaderCircle,
   Plus,
-  Sparkles,
+  RefreshCcw,
   Settings2,
+  Sparkles,
 } from "lucide-react";
-import type { ProjectListItem, WorkspaceSearchResult } from "../../lib/types";
+
+import type {
+  ProjectListItem,
+  WorkspaceSearchResult,
+  WorkspaceSummary,
+} from "../../lib/types";
 import {
   Button,
   IconButton,
@@ -26,6 +33,8 @@ interface WorkspaceTopBarProps {
   askOpen?: boolean;
   showAsk?: boolean;
   settingsActive?: boolean;
+  currentWorkspace?: WorkspaceSummary | null;
+  aiSecretsUnlocked: boolean;
   archivedProjects: ProjectListItem[];
   searchInput: string;
   onSearchInput: (value: string) => void;
@@ -36,6 +45,12 @@ interface WorkspaceTopBarProps {
   onCloseArchive: () => void;
   onOpenProject: (projectId: number) => void;
   onRestoreProject: (projectId: number) => void;
+  workspaceMenuOpen: boolean;
+  onToggleWorkspaceMenu: () => void;
+  onCloseWorkspaceMenu: () => void;
+  onOpenWorkspaceFolder: () => void;
+  onSwitchWorkspace: () => void;
+  onLockAiSecrets: () => void;
   onCreateProject: () => void;
   onOpenToday: () => void;
   onOpenAsk: () => void;
@@ -51,6 +66,8 @@ export function WorkspaceTopBar({
   askOpen = false,
   showAsk = true,
   settingsActive = false,
+  currentWorkspace,
+  aiSecretsUnlocked,
   archivedProjects,
   searchInput,
   onSearchInput,
@@ -61,6 +78,12 @@ export function WorkspaceTopBar({
   onCloseArchive,
   onOpenProject,
   onRestoreProject,
+  workspaceMenuOpen,
+  onToggleWorkspaceMenu,
+  onCloseWorkspaceMenu,
+  onOpenWorkspaceFolder,
+  onSwitchWorkspace,
+  onLockAiSecrets,
   onCreateProject,
   onOpenToday,
   onOpenAsk,
@@ -70,24 +93,15 @@ export function WorkspaceTopBar({
   return (
     <header className="sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
       <div className="flex min-w-0 items-center gap-3 overflow-hidden">
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-6)] bg-bg-subtle text-text-muted">
-            <FolderKanban size={14} />
-          </div>
-          <span className="text-ui font-medium text-text-muted tracking-tight">
-            Project Mind
-          </span>
-        </div>
-
         <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Projects">
           {showToday ? (
             <button
               type="button"
               className={[
-                "shrink-0 inline-flex items-center gap-1.5 rounded-[var(--radius-6)] px-2.5 h-8 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)] border",
+                "shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-6)] border px-2.5 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
                 todayActive
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                  : "text-text-muted border-transparent hover:text-text hover:bg-bg-hover",
+                  : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
               ].join(" ")}
               onClick={onOpenToday}
             >
@@ -100,17 +114,23 @@ export function WorkspaceTopBar({
               key={project.id}
               type="button"
               className={[
-                "shrink-0 rounded-[var(--radius-6)] px-2.5 h-8 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)] border",
+                "shrink-0 h-8 rounded-[var(--radius-6)] border px-2.5 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
                 project.id === activeProjectId
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                  : "text-text-muted border-transparent hover:text-text hover:bg-bg-hover",
+                  : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
               ].join(" ")}
               onClick={() => onOpenProject(project.id)}
             >
               {project.name}
             </button>
           ))}
-          <Button type="button" size="sm" variant="ghost" leadingIcon={<Plus size={14} />} onClick={onCreateProject}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            leadingIcon={<Plus size={14} />}
+            onClick={onCreateProject}
+          >
             新建
           </Button>
         </div>
@@ -132,14 +152,14 @@ export function WorkspaceTopBar({
         <div className="relative">
           <SearchField
             value={searchInput}
-            onChange={(e) => onSearchInput(e.target.value)}
+            onChange={(event) => onSearchInput(event.target.value)}
             placeholder="搜索项目、活动、Todo、文件"
             className="w-64"
             loading={searching}
           />
 
           {searchInput.trim() ? (
-            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] w-80 max-h-96 overflow-auto">
+            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-96 w-80 overflow-auto">
               {searching ? (
                 <div className="flex items-center gap-2 px-2 py-2 text-ui text-text-soft">
                   <LoaderCircle className="spin" size={14} />
@@ -186,7 +206,7 @@ export function WorkspaceTopBar({
             <Archive size={13} />
           </IconButton>
           {archiveOpen ? (
-            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] w-64">
+            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 w-64">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
                   ARCHIVED
@@ -232,12 +252,70 @@ export function WorkspaceTopBar({
         >
           <Settings2 size={13} />
         </IconButton>
-        <button
-          type="button"
-          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg text-text-muted transition-colors hover:border-border-strong hover:text-text"
-        >
-          <CircleUser size={14} />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg text-text-muted transition-colors hover:border-border-strong hover:text-text"
+            onClick={onToggleWorkspaceMenu}
+          >
+            <CircleUser size={14} />
+          </button>
+          {workspaceMenuOpen ? (
+            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 w-72">
+              <div className="mb-3">
+                <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                  Workspace
+                </p>
+                <p className="mt-2 text-body font-medium text-text">
+                  {currentWorkspace?.displayName ?? "Current Workspace"}
+                </p>
+                <p className="mt-1 break-all text-ui text-text-soft">
+                  {currentWorkspace?.rootPath ?? "未提供路径"}
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  leadingIcon={<FolderOpen size={14} />}
+                  onClick={() => {
+                    onCloseWorkspaceMenu();
+                    onOpenWorkspaceFolder();
+                  }}
+                >
+                  打开 Workspace
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  leadingIcon={<RefreshCcw size={14} />}
+                  onClick={() => {
+                    onCloseWorkspaceMenu();
+                    onSwitchWorkspace();
+                  }}
+                >
+                  切换 Workspace
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  leadingIcon={<Lock size={14} />}
+                  disabled={!aiSecretsUnlocked}
+                  onClick={() => {
+                    onCloseWorkspaceMenu();
+                    onLockAiSecrets();
+                  }}
+                >
+                  {aiSecretsUnlocked ? "锁定 AI Secrets" : "AI Secrets 已锁定"}
+                </Button>
+              </div>
+            </PopoverPanel>
+          ) : null}
+        </div>
       </div>
     </header>
   );

@@ -66,10 +66,6 @@ const markdownSerializer = new MarkdownSerializer(
       state.closeBlock(node);
     },
     image(state, node) {
-      const src =
-        typeof node.attrs.src === "string" && node.attrs.src.trim().length > 0
-          ? node.attrs.src
-          : "";
       const alt =
         typeof node.attrs.alt === "string" && node.attrs.alt.trim().length > 0
           ? node.attrs.alt
@@ -78,10 +74,9 @@ const markdownSerializer = new MarkdownSerializer(
         typeof node.attrs.title === "string" && node.attrs.title.trim().length > 0
           ? node.attrs.title
           : null;
+      const label = alt || title || "图片";
 
-      state.write(
-        `![${state.esc(alt)}](${src.replace(/[\(\)]/g, "\\$&")}${title ? ` "${title.replace(/"/g, '\\"')}"` : ""})`,
-      );
+      state.write(`[图片] ${state.esc(label)}`);
     },
     hardBreak(state, node, parent, index) {
       for (let nextIndex = index + 1; nextIndex < parent.childCount; nextIndex += 1) {

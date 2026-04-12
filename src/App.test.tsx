@@ -8,6 +8,17 @@ import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 
 vi.mock("./services/projectMindApi", () => ({
   projectMindApi: {
+    workspaceStatusGet: vi.fn(async () => ({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        metadataPath: "/tmp/workspace/.project-mind/workspace.json",
+        displayName: "Test Workspace",
+        createdAt: "2026-04-11T00:00:00.000Z",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+      securityMode: "workspace_password_encrypted",
+    })),
     projectsList: vi.fn(async () => []),
     workspaceSearch: vi.fn(async () => []),
     activityList: vi.fn(async () => []),
@@ -73,7 +84,8 @@ vi.mock("./services/projectMindApi", () => ({
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
-      securityMode: "device_bound_encrypted",
+      securityMode: "workspace_password_encrypted",
+      aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
       },
@@ -166,6 +178,7 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
+    await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     await user.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /活动标签/ })).toBeInTheDocument();
@@ -228,12 +241,97 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByRole("region", { name: "文件标签" })).toBeInTheDocument();
   });
 
+  it("renders the project activity sidebar at shell level while keeping the top tabs", async () => {
+    vi.mocked(projectMindApi.projectsList).mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "Alpha Project",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 2,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.activityList).mockResolvedValueOnce([
+      {
+        id: 11,
+        projectId: 1,
+        attributeOptionId: null,
+        attributeLabel: "会议",
+        attributeColorKey: "blue",
+        title: "Kickoff Review",
+        activityTime: "2026-04-11T00:00:00.000Z",
+        statusOptionId: 1,
+        statusLabel: "已整理",
+        statusColorKey: "green",
+        isPinned: false,
+        isExpanded: false,
+        createdAt: "",
+        updatedAt: "",
+        digest: {
+          id: 11,
+          projectId: 1,
+          attributeOptionId: null,
+          attributeLabel: "会议",
+          attributeColorKey: "blue",
+          title: "Kickoff Review",
+          activityTime: "2026-04-11T00:00:00.000Z",
+          statusOptionId: 1,
+          statusLabel: "已整理",
+          statusColorKey: "green",
+          isPinned: false,
+          noteCount: 0,
+          conclusionCount: 0,
+          todoCount: 1,
+          documentCount: 2,
+          completedTodoCount: 0,
+          totalTodoCount: 1,
+          hasOpenTodos: true,
+        },
+        notes: [],
+        conclusions: [],
+        todos: [],
+        documents: [],
+        aiSuggestions: [],
+      },
+    ]);
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [{ path: "projects/:projectId", element: <div>project route body</div> }],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText("项目导航侧边栏")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收起项目侧边栏" })).toBeInTheDocument();
+    expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
+    expect(screen.getByText("project route body")).toBeInTheDocument();
+  });
+
   it("hides Ask and Today entries when their AI toggles are off", async () => {
     vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
-      securityMode: "device_bound_encrypted",
+      securityMode: "workspace_password_encrypted",
+      aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
       },
@@ -281,7 +379,8 @@ describe("WorkspaceLayout", () => {
       profiles: [],
       bindings: [],
       hasUsableDefault: false,
-      securityMode: "device_bound_encrypted",
+      securityMode: "workspace_password_encrypted",
+      aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
       },
@@ -324,7 +423,9 @@ describe("WorkspaceLayout", () => {
     );
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
-    expect(screen.queryByText("today route")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("today route")).not.toBeInTheDocument();
+    });
     expect(screen.getByText(/当前还没有项目。需要开始整理时再创建即可/i)).toBeInTheDocument();
   });
 });

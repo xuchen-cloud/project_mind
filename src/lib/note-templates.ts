@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import {
   EMPTY_RICH_TEXT_HTML,
+  getEditableRichTextHtml,
   getRenderableRichTextHtml,
   richTextHtmlToPlainText,
 } from "./richTextContent";
@@ -167,7 +168,7 @@ export function createDraftNote(
   return {
     localId: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     noteType: nextTemplateKey,
-    title: noteTemplateDefaultTitle(nextTemplateKey, snapshot),
+    title: "",
     contentMarkdown: "",
     contentHtml: noteTemplateDefaultHtml(nextTemplateKey, snapshot),
   };
@@ -194,9 +195,64 @@ export function getRenderableNoteHtml(note: Pick<NoteRecord, "contentHtml" | "co
   });
 }
 
+export function getEditableNoteHtml(note: Pick<NoteRecord, "contentHtml" | "contentMarkdown">) {
+  return getEditableRichTextHtml({
+    html: note.contentHtml,
+    markdown: note.contentMarkdown,
+  });
+}
+
 export function summarizeNoteContent(note: Pick<NoteRecord, "contentHtml" | "contentMarkdown">) {
   const normalized = richTextHtmlToPlainText(getRenderableNoteHtml(note));
   return normalized.length > 0 ? normalized.slice(0, 96) : "尚未填写内容";
+}
+
+export function normalizeNoteTitleInput(
+  title: string | null | undefined,
+  templateKey: NoteTemplateKey,
+  snapshot?: RecordTypeSettingsSnapshot | null,
+) {
+  const normalized = title?.trim() ?? "";
+
+  if (!normalized || isDefaultNoteTitle(normalized, templateKey, snapshot)) {
+    return "";
+  }
+
+  return normalized;
+}
+
+export function deriveNoteTitleFromContent(
+  note: Pick<NoteRecord, "contentHtml" | "contentMarkdown">,
+  templateKey: NoteTemplateKey,
+  snapshot?: RecordTypeSettingsSnapshot | null,
+) {
+  const htmlCandidate = deriveNoteTitleFromHtml(getRenderableNoteHtml(note));
+
+  if (htmlCandidate) {
+    return htmlCandidate;
+  }
+
+  const markdownCandidate = deriveNoteTitleFromMarkdown(note.contentMarkdown);
+
+  if (markdownCandidate) {
+    return markdownCandidate;
+  }
+
+  return noteTemplateLabel(templateKey, snapshot);
+}
+
+export function resolveNoteDisplayTitle(
+  note: Pick<NoteRecord, "title" | "contentHtml" | "contentMarkdown">,
+  templateKey: NoteTemplateKey,
+  snapshot?: RecordTypeSettingsSnapshot | null,
+) {
+  const explicitTitle = normalizeNoteTitleInput(note.title, templateKey, snapshot);
+
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  return deriveNoteTitleFromContent(note, templateKey, snapshot);
 }
 
 export function normalizeNoteTemplateKey(
@@ -245,4 +301,84 @@ function escapeHtml(source: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+const NOTE_TITLE_SKIP_SET = new Set(["背景", "讨论要点", "初步结论", "行动项"]);
+
+function deriveNoteTitleFromHtml(html: string) {
+  const normalized = html.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (typeof DOMParser === "undefined") {
+    return "";
+  }
+
+  const doc = new DOMParser().parseFromString(normalized, "text/html");
+  const blocks = Array.from(
+    doc.body.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th"),
+  );
+
+  for (const block of blocks) {
+    const lines = (block.textContent ?? "")
+      .split(/\r?\n/)
+      .map((line) => finalizeNoteTitleCandidate(line))
+      .filter((line) => line.length > 0);
+
+    if (lines[0]) {
+      return lines[0];
+    }
+  }
+
+  return "";
+}
+
+function deriveNoteTitleFromMarkdown(markdown: string) {
+  const lines = markdown
+    .split(/\r?\n/)
+    .map((line) => stripMarkdownDecorations(line))
+    .map((line) => finalizeNoteTitleCandidate(line))
+    .filter((line) => line.length > 0);
+
+  return lines[0] ?? "";
+}
+
+function stripMarkdownDecorations(source: string) {
+  return source
+    .replace(/^\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+)/, "")
+    .replace(/\|/g, " ")
+    .replace(/[*_~`]/g, " ");
+}
+
+function finalizeNoteTitleCandidate(source: string) {
+  let normalized = source.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  for (const heading of NOTE_TITLE_SKIP_SET) {
+    if (normalized === heading) {
+      return "";
+    }
+
+    if (normalized.startsWith(heading) && normalized.length > heading.length) {
+      const stripped = normalized
+        .slice(heading.length)
+        .replace(/^[:：\-]\s*/, "")
+        .trim();
+
+      if (stripped.length > 0) {
+        normalized = stripped;
+      }
+    }
+  }
+
+  const firstSentenceMatch = normalized.match(/^(.+?[。！？!?])(?=\s|$|["'”’])/u);
+  const firstSentence = firstSentenceMatch?.[1]?.trim();
+  const candidate = firstSentence || normalized;
+
+  return candidate.length > 48 ? `${candidate.slice(0, 48).trimEnd()}…` : candidate;
 }

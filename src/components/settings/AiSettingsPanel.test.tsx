@@ -159,7 +159,8 @@ describe("AiSettingsPanel", () => {
         },
       ],
       hasUsableDefault: true,
-      securityMode: "local_encrypted",
+      securityMode: "workspace_password_encrypted",
+      aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
       },

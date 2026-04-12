@@ -3,7 +3,6 @@ import Highlight from "@tiptap/extension-highlight";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
-import { Table } from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
@@ -11,6 +10,7 @@ import { getSchema } from "@tiptap/core";
 
 import { Attachment } from "./extensions/Attachment";
 import { ManagedImage } from "./extensions/ManagedImage";
+import { ManagedTable } from "./extensions/ManagedTable";
 
 export function buildRichEditorExtensions(placeholder: string) {
   return [
@@ -33,7 +33,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     TaskItem.configure({
       nested: true,
     }),
-    Table.configure({
+    ManagedTable.configure({
       cellMinWidth: 96,
       renderWrapper: true,
       resizable: true,
@@ -42,6 +42,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     TableHeader,
     TableCell,
     ManagedImage.configure({
+      allowBase64: true,
       HTMLAttributes: {
         class: "rich-editor__image",
       },

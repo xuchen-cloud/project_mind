@@ -1,7 +1,13 @@
-import { ChevronLeft, ChevronRight, FolderKanban } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  FolderKanban,
+  Lightbulb,
+  ListTodo,
+} from "lucide-react";
 
 import type { FileTagColorKey } from "../../lib/types";
-import { formatDateTime } from "../../lib/formatters";
 import { useUiStore } from "../../state/ui-store";
 import { IconButton, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -14,6 +20,7 @@ export interface ProjectSidebarActivityItem {
   activityTime: string;
   attributeLabel?: string | null;
   attributeColorKey?: FileTagColorKey | null;
+  conclusionCount: number;
   documentCount: number;
   completedTodoCount: number;
   totalTodoCount: number;
@@ -50,16 +57,21 @@ export function ProjectSidebar({
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-border bg-bg-subtle transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
+        "flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
         projectSidebarCollapsed ? "w-14" : "w-72",
       )}
       aria-label="项目导航侧边栏"
     >
-      <div className={cn("border-b border-border", projectSidebarCollapsed ? "px-2 py-3" : "px-3 py-4")}>
+      <div
+        className={cn(
+          "relative border-b border-border bg-[color-mix(in_srgb,var(--color-bg)_42%,var(--color-bg-subtle))]",
+          projectSidebarCollapsed ? "px-2 py-3" : "px-3 py-3",
+        )}
+      >
         <div
           className={cn(
             "flex gap-2",
-            projectSidebarCollapsed ? "flex-col items-center" : "items-start justify-between",
+            projectSidebarCollapsed ? "flex-col items-center" : "items-start",
           )}
         >
           <button
@@ -69,7 +81,7 @@ export function ProjectSidebar({
               "rounded-[var(--radius-8)] border border-transparent bg-transparent text-text transition-[border-color,background-color,color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg hover:shadow-[var(--shadow-sm)]",
               projectSidebarCollapsed
                 ? "flex h-9 w-9 items-center justify-center"
-                : "flex flex-1 items-center gap-3 px-3 py-3 text-left",
+                : "flex flex-1 items-center gap-3 px-3 py-2.5 pr-14 text-left",
             )}
             onClick={onOpenProject}
           >
@@ -93,6 +105,8 @@ export function ProjectSidebar({
           <IconButton
             type="button"
             size="sm"
+            variant={projectSidebarCollapsed ? "ghost" : "secondary"}
+            className={projectSidebarCollapsed ? undefined : "absolute top-3 right-3 z-10 shadow-[var(--shadow-sm)]"}
             aria-label={projectSidebarCollapsed ? "展开项目侧边栏" : "收起项目侧边栏"}
             onClick={toggleProjectSidebarCollapsed}
           >
@@ -101,14 +115,14 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", projectSidebarCollapsed ? "px-2 py-3" : "px-3 py-3")}>
         {projectSidebarCollapsed ? (
           <div className="flex flex-col items-center gap-2">
             {activities.map((activity, index) => (
               <button
                 key={activity.id}
                 type="button"
-                title={`${activity.title || "Untitled Activity"} · ${formatDateTime(activity.activityTime)}`}
+                title={activity.title || "Untitled Activity"}
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border text-ui font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
                   activity.id === activeActivityId
@@ -122,8 +136,8 @@ export function ProjectSidebar({
             ))}
           </div>
         ) : activities.length > 0 ? (
-          <div className="grid gap-2">
-            <p className="px-2 text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+          <div className="grid gap-1.5">
+            <p className="px-1 text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
               Activities
             </p>
             {activities.map((activity) => (
@@ -132,30 +146,54 @@ export function ProjectSidebar({
                 id={`activity-${activity.id}`}
                 type="button"
                 className={cn(
-                  "rounded-[var(--radius-8)] border px-3 py-3 text-left transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)]",
+                  "rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
                   activity.id === activeActivityId
-                    ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))]"
-                    : "border-border bg-bg hover:border-border-strong hover:bg-bg-hover",
+                    ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] shadow-[var(--shadow-sm)]"
+                    : "border-transparent bg-transparent hover:border-border hover:bg-bg hover:shadow-[var(--shadow-sm)]",
                 )}
                 onClick={() => onOpenActivity(activity.id)}
               >
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <ActivityStatusTag label={activity.statusLabel} colorKey={activity.statusColorKey} />
-                  <span className="text-caption text-text-soft">
-                    {formatDateTime(activity.activityTime)}
-                  </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {activity.attributeLabel ? (
+                    <ActivityAttributeTag
+                      label={activity.attributeLabel}
+                      colorKey={activity.attributeColorKey ?? null}
+                    />
+                  ) : null}
+                  <p className="text-body font-medium leading-5 text-text">
+                    {activity.title || "Untitled Activity"}
+                  </p>
                 </div>
-                <p className="line-clamp-2 text-body font-medium leading-5 text-text">
-                  {activity.title || "Untitled Activity"}
-                </p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-ui text-text-soft">
-                  <ActivityAttributeTag
-                    label={activity.attributeLabel}
-                    colorKey={activity.attributeColorKey ?? null}
+                  <ActivityStatusTag
+                    label={activity.statusLabel}
+                    colorKey={activity.statusColorKey}
                   />
-                  <span>{activity.documentCount} files</span>
-                  <span>
-                    {activity.completedTodoCount}/{activity.totalTodoCount} todos
+                  <span
+                    className="inline-flex items-center gap-1 opacity-75"
+                    aria-label={`文件 ${activity.documentCount}`}
+                    title={`文件 ${activity.documentCount}`}
+                  >
+                    <FileText size={13} aria-hidden="true" />
+                    <span>{activity.documentCount}</span>
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-1 opacity-75"
+                    aria-label={`结论 ${activity.conclusionCount}`}
+                    title={`结论 ${activity.conclusionCount}`}
+                  >
+                    <Lightbulb size={13} aria-hidden="true" />
+                    <span>{activity.conclusionCount}</span>
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-1 opacity-75"
+                    aria-label={`Todo ${activity.completedTodoCount}/${activity.totalTodoCount}`}
+                    title={`Todo ${activity.completedTodoCount}/${activity.totalTodoCount}`}
+                  >
+                    <ListTodo size={13} aria-hidden="true" />
+                    <span>
+                      {activity.completedTodoCount}/{activity.totalTodoCount}
+                    </span>
                   </span>
                 </div>
               </button>

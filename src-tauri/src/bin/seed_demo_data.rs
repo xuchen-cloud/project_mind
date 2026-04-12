@@ -2,15 +2,14 @@ use std::{env, path::PathBuf, process};
 
 use serde::Serialize;
 
-use project_mind_alpha_lib::{
-    default_app_database_path, default_demo_workspace_root, seed_demo_database_at, DemoSeedResult,
-};
+use project_mind_alpha_lib::{default_demo_workspace_root, seed_demo_workspace_at};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SeedCommandOutput {
-    db_path: String,
-    summary: DemoSeedResult,
+    workspace_root: String,
+    metadata_path: String,
+    summary: project_mind_alpha_lib::DemoSeedResult,
 }
 
 fn main() {
@@ -22,22 +21,26 @@ fn main() {
 
 fn run() -> anyhow::Result<()> {
     let mut args = env::args().skip(1);
-    let mut db_path: Option<PathBuf> = None;
     let mut workspace_root: Option<PathBuf> = None;
+    let mut password: Option<String> = None;
+    let mut force = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--db-path" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("--db-path requires a value"))?;
-                db_path = Some(PathBuf::from(value));
-            }
             "--workspace-root" => {
                 let value = args
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--workspace-root requires a value"))?;
                 workspace_root = Some(PathBuf::from(value));
+            }
+            "--password" => {
+                password = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--password requires a value"))?,
+                );
+            }
+            "--force" => {
+                force = true;
             }
             "--help" | "-h" => {
                 print_usage();
@@ -51,13 +54,15 @@ fn run() -> anyhow::Result<()> {
         }
     }
 
-    let db_path = db_path.unwrap_or(default_app_database_path()?);
     let workspace_root = workspace_root.unwrap_or(default_demo_workspace_root()?);
-    let summary = seed_demo_database_at(&db_path, &workspace_root)?;
+    let password = password
+        .ok_or_else(|| anyhow::anyhow!("--password is required for demo workspace seed"))?;
+    let seeded = seed_demo_workspace_at(&workspace_root, &password, force)?;
 
     let output = SeedCommandOutput {
-        db_path: db_path.to_string_lossy().to_string(),
-        summary,
+        workspace_root: seeded.workspace_root,
+        metadata_path: seeded.metadata_path,
+        summary: seeded.summary,
     };
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
@@ -65,6 +70,6 @@ fn run() -> anyhow::Result<()> {
 
 fn print_usage() {
     println!(
-        "Usage: cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data [--db-path <path>] [--workspace-root <path>]"
+        "Usage: cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data [--workspace-root <path>] --password <value> [--force]"
     );
 }

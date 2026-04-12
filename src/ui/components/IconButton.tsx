@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "../lib/cn";
 
@@ -11,15 +11,13 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-export function IconButton({
-  className,
-  variant = "ghost",
-  size = "md",
-  children,
-  ...props
-}: IconButtonProps) {
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { className, variant = "ghost", size = "md", children, ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-[var(--radius-6)] border transition-[background-color,border-color,color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] disabled:pointer-events-none disabled:opacity-60",
         size === "sm" ? "h-7 w-7" : "h-8 w-8",
@@ -38,4 +36,4 @@ export function IconButton({
       {children}
     </button>
   );
-}
+});

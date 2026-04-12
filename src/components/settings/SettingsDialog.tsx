@@ -16,6 +16,7 @@ interface SettingsDialogProps {
   open: boolean;
   activeSection: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
+  onUnlockAiSecrets: () => Promise<boolean>;
   onClose: () => void;
 }
 
@@ -55,6 +56,7 @@ export function SettingsDialog({
   open,
   activeSection,
   onSectionChange,
+  onUnlockAiSecrets,
   onClose,
 }: SettingsDialogProps) {
   return (
@@ -106,7 +108,7 @@ export function SettingsDialog({
             <RecordTypeSettingsPanel open={open} />
           </section>
           <section hidden={activeSection !== "ai"} aria-label="AI 设置">
-            <AiSettingsPanel open={open} />
+            <AiSettingsPanel open={open} onUnlockAiSecrets={onUnlockAiSecrets} />
           </section>
           <section hidden={activeSection !== "rich-text"} aria-label="富文本样式">
             <RichTextStylePanel open={open} />

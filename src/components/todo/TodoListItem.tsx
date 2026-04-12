@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Check, Circle } from "lucide-react";
 
+import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { IconButton } from "../../ui/components";
@@ -47,16 +48,31 @@ export function TodoListItem({
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
-  onToggleExpanded: (todoId: number) => void;
+  onToggleExpanded: (todoId: number, nextExpanded?: boolean) => void;
   onOpenContextMenu: (todoId: number, x: number, y: number) => void;
   onError?: (message: string) => void;
 }) {
   const [toggling, setToggling] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortedProgresses = sortTodoProgresses(todo.progresses);
   const latestProgress = sortedProgresses[0] ?? null;
   const previousProgresses = sortedProgresses.slice(1);
   const sourceMeta = resolveTodoSourceMeta(todo.activityId, activityNameById);
   const canExpand = previousProgresses.length > 0;
+  const expandedItemRef = useDismissOnOutside<HTMLElement>({
+    enabled: expanded,
+    onDismiss: () => onToggleExpanded(todo.id, false),
+    ignoredRefs: [expandButtonRef],
+    listenFocusIn: false,
+  });
+
+  useEffect(() => {
+    if (!expanded || canExpand) {
+      return;
+    }
+
+    onToggleExpanded(todo.id, false);
+  }, [canExpand, expanded, onToggleExpanded, todo.id]);
 
   async function handleToggle() {
     setToggling(true);
@@ -70,6 +86,7 @@ export function TodoListItem({
   return (
     <article
       id={`todo-${todo.id}`}
+      ref={expanded ? expandedItemRef : undefined}
       className={cn(
         "group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-3 py-3 transition-[background-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
         !isFirst && "border-t border-border",
@@ -160,6 +177,7 @@ export function TodoListItem({
           {todo.status === "finished" ? <Check size={13} /> : <Circle size={13} />}
         </IconButton>
         <IconButton
+          ref={expandButtonRef}
           type="button"
           size="sm"
           variant="ghost"

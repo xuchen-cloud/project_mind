@@ -1,34 +1,45 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { LoaderCircle, MoreHorizontal, Plus, Share2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ChevronDown,
+  LoaderCircle,
+  MoreHorizontal,
+  Plus,
+  Share2,
+  Star,
+  Trash2,
+} from "lucide-react";
 
 import type {
-  ActivityAttributeOption,
-  ActivityCreateInput,
   ActivityDigest,
   ConclusionGroup,
   ConclusionRecord,
+  DocumentRecord,
+  ProjectOverviewData,
 } from "../../lib/types";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import {
   formatOverviewDate,
   parseRouteId,
   activityPath,
-  roundToHalfHourLocal,
 } from "../../lib/formatters";
+import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { isAiFeatureReady, isAiFeatureVisible } from "../../lib/ai";
 import { useActivityMutations } from "../../hooks/useActivityMutations";
+import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
+import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
+import { useExclusiveActivation } from "../../hooks/useExclusiveActivation";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { useUiStore } from "../../state/ui-store";
 import {
+  ActionContextMenu,
   Button,
-  DeleteContextMenu,
   EmptyState,
   IconButton,
   SectionHeader,
@@ -43,24 +54,20 @@ import {
   RichEditor,
   type RichEditorValue,
 } from "../rich-editor";
-import { ProjectSidebar, type ProjectSidebarActivityItem } from "../layout/ProjectSidebar";
 import { TodoRail } from "../todo";
+import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
 import { ManagedDocumentSection } from "../document/ManagedDocumentSection";
 import { ActivityAttributeTag } from "../activity/ActivityAttributeTag";
 import { AiArtifactCard } from "../ai/AiArtifactCard";
 
 export function ProjectOverviewPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const params = useParams();
   const [searchParams] = useSearchParams();
   const projectId = parseRouteId(params.projectId);
   const focusId = searchParams.get("focus");
 
-  const {
-    createActivityOpen,
-    setCreateActivityOpen,
-    openSettings,
-  } = useUiStore();
   const { pushToast } = useFeedbackStore();
 
   const projectsQuery = useQuery({
@@ -87,16 +94,15 @@ export function ProjectOverviewPage() {
     queryKey: ["ai-settings"],
     queryFn: projectMindApi.aiSettingsGet,
   });
-  const activitySettingsQuery = useQuery({
-    queryKey: ["activity-settings"],
-    queryFn: projectMindApi.activitySettingsGet,
-  });
-
   const { summaryMutation, archiveMutation } = useProjectMutations(visibleProjects, (path) =>
     navigate(path),
   );
   const { createActivityMutation, conclusionUpdateMutation, conclusionDeleteMutation } =
-    useActivityMutations();
+    useActivityMutations({
+      onCreateActivitySuccess: (activity) => {
+        navigate(activityPath(activity.projectId, activity.id, "activity-title"));
+      },
+    });
   const {
     todoMutation,
     todoContentMutation,
@@ -113,9 +119,25 @@ export function ProjectOverviewPage() {
   const [nameDraft, setNameDraft] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
+  const [pendingConclusionFocusPoint, setPendingConclusionFocusPoint] = useState<{
+    id: number;
+    point: { x: number; y: number };
+  } | null>(null);
+  const [pageDragActive, setPageDragActive] = useState(false);
+  const [projectBriefExpanded, setProjectBriefExpanded] = useState(false);
   const nameSkipBlurRef = useRef(false);
   const summarySkipBlurRef = useRef(false);
   const summaryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const {
+    activeKey: activeConclusionId,
+    clearActive: clearActiveConclusion,
+    register: registerConclusionActivation,
+    requestActivation: requestConclusionActivation,
+  } = useExclusiveActivation<number>();
+  const projectBriefCardRef = useDismissOnOutside<HTMLDivElement>({
+    enabled: projectBriefExpanded,
+    onDismiss: () => setProjectBriefExpanded(false),
+  });
 
   useEffect(() => {
     if (activeProject) {
@@ -135,6 +157,15 @@ export function ProjectOverviewPage() {
     textarea.style.height = `${Math.max(textarea.scrollHeight, 120)}px`;
   }, [summaryDraft, summaryEditing]);
 
+  useEffect(() => {
+    setProjectBriefExpanded(false);
+  }, [activeProject?.id]);
+
+  useEffect(() => {
+    clearActiveConclusion();
+    setPendingConclusionFocusPoint(null);
+  }, [activeProject?.id, clearActiveConclusion]);
+
   const overview = overviewQuery.data;
   useFocusTarget(focusId, [overview]);
 
@@ -146,24 +177,51 @@ export function ProjectOverviewPage() {
     () => new Map(overview?.activityFeed.map((activity) => [activity.id, activity.title]) ?? []),
     [overview?.activityFeed],
   );
-  const sidebarActivities = useMemo<ProjectSidebarActivityItem[]>(
+  const allConclusionIds = useMemo(
     () =>
-      overview?.activityFeed.map((activity) => ({
-        id: activity.id,
-        title: activity.title,
-        activityTime: activity.activityTime,
-        attributeLabel: activity.attributeLabel,
-        attributeColorKey: activity.attributeColorKey,
-        documentCount: activity.documentCount,
-        completedTodoCount: activity.completedTodoCount,
-        totalTodoCount: activity.totalTodoCount,
-        statusLabel: activity.statusLabel,
-        statusColorKey: activity.statusColorKey,
-      })) ?? [],
-    [overview?.activityFeed],
+      overview?.conclusionGroups.flatMap((group) => group.conclusions.map((conclusion) => conclusion.id)) ?? [],
+    [overview?.conclusionGroups],
   );
   const showProjectBrief = isAiFeatureVisible(aiSettingsQuery.data, "summary.project_brief");
   const summaryReady = isAiFeatureReady(aiSettingsQuery.data, "summary.project_brief");
+  const {
+    fileTags,
+    pendingImportPaths,
+    pendingImportTagIds,
+    requestImportPaths,
+    togglePendingImportTag,
+    closeImportTagDialog,
+    confirmImportTagDialog,
+    manageImportTags,
+  } = useDocumentImportFlow({
+    projectId: activeProject?.id ?? null,
+    onDocumentsImported: (documents) => {
+      documents.forEach((document) => appendDocumentToProjectOverviewCache(queryClient, document));
+    },
+  });
+  const handlePageDrop = useCallback(
+    async (paths: string[]) => {
+      await requestImportPaths(paths);
+    },
+    [requestImportPaths],
+  );
+  const { nativeWindowFileDrop } = useWindowFileDrop({
+    enabled: Boolean(activeProject),
+    onDrop: handlePageDrop,
+    onHoverChange: setPageDragActive,
+  });
+
+  useEffect(() => {
+    if (activeConclusionId !== null && !allConclusionIds.includes(activeConclusionId)) {
+      clearActiveConclusion(activeConclusionId);
+    }
+  }, [activeConclusionId, allConclusionIds, clearActiveConclusion]);
+
+  useEffect(() => {
+    if (activeConclusionId === null) {
+      setPendingConclusionFocusPoint(null);
+    }
+  }, [activeConclusionId]);
 
   function handleOpenProjectFolder(rootPath: string) {
     void desktopApi.openFolder(rootPath).catch((error) => {
@@ -223,6 +281,18 @@ export function ProjectOverviewPage() {
     setSummaryEditing(false);
   }
 
+  function handleCreateActivity() {
+    if (!activeProject || createActivityMutation.isPending) {
+      return;
+    }
+
+    createActivityMutation.mutate({
+      projectId: activeProject.id,
+      title: "",
+      activityTime: new Date().toISOString(),
+    });
+  }
+
   if (!activeProject || !overview) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-body text-text-soft">
@@ -234,185 +304,226 @@ export function ProjectOverviewPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <ProjectSidebar
-        project={{
-          name: activeProject.name,
-          rootPath: activeProject.rootPath,
-          isArchived: activeProject.isArchived,
+      <section
+        data-testid="project-page-dropzone"
+        className={[
+          "min-h-0 flex-1 overflow-y-auto bg-bg transition-[background-color] duration-[160ms] ease-[var(--ease-soft)]",
+          pageDragActive ? "bg-[color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg))]" : "",
+        ].join(" ")}
+        onDragOver={(event) => {
+          if (nativeWindowFileDrop) {
+            return;
+          }
+          event.preventDefault();
+          setPageDragActive(true);
         }}
-        activities={sidebarActivities}
-        onOpenProject={() => navigate(`/projects/${activeProject.id}`)}
-        onOpenActivity={(activityId) => navigate(activityPath(activeProject.id, activityId))}
-      />
-
-      <section className="min-h-0 flex-1 overflow-y-auto bg-bg">
-        <div className="border-b border-border px-8 py-7">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                {nameEditing ? (
-                  <TextField
-                    aria-label="项目名称"
-                    value={nameDraft}
-                    autoFocus
-                    className="h-11 min-w-[16rem] max-w-[28rem] rounded-[var(--radius-8)] border-border-strong bg-bg px-3 text-display font-medium tracking-tight"
-                    onFocus={(event) => event.currentTarget.select()}
-                    onChange={(event) => setNameDraft(event.target.value)}
-                    onBlur={() => {
-                      if (nameSkipBlurRef.current) {
-                        nameSkipBlurRef.current = false;
-                        return;
-                      }
-                      handleSaveProjectName();
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        nameSkipBlurRef.current = true;
-                        setNameDraft(activeProject.name);
-                        setNameEditing(false);
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-display font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
-                    onClick={() => setNameEditing(true)}
-                  >
-                    {activeProject.name}
-                  </button>
-                )}
-                {activeProject.isArchived ? (
-                  <StatusBadge tone="neutral">archived</StatusBadge>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="mt-2 inline-flex max-w-4xl items-center rounded-[var(--radius-6)] bg-transparent px-2 py-1 text-left text-ui text-text-soft transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover hover:text-text"
-                title={activeProject.rootPath}
-                onClick={() => handleOpenProjectFolder(activeProject.rootPath)}
-              >
-                <span className="truncate">项目目录：{activeProject.rootPath}</span>
-              </button>
-
-              {summaryEditing ? (
-                <textarea
-                  ref={summaryTextareaRef}
-                  aria-label="项目简介"
-                  value={summaryDraft}
-                  rows={4}
-                  autoFocus
-                  placeholder="填写项目当前阶段、目标和关键约束。"
-                  className="mt-4 min-h-[7.5rem] w-full max-w-3xl resize-none overflow-hidden rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 text-body leading-6 text-text outline-none transition-[border-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-                  onChange={(event) => setSummaryDraft(event.target.value)}
-                  onBlur={() => {
-                    if (summarySkipBlurRef.current) {
-                      summarySkipBlurRef.current = false;
-                      return;
-                    }
-                    handleSaveProjectSummary();
-                  }}
-                  onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                      event.preventDefault();
-                      event.currentTarget.blur();
-                    }
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      summarySkipBlurRef.current = true;
-                      setSummaryDraft(activeProject.summary);
-                      setSummaryEditing(false);
-                      event.currentTarget.blur();
-                    }
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="mt-4 w-full max-w-3xl rounded-[var(--radius-8)] border border-transparent bg-bg-subtle px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg hover:shadow-[var(--shadow-sm)]"
-                  onClick={() => setSummaryEditing(true)}
-                >
-                  <span
-                    className={cn(
-                      "block whitespace-pre-wrap text-body leading-6",
-                      activeProject.summary ? "text-text-muted" : "text-text-soft",
-                    )}
-                  >
-                    {activeProject.summary || "点击添加项目简介，说明当前阶段、目标和关键约束。"}
-                  </span>
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                leadingIcon={<Plus size={14} />}
-                onClick={() => setCreateActivityOpen(!createActivityOpen)}
-              >
-                新增 Activity
-              </Button>
-              <IconButton type="button" size="md">
-                <Share2 size={14} />
-              </IconButton>
-              <div className="relative">
-                <IconButton
-                  type="button"
-                  size="md"
-                  onClick={() => setProjectMenuOpen((open) => !open)}
-                >
-                  <MoreHorizontal size={14} />
-                </IconButton>
-                {projectMenuOpen ? (
-                  <SurfaceCard className="absolute right-0 top-[calc(100%+6px)] min-w-[10rem] p-1 shadow-[var(--shadow-md)]">
+        onDragLeave={(event) => {
+          if (nativeWindowFileDrop) {
+            return;
+          }
+          event.preventDefault();
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            return;
+          }
+          setPageDragActive(false);
+        }}
+        onDrop={
+          nativeWindowFileDrop
+            ? undefined
+            : (event) => {
+                event.preventDefault();
+                setPageDragActive(false);
+                void handlePageDrop(extractDroppedFilePaths(event.dataTransfer));
+              }
+        }
+      >
+        <div ref={projectBriefCardRef} className="px-8 py-6">
+          <SurfaceCard subtle className="grid gap-5 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                  Project
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {nameEditing ? (
+                    <TextField
+                      aria-label="项目名称"
+                      value={nameDraft}
+                      autoFocus
+                      className="h-11 min-w-[16rem] max-w-[28rem] rounded-[var(--radius-8)] border-border-strong bg-bg px-3 text-display font-medium tracking-tight"
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setNameDraft(event.target.value)}
+                      onBlur={() => {
+                        if (nameSkipBlurRef.current) {
+                          nameSkipBlurRef.current = false;
+                          return;
+                        }
+                        handleSaveProjectName();
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          nameSkipBlurRef.current = true;
+                          setNameDraft(activeProject.name);
+                          setNameEditing(false);
+                          event.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  ) : (
                     <button
                       type="button"
-                      className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left text-ui text-text transition-colors hover:bg-bg-hover"
-                      onClick={() => {
-                        archiveMutation.mutate({
-                          projectId: activeProject.id,
-                          isArchived: !activeProject.isArchived,
-                        });
-                        setProjectMenuOpen(false);
-                      }}
+                      className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-display font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
+                      onClick={() => setNameEditing(true)}
                     >
-                      {activeProject.isArchived ? "恢复项目" : "归档项目"}
+                      {activeProject.name}
                     </button>
-                  </SurfaceCard>
+                  )}
+                  {activeProject.isArchived ? (
+                    <StatusBadge tone="neutral">archived</StatusBadge>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 inline-flex max-w-4xl items-center rounded-[var(--radius-6)] bg-transparent px-2 py-1 text-left text-ui text-text-soft transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover hover:text-text"
+                  title={activeProject.rootPath}
+                  onClick={() => handleOpenProjectFolder(activeProject.rootPath)}
+                >
+                  <span className="truncate">项目目录：{activeProject.rootPath}</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {showProjectBrief ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={projectBriefExpanded ? "subtle" : "secondary"}
+                    aria-expanded={projectBriefExpanded}
+                    onClick={() => setProjectBriefExpanded((expanded) => !expanded)}
+                    trailingIcon={
+                      <ChevronDown
+                        size={14}
+                        className={cn(
+                          "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+                          projectBriefExpanded && "rotate-180",
+                        )}
+                      />
+                    }
+                  >
+                    AI 概览
+                  </Button>
                 ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  leadingIcon={<Plus size={14} />}
+                  disabled={createActivityMutation.isPending}
+                  onClick={handleCreateActivity}
+                >
+                  {createActivityMutation.isPending ? "创建中..." : "新增 Activity"}
+                </Button>
+                <IconButton type="button" size="md">
+                  <Share2 size={14} />
+                </IconButton>
+                <div className="relative">
+                  <IconButton
+                    type="button"
+                    size="md"
+                    onClick={() => setProjectMenuOpen((open) => !open)}
+                  >
+                    <MoreHorizontal size={14} />
+                  </IconButton>
+                  {projectMenuOpen ? (
+                    <SurfaceCard className="absolute right-0 top-[calc(100%+6px)] min-w-[10rem] p-1 shadow-[var(--shadow-md)]">
+                      <button
+                        type="button"
+                        className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left text-ui text-text transition-colors hover:bg-bg-hover"
+                        onClick={() => {
+                          archiveMutation.mutate({
+                            projectId: activeProject.id,
+                            isArchived: !activeProject.isArchived,
+                          });
+                          setProjectMenuOpen(false);
+                        }}
+                      >
+                        {activeProject.isArchived ? "恢复项目" : "归档项目"}
+                      </button>
+                    </SurfaceCard>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
+
+            {summaryEditing ? (
+              <textarea
+                ref={summaryTextareaRef}
+                aria-label="项目简介"
+                value={summaryDraft}
+                rows={4}
+                autoFocus
+                placeholder="填写项目当前阶段、目标和关键约束。"
+                className="min-h-[7.5rem] w-full max-w-3xl resize-none overflow-hidden rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 text-body leading-6 text-text outline-none transition-[border-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+                onChange={(event) => setSummaryDraft(event.target.value)}
+                onBlur={() => {
+                  if (summarySkipBlurRef.current) {
+                    summarySkipBlurRef.current = false;
+                    return;
+                  }
+                  handleSaveProjectSummary();
+                }}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    summarySkipBlurRef.current = true;
+                    setSummaryDraft(activeProject.summary);
+                    setSummaryEditing(false);
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="w-full max-w-3xl rounded-[var(--radius-8)] border border-transparent bg-bg px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-[color-mix(in_srgb,var(--color-bg)_72%,var(--color-bg-subtle))] hover:shadow-[var(--shadow-sm)]"
+                onClick={() => setSummaryEditing(true)}
+              >
+                <span
+                  className={cn(
+                    "block whitespace-pre-wrap text-body leading-6",
+                    activeProject.summary ? "text-text-muted" : "text-text-soft",
+                  )}
+                >
+                  {activeProject.summary || "点击添加项目简介，说明当前阶段、目标和关键约束。"}
+                </span>
+              </button>
+            )}
+
+            {showProjectBrief && projectBriefExpanded ? (
+              <div className="border-t border-border pt-5">
+                <AiArtifactCard
+                  eyebrow="AI Brief"
+                  title="AI 项目概览"
+                  description="汇总当前项目状态、最近变化、关键决策、阻塞和建议下一步。"
+                  input={{ kind: "project_brief", projectId: activeProject.id }}
+                  aiEnabled={summaryReady}
+                  display="embedded"
+                />
+              </div>
+            ) : null}
+          </SurfaceCard>
         </div>
 
         <div className="grid gap-8 px-8 py-6">
-          {createActivityOpen ? (
-            <CreateActivityPanel
-              projectId={activeProject.id}
-              attributeOptions={activitySettingsQuery.data?.activityAttributeOptions ?? []}
-              onOpenSettings={() => openSettings("activity")}
-              onSubmit={(input) => createActivityMutation.mutate(input)}
-            />
-          ) : null}
-
-          {showProjectBrief ? (
-            <AiArtifactCard
-              eyebrow="AI Brief"
-              title="AI 项目概览"
-              description="汇总当前项目状态、最近变化、关键决策、阻塞和建议下一步。"
-              input={{ kind: "project_brief", projectId: activeProject.id }}
-              aiEnabled={summaryReady}
-            />
-          ) : null}
-
           <section className="grid gap-3">
             <ManagedDocumentSection
               projectId={activeProject.id}
@@ -421,14 +532,31 @@ export function ProjectOverviewPage() {
               layout="grid"
               importButtonLabel="导入文件"
               emptyText="还没有文件。"
+              pageDropActive={pageDragActive}
+              pageDropMessage="整个 project 页面都支持拖入，文件会直接归入项目根目录"
+              onDropFiles={requestImportPaths}
             />
           </section>
+
+          {pendingImportPaths ? (
+            <DocumentImportTagDialog
+              paths={pendingImportPaths}
+              tags={fileTags}
+              selectedTagIds={pendingImportTagIds}
+              onToggleTag={togglePendingImportTag}
+              onClose={closeImportTagDialog}
+              onConfirm={() => {
+                void confirmImportTagDialog();
+              }}
+              onManageTags={manageImportTags}
+            />
+          ) : null}
 
           <section className="grid gap-4">
             <SectionHeader eyebrow="Conclusions" title="结论时间线" />
 
             {overview.conclusionGroups.length > 0 ? (
-              <div className="grid gap-3">
+              <div className="grid gap-2.5">
                 {overview.conclusionGroups.map((group, index) => {
                   const activity = group.activityId
                     ? activityMetaById.get(group.activityId) ?? null
@@ -450,10 +578,20 @@ export function ProjectOverviewPage() {
                       onDelete={(conclusionId) =>
                         conclusionDeleteMutation.mutateAsync({ conclusionId })
                       }
+                      activeConclusionId={activeConclusionId}
+                      pendingFocusPoint={pendingConclusionFocusPoint}
                       busy={
                         conclusionUpdateMutation.isPending ||
                         conclusionDeleteMutation.isPending
                       }
+                      registerActivation={registerConclusionActivation}
+                      onDeactivate={clearActiveConclusion}
+                      onRequestActivate={(conclusionId, focusPoint) => {
+                        setPendingConclusionFocusPoint(
+                          focusPoint ? { id: conclusionId, point: focusPoint } : null,
+                        );
+                        return requestConclusionActivation(conclusionId);
+                      }}
                     />
                   );
                 })}
@@ -496,90 +634,18 @@ export function ProjectOverviewPage() {
   );
 }
 
-function CreateActivityPanel({
-  projectId,
-  attributeOptions,
-  onOpenSettings,
-  onSubmit,
-}: {
-  projectId: number;
-  attributeOptions: ActivityAttributeOption[];
-  onOpenSettings: () => void;
-  onSubmit: (input: ActivityCreateInput) => void;
-}) {
-  const [attributeOptionId, setAttributeOptionId] = useState("");
-  const [title, setTitle] = useState("");
-  const [activityTime, setActivityTime] = useState(roundToHalfHourLocal());
-
-  return (
-    <SurfaceCard subtle className="grid gap-3 p-3">
-      <label className="grid gap-1">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-ui font-medium text-text-muted">活动属性</span>
-          <button
-            type="button"
-            className="bg-transparent text-ui text-text-soft transition-colors hover:text-text"
-            onClick={onOpenSettings}
-          >
-            管理属性
-          </button>
-        </div>
-        <select
-          value={attributeOptionId}
-          onChange={(event) => setAttributeOptionId(event.target.value)}
-          className="h-8 rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-        >
-          <option value="">不设置属性</option>
-          {attributeOptions.map((option) => (
-            <option key={option.id} value={String(option.id)}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1">
-        <span className="text-ui font-medium text-text-muted">标题</span>
-        <TextField
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="例如：法务确认 / 方案评审"
-        />
-      </label>
-      <label className="grid gap-1">
-        <span className="text-ui font-medium text-text-muted">时间</span>
-        <TextField
-          type="datetime-local"
-          value={activityTime}
-          onChange={(event) => setActivityTime(event.target.value)}
-        />
-      </label>
-      <Button
-        type="button"
-        variant="primary"
-        block
-        leadingIcon={<Plus size={14} />}
-        onClick={() =>
-          onSubmit({
-            projectId,
-            attributeOptionId: attributeOptionId ? Number(attributeOptionId) : undefined,
-            title,
-            activityTime: new Date(activityTime).toISOString(),
-          })
-        }
-      >
-        创建并进入记录
-      </Button>
-    </SurfaceCard>
-  );
-}
-
 function ConclusionGroupSection({
   group,
   activity,
   index,
   onSave,
   onDelete,
+  activeConclusionId,
+  pendingFocusPoint,
   busy,
+  registerActivation,
+  onDeactivate,
+  onRequestActivate,
 }: {
   group: ConclusionGroup;
   activity: ActivityDigest | null;
@@ -589,9 +655,17 @@ function ConclusionGroupSection({
     markdown: string,
     html: string,
     promotedToProject: boolean,
-  ) => void;
+  ) => Promise<unknown> | unknown;
   onDelete: (conclusionId: number) => Promise<unknown> | void;
+  activeConclusionId: number | null;
+  pendingFocusPoint: { id: number; point: { x: number; y: number } } | null;
   busy: boolean;
+  registerActivation: (
+    key: number,
+    handler: () => Promise<boolean> | boolean,
+  ) => () => void;
+  onDeactivate: (key?: number) => void;
+  onRequestActivate: (key: number, focusPoint?: { x: number; y: number }) => Promise<boolean>;
 }) {
   const [contextMenu, setContextMenu] = useState<{
     conclusionId: number;
@@ -614,23 +688,23 @@ function ConclusionGroupSection({
   }, [contextMenu, contextMenuConclusion]);
 
   return (
-    <SurfaceCard as="article" className="grid gap-2 px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {activity ? (
+    <SurfaceCard as="article" className="grid gap-1 px-4 py-2.5">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5">
+        <div className="min-w-0 flex flex-wrap items-center gap-2">
+          {activity ? (
+            activity.attributeLabel ? (
               <ActivityAttributeTag
                 label={activity.attributeLabel}
                 colorKey={activity.attributeColorKey ?? null}
               />
-            ) : (
-              <StatusBadge tone={tone}>project</StatusBadge>
-            )}
-            <span className="text-caption text-text-soft">{group.conclusions.length} 条结论</span>
-          </div>
-          <h3 className="mt-1 line-clamp-1 text-body font-medium leading-5 text-text">
+            ) : null
+          ) : (
+            <StatusBadge tone={tone}>project</StatusBadge>
+          )}
+          <h3 className="text-body font-medium leading-5 text-text">
             {group.activityTitle}
           </h3>
+          <span className="text-caption text-text-soft">{group.conclusions.length} 条结论</span>
         </div>
         <span className="text-caption leading-5 text-text-soft">
           {activity ? formatOverviewDate(activity.activityTime) : ""}
@@ -638,34 +712,58 @@ function ConclusionGroupSection({
       </div>
       <div className="grid gap-0">
         {group.conclusions.map((conclusion) => (
-          <div
+          <InlineConclusionEditor
             key={conclusion.id}
-            className="border-t border-border py-2 first:border-t-0 first:pt-0 last:pb-0"
-          >
-            <InlineConclusionEditor
-              conclusion={conclusion}
-              busy={busy}
-              onSave={onSave}
-              onOpenContextMenu={(conclusionId, x, y) =>
-                setContextMenu({ conclusionId, x, y })
-              }
-            />
-          </div>
+            conclusion={conclusion}
+            autoFocusTarget={
+              pendingFocusPoint?.id === conclusion.id ? pendingFocusPoint.point : true
+            }
+            busy={busy}
+            isActive={activeConclusionId === conclusion.id}
+            registerActivation={registerActivation}
+            onDeactivate={() => onDeactivate(conclusion.id)}
+            onRequestActivate={(focusPoint) => onRequestActivate(conclusion.id, focusPoint)}
+            onSave={onSave}
+            onOpenContextMenu={(conclusionId, x, y) =>
+              setContextMenu({ conclusionId, x, y })
+            }
+          />
         ))}
       </div>
       {contextMenu && contextMenuConclusion ? (
-        <DeleteContextMenu
+        <ActionContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           ariaLabel="结论操作"
-          disabled={busy}
           onClose={() => setContextMenu(null)}
-          onDelete={() => {
-            if (!window.confirm("确定删除这条结论吗？删除后无法恢复。")) {
-              return;
-            }
-            void Promise.resolve(onDelete(contextMenuConclusion.id));
-          }}
+          actions={[
+            {
+              icon: Star,
+              label: contextMenuConclusion.promotedToProject
+                ? "取消项目级标星"
+                : "设为项目级标星",
+              disabled: busy,
+              onSelect: () => {
+                void Promise.resolve(
+                  onSave(
+                    contextMenuConclusion.id,
+                    contextMenuConclusion.contentMarkdown,
+                    contextMenuConclusion.contentHtml,
+                    !contextMenuConclusion.promotedToProject,
+                  ),
+                );
+              },
+            },
+            {
+              icon: Trash2,
+              label: "删除",
+              tone: "danger",
+              disabled: busy,
+              onSelect: () => {
+                void Promise.resolve(onDelete(contextMenuConclusion.id));
+              },
+            },
+          ]}
         />
       ) : null}
     </SurfaceCard>
@@ -674,22 +772,35 @@ function ConclusionGroupSection({
 
 function InlineConclusionEditor({
   conclusion,
+  autoFocusTarget,
   busy,
+  isActive,
+  registerActivation,
+  onDeactivate,
+  onRequestActivate,
   onOpenContextMenu,
   onSave,
 }: {
   conclusion: ConclusionRecord;
+  autoFocusTarget: boolean | { x: number; y: number };
   busy: boolean;
+  isActive: boolean;
+  registerActivation: (
+    key: number,
+    handler: () => Promise<boolean> | boolean,
+  ) => () => void;
+  onDeactivate: () => void;
+  onRequestActivate: (focusPoint?: { x: number; y: number }) => Promise<boolean>;
   onOpenContextMenu: (conclusionId: number, x: number, y: number) => void;
   onSave: (
     conclusionId: number,
     markdown: string,
     html: string,
     promotedToProject: boolean,
-  ) => void;
+  ) => Promise<unknown> | unknown;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<RichEditorValue>(() => buildConclusionDraft(conclusion));
+  const saveInFlightRef = useRef(false);
   const renderableHtml = useMemo(
     () =>
       getRenderableRichTextHtml({
@@ -701,92 +812,164 @@ function InlineConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
-    setEditing(false);
   }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
 
+  const resetEditingState = useCallback(() => {
+    setDraft(buildConclusionDraft(conclusion));
+  }, [conclusion]);
+
+  const commitOrClose = useCallback(async () => {
+    if (busy || saveInFlightRef.current) {
+      return false;
+    }
+
+    const normalizedDraft = normalizeRichEditorValue(draft);
+    const initialDraft = normalizeRichEditorValue(buildConclusionDraft(conclusion));
+
+    if (!normalizedDraft.markdown) {
+      resetEditingState();
+      onDeactivate();
+      return true;
+    }
+
+    if (
+      normalizedDraft.markdown === initialDraft.markdown &&
+      normalizedDraft.html === initialDraft.html
+    ) {
+      onDeactivate();
+      return true;
+    }
+
+    saveInFlightRef.current = true;
+
+    try {
+      await onSave(
+        conclusion.id,
+        normalizedDraft.markdown,
+        normalizedDraft.html,
+        conclusion.promotedToProject,
+      );
+      onDeactivate();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [busy, conclusion, draft, onDeactivate, onSave, resetEditingState]);
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    return registerActivation(conclusion.id, commitOrClose);
+  }, [commitOrClose, conclusion.id, isActive, registerActivation]);
+
   return (
-    <div
+    <article
       id={`conclusion-${conclusion.id}`}
-      className="grid gap-2"
+      className="border-t border-[color-mix(in_srgb,var(--color-border)_88%,transparent)] py-1.5 first:border-t-0 first:pt-0 last:pb-0"
+      onMouseDownCapture={(event) => {
+        if (isActive || event.button !== 2 || shouldIgnoreContextMenuTarget(event.target)) {
+          return;
+        }
+
+        event.preventDefault();
+      }}
+      onBlurCapture={(event) => {
+        if (!isActive || isFocusMovingWithinCurrentTarget(event)) {
+          return;
+        }
+
+        void commitOrClose();
+      }}
       onContextMenu={(event) => {
-        if (editing || shouldIgnoreContextMenuTarget(event.target)) {
+        if (isActive || shouldIgnoreContextMenuTarget(event.target)) {
           return;
         }
         event.preventDefault();
         onOpenContextMenu(conclusion.id, event.clientX, event.clientY);
       }}
     >
-      {editing ? (
-        <div className="grid gap-2">
-          <div className="rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3 transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus-within:border-accent">
+      <div
+        className="inline-object-item"
+        onKeyDownCapture={(event) => {
+          if (!isActive) {
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            resetEditingState();
+            onDeactivate();
+            return;
+          }
+          if (isSubmitShortcut(event)) {
+            event.preventDefault();
+            blurKeyboardTarget(event.target);
+          }
+        }}
+      >
+        <div className="inline-object-rail" aria-hidden="true">
+          <div className={inlineObjectGuideClass(conclusion.promotedToProject)} />
+        </div>
+        <div
+          role={isActive ? undefined : "button"}
+          tabIndex={isActive || busy ? -1 : 0}
+          className={[
+            "inline-object-panel",
+            isActive
+              ? "inline-object-panel--active"
+              : "inline-object-panel--interactive",
+          ].join(" ")}
+          onMouseDown={(event) => {
+            if (
+              isActive ||
+              busy ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              shouldIgnoreContextMenuTarget(event.target)
+            ) {
+              return;
+            }
+
+            event.preventDefault();
+            void onRequestActivate(
+              relativeFocusPointFromMouseEvent(
+                event.currentTarget,
+                event.clientX,
+                event.clientY,
+              ),
+            );
+          }}
+          onKeyDown={(event) => {
+            if (isActive || busy) {
+              return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              void onRequestActivate();
+            }
+          }}
+        >
+          {isActive ? (
             <RichEditor
               html={draft.html}
               variant="bare"
+              autoFocus={autoFocusTarget}
               enableTables={false}
               placeholder="记录已确认的判断、共识或决定。"
               onChange={setDraft}
             />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                setDraft(buildConclusionDraft(conclusion));
-                setEditing(false);
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              disabled={busy}
-              onClick={() => {
-                const normalizedDraft = normalizeRichEditorValue(draft);
-
-                onSave(
-                  conclusion.id,
-                  normalizedDraft.markdown,
-                  normalizedDraft.html,
-                  conclusion.promotedToProject,
-                );
-                setEditing(false);
-              }}
-            >
-              保存修改
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="min-w-0">
-          <div
-            role="button"
-            tabIndex={busy ? -1 : 0}
-            className="cursor-text rounded-[var(--radius-6)] outline-none transition-colors hover:bg-bg-hover focus-visible:ring-2 focus-visible:ring-accent/40"
-            onClick={() => {
-              if (!busy) {
-                setEditing(true);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (busy) {
-                return;
-              }
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                setEditing(true);
-              }
-            }}
-          >
+          ) : (
             <RichEditor html={renderableHtml} variant="bare" readOnly />
-          </div>
+          )}
         </div>
-      )}
-    </div>
+      </div>
+    </article>
   );
 }
 
@@ -799,4 +982,60 @@ function buildConclusionDraft(conclusion: ConclusionRecord): RichEditorValue {
     text: conclusion.contentMarkdown,
     markdown: conclusion.contentMarkdown,
   };
+}
+
+function inlineObjectGuideClass(accented: boolean) {
+  return accented ? "inline-object-guide inline-object-guide--accent" : "inline-object-guide";
+}
+
+function isFocusMovingWithinCurrentTarget(event: FocusEvent<HTMLElement>) {
+  const nextFocusedElement = event.relatedTarget;
+  return nextFocusedElement instanceof Node && event.currentTarget.contains(nextFocusedElement);
+}
+
+function isSubmitShortcut(event: { key: string; ctrlKey: boolean; metaKey: boolean }) {
+  return event.key === "Enter" && (event.ctrlKey || event.metaKey);
+}
+
+function blurKeyboardTarget(target: EventTarget | null) {
+  if (target instanceof HTMLElement) {
+    target.blur();
+  }
+}
+
+function relativeFocusPointFromMouseEvent(
+  element: HTMLElement,
+  clientX: number,
+  clientY: number,
+) {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top,
+    mode: "content-relative" as const,
+  };
+}
+
+function appendDocumentToProjectOverviewCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  document: DocumentRecord,
+) {
+  queryClient.setQueryData<ProjectOverviewData | undefined>(
+    ["overview", document.projectId],
+    (currentOverview) => {
+      if (!currentOverview || document.activityId) {
+        return currentOverview;
+      }
+
+      const alreadyExists = currentOverview.projectDocuments.some((item) => item.id === document.id);
+
+      return {
+        ...currentOverview,
+        projectDocuments: alreadyExists
+          ? currentOverview.projectDocuments
+          : [document, ...currentOverview.projectDocuments],
+      };
+    },
+  );
 }

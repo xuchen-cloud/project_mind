@@ -66,7 +66,7 @@ export function useDocumentMutations() {
       setStatus({
         tone: "success",
         label: "Versioned",
-        message: `文件 ${document.baseName} 已新增 v${document.currentVersionNumber}`,
+        message: `文件 ${document.baseName} 已创建 v${document.currentVersionNumber} 并打开`,
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),

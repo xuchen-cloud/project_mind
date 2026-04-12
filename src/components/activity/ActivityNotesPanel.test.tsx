@@ -1,9 +1,20 @@
-import { useEffect, useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AiSuggestionRecord, NoteRecord, RecordTypeSettingsSnapshot } from "../../lib/types";
+import type {
+  AiSuggestionRecord,
+  NoteRecord,
+  RecordTypeSettingsSnapshot,
+} from "../../lib/types";
 import { ActivityNotesPanel } from "./ActivityNotesPanel";
 
 const { mockPushToast } = vi.hoisted(() => ({
@@ -17,7 +28,11 @@ vi.mock("../../state/feedback-store", () => ({
 }));
 
 vi.mock("../rich-editor", () => ({
-  normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
+  normalizeRichEditorValue: (value: {
+    html: string;
+    text: string;
+    markdown: string;
+  }) => {
     const normalizedText = value.text.trim();
     const normalizedMarkdown = value.markdown.trim();
     const normalizedHtml = value.html.trim();
@@ -30,39 +45,121 @@ vi.mock("../rich-editor", () => ({
   },
   RichEditor: ({
     html,
+    autoFocus,
+    autosave,
+    shouldPersistOnBlur,
     onChange,
     onSave,
+    onBlurPersisted,
+    onModEnter,
+    onPersistStateChange,
     placeholder,
+    renderToolbarExtras,
   }: {
     html?: string;
+    autoFocus?: boolean;
+    autosave?:
+      | boolean
+      | {
+          delay?: number;
+          onChange?: boolean;
+          onBlur?: boolean;
+          onWindowBlur?: boolean;
+          onVisibilityChange?: boolean;
+        };
+    shouldPersistOnBlur?: (relatedTarget: EventTarget | null) => boolean;
     placeholder?: string;
-    onChange?: (value: { html: string; text: string; markdown: string }) => void;
-    onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown> | unknown;
+    onChange?: (value: {
+      html: string;
+      text: string;
+      markdown: string;
+    }) => void;
+    onSave?: (value: {
+      html: string;
+      text: string;
+      markdown: string;
+    }) => Promise<unknown> | unknown;
+    onBlurPersisted?: (result: unknown) => void;
+    onModEnter?: () => Promise<unknown> | unknown;
+    onPersistStateChange?: (
+      state: "idle" | "dirty" | "saving" | "saved" | "error",
+    ) => void;
+    renderToolbarExtras?: (context: {
+      persistState: "idle" | "dirty" | "saving" | "saved" | "error";
+      save: (_options?: { force?: boolean }) => Promise<unknown> | unknown;
+    }) => ReactNode;
   }) => {
     const [value, setValue] = useState(toMockEditorValue(html ?? ""));
+    const [persistState, setPersistState] = useState<
+      "idle" | "dirty" | "saving" | "saved"
+    >(html && toPlainText(html).trim().length > 0 ? "saved" : "idle");
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
     useEffect(() => {
       setValue(toMockEditorValue(html ?? ""));
+      setPersistState(
+        html && toPlainText(html).trim().length > 0 ? "saved" : "idle",
+      );
     }, [html]);
+
+    useEffect(() => {
+      if (autoFocus) {
+        textareaRef.current?.focus();
+      }
+    }, [autoFocus]);
+
+    useEffect(() => {
+      onPersistStateChange?.(persistState);
+    }, [onPersistStateChange, persistState]);
+
+    const save = async (_options?: { force?: boolean }) => {
+      setPersistState("saving");
+
+      try {
+        return await onSave?.(buildMockRichValue(value));
+      } finally {
+        setPersistState(value.trim().length > 0 ? "saved" : "idle");
+      }
+    };
 
     return (
       <div>
+        <div>{renderToolbarExtras?.({ persistState, save })}</div>
         <textarea
+          ref={textareaRef}
           aria-label="记录编辑器"
           placeholder={placeholder}
           value={value}
           onChange={(event) => {
             const nextValue = event.target.value;
             setValue(nextValue);
+            setPersistState("dirty");
             onChange?.(buildMockRichValue(nextValue));
           }}
+          onBlur={async (event) => {
+            const relatedTarget = event.relatedTarget;
+            const saveOnBlur =
+              typeof autosave === "object"
+                ? (autosave.onBlur ?? true)
+                : Boolean(autosave);
+
+            if (
+              !saveOnBlur ||
+              (shouldPersistOnBlur && !shouldPersistOnBlur(relatedTarget))
+            ) {
+              return;
+            }
+
+            const result = await save();
+            onBlurPersisted?.(result);
+          }}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              void onModEnter?.();
+            }
+          }}
         />
-        <button
-          type="button"
-          onClick={() => onSave?.(buildMockRichValue(value))}
-        >
-          保存编辑器
-        </button>
       </div>
     );
   },
@@ -130,22 +227,25 @@ describe("ActivityNotesPanel", () => {
       onUpsertNote,
     });
 
-    expect(screen.getByText("当前还没有记录，点“新建”开始记录。")).toBeInTheDocument();
+    expect(screen.getByText("还没有记录。")).toBeInTheDocument();
     expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
     await user.type(screen.getByLabelText("记录编辑器"), "Captured detail");
-    await user.click(screen.getByRole("button", { name: "保存编辑器" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onUpsertNote).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       noteType: "quick_note",
-      title: "记录",
+      title: "Captured detail",
       markdown: "Captured detail",
       html: "<p>Captured detail</p>",
     });
+    await waitFor(() =>
+      expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument(),
+    );
   });
 
   it("trims boundary blank lines and spaces before saving a note", async () => {
@@ -164,13 +264,13 @@ describe("ActivityNotesPanel", () => {
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
     await user.type(screen.getByLabelText("记录编辑器"), "  Captured detail  ");
-    await user.click(screen.getByRole("button", { name: "保存编辑器" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onUpsertNote).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       noteType: "quick_note",
-      title: "记录",
+      title: "Captured detail",
       markdown: "Captured detail",
       html: "<p>Captured detail</p>",
     });
@@ -197,20 +297,19 @@ describe("ActivityNotesPanel", () => {
         value: "table::| 客户 | 状态 |\n| --- | --- |\n| ACME | 跟进中 |",
       },
     });
-    await user.click(screen.getByRole("button", { name: "保存编辑器" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onUpsertNote).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       noteType: "quick_note",
-      title: "记录",
+      title: "客户",
       markdown: "| 客户 | 状态 |\n| --- | --- |\n| ACME | 跟进中 |",
-      html:
-        "<table><thead><tr><th>客户</th><th>状态</th></tr></thead><tbody><tr><td>ACME</td><td>跟进中</td></tr></tbody></table>",
+      html: "<table><thead><tr><th>客户</th><th>状态</th></tr></thead><tbody><tr><td>ACME</td><td>跟进中</td></tr></tbody></table>",
     });
   });
 
-  it("shows record results, toggles preview, and only switches editor after clicking edit", async () => {
+  it("shows record results, toggles preview, and only switches editor after clicking the preview body", async () => {
     const user = userEvent.setup();
 
     renderPanel({
@@ -229,21 +328,375 @@ describe("ActivityNotesPanel", () => {
     });
 
     expect(screen.getByText("会议记录")).toBeInTheDocument();
-    expect(screen.getByText("新建、浏览或继续编辑当前 activity 的记录。")).toBeInTheDocument();
+    expect(screen.getByText("Activity Notes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建" })).toBeInTheDocument();
     expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "编辑" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("新建、浏览或继续编辑当前 activity 的记录。"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/更新于/u)).not.toBeInTheDocument();
 
-    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    let recordToggle = screen.getByRole("button", { name: /原始记录/ });
 
     await user.click(recordToggle);
+    recordToggle = screen.getByRole("button", { name: /原始记录/ });
     const quickNoteCard = recordToggle.closest("article");
-    expect(within(quickNoteCard!).getAllByText("客户确认需要补充上下文")).toHaveLength(2);
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(2);
     expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
 
-    await user.click(within(quickNoteCard!).getByRole("button", { name: "编辑这条记录" }));
-    expect(screen.getByLabelText("记录编辑器")).toHaveValue("客户确认需要补充上下文");
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    expect(within(quickNoteCard!).getByLabelText("记录编辑器")).toHaveValue(
+      "客户确认需要补充上下文",
+    );
+    expect(within(quickNoteCard!).getByLabelText("记录编辑器")).toHaveFocus();
+    expect(within(quickNoteCard!).getByLabelText("记录标题")).not.toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: /会议记录/ }));
     expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
+  });
+
+  it("prevents native text selection on right mouse down for a non-editing record card", async () => {
+    const user = userEvent.setup();
+
+    renderPanel({
+      notes: [baseNote],
+      onDeleteNote: vi.fn(async () => undefined),
+    });
+
+    let recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    await user.click(recordToggle);
+    recordToggle = screen.getByRole("button", { name: /原始记录/ });
+
+    const quickNoteCard = recordToggle.closest("article");
+    expect(quickNoteCard).not.toBeNull();
+
+    const mouseDownEvent = new MouseEvent("mousedown", {
+      button: 2,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    (quickNoteCard as HTMLElement).dispatchEvent(mouseDownEvent);
+
+    expect(mouseDownEvent.defaultPrevented).toBe(true);
+    expect(screen.queryByLabelText("记录编辑器")).not.toBeInTheDocument();
+  });
+
+  it("keeps an expanded record open on outside press", async () => {
+    const user = userEvent.setup();
+
+    renderPanel({
+      notes: [baseNote],
+    });
+
+    let recordToggle = screen.getByRole("button", { name: /原始记录/ });
+
+    if (recordToggle.getAttribute("aria-expanded") !== "true") {
+      await user.click(recordToggle);
+      recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    }
+    let quickNoteCard = recordToggle.closest("article");
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(2);
+
+    fireEvent.pointerDown(document.body);
+    recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    quickNoteCard = recordToggle.closest("article");
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "置顶" })).toBeInTheDocument();
+  });
+
+  it("opens the note context menu in browse mode without entering edit", async () => {
+    renderPanel({
+      notes: [baseNote],
+      onDeleteNote: vi.fn(async () => undefined),
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    fireEvent.contextMenu(quickNoteCard as HTMLElement, {
+      clientX: 160,
+      clientY: 84,
+    });
+
+    expect(await screen.findByRole("menu", { name: "记录操作" })).toBeInTheDocument();
+    expect(
+      within(quickNoteCard as HTMLElement).queryByLabelText("记录编辑器"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("deletes a record from the browse-mode context menu", async () => {
+    const user = userEvent.setup();
+    const onDeleteNote = vi.fn(async () => undefined);
+
+    renderPanel({
+      notes: [baseNote],
+      onDeleteNote,
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    fireEvent.contextMenu(quickNoteCard as HTMLElement, {
+      clientX: 160,
+      clientY: 84,
+    });
+
+    await user.click(await screen.findByRole("menuitem", { name: "删除" }));
+
+    expect(onDeleteNote).toHaveBeenCalledWith(1);
+  });
+
+  it("moves a topped record to the top without keeping it expanded", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel({
+      notes: [
+        baseNote,
+        {
+          ...baseNote,
+          id: 2,
+          noteType: "meeting_minutes",
+          title: "会议纪要",
+          contentMarkdown: "确认本周五前补齐材料",
+          contentHtml: "<p>确认本周五前补齐材料</p>",
+          updatedAt: "2026-04-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(recordOrder(container)).toEqual(["note-2", "note-1"]);
+
+    let quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+
+    await user.click(quickNoteToggle);
+    quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+    let quickNoteCard = quickNoteToggle.closest("article");
+    await user.click(
+      within(quickNoteCard!).getByRole("button", { name: "置顶" }),
+    );
+    expect(
+      within(quickNoteCard!).getByRole("button", { name: "取消置顶" }),
+    ).toBeInTheDocument();
+    expect(recordOrder(container)).toEqual(["note-1", "note-2"]);
+
+    let meetingToggle = screen.getByRole("button", { name: /会议记录/ });
+    await user.click(meetingToggle);
+    quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+    meetingToggle = screen.getByRole("button", { name: /会议记录/ });
+    quickNoteCard = quickNoteToggle.closest("article");
+    const meetingCard = meetingToggle.closest("article");
+
+    expect(recordOrder(container)).toEqual(["note-1", "note-2"]);
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(1);
+    expect(
+      within(meetingCard!).getByText("确认本周五前补齐材料"),
+    ).toBeInTheDocument();
+  });
+
+  it("switches to another record preview with a single click while one record is already expanded", async () => {
+    const user = userEvent.setup();
+
+    renderPanel({
+      notes: [
+        baseNote,
+        {
+          ...baseNote,
+          id: 2,
+          noteType: "meeting_minutes",
+          title: "会议纪要",
+          contentMarkdown: "确认本周五前补齐材料",
+          contentHtml: "<p>确认本周五前补齐材料</p>",
+          updatedAt: "2026-04-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    let quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+    let meetingToggle = screen.getByRole("button", { name: /会议记录/ });
+
+    if (quickNoteToggle.getAttribute("aria-expanded") !== "true") {
+      await user.click(quickNoteToggle);
+      quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+      meetingToggle = screen.getByRole("button", { name: /会议记录/ });
+    }
+
+    let quickNoteCard = quickNoteToggle.closest("article");
+    let meetingCard = meetingToggle.closest("article");
+
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(2);
+    expect(
+      within(meetingCard!).queryByText("确认本周五前补齐材料"),
+    ).not.toBeInTheDocument();
+
+    await user.click(meetingToggle);
+
+    quickNoteToggle = screen.getByRole("button", { name: /原始记录/ });
+    meetingToggle = screen.getByRole("button", { name: /会议记录/ });
+    quickNoteCard = quickNoteToggle.closest("article");
+    meetingCard = meetingToggle.closest("article");
+
+    expect(quickNoteToggle).toHaveAttribute("aria-expanded", "false");
+    expect(meetingToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(quickNoteCard!).getAllByText("客户确认需要补充上下文"),
+    ).toHaveLength(1);
+    expect(
+      within(meetingCard!).getByText("确认本周五前补齐材料"),
+    ).toBeInTheDocument();
+  });
+
+  it("returns the record to preview mode in place after saving", async () => {
+    const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      contentMarkdown: "调整后的记录",
+      contentHtml: "<p>调整后的记录</p>",
+      updatedAt: "2026-04-06T10:20:00.000Z",
+    }));
+
+    renderPanel({
+      notes: [baseNote],
+      onUpsertNote,
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    await user.clear(within(quickNoteCard!).getByLabelText("记录编辑器"));
+    await user.type(
+      within(quickNoteCard!).getByLabelText("记录编辑器"),
+      "调整后的记录",
+    );
+    await user.click(
+      within(quickNoteCard!).getByRole("button", { name: "保存" }),
+    );
+
+    expect(onUpsertNote).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      noteId: 1,
+      noteType: "quick_note",
+      title: "调整后的记录",
+      markdown: "调整后的记录",
+      html: "<p>调整后的记录</p>",
+    });
+    await waitFor(() =>
+      expect(
+        within(quickNoteCard!).queryByLabelText("记录编辑器"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(within(quickNoteCard!).getAllByText("调整后的记录")).toHaveLength(2);
+  });
+
+  it("autosaves on blur and returns to the expanded preview without collapsing", async () => {
+    const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      contentMarkdown: "失焦后自动保存的记录",
+      contentHtml: "<p>失焦后自动保存的记录</p>",
+      updatedAt: "2026-04-06T10:25:00.000Z",
+    }));
+
+    renderPanel({
+      notes: [baseNote],
+      onUpsertNote,
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    if (recordToggle.getAttribute("aria-expanded") !== "true") {
+      await user.click(recordToggle);
+    }
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    await user.clear(within(quickNoteCard!).getByLabelText("记录编辑器"));
+    await user.type(
+      within(quickNoteCard!).getByLabelText("记录编辑器"),
+      "失焦后自动保存的记录",
+    );
+    fireEvent.blur(within(quickNoteCard!).getByLabelText("记录编辑器"), {
+      relatedTarget: document.body,
+    });
+    fireEvent.focusIn(document.body);
+
+    await waitFor(() =>
+      expect(onUpsertNote).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        noteId: 1,
+        noteType: "quick_note",
+        title: "失焦后自动保存的记录",
+        markdown: "失焦后自动保存的记录",
+        html: "<p>失焦后自动保存的记录</p>",
+      }),
+    );
+    expect(
+      within(quickNoteCard!).queryByLabelText("记录编辑器"),
+    ).not.toBeInTheDocument();
+    expect(recordToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(quickNoteCard!).getAllByText("失焦后自动保存的记录"),
+    ).toHaveLength(2);
+  });
+
+  it("saves and exits editing when pressing Ctrl/Cmd + Enter", async () => {
+    const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      contentMarkdown: "快捷键保存后的记录",
+      contentHtml: "<p>快捷键保存后的记录</p>",
+      updatedAt: "2026-04-06T10:26:00.000Z",
+    }));
+
+    renderPanel({
+      notes: [baseNote],
+      onUpsertNote,
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    await user.clear(within(quickNoteCard!).getByLabelText("记录编辑器"));
+    await user.type(
+      within(quickNoteCard!).getByLabelText("记录编辑器"),
+      "快捷键保存后的记录",
+    );
+    fireEvent.keyDown(within(quickNoteCard!).getByLabelText("记录编辑器"), {
+      key: "Enter",
+      ctrlKey: true,
+    });
+
+    await waitFor(() =>
+      expect(onUpsertNote).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        noteId: 1,
+        noteType: "quick_note",
+        title: "快捷键保存后的记录",
+        markdown: "快捷键保存后的记录",
+        html: "<p>快捷键保存后的记录</p>",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        within(quickNoteCard!).queryByLabelText("记录编辑器"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("creates a meeting-note draft from the new menu and saves it", async () => {
@@ -264,44 +717,64 @@ describe("ActivityNotesPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "会议记录" }));
-    await user.type(screen.getByLabelText("记录编辑器"), "客户确认需要补充上下文");
-    await user.click(screen.getByRole("button", { name: "保存编辑器" }));
+    await user.type(
+      screen.getByLabelText("记录编辑器"),
+      "客户确认需要补充上下文",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
       expect(onUpsertNote).toHaveBeenCalledWith({
         projectId: 9,
         activityId: 11,
         noteType: "meeting_minutes",
-        title: "记录",
+        title: "客户确认需要补充上下文",
         markdown: "背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文",
         html: "<p>背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文</p>",
       }),
     );
   });
 
-  it("does not replace a non-empty draft when creating another record type", async () => {
+  it("saves the current draft before switching to another record type", async () => {
     const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      id: 5,
+      noteType: "meeting_minutes",
+      title: "会议记录",
+      contentMarkdown: "背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文",
+      contentHtml:
+        "<p>背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文</p>",
+      updatedAt: "2026-04-06T10:35:00.000Z",
+    }));
 
     renderPanel({
       notes: [baseNote],
+      onUpsertNote,
     });
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "会议记录" }));
-    await user.type(screen.getByLabelText("记录编辑器"), "客户确认需要补充上下文");
+    await user.type(
+      screen.getByLabelText("记录编辑器"),
+      "客户确认需要补充上下文",
+    );
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
 
-    expect(mockPushToast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tone: "info",
-        title: "请先保存当前草稿",
+    expect(mockPushToast).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(onUpsertNote).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        noteType: "meeting_minutes",
+        title: "客户确认需要补充上下文",
+        markdown: "背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文",
+        html: "<p>背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文</p>",
       }),
     );
-    expect(screen.getByLabelText("记录编辑器")).toHaveValue(
-      "背景\n讨论要点\n初步结论\n行动项客户确认需要补充上下文",
-    );
+    expect(screen.getByLabelText("记录编辑器")).toHaveValue("");
   });
 
   it("opens an AI confirmation dialog from a created record and writes suggestions after confirm", async () => {
@@ -363,13 +836,20 @@ describe("ActivityNotesPanel", () => {
         createdAt: "2026-04-06T10:10:00.000Z",
       },
     ];
-    const onUpsertNote = vi.fn(async () => savedNote);
-    const onGenerateAiSuggestions = vi.fn(async () => suggestions);
-    const onAcceptAiSuggestion = vi.fn(async ({ suggestionId }: { suggestionId: number }) => ({
-      suggestion: suggestions.find((item) => item.id === suggestionId) ?? suggestions[1],
-      entityKind: suggestionId === 32 ? "conclusion" : "todo",
-      entityId: suggestionId + 100,
+    const onUpsertNote = vi.fn(async (input: { title?: string }) => ({
+      ...savedNote,
+      title: input.title ?? savedNote.title,
     }));
+    const onGenerateAiSuggestions = vi.fn(async () => suggestions);
+    const onAcceptAiSuggestion = vi.fn(
+      async ({ suggestionId }: { suggestionId: number }) => ({
+        suggestion:
+          suggestions.find((item) => item.id === suggestionId) ??
+          suggestions[1],
+        entityKind: suggestionId === 32 ? "conclusion" : "todo",
+        entityId: suggestionId + 100,
+      }),
+    );
 
     renderPanel({
       notes: [],
@@ -383,7 +863,10 @@ describe("ActivityNotesPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
-    await user.type(screen.getByLabelText("记录编辑器"), "确认预算范围，需要财务补充拆分明细");
+    await user.type(
+      screen.getByLabelText("记录编辑器"),
+      "确认预算范围，需要财务补充拆分明细",
+    );
     await user.click(screen.getByRole("button", { name: "AI 提炼" }));
 
     await waitFor(() =>
@@ -391,51 +874,57 @@ describe("ActivityNotesPanel", () => {
         projectId: 9,
         activityId: 11,
         noteType: "quick_note",
-        title: "记录",
+        title: "确认预算范围，需要财务补充拆分明细",
         markdown: "确认预算范围，需要财务补充拆分明细",
         html: "<p>确认预算范围，需要财务补充拆分明细</p>",
       }),
     );
     expect(onGenerateAiSuggestions).toHaveBeenCalledWith(7);
+    expect(onUpsertNote).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      noteId: 7,
+      noteType: "quick_note",
+      title: "预算讨论 - 阶段整理",
+      markdown: "确认预算范围，需要财务补充拆分明细",
+      html: "<p>确认预算范围，需要财务补充拆分明细</p>",
+    });
 
     expect(await screen.findByText("确认 AI 提炼")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "已确认预算范围和审批边界" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "财务补充预算拆分明细" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "下次会议前同步审批时间表" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "已确认预算范围和审批边界" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "财务补充预算拆分明细" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "下次会议前同步审批时间表" }),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("结论内容 1")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("待办内容 1")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "已确认预算范围和审批边界" }));
-    await user.clear(screen.getByLabelText("结论内容 1"));
-    await user.type(screen.getByLabelText("结论内容 1"), "已确认预算边界，按现方案推进");
+    await user.click(screen.getByRole("button", { name: "确认并写入（3项）" }));
 
-    await user.click(screen.getByRole("button", { name: "财务补充预算拆分明细" }));
-    await user.clear(screen.getByLabelText("待办内容 1"));
-    await user.type(screen.getByLabelText("待办内容 1"), "财务今天补充预算拆分明细");
-
-    await user.click(
-      screen.getAllByRole("button", { name: "修改优先级：P3 · 不紧急但重要" })[0],
-    );
-    await user.click(screen.getByRole("menuitemradio", { name: "P1 紧急且重要" }));
-    expect(screen.getByText("原推荐为 P3 · 不紧急但重要")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "取消项目级标星" }));
-    await user.click(screen.getByLabelText("选择待办 2"));
-
-    await user.click(screen.getByRole("button", { name: "确认并写入（2项）" }));
-
-    await waitFor(() => expect(onAcceptAiSuggestion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onAcceptAiSuggestion).toHaveBeenCalledTimes(3));
     expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(1, {
       suggestionId: 32,
       payloadOverride: {
-        content: "已确认预算边界，按现方案推进",
-        promotedToProject: false,
+        content: "已确认预算范围和审批边界",
+        promotedToProject: true,
       },
     });
     expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(2, {
       suggestionId: 33,
       payloadOverride: {
-        content: "财务今天补充预算拆分明细",
-        priority: "urgent_important",
+        content: "财务补充预算拆分明细",
+        priority: "not_urgent_important",
+      },
+    });
+    expect(onAcceptAiSuggestion).toHaveBeenNthCalledWith(3, {
+      suggestionId: 34,
+      payloadOverride: {
+        content: "下次会议前同步审批时间表",
+        priority: "not_urgent_important",
       },
     });
   });
@@ -476,11 +965,15 @@ describe("ActivityNotesPanel", () => {
       },
     ];
     const onGenerateAiSuggestions = vi.fn(async () => suggestions);
-    const onAcceptAiSuggestion = vi.fn(async ({ suggestionId }: { suggestionId: number }) => ({
-      suggestion: suggestions.find((item) => item.id === suggestionId) ?? suggestions[0],
-      entityKind: "conclusion",
-      entityId: suggestionId + 100,
-    }));
+    const onAcceptAiSuggestion = vi.fn(
+      async ({ suggestionId }: { suggestionId: number }) => ({
+        suggestion:
+          suggestions.find((item) => item.id === suggestionId) ??
+          suggestions[0],
+        entityKind: "conclusion",
+        entityId: suggestionId + 100,
+      }),
+    );
 
     renderPanel({
       notes: [],
@@ -494,12 +987,17 @@ describe("ActivityNotesPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
-    await user.type(screen.getByLabelText("记录编辑器"), "确认预算范围，需要财务补充拆分明细");
+    await user.type(
+      screen.getByLabelText("记录编辑器"),
+      "确认预算范围，需要财务补充拆分明细",
+    );
     await user.click(screen.getByRole("button", { name: "AI 提炼" }));
 
     expect(await screen.findByText("会议结论")).toBeInTheDocument();
     expect(screen.queryByText("待办事项")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "已确认预算范围和审批边界" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "已确认预算范围和审批边界" }),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("结论内容 1")).not.toBeInTheDocument();
     expect(screen.queryByText("财务补充预算拆分明细")).not.toBeInTheDocument();
 
@@ -514,19 +1012,61 @@ describe("ActivityNotesPanel", () => {
       },
     });
   });
+
+  it("prefers a user-entered title over automatic title generation", async () => {
+    const user = userEvent.setup();
+    const onUpsertNote = vi.fn(async () => ({
+      ...baseNote,
+      title: "法务审查",
+      contentMarkdown: "客户确认需要补充上下文",
+      contentHtml: "<p>客户确认需要补充上下文</p>",
+    }));
+    const onGenerateAiSuggestions = vi.fn(async () => []);
+
+    renderPanel({
+      notes: [],
+      onUpsertNote,
+      aiReady: true,
+      onGenerateAiSuggestions,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新建" }));
+    await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
+    await user.type(screen.getByLabelText("记录标题"), "法务审查");
+    await user.type(
+      screen.getByLabelText("记录编辑器"),
+      "客户确认需要补充上下文",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onUpsertNote).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      noteType: "quick_note",
+      title: "法务审查",
+      markdown: "客户确认需要补充上下文",
+      html: "<p>客户确认需要补充上下文</p>",
+    });
+    expect(onGenerateAiSuggestions).not.toHaveBeenCalled();
+  });
 });
 
 function renderPanel({
   notes = [],
-  onUpsertNote = vi.fn(async () => baseNote) as (input: import("../../lib/types").NoteUpsertInput) => Promise<NoteRecord>,
+  onUpsertNote = vi.fn(async () => baseNote) as (
+    input: import("../../lib/types").NoteUpsertInput,
+  ) => Promise<NoteRecord>,
   showAiRefine = false,
   aiReady = false,
   enabledSuggestionTypes = [],
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
+  onDeleteNote,
 }: {
   notes?: NoteRecord[];
-  onUpsertNote?: (input: import("../../lib/types").NoteUpsertInput) => Promise<NoteRecord>;
+  onUpsertNote?: (
+    input: import("../../lib/types").NoteUpsertInput,
+  ) => Promise<NoteRecord>;
   showAiRefine?: boolean;
   aiReady?: boolean;
   enabledSuggestionTypes?: Array<"conclusion" | "todo">;
@@ -534,6 +1074,7 @@ function renderPanel({
   onAcceptAiSuggestion?: (
     input: import("../../lib/types").AiAcceptSuggestionInput,
   ) => Promise<import("../../lib/types").AcceptedSuggestionResult>;
+  onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
 }) {
   return render(
     <ActivityNotesPanel
@@ -543,6 +1084,8 @@ function renderPanel({
       recordTypeSettings={recordTypeSettings}
       saving={false}
       onUpsertNote={onUpsertNote}
+      onDeleteNote={onDeleteNote}
+      onImportImage={vi.fn()}
       onImportDocument={vi.fn()}
       showAiRefine={showAiRefine}
       aiReady={aiReady}
@@ -551,6 +1094,12 @@ function renderPanel({
       onAcceptAiSuggestion={onAcceptAiSuggestion}
     />,
   );
+}
+
+function recordOrder(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll(".activity-notes__results > article"),
+  ).map((item) => item.id);
 }
 
 function toPlainText(html: string) {
@@ -580,7 +1129,10 @@ function buildMockRichValue(source: string) {
     if (lines.length >= 3) {
       return {
         html: toTableHtml(markdown),
-        text: markdown.replace(/[|\-:]/g, " ").replace(/\s+/g, " ").trim(),
+        text: markdown
+          .replace(/[|\-:]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
         markdown,
       };
     }
@@ -635,7 +1187,9 @@ function tableHtmlToMarkdown(html: string) {
   const headerCells = rows[0].split(" | ");
   const separator = new Array(headerCells.length).fill("---").join(" | ");
 
-  return [`| ${rows[0]} |`, `| ${separator} |`, ...rows.slice(1).map((row) => `| ${row} |`)].join(
-    "\n",
-  );
+  return [
+    `| ${rows[0]} |`,
+    `| ${separator} |`,
+    ...rows.slice(1).map((row) => `| ${row} |`),
+  ].join("\n");
 }

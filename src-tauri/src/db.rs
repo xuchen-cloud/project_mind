@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde::Serialize;
@@ -22,21 +23,24 @@ use crate::{
         AiCapabilityBindingUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
         AiJobEnqueueInput, AiJobResult, AiProfileTestInput, AiProfileTestResult,
         AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
-        AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionGroup,
-        ConclusionDeleteInput, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
-        DocumentAddVersionInput, DocumentDeleteInput, DocumentImportInput,
+        AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput,
+        ConclusionGroup, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
+        DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+        DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
         DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
         DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
-        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteRecord,
-        NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
-        ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
-        ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
-        RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextStyleBlockSettings,
-        RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
-        TodoDeleteInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
-        TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteDeleteInput,
+        NoteRecord, NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard,
+        ProjectIdInput, ProjectListItem, ProjectOverviewData, ProjectRecord,
+        ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
+        RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
+        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
+        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoProgressRecord, TodoRecord,
+        TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateStatusInput,
+        WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
+    workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
 };
 
 const TODO_SCHEMA_VERSION: i64 = 2;
@@ -47,8 +51,6 @@ const FILE_TAG_SCHEMA_VERSION: i64 = 6;
 const ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION: i64 = 7;
 const ACTIVITY_STATUS_COLOR_SCHEMA_VERSION: i64 = 8;
 const RECORD_TYPE_SCHEMA_VERSION: i64 = 8;
-const LEGACY_FILE_LAYOUT_VERSION: i64 = 1;
-const CURRENT_FILE_LAYOUT_VERSION: i64 = 2;
 const AI_CAPABILITIES: [&str; 4] = ["default", "assistant", "summary", "suggestion_generation"];
 const AI_VISIBLE_CAPABILITIES: [&str; 3] = ["assistant", "summary", "suggestion_generation"];
 const AI_FEATURE_KEYS: [&str; 5] = [
@@ -74,6 +76,8 @@ const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
 const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
 const APP_SETTING_KEY_AI_FEATURE_SETTINGS: &str = "ai_feature_settings";
+const MANAGED_NOTE_IMAGE_STORAGE_MODE: &str = "managed_note_image";
+const PROJECT_NOTE_ASSET_DIR_NAME: &str = "embedded-note-assets";
 const DEFAULT_RECORD_TYPE_KEY: &str = "quick_note";
 const DEFAULT_RECORD_TYPE_LABEL: &str = "原始记录";
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
@@ -100,26 +104,8 @@ const TODO_PRIORITY_URGENCY_KEYWORDS: [&str; 19] = [
     "tomorrow",
 ];
 const TODO_PRIORITY_IMPORTANCE_KEYWORDS: [&str; 20] = [
-    "预算",
-    "合同",
-    "法务",
-    "审批",
-    "客户",
-    "上线",
-    "发布",
-    "交付",
-    "回款",
-    "付款",
-    "风险",
-    "合规",
-    "方案",
-    "决策",
-    "评审",
-    "blocking",
-    "blocker",
-    "launch",
-    "release",
-    "legal",
+    "预算", "合同", "法务", "审批", "客户", "上线", "发布", "交付", "回款", "付款", "风险", "合规",
+    "方案", "决策", "评审", "blocking", "blocker", "launch", "release", "legal",
 ];
 const MEETING_RECORD_TYPE_KEY: &str = "meeting_minutes";
 const MEETING_RECORD_TYPE_LABEL: &str = "会议记录";
@@ -137,12 +123,16 @@ const LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY: &str = "green";
 const AI_ARTIFACT_STATUS_FRESH: &str = "fresh";
 const AI_ARTIFACT_STATUS_STALE: &str = "stale";
 const AI_ARTIFACT_STATUS_ERROR: &str = "error";
+const WORKSPACE_PATH_PREFIX: &str = "workspace:";
+const ABSOLUTE_PATH_PREFIX: &str = "absolute:";
 const ACTIVITY_SUMMARY_SECTIONS: [&str; 3] = ["关键结论", "未决问题 / 风险", "下一步建议"];
 const PROJECT_BRIEF_SECTIONS: [&str; 4] = ["最近变化", "关键决策", "阻塞", "建议下一步"];
 const DAILY_BRIEF_SECTIONS: [&str; 3] = ["优先做的 3 件事", "等待 / 阻塞项", "建议跟进行动"];
 
 pub struct Database {
     conn: Connection,
+    workspace_root: PathBuf,
+    secret_password: Option<String>,
 }
 
 struct AiProfileStorage {
@@ -331,7 +321,11 @@ struct SeededProjectRefs {
 }
 
 impl Database {
-    pub fn open(db_path: &Path) -> Result<Self> {
+    pub fn open(
+        db_path: &Path,
+        workspace_root: &Path,
+        secret_password: Option<String>,
+    ) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create app data dir at {}", parent.display())
@@ -341,7 +335,11 @@ impl Database {
         let conn = Connection::open(db_path)
             .with_context(|| format!("failed to open sqlite at {}", db_path.display()))?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let mut db = Self { conn };
+        let mut db = Self {
+            conn,
+            workspace_root: workspace_root.to_path_buf(),
+            secret_password,
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -354,7 +352,6 @@ impl Database {
               name TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'active',
               root_path TEXT NOT NULL,
-              file_layout_version INTEGER NOT NULL DEFAULT 1,
               summary TEXT NOT NULL DEFAULT '',
               is_archived INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
@@ -601,11 +598,6 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
         )?;
         self.ensure_column(
-            "projects",
-            "file_layout_version",
-            "ALTER TABLE projects ADD COLUMN file_layout_version INTEGER NOT NULL DEFAULT 1",
-        )?;
-        self.ensure_column(
             "activities",
             "folder_name",
             "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
@@ -734,8 +726,79 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_ai_artifact_citations_artifact_order ON ai_artifact_citations(artifact_id, order_index ASC, id ASC);
             "#,
         )?;
-        self.backfill_file_layout_metadata()?;
         Ok(())
+    }
+
+    fn encode_path_ref(&self, path: &Path) -> String {
+        if let Ok(relative) = path.strip_prefix(&self.workspace_root) {
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            if relative.is_empty() {
+                WORKSPACE_PATH_PREFIX.to_string()
+            } else {
+                format!("{WORKSPACE_PATH_PREFIX}{relative}")
+            }
+        } else {
+            format!("{ABSOLUTE_PATH_PREFIX}{}", path.to_string_lossy())
+        }
+    }
+
+    fn decode_path_ref(&self, value: &str) -> PathBuf {
+        if let Some(relative) = value.strip_prefix(WORKSPACE_PATH_PREFIX) {
+            if relative.is_empty() {
+                return self.workspace_root.clone();
+            }
+
+            let mut path = self.workspace_root.clone();
+            for segment in relative.split('/').filter(|segment| !segment.is_empty()) {
+                path.push(segment);
+            }
+            path
+        } else if let Some(absolute) = value.strip_prefix(ABSOLUTE_PATH_PREFIX) {
+            PathBuf::from(absolute)
+        } else {
+            PathBuf::from(value)
+        }
+    }
+
+    fn decode_path_ref_to_string(&self, value: &str) -> String {
+        self.decode_path_ref(value).to_string_lossy().to_string()
+    }
+
+    fn require_secret_password(&self) -> Result<&str> {
+        self.secret_password
+            .as_deref()
+            .ok_or_else(|| anyhow!("workspace secrets are locked"))
+    }
+
+    fn has_usable_profile_for_capability(&self, capability: &str) -> Result<bool> {
+        let default_binding = self.ai_binding_record("default")?;
+        let binding = if capability == "default" {
+            default_binding.clone()
+        } else {
+            self.ai_binding_record(capability)?
+        };
+
+        let effective_binding = if capability != "default" && binding.use_default {
+            default_binding
+        } else {
+            binding
+        };
+
+        let Some(profile_id) = effective_binding.profile_id else {
+            return Ok(false);
+        };
+        let profile = self.ai_profile_storage(profile_id)?;
+        if !profile.enabled {
+            return Ok(false);
+        }
+
+        let model = effective_binding
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(profile.default_model.trim());
+        Ok(!model.is_empty())
     }
 
     pub fn projects_list(&mut self, input: ProjectsListInput) -> Result<Vec<ProjectListItem>> {
@@ -743,7 +806,7 @@ impl Database {
         let sql = format!(
             r#"
             SELECT
-              p.id, p.name, p.status, p.root_path, p.file_layout_version, p.summary, p.is_archived, p.created_at, p.updated_at,
+              p.id, p.name, p.status, p.root_path, p.summary, p.is_archived, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM activities a WHERE a.project_id = p.id) AS activity_count,
               (
                 SELECT COUNT(*)
@@ -768,19 +831,19 @@ impl Database {
         let mut stmt = self.conn.prepare(&sql)?;
 
         let rows = stmt.query_map([], |row| {
+            let root_path_ref = row.get::<_, String>(3)?;
             Ok(ProjectListItem {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 status: row.get(2)?,
-                root_path: row.get(3)?,
-                file_layout_version: row.get(4)?,
-                summary: row.get(5)?,
-                is_archived: int_to_bool(row.get::<_, i64>(6)?),
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                activity_count: row.get(9)?,
-                unorganized_count: row.get(10)?,
-                open_todo_count: row.get(11)?,
+                root_path: self.decode_path_ref_to_string(&root_path_ref),
+                summary: row.get(4)?,
+                is_archived: int_to_bool(row.get::<_, i64>(5)?),
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+                activity_count: row.get(8)?,
+                unorganized_count: row.get(9)?,
+                open_todo_count: row.get(10)?,
             })
         })?;
 
@@ -790,7 +853,7 @@ impl Database {
 
     pub fn project_create(&mut self, input: ProjectCreateInput) -> Result<ProjectRecord> {
         let timestamp = now_iso();
-        let base = PathBuf::from(input.workspace_root.trim());
+        let base = self.workspace_root.clone();
         if !base.exists() {
             return Err(anyhow!("workspace root does not exist"));
         }
@@ -818,14 +881,13 @@ impl Database {
 
         self.conn.execute(
             r#"
-            INSERT INTO projects (name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)
+            INSERT INTO projects (name, status, root_path, summary, is_archived, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
             "#,
             params![
                 project_name,
                 input.status.unwrap_or_else(|| "active".to_string()),
-                project_dir.to_string_lossy().to_string(),
-                CURRENT_FILE_LAYOUT_VERSION,
+                self.encode_path_ref(&project_dir),
                 input.summary.unwrap_or_default(),
                 timestamp,
                 timestamp
@@ -1370,6 +1432,14 @@ impl Database {
         }
     }
 
+    pub fn note_delete(&mut self, input: NoteDeleteInput) -> Result<NoteRecord> {
+        let current = self.note_record(input.note_id)?;
+        self.conn
+            .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
+        self.touch_activity(current.activity_id)?;
+        Ok(current)
+    }
+
     pub fn conclusion_create(&mut self, input: ConclusionCreateInput) -> Result<ConclusionRecord> {
         let timestamp = now_iso();
         self.conn.execute(
@@ -1455,8 +1525,10 @@ impl Database {
 
     pub fn conclusion_delete(&mut self, input: ConclusionDeleteInput) -> Result<ConclusionRecord> {
         let current = self.conclusion_record(input.conclusion_id)?;
-        self.conn
-            .execute("DELETE FROM conclusions WHERE id = ?1", [input.conclusion_id])?;
+        self.conn.execute(
+            "DELETE FROM conclusions WHERE id = ?1",
+            [input.conclusion_id],
+        )?;
         self.touch_project(current.project_id)?;
         if let Some(activity_id) = current.activity_id {
             self.touch_activity(activity_id)?;
@@ -1617,8 +1689,8 @@ impl Database {
                 input.activity_id,
                 file_name,
                 file_name,
-                source.to_string_lossy().to_string(),
-                managed_path.to_string_lossy().to_string(),
+                self.encode_path_ref(&source),
+                self.encode_path_ref(&managed_path),
                 storage_mode,
                 mime,
                 bool_to_int(input.is_starred),
@@ -1630,7 +1702,7 @@ impl Database {
         let history_dir = self.history_dir_path_for(&managed_path, id);
         self.conn.execute(
             "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
-            params![history_dir.to_string_lossy().to_string(), id],
+            params![self.encode_path_ref(&history_dir), id],
         )?;
         self.conn.execute(
             r#"
@@ -1642,14 +1714,257 @@ impl Database {
             params![
                 id,
                 file_name,
-                source.to_string_lossy().to_string(),
-                managed_path.to_string_lossy().to_string(),
+                self.encode_path_ref(&source),
+                self.encode_path_ref(&managed_path),
                 timestamp
             ],
         )?;
         if let Some(tag_ids) = input.tag_ids.as_deref() {
             self.replace_document_tags(id, tag_ids, &timestamp)?;
         }
+        self.touch_project(input.project_id)?;
+        if let Some(activity_id) = input.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.document_record(id)
+    }
+
+    pub fn document_import_note_image(
+        &mut self,
+        input: DocumentImportNoteImageInput,
+    ) -> Result<DocumentRecord> {
+        self.ensure_project_file_layout(input.project_id)?;
+        let timestamp = now_iso();
+        let source = PathBuf::from(&input.source_path);
+        if !source.exists() {
+            return Err(anyhow!("source file does not exist"));
+        }
+
+        let mime = mime_guess::from_path(&source)
+            .first_or_octet_stream()
+            .essence_str()
+            .to_string();
+        let file_name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow!("invalid file name"))?
+            .to_string();
+        let sanitized_name = sanitize_import_file_name(&file_name, &mime)?;
+        let target_dir = self.note_image_target_dir(input.project_id, input.activity_id)?;
+        let resolved_name = self.resolve_internal_document_name(
+            input.project_id,
+            input.activity_id,
+            &sanitized_name,
+            &target_dir,
+        )?;
+        let managed_path = target_dir.join(&resolved_name);
+
+        if let Some(parent) = managed_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::copy(&source, &managed_path).with_context(|| {
+            format!(
+                "failed to copy note image from {} to {}",
+                source.display(),
+                managed_path.display()
+            )
+        })?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO documents (
+              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, 0, 1, 1, 'normal', ?9, ?10)
+            "#,
+            params![
+                input.project_id,
+                input.activity_id,
+                resolved_name,
+                resolved_name,
+                self.encode_path_ref(&source),
+                self.encode_path_ref(&managed_path),
+                MANAGED_NOTE_IMAGE_STORAGE_MODE,
+                mime,
+                timestamp,
+                timestamp
+            ],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        let history_dir = self.history_dir_path_for(&managed_path, id);
+        self.conn.execute(
+            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
+            params![self.encode_path_ref(&history_dir), id],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO document_versions (
+              document_id, version_number, name, source_path, managed_path, created_at
+            )
+            VALUES (?1, 1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                id,
+                resolved_name,
+                self.encode_path_ref(&source),
+                self.encode_path_ref(&managed_path),
+                timestamp
+            ],
+        )?;
+        self.touch_project(input.project_id)?;
+        if let Some(activity_id) = input.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.document_record(id)
+    }
+
+    pub fn document_import_clipboard_image(
+        &mut self,
+        input: DocumentImportClipboardImageInput,
+    ) -> Result<DocumentRecord> {
+        self.ensure_project_file_layout(input.project_id)?;
+        let timestamp = now_iso();
+        let target_dir = self.document_target_dir(input.project_id, input.activity_id)?;
+        let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
+
+        self.ensure_document_name_available(input.project_id, input.activity_id, &file_name, None)?;
+
+        let managed_path = target_dir.join(&file_name);
+        if let Some(parent) = managed_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let bytes = STANDARD
+            .decode(input.data_base64.trim())
+            .context("failed to decode clipboard image")?;
+
+        fs::write(&managed_path, &bytes).with_context(|| {
+            format!(
+                "failed to write clipboard image to {}",
+                managed_path.display()
+            )
+        })?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO documents (
+              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9, 1, 1, 'normal', ?10, ?11)
+            "#,
+            params![
+                input.project_id,
+                input.activity_id,
+                file_name,
+                file_name,
+                self.encode_path_ref(&managed_path),
+                self.encode_path_ref(&managed_path),
+                "managed_clipboard",
+                input.mime_type,
+                bool_to_int(input.is_starred),
+                timestamp,
+                timestamp
+            ],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        let history_dir = self.history_dir_path_for(&managed_path, id);
+        self.conn.execute(
+            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
+            params![self.encode_path_ref(&history_dir), id],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO document_versions (
+              document_id, version_number, name, source_path, managed_path, created_at
+            )
+            VALUES (?1, 1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                id,
+                file_name,
+                self.encode_path_ref(&managed_path),
+                self.encode_path_ref(&managed_path),
+                timestamp
+            ],
+        )?;
+        if let Some(tag_ids) = input.tag_ids.as_deref() {
+            self.replace_document_tags(id, tag_ids, &timestamp)?;
+        }
+        self.touch_project(input.project_id)?;
+        if let Some(activity_id) = input.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.document_record(id)
+    }
+
+    pub fn document_import_clipboard_note_image(
+        &mut self,
+        input: DocumentImportClipboardNoteImageInput,
+    ) -> Result<DocumentRecord> {
+        self.ensure_project_file_layout(input.project_id)?;
+        let timestamp = now_iso();
+        let target_dir = self.note_image_target_dir(input.project_id, input.activity_id)?;
+        let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
+        let resolved_name = self.resolve_internal_document_name(
+            input.project_id,
+            input.activity_id,
+            &file_name,
+            &target_dir,
+        )?;
+        let managed_path = target_dir.join(&resolved_name);
+        if let Some(parent) = managed_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let bytes = STANDARD
+            .decode(input.data_base64.trim())
+            .context("failed to decode clipboard image")?;
+
+        fs::write(&managed_path, &bytes)
+            .with_context(|| format!("failed to write note image to {}", managed_path.display()))?;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO documents (
+              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, 0, 1, 1, 'normal', ?9, ?10)
+            "#,
+            params![
+                input.project_id,
+                input.activity_id,
+                resolved_name,
+                resolved_name,
+                self.encode_path_ref(&managed_path),
+                self.encode_path_ref(&managed_path),
+                MANAGED_NOTE_IMAGE_STORAGE_MODE,
+                input.mime_type,
+                timestamp,
+                timestamp
+            ],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        let history_dir = self.history_dir_path_for(&managed_path, id);
+        self.conn.execute(
+            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
+            params![self.encode_path_ref(&history_dir), id],
+        )?;
+        self.conn.execute(
+            r#"
+            INSERT INTO document_versions (
+              document_id, version_number, name, source_path, managed_path, created_at
+            )
+            VALUES (?1, 1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                id,
+                resolved_name,
+                self.encode_path_ref(&managed_path),
+                self.encode_path_ref(&managed_path),
+                timestamp
+            ],
+        )?;
         self.touch_project(input.project_id)?;
         if let Some(activity_id) = input.activity_id {
             self.touch_activity(activity_id)?;
@@ -1720,7 +2035,7 @@ impl Database {
             WHERE id = ?3
             "#,
             params![
-                new_source.to_string_lossy().to_string(),
+                self.encode_path_ref(&new_source),
                 now_iso(),
                 input.document_id
             ],
@@ -1732,7 +2047,7 @@ impl Database {
             WHERE document_id = ?2 AND version_number = ?3
             "#,
             params![
-                new_source.to_string_lossy().to_string(),
+                self.encode_path_ref(&new_source),
                 input.document_id,
                 current.current_version_number
             ],
@@ -1761,11 +2076,6 @@ impl Database {
         let timestamp = now_iso();
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
-        let source = PathBuf::from(&input.source_path);
-        if !source.exists() {
-            return Err(anyhow!("version source file does not exist"));
-        }
-
         let current_path = PathBuf::from(&current.managed_path);
         if !current_path.exists() {
             return Err(anyhow!(
@@ -1782,13 +2092,23 @@ impl Database {
         let next_version_number = current.current_version_number + 1;
         let next_name = versioned_file_name(&current.base_name, next_version_number);
         let next_path = target_dir.join(&next_name);
+        let current_source_path_ref = self
+            .document_version_source_path_ref(input.document_id, current.current_version_number)?;
+        let source = input.source_path.as_deref().map(PathBuf::from);
 
-        if source == current_path {
-            return Err(anyhow!(
-                "cannot add a version from the current managed file"
-            ));
-        }
-        if next_path.exists() && next_path != source {
+        if let Some(source) = source.as_ref() {
+            if !source.exists() {
+                return Err(anyhow!("version source file does not exist"));
+            }
+            if *source == current_path {
+                return Err(anyhow!(
+                    "cannot add a version from the current managed file"
+                ));
+            }
+            if next_path.exists() && next_path != *source {
+                return Err(anyhow!("target version file already exists"));
+            }
+        } else if next_path.exists() {
             return Err(anyhow!("target version file already exists"));
         }
 
@@ -1801,41 +2121,79 @@ impl Database {
             )
         })?;
 
-        let storage_mode = match self.materialize_file_for_target(
-            Path::new(&project.root_path),
-            &source,
-            &next_path,
-        ) {
-            Ok(storage_mode) => storage_mode,
-            Err(error) => {
+        let (storage_mode, next_source_path_ref) = if let Some(source) = source.as_ref() {
+            match self.materialize_file_for_target(
+                Path::new(&project.root_path),
+                source,
+                &next_path,
+            ) {
+                Ok(storage_mode) => (storage_mode, self.encode_path_ref(source)),
+                Err(error) => {
+                    let _ = fs::rename(&previous_history_path, &current_path);
+                    return Err(error);
+                }
+            }
+        } else {
+            if let Err(error) = fs::copy(&previous_history_path, &next_path).with_context(|| {
+                format!(
+                    "failed to copy archived version from {} to {}",
+                    previous_history_path.display(),
+                    next_path.display()
+                )
+            }) {
                 let _ = fs::rename(&previous_history_path, &current_path);
                 return Err(error);
             }
+            ("managed_copy".to_string(), current_source_path_ref.clone())
         };
 
-        self.conn.execute(
-            r#"
-            UPDATE documents
-            SET name = ?1,
-                original_path = ?2,
-                managed_path = ?3,
-                storage_mode = ?4,
-                current_version_number = ?5,
-                version_count = ?6,
-                updated_at = ?7
-            WHERE id = ?8
-            "#,
-            params![
-                next_name,
-                source.to_string_lossy().to_string(),
-                next_path.to_string_lossy().to_string(),
-                storage_mode,
-                next_version_number,
-                current.version_count + 1,
-                timestamp,
-                input.document_id
-            ],
-        )?;
+        if source.is_some() {
+            self.conn.execute(
+                r#"
+                UPDATE documents
+                SET name = ?1,
+                    original_path = ?2,
+                    managed_path = ?3,
+                    storage_mode = ?4,
+                    current_version_number = ?5,
+                    version_count = ?6,
+                    updated_at = ?7
+                WHERE id = ?8
+                "#,
+                params![
+                    next_name,
+                    &next_source_path_ref,
+                    self.encode_path_ref(&next_path),
+                    storage_mode,
+                    next_version_number,
+                    current.version_count + 1,
+                    timestamp,
+                    input.document_id
+                ],
+            )?;
+        } else {
+            self.conn.execute(
+                r#"
+                UPDATE documents
+                SET name = ?1,
+                    managed_path = ?2,
+                    storage_mode = ?3,
+                    current_version_number = ?4,
+                    version_count = ?5,
+                    updated_at = ?6
+                WHERE id = ?7
+                "#,
+                params![
+                    next_name,
+                    self.encode_path_ref(&next_path),
+                    storage_mode,
+                    next_version_number,
+                    current.version_count + 1,
+                    timestamp,
+                    input.document_id
+                ],
+            )?;
+        }
         self.conn.execute(
             r#"
             UPDATE document_versions
@@ -1844,7 +2202,7 @@ impl Database {
             "#,
             params![
                 previous_version_name,
-                previous_history_path.to_string_lossy().to_string(),
+                self.encode_path_ref(&previous_history_path),
                 input.document_id,
                 current.current_version_number
             ],
@@ -1860,8 +2218,8 @@ impl Database {
                 input.document_id,
                 next_version_number,
                 next_name,
-                source.to_string_lossy().to_string(),
-                next_path.to_string_lossy().to_string(),
+                &next_source_path_ref,
+                self.encode_path_ref(&next_path),
                 timestamp
             ],
         )?;
@@ -2040,11 +2398,8 @@ impl Database {
                 entity_id = self.conn.last_insert_rowid();
             }
             "todo" => {
-                let content = suggestion_payload_string(
-                    &merged_payload,
-                    "content",
-                    "missing todo content",
-                )?;
+                let content =
+                    suggestion_payload_string(&merged_payload, "content", "missing todo content")?;
                 let priority = merged_payload
                     .get("priority")
                     .and_then(Value::as_str)
@@ -2242,10 +2597,11 @@ impl Database {
         let feature_settings = self.ai_feature_settings_get()?;
 
         Ok(AiSettingsSnapshot {
-            has_usable_default: self.resolve_profile_for_capability("default").is_ok(),
+            has_usable_default: self.has_usable_profile_for_capability("default")?,
             profiles,
             bindings,
-            security_mode: "device_bound_encrypted".to_string(),
+            security_mode: WORKSPACE_SECURITY_MODE.to_string(),
+            ai_secrets_unlocked: self.secret_password.is_some(),
             execution,
             feature_settings,
         })
@@ -2448,7 +2804,10 @@ impl Database {
         let now = now_iso();
         let encrypted = match input.api_key.as_deref().map(str::trim) {
             Some("") | None => None,
-            Some(api_key) => Some(secret_crypto::encrypt_secret(api_key)?),
+            Some(api_key) => Some(secret_crypto::encrypt_secret(
+                api_key,
+                self.require_secret_password()?,
+            )?),
         };
 
         if let Some(profile_id) = input.id {
@@ -2785,7 +3144,8 @@ impl Database {
             FROM documents d
             INNER JOIN projects p ON p.id = d.project_id
             LEFT JOIN activities a ON a.id = d.activity_id
-            WHERE d.name LIKE ?1 {}
+            WHERE d.name LIKE ?1
+              AND d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}' {}
             ORDER BY d.updated_at DESC
             LIMIT 5
             "#,
@@ -2903,9 +3263,14 @@ impl Database {
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        for root in roots {
-            remove_path_if_exists(Path::new(&root))
-                .with_context(|| format!("failed to remove existing project root at {}", root))?;
+        for root_ref in roots {
+            let root = self.decode_path_ref(&root_ref);
+            remove_path_if_exists(&root).with_context(|| {
+                format!(
+                    "failed to remove existing project root at {}",
+                    root.display()
+                )
+            })?;
         }
 
         Ok(())
@@ -3203,7 +3568,7 @@ impl Database {
 
     fn seed_demo_customer_service_project(
         &mut self,
-        workspace_root: &Path,
+        _workspace_root: &Path,
         source_root: &Path,
         catalog: &DemoSeedCatalog,
     ) -> Result<SeededProjectRefs> {
@@ -3211,7 +3576,6 @@ impl Database {
             name: "智能客服知识库升级".to_string(),
             summary: Some("目标是在 6 周内把退款、物流、账户三类高频问题沉淀为可检索知识库，并让 AI 助手引用统一口径。当前处于数据清洗与法务边界确认阶段。".to_string()),
             status: Some("active".to_string()),
-            workspace_root: workspace_root.to_string_lossy().to_string(),
         })?;
 
         let kickoff = self.activity_create(ActivityCreateInput {
@@ -3303,7 +3667,7 @@ impl Database {
         )?;
         self.document_add_version(DocumentAddVersionInput {
             document_id: kickoff_doc.id,
-            source_path: prd_v2.to_string_lossy().to_string(),
+            source_path: Some(prd_v2.to_string_lossy().to_string()),
         })?;
 
         let labeling = self.activity_create(ActivityCreateInput {
@@ -3453,7 +3817,7 @@ impl Database {
 
     fn seed_demo_lead_scoring_project(
         &mut self,
-        workspace_root: &Path,
+        _workspace_root: &Path,
         source_root: &Path,
         catalog: &DemoSeedCatalog,
     ) -> Result<SeededProjectRefs> {
@@ -3461,7 +3825,6 @@ impl Database {
             name: "海外销售线索评分 Copilot".to_string(),
             summary: Some("为北美 SMB 销售团队做一套线索评分 Copilot，目标是把 SDR 首次筛选时间从 12 分钟降到 4 分钟。当前在验证 CRM 接入与特征字段稳定性。".to_string()),
             status: Some("active".to_string()),
-            workspace_root: workspace_root.to_string_lossy().to_string(),
         })?;
 
         let alignment = self.activity_create(ActivityCreateInput {
@@ -3598,7 +3961,7 @@ impl Database {
         )?;
         self.document_add_version(DocumentAddVersionInput {
             document_id: feature_doc.id,
-            source_path: features_v2.to_string_lossy().to_string(),
+            source_path: Some(features_v2.to_string_lossy().to_string()),
         })?;
 
         let crm = self.activity_create(ActivityCreateInput {
@@ -3685,7 +4048,7 @@ impl Database {
 
     fn seed_demo_contract_review_project(
         &mut self,
-        workspace_root: &Path,
+        _workspace_root: &Path,
         source_root: &Path,
         catalog: &DemoSeedCatalog,
     ) -> Result<SeededProjectRefs> {
@@ -3693,7 +4056,6 @@ impl Database {
             name: "合同审阅 AI 助手试点".to_string(),
             summary: Some("面向法务与采购的合同审阅 AI 助手试点，聚焦红线条款识别、审阅意见归类和标准修改建议。当前已完成试点范围确认，Prompt 与复核流程仍在迭代。".to_string()),
             status: Some("active".to_string()),
-            workspace_root: workspace_root.to_string_lossy().to_string(),
         })?;
 
         let scope = self.activity_create(ActivityCreateInput {
@@ -5294,21 +5656,21 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at
+                SELECT id, name, status, root_path, summary, is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
                 [project_id],
                 |row| {
+                    let root_path_ref = row.get::<_, String>(3)?;
                     Ok(ProjectRecord {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         status: row.get(2)?,
-                        root_path: row.get(3)?,
-                        file_layout_version: row.get(4)?,
-                        summary: row.get(5)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(6)?),
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
+                        root_path: self.decode_path_ref_to_string(&root_path_ref),
+                        summary: row.get(4)?,
+                        is_archived: int_to_bool(row.get::<_, i64>(5)?),
+                        created_at: row.get(6)?,
+                        updated_at: row.get(7)?,
                     })
                 },
             )
@@ -5504,9 +5866,9 @@ impl Database {
             activity_id: base.2,
             name: base.3,
             base_name: base.4,
-            original_path: base.5,
-            managed_path: base.6,
-            history_dir_path: base.7,
+            original_path: self.decode_path_ref_to_string(&base.5),
+            managed_path: self.decode_path_ref_to_string(&base.6),
+            history_dir_path: self.decode_path_ref_to_string(&base.7),
             storage_mode: base.8,
             mime_type: base.9,
             is_starred: base.10,
@@ -5660,6 +6022,7 @@ impl Database {
             &profile.api_key_ciphertext,
             &profile.api_key_nonce,
             &profile.api_key_salt,
+            self.require_secret_password()?,
         )
     }
 
@@ -5789,11 +6152,14 @@ impl Database {
     }
 
     fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM documents WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY updated_at DESC",
+        )?;
         let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
+            .query_map(
+                params![activity_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                |row| row.get::<_, i64>(0),
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
@@ -5825,13 +6191,16 @@ impl Database {
         starred_only: bool,
     ) -> Result<Vec<DocumentRecord>> {
         let query = if starred_only {
-            "SELECT id FROM documents WHERE project_id = ?1 AND is_starred = 1 ORDER BY updated_at DESC"
+            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 AND is_starred = 1 ORDER BY updated_at DESC"
         } else {
-            "SELECT id FROM documents WHERE project_id = ?1 ORDER BY updated_at DESC"
+            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 ORDER BY updated_at DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
-            .query_map([project_id], |row| row.get::<_, i64>(0))?
+            .query_map(
+                params![project_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                |row| row.get::<_, i64>(0),
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
@@ -5842,13 +6211,17 @@ impl Database {
             SELECT id
             FROM documents
             WHERE project_id = ?1
+              AND storage_mode != ?2
               AND (activity_id IS NULL OR is_starred = 1)
             ORDER BY updated_at DESC
             LIMIT 18
             "#,
         )?;
         let ids = stmt
-            .query_map([project_id], |row| row.get::<_, i64>(0))?
+            .query_map(
+                params![project_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                |row| row.get::<_, i64>(0),
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
@@ -5863,16 +6236,32 @@ impl Database {
                 "#,
                 [version_id],
                 |row| {
+                    let source_path_ref = row.get::<_, String>(4)?;
+                    let managed_path_ref = row.get::<_, String>(5)?;
                     Ok(DocumentVersionRecord {
                         id: row.get(0)?,
                         document_id: row.get(1)?,
                         version_number: row.get(2)?,
                         name: row.get(3)?,
-                        source_path: row.get(4)?,
-                        managed_path: row.get(5)?,
+                        source_path: self.decode_path_ref_to_string(&source_path_ref),
+                        managed_path: self.decode_path_ref_to_string(&managed_path_ref),
                         created_at: row.get(6)?,
                     })
                 },
+            )
+            .map_err(Into::into)
+    }
+
+    fn document_version_source_path_ref(
+        &self,
+        document_id: i64,
+        version_number: i64,
+    ) -> Result<String> {
+        self.conn
+            .query_row(
+                "SELECT source_path FROM document_versions WHERE document_id = ?1 AND version_number = ?2",
+                params![document_id, version_number],
+                |row| row.get(0),
             )
             .map_err(Into::into)
     }
@@ -6088,10 +6477,6 @@ impl Database {
 
     fn backfill_file_layout_metadata(&self) -> Result<()> {
         self.conn.execute(
-            "UPDATE projects SET file_layout_version = ?1 WHERE file_layout_version < 1",
-            params![LEGACY_FILE_LAYOUT_VERSION],
-        )?;
-        self.conn.execute(
             "UPDATE documents SET base_name = name WHERE base_name = ''",
             [],
         )?;
@@ -6113,198 +6498,8 @@ impl Database {
         Ok(())
     }
 
-    fn ensure_project_file_layout(&mut self, project_id: i64) -> Result<()> {
-        let project = self.project_record(project_id)?;
-        if project.file_layout_version >= CURRENT_FILE_LAYOUT_VERSION {
-            return Ok(());
-        }
-        self.migrate_project_file_layout(&project)
-    }
-
-    fn migrate_project_file_layout(&mut self, project: &ProjectRecord) -> Result<()> {
-        let project_root = PathBuf::from(&project.root_path);
-        let legacy_documents_dir = project_root.join("documents");
-        fs::create_dir_all(&project_root)?;
-
-        let mut activity_stmt = self
-            .conn
-            .prepare("SELECT id, title FROM activities WHERE project_id = ?1 ORDER BY id ASC")?;
-        let activities = activity_stmt
-            .query_map([project.id], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        drop(activity_stmt);
-
-        let mut seen_folders = HashSet::new();
-        let mut activity_folders = Vec::new();
-        for (activity_id, title) in activities {
-            let folder_name = self.default_activity_folder_name(&title, activity_id);
-            if !seen_folders.insert(folder_name.clone()) {
-                return Err(anyhow!(
-                    "legacy project migration failed because multiple activities map to the same folder name: {}",
-                    folder_name
-                ));
-            }
-
-            let activity_dir = project_root.join(&folder_name);
-            if activity_dir.exists() {
-                return Err(anyhow!(
-                    "legacy project migration failed because target activity folder already exists: {}",
-                    activity_dir.display()
-                ));
-            }
-
-            activity_folders.push((activity_id, folder_name, activity_dir));
-        }
-
-        let mut document_stmt = self
-            .conn
-            .prepare("SELECT id FROM documents WHERE project_id = ?1 ORDER BY id ASC")?;
-        let document_ids = document_stmt
-            .query_map([project.id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        drop(document_stmt);
-        let documents = document_ids
-            .into_iter()
-            .map(|document_id| self.document_record(document_id))
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut planned_targets = HashSet::new();
-        let mut document_updates = Vec::new();
-        for document in &documents {
-            let target_dir = if let Some(activity_id) = document.activity_id {
-                let (_, _, activity_dir) = activity_folders
-                    .iter()
-                    .find(|(candidate_id, _, _)| *candidate_id == activity_id)
-                    .ok_or_else(|| {
-                        anyhow!("activity for document {} was not found", document.id)
-                    })?;
-                activity_dir.clone()
-            } else {
-                project_root.clone()
-            };
-            let target_path = target_dir.join(&document.name);
-            let current_path = PathBuf::from(&document.managed_path);
-            if target_path.exists() && target_path != current_path {
-                return Err(anyhow!(
-                    "legacy project migration failed because target file already exists: {}",
-                    target_path.display()
-                ));
-            }
-            let target_key = target_path.to_string_lossy().to_string();
-            if !planned_targets.insert(target_key.clone()) {
-                return Err(anyhow!(
-                    "legacy project migration failed because multiple documents would resolve to {}",
-                    target_key
-                ));
-            }
-
-            document_updates.push((
-                document.clone(),
-                target_path.clone(),
-                self.history_dir_path_for(&target_path, document.id),
-            ));
-        }
-
-        let mut created_dirs = Vec::new();
-        for (_, _, activity_dir) in &activity_folders {
-            fs::create_dir_all(activity_dir)?;
-            created_dirs.push(activity_dir.clone());
-        }
-
-        let mut moved_files = Vec::new();
-        for (document, target_path, _) in &document_updates {
-            let current_path = PathBuf::from(&document.managed_path);
-            if current_path.exists() && current_path != *target_path {
-                if let Some(parent) = target_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                if let Err(error) = fs::rename(&current_path, target_path) {
-                    for (from, to) in moved_files.iter().rev() {
-                        let _ = fs::rename(to, from);
-                    }
-                    for created_dir in created_dirs.iter().rev() {
-                        let _ = fs::remove_dir(created_dir);
-                    }
-                    return Err(anyhow!(
-                        "legacy project migration failed while moving {} to {}: {}",
-                        current_path.display(),
-                        target_path.display(),
-                        error
-                    ));
-                }
-                moved_files.push((current_path, target_path.clone()));
-            }
-        }
-
-        let timestamp = now_iso();
-        let tx = self.conn.transaction()?;
-        for (activity_id, folder_name, _) in &activity_folders {
-            tx.execute(
-                "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
-                params![folder_name, activity_id],
-            )?;
-        }
-        for (document, target_path, history_dir) in &document_updates {
-            tx.execute(
-                r#"
-                UPDATE documents
-                SET name = ?1,
-                    base_name = ?2,
-                    managed_path = ?3,
-                    history_dir_path = ?4,
-                    current_version_number = 1,
-                    version_count = 1
-                WHERE id = ?5
-                "#,
-                params![
-                    document.name,
-                    document.name,
-                    target_path.to_string_lossy().to_string(),
-                    history_dir.to_string_lossy().to_string(),
-                    document.id
-                ],
-            )?;
-            tx.execute(
-                "DELETE FROM document_versions WHERE document_id = ?1",
-                params![document.id],
-            )?;
-            tx.execute(
-                r#"
-                INSERT INTO document_versions (
-                  document_id, version_number, name, source_path, managed_path, created_at
-                )
-                VALUES (?1, 1, ?2, ?3, ?4, ?5)
-                "#,
-                params![
-                    document.id,
-                    document.name,
-                    document.original_path,
-                    target_path.to_string_lossy().to_string(),
-                    document.created_at
-                ],
-            )?;
-        }
-        tx.execute(
-            "UPDATE projects SET file_layout_version = ?1, updated_at = ?2 WHERE id = ?3",
-            params![CURRENT_FILE_LAYOUT_VERSION, timestamp, project.id],
-        )?;
-        if let Err(error) = tx.commit() {
-            for (from, to) in moved_files.iter().rev() {
-                let _ = fs::rename(to, from);
-            }
-            for created_dir in created_dirs.iter().rev() {
-                let _ = fs::remove_dir(created_dir);
-            }
-            return Err(error.into());
-        }
-
-        if legacy_documents_dir.exists() {
-            let _ = fs::remove_dir(&legacy_documents_dir);
-        }
-
-        Ok(())
+    fn ensure_project_file_layout(&mut self, _project_id: i64) -> Result<()> {
+        self.backfill_file_layout_metadata()
     }
 
     fn default_activity_folder_name(&self, title: &str, activity_id: i64) -> String {
@@ -6367,15 +6562,42 @@ impl Database {
         }
     }
 
-    fn ensure_document_name_available(
+    fn note_image_target_dir(
+        &mut self,
+        project_id: i64,
+        activity_id: Option<i64>,
+    ) -> Result<PathBuf> {
+        let project = self.project_record(project_id)?;
+        let project_root = PathBuf::from(&project.root_path);
+        fs::create_dir_all(&project_root)?;
+
+        if let Some(activity_id) = activity_id {
+            let activity = self.activity_row(activity_id)?;
+            if activity.project_id != project_id {
+                return Err(anyhow!("activity does not belong to the selected project"));
+            }
+        }
+
+        let target_dir = project_root
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join(PROJECT_NOTE_ASSET_DIR_NAME)
+            .join(
+                activity_id
+                    .map(|value| format!("activity-{value}"))
+                    .unwrap_or_else(|| "project".to_string()),
+            );
+        fs::create_dir_all(&target_dir)?;
+        Ok(target_dir)
+    }
+
+    fn document_name_exists(
         &self,
         project_id: i64,
         activity_id: Option<i64>,
         base_name: &str,
         exclude_document_id: Option<i64>,
-    ) -> Result<()> {
-        let duplicate = self
-            .conn
+    ) -> Result<bool> {
+        self.conn
             .query_row(
                 r#"
                 SELECT id
@@ -6394,9 +6616,19 @@ impl Database {
                 ],
                 |row| row.get::<_, i64>(0),
             )
-            .optional()?;
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(Into::into)
+    }
 
-        if duplicate.is_some() {
+    fn ensure_document_name_available(
+        &self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        base_name: &str,
+        exclude_document_id: Option<i64>,
+    ) -> Result<()> {
+        if self.document_name_exists(project_id, activity_id, base_name, exclude_document_id)? {
             return Err(anyhow!(
                 "a file named '{}' already exists in the target location; rename it or add a new version instead",
                 base_name
@@ -6404,6 +6636,46 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    fn resolve_internal_document_name(
+        &self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        desired_name: &str,
+        target_dir: &Path,
+    ) -> Result<String> {
+        let desired_path = Path::new(desired_name);
+        let stem = desired_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow!("file name cannot be empty"))?;
+        let extension = desired_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let mut suffix = 1;
+
+        loop {
+            let candidate = if suffix == 1 {
+                desired_name.to_string()
+            } else if let Some(extension) = extension {
+                format!("{stem}-{suffix}.{extension}")
+            } else {
+                format!("{stem}-{suffix}")
+            };
+
+            if !self.document_name_exists(project_id, activity_id, &candidate, None)?
+                && !target_dir.join(&candidate).exists()
+            {
+                return Ok(candidate);
+            }
+
+            suffix += 1;
+        }
     }
 
     fn normalize_document_base_name(&self, raw: &str, current_base_name: &str) -> Result<String> {
@@ -6504,6 +6776,7 @@ impl Database {
             temp_path: Option<PathBuf>,
             final_name: String,
             final_path: PathBuf,
+            final_path_ref: String,
         }
 
         let target_dir = self.document_target_dir(document.project_id, next_activity_id)?;
@@ -6579,9 +6852,13 @@ impl Database {
                 source_path,
                 temp_path,
                 final_name,
-                final_path,
+                final_path: final_path.clone(),
+                final_path_ref: self.encode_path_ref(&final_path),
             });
         }
+
+        let next_current_path_ref = self.encode_path_ref(&next_current_path);
+        let next_history_dir_ref = self.encode_path_ref(&next_history_dir);
 
         let rollback_file_moves = |plans: &[VersionStoragePlan], finalized_count: usize| {
             for plan in plans.iter().take(finalized_count).rev() {
@@ -6643,8 +6920,8 @@ impl Database {
                 "UPDATE documents SET name = ?1, managed_path = ?2, history_dir_path = ?3 WHERE id = ?4",
                 params![
                     next_current_name,
-                    next_current_path.to_string_lossy().to_string(),
-                    next_history_dir.to_string_lossy().to_string(),
+                    next_current_path_ref,
+                    next_history_dir_ref,
                     document.id
                 ],
             )?;
@@ -6652,11 +6929,7 @@ impl Database {
             for plan in &plans {
                 tx.execute(
                     "UPDATE document_versions SET name = ?1, managed_path = ?2 WHERE id = ?3",
-                    params![
-                        plan.final_name,
-                        plan.final_path.to_string_lossy().to_string(),
-                        plan.version_id
-                    ],
+                    params![plan.final_name, plan.final_path_ref, plan.version_id],
                 )?;
             }
 
@@ -6717,6 +6990,49 @@ impl Database {
             let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
             next_document_paths.push((document.id, next_current_path, next_history_dir));
         }
+        let encoded_path_updates = next_document_paths
+            .iter()
+            .map(|(document_id, next_current_path, next_history_dir)| {
+                (
+                    *document_id,
+                    self.encode_path_ref(next_current_path),
+                    self.encode_path_ref(next_history_dir),
+                )
+            })
+            .collect::<Vec<_>>();
+        let encoded_version_updates = documents
+            .iter()
+            .map(|document| {
+                let (_, _, next_history_dir) = next_document_paths
+                    .iter()
+                    .find(|(document_id, _, _)| *document_id == document.id)
+                    .cloned()
+                    .ok_or_else(|| anyhow!("missing path update for document {}", document.id))?;
+                let versions = document_versions
+                    .iter()
+                    .find(|(document_id, _)| *document_id == document.id)
+                    .map(|(_, versions)| versions.clone())
+                    .unwrap_or_default();
+                let version_updates = versions
+                    .into_iter()
+                    .map(|version| {
+                        let file_name = Path::new(&version.managed_path)
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .map(ToOwned::to_owned)
+                            .unwrap_or_else(|| version.name.clone());
+                        let next_version_path =
+                            if version.version_number == document.current_version_number {
+                                next_dir.join(file_name)
+                            } else {
+                                next_history_dir.join(file_name)
+                            };
+                        Ok((version.id, self.encode_path_ref(&next_version_path)))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok((document.id, version_updates))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let renamed_existing_dir = current_dir.exists();
         if renamed_existing_dir {
@@ -6737,7 +7053,7 @@ impl Database {
             params![next_folder, activity_id],
         )?;
         for document in &documents {
-            let (_, next_current_path, next_history_dir) = next_document_paths
+            let (_, _next_current_path, _next_history_dir) = next_document_paths
                 .iter()
                 .find(|(document_id, _, _)| *document_id == document.id)
                 .cloned()
@@ -6745,8 +7061,22 @@ impl Database {
             tx.execute(
                 "UPDATE documents SET managed_path = ?1, history_dir_path = ?2 WHERE id = ?3",
                 params![
-                    next_current_path.to_string_lossy().to_string(),
-                    next_history_dir.to_string_lossy().to_string(),
+                    encoded_path_updates
+                        .iter()
+                        .find(|(document_id, _, _)| *document_id == document.id)
+                        .map(|(_, managed_path_ref, _)| managed_path_ref.clone())
+                        .ok_or_else(|| anyhow!(
+                            "missing managed path ref for document {}",
+                            document.id
+                        ))?,
+                    encoded_path_updates
+                        .iter()
+                        .find(|(document_id, _, _)| *document_id == document.id)
+                        .map(|(_, _, history_dir_ref)| history_dir_ref.clone())
+                        .ok_or_else(|| anyhow!(
+                            "missing history path ref for document {}",
+                            document.id
+                        ))?,
                     document.id
                 ],
             )?;
@@ -6756,20 +7086,21 @@ impl Database {
                 .map(|(_, versions)| versions.clone())
                 .unwrap_or_default();
             for version in versions {
-                let file_name = Path::new(&version.managed_path)
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| version.name.clone());
-                let next_version_path = if version.version_number == document.current_version_number
-                {
-                    next_dir.join(file_name)
-                } else {
-                    next_history_dir.join(file_name)
-                };
+                let next_version_path_ref = encoded_version_updates
+                    .iter()
+                    .find(|(document_id, _)| *document_id == document.id)
+                    .and_then(|(_, version_updates)| {
+                        version_updates
+                            .iter()
+                            .find(|(version_id, _)| *version_id == version.id)
+                            .map(|(_, path_ref)| path_ref.clone())
+                    })
+                    .ok_or_else(|| {
+                        anyhow!("missing version path ref for version {}", version.id)
+                    })?;
                 tx.execute(
                     "UPDATE document_versions SET managed_path = ?1 WHERE id = ?2",
-                    params![next_version_path.to_string_lossy().to_string(), version.id],
+                    params![next_version_path_ref, version.id],
                 )?;
             }
         }
@@ -6818,7 +7149,7 @@ impl Database {
 
         for (activity_id, activity_title) in activities {
             let mut conclusion_stmt = self.conn.prepare(
-                "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id = ?2 ORDER BY updated_at DESC",
+                "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id = ?2 AND promoted_to_project = 1 ORDER BY updated_at DESC",
             )?;
             let conclusion_ids = conclusion_stmt
                 .query_map(params![project_id, activity_id], |row| row.get::<_, i64>(0))?
@@ -6867,7 +7198,7 @@ impl Database {
               (SELECT COUNT(*) FROM notes n WHERE n.activity_id = a.id) AS note_count,
               (SELECT COUNT(*) FROM conclusions c WHERE c.activity_id = a.id) AS conclusion_count,
               (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS todo_count,
-              (SELECT COUNT(*) FROM documents d WHERE d.activity_id = a.id) AS document_count,
+              (SELECT COUNT(*) FROM documents d WHERE d.activity_id = a.id AND d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}') AS document_count,
               (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id AND t.status = 'finished') AS completed_todo_count,
               (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS total_todo_count,
               EXISTS(SELECT 1 FROM todos t WHERE t.activity_id = a.id AND t.status = 'unfinished') AS has_open_todos
@@ -7054,8 +7385,8 @@ impl Database {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
-        for (id, managed_path, health) in rows {
-            let exists = Path::new(&managed_path).exists();
+        for (id, managed_path_ref, health) in rows {
+            let exists = self.decode_path_ref(&managed_path_ref).exists();
             let next_health = if exists { "normal" } else { "missing" };
             if next_health != health {
                 self.conn.execute(
@@ -7686,6 +8017,38 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
+fn sanitize_import_file_name(file_name: &str, mime_type: &str) -> Result<String> {
+    let trimmed = file_name.trim();
+    let fallback_extension = match mime_type.trim().to_ascii_lowercase().as_str() {
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "image/bmp" => "bmp",
+        "image/avif" => "avif",
+        _ => "png",
+    };
+    let fallback_name = format!("clipboard-image.{fallback_extension}");
+    let candidate = if trimmed.is_empty() {
+        fallback_name
+    } else {
+        trimmed.to_string()
+    };
+    let sanitized = candidate
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => ch,
+        })
+        .collect::<String>();
+
+    if sanitized.trim().is_empty() {
+        return Err(anyhow!("invalid clipboard image file name"));
+    }
+
+    Ok(sanitized)
+}
+
 fn current_workspace_date() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }
@@ -7828,18 +8191,18 @@ fn suggestion_payload_string<'a>(
 
 fn ai_suggestion_preview(suggestion_type: &str, payload: &Value) -> Result<String> {
     match suggestion_type {
-        "activity_title" => Ok(suggestion_payload_string(
-            payload,
-            "proposedTitle",
-            "missing proposedTitle",
-        )?
-        .to_string()),
-        "conclusion" | "todo" => Ok(suggestion_payload_string(
-            payload,
-            "content",
-            "missing suggestion content",
-        )?
-        .to_string()),
+        "activity_title" => {
+            Ok(
+                suggestion_payload_string(payload, "proposedTitle", "missing proposedTitle")?
+                    .to_string(),
+            )
+        }
+        "conclusion" | "todo" => {
+            Ok(
+                suggestion_payload_string(payload, "content", "missing suggestion content")?
+                    .to_string(),
+            )
+        }
         _ => Err(anyhow!("unsupported suggestion type")),
     }
 }
@@ -8239,12 +8602,8 @@ fn move_paths_to_trash(paths: &[PathBuf]) -> Result<()> {
 
     #[cfg(not(test))]
     {
-        trash::delete_all(paths).map_err(|error| {
-            anyhow!(
-                "failed to move managed paths to trash: {}",
-                error
-            )
-        })
+        trash::delete_all(paths)
+            .map_err(|error| anyhow!("failed to move managed paths to trash: {}", error))
     }
 }
 
@@ -8368,7 +8727,12 @@ mod tests {
         let root = std::env::temp_dir().join(format!("project-mind-db-test-{unique}"));
         let workspace_root = root.join("workspace");
         fs::create_dir_all(&workspace_root).unwrap();
-        let database = Database::open(&root.join("app.sqlite3")).unwrap();
+        let database = Database::open(
+            &root.join("app.sqlite3"),
+            &workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
 
         (
             TestHarness {
@@ -8380,12 +8744,12 @@ mod tests {
     }
 
     fn create_project(database: &mut Database, workspace_root: &Path) -> ProjectRecord {
+        fs::create_dir_all(workspace_root).unwrap();
         database
             .project_create(ProjectCreateInput {
                 name: "Alpha".to_string(),
                 summary: None,
                 status: None,
-                workspace_root: workspace_root.to_string_lossy().to_string(),
             })
             .unwrap()
     }
@@ -8536,13 +8900,12 @@ mod tests {
 
     #[test]
     fn project_create_uses_windows_safe_directory_name() {
-        let (harness, mut database) = setup_database();
+        let (_harness, mut database) = setup_database();
         let project = database
             .project_create(ProjectCreateInput {
                 name: "CON".to_string(),
                 summary: None,
                 status: None,
-                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
             })
             .unwrap();
 
@@ -8817,7 +9180,6 @@ mod tests {
                 name: "Beta".to_string(),
                 summary: Some("Second project".to_string()),
                 status: None,
-                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
             })
             .unwrap();
         create_activity(&mut database, project_b.id, "Review");
@@ -9024,7 +9386,6 @@ mod tests {
                 name: "Beta".to_string(),
                 summary: Some("Second project".to_string()),
                 status: None,
-                workspace_root: harness.workspace_root.to_string_lossy().to_string(),
             })
             .unwrap();
         let activity_b = create_activity(&mut database, project_b.id, "Beta Activity");
@@ -9176,9 +9537,18 @@ mod tests {
             infer_todo_priority("今天确认预算审批边界，并由财务补充拆分明细"),
             "urgent_important"
         );
-        assert_eq!(infer_todo_priority("尽快同步会议纪要"), "urgent_not_important");
-        assert_eq!(infer_todo_priority("准备法务评审材料"), "not_urgent_important");
-        assert_eq!(infer_todo_priority("整理一下记录"), "not_urgent_not_important");
+        assert_eq!(
+            infer_todo_priority("尽快同步会议纪要"),
+            "urgent_not_important"
+        );
+        assert_eq!(
+            infer_todo_priority("准备法务评审材料"),
+            "not_urgent_important"
+        );
+        assert_eq!(
+            infer_todo_priority("整理一下记录"),
+            "not_urgent_not_important"
+        );
     }
 
     #[test]
@@ -9236,7 +9606,10 @@ mod tests {
             .unwrap();
         let saved_todo = database.todo_record(accepted_todo.entity_id).unwrap();
 
-        assert_eq!(saved_conclusion.content_markdown, "已确认预算边界，按现方案推进");
+        assert_eq!(
+            saved_conclusion.content_markdown,
+            "已确认预算边界，按现方案推进"
+        );
         assert!(!saved_conclusion.promoted_to_project);
         assert_eq!(saved_todo.content, "财务今天补充预算拆分明细");
         assert_eq!(saved_todo.priority, "urgent_important");
@@ -9460,7 +9833,8 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let mut database = Database::open(&db_path).unwrap();
+        let mut database =
+            Database::open(&db_path, &workspace_root, Some("test-secret".to_string())).unwrap();
         let settings = database.activity_settings_get().unwrap();
         let activities = database
             .activity_list(ProjectIdInput { project_id: 1 })
@@ -9772,7 +10146,10 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let mut database = Database::open(&db_path).unwrap();
+        let workspace_root = root.join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+        let mut database =
+            Database::open(&db_path, &workspace_root, Some("test-secret".to_string())).unwrap();
         let ai_settings = database.ai_settings_get().unwrap();
         let rich_text = database.rich_text_style_get().unwrap();
 
@@ -9808,6 +10185,143 @@ mod tests {
         assert!(document.managed_path.contains("Kickoff"));
         assert_eq!(document.base_name, "brief.pdf");
         assert_eq!(document.version_count, 1);
+    }
+
+    #[test]
+    fn note_image_import_copies_source_into_hidden_project_folder() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let source_path = PathBuf::from(&project.root_path).join("cover.png");
+        fs::write(&source_path, b"cover-image").unwrap();
+
+        let document = database
+            .document_import_note_image(DocumentImportNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: source_path.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        assert!(source_path.exists());
+        assert!(Path::new(&document.managed_path).exists());
+        assert_eq!(fs::read(&source_path).unwrap(), b"cover-image");
+        assert_eq!(fs::read(&document.managed_path).unwrap(), b"cover-image");
+        assert_eq!(document.storage_mode, MANAGED_NOTE_IMAGE_STORAGE_MODE);
+        assert!(document
+            .managed_path
+            .contains(".project-mind/embedded-note-assets/activity-"));
+        assert!(!document.managed_path.contains("/Kickoff/"));
+    }
+
+    #[test]
+    fn note_image_imports_are_hidden_from_activity_and_project_document_queries() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let image_source = harness.root.join("embedded-diagram.png");
+        fs::write(&image_source, b"embedded-image").unwrap();
+        let hidden_document = database
+            .document_import_note_image(DocumentImportNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: image_source.to_string_lossy().to_string(),
+            })
+            .unwrap();
+
+        let visible_source = harness.root.join("brief.pdf");
+        fs::write(&visible_source, b"brief").unwrap();
+        let visible_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: visible_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let root_source = harness.root.join("root-doc.pdf");
+        fs::write(&root_source, b"root").unwrap();
+        let root_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: root_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let activity_documents = database.fetch_documents(activity.id).unwrap();
+        let all_project_documents = database
+            .fetch_documents_for_project(project.id, false)
+            .unwrap();
+        let project_documents = database
+            .fetch_project_documents_for_project(project.id)
+            .unwrap();
+        let activity_card = database.activity_card(activity.id).unwrap();
+        let search_results = database
+            .workspace_search(WorkspaceSearchInput {
+                query: "embedded-diagram".to_string(),
+                include_archived: None,
+            })
+            .unwrap();
+
+        assert_eq!(
+            activity_documents
+                .iter()
+                .map(|document| document.id)
+                .collect::<Vec<_>>(),
+            vec![visible_document.id]
+        );
+        assert_eq!(all_project_documents.len(), 2);
+        assert!(all_project_documents
+            .iter()
+            .any(|document| document.id == visible_document.id));
+        assert!(all_project_documents
+            .iter()
+            .any(|document| document.id == root_document.id));
+        assert_eq!(project_documents.len(), 1);
+        assert_eq!(project_documents[0].id, root_document.id);
+        assert_eq!(activity_card.digest.document_count, 1);
+        assert!(!activity_card
+            .documents
+            .iter()
+            .any(|document| document.id == hidden_document.id));
+        assert!(!search_results
+            .iter()
+            .any(|result| result.id == hidden_document.id));
+    }
+
+    #[test]
+    fn clipboard_note_image_import_uses_hidden_folder_and_internal_storage_mode() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let document = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                file_name: "clipboard-image.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode("clipboard-note-image"),
+            })
+            .unwrap();
+
+        assert!(Path::new(&document.managed_path).exists());
+        assert_eq!(
+            fs::read(&document.managed_path).unwrap(),
+            b"clipboard-note-image"
+        );
+        assert_eq!(document.storage_mode, MANAGED_NOTE_IMAGE_STORAGE_MODE);
+        assert!(document
+            .managed_path
+            .contains(".project-mind/embedded-note-assets/activity-"));
+        assert!(database.fetch_documents(activity.id).unwrap().is_empty());
     }
 
     #[test]
@@ -9871,7 +10385,7 @@ mod tests {
         let versioned_document = database
             .document_add_version(DocumentAddVersionInput {
                 document_id: document.id,
-                source_path: source_v2.to_string_lossy().to_string(),
+                source_path: Some(source_v2.to_string_lossy().to_string()),
             })
             .unwrap();
         let versions = database
@@ -9896,6 +10410,52 @@ mod tests {
     }
 
     #[test]
+    fn document_add_version_without_source_path_duplicates_current_version() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let source_v1 = harness.root.join("proposal-v1-source.pdf");
+        fs::write(&source_v1, b"version1").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: source_v1.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        let original_path = document.original_path.clone();
+
+        let versioned_document = database
+            .document_add_version(DocumentAddVersionInput {
+                document_id: document.id,
+                source_path: None,
+            })
+            .unwrap();
+        let versions = database
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: document.id,
+            })
+            .unwrap();
+        let history_path =
+            PathBuf::from(&versioned_document.history_dir_path).join("proposal-v1-source.pdf");
+
+        assert_eq!(versioned_document.current_version_number, 2);
+        assert_eq!(versioned_document.version_count, 2);
+        assert_eq!(versioned_document.original_path, original_path);
+        assert_eq!(versioned_document.name, "proposal-v1-source_v2.pdf");
+        assert!(Path::new(&versioned_document.managed_path).exists());
+        assert!(history_path.exists());
+        assert_eq!(
+            fs::read(&versioned_document.managed_path).unwrap(),
+            b"version1"
+        );
+        assert_eq!(versions[0].source_path, original_path);
+        assert_eq!(versions[1].source_path, original_path);
+    }
+
+    #[test]
     fn document_rename_updates_current_and_history_file_names() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -9917,7 +10477,7 @@ mod tests {
         let versioned_document = database
             .document_add_version(DocumentAddVersionInput {
                 document_id: document.id,
-                source_path: source_v2.to_string_lossy().to_string(),
+                source_path: Some(source_v2.to_string_lossy().to_string()),
             })
             .unwrap();
 
@@ -9977,7 +10537,7 @@ mod tests {
         let versioned_document = database
             .document_add_version(DocumentAddVersionInput {
                 document_id: document.id,
-                source_path: source_v2.to_string_lossy().to_string(),
+                source_path: Some(source_v2.to_string_lossy().to_string()),
             })
             .unwrap();
 
@@ -10005,7 +10565,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(deleted.id, document.id);
-        assert_eq!(deleted.current_version_number, versioned_document.current_version_number);
+        assert_eq!(
+            deleted.current_version_number,
+            versioned_document.current_version_number
+        );
         assert!(!Path::new(&deleted.managed_path).exists());
         assert!(!Path::new(&deleted.history_dir_path).exists());
         assert!(Path::new(&deleted.original_path).exists());
@@ -10036,7 +10599,7 @@ mod tests {
         let versioned_document = database
             .document_add_version(DocumentAddVersionInput {
                 document_id: document.id,
-                source_path: source_v2.to_string_lossy().to_string(),
+                source_path: Some(source_v2.to_string_lossy().to_string()),
             })
             .unwrap();
 
@@ -10058,82 +10621,6 @@ mod tests {
         assert!(!history_dir.exists());
         assert!(Path::new(&deleted.original_path).exists());
         assert!(database.document_record(document.id).is_err());
-    }
-
-    #[test]
-    fn legacy_project_layout_migrates_on_project_access() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let external_source = harness.root.join("brief-source.pdf");
-        fs::write(&external_source, b"brief").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: external_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let legacy_dir = PathBuf::from(&project.root_path).join("documents");
-        fs::create_dir_all(&legacy_dir).unwrap();
-        let legacy_path = legacy_dir.join(&document.name);
-        fs::rename(&document.managed_path, &legacy_path).unwrap();
-        let activity_dir = PathBuf::from(&project.root_path).join("Kickoff");
-        let _ = fs::remove_dir(&activity_dir);
-
-        database
-            .conn
-            .execute(
-                "UPDATE projects SET file_layout_version = 1 WHERE id = ?1",
-                params![project.id],
-            )
-            .unwrap();
-        database
-            .conn
-            .execute(
-                "UPDATE activities SET folder_name = '' WHERE id = ?1",
-                params![activity.id],
-            )
-            .unwrap();
-        database
-            .conn
-            .execute(
-                "UPDATE documents SET base_name = '', managed_path = ?1, history_dir_path = '' WHERE id = ?2",
-                params![legacy_path.to_string_lossy().to_string(), document.id],
-            )
-            .unwrap();
-        database
-            .conn
-            .execute(
-                "DELETE FROM document_versions WHERE document_id = ?1",
-                params![document.id],
-            )
-            .unwrap();
-
-        let overview = database
-            .project_get_overview(ProjectIdInput {
-                project_id: project.id,
-            })
-            .unwrap();
-        let migrated_document = database.document_record(document.id).unwrap();
-        let versions = database
-            .document_list_versions(DocumentListVersionsInput {
-                document_id: document.id,
-            })
-            .unwrap();
-
-        assert_eq!(
-            overview.project.file_layout_version,
-            CURRENT_FILE_LAYOUT_VERSION
-        );
-        assert_eq!(migrated_document.base_name, document.name);
-        assert!(migrated_document.managed_path.contains("Kickoff"));
-        assert!(Path::new(&migrated_document.managed_path).exists());
-        assert_eq!(versions.len(), 1);
     }
 
     #[test]
@@ -10192,6 +10679,48 @@ mod tests {
         assert!(document_ids.contains(&root_document.id));
         assert!(document_ids.contains(&starred_document.id));
         assert!(!document_ids.contains(&activity_document.id));
+    }
+
+    #[test]
+    fn project_overview_only_lists_promoted_activity_conclusions() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let promoted = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "这是项目级结论".to_string(),
+                html: "<p>这是项目级结论</p>".to_string(),
+                promoted_to_project: true,
+            })
+            .unwrap();
+        let hidden = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "这条只留在活动里".to_string(),
+                html: "<p>这条只留在活动里</p>".to_string(),
+                promoted_to_project: false,
+            })
+            .unwrap();
+
+        let overview = database
+            .project_get_overview(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        let conclusion_ids = overview
+            .conclusion_groups
+            .iter()
+            .flat_map(|group| group.conclusions.iter().map(|conclusion| conclusion.id))
+            .collect::<Vec<_>>();
+
+        assert_eq!(conclusion_ids, vec![promoted.id]);
+        assert!(!conclusion_ids.contains(&hidden.id));
     }
 
     #[test]
@@ -10549,6 +11078,76 @@ mod tests {
     }
 
     #[test]
+    fn note_delete_removes_note_from_activity_results() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            DEFAULT_RECORD_TYPE_KEY,
+            "Captured detail",
+        );
+
+        let deleted = database
+            .note_delete(NoteDeleteInput { note_id: note.id })
+            .unwrap();
+
+        assert_eq!(deleted.id, note.id);
+        assert!(database.note_record(note.id).is_err());
+        assert!(database.fetch_notes(activity.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn note_upsert_preserves_embedded_image_html() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let data_url = format!("data:image/png;base64,{}", "A".repeat(256));
+        let html = format!(r#"<p><img src="{data_url}" alt="截图" /></p>"#);
+
+        let saved = database
+            .note_upsert(NoteUpsertInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: None,
+                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
+                title: Some("带图片记录".to_string()),
+                markdown: "[图片] 截图".to_string(),
+                html: html.clone(),
+            })
+            .unwrap();
+
+        assert_eq!(saved.content_html, html);
+    }
+
+    #[test]
+    fn note_upsert_preserves_embedded_image_metadata_html() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let data_url = format!("data:image/png;base64,{}", "B".repeat(384));
+        let html = format!(
+            r#"<p><img src="{data_url}" data-path="/tmp/managed/clip.png" data-mime-type="image/png" data-document-id="18" alt="截图" /></p>"#,
+        );
+
+        let saved = database
+            .note_upsert(NoteUpsertInput {
+                project_id: project.id,
+                activity_id: activity.id,
+                note_id: None,
+                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
+                title: Some("带图片元数据记录".to_string()),
+                markdown: "[图片] 截图".to_string(),
+                html: html.clone(),
+            })
+            .unwrap();
+
+        assert_eq!(saved.content_html, html);
+    }
+
+    #[test]
     fn document_schema_migration_folds_legacy_priority_flags_into_starred() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -10623,7 +11222,12 @@ mod tests {
             .unwrap();
 
         drop(database);
-        let reopened = Database::open(&harness.root.join("app.sqlite3")).unwrap();
+        let reopened = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
 
         assert!(!reopened.has_column("documents", "role").unwrap());
         assert!(!reopened

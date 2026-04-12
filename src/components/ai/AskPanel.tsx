@@ -34,6 +34,7 @@ interface AskPanelProps {
   activityId: number | null;
   aiSettings?: AiSettingsSnapshot;
   aiSettingsLoading?: boolean;
+  onUnlockAiSecrets?: () => Promise<boolean>;
   onClose: () => void;
   onScopeChange: (scope: AiAnswerScope) => void;
 }
@@ -46,6 +47,7 @@ export function AskPanel({
   activityId,
   aiSettings,
   aiSettingsLoading = false,
+  onUnlockAiSecrets = async () => false,
   onClose,
   onScopeChange,
 }: AskPanelProps) {
@@ -63,6 +65,7 @@ export function AskPanel({
   const answerJobActive = isAiJobActive(answerJob);
 
   const assistantReady = isAiCapabilityConfigured(aiSettings, "assistant");
+  const aiSecretsUnlocked = aiSettings?.aiSecretsUnlocked ?? true;
 
   useEffect(() => {
     setAnswer(null);
@@ -76,10 +79,16 @@ export function AskPanel({
 
   const canSubmit = assistantReady && question.trim().length > 0 && !answerJobActive;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const trimmed = question.trim();
     if (!trimmed || !assistantReady || answerJobActive) {
       return;
+    }
+    if (!aiSecretsUnlocked) {
+      const unlocked = await onUnlockAiSecrets();
+      if (!unlocked) {
+        return;
+      }
     }
 
     setAnswer(null);
@@ -196,6 +205,18 @@ export function AskPanel({
             action={
               <Button type="button" variant="primary" onClick={() => openSettings("ai")}>
                 打开 AI 设置
+              </Button>
+            }
+            className="w-full"
+          />
+        ) : !aiSecretsUnlocked ? (
+          <EmptyState
+            title="Workspace secrets 已锁定"
+            text="首次使用 Ask 前，需要先输入当前 workspace 密码解锁已保存的 AI 密钥。"
+            icon={<Sparkles size={16} />}
+            action={
+              <Button type="button" variant="primary" onClick={() => void onUnlockAiSecrets()}>
+                解锁后继续
               </Button>
             }
             className="w-full"

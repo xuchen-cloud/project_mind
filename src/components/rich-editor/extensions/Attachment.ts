@@ -1,4 +1,5 @@
 import { mergeAttributes, Node } from "@tiptap/core";
+import { resolveRichTextAttachmentHref } from "../../../lib/richTextAssets";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -26,9 +27,19 @@ export const Attachment = Node.create({
       },
       href: {
         default: null,
-        parseHTML: (element: HTMLElement) => element.getAttribute("data-href"),
-        renderHTML: (attributes: Record<string, unknown>) =>
-          attributes.href ? { "data-href": attributes.href } : {},
+        parseHTML: (element: HTMLElement) =>
+          resolveRichTextAttachmentHref(
+            element.getAttribute("data-path"),
+            element.getAttribute("data-href"),
+          ),
+        renderHTML: (attributes: Record<string, unknown>) => {
+          const nextHref = resolveRichTextAttachmentHref(
+            asOptionalString(attributes.path),
+            asOptionalString(attributes.href),
+          );
+
+          return nextHref && nextHref !== "#" ? { "data-href": nextHref } : {};
+        },
       },
       path: {
         default: null,
@@ -77,10 +88,10 @@ export const Attachment = Node.create({
       typeof dataMeta === "string" && dataMeta.trim().length > 0
         ? dataMeta
         : null;
-    const href =
-      typeof dataHref === "string" && dataHref.trim().length > 0
-        ? dataHref
-        : "#";
+    const href = resolveRichTextAttachmentHref(
+      typeof HTMLAttributes["data-path"] === "string" ? HTMLAttributes["data-path"] : null,
+      typeof dataHref === "string" ? dataHref : null,
+    );
     const isFallbackLink = href === "#";
     const linkAttributes = isFallbackLink
       ? {
@@ -137,3 +148,7 @@ export const Attachment = Node.create({
     };
   },
 });
+
+function asOptionalString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}

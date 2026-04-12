@@ -7,9 +7,7 @@ use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 
-use crate::device_identity;
-
-const DERIVATION_CONTEXT: &str = "project-mind-alpha::ai-secret::v1";
+const DERIVATION_CONTEXT: &str = "project-mind-alpha::workspace-ai-secret::v1";
 const SALT_BYTES: usize = 16;
 const NONCE_BYTES: usize = 12;
 const KEY_BYTES: usize = 32;
@@ -21,9 +19,12 @@ pub struct EncryptedSecret {
     pub last4: String,
 }
 
-pub fn encrypt_secret(secret: &str) -> Result<EncryptedSecret> {
+pub fn encrypt_secret(secret: &str, workspace_password: &str) -> Result<EncryptedSecret> {
     if secret.trim().is_empty() {
         return Err(anyhow!("API key cannot be empty"));
+    }
+    if workspace_password.trim().is_empty() {
+        return Err(anyhow!("workspace password cannot be empty"));
     }
 
     let mut salt = [0_u8; SALT_BYTES];
@@ -31,7 +32,7 @@ pub fn encrypt_secret(secret: &str) -> Result<EncryptedSecret> {
     rand::thread_rng().fill_bytes(&mut salt);
     rand::thread_rng().fill_bytes(&mut nonce);
 
-    let key = derive_key(&salt)?;
+    let key = derive_key(workspace_password, &salt)?;
     let cipher =
         Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("failed to initialize cipher"))?;
     let ciphertext = cipher
@@ -53,7 +54,16 @@ pub fn encrypt_secret(secret: &str) -> Result<EncryptedSecret> {
     })
 }
 
-pub fn decrypt_secret(ciphertext_b64: &str, nonce_b64: &str, salt_b64: &str) -> Result<String> {
+pub fn decrypt_secret(
+    ciphertext_b64: &str,
+    nonce_b64: &str,
+    salt_b64: &str,
+    workspace_password: &str,
+) -> Result<String> {
+    if workspace_password.trim().is_empty() {
+        return Err(anyhow!("workspace secrets are locked"));
+    }
+
     let ciphertext = STANDARD
         .decode(ciphertext_b64)
         .context("invalid encrypted API key payload")?;
@@ -68,20 +78,20 @@ pub fn decrypt_secret(ciphertext_b64: &str, nonce_b64: &str, salt_b64: &str) -> 
         return Err(anyhow!("encrypted API key nonce had an unexpected length"));
     }
 
-    let key = derive_key(&salt)?;
+    let key = derive_key(workspace_password, &salt)?;
     let cipher =
         Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("failed to initialize cipher"))?;
     let plaintext = cipher
         .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
-        .map_err(|_| anyhow!("stored API key could not be decrypted on this device"))?;
+        .map_err(|_| {
+            anyhow!("stored API key could not be decrypted with this workspace password")
+        })?;
 
     String::from_utf8(plaintext).context("decrypted API key was not valid UTF-8")
 }
 
-fn derive_key(salt: &[u8]) -> Result<[u8; KEY_BYTES]> {
-    let device_material = device_identity::current_device_material()?;
-    let password = format!("{DERIVATION_CONTEXT}::{device_material}");
-
+fn derive_key(workspace_password: &str, salt: &[u8]) -> Result<[u8; KEY_BYTES]> {
+    let password = format!("{DERIVATION_CONTEXT}::{workspace_password}");
     let mut key = [0_u8; KEY_BYTES];
     Argon2::default()
         .hash_password_into(password.as_bytes(), salt, &mut key)

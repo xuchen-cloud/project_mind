@@ -21,5 +21,6 @@ export interface RichEditorAsset {
 
 export interface RichEditorAssetHandlers {
   insertImage?: (sourcePath: string) => Promise<RichEditorAsset>;
+  insertPastedImage?: (file: File) => Promise<RichEditorAsset>;
   insertFile?: (sourcePath: string) => Promise<RichEditorAsset>;
 }

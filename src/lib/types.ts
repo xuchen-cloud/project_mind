@@ -3,7 +3,6 @@ export interface ProjectRecord {
   name: string;
   status: string;
   rootPath: string;
-  fileLayoutVersion: number;
   summary: string;
   isArchived: boolean;
   createdAt: string;
@@ -222,7 +221,13 @@ export interface AiArtifactPayload {
 export interface AiArtifactCitationRecord {
   id: number;
   artifactId: number;
-  sourceKind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+  sourceKind:
+    | "project"
+    | "activity"
+    | "note"
+    | "conclusion"
+    | "todo"
+    | "document";
   sourceId: number;
   projectId?: number | null;
   activityId?: number | null;
@@ -345,7 +350,13 @@ export type AiJobEnqueueInput =
 
 export interface AiAnswerCitationRecord {
   refCode: string;
-  sourceKind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+  sourceKind:
+    | "project"
+    | "activity"
+    | "note"
+    | "conclusion"
+    | "todo"
+    | "document";
   sourceId: number;
   projectId?: number | null;
   activityId?: number | null;
@@ -423,7 +434,6 @@ export interface ProjectCreateInput {
   name: string;
   summary?: string;
   status?: string;
-  workspaceRoot: string;
 }
 
 export interface ProjectUpdateSummaryInput {
@@ -517,6 +527,10 @@ export interface NoteUpsertInput {
   html: string;
 }
 
+export interface NoteDeleteInput {
+  noteId: number;
+}
+
 export interface ConclusionCreateInput {
   projectId: number;
   activityId?: number;
@@ -582,6 +596,30 @@ export interface DocumentImportInput {
   tagIds?: number[];
 }
 
+export interface DocumentImportClipboardImageInput {
+  projectId: number;
+  activityId?: number;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+  isStarred: boolean;
+  tagIds?: number[];
+}
+
+export interface DocumentImportNoteImageInput {
+  projectId: number;
+  activityId?: number;
+  sourcePath: string;
+}
+
+export interface DocumentImportClipboardNoteImageInput {
+  projectId: number;
+  activityId?: number;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+}
+
 export interface DocumentUpdateMetaInput {
   documentId: number;
   activityId?: number | null;
@@ -601,7 +639,7 @@ export interface DocumentListVersionsInput {
 
 export interface DocumentAddVersionInput {
   documentId: number;
-  sourcePath: string;
+  sourcePath?: string;
 }
 
 export interface DocumentDeleteInput {
@@ -689,8 +727,36 @@ export interface AiSettingsSnapshot {
   bindings: AiCapabilityBindingRecord[];
   hasUsableDefault: boolean;
   securityMode: string;
+  aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
   featureSettings: AiFeatureSettings;
+}
+
+export interface WorkspaceSummary {
+  rootPath: string;
+  metadataPath: string;
+  displayName: string;
+  createdAt: string;
+}
+
+export interface WorkspaceStatusSnapshot {
+  currentWorkspace?: WorkspaceSummary | null;
+  recentWorkspaces: WorkspaceSummary[];
+  aiSecretsUnlocked: boolean;
+  securityMode: string;
+}
+
+export interface WorkspaceCreateInput {
+  rootPath: string;
+  password: string;
+}
+
+export interface WorkspaceOpenInput {
+  rootPath: string;
+}
+
+export interface WorkspaceUnlockInput {
+  password: string;
 }
 
 export type RichTextFontPreset =

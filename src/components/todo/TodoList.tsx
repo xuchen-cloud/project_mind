@@ -27,7 +27,7 @@ export function TodoList({
   allowInlineEdit?: boolean;
   allowInlineProgress?: boolean;
   expandedTodoIds: ReadonlySet<number>;
-  onToggleExpanded: (todoId: number) => void;
+  onToggleExpanded: (todoId: number, nextExpanded?: boolean) => void;
   emptyText: string;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;

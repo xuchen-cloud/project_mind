@@ -37,7 +37,10 @@ import type {
   ConclusionUpdateInput,
   DocumentAddVersionInput,
   DocumentDeleteInput,
+  DocumentImportClipboardImageInput,
+  DocumentImportClipboardNoteImageInput,
   DocumentImportInput,
+  DocumentImportNoteImageInput,
   DocumentListVersionsInput,
   DocumentRecord,
   DocumentRelocateInput,
@@ -47,6 +50,7 @@ import type {
   FileTagOptionUpsertInput,
   FileTagRecord,
   FileTagSettingsSnapshot,
+  NoteDeleteInput,
   NoteRecord,
   NoteUpsertInput,
   ProjectArchiveInput,
@@ -72,11 +76,25 @@ import type {
   TodoUpdateContentInput,
   TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
+  WorkspaceCreateInput,
+  WorkspaceOpenInput,
   WorkspaceSearchInput,
   WorkspaceSearchResult,
+  WorkspaceStatusSnapshot,
+  WorkspaceUnlockInput,
 } from "../lib/types";
 
 export const projectMindApi = {
+  workspaceStatusGet: () =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_status_get"),
+  workspaceCreate: (input: WorkspaceCreateInput) =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_create", { input }),
+  workspaceOpen: (input: WorkspaceOpenInput) =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_open", { input }),
+  workspaceUnlock: (input: WorkspaceUnlockInput) =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_unlock", { input }),
+  workspaceLock: () =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_lock"),
   projectsList: (input: ProjectsListInput = {}) =>
     desktopApi.command<ProjectListItem[]>("projects_list", { input }),
   projectCreate: (input: ProjectCreateInput) =>
@@ -98,27 +116,47 @@ export const projectMindApi = {
   activitySettingsGet: () =>
     desktopApi.command<ActivitySettingsSnapshot>("activity_settings_get"),
   activityAttributeOptionUpsert: (input: ActivityAttributeOptionUpsertInput) =>
-    desktopApi.command<ActivityAttributeOption>("activity_attribute_option_upsert", { input }),
+    desktopApi.command<ActivityAttributeOption>(
+      "activity_attribute_option_upsert",
+      { input },
+    ),
   activityAttributeOptionDelete: (input: ActivityOptionDeleteInput) =>
-    desktopApi.command<ActivitySettingsSnapshot>("activity_attribute_option_delete", { input }),
+    desktopApi.command<ActivitySettingsSnapshot>(
+      "activity_attribute_option_delete",
+      { input },
+    ),
   activityStatusOptionUpsert: (input: ActivityStatusOptionUpsertInput) =>
-    desktopApi.command<ActivityStatusOption>("activity_status_option_upsert", { input }),
+    desktopApi.command<ActivityStatusOption>("activity_status_option_upsert", {
+      input,
+    }),
   activityStatusOptionDelete: (input: ActivityOptionDeleteInput) =>
-    desktopApi.command<ActivitySettingsSnapshot>("activity_status_option_delete", { input }),
+    desktopApi.command<ActivitySettingsSnapshot>(
+      "activity_status_option_delete",
+      { input },
+    ),
   fileTagSettingsGet: () =>
     desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get"),
   fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>
     desktopApi.command<FileTagRecord>("file_tag_option_upsert", { input }),
   fileTagOptionDelete: (input: FileTagOptionDeleteInput) =>
-    desktopApi.command<FileTagSettingsSnapshot>("file_tag_option_delete", { input }),
+    desktopApi.command<FileTagSettingsSnapshot>("file_tag_option_delete", {
+      input,
+    }),
   recordTypeSettingsGet: () =>
     desktopApi.command<RecordTypeSettingsSnapshot>("record_type_settings_get"),
   recordTypeOptionUpsert: (input: RecordTypeOptionUpsertInput) =>
-    desktopApi.command<RecordTypeRecord>("record_type_option_upsert", { input }),
+    desktopApi.command<RecordTypeRecord>("record_type_option_upsert", {
+      input,
+    }),
   recordTypeOptionDelete: (input: RecordTypeOptionDeleteInput) =>
-    desktopApi.command<RecordTypeSettingsSnapshot>("record_type_option_delete", { input }),
+    desktopApi.command<RecordTypeSettingsSnapshot>(
+      "record_type_option_delete",
+      { input },
+    ),
   noteUpsert: (input: NoteUpsertInput) =>
     desktopApi.command<NoteRecord>("note_upsert", { input }),
+  noteDelete: (input: NoteDeleteInput) =>
+    desktopApi.command<NoteRecord>("note_delete", { input }),
   conclusionCreate: (input: ConclusionCreateInput) =>
     desktopApi.command<ConclusionRecord>("conclusion_create", { input }),
   conclusionList: (input: ConclusionListInput) =>
@@ -143,30 +181,52 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
   documentImport: (input: DocumentImportInput) =>
     desktopApi.command<DocumentRecord>("document_import", { input }),
+  documentImportClipboardImage: (input: DocumentImportClipboardImageInput) =>
+    desktopApi.command<DocumentRecord>("document_import_clipboard_image", {
+      input,
+    }),
+  documentImportNoteImage: (input: DocumentImportNoteImageInput) =>
+    desktopApi.command<DocumentRecord>("document_import_note_image", { input }),
+  documentImportClipboardNoteImage: (
+    input: DocumentImportClipboardNoteImageInput,
+  ) =>
+    desktopApi.command<DocumentRecord>("document_import_clipboard_note_image", {
+      input,
+    }),
   documentUpdateMeta: (input: DocumentUpdateMetaInput) =>
     desktopApi.command<DocumentRecord>("document_update_meta", { input }),
   documentRelocate: (input: DocumentRelocateInput) =>
     desktopApi.command<DocumentRecord>("document_relocate", { input }),
   documentListVersions: (input: DocumentListVersionsInput) =>
-    desktopApi.command<DocumentVersionRecord[]>("document_list_versions", { input }),
+    desktopApi.command<DocumentVersionRecord[]>("document_list_versions", {
+      input,
+    }),
   documentAddVersion: (input: DocumentAddVersionInput) =>
     desktopApi.command<DocumentRecord>("document_add_version", { input }),
   documentDelete: (input: DocumentDeleteInput) =>
     desktopApi.command<DocumentRecord>("document_delete", { input }),
   aiGenerateNoteSuggestions: (input: AiGenerateInput) =>
-    desktopApi.command<AiSuggestionRecord[]>("ai_generate_note_suggestions", { input }),
+    desktopApi.command<AiSuggestionRecord[]>("ai_generate_note_suggestions", {
+      input,
+    }),
   aiAcceptSuggestion: (input: AiAcceptSuggestionInput) =>
-    desktopApi.command<AcceptedSuggestionResult>("ai_accept_suggestion", { input }),
+    desktopApi.command<AcceptedSuggestionResult>("ai_accept_suggestion", {
+      input,
+    }),
   aiArtifactGet: (input: AiArtifactGetInput) =>
     desktopApi.command<AiArtifactRecord | null>("ai_artifact_get", { input }),
   aiArtifactRefresh: (input: AiArtifactGetInput) =>
     desktopApi.command<AiArtifactRecord>("ai_artifact_refresh", { input }),
   aiAnswerQuestion: (input: AiAnswerQuestionInput) =>
     desktopApi.command<AiAnswerResult>("ai_answer_question", { input }),
-  aiSettingsGet: () => desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
-  richTextStyleGet: () => desktopApi.command<RichTextStyleSettings>("rich_text_style_get"),
+  aiSettingsGet: () =>
+    desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
+  richTextStyleGet: () =>
+    desktopApi.command<RichTextStyleSettings>("rich_text_style_get"),
   richTextStyleUpsert: (input: RichTextStyleUpsertInput) =>
-    desktopApi.command<RichTextStyleSettings>("rich_text_style_upsert", { input }),
+    desktopApi.command<RichTextStyleSettings>("rich_text_style_upsert", {
+      input,
+    }),
   aiProfileUpsert: (input: AiProviderProfileUpsertInput) =>
     desktopApi.command<AiProviderProfileRecord>("ai_profile_upsert", { input }),
   aiProfileDelete: (input: AiProviderProfileDeleteInput) =>
@@ -174,16 +234,23 @@ export const projectMindApi = {
   aiProfileTest: (input: AiProfileTestInput) =>
     desktopApi.command<AiProfileTestResult>("ai_profile_test", { input }),
   aiBindingUpsert: (input: AiCapabilityBindingUpsertInput) =>
-    desktopApi.command<AiCapabilityBindingRecord>("ai_binding_upsert", { input }),
+    desktopApi.command<AiCapabilityBindingRecord>("ai_binding_upsert", {
+      input,
+    }),
   aiFeatureSettingsUpsert: (input: AiFeatureSettingsUpsertInput) =>
-    desktopApi.command<AiFeatureSettings>("ai_feature_settings_upsert", { input }),
+    desktopApi.command<AiFeatureSettings>("ai_feature_settings_upsert", {
+      input,
+    }),
   aiJobEnqueue: (input: AiJobEnqueueInput) =>
     desktopApi.command<AiJobSnapshot>("ai_job_enqueue", { input }),
   aiJobGet: (jobId: number) =>
     desktopApi.command<AiJobSnapshot | null>("ai_job_get", { jobId }),
-  aiJobsListActive: () => desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
+  aiJobsListActive: () =>
+    desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
   aiExecutionSettingsUpsert: (input: AiExecutionSettings) =>
-    desktopApi.command<AiExecutionSettings>("ai_execution_settings_upsert", { input }),
+    desktopApi.command<AiExecutionSettings>("ai_execution_settings_upsert", {
+      input,
+    }),
   workspaceSearch: (input: WorkspaceSearchInput) =>
     desktopApi.command<WorkspaceSearchResult[]>("workspace_search", { input }),
 };

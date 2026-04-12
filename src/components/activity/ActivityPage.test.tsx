@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +19,7 @@ const {
   mockAiSettingsGet,
   mockActivitySettingsGet,
   mockRecordTypeSettingsGet,
+  mockFileTagSettingsGet,
   mockAiGenerateMutateAsync,
   mockAiAcceptMutateAsync,
   mockConclusionMutate,
@@ -21,9 +28,13 @@ const {
   mockConclusionDeleteMutateAsync,
   mockActivityMetaMutate,
   mockNoteMutateAsync,
+  mockNoteDeleteMutateAsync,
   mockOpenSettings,
   mockPushToast,
+  mockSetStatus,
   mockDocumentImport,
+  mockDocumentImportNoteImage,
+  mockDocumentImportClipboardNoteImage,
   mockTodoDeleteMutateAsync,
   mockIsAiCapabilityConfigured,
   mockIsAiFeatureReady,
@@ -35,6 +46,7 @@ const {
   mockAiSettingsGet: vi.fn(),
   mockActivitySettingsGet: vi.fn(),
   mockRecordTypeSettingsGet: vi.fn(),
+  mockFileTagSettingsGet: vi.fn(),
   mockAiGenerateMutateAsync: vi.fn(),
   mockAiAcceptMutateAsync: vi.fn(),
   mockConclusionMutate: vi.fn(),
@@ -43,15 +55,20 @@ const {
   mockConclusionDeleteMutateAsync: vi.fn(),
   mockActivityMetaMutate: vi.fn(),
   mockNoteMutateAsync: vi.fn(),
+  mockNoteDeleteMutateAsync: vi.fn(),
   mockOpenSettings: vi.fn(),
   mockPushToast: vi.fn(),
+  mockSetStatus: vi.fn(),
   mockDocumentImport: vi.fn(),
+  mockDocumentImportNoteImage: vi.fn(),
+  mockDocumentImportClipboardNoteImage: vi.fn(),
   mockTodoDeleteMutateAsync: vi.fn(),
   mockIsAiCapabilityConfigured: vi.fn((..._args: unknown[]) => true),
   mockIsAiFeatureReady: vi.fn((..._args: unknown[]) => true),
   mockIsAiFeatureVisible: vi.fn((..._args: unknown[]) => true),
   mockVisibleAiSuggestionTypes: vi.fn(
-    (..._args: unknown[]) => ["conclusion", "todo"] as Array<"conclusion" | "todo">,
+    (..._args: unknown[]) =>
+      ["conclusion", "todo"] as Array<"conclusion" | "todo">,
   ),
 }));
 
@@ -62,7 +79,10 @@ vi.mock("../../services/projectMindApi", () => ({
     aiSettingsGet: mockAiSettingsGet,
     activitySettingsGet: mockActivitySettingsGet,
     recordTypeSettingsGet: mockRecordTypeSettingsGet,
+    fileTagSettingsGet: mockFileTagSettingsGet,
     documentImport: mockDocumentImport,
+    documentImportNoteImage: mockDocumentImportNoteImage,
+    documentImportClipboardNoteImage: mockDocumentImportClipboardNoteImage,
   },
 }));
 
@@ -76,8 +96,12 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../hooks/useActivityMutations", () => ({
   useActivityMutations: () => ({
-    activityMetaMutation: { mutate: mockActivityMetaMutate },
+    activityMetaMutation: { isPending: false, mutate: mockActivityMetaMutate },
     noteMutation: { isPending: false, mutateAsync: mockNoteMutateAsync },
+    noteDeleteMutation: {
+      isPending: false,
+      mutateAsync: mockNoteDeleteMutateAsync,
+    },
     conclusionMutation: {
       isPending: false,
       mutate: mockConclusionMutate,
@@ -96,8 +120,14 @@ vi.mock("../../hooks/useActivityMutations", () => ({
 
 vi.mock("../../hooks/useAiMutations", () => ({
   useAiMutations: () => ({
-    aiGenerateMutation: { isPending: false, mutateAsync: mockAiGenerateMutateAsync },
-    aiAcceptMutation: { isPending: false, mutateAsync: mockAiAcceptMutateAsync },
+    aiGenerateMutation: {
+      isPending: false,
+      mutateAsync: mockAiGenerateMutateAsync,
+    },
+    aiAcceptMutation: {
+      isPending: false,
+      mutateAsync: mockAiAcceptMutateAsync,
+    },
   }),
 }));
 
@@ -128,14 +158,23 @@ vi.mock("../../hooks/useUtilityHooks", () => ({
 
 vi.mock("../../state/feedback-store", () => ({
   useFeedbackStore: () => ({
+    setStatus: mockSetStatus,
     pushToast: mockPushToast,
   }),
 }));
 
 vi.mock("../../state/ui-store", () => ({
-  useUiStore: () => ({
-    openSettings: mockOpenSettings,
-  }),
+  useUiStore: (
+    selector?:
+      | ((state: { openSettings: typeof mockOpenSettings }) => unknown)
+      | undefined,
+  ) => {
+    const state = {
+      openSettings: mockOpenSettings,
+    };
+
+    return selector ? selector(state) : state;
+  },
 }));
 
 vi.mock("../../lib/ai", () => ({
@@ -154,12 +193,27 @@ vi.mock("../todo", () => ({
 }));
 
 vi.mock("../document/ManagedDocumentSection", () => ({
-  ManagedDocumentSection: () => <div data-testid="managed-document-section" />,
+  ManagedDocumentSection: ({
+    documents,
+  }: {
+    documents: Array<{ name: string }>;
+  }) => (
+    <div data-testid="managed-document-section">
+      <div data-testid="managed-document-count">{documents.length}</div>
+      {documents.map((document) => (
+        <div key={document.name}>{document.name}</div>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("../rich-editor", () => ({
   EMPTY_RICH_EDITOR_HTML: "",
-  normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
+  normalizeRichEditorValue: (value: {
+    html: string;
+    text: string;
+    markdown: string;
+  }) => {
     const normalizedText = value.text.trim();
     const normalizedMarkdown = value.markdown.trim();
 
@@ -185,7 +239,11 @@ vi.mock("../rich-editor", () => ({
     html?: string;
     placeholder?: string;
     readOnly?: boolean;
-    onChange?: (value: { html: string; text: string; markdown: string }) => void;
+    onChange?: (value: {
+      html: string;
+      text: string;
+      markdown: string;
+    }) => void;
   }) => {
     const value = toPlainText(html);
 
@@ -212,16 +270,55 @@ vi.mock("../rich-editor", () => ({
 }));
 
 vi.mock("./ActivityNotesPanel", () => ({
-  ActivityNotesPanel: () => (
-    <section data-testid="activity-notes-panel">
-      <div data-testid="activity-notes-editor">记录编辑器区</div>
-      <div data-testid="activity-notes-results">记录结果</div>
-    </section>
-  ),
+  ActivityNotesPanel: (props: {
+    onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
+    onImportImage?: (sourcePath: string) => Promise<unknown>;
+    onImportDocument?: (sourcePath: string) => Promise<unknown>;
+    onImportClipboardImage?: (file: File) => Promise<unknown>;
+  }) => {
+    return (
+      <section data-testid="activity-notes-panel">
+        <div data-testid="activity-notes-editor">记录编辑器区</div>
+        <div data-testid="activity-notes-results">记录结果</div>
+        <button
+          type="button"
+          onClick={() => {
+            void props.onImportImage?.("/tmp/project-atlas/inbox/clip.png");
+          }}
+        >
+          触发图片导入
+        </button>
+      <button
+        type="button"
+        onClick={() => {
+          const pastedFile = new File(["fake"], "pasted-image.png", { type: "image/png" });
+          Object.defineProperty(pastedFile, "arrayBuffer", {
+            value: async () => new TextEncoder().encode("fake").buffer,
+          });
+          void props.onImportClipboardImage?.(
+            pastedFile,
+          );
+        }}
+      >
+          触发粘贴图片导入
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void props.onDeleteNote?.(21);
+          }}
+        >
+          触发记录删除
+        </button>
+      </section>
+    );
+  },
 }));
 
 vi.mock("../ai/AiArtifactCard", () => ({
-  AiArtifactCard: () => <section data-testid="ai-artifact-card">AI Artifact</section>,
+  AiArtifactCard: () => (
+    <section data-testid="ai-artifact-card">AI Artifact</section>
+  ),
 }));
 
 import { ActivityPage } from "./ActivityPage";
@@ -233,6 +330,7 @@ describe("ActivityPage", () => {
     mockAiSettingsGet.mockReset();
     mockActivitySettingsGet.mockReset();
     mockRecordTypeSettingsGet.mockReset();
+    mockFileTagSettingsGet.mockReset();
     mockAiGenerateMutateAsync.mockReset();
     mockAiAcceptMutateAsync.mockReset();
     mockConclusionMutate.mockReset();
@@ -241,9 +339,13 @@ describe("ActivityPage", () => {
     mockConclusionDeleteMutateAsync.mockReset();
     mockActivityMetaMutate.mockReset();
     mockNoteMutateAsync.mockReset();
+    mockNoteDeleteMutateAsync.mockReset();
     mockOpenSettings.mockReset();
     mockPushToast.mockReset();
+    mockSetStatus.mockReset();
     mockDocumentImport.mockReset();
+    mockDocumentImportNoteImage.mockReset();
+    mockDocumentImportClipboardNoteImage.mockReset();
     mockTodoDeleteMutateAsync.mockReset();
     mockIsAiCapabilityConfigured.mockReset();
     mockIsAiFeatureReady.mockReset();
@@ -259,13 +361,46 @@ describe("ActivityPage", () => {
     mockAiSettingsGet.mockResolvedValue({});
     mockActivitySettingsGet.mockResolvedValue({
       activityAttributeOptions: [
-        { id: 1, label: "MEETING", colorKey: "blue", createdAt: "", updatedAt: "" },
-        { id: 2, label: "LEGAL", colorKey: "amber", createdAt: "", updatedAt: "" },
+        {
+          id: 1,
+          label: "MEETING",
+          colorKey: "blue",
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 2,
+          label: "LEGAL",
+          colorKey: "amber",
+          createdAt: "",
+          updatedAt: "",
+        },
       ],
       activityStatusOptions: [
-        { id: 3, label: "待启动", colorKey: "amber", isSystem: true, createdAt: "", updatedAt: "" },
-        { id: 4, label: "已整理", colorKey: "green", isSystem: false, createdAt: "", updatedAt: "" },
-        { id: 5, label: "待法务确认", colorKey: "orange", isSystem: false, createdAt: "", updatedAt: "" },
+        {
+          id: 3,
+          label: "待启动",
+          colorKey: "amber",
+          isSystem: true,
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 4,
+          label: "已整理",
+          colorKey: "green",
+          isSystem: false,
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 5,
+          label: "待法务确认",
+          colorKey: "orange",
+          isSystem: false,
+          createdAt: "",
+          updatedAt: "",
+        },
       ],
     });
     mockRecordTypeSettingsGet.mockResolvedValue({
@@ -294,7 +429,37 @@ describe("ActivityPage", () => {
         },
       ],
     });
+    mockFileTagSettingsGet.mockResolvedValue({ tags: [] });
     mockDocumentImport.mockResolvedValue(buildDocumentRecord());
+    mockDocumentImportNoteImage.mockResolvedValue(
+      buildDocumentRecord({
+        id: 41,
+        name: "clip.png",
+        baseName: "clip.png",
+        originalPath: "/tmp/project-atlas/inbox/clip.png",
+        managedPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/clip.png",
+        historyDirPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/.41.pm-versions",
+        storageMode: "managed_copy" as const,
+        mimeType: "image/png",
+      }),
+    );
+    mockDocumentImportClipboardNoteImage.mockResolvedValue(
+      buildDocumentRecord({
+        id: 42,
+        name: "clipboard-image-20260412090000.png",
+        baseName: "clipboard-image-20260412090000.png",
+        originalPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/clipboard-image-20260412090000.png",
+        managedPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/clipboard-image-20260412090000.png",
+        historyDirPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/.42.pm-versions",
+        storageMode: "managed_copy" as const,
+        mimeType: "image/png",
+      }),
+    );
     mockConclusionMutateAsync.mockResolvedValue({
       id: 22,
       projectId: 9,
@@ -320,10 +485,10 @@ describe("ActivityPage", () => {
     renderActivityPage();
 
     expect(await screen.findByText("文件材料")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "新增结论" })).toBeInTheDocument();
-    expect(screen.getByText("当前结论")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "新增结论" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("已确认预算分配方案")).toBeInTheDocument();
-    expect(screen.getByText("1 条")).toBeInTheDocument();
     expect(screen.queryByText("结论列表")).not.toBeInTheDocument();
     expect(screen.queryByText("AI 辅助提炼")).not.toBeInTheDocument();
     expect(
@@ -333,25 +498,43 @@ describe("ActivityPage", () => {
     const notesPanel = screen.getByTestId("activity-notes-panel");
     const editorBlock = screen.getByTestId("activity-notes-editor");
     const resultsBlock = screen.getByTestId("activity-notes-results");
-    expect(notesPanel.compareDocumentPosition(resultsBlock) & Node.DOCUMENT_POSITION_CONTAINED_BY).toBeTruthy();
-    expect(editorBlock.compareDocumentPosition(resultsBlock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      notesPanel.compareDocumentPosition(resultsBlock) &
+        Node.DOCUMENT_POSITION_CONTAINED_BY,
+    ).toBeTruthy();
+    expect(
+      editorBlock.compareDocumentPosition(resultsBlock) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     const documentsHeading = screen.getByRole("heading", { name: "文件材料" });
     const conclusionsHeading = screen.getByRole("heading", { name: "结论" });
     expect(
-      documentsHeading.compareDocumentPosition(conclusionsHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      documentsHeading.compareDocumentPosition(conclusionsHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "新增结论" }));
-    await user.type(screen.getByPlaceholderText("记录已确认的判断、共识或决定。"), "新增的活动结论");
-    await user.click(screen.getByRole("button", { name: "保存结论" }));
+    await user.type(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+      "新增的活动结论",
+    );
+    expect(
+      screen.queryByRole("button", { name: "保存结论" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "取消" }),
+    ).not.toBeInTheDocument();
+    fireEvent.blur(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    );
 
     expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       markdown: "新增的活动结论",
       html: "<p>新增的活动结论</p>",
-      promotedToProject: true,
+      promotedToProject: false,
     });
 
     await waitFor(() =>
@@ -366,12 +549,23 @@ describe("ActivityPage", () => {
 
     renderActivityPage();
 
-    expect(await screen.findByRole("heading", { name: "预算讨论" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "预算讨论" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "MEETING" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "已整理" })).toBeInTheDocument();
-    expect(screen.getByText(formatDateTime(buildActivity().activityTime))).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "标记待复核" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /固定|取消固定/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("文件 0")).toBeInTheDocument();
+    expect(screen.getByLabelText("结论 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Todo 0/0")).toBeInTheDocument();
+    expect(
+      screen.getByText(formatDateTime(buildActivity().activityTime)),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "标记待复核" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /置顶|取消置顶/ }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "MEETING" }));
     await user.click(screen.getByRole("button", { name: "LEGAL" }));
@@ -390,6 +584,88 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("wires note deletion through the notes panel", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "触发记录删除" }));
+
+    expect(mockNoteDeleteMutateAsync).toHaveBeenCalledWith({
+      noteId: 21,
+    });
+  });
+
+  it("places the activity attribute control before the activity title", async () => {
+    renderActivityPage();
+
+    const heading = await screen.findByRole("heading", { name: "预算讨论" });
+    const headerBlock = heading.parentElement;
+    expect(headerBlock).not.toBeNull();
+
+    const attributeButton = within(headerBlock as HTMLElement).getByRole(
+      "button",
+      { name: "MEETING" },
+    );
+    const titleButton = within(headerBlock as HTMLElement).getByRole("button", {
+      name: "预算讨论",
+    });
+    expect(
+      attributeButton.compareDocumentPosition(titleButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("still shows the unassigned attribute control on the activity page when no attribute is set", async () => {
+    mockActivityList.mockResolvedValue([
+      {
+        ...buildActivity(),
+        attributeOptionId: null,
+        attributeLabel: null,
+        attributeColorKey: null,
+        digest: {
+          ...buildActivity().digest,
+          attributeOptionId: null,
+          attributeLabel: null,
+          attributeColorKey: null,
+        },
+      },
+    ]);
+
+    renderActivityPage();
+
+    expect(
+      await screen.findByRole("button", { name: "未设置属性" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the activity title in edit mode for a newly created activity route", async () => {
+    renderActivityPage({
+      initialEntries: ["/projects/9/activities/11?focus=activity-title"],
+    });
+
+    expect(await screen.findByLabelText("Activity 名称")).toHaveFocus();
+    expect(screen.getByDisplayValue("预算讨论")).toBeInTheDocument();
+  });
+
+  it("edits the activity title inline and saves on submit", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "预算讨论" }));
+    await user.clear(screen.getByLabelText("Activity 名称"));
+    await user.type(
+      screen.getByLabelText("Activity 名称"),
+      "预算同步会{Enter}",
+    );
+
+    expect(mockActivityMetaMutate).toHaveBeenCalledWith({
+      activityId: 11,
+      title: "预算同步会",
+    });
+  });
+
   it("trims boundary blank lines and spaces before saving a conclusion", async () => {
     const user = userEvent.setup();
 
@@ -402,27 +678,36 @@ describe("ActivityPage", () => {
       screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
       "  新增的活动结论  ",
     );
-    await user.click(screen.getByRole("button", { name: "保存结论" }));
+    fireEvent.blur(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    );
 
     expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
       projectId: 9,
       activityId: 11,
       markdown: "新增的活动结论",
       html: "<p>新增的活动结论</p>",
-      promotedToProject: true,
+      promotedToProject: false,
     });
   });
 
-  it("lets the composer star toggle project visibility", async () => {
+  it("creates a new conclusion without showing a visible star control", async () => {
     const user = userEvent.setup();
 
     renderActivityPage();
 
     await screen.findByRole("button", { name: "新增结论" });
     await user.click(screen.getByRole("button", { name: "新增结论" }));
-    await user.type(screen.getByPlaceholderText("记录已确认的判断、共识或决定。"), "只保留在活动内");
-    await user.click(screen.getAllByRole("button", { name: "取消项目级标星" })[0]);
-    await user.click(screen.getByRole("button", { name: "保存结论" }));
+    await user.type(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+      "只保留在活动内",
+    );
+    expect(
+      screen.queryByRole("button", { name: /项目级标星|取消项目级标星/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.blur(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    );
 
     expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
       projectId: 9,
@@ -433,17 +718,56 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("hides the empty conclusion state while the composer is open", async () => {
+    const user = userEvent.setup();
+    mockActivityList.mockResolvedValue([
+      {
+        ...buildActivity(),
+        digest: {
+          ...buildActivity().digest,
+          conclusionCount: 0,
+        },
+        conclusions: [],
+      },
+    ]);
+
+    renderActivityPage();
+
+    expect(await screen.findByText("还没有结论。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "新增结论" }));
+
+    expect(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("还没有结论。")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "保存结论" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "取消" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("edits an existing conclusion in place", async () => {
     const user = userEvent.setup();
 
     renderActivityPage();
 
-    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "编辑" }),
+    ).not.toBeInTheDocument();
     await user.click(await screen.findByText("已确认预算分配方案"));
     const editor = screen.getByLabelText("结论编辑器");
+    expect(
+      screen.queryByRole("button", { name: "保存修改" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "取消" }),
+    ).not.toBeInTheDocument();
     await user.clear(editor);
     await user.type(editor, "调整后的活动结论");
-    await user.click(screen.getByRole("button", { name: "保存修改" }));
+    fireEvent.blur(editor);
 
     expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
       conclusionId: 21,
@@ -453,12 +777,153 @@ describe("ActivityPage", () => {
     });
   });
 
-  it("toggles an existing conclusion with the project star", async () => {
+  it("saves the current conclusion before switching to another one", async () => {
+    const user = userEvent.setup();
+
+    mockActivityList.mockResolvedValue([
+      buildActivityWithConclusions([
+        buildActivityConclusion(21, "第一条结论", true),
+        buildActivityConclusion(22, "第二条结论", false),
+      ]),
+    ]);
+
+    renderActivityPage();
+
+    await user.click(await screen.findByText("第一条结论"));
+    await user.clear(screen.getByLabelText("结论编辑器"));
+    await user.type(screen.getByLabelText("结论编辑器"), "更新后的第一条结论");
+    await user.click(screen.getByText("第二条结论"));
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "更新后的第一条结论",
+      html: "<p>更新后的第一条结论</p>",
+      promotedToProject: true,
+    });
+    expect(screen.getByDisplayValue("第二条结论")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("结论编辑器")).toHaveLength(1);
+  });
+
+  it("closes an empty new conclusion draft before activating another conclusion", async () => {
+    const user = userEvent.setup();
+
+    mockActivityList.mockResolvedValue([
+      buildActivityWithConclusions([
+        buildActivityConclusion(21, "第一条结论", true),
+      ]),
+    ]);
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "新增结论" }));
+    expect(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByText("第一条结论"));
+
+    expect(mockConclusionMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("第一条结论")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("结论编辑器")).toHaveLength(1);
+  });
+
+  it("creates a non-empty new conclusion before switching to another conclusion", async () => {
+    const user = userEvent.setup();
+
+    mockActivityList.mockResolvedValue([
+      buildActivityWithConclusions([
+        buildActivityConclusion(21, "第一条结论", true),
+      ]),
+    ]);
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "新增结论" }));
+    await user.type(screen.getByLabelText("结论编辑器"), "待保存的新结论");
+    await user.click(screen.getByText("第一条结论"));
+
+    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      markdown: "待保存的新结论",
+      html: "<p>待保存的新结论</p>",
+      promotedToProject: false,
+    });
+    expect(screen.getByDisplayValue("第一条结论")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("结论编辑器")).toHaveLength(1);
+  });
+
+  it("keeps the current conclusion active when auto-save fails during switching", async () => {
+    const user = userEvent.setup();
+
+    mockConclusionUpdateMutateAsync.mockRejectedValueOnce(
+      new Error("save failed"),
+    );
+    mockActivityList.mockResolvedValue([
+      buildActivityWithConclusions([
+        buildActivityConclusion(21, "第一条结论", true),
+        buildActivityConclusion(22, "第二条结论", false),
+      ]),
+    ]);
+
+    renderActivityPage();
+
+    await user.click(await screen.findByText("第一条结论"));
+    await user.clear(screen.getByLabelText("结论编辑器"));
+    await user.type(
+      screen.getByLabelText("结论编辑器"),
+      "保存失败的第一条结论",
+    );
+    await user.click(screen.getByText("第二条结论"));
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "保存失败的第一条结论",
+      html: "<p>保存失败的第一条结论</p>",
+      promotedToProject: true,
+    });
+    expect(
+      screen.getByDisplayValue("保存失败的第一条结论"),
+    ).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("第二条结论")).not.toBeInTheDocument();
+  });
+
+  it("submits conclusion edits with ctrl-enter", async () => {
     const user = userEvent.setup();
 
     renderActivityPage();
 
-    await user.click(await screen.findByRole("button", { name: "取消项目级标星" }));
+    await user.click(await screen.findByText("已确认预算分配方案"));
+    const editor = screen.getByLabelText("结论编辑器");
+    await user.clear(editor);
+    await user.type(editor, "快捷键保存的活动结论");
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "快捷键保存的活动结论",
+      html: "<p>快捷键保存的活动结论</p>",
+      promotedToProject: true,
+    });
+  });
+
+  it("renders conclusions without update timestamps", async () => {
+    renderActivityPage();
+
+    expect(await screen.findByText("已确认预算分配方案")).toBeInTheDocument();
+    expect(screen.queryByText(/更新于/u)).not.toBeInTheDocument();
+  });
+
+  it("toggles an existing conclusion from the context menu", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    fireEvent.contextMenu(await screen.findByText("已确认预算分配方案"), {
+      clientX: 160,
+      clientY: 84,
+    });
+    await user.click(screen.getByRole("menuitem", { name: "取消项目级标星" }));
 
     expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
       conclusionId: 21,
@@ -468,9 +933,31 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("keeps an inactive conclusion out of edit mode when right-clicking", async () => {
+    renderActivityPage();
+
+    const conclusion = await screen.findByText("已确认预算分配方案");
+    const mouseDownEvent = new MouseEvent("mousedown", {
+      button: 2,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    conclusion.dispatchEvent(mouseDownEvent);
+
+    expect(mouseDownEvent.defaultPrevented).toBe(true);
+
+    fireEvent.contextMenu(conclusion, {
+      clientX: 160,
+      clientY: 84,
+    });
+
+    expect(await screen.findByRole("menu", { name: "结论操作" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("结论编辑器")).not.toBeInTheDocument();
+  });
+
   it("deletes an existing conclusion from the context menu", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     renderActivityPage();
 
@@ -481,10 +968,9 @@ describe("ActivityPage", () => {
 
     await user.click(screen.getByRole("menuitem", { name: "删除" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith("确定删除这条结论吗？删除后无法恢复。");
-    expect(mockConclusionDeleteMutateAsync).toHaveBeenCalledWith({ conclusionId: 21 });
-
-    confirmSpy.mockRestore();
+    expect(mockConclusionDeleteMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+    });
   });
 
   it("imports dropped files into the current activity from anywhere on the page", async () => {
@@ -516,21 +1002,159 @@ describe("ActivityPage", () => {
     );
   });
 
+  it("imports dropped file URIs into the current activity from anywhere on the page", async () => {
+    renderActivityPage();
+
+    await screen.findByText("文件材料");
+
+    const dropZone = screen.getByTestId("activity-page-dropzone");
+
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) =>
+          type === "text/uri-list"
+            ? "file:///tmp/project-atlas/inbox/brief%20v2.pdf"
+            : "",
+      },
+    });
+
+    await waitFor(() =>
+      expect(mockDocumentImport).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        sourcePath: "/tmp/project-atlas/inbox/brief v2.pdf",
+        isStarred: false,
+      }),
+    );
+  });
+
+  it("routes note image inserts to the hidden note-image import without appending to file materials", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    expect(screen.getByTestId("managed-document-count")).toHaveTextContent("0");
+
+    await user.click(screen.getByRole("button", { name: "触发图片导入" }));
+
+    await waitFor(() =>
+      expect(mockDocumentImportNoteImage).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        sourcePath: "/tmp/project-atlas/inbox/clip.png",
+      }),
+    );
+
+    expect(screen.getByTestId("managed-document-count")).toHaveTextContent("0");
+    expect(screen.queryByText("clip.png")).not.toBeInTheDocument();
+  });
+
+  it("routes pasted note images to the hidden clipboard import without appending to file materials", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    expect(screen.getByTestId("managed-document-count")).toHaveTextContent("0");
+
+    await user.click(screen.getByRole("button", { name: "触发粘贴图片导入" }));
+
+    await waitFor(() =>
+      expect(mockDocumentImportClipboardNoteImage).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        fileName: expect.stringMatching(/^clipboard-image-/),
+        mimeType: "image/png",
+        dataBase64: expect.any(String),
+      }),
+    );
+
+    expect(screen.getByTestId("managed-document-count")).toHaveTextContent("0");
+    expect(screen.queryByText(/clipboard-image/u)).not.toBeInTheDocument();
+  });
+
+  it("shows the import tag dialog for activity page drops when file tags exist", async () => {
+    const user = userEvent.setup();
+    mockFileTagSettingsGet.mockResolvedValue({
+      tags: [
+        {
+          id: 3,
+          label: "待审核",
+          colorKey: "amber",
+          usageCount: 1,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+    });
+
+    renderActivityPage();
+
+    await screen.findByText("文件材料");
+
+    fireEvent.drop(screen.getByTestId("activity-page-dropzone"), {
+      dataTransfer: {
+        files: [{ path: "/tmp/project-atlas/inbox/brief.pdf" }],
+      },
+    });
+
+    expect(
+      await screen.findByRole("dialog", { name: "选择导入标签" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("待审核"));
+    await user.click(screen.getByRole("button", { name: "开始导入" }));
+
+    await waitFor(() =>
+      expect(mockDocumentImport).toHaveBeenCalledWith({
+        projectId: 9,
+        activityId: 11,
+        sourcePath: "/tmp/project-atlas/inbox/brief.pdf",
+        isStarred: false,
+        tagIds: [3],
+      }),
+    );
+  });
+
+  it("expands the embedded AI summary and auto-collapses it on outside press", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    expect(screen.queryByTestId("ai-artifact-card")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "AI 概览" }));
+    expect(screen.getByTestId("ai-artifact-card")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId("ai-artifact-card")).not.toBeInTheDocument();
+  });
+
   it("hides AI modules when related feature toggles are off", async () => {
     mockVisibleAiSuggestionTypes.mockReturnValue([]);
     mockIsAiFeatureVisible.mockImplementation(
-      (_snapshot: unknown, feature: unknown) => feature !== "summary.activity_summary",
+      (_snapshot: unknown, feature: unknown) =>
+        feature !== "summary.activity_summary",
     );
 
     renderActivityPage();
 
     await screen.findByText("文件材料");
-    expect(screen.queryByRole("button", { name: "AI 提炼" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "AI 提炼" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("ai-artifact-card")).not.toBeInTheDocument();
   });
 });
 
-function renderActivityPage() {
+function renderActivityPage({
+  initialEntries = ["/projects/9/activities/11"],
+}: {
+  initialEntries?: string[];
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -541,9 +1165,12 @@ function renderActivityPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/projects/9/activities/11"]}>
+      <MemoryRouter initialEntries={initialEntries}>
         <Routes>
-          <Route path="/projects/:projectId/activities/:activityId" element={<ActivityPage />} />
+          <Route
+            path="/projects/:projectId/activities/:activityId"
+            element={<ActivityPage />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -556,7 +1183,6 @@ function buildProject(): ProjectListItem {
     name: "Project Atlas",
     status: "active",
     rootPath: "/tmp/project-atlas",
-    fileLayoutVersion: 1,
     summary: "",
     isArchived: false,
     createdAt: "2026-04-06T08:00:00.000Z",
@@ -624,6 +1250,40 @@ function buildActivity(): ActivityCardData {
   };
 }
 
+function buildActivityWithConclusions(
+  conclusions: ActivityCardData["conclusions"],
+): ActivityCardData {
+  const activity = buildActivity();
+
+  return {
+    ...activity,
+    digest: {
+      ...activity.digest,
+      conclusionCount: conclusions.length,
+    },
+    conclusions,
+  };
+}
+
+function buildActivityConclusion(
+  id: number,
+  contentMarkdown: string,
+  promotedToProject: boolean,
+) {
+  return {
+    id,
+    projectId: 9,
+    activityId: 11,
+    noteId: null,
+    contentMarkdown,
+    contentHtml: `<p>${contentMarkdown}</p>`,
+    promotedToProject,
+    sourceActivityTitle: "预算讨论",
+    createdAt: "2026-04-06T10:20:00.000Z",
+    updatedAt: "2026-04-06T10:25:00.000Z",
+  };
+}
+
 function toPlainText(value: string) {
   return value.replace(/<[^>]+>/g, "");
 }
@@ -632,7 +1292,16 @@ function toHtml(value: string) {
   return value ? `<p>${value}</p>` : "";
 }
 
-function buildDocumentRecord() {
+function buildDocumentRecord(
+  partial: Partial<ReturnType<typeof buildDocumentRecordBase>> = {},
+) {
+  return {
+    ...buildDocumentRecordBase(),
+    ...partial,
+  };
+}
+
+function buildDocumentRecordBase() {
   return {
     id: 31,
     projectId: 9,

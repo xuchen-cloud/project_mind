@@ -106,13 +106,15 @@ export function TodoRail({
     setIsComposing(false);
   }
 
-  function toggleExpanded(todoId: number) {
+  function toggleExpanded(todoId: number, nextExpanded?: boolean) {
     setExpandedTodoIds((current) => {
       const next = new Set(current);
-      if (next.has(todoId)) {
-        next.delete(todoId);
-      } else {
+      const shouldExpand = nextExpanded ?? !next.has(todoId);
+
+      if (shouldExpand) {
         next.add(todoId);
+      } else {
+        next.delete(todoId);
       }
       return next;
     });

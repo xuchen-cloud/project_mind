@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,28 +9,34 @@ import {
   type MouseEvent,
   type ReactElement,
 } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Circle, FilePlus2, FolderOpen, Star, Trash2, Upload } from "lucide-react";
+import { Check, ChevronDown, Circle, FilePlus2, FolderOpen, Star, Trash2, Upload } from "lucide-react";
 
 import { fileTagColorValue } from "../../lib/constants";
-import type { DocumentRecord, DocumentTagRecord, FileTagColorKey, FileTagRecord } from "../../lib/types";
-import { fileUriToPath, formatDateTime } from "../../lib/formatters";
+import type {
+  DocumentRecord,
+  DocumentTagRecord,
+  DocumentVersionRecord,
+  FileTagColorKey,
+} from "../../lib/types";
+import { formatDateTime } from "../../lib/formatters";
+import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
+import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { useUiStore } from "../../state/ui-store";
 import {
   Button,
-  Dialog,
   EmptyState,
-  IconButton,
   PopoverPanel,
   SectionHeader,
   StatusBadge,
   SurfaceCard,
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { DocumentImportTagDialog } from "./DocumentImportTagDialog";
 
 type LayoutMode = "grid" | "list";
 
@@ -40,11 +47,12 @@ interface ManagedDocumentSectionProps {
   layout?: LayoutMode;
   activityId?: number | null;
   importButtonLabel?: string;
+  showImportButton?: boolean;
   emptyText?: string;
   compactHeader?: boolean;
   pageDropActive?: boolean;
   pageDropMessage?: string;
-  onDropFiles?: (paths: string[]) => void;
+  onDropFiles?: (paths: string[]) => void | Promise<unknown>;
 }
 
 interface ContextMenuState {
@@ -64,6 +72,7 @@ export function ManagedDocumentSection({
   layout = "grid",
   activityId = null,
   importButtonLabel = "导入文件",
+  showImportButton = true,
   emptyText = "还没有关联文件。",
   compactHeader = false,
   pageDropActive = false,
@@ -76,25 +85,29 @@ export function ManagedDocumentSection({
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [pendingTagIdsByDocumentId, setPendingTagIdsByDocumentId] = useState<Record<number, number[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [pendingImportPaths, setPendingImportPaths] = useState<string[] | null>(null);
-  const [pendingImportTagIds, setPendingImportTagIds] = useState<number[]>([]);
   const openTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const openSettings = useUiStore((state) => state.openSettings);
 
   const {
-    documentImportMutation,
     documentMetaMutation,
     documentAddVersionMutation,
     documentDeleteMutation,
   } = useDocumentMutations();
   const { pushToast } = useFeedbackStore();
-  const fileTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings"],
-    queryFn: projectMindApi.fileTagSettingsGet,
+  const {
+    fileTags,
+    fileTagSettingsQuery,
+    pendingImportPaths,
+    pendingImportTagIds,
+    requestImportPaths,
+    togglePendingImportTag,
+    closeImportTagDialog,
+    confirmImportTagDialog,
+    manageImportTags,
+  } = useDocumentImportFlow({
+    projectId,
+    activityId,
   });
-
-  const fileTags = fileTagSettingsQuery.data?.tags ?? [];
   const fileTagLookup = useMemo(
     () =>
       new Map(
@@ -272,53 +285,20 @@ export function ManagedDocumentSection({
     }
   };
 
-  const importFiles = (paths: string[], tagIds: number[]) => {
-    for (const path of paths) {
-      documentImportMutation.mutate({
-        projectId,
-        ...(activityId !== null ? { activityId } : {}),
-        sourcePath: path,
-        isStarred: false,
-        ...(tagIds.length > 0 ? { tagIds } : {}),
-      });
-    }
-  };
-
   const handleImportPaths = async (paths: string[]) => {
-    if (paths.length === 0) {
-      pushToast({
-        tone: "error",
-        title: "无法读取拖拽文件",
-        detail: "当前拖拽源没有暴露本地路径，请改用“选择文件”导入。",
-      });
-      return;
-    }
-
     if (onDropFiles) {
-      onDropFiles(paths);
+      await onDropFiles(paths);
       return;
     }
 
-    let availableTags = fileTags;
-    if (!fileTagSettingsQuery.data && !fileTagSettingsQuery.isError) {
-      const result = await fileTagSettingsQuery.refetch();
-      availableTags = result.data?.tags ?? [];
-    }
-
-    if (availableTags.length > 0) {
-      setPendingImportPaths(paths);
-      setPendingImportTagIds([]);
-      return;
-    }
-
-    importFiles(paths, []);
+    await requestImportPaths(paths);
   };
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setDragActive(false);
-    void handleImportPaths(readDroppedFilePaths(event));
+    void handleImportPaths(extractDroppedFilePaths(event.dataTransfer));
   };
 
   const openDocument = (document: DocumentRecord) => {
@@ -355,17 +335,9 @@ export function ManagedDocumentSection({
       return;
     }
 
-    const sourcePath = await desktopApi.pickFile({
-      title: `选择新版本 · ${document.baseName}`,
-    });
-    if (!sourcePath) {
-      return;
-    }
-
     try {
       const nextDocument = await documentAddVersionMutation.mutateAsync({
         documentId: document.id,
-        sourcePath,
       });
       await runDesktopAction(
         desktopApi.openFile(nextDocument.managedPath),
@@ -378,14 +350,6 @@ export function ManagedDocumentSection({
   };
 
   const deleteDocument = (document: DocumentRecord) => {
-    const confirmed =
-      typeof window === "undefined"
-        ? true
-        : window.confirm(buildDocumentDeleteConfirmMessage(document));
-    if (!confirmed) {
-      return;
-    }
-
     documentDeleteMutation.mutate({ documentId: document.id });
   };
 
@@ -425,6 +389,15 @@ export function ManagedDocumentSection({
       openTimerRef.current = null;
       openDocument(document);
     }, 180);
+  };
+
+  const handleRowMouseDownCapture = (document: DocumentRecord, event: MouseEvent<HTMLElement>) => {
+    if (editingDocumentId === document.id || event.button !== 2 || isInteractiveTarget(event.target)) {
+      return;
+    }
+
+    clearPendingOpen();
+    event.preventDefault();
   };
 
   const openContextMenu = (documentId: number, x: number, y: number) => {
@@ -541,21 +514,23 @@ export function ManagedDocumentSection({
             onClear={() => setSelectedTagIds([])}
           />
 
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            leadingIcon={<FilePlus2 size={14} />}
-            onClick={async () => {
-              const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${projectRootPath}` });
-              if (sourcePaths.length === 0) {
-                return;
-              }
-              await handleImportPaths(sourcePaths);
-            }}
-          >
-            {importButtonLabel}
-          </Button>
+          {showImportButton ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              leadingIcon={<FilePlus2 size={14} />}
+              onClick={async () => {
+                const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${projectRootPath}` });
+                if (sourcePaths.length === 0) {
+                  return;
+                }
+                await handleImportPaths(sourcePaths);
+              }}
+            >
+              {importButtonLabel}
+            </Button>
+          ) : null}
         </div>
 
         {visibleDragActive ? (
@@ -577,30 +552,17 @@ export function ManagedDocumentSection({
             className={
               isGridLayout
                 ? "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2 p-2"
-                : "grid gap-px bg-border"
+                : "grid gap-1.5"
             }
           >
             {filteredDocuments.map((document) => {
               const isEditing = editingDocumentId === document.id;
+              const isContextOpen = contextMenu?.documentId === document.id;
               const locationLabel = buildDocumentLocationLabel(document);
-              const metaLine = `${locationLabel} · ${formatDateTime(document.updatedAt)}`;
               const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
-              const starButtonClassName = [
-                isGridLayout ? "h-5 w-5 rounded-[var(--radius-4)]" : "",
-                document.isStarred
-                  ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,transparent)] text-accent hover:border-[color-mix(in_srgb,var(--color-accent)_28%,var(--color-border))] hover:bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)] hover:text-accent"
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
               const badges = (
                 <>
                   <DocumentTagDots tags={tags} />
-                  {document.versionCount > 1 ? (
-                    <StatusBadge tone="neutral" className="px-1 py-0 text-[10px] tracking-[0.1em]">
-                      v{document.currentVersionNumber}
-                    </StatusBadge>
-                  ) : null}
                   {document.health === "missing" ? (
                     <StatusBadge tone="danger" className="px-1 py-0 text-[10px] tracking-[0.1em]">
                       失效
@@ -615,21 +577,21 @@ export function ManagedDocumentSection({
                   id={`document-${document.id}`}
                   className={[
                     "relative",
+                    isEditing ? "" : "context-menu-no-select",
                     isGridLayout
-                      ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2 py-1.5 transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)]"
-                      : "group flex cursor-pointer items-center gap-2 rounded-none border-0 bg-bg px-2.5 py-2 transition-[background-color] duration-[160ms] ease-[var(--ease-soft)]",
+                      ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]"
+                      : "group flex cursor-pointer items-center gap-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
                     document.health === "missing"
-                      ? isGridLayout
-                        ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
-                        : "bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
-                      : isGridLayout
-                        ? "border-border bg-bg hover:border-border-strong hover:bg-bg-subtle"
-                        : "hover:bg-bg-subtle",
+                      ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
+                      : isContextOpen
+                        ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
+                        : "border-border bg-bg hover:border-border-strong hover:bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
                   ].join(" ")}
                   role="button"
                   tabIndex={0}
                   aria-label={buildDocumentAriaLabel(document.baseName, tags)}
                   onClick={(event) => handleRowClick(document, event)}
+                  onMouseDownCapture={(event) => handleRowMouseDownCapture(document, event)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     openContextMenu(document.id, event.clientX, event.clientY);
@@ -638,7 +600,7 @@ export function ManagedDocumentSection({
                 >
                   {isGridLayout ? (
                     <>
-                      <div className="min-w-0 grid content-start gap-0.5">
+                      <div className="min-w-0 grid content-start gap-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-1">
                           {badges}
                         </div>
@@ -656,43 +618,40 @@ export function ManagedDocumentSection({
                               onKeyDown={(event) =>
                                 handleRenameKeyDown(document, event, cancelRename, commitRename)
                               }
-                              className="h-6 w-full rounded-[var(--radius-4)] border border-border bg-bg px-1.5 text-[12px] leading-4 text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+                              className="inline-object-input h-6 w-full px-1.5 text-[12px] leading-4 text-text outline-none"
                             />
                           ) : (
-                            <p
-                              className="overflow-hidden text-[12px] font-medium leading-4.5 text-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-                              title={document.baseName}
-                              onDoubleClick={(event) => {
-                                stopPropagation(event);
-                                beginRename(document);
-                              }}
-                            >
-                              {document.baseName}
-                            </p>
+                            <div className="flex min-w-0 items-center gap-1">
+                              <p
+                                className="overflow-hidden text-[12px] font-medium leading-4.5 text-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                                title={document.baseName}
+                                onDoubleClick={(event) => {
+                                  stopPropagation(event);
+                                  beginRename(document);
+                                }}
+                              >
+                                {document.baseName}
+                              </p>
+                              {document.versionCount > 1 ? (
+                                <DocumentVersionDropdown
+                                  document={document}
+                                  onOpenVersion={(version) =>
+                                    runDesktopAction(
+                                      desktopApi.openFile(version.managedPath),
+                                      "打开版本文件失败",
+                                      version.managedPath,
+                                    )
+                                  }
+                                />
+                              ) : null}
+                            </div>
                           )}
                         </div>
 
-                        <p className="truncate text-[10px] leading-3.5 text-text-soft" title={metaLine}>
-                          {metaLine}
+                        <p className="truncate text-[10px] leading-3.5 text-text-soft" title={locationLabel}>
+                          {locationLabel}
                         </p>
                       </div>
-
-                      <IconButton
-                        type="button"
-                        size="sm"
-                        className={starButtonClassName}
-                        title={document.isStarred ? "取消标星" : "标星"}
-                        aria-label={document.isStarred ? "取消标星" : "标星"}
-                        onClick={(event) => {
-                          stopPropagation(event);
-                          documentMetaMutation.mutate({
-                            documentId: document.id,
-                            isStarred: !document.isStarred,
-                          });
-                        }}
-                      >
-                        <Star size={12} className={document.isStarred ? "fill-current" : ""} />
-                      </IconButton>
                     </>
                   ) : (
                     <>
@@ -710,43 +669,40 @@ export function ManagedDocumentSection({
                               onKeyDown={(event) =>
                                 handleRenameKeyDown(document, event, cancelRename, commitRename)
                               }
-                              className="h-6 min-w-0 flex-1 rounded-[var(--radius-4)] border border-border bg-bg px-1.5 text-[12px] leading-4 text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+                              className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
                             />
                           ) : (
-                            <p
-                              className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
-                              title={document.baseName}
-                              onDoubleClick={(event) => {
-                                stopPropagation(event);
-                                beginRename(document);
-                              }}
-                            >
-                              {document.baseName}
-                            </p>
+                            <div className="flex min-w-0 flex-1 items-center gap-1">
+                              <p
+                                className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
+                                title={document.baseName}
+                                onDoubleClick={(event) => {
+                                  stopPropagation(event);
+                                  beginRename(document);
+                                }}
+                              >
+                                {document.baseName}
+                              </p>
+                              {document.versionCount > 1 ? (
+                                <DocumentVersionDropdown
+                                  document={document}
+                                  onOpenVersion={(version) =>
+                                    runDesktopAction(
+                                      desktopApi.openFile(version.managedPath),
+                                      "打开版本文件失败",
+                                      version.managedPath,
+                                    )
+                                  }
+                                />
+                              ) : null}
+                            </div>
                           )}
                           {badges}
                         </div>
-                        <p className="truncate text-[10px] leading-4 text-text-soft" title={metaLine}>
-                          {metaLine}
+                        <p className="truncate text-[10px] leading-4 text-text-soft" title={locationLabel}>
+                          {locationLabel}
                         </p>
                       </div>
-
-                      <IconButton
-                        type="button"
-                        size="sm"
-                        className={starButtonClassName}
-                        title={document.isStarred ? "取消标星" : "标星"}
-                        aria-label={document.isStarred ? "取消标星" : "标星"}
-                        onClick={(event) => {
-                          stopPropagation(event);
-                          documentMetaMutation.mutate({
-                            documentId: document.id,
-                            isStarred: !document.isStarred,
-                          });
-                        }}
-                      >
-                        <Star size={12} className={document.isStarred ? "fill-current" : ""} />
-                      </IconButton>
                     </>
                   )}
                 </SurfaceCard>
@@ -781,11 +737,22 @@ export function ManagedDocumentSection({
             />
             <DocumentContextMenuAction
               icon={<FilePlus2 size={14} />}
-              label="新增版本并打开"
+              label="复制为新版本并打开"
               disabled={contextMenuDocument.health === "missing"}
               onClick={() => {
                 setContextMenu(null);
                 void addDocumentVersionAndOpen(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<Star size={14} className={contextMenuDocument.isStarred ? "fill-current" : ""} />}
+              label={contextMenuDocument.isStarred ? "取消标星" : "标星"}
+              onClick={() => {
+                setContextMenu(null);
+                documentMetaMutation.mutate({
+                  documentId: contextMenuDocument.id,
+                  isStarred: !contextMenuDocument.isStarred,
+                });
               }}
             />
             <DocumentContextMenuAction
@@ -837,31 +804,16 @@ export function ManagedDocumentSection({
       ) : null}
 
       {pendingImportPaths ? (
-        <ImportTagDialog
+        <DocumentImportTagDialog
           paths={pendingImportPaths}
           tags={fileTags}
           selectedTagIds={pendingImportTagIds}
-          onToggleTag={(tagId) =>
-            setPendingImportTagIds((current) =>
-              current.includes(tagId)
-                ? current.filter((value) => value !== tagId)
-                : [...current, tagId],
-            )
-          }
-          onClose={() => {
-            setPendingImportPaths(null);
-            setPendingImportTagIds([]);
-          }}
+          onToggleTag={togglePendingImportTag}
+          onClose={closeImportTagDialog}
           onConfirm={() => {
-            importFiles(pendingImportPaths, pendingImportTagIds);
-            setPendingImportPaths(null);
-            setPendingImportTagIds([]);
+            void confirmImportTagDialog();
           }}
-          onManageTags={() => {
-            setPendingImportPaths(null);
-            setPendingImportTagIds([]);
-            openSettings("file-tags");
-          }}
+          onManageTags={manageImportTags}
         />
       ) : null}
     </div>
@@ -878,14 +830,6 @@ function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
   }
 
   return `${baseName}，文件标签：${tags.map((tag) => tag.label).join("、")}`;
-}
-
-function buildDocumentDeleteConfirmMessage(document: DocumentRecord) {
-  return [
-    `确定删除“${document.baseName}”吗？`,
-    "这会把当前受控文件和历史版本移到回收站，并从项目中移除该文件卡片。",
-    "原始来源文件不会删除。",
-  ].join("\n");
 }
 
 function stopPropagation(
@@ -916,27 +860,6 @@ function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
     ? Boolean(target.closest("button, input, select, textarea, a, [data-document-interactive='true']"))
     : false;
-}
-
-function readDroppedFilePaths(event: DragEvent<HTMLElement>) {
-  const nativeFiles = Array.from(event.dataTransfer.files) as Array<File & { path?: string }>;
-  const nativePaths = nativeFiles
-    .map((file) => file.path?.trim())
-    .filter((path): path is string => Boolean(path));
-
-  if (nativePaths.length > 0) {
-    return nativePaths;
-  }
-
-  const fileUriList = event.dataTransfer
-    .getData("text/uri-list")
-    .split("\n")
-    .map((item) => item.trim())
-    .filter((item) => item.startsWith("file://"));
-
-  return fileUriList
-    .map((fileUri) => fileUriToPath(fileUri))
-    .filter(Boolean);
 }
 
 function buildEffectiveDocumentTags(
@@ -1090,86 +1013,207 @@ function DocumentTagDots({ tags }: { tags: DocumentTagRecord[] }) {
   );
 }
 
-function ImportTagDialog({
-  paths,
-  tags,
-  selectedTagIds,
-  onToggleTag,
-  onClose,
-  onConfirm,
-  onManageTags,
+interface FloatingMenuPosition {
+  left: number;
+  top: number;
+  width: number;
+}
+
+function DocumentVersionDropdown({
+  document,
+  onOpenVersion,
 }: {
-  paths: string[];
-  tags: FileTagRecord[];
-  selectedTagIds: number[];
-  onToggleTag: (tagId: number) => void;
-  onClose: () => void;
-  onConfirm: () => void;
-  onManageTags: () => void;
+  document: DocumentRecord;
+  onOpenVersion: (version: DocumentVersionRecord) => void;
 }) {
-  return (
-    <Dialog
-      open
-      title="选择导入标签"
-      description={`这次会把相同的 tag 一次性应用到 ${paths.length} 个待导入文件。`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button type="button" variant="primary" onClick={onConfirm}>
-            开始导入
-          </Button>
-        </>
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<FloatingMenuPosition | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const versionsQuery = useQuery({
+    queryKey: ["documentVersions", document.id],
+    queryFn: () =>
+      projectMindApi.documentListVersions({
+        documentId: document.id,
+      }),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false);
       }
-      widthClassName="max-w-lg"
-    >
-      <div className="grid gap-4">
-        <div className="rounded-[var(--radius-8)] border border-border bg-bg-subtle px-3 py-3">
-          <p className="text-ui font-medium text-text-muted">本次文件</p>
-          <div className="mt-2 grid gap-1 text-ui text-text-soft">
-            {paths.slice(0, 4).map((path) => (
-              <p key={path} className="truncate" title={path}>
-                {path}
-              </p>
-            ))}
-            {paths.length > 4 ? <p>另外还有 {paths.length - 4} 个文件</p> : null}
-          </div>
-        </div>
+    };
 
-        <div className="grid gap-1">
-          {tags.map((tag) => (
-            <label
-              key={tag.id}
-              className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-6)] border border-border px-3 py-2 text-ui text-text-muted transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text"
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return undefined;
+    }
+
+    const updatePosition = () => {
+      if (!triggerRef.current) {
+        return;
+      }
+
+      const viewportPadding = 12;
+      const gap = 8;
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const menuHeight = menuRef.current?.offsetHeight ?? 0;
+      const menuWidth = Math.max(menuRef.current?.offsetWidth ?? 0, 220);
+      const spaceBelow = window.innerHeight - triggerRect.bottom;
+      const shouldOpenUp =
+        menuHeight > 0 &&
+        spaceBelow < menuHeight + gap + viewportPadding &&
+        triggerRect.top > spaceBelow;
+
+      const top = shouldOpenUp
+        ? Math.max(viewportPadding, triggerRect.top - menuHeight - gap)
+        : Math.max(
+            viewportPadding,
+            Math.min(
+              triggerRect.bottom + gap,
+              window.innerHeight - menuHeight - viewportPadding,
+            ),
+          );
+      const left = Math.max(
+        viewportPadding,
+        Math.min(triggerRect.left, window.innerWidth - menuWidth - viewportPadding),
+      );
+
+      setMenuPosition({
+        left,
+        top,
+        width: Math.max(triggerRect.width + 88, 220),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, versionsQuery.data, versionsQuery.isLoading]);
+
+  const versions = versionsQuery.data ?? [];
+
+  return (
+    <div ref={rootRef} className="relative shrink-0" data-document-interactive="true">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-document-interactive="true"
+        className="inline-flex items-center gap-1 rounded-[var(--radius-4)]"
+        title="选择版本"
+        aria-label={`选择 ${document.baseName} 的版本`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={(event) => {
+          stopPropagation(event);
+          setOpen((current) => !current);
+        }}
+      >
+        <StatusBadge tone="neutral" className="px-1 py-0 text-[10px] tracking-[0.1em]">
+          v{document.currentVersionNumber}
+        </StatusBadge>
+        <ChevronDown
+          size={12}
+          className={cn(
+            "shrink-0 text-text-soft transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+            open && "rotate-180",
+          )}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="z-[120]"
+              style={{
+                position: "fixed",
+                left: menuPosition?.left ?? 0,
+                top: menuPosition?.top ?? 0,
+                width: menuPosition?.width ?? 220,
+                visibility: menuPosition ? "visible" : "hidden",
+              }}
+              data-document-interactive="true"
+              onClick={stopPropagation}
             >
-              <input
-                type="checkbox"
-                checked={selectedTagIds.includes(tag.id)}
-                onChange={() => onToggleTag(tag.id)}
-              />
-              <Circle
-                size={10}
-                className="fill-current"
-                style={{ color: fileTagColorValue(tag.colorKey) }}
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate">{tag.label}</span>
-            </label>
-          ))}
-        </div>
+              <PopoverPanel className="min-w-[13.75rem] p-1.5">
+                {versionsQuery.isLoading ? (
+                  <p className="px-2.5 py-2 text-ui text-text-soft">正在加载版本...</p>
+                ) : versions.length === 0 ? (
+                  <p className="px-2.5 py-2 text-ui text-text-soft">没有可选版本</p>
+                ) : (
+                  <div className="grid gap-1" role="menu" aria-label={`${document.baseName} 版本列表`}>
+                    {versions.map((version) => {
+                      const isCurrent = version.versionNumber === document.currentVersionNumber;
 
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ui text-text-soft">
-            不选也可以，空选择代表这些文件暂时不挂 tag。
-          </span>
-          <Button type="button" size="sm" variant="ghost" onClick={onManageTags}>
-            管理标签
-          </Button>
-        </div>
-      </div>
-    </Dialog>
+                      return (
+                        <button
+                          key={version.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isCurrent}
+                          className={cn(
+                            "flex w-full items-start justify-between gap-3 rounded-[var(--radius-6)] px-2.5 py-2 text-left transition-colors",
+                            isCurrent
+                              ? "bg-bg-hover text-text"
+                              : "text-text-muted hover:bg-bg-hover hover:text-text",
+                          )}
+                          onClick={() => {
+                            onOpenVersion(version);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2">
+                              <span className="text-ui font-medium text-text">v{version.versionNumber}</span>
+                              {isCurrent ? (
+                                <span className="text-[10px] leading-4 text-text-soft">当前</span>
+                              ) : null}
+                            </span>
+                            <span className="block truncate text-[11px] leading-4 text-text-soft">
+                              {formatDateTime(version.createdAt)}
+                            </span>
+                          </span>
+                          {isCurrent ? <Check size={14} className="mt-0.5 shrink-0 text-text-soft" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </PopoverPanel>
+            </div>,
+            globalThis.document.body,
+          )
+        : null}
+    </div>
   );
 }
 

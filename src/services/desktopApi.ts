@@ -71,6 +71,10 @@ export const desktopApi = {
     return invoke<void>("desktop_reveal_in_explorer", { path });
   },
 
+  readFileAsDataUrl(path: string, mimeType?: string) {
+    return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
+  },
+
   toFileUrl(path: string) {
     return convertFileSrc(path);
   },

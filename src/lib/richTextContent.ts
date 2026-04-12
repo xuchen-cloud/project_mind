@@ -1,4 +1,5 @@
 import { defaultMarkdownParser } from "@tiptap/pm/markdown";
+import { repairRichTextAssetHtml } from "./richTextAssets";
 
 export const EMPTY_RICH_TEXT_HTML = "<p></p>";
 
@@ -31,12 +32,26 @@ export function getRenderableRichTextHtml(content: {
   }
 
   if (HTML_TAG_PATTERN.test(normalizedHtml)) {
-    return normalizedHtml;
+    return repairRichTextAssetHtml(normalizedHtml) || EMPTY_RICH_TEXT_HTML;
   }
 
   return normalizedMarkdown
     ? renderMarkdownToHtml(normalizedMarkdown)
     : renderMarkdownToHtml(normalizedHtml);
+}
+
+export function getEditableRichTextHtml(content: {
+  html?: string | null;
+  markdown?: string | null;
+}) {
+  const normalizedHtml = content.html?.trim() || "";
+  const normalizedMarkdown = content.markdown?.trim() || "";
+
+  if (normalizedHtml) {
+    return repairRichTextAssetHtml(normalizedHtml) || EMPTY_RICH_TEXT_HTML;
+  }
+
+  return normalizedMarkdown ? renderMarkdownToHtml(normalizedMarkdown) : EMPTY_RICH_TEXT_HTML;
 }
 
 export function richTextHtmlToPlainText(html?: string | null) {

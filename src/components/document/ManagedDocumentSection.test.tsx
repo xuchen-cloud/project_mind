@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DocumentRecord, FileTagRecord } from "../../lib/types";
+import type { DocumentRecord, DocumentVersionRecord, FileTagRecord } from "../../lib/types";
 
 const documentMutationMocks = vi.hoisted(() => ({
   documentImportMutation: { mutate: vi.fn(), isPending: false },
@@ -23,6 +23,10 @@ const desktopApiMocks = vi.hoisted(() => ({
 
 const projectMindApiMocks = vi.hoisted(() => ({
   fileTagSettingsGet: vi.fn(async () => ({ tags: [] as FileTagRecord[] })),
+  documentImport: vi.fn(async () => ({ id: 1 })),
+  documentListVersions: vi.fn<(input: { documentId: number }) => Promise<DocumentVersionRecord[]>>(
+    async () => [],
+  ),
 }));
 
 const uiStoreMocks = vi.hoisted(() => ({
@@ -46,6 +50,8 @@ vi.mock("../../services/desktopApi", () => ({
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     fileTagSettingsGet: projectMindApiMocks.fileTagSettingsGet,
+    documentImport: projectMindApiMocks.documentImport,
+    documentListVersions: projectMindApiMocks.documentListVersions,
   },
 }));
 
@@ -72,6 +78,8 @@ describe("ManagedDocumentSection", () => {
     desktopApiMocks.openFolder.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
     projectMindApiMocks.fileTagSettingsGet.mockReset();
+    projectMindApiMocks.documentImport.mockReset();
+    projectMindApiMocks.documentListVersions.mockReset();
     uiStoreMocks.openSettings.mockReset();
 
     desktopApiMocks.pickFile.mockResolvedValue(null);
@@ -81,6 +89,8 @@ describe("ManagedDocumentSection", () => {
     desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValue(buildDocument());
     projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    projectMindApiMocks.documentImport.mockResolvedValue(buildDocument());
+    projectMindApiMocks.documentListVersions.mockResolvedValue([]);
   });
 
   it("does not show a version badge for single-version documents", () => {
@@ -102,6 +112,50 @@ describe("ManagedDocumentSection", () => {
 
     expect(screen.getByText("v3")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
+  });
+
+  it("opens the version dropdown from the version badge and opens a historical version", async () => {
+    const user = userEvent.setup();
+    projectMindApiMocks.documentListVersions.mockResolvedValueOnce([
+      {
+        id: 102,
+        documentId: 7,
+        versionNumber: 2,
+        name: "Roadmap_v2.pdf",
+        sourcePath: "/tmp/original/Roadmap.pdf",
+        managedPath: "/tmp/project/Roadmap_v2.pdf",
+        createdAt: "2026-04-06T10:00:00.000Z",
+      },
+      {
+        id: 101,
+        documentId: 7,
+        versionNumber: 1,
+        name: "Roadmap.pdf",
+        sourcePath: "/tmp/original/Roadmap.pdf",
+        managedPath: "/tmp/project/.7.pm-versions/Roadmap.pdf",
+        createdAt: "2026-04-06T09:00:00.000Z",
+      },
+    ]);
+
+    renderSection([
+      buildDocument({
+        id: 7,
+        name: "Roadmap_v2.pdf",
+        baseName: "Roadmap.pdf",
+        currentVersionNumber: 2,
+        versionCount: 2,
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "选择 Roadmap.pdf 的版本" }));
+
+    expect(await screen.findByRole("menu", { name: "Roadmap.pdf 版本列表" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "版本历史 · Roadmap.pdf" })).not.toBeInTheDocument();
+    expect(projectMindApiMocks.documentListVersions).toHaveBeenCalledWith({ documentId: 7 });
+
+    await user.click(screen.getByRole("menuitemradio", { name: /v1/i }));
+
+    expect(desktopApiMocks.openFile).toHaveBeenCalledWith("/tmp/project/.7.pm-versions/Roadmap.pdf");
   });
 
   it("sorts starred documents before unstarred ones, then by updated time", () => {
@@ -249,15 +303,17 @@ describe("ManagedDocumentSection", () => {
 
     await user.click(screen.getByRole("button", { name: "导入文件" }));
 
-    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
-      projectId: 1,
-      sourcePath: "/tmp/project/brief.pdf",
-      isStarred: false,
-    });
-    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
-      projectId: 1,
-      sourcePath: "/tmp/project/notes.docx",
-      isStarred: false,
+    await waitFor(() => {
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(1, {
+        projectId: 1,
+        sourcePath: "/tmp/project/brief.pdf",
+        isStarred: false,
+      });
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(2, {
+        projectId: 1,
+        sourcePath: "/tmp/project/notes.docx",
+        isStarred: false,
+      });
     });
   });
 
@@ -278,12 +334,12 @@ describe("ManagedDocumentSection", () => {
     });
 
     await waitFor(() => {
-      expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(1, {
         projectId: 1,
         sourcePath: "C:\\Users\\demo\\brief.pdf",
         isStarred: false,
       });
-      expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(2, {
         projectId: 1,
         sourcePath: "\\\\server\\share\\notes.docx",
         isStarred: false,
@@ -291,7 +347,7 @@ describe("ManagedDocumentSection", () => {
     });
   });
 
-  it("only exposes the star action on each card", async () => {
+  it("only exposes the star action in the context menu", async () => {
     const user = userEvent.setup();
 
     renderSection([
@@ -304,14 +360,42 @@ describe("ManagedDocumentSection", () => {
     const documentCard = document.getElementById("document-7");
     expect(documentCard).not.toBeNull();
 
-    expect(within(documentCard as HTMLElement).queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
+    expect(within(documentCard as HTMLElement).queryByRole("button", { name: "标星" })).not.toBeInTheDocument();
 
-    await user.click(within(documentCard as HTMLElement).getByRole("button", { name: "标星" }));
+    fireEvent.contextMenu(documentCard as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "标星" }));
 
     expect(documentMutationMocks.documentMetaMutation.mutate).toHaveBeenCalledWith({
       documentId: 7,
       isStarred: true,
     });
+  });
+
+  it("prevents native text selection on right mouse down before opening the context menu", async () => {
+    renderSection([
+      buildDocument({
+        id: 8,
+        baseName: "Context target.pdf",
+      }),
+    ]);
+
+    const documentCard = document.getElementById("document-8");
+    expect(documentCard).not.toBeNull();
+
+    const mouseDownEvent = new MouseEvent("mousedown", {
+      button: 2,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    (documentCard as HTMLElement).dispatchEvent(mouseDownEvent);
+
+    expect(mouseDownEvent.defaultPrevented).toBe(true);
+
+    fireEvent.contextMenu(documentCard as HTMLElement);
+
+    expect(await screen.findByRole("menu", { name: "文件操作" })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Context target.pdf")).not.toBeInTheDocument();
   });
 
   it("opens a tag context menu on right click and updates tag ids immediately", async () => {
@@ -361,7 +445,8 @@ describe("ManagedDocumentSection", () => {
 
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
       "打开文件所在位置",
-      "新增版本并打开",
+      "复制为新版本并打开",
+      "标星",
       "删除",
     ]);
 
@@ -370,9 +455,8 @@ describe("ManagedDocumentSection", () => {
     expect(desktopApiMocks.revealInExplorer).toHaveBeenCalledWith("/tmp/project/Spec brief.pdf");
   });
 
-  it("picks a new version source, adds the version, and opens the new managed file", async () => {
+  it("duplicates the current version, adds the new version, and opens the new managed file", async () => {
     const user = userEvent.setup();
-    desktopApiMocks.pickFile.mockResolvedValueOnce("/tmp/source/Spec brief v2.pdf");
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValueOnce(
       buildDocument({
         id: 22,
@@ -391,15 +475,10 @@ describe("ManagedDocumentSection", () => {
     ]);
 
     fireEvent.contextMenu(document.getElementById("document-22") as HTMLElement);
-    await user.click(screen.getByRole("menuitem", { name: "新增版本并打开" }));
+    await user.click(screen.getByRole("menuitem", { name: "复制为新版本并打开" }));
 
-    expect(desktopApiMocks.pickFile).toHaveBeenCalledWith({
-      title: "选择新版本 · Spec brief.pdf",
-      filters: undefined,
-    });
     expect(documentMutationMocks.documentAddVersionMutation.mutateAsync).toHaveBeenCalledWith({
       documentId: 22,
-      sourcePath: "/tmp/source/Spec brief v2.pdf",
     });
 
     await waitFor(() => {
@@ -407,9 +486,8 @@ describe("ManagedDocumentSection", () => {
     });
   });
 
-  it("confirms before deleting a document from the context menu", async () => {
+  it("deletes a document from the context menu without confirmation", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     renderSection([
       buildDocument({
@@ -421,37 +499,9 @@ describe("ManagedDocumentSection", () => {
     fireEvent.contextMenu(document.getElementById("document-23") as HTMLElement);
     await user.click(screen.getByRole("menuitem", { name: "删除" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      [
-        "确定删除“Delete me.pdf”吗？",
-        "这会把当前受控文件和历史版本移到回收站，并从项目中移除该文件卡片。",
-        "原始来源文件不会删除。",
-      ].join("\n"),
-    );
     expect(documentMutationMocks.documentDeleteMutation.mutate).toHaveBeenCalledWith({
       documentId: 23,
     });
-
-    confirmSpy.mockRestore();
-  });
-
-  it("does not delete when the user cancels the delete confirmation", async () => {
-    const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-
-    renderSection([
-      buildDocument({
-        id: 24,
-        baseName: "Keep me.pdf",
-      }),
-    ]);
-
-    fireEvent.contextMenu(document.getElementById("document-24") as HTMLElement);
-    await user.click(screen.getByRole("menuitem", { name: "删除" }));
-
-    expect(documentMutationMocks.documentDeleteMutation.mutate).not.toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 
   it("disables locate and add-version actions for missing files while keeping delete available", () => {
@@ -466,7 +516,7 @@ describe("ManagedDocumentSection", () => {
     fireEvent.contextMenu(document.getElementById("document-25") as HTMLElement);
 
     expect(screen.getByRole("menuitem", { name: "打开文件所在位置" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "新增版本并打开" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "复制为新版本并打开" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeEnabled();
   });
 
@@ -488,17 +538,19 @@ describe("ManagedDocumentSection", () => {
     await user.click(screen.getByLabelText("待审核"));
     await user.click(screen.getByRole("button", { name: "开始导入" }));
 
-    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(1, {
-      projectId: 1,
-      sourcePath: "/tmp/project/brief.pdf",
-      isStarred: false,
-      tagIds: [3],
-    });
-    expect(documentMutationMocks.documentImportMutation.mutate).toHaveBeenNthCalledWith(2, {
-      projectId: 1,
-      sourcePath: "/tmp/project/notes.docx",
-      isStarred: false,
-      tagIds: [3],
+    await waitFor(() => {
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(1, {
+        projectId: 1,
+        sourcePath: "/tmp/project/brief.pdf",
+        isStarred: false,
+        tagIds: [3],
+      });
+      expect(projectMindApiMocks.documentImport).toHaveBeenNthCalledWith(2, {
+        projectId: 1,
+        sourcePath: "/tmp/project/notes.docx",
+        isStarred: false,
+        tagIds: [3],
+      });
     });
   });
 });

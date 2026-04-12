@@ -1,18 +1,19 @@
 mod ai_jobs;
 mod ai_provider;
 mod db;
-mod device_identity;
 mod models;
 mod secret_crypto;
+mod workspace;
 
 use std::{
-    env,
+    env, fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use ai_jobs::AiJobManager;
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use base64::Engine as _;
 use db::Database;
 pub use db::DemoSeedResult;
 use models::{
@@ -25,42 +26,211 @@ use models::{
     AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
     AiProviderProfileUpsertInput, AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput,
     ConclusionDeleteInput, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
-    DocumentAddVersionInput, DocumentDeleteInput,
-    DocumentImportInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
-    DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
-    FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteRecord, NoteUpsertInput,
-    ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
-    ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
-    RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput, RecordTypeRecord,
-    RecordTypeSettingsSnapshot, RichTextStyleSettings, RichTextStyleUpsertInput,
-    TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoProgressRecord, TodoRecord,
-    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceSearchInput,
-    WorkspaceSearchResult,
+    DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+    DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
+    DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
+    DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+    FileTagSettingsSnapshot, NoteDeleteInput, NoteRecord, NoteUpsertInput, ProjectArchiveInput,
+    ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem, ProjectOverviewData,
+    ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
+    RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
+    RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
+    TodoDeleteInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
+    TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceCreateInput, WorkspaceOpenInput,
+    WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
+    WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
+use workspace::{
+    cleanup_legacy_app_data, create_workspace, load_local_session, load_metadata,
+    save_local_session, verify_workspace_password, workspace_summary, WorkspaceMetadata,
+    WorkspacePaths, WORKSPACE_SECURITY_MODE,
+};
 
 const APP_IDENTIFIER: &str = "com.xuchen.projectmind.alpha";
-const APP_DB_FILE_NAME: &str = "project_mind_alpha.sqlite3";
 const DEFAULT_DEMO_WORKSPACE_DIR_NAME: &str = "Project Mind Alpha Demo Workspace";
+const LOCAL_WORKSPACE_SESSION_FILE_NAME: &str = "workspace-session.json";
 
-struct AppState {
+pub struct SeedDemoWorkspaceResult {
+    pub workspace_root: String,
+    pub metadata_path: String,
+    pub summary: DemoSeedResult,
+}
+
+struct WorkspaceRuntime {
+    summary: WorkspaceSummary,
+    metadata: WorkspaceMetadata,
+    paths: WorkspacePaths,
+    secret_state: Arc<Mutex<Option<String>>>,
     db: Mutex<Database>,
-    _db_path: PathBuf,
     ai_jobs: AiJobManager,
 }
 
+impl WorkspaceRuntime {
+    fn new(
+        app_handle: &tauri::AppHandle,
+        metadata: WorkspaceMetadata,
+        paths: WorkspacePaths,
+        secret_password: Option<String>,
+    ) -> Result<Self> {
+        let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
+        let execution = db.ai_execution_settings_get()?;
+        let secret_state = Arc::new(Mutex::new(secret_password));
+        let app_handle = app_handle.clone();
+        let ai_jobs = AiJobManager::new(
+            paths.db_path.clone(),
+            paths.root_path.clone(),
+            secret_state.clone(),
+            execution.max_concurrency,
+            Arc::new(move |snapshot| {
+                let _ = app_handle.emit(ai_jobs::AI_JOB_EVENT, snapshot);
+            }),
+        );
+
+        Ok(Self {
+            summary: workspace_summary(&paths.root_path, &metadata),
+            metadata,
+            paths,
+            secret_state,
+            db: Mutex::new(db),
+            ai_jobs,
+        })
+    }
+
+    fn ai_secrets_unlocked(&self) -> bool {
+        lock_mutex(&self.secret_state).is_some()
+    }
+
+    fn set_secret_password(&self, secret_password: Option<String>) -> Result<()> {
+        {
+            let mut secret = lock_mutex(&self.secret_state);
+            *secret = secret_password.clone();
+        }
+
+        let mut db_guard = lock_mutex(&self.db);
+        let next_db = Database::open(&self.paths.db_path, &self.paths.root_path, secret_password)?;
+        *db_guard = next_db;
+        let execution = db_guard.ai_execution_settings_get()?;
+        self.ai_jobs.set_max_concurrency(execution.max_concurrency);
+        Ok(())
+    }
+}
+
+struct AppState {
+    app_handle: tauri::AppHandle,
+    local_session_path: PathBuf,
+    current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
+}
+
+impl AppState {
+    fn status_snapshot(&self) -> Result<WorkspaceStatusSnapshot> {
+        let current = lock_mutex(&self.current_workspace).clone();
+        let recent_state = load_local_session(&self.local_session_path)?;
+        let recent_workspaces = recent_state
+            .recent_workspace_roots
+            .iter()
+            .filter_map(|root| {
+                let root_path = PathBuf::from(root);
+                load_metadata(&root_path)
+                    .ok()
+                    .map(|(metadata, _)| workspace_summary(&root_path, &metadata))
+            })
+            .collect::<Vec<_>>();
+
+        Ok(WorkspaceStatusSnapshot {
+            current_workspace: current.as_ref().map(|runtime| runtime.summary.clone()),
+            recent_workspaces,
+            ai_secrets_unlocked: current
+                .as_ref()
+                .map(|runtime| runtime.ai_secrets_unlocked())
+                .unwrap_or(false),
+            security_mode: current
+                .as_ref()
+                .map(|runtime| runtime.metadata.security_mode.clone())
+                .unwrap_or_else(|| WORKSPACE_SECURITY_MODE.to_string()),
+        })
+    }
+
+    fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
+        let mut current = lock_mutex(&self.current_workspace);
+        *current = runtime;
+    }
+
+    fn current_workspace(&self) -> Result<Arc<WorkspaceRuntime>> {
+        lock_mutex(&self.current_workspace)
+            .clone()
+            .ok_or_else(|| anyhow!("no workspace is currently open"))
+    }
+
+    fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
+        let (metadata, paths) = load_metadata(root_path)?;
+        let runtime = Arc::new(WorkspaceRuntime::new(
+            &self.app_handle,
+            metadata,
+            paths,
+            None,
+        )?);
+        self.set_current_workspace(Some(runtime));
+
+        let mut session = load_local_session(&self.local_session_path)?;
+        session.record_recent_workspace(root_path);
+        save_local_session(&self.local_session_path, &session)?;
+
+        self.status_snapshot()
+    }
+
+    fn create_workspace_root(
+        &self,
+        root_path: &Path,
+        password: &str,
+    ) -> Result<WorkspaceStatusSnapshot> {
+        create_workspace(root_path, password)?;
+        self.open_workspace_root(root_path)
+    }
+
+    fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
+        let runtime = self.current_workspace()?;
+        verify_workspace_password(&runtime.metadata, password)?;
+        runtime.set_secret_password(Some(password.to_string()))?;
+        self.status_snapshot()
+    }
+
+    fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
+        let runtime = self.current_workspace()?;
+        runtime.set_secret_password(None)?;
+        self.status_snapshot()
+    }
+}
+
 type CommandResult<T> = std::result::Result<T, String>;
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 fn with_db<T>(
     state: State<'_, AppState>,
     task: impl FnOnce(&mut Database) -> Result<T>,
 ) -> CommandResult<T> {
-    let mut db = state
-        .db
-        .lock()
-        .map_err(|_| "failed to lock application state".to_string())?;
+    let runtime = state
+        .current_workspace()
+        .map_err(|error| error.to_string())?;
+    let mut db = lock_mutex(&runtime.db);
     task(&mut db).map_err(|error| error.to_string())
+}
+
+fn with_workspace_runtime<T>(
+    state: State<'_, AppState>,
+    task: impl FnOnce(&WorkspaceRuntime) -> Result<T>,
+) -> CommandResult<T> {
+    let runtime = state
+        .current_workspace()
+        .map_err(|error| error.to_string())?;
+    task(&runtime).map_err(|error| error.to_string())
 }
 
 fn ensure_path_exists(path: &Path) -> Result<()> {
@@ -81,19 +251,35 @@ fn reveal_path_in_explorer(path: &Path) -> Result<()> {
     reveal_item_in_dir(path).map_err(Into::into)
 }
 
-pub fn default_app_database_path() -> Result<PathBuf> {
-    Ok(default_app_data_dir()?.join(APP_DB_FILE_NAME))
-}
-
 pub fn default_demo_workspace_root() -> Result<PathBuf> {
     Ok(default_home_dir()?
         .join("Documents")
         .join(DEFAULT_DEMO_WORKSPACE_DIR_NAME))
 }
 
-pub fn seed_demo_database_at(db_path: &Path, workspace_root: &Path) -> Result<DemoSeedResult> {
-    let mut db = Database::open(db_path)?;
-    db.reset_and_seed_demo_data(workspace_root)
+pub fn seed_demo_workspace_at(
+    workspace_root: &Path,
+    password: &str,
+    force: bool,
+) -> Result<SeedDemoWorkspaceResult> {
+    if force && workspace_root.exists() {
+        fs::remove_dir_all(workspace_root).with_context(|| {
+            format!(
+                "failed to remove existing demo workspace at {}",
+                workspace_root.display()
+            )
+        })?;
+    }
+
+    let (_, paths) = create_workspace(workspace_root, password)?;
+    let mut db = Database::open(&paths.db_path, workspace_root, Some(password.to_string()))?;
+    let summary = db.reset_and_seed_demo_data(workspace_root)?;
+
+    Ok(SeedDemoWorkspaceResult {
+        workspace_root: workspace_root.to_string_lossy().to_string(),
+        metadata_path: paths.metadata_path.to_string_lossy().to_string(),
+        summary,
+    })
 }
 
 fn default_app_data_dir() -> Result<PathBuf> {
@@ -109,7 +295,7 @@ fn default_app_data_dir() -> Result<PathBuf> {
     {
         let appdata = env::var_os("APPDATA")
             .map(PathBuf::from)
-            .ok_or_else(|| anyhow::anyhow!("APPDATA is not available"))?;
+            .ok_or_else(|| anyhow!("APPDATA is not available"))?;
         return Ok(appdata.join(APP_IDENTIFIER));
     }
 
@@ -130,7 +316,7 @@ fn default_home_dir() -> Result<PathBuf> {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("failed to resolve the current user's home directory"))
+        .ok_or_else(|| anyhow!("failed to resolve the current user's home directory"))
 }
 
 fn ensure_main_window<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
@@ -172,6 +358,76 @@ fn desktop_open_folder(path: String) -> CommandResult<()> {
 #[tauri::command]
 fn desktop_reveal_in_explorer(path: String) -> CommandResult<()> {
     reveal_path_in_explorer(Path::new(&path)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn desktop_read_file_as_data_url(path: String, mime_type: Option<String>) -> CommandResult<String> {
+    let normalized_path = path.trim();
+    let target = Path::new(normalized_path);
+
+    ensure_path_exists(target)
+        .and_then(|_| {
+            fs::read(target).with_context(|| format!("failed to read {}", target.display()))
+        })
+        .map(|bytes| {
+            let resolved_mime = mime_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    mime_guess::from_path(target)
+                        .first_raw()
+                        .map(ToOwned::to_owned)
+                })
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+
+            format!("data:{resolved_mime};base64,{encoded}")
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_status_get(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state.status_snapshot().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_create(
+    state: State<'_, AppState>,
+    input: WorkspaceCreateInput,
+) -> CommandResult<WorkspaceStatusSnapshot> {
+    state
+        .create_workspace_root(Path::new(input.root_path.trim()), &input.password)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_open(
+    state: State<'_, AppState>,
+    input: WorkspaceOpenInput,
+) -> CommandResult<WorkspaceStatusSnapshot> {
+    state
+        .open_workspace_root(Path::new(input.root_path.trim()))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_unlock(
+    state: State<'_, AppState>,
+    input: WorkspaceUnlockInput,
+) -> CommandResult<WorkspaceStatusSnapshot> {
+    state
+        .unlock_current_workspace(&input.password)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state
+        .lock_current_workspace_secrets()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -337,6 +593,11 @@ fn note_upsert(state: State<'_, AppState>, input: NoteUpsertInput) -> CommandRes
 }
 
 #[tauri::command]
+fn note_delete(state: State<'_, AppState>, input: NoteDeleteInput) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.note_delete(input))
+}
+
+#[tauri::command]
 fn conclusion_create(
     state: State<'_, AppState>,
     input: ConclusionCreateInput,
@@ -424,6 +685,30 @@ fn document_import(
     input: DocumentImportInput,
 ) -> CommandResult<DocumentRecord> {
     with_db(state, |db| db.document_import(input))
+}
+
+#[tauri::command]
+fn document_import_clipboard_image(
+    state: State<'_, AppState>,
+    input: DocumentImportClipboardImageInput,
+) -> CommandResult<DocumentRecord> {
+    with_db(state, |db| db.document_import_clipboard_image(input))
+}
+
+#[tauri::command]
+fn document_import_note_image(
+    state: State<'_, AppState>,
+    input: DocumentImportNoteImageInput,
+) -> CommandResult<DocumentRecord> {
+    with_db(state, |db| db.document_import_note_image(input))
+}
+
+#[tauri::command]
+fn document_import_clipboard_note_image(
+    state: State<'_, AppState>,
+    input: DocumentImportClipboardNoteImageInput,
+) -> CommandResult<DocumentRecord> {
+    with_db(state, |db| db.document_import_clipboard_note_image(input))
 }
 
 #[tauri::command]
@@ -561,17 +846,17 @@ fn ai_job_enqueue(
     state: State<'_, AppState>,
     input: AiJobEnqueueInput,
 ) -> CommandResult<AiJobSnapshot> {
-    Ok(state.ai_jobs.enqueue(input))
+    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.enqueue(input)))
 }
 
 #[tauri::command]
 fn ai_job_get(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
-    Ok(state.ai_jobs.get(job_id))
+    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.get(job_id)))
 }
 
 #[tauri::command]
 fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSnapshot>> {
-    Ok(state.ai_jobs.list_active())
+    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.list_active()))
 }
 
 #[tauri::command]
@@ -579,15 +864,17 @@ fn ai_execution_settings_upsert(
     state: State<'_, AppState>,
     input: AiExecutionSettings,
 ) -> CommandResult<AiExecutionSettings> {
+    let runtime = state
+        .current_workspace()
+        .map_err(|error| error.to_string())?;
     let settings = {
-        let mut db = state
-            .db
-            .lock()
-            .map_err(|_| "failed to lock application state".to_string())?;
+        let mut db = lock_mutex(&runtime.db);
         db.ai_execution_settings_upsert(input)
             .map_err(|error| error.to_string())?
     };
-    state.ai_jobs.set_max_concurrency(settings.max_concurrency);
+    runtime
+        .ai_jobs
+        .set_max_concurrency(settings.max_concurrency);
     Ok(settings)
 }
 
@@ -614,29 +901,35 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             ensure_main_window(app)?;
-            let app_data_dir = app.path().app_data_dir()?;
-            let db_path = app_data_dir.join("project_mind_alpha.sqlite3");
-            let mut db = Database::open(&db_path)?;
-            let execution = db.ai_execution_settings_get()?;
-            let app_handle = app.handle().clone();
-            let ai_jobs = AiJobManager::new(
-                db_path.clone(),
-                execution.max_concurrency,
-                Arc::new(move |snapshot| {
-                    let _ = app_handle.emit(ai_jobs::AI_JOB_EVENT, snapshot);
-                }),
-            );
-            app.manage(AppState {
-                db: Mutex::new(db),
-                _db_path: db_path,
-                ai_jobs,
-            });
+
+            let app_data_dir = default_app_data_dir()?;
+            let local_session_path = app_data_dir.join(LOCAL_WORKSPACE_SESSION_FILE_NAME);
+            cleanup_legacy_app_data(&app_data_dir, &local_session_path)?;
+
+            let state = AppState {
+                app_handle: app.handle().clone(),
+                local_session_path: local_session_path.clone(),
+                current_workspace: Mutex::new(None),
+            };
+
+            let local_session = load_local_session(&local_session_path)?;
+            if let Some(last_root) = local_session.last_opened_workspace_root {
+                let _ = state.open_workspace_root(Path::new(&last_root));
+            }
+
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             desktop_open_file,
             desktop_open_folder,
             desktop_reveal_in_explorer,
+            desktop_read_file_as_data_url,
+            workspace_status_get,
+            workspace_create,
+            workspace_open,
+            workspace_unlock,
+            workspace_lock,
             projects_list,
             project_create,
             project_get_dashboard,
@@ -658,6 +951,7 @@ pub fn run() {
             record_type_option_upsert,
             record_type_option_delete,
             note_upsert,
+            note_delete,
             conclusion_create,
             conclusion_list,
             conclusion_update,
@@ -670,6 +964,9 @@ pub fn run() {
             todo_delete,
             todo_list_open,
             document_import,
+            document_import_clipboard_image,
+            document_import_note_image,
+            document_import_clipboard_note_image,
             document_update_meta,
             document_relocate,
             document_list_versions,

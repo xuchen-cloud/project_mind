@@ -33,6 +33,7 @@ interface AiArtifactCardProps {
   input: AiArtifactGetInput;
   aiEnabled: boolean;
   sectionsLayout?: "auto" | "single-column";
+  display?: "standalone" | "embedded";
 }
 
 export function AiArtifactCard({
@@ -42,6 +43,7 @@ export function AiArtifactCard({
   input,
   aiEnabled,
   sectionsLayout = "auto",
+  display = "standalone",
 }: AiArtifactCardProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -134,42 +136,43 @@ export function AiArtifactCard({
     return { tone: "danger" as const, label: "错误" };
   }, [aiEnabled, artifact, artifactJob?.status, statusErrorDetail]);
 
-  return (
-    <section className="grid gap-4">
-      <SectionHeader
-        eyebrow={eyebrow}
-        title={title}
-        description={description}
-        actions={
-          <div className="flex items-center gap-2">
-            <StatusBadge
-              tone={statusMeta.tone}
-              title={statusMeta.tone === "danger" ? statusErrorDetail ?? undefined : undefined}
-              className={statusMeta.tone === "danger" ? "cursor-help" : undefined}
-            >
-              {statusMeta.label}
-            </StatusBadge>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={!aiEnabled || artifactJobActive}
-              leadingIcon={
-                artifactJobActive ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
-                  <RefreshCcw size={14} />
-                )
-              }
-              onClick={() => void refreshArtifact()}
-            >
-              刷新总结
-            </Button>
-          </div>
-        }
-      />
+  const header = (
+    <SectionHeader
+      eyebrow={eyebrow}
+      title={title}
+      description={description}
+      actions={
+        <div className="flex items-center gap-2">
+          <StatusBadge
+            tone={statusMeta.tone}
+            title={statusMeta.tone === "danger" ? statusErrorDetail ?? undefined : undefined}
+            className={statusMeta.tone === "danger" ? "cursor-help" : undefined}
+          >
+            {statusMeta.label}
+          </StatusBadge>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!aiEnabled || artifactJobActive}
+            leadingIcon={
+              artifactJobActive ? (
+                <LoaderCircle className="spin" size={14} />
+              ) : (
+                <RefreshCcw size={14} />
+              )
+            }
+            onClick={() => void refreshArtifact()}
+          >
+            刷新总结
+          </Button>
+        </div>
+      }
+    />
+  );
 
-      <SurfaceCard subtle className="grid gap-4 p-4">
+  const content = (
+    <div className={cn("grid gap-4", display === "standalone" && "p-4")}>
         {!aiEnabled ? (
           <EmptyState
             title="Summary 能力未配置"
@@ -316,7 +319,22 @@ export function AiArtifactCard({
             </div>
           </>
         )}
-      </SurfaceCard>
+    </div>
+  );
+
+  if (display === "embedded") {
+    return (
+      <section className="grid gap-4">
+        {header}
+        {content}
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-4">
+      {header}
+      <SurfaceCard subtle>{content}</SurfaceCard>
     </section>
   );
 }

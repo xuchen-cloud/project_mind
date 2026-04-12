@@ -7,7 +7,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { ChevronDown, LoaderCircle, PencilLine, Plus, Sparkles } from "lucide-react";
+import { LoaderCircle, Pin, PinOff, Sparkles } from "lucide-react";
 
 import {
   isAiJobActive,
@@ -17,23 +17,25 @@ import {
 import { normalizeRichEditorValue, RichEditor } from "../rich-editor";
 import type { RichEditorPersistState, RichEditorValue } from "../rich-editor";
 import { fileTagColorValue } from "../../lib/constants";
-import { fileHref, formatDateTime } from "../../lib/formatters";
+import { fileHref } from "../../lib/formatters";
 import {
   resolveSuggestedTodoPriority,
   todoPriorityOptionLabel,
 } from "../../lib/todo-priority";
+import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import {
   createDraftNote,
   defaultNoteTemplateKey,
+  deriveNoteTitleFromContent,
+  getEditableNoteHtml,
   getRenderableNoteHtml,
-  isDefaultNoteTitle,
+  normalizeNoteTitleInput,
   noteTemplateColorKey,
   noteTemplateDefaultHtml,
-  noteTemplateDefaultTitle,
   noteTemplateLabel,
   noteTemplateOptions,
   noteTemplatePlaceholder,
-  summarizeNoteContent,
+  resolveNoteDisplayTitle,
 } from "../../lib/note-templates";
 import type {
   AcceptedSuggestionResult,
@@ -47,10 +49,12 @@ import type {
   RecordTypeSettingsSnapshot,
   TodoPriority,
 } from "../../lib/types";
+import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
   Button,
+  DeleteContextMenu,
   Dialog,
   EmptyState,
   IconButton,
@@ -59,6 +63,7 @@ import {
   SectionHeader,
   StatusBadge,
   SurfaceCard,
+  TextField,
 } from "../../ui/components";
 import { TodoPriorityDropdown } from "../todo/TodoPriorityDropdown";
 
@@ -68,13 +73,19 @@ interface ActivityNotesPanelProps {
   notes: NoteRecord[];
   recordTypeSettings?: RecordTypeSettingsSnapshot | null;
   saving: boolean;
+  deletingNote?: boolean;
   onUpsertNote: (input: NoteUpsertInput) => Promise<NoteRecord>;
+  onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
+  onImportImage: (sourcePath: string) => Promise<DocumentRecord>;
   onImportDocument: (sourcePath: string) => Promise<DocumentRecord>;
+  onImportClipboardImage?: (file: File) => Promise<DocumentRecord>;
   showAiRefine?: boolean;
   aiReady?: boolean;
   enabledSuggestionTypes?: AiSuggestionFeatureType[];
   onGenerateAiSuggestions?: (noteId: number) => Promise<AiSuggestionRecord[]>;
-  onAcceptAiSuggestion?: (input: AiAcceptSuggestionInput) => Promise<AcceptedSuggestionResult>;
+  onAcceptAiSuggestion?: (
+    input: AiAcceptSuggestionInput,
+  ) => Promise<AcceptedSuggestionResult>;
   onManageRecordTypes?: () => void;
 }
 
@@ -86,7 +97,10 @@ interface DraftNoteState {
   contentHtml: string;
 }
 
-type EditorItem = { kind: "closed" } | { kind: "draft" } | { kind: "saved"; noteId: number };
+type EditorItem =
+  | { kind: "closed" }
+  | { kind: "draft" }
+  | { kind: "saved"; noteId: number };
 
 interface ComposerState {
   key: string;
@@ -101,10 +115,8 @@ interface RecordResultItem {
   value: string;
   noteId?: number;
   noteType: NoteTemplateKey;
-  summary: string;
+  title: string;
   previewHtml: string;
-  updatedAt: string | null;
-  isDraft: boolean;
 }
 
 interface AiRefinePreview {
@@ -134,8 +146,12 @@ export function ActivityNotesPanel({
   notes,
   recordTypeSettings = null,
   saving,
+  deletingNote = false,
   onUpsertNote,
+  onDeleteNote,
+  onImportImage,
   onImportDocument,
+  onImportClipboardImage,
   showAiRefine = false,
   aiReady = false,
   enabledSuggestionTypes = [],
@@ -144,10 +160,29 @@ export function ActivityNotesPanel({
   onManageRecordTypes,
 }: ActivityNotesPanelProps) {
   const { pushToast } = useFeedbackStore();
+  const [optimisticNotes, setOptimisticNotes] = useState<
+    Record<number, NoteRecord>
+  >({});
+  const mergedNotes = useMemo(() => {
+    const noteMap = new Map<number, NoteRecord>();
+
+    for (const note of notes) {
+      noteMap.set(note.id, note);
+    }
+
+    for (const note of Object.values(optimisticNotes)) {
+      noteMap.set(note.id, note);
+    }
+
+    return Array.from(noteMap.values());
+  }, [notes, optimisticNotes]);
   const sortedNotes = useMemo(
     () =>
-      [...notes].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
-    [notes],
+      [...mergedNotes].sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      ),
+    [mergedNotes],
   );
   const defaultRecordType = defaultNoteTemplateKey(recordTypeSettings);
   const recordTypeMenuOptions = useMemo(
@@ -156,14 +191,29 @@ export function ActivityNotesPanel({
   );
   const [draftNote, setDraftNote] = useState<DraftNoteState | null>(null);
   const [editorItem, setEditorItem] = useState<EditorItem>({ kind: "closed" });
-  const [editorPersistState, setEditorPersistState] = useState<RichEditorPersistState>("idle");
+  const [editorPersistState, setEditorPersistState] =
+    useState<RichEditorPersistState>("idle");
+  const [titleDirty, setTitleDirty] = useState(false);
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [aiPreview, setAiPreview] = useState<AiRefinePreview | null>(null);
   const [aiPersisting, setAiPersisting] = useState(false);
   const [aiJobNoteId, setAiJobNoteId] = useState<number | null>(null);
   const [aiApplying, setAiApplying] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [expandedRecordValue, setExpandedRecordValue] = useState<string | null>(null);
+  const [expandedRecordValue, setExpandedRecordValue] = useState<string | null>(
+    null,
+  );
+  const [topRecordValue, setTopRecordValue] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    noteId: number;
+    value: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [pendingEditorFocusPoint, setPendingEditorFocusPoint] = useState<{
+    value: string;
+    point: { x: number; y: number };
+  } | null>(null);
   const suggestionTypeSet = useMemo(
     () => new Set<AiSuggestionFeatureType>(enabledSuggestionTypes),
     [enabledSuggestionTypes],
@@ -172,14 +222,24 @@ export function ActivityNotesPanel({
   const showTodoSuggestions = suggestionTypeSet.has("todo");
 
   const previousActivityIdRef = useRef(activityId);
+  const editorExitInFlightRef = useRef(false);
   const aiJob = useAiJobTarget(
-    aiJobNoteId !== null ? aiNoteSuggestionsJobTargetKey(aiJobNoteId) : "__idle__",
+    aiJobNoteId !== null
+      ? aiNoteSuggestionsJobTargetKey(aiJobNoteId)
+      : "__idle__",
   );
   const aiJobActive = isAiJobActive(aiJob);
+  const contextMenuNote = useMemo(
+    () =>
+      contextMenu
+        ? (sortedNotes.find((note) => note.id === contextMenu.noteId) ?? null)
+        : null,
+    [contextMenu, sortedNotes],
+  );
 
   const activeNote =
     editorItem.kind === "saved"
-      ? sortedNotes.find((note) => note.id === editorItem.noteId) ?? null
+      ? (sortedNotes.find((note) => note.id === editorItem.noteId) ?? null)
       : null;
   const editorValue =
     editorItem.kind === "draft"
@@ -196,12 +256,16 @@ export function ActivityNotesPanel({
   const editorOpen = composer !== null;
 
   const closeEditor = useCallback(() => {
-    if (draftNote && isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings)) {
+    if (
+      draftNote &&
+      isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings)
+    ) {
       setDraftNote(null);
     }
 
     setAiPreview(null);
     setAiJobNoteId(null);
+    setPendingEditorFocusPoint(null);
     setEditorItem({ kind: "closed" });
     setComposer(null);
   }, [draftNote, recordTypeSettings]);
@@ -214,9 +278,13 @@ export function ActivityNotesPanel({
     previousActivityIdRef.current = activityId;
     setAiPreview(null);
     setAiJobNoteId(null);
+    setPendingEditorFocusPoint(null);
     setDraftNote(null);
+    setOptimisticNotes({});
     setCreateMenuOpen(false);
     setExpandedRecordValue(null);
+    setTopRecordValue(null);
+    setContextMenu(null);
     setEditorItem({ kind: "closed" });
     setComposer(null);
   }, [activityId]);
@@ -270,13 +338,43 @@ export function ActivityNotesPanel({
     }
   }, [activeNote, composer, draftNote, editorItem.kind, recordTypeSettings]);
 
+  const editorHasPendingChanges =
+    titleDirty ||
+    editorPersistState === "dirty" ||
+    editorPersistState === "saving";
+  const preventEditorTransition = useCallback(() => {
+    if (editorExitInFlightRef.current) {
+      return true;
+    }
+
+    if (!editorOpen || !editorHasPendingChanges) {
+      return false;
+    }
+
+    pushToast({
+      tone: "info",
+      title: "请先保存当前编辑",
+      detail: "保存后再切换或收起记录，能避免这次修改丢失。",
+    });
+    return true;
+  }, [editorHasPendingChanges, editorOpen, pushToast]);
+
   const handleCreateNote = useCallback(
     (template: NoteTemplateKey) => {
-      if (draftNote && !isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings)) {
+      if (preventEditorTransition()) {
+        setCreateMenuOpen(false);
+        return;
+      }
+
+      if (
+        draftNote &&
+        !isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings)
+      ) {
         pushToast({
           tone: "info",
           title: "请先保存当前草稿",
-          detail: "当前已有未保存内容。保存后再新建其他记录类型，能避免草稿被覆盖。",
+          detail:
+            "当前已有未保存内容。保存后再新建其他记录类型，能避免草稿被覆盖。",
         });
         setCreateMenuOpen(false);
         return;
@@ -291,16 +389,35 @@ export function ActivityNotesPanel({
       setExpandedRecordValue(`draft:${nextDraft.localId}`);
       setCreateMenuOpen(false);
     },
-    [draftNote, pushToast, recordTypeSettings],
+    [draftNote, preventEditorTransition, pushToast, recordTypeSettings],
   );
 
   const handleEditRecord = useCallback(
-    (value: string) => {
+    (value: string, focusPoint?: { x: number; y: number }) => {
+      if (editorValue === value) {
+        return;
+      }
+
+      if (preventEditorTransition()) {
+        return;
+      }
+
+      setContextMenu(null);
+
       if (value.startsWith("draft:")) {
         if (!draftNote) {
+          setPendingEditorFocusPoint(null);
           return;
         }
 
+        setPendingEditorFocusPoint(
+          focusPoint
+            ? {
+                value,
+                point: focusPoint,
+              }
+            : null,
+        );
         setAiPreview(null);
         setAiJobNoteId(null);
         setEditorItem({ kind: "draft" });
@@ -313,16 +430,31 @@ export function ActivityNotesPanel({
       const nextNote = sortedNotes.find((item) => item.id === noteId);
 
       if (!nextNote) {
+        setPendingEditorFocusPoint(null);
         return;
       }
 
+      setPendingEditorFocusPoint(
+        focusPoint
+          ? {
+              value,
+              point: focusPoint,
+            }
+          : null,
+      );
       setAiPreview(null);
       setAiJobNoteId(null);
       setEditorItem({ kind: "saved", noteId });
       setComposer(buildComposerFromNote(nextNote, recordTypeSettings));
       setExpandedRecordValue(value);
     },
-    [draftNote, recordTypeSettings, sortedNotes],
+    [
+      draftNote,
+      editorValue,
+      preventEditorTransition,
+      recordTypeSettings,
+      sortedNotes,
+    ],
   );
 
   const handleEditorChange = useCallback(
@@ -352,13 +484,75 @@ export function ActivityNotesPanel({
     [editorItem.kind],
   );
 
-  const handleSave = useCallback(
-    async (value: RichEditorValue) => {
-      if (!composer || editorItem.kind === "closed") {
-        return undefined;
+  const handleTitleChange = useCallback(
+    (nextTitle: string) => {
+      setTitleDirty(true);
+      setComposer((current) =>
+        current
+          ? {
+              ...current,
+              title: nextTitle,
+            }
+          : current,
+      );
+
+      if (editorItem.kind === "draft") {
+        setDraftNote((current) =>
+          current
+            ? {
+                ...current,
+                title: nextTitle,
+              }
+            : current,
+        );
+      }
+    },
+    [editorItem.kind],
+  );
+
+  const applyOptimisticNote = useCallback((savedNote: NoteRecord) => {
+    setOptimisticNotes((current) => ({
+      ...current,
+      [savedNote.id]: savedNote,
+    }));
+    setTitleDirty(false);
+  }, []);
+
+  const removeOptimisticNote = useCallback((noteId: number) => {
+    setOptimisticNotes((current) => {
+      if (!(noteId in current)) {
+        return current;
       }
 
-      return persistComposerNote({
+      const next = { ...current };
+      delete next[noteId];
+      return next;
+    });
+  }, []);
+
+  const saveComposerNote = useCallback(
+    async ({
+      value,
+      reuseGeneratedSuggestions = false,
+    }: {
+      value: RichEditorValue;
+      reuseGeneratedSuggestions?: boolean;
+    }) => {
+      if (!composer || editorItem.kind === "closed") {
+        return { savedNote: undefined, suggestions: undefined };
+      }
+
+      const normalizedValue = normalizeRichEditorValue(value);
+      const explicitTitle = composer.title.trim();
+      const fallbackTitle = deriveNoteTitleFromContent(
+        {
+          contentMarkdown: normalizedValue.markdown,
+          contentHtml: normalizedValue.html,
+        },
+        composer.noteType,
+        recordTypeSettings,
+      );
+      let savedNote = await persistComposerNote({
         editorItem,
         activeNote,
         activityId,
@@ -367,13 +561,78 @@ export function ActivityNotesPanel({
         noteTemplateSettings: recordTypeSettings,
         onUpsertNote,
         projectId,
+        resolvedTitle: explicitTitle || fallbackTitle,
         setEditorItem,
         setComposer,
         setDraftNote,
-        value,
+        value: normalizedValue,
       });
+      let suggestions: AiSuggestionRecord[] | undefined;
+
+      if (!savedNote) {
+        return { savedNote: undefined, suggestions: undefined };
+      }
+
+      applyOptimisticNote(savedNote);
+
+      if (
+        !explicitTitle &&
+        aiReady &&
+        onGenerateAiSuggestions &&
+        normalizedValue.markdown.trim().length > 0
+      ) {
+        try {
+          suggestions = await onGenerateAiSuggestions(savedNote.id);
+          const suggestedTitle = readSuggestedNoteTitle(
+            suggestions,
+            savedNote.id,
+          );
+
+          if (suggestedTitle && suggestedTitle !== savedNote.title?.trim()) {
+            savedNote = await onUpsertNote({
+              projectId,
+              activityId,
+              noteId: savedNote.id,
+              noteType: savedNote.noteType,
+              title: suggestedTitle,
+              markdown: normalizedValue.markdown,
+              html: normalizedValue.html,
+            });
+            applyOptimisticNote(savedNote);
+          }
+        } catch {
+          if (!reuseGeneratedSuggestions) {
+            suggestions = undefined;
+          }
+        }
+      }
+
+      return {
+        savedNote,
+        suggestions: reuseGeneratedSuggestions ? suggestions : undefined,
+      };
     },
-    [editorItem, activeNote, activityId, composer, draftNote, onUpsertNote, projectId, recordTypeSettings],
+    [
+      activeNote,
+      activityId,
+      aiReady,
+      applyOptimisticNote,
+      composer,
+      draftNote,
+      editorItem,
+      onGenerateAiSuggestions,
+      onUpsertNote,
+      projectId,
+      recordTypeSettings,
+    ],
+  );
+
+  const handleSave = useCallback(
+    async (value: RichEditorValue) => {
+      const { savedNote } = await saveComposerNote({ value });
+      return savedNote;
+    },
+    [saveComposerNote],
   );
 
   const handleAiRefine = useCallback(async () => {
@@ -394,23 +653,13 @@ export function ActivityNotesPanel({
     setAiPersisting(true);
 
     try {
-      const savedNote = await persistComposerNote({
-        editorItem,
-        activeNote,
-        activityId,
-        composer,
-        draftNote,
-        noteTemplateSettings: recordTypeSettings,
-        onUpsertNote,
-        projectId,
-        setEditorItem,
-        setComposer,
-        setDraftNote,
+      const { savedNote, suggestions } = await saveComposerNote({
         value: {
           text: composer.contentMarkdown,
           html: composer.contentHtml,
           markdown: composer.contentMarkdown,
         },
+        reuseGeneratedSuggestions: true,
       });
 
       if (!savedNote) {
@@ -418,18 +667,24 @@ export function ActivityNotesPanel({
       }
 
       setAiJobNoteId(savedNote.id);
-      const suggestions = await onGenerateAiSuggestions(savedNote.id);
-      const currentNoteSuggestions = suggestions.filter(
-        (suggestion) => suggestion.status === "pending" && suggestion.noteId === savedNote.id,
+      const nextSuggestions =
+        suggestions ?? (await onGenerateAiSuggestions(savedNote.id));
+      const currentNoteSuggestions = nextSuggestions.filter(
+        (suggestion) =>
+          suggestion.status === "pending" && suggestion.noteId === savedNote.id,
       );
 
       setAiPreview({
-        noteTitle:
-          savedNote.title?.trim() ||
-          noteTemplateDefaultTitle(savedNote.noteType, recordTypeSettings),
+        noteTitle: resolveNoteDisplayTitle(
+          savedNote,
+          savedNote.noteType,
+          recordTypeSettings,
+        ),
         conclusions: showConclusionSuggestions
           ? currentNoteSuggestions
-              .filter((suggestion) => suggestion.suggestionType === "conclusion")
+              .filter(
+                (suggestion) => suggestion.suggestionType === "conclusion",
+              )
               .map(buildConclusionSuggestionDraft)
           : [],
         todos: showTodoSuggestions
@@ -466,10 +721,12 @@ export function ActivityNotesPanel({
     }
 
     const selectedConclusions = aiPreview.conclusions.filter(
-      (suggestion) => suggestion.checked && suggestion.content.trim().length > 0,
+      (suggestion) =>
+        suggestion.checked && suggestion.content.trim().length > 0,
     );
     const selectedTodos = aiPreview.todos.filter(
-      (suggestion) => suggestion.checked && suggestion.content.trim().length > 0,
+      (suggestion) =>
+        suggestion.checked && suggestion.content.trim().length > 0,
     );
     const suggestionsToApply = [...selectedConclusions, ...selectedTodos];
 
@@ -514,28 +771,47 @@ export function ActivityNotesPanel({
         ? `note:${composer?.noteId ?? "unknown"}:${composer?.noteType ?? defaultRecordType}`
         : "record-empty";
   const recordResultItems = useMemo<RecordResultItem[]>(
-    () => buildRecordResultItems({ draftNote, notes: sortedNotes, showDraft: showDraftInResults }),
-    [draftNote, showDraftInResults, sortedNotes],
+    () =>
+      sortRecordResultItemsByTopValue(
+        buildRecordResultItems({
+          draftNote,
+          notes: sortedNotes,
+          noteTemplateSettings: recordTypeSettings,
+          showDraft: showDraftInResults,
+        }),
+        topRecordValue,
+      ),
+    [
+      draftNote,
+      recordTypeSettings,
+      showDraftInResults,
+      sortedNotes,
+      topRecordValue,
+    ],
   );
   const noteHasContent = composer?.contentMarkdown.trim().length ? true : false;
-  const recordMetaCopy =
-    activeNote ? `更新于 ${formatDateTime(activeNote.updatedAt)}` : editorItem.kind === "draft" ? "新记录" : "尚未创建";
-  const persistStateCopy =
-    editorItem.kind === "closed"
-      ? "未进入编辑"
-      : editorPersistState === "saving"
-        ? editorItem.kind === "draft"
-          ? "首次保存中"
-          : "自动保存中"
-        : editorPersistState === "error"
-          ? "保存失败"
-          : editorPersistState === "dirty"
-            ? "等待保存"
-            : activeNote
-              ? "已保存"
-              : noteHasContent
-                ? "待保存"
-                : "空白草稿";
+  useEffect(() => {
+    setOptimisticNotes((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const note of notes) {
+        if (note.id in next) {
+          delete next[note.id];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [notes]);
+
+  useEffect(() => {
+    if (contextMenu && !contextMenuNote) {
+      setContextMenu(null);
+    }
+  }, [contextMenu, contextMenuNote]);
+
   const aiActionDisabled =
     editorItem.kind === "closed" ||
     !showAiRefine ||
@@ -557,11 +833,14 @@ export function ActivityNotesPanel({
         : aiApplying
           ? "写入中..."
           : "AI 提炼";
+  const recordDeleteDisabled = saving || deletingNote;
   const aiSelectionSummary = useMemo(() => {
     const conclusions = aiPreview?.conclusions ?? [];
     const todos = aiPreview?.todos ?? [];
     const totalCount = conclusions.length + todos.length;
-    const selectedCount = [...conclusions, ...todos].filter((item) => item.checked).length;
+    const selectedCount = [...conclusions, ...todos].filter(
+      (item) => item.checked,
+    ).length;
     const hasInvalidSelection = [...conclusions, ...todos].some(
       (item) => item.checked && item.content.trim().length === 0,
     );
@@ -575,9 +854,7 @@ export function ActivityNotesPanel({
     };
   }, [aiPreview]);
   const updateAiPreview = useCallback(
-    (
-      updater: (current: AiRefinePreview) => AiRefinePreview,
-    ) => {
+    (updater: (current: AiRefinePreview) => AiRefinePreview) => {
       setAiPreview((current) => (current ? updater(current) : current));
     },
     [],
@@ -587,7 +864,9 @@ export function ActivityNotesPanel({
       updateAiPreview((current) => ({
         ...current,
         conclusions: current.conclusions.map((item) =>
-          item.suggestionId === suggestionId ? { ...item, checked: !item.checked } : item,
+          item.suggestionId === suggestionId
+            ? { ...item, checked: !item.checked }
+            : item,
         ),
       }));
     },
@@ -598,7 +877,9 @@ export function ActivityNotesPanel({
       updateAiPreview((current) => ({
         ...current,
         todos: current.todos.map((item) =>
-          item.suggestionId === suggestionId ? { ...item, checked: !item.checked } : item,
+          item.suggestionId === suggestionId
+            ? { ...item, checked: !item.checked }
+            : item,
         ),
       }));
     },
@@ -613,7 +894,9 @@ export function ActivityNotesPanel({
       updateAiPreview((current) => ({
         ...current,
         conclusions: current.conclusions.map((item) =>
-          item.suggestionId === suggestionId ? { ...item, [field]: value } : item,
+          item.suggestionId === suggestionId
+            ? { ...item, [field]: value }
+            : item,
         ),
       }));
     },
@@ -628,21 +911,122 @@ export function ActivityNotesPanel({
       updateAiPreview((current) => ({
         ...current,
         todos: current.todos.map((item) =>
-          item.suggestionId === suggestionId ? { ...item, [field]: value } : item,
+          item.suggestionId === suggestionId
+            ? { ...item, [field]: value }
+            : item,
         ),
       }));
     },
     [updateAiPreview],
   );
-  const toggleRecordResult = useCallback((value: string) => {
-    if (editorValue && editorValue !== value) {
+  const finishEditingSession = useCallback(
+    (savedNote?: unknown) => {
+      const nextExpandedValue = isSavedNoteRecord(savedNote)
+        ? `note:${savedNote.id}`
+        : editorItem.kind === "saved"
+          ? `note:${editorItem.noteId}`
+          : editorValue;
+      const wasAtTop = editorValue !== null && topRecordValue === editorValue;
+
       closeEditor();
-    }
-    setExpandedRecordValue((current) => (current === value ? null : value));
-  }, [closeEditor, editorValue]);
+
+      if (nextExpandedValue) {
+        setExpandedRecordValue(nextExpandedValue);
+      }
+
+      if (wasAtTop) {
+        setTopRecordValue(nextExpandedValue ?? null);
+      }
+    },
+    [closeEditor, editorItem, editorValue, topRecordValue],
+  );
+
+  const handleSaveAndClose = useCallback(
+    async (savedNote?: unknown) => {
+      if (editorExitInFlightRef.current) {
+        return;
+      }
+
+      editorExitInFlightRef.current = true;
+
+      try {
+        const nextSavedNote =
+          isSavedNoteRecord(savedNote) || !composer
+            ? savedNote
+            : await handleSave({
+                html: composer.contentHtml,
+                text: composer.contentMarkdown,
+                markdown: composer.contentMarkdown,
+              });
+
+        finishEditingSession(nextSavedNote);
+      } catch {
+        // The editor already exposes the error state; the page owns toasts.
+      } finally {
+        editorExitInFlightRef.current = false;
+      }
+    },
+    [composer, finishEditingSession, handleSave],
+  );
+
+  const toggleTopRecord = useCallback((value: string) => {
+    setTopRecordValue((current) => (current === value ? null : value));
+  }, []);
+
+  const handleDeleteRecord = useCallback(
+    async (noteId: number, value: string) => {
+      if (!onDeleteNote) {
+        return;
+      }
+
+      await onDeleteNote(noteId);
+      removeOptimisticNote(noteId);
+      setPendingEditorFocusPoint((current) =>
+        current?.value === value ? null : current,
+      );
+      setExpandedRecordValue((current) =>
+        current === value ? null : current,
+      );
+      setTopRecordValue((current) => (current === value ? null : current));
+    },
+    [onDeleteNote, removeOptimisticNote],
+  );
+
+  const toggleRecordResult = useCallback(
+    (value: string) => {
+      if (editorValue === value) {
+        if (preventEditorTransition()) {
+          return;
+        }
+
+        closeEditor();
+        setExpandedRecordValue(value);
+        return;
+      }
+
+      if (editorValue && editorValue !== value) {
+        if (preventEditorTransition()) {
+          return;
+        }
+
+        closeEditor();
+      }
+
+      setExpandedRecordValue((current) => (current === value ? null : value));
+    },
+    [closeEditor, editorValue, preventEditorTransition],
+  );
+
+  const editingRecordRef = useDismissOnOutside<HTMLElement>({
+    enabled: editorOpen && aiPreview === null,
+    onDismiss: () => {
+      void handleSaveAndClose();
+    },
+  });
 
   useEffect(() => {
     setEditorPersistState("idle");
+    setTitleDirty(false);
   }, [editorKey]);
 
   useEffect(() => {
@@ -659,6 +1043,14 @@ export function ActivityNotesPanel({
     });
   }, [recordResultItems]);
 
+  useEffect(() => {
+    setTopRecordValue((current) =>
+      current && recordResultItems.some((item) => item.value === current)
+        ? current
+        : null,
+    );
+  }, [recordResultItems]);
+
   return (
     <>
       <section className="activity-notes min-w-0">
@@ -667,253 +1059,415 @@ export function ActivityNotesPanel({
           title="记录"
           className="activity-notes__header"
           actions={
-            editorOpen && showAiRefine ? (
-              <div className="activity-notes__header-actions">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  leadingIcon={
-                    aiPersisting || aiJobActive || aiApplying ? (
-                      <LoaderCircle className="spin" size={14} />
-                    ) : (
-                      <Sparkles size={14} />
-                    )
-                  }
-                  disabled={aiActionDisabled}
-                  onClick={() => void handleAiRefine()}
+            <div className="relative">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={saving}
+                aria-haspopup="menu"
+                aria-expanded={createMenuOpen}
+                onClick={() => setCreateMenuOpen((current) => !current)}
+              >
+                新建
+              </Button>
+              {createMenuOpen ? (
+                <PopoverPanel
+                  className="absolute right-0 top-[calc(100%+8px)] z-10 grid min-w-48 gap-1 p-1"
+                  role="menu"
+                  aria-label="新建记录菜单"
                 >
-                  {aiActionLabel}
-                </Button>
-              </div>
-            ) : undefined
+                  {recordTypeMenuOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitem"
+                      className="flex items-center gap-2 rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
+                      onClick={() => handleCreateNote(option.value)}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: fileTagColorValue(option.colorKey),
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                  {onManageRecordTypes ? (
+                    <div className="mt-1 border-t border-border pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="w-full justify-start px-3"
+                        onClick={() => {
+                          onManageRecordTypes();
+                          setCreateMenuOpen(false);
+                        }}
+                      >
+                        管理记录类型
+                      </Button>
+                    </div>
+                  ) : null}
+                </PopoverPanel>
+              ) : null}
+            </div>
           }
         />
 
-        <div
-          className={[
-            "activity-notes__workspace",
-            editorOpen ? "activity-notes__workspace--with-editor" : "",
-          ].join(" ")}
-        >
-          {composer ? (
-            <div className="activity-notes__editor-column">
-              <div
-                id={activeNote ? `note-${activeNote.id}` : undefined}
-                className="activity-notes__editor-card"
-              >
-                <div className="activity-notes__editor-topbar">
-                  <div className="activity-notes__editor-topbar-meta">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <RecordTypeBadge
-                        label={noteTemplateLabel(composer.noteType, recordTypeSettings)}
-                        colorKey={noteTemplateColorKey(composer.noteType, recordTypeSettings)}
-                      />
-                      {editorItem.kind === "draft" ? <StatusBadge tone="warning">未保存草稿</StatusBadge> : null}
-                    </div>
-                    <span className="text-ui text-text-soft">{recordMetaCopy}</span>
-                  </div>
-                  <span
+        <div className="activity-notes__rail">
+          {recordResultItems.length > 0 ? (
+            <div className="activity-notes__results">
+              {recordResultItems.map((item) => {
+                const isEditing = editorValue === item.value;
+                const isTopRecord = topRecordValue === item.value;
+                const isExpanded = expandedRecordValue === item.value || isEditing;
+
+                return (
+                  <article
+                    key={item.value}
+                    id={item.noteId ? `note-${item.noteId}` : undefined}
+                    ref={isEditing ? editingRecordRef : undefined}
                     className={[
-                      "activity-notes__persist-state",
-                      `activity-notes__persist-state--${editorPersistState}`,
-                      editorPersistState === "error" ? "text-danger" : "",
+                      "activity-notes__result-item",
+                      isEditing ? "" : "context-menu-no-select",
+                      isExpanded ? "activity-notes__result-item--active" : "",
                     ].join(" ")}
-                  >
-                    {persistStateCopy}
-                  </span>
-                </div>
+                    onMouseDownCapture={(event) => {
+                      if (
+                        isEditing ||
+                        !item.noteId ||
+                        !onDeleteNote ||
+                        event.button !== 2 ||
+                        shouldIgnoreRecordContextMenuTarget(event.target)
+                      ) {
+                        return;
+                      }
 
-                <RichEditor
-                  key={editorKey}
-                  html={composer.contentHtml}
-                  variant="toolbar"
-                  autosave={{ delay: 800 }}
-                  placeholder={noteTemplatePlaceholder(composer.noteType, recordTypeSettings)}
-                  onChange={handleEditorChange}
-                  onPersistStateChange={setEditorPersistState}
-                  onSave={handleSave}
-                  assetHandlers={{
-                    insertImage: async (sourcePath) => {
-                      const doc = await onImportDocument(sourcePath);
-                      return {
-                        kind: "image" as const,
-                        title: doc.name,
-                        path: doc.managedPath,
-                        src: desktopApi.toFileUrl(doc.managedPath),
-                        mimeType: doc.mimeType,
-                        documentId: doc.id,
-                      };
-                    },
-                    insertFile: async (sourcePath) => {
-                      const doc = await onImportDocument(sourcePath);
-                      return {
-                        kind: "file" as const,
-                        title: doc.name,
-                        path: doc.managedPath,
-                        href: fileHref(doc.managedPath),
-                        mimeType: doc.mimeType,
-                        documentId: doc.id,
-                        meta: doc.mimeType,
-                      };
-                    },
-                  }}
-                  onOpenAsset={(asset) => (asset.path ? desktopApi.revealPath(asset.path) : undefined)}
-                />
-              </div>
-            </div>
-          ) : null}
+                      event.preventDefault();
+                    }}
+                    onContextMenu={(event) => {
+                      if (
+                        isEditing ||
+                        !item.noteId ||
+                        !onDeleteNote ||
+                        shouldIgnoreRecordContextMenuTarget(event.target)
+                      ) {
+                        return;
+                      }
 
-          <aside className="activity-notes__rail">
-            <div className="activity-notes__rail-header">
-              <div>
-                <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
-                  记录
-                </p>
-                <p className="text-ui text-text-soft">新建、浏览或继续编辑当前 activity 的记录。</p>
-              </div>
-              <div className="activity-notes__rail-actions">
-                <div className="relative">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={saving}
-                    leadingIcon={<Plus size={14} />}
-                    trailingIcon={<ChevronDown size={14} />}
-                    aria-haspopup="menu"
-                    aria-expanded={createMenuOpen}
-                    onClick={() => setCreateMenuOpen((current) => !current)}
+                      event.preventDefault();
+                      setContextMenu({
+                        noteId: item.noteId,
+                        value: item.value,
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
                   >
-                    新建
-                  </Button>
-                  {createMenuOpen ? (
-                    <PopoverPanel
-                      className="absolute right-0 top-[calc(100%+8px)] z-10 grid min-w-48 gap-1 p-1"
-                      role="menu"
-                      aria-label="新建记录菜单"
-                    >
-                      {recordTypeMenuOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          role="menuitem"
-                          className="flex items-center gap-2 rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
-                          onClick={() => handleCreateNote(option.value)}
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: fileTagColorValue(option.colorKey) }}
-                            aria-hidden="true"
+                    {isEditing && composer ? (
+                      <div className="activity-notes__result-editor">
+                        <div className="activity-notes__editor-header">
+                          <RecordTypeBadge
+                            label={noteTemplateLabel(
+                              composer.noteType,
+                              recordTypeSettings,
+                            )}
+                            colorKey={noteTemplateColorKey(
+                              composer.noteType,
+                              recordTypeSettings,
+                            )}
                           />
-                          <span>{option.label}</span>
-                        </button>
-                      ))}
-                      {onManageRecordTypes ? (
-                        <div className="mt-1 border-t border-border pt-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="w-full justify-start px-3"
-                            onClick={() => {
-                              onManageRecordTypes();
-                              setCreateMenuOpen(false);
+                          <TextField
+                            className="activity-notes__editor-title"
+                            aria-label="记录标题"
+                            value={composer.title}
+                            placeholder="输入标题"
+                            onChange={(event) =>
+                              handleTitleChange(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (
+                                (event.metaKey || event.ctrlKey) &&
+                                event.key === "Enter"
+                              ) {
+                                event.preventDefault();
+                                void handleSaveAndClose();
+                              }
                             }}
-                          >
-                            管理记录类型
-                          </Button>
-                        </div>
-                      ) : null}
-                    </PopoverPanel>
-                  ) : null}
-                </div>
-                <span className="text-caption text-text-soft">{recordResultItems.length} 条</span>
-              </div>
-            </div>
-
-            {recordResultItems.length > 0 ? (
-              <div className="activity-notes__results">
-                {recordResultItems.map((item) => {
-                  const isExpanded = expandedRecordValue === item.value;
-                  const isEditing = editorValue === item.value;
-                  const statusText = item.isDraft
-                    ? isEditing
-                      ? "草稿编辑中"
-                      : "未保存草稿"
-                    : isEditing
-                      ? "正在编辑"
-                    : item.updatedAt
-                      ? `更新于 ${formatDateTime(item.updatedAt)}`
-                      : "已保存";
-
-                  return (
-                    <article
-                      key={item.value}
-                      id={item.noteId ? `note-${item.noteId}` : undefined}
-                      className={[
-                        "activity-notes__result-item",
-                        isExpanded || isEditing ? "activity-notes__result-item--active" : "",
-                      ].join(" ")}
-                    >
-                      <div className="activity-notes__result-row">
-                        <button
-                          type="button"
-                          className="activity-notes__result-toggle"
-                          aria-expanded={isExpanded}
-                          onClick={() => toggleRecordResult(item.value)}
-                        >
-                          <div className="min-w-0 grid gap-1.5 text-left">
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">
-                              <RecordTypeBadge
-                                label={noteTemplateLabel(item.noteType, recordTypeSettings)}
-                                colorKey={noteTemplateColorKey(item.noteType, recordTypeSettings)}
-                              />
-                              <span className="text-ui text-text-soft">{statusText}</span>
-                            </div>
-                            <p className="activity-notes__result-summary text-body font-medium text-text">
-                              {item.summary}
-                            </p>
-                          </div>
-                          <ChevronDown
-                            size={16}
-                            className={[
-                              "shrink-0 text-text-soft transition-transform duration-[160ms] ease-[var(--ease-soft)]",
-                              isExpanded ? "rotate-180" : "",
-                            ].join(" ")}
                           />
-                        </button>
-                        <IconButton
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="activity-notes__result-edit"
-                          aria-label="编辑这条记录"
-                          title="编辑这条记录"
-                          onClick={() => handleEditRecord(item.value)}
-                        >
-                          <PencilLine size={14} />
-                        </IconButton>
-                      </div>
+                          <div className="activity-notes__editor-actions">
+                            {showAiRefine ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                leadingIcon={
+                                  aiPersisting || aiJobActive || aiApplying ? (
+                                    <LoaderCircle className="spin" size={14} />
+                                  ) : (
+                                    <Sparkles size={14} />
+                                  )
+                                }
+                                disabled={aiActionDisabled}
+                                onClick={() => void handleAiRefine()}
+                              >
+                                {aiActionLabel}
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="primary"
+                              disabled={
+                                saving ||
+                                editorPersistState === "saving" ||
+                                aiPersisting
+                              }
+                              onClick={() => void handleSaveAndClose()}
+                            >
+                              {editorPersistState === "saving"
+                                ? "保存中..."
+                                : "保存"}
+                            </Button>
+                          </div>
+                        </div>
 
-                      {isExpanded ? (
+                        <RichEditor
+                          key={editorKey}
+                          html={composer.contentHtml}
+                          variant="toolbar"
+                          autoFocus={
+                            pendingEditorFocusPoint?.value === item.value
+                              ? pendingEditorFocusPoint.point
+                              : true
+                          }
+                          autosave={{
+                            onChange: false,
+                            onBlur: true,
+                            onWindowBlur: true,
+                            onVisibilityChange: true,
+                          }}
+                          shouldPersistOnBlur={(relatedTarget) =>
+                            !(
+                              relatedTarget instanceof Node &&
+                              editingRecordRef.current?.contains(relatedTarget)
+                            )
+                          }
+                          placeholder={noteTemplatePlaceholder(
+                            composer.noteType,
+                            recordTypeSettings,
+                          )}
+                          onChange={handleEditorChange}
+                          onPersistStateChange={setEditorPersistState}
+                          onBlurPersisted={(savedNote) => {
+                            window.requestAnimationFrame(() => {
+                              if (
+                                editingRecordRef.current?.contains(
+                                  document.activeElement,
+                                )
+                              ) {
+                                return;
+                              }
+
+                              void handleSaveAndClose(savedNote);
+                            });
+                          }}
+                          onModEnter={() => handleSaveAndClose()}
+                          onSave={handleSave}
+                          assetHandlers={{
+                            insertImage: async (sourcePath) => {
+                              const doc = await onImportImage(sourcePath);
+                              return {
+                                kind: "image" as const,
+                                title: doc.name,
+                                path: doc.managedPath,
+                                mimeType: doc.mimeType,
+                                documentId: doc.id,
+                              };
+                            },
+                            insertPastedImage: onImportClipboardImage
+                              ? async (file) => {
+                                  const doc =
+                                    await onImportClipboardImage(file);
+                                  return {
+                                    kind: "image" as const,
+                                    title: doc.name,
+                                    path: doc.managedPath,
+                                    mimeType: doc.mimeType,
+                                    documentId: doc.id,
+                                  };
+                                }
+                              : undefined,
+                            insertFile: async (sourcePath) => {
+                              const doc = await onImportDocument(sourcePath);
+                              return {
+                                kind: "file" as const,
+                                title: doc.name,
+                                path: doc.managedPath,
+                                href: fileHref(doc.managedPath),
+                                mimeType: doc.mimeType,
+                                documentId: doc.id,
+                                meta: doc.mimeType,
+                              };
+                            },
+                          }}
+                          onOpenAsset={(asset) =>
+                            asset.path
+                              ? desktopApi.revealPath(asset.path)
+                              : undefined
+                          }
+                        />
+                      </div>
+                    ) : isExpanded ? (
+                      <div className="activity-notes__result-browse">
+                        <div
+                          className={[
+                            "activity-notes__result-row",
+                            "activity-notes__result-row--expanded",
+                          ].join(" ")}
+                        >
+                          <button
+                            type="button"
+                            className={[
+                              "activity-notes__result-toggle",
+                              "activity-notes__result-toggle--expanded",
+                            ].join(" ")}
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleRecordResult(item.value)}
+                          >
+                            <RecordTypeBadge
+                              label={noteTemplateLabel(
+                                item.noteType,
+                                recordTypeSettings,
+                              )}
+                              colorKey={noteTemplateColorKey(
+                                item.noteType,
+                                recordTypeSettings,
+                              )}
+                            />
+                            <p className="activity-notes__result-title text-body font-medium text-text">
+                              {item.title}
+                            </p>
+                          </button>
+                          <div className="activity-notes__result-actions">
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="activity-notes__pin-button"
+                              data-note-preview-interactive="true"
+                              aria-label={isTopRecord ? "取消置顶" : "置顶"}
+                              aria-pressed={isTopRecord}
+                              title={isTopRecord ? "取消置顶" : "置顶"}
+                              onClick={() => toggleTopRecord(item.value)}
+                            >
+                              {isTopRecord ? (
+                                <PinOff size={14} />
+                              ) : (
+                                <Pin size={14} />
+                              )}
+                            </IconButton>
+                          </div>
+                        </div>
+
                         <div className="activity-notes__result-preview">
                           <div
-                            className="rich-editor__surface activity-notes__result-preview-body"
-                            dangerouslySetInnerHTML={{ __html: item.previewHtml }}
-                          />
+                            className="activity-notes__result-preview-panel"
+                            aria-label={`编辑记录：${item.title}`}
+                            tabIndex={0}
+                            onMouseDown={(event) => {
+                              if (
+                                event.button !== 0 ||
+                                event.metaKey ||
+                                event.ctrlKey ||
+                                event.shiftKey ||
+                                event.altKey ||
+                                isPreviewInteractiveTarget(event.target)
+                              ) {
+                                return;
+                              }
+
+                              event.preventDefault();
+                              handleEditRecord(
+                                item.value,
+                                relativeFocusPointFromMouseEvent(
+                                  event.currentTarget,
+                                  event.clientX,
+                                  event.clientY,
+                                ),
+                              );
+                            }}
+                            onKeyDown={(event) => {
+                              if (isPreviewInteractiveTarget(event.target)) {
+                                return;
+                              }
+
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleEditRecord(item.value);
+                              }
+                            }}
+                          >
+                            <div
+                              className="rich-editor__surface activity-notes__result-preview-body"
+                              dangerouslySetInnerHTML={{
+                                __html: item.previewHtml,
+                              }}
+                            />
+                          </div>
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptyState text="当前还没有记录，点“新建”开始记录。" compact />
-            )}
-          </aside>
+                      </div>
+                    ) : (
+                      <div className={["activity-notes__result-row"].join(" ")}>
+                        <button
+                          type="button"
+                          className={["activity-notes__result-toggle"].join(
+                            " ",
+                          )}
+                          aria-expanded={false}
+                          onClick={() => toggleRecordResult(item.value)}
+                        >
+                          <RecordTypeBadge
+                            label={noteTemplateLabel(
+                              item.noteType,
+                              recordTypeSettings,
+                            )}
+                            colorKey={noteTemplateColorKey(
+                              item.noteType,
+                              recordTypeSettings,
+                            )}
+                          />
+                          <p className="activity-notes__result-title text-body font-medium text-text">
+                            {item.title}
+                          </p>
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState text="还没有记录。" compact />
+          )}
         </div>
       </section>
+
+      {contextMenu && contextMenuNote ? (
+        <DeleteContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          ariaLabel="记录操作"
+          disabled={recordDeleteDisabled}
+          onClose={() => setContextMenu(null)}
+          onDelete={() =>
+            void handleDeleteRecord(contextMenuNote.id, contextMenu.value)
+          }
+        />
+      ) : null}
 
       <Dialog
         open={aiPreview !== null}
@@ -933,7 +1487,12 @@ export function ActivityNotesPanel({
         bodyClassName="grid gap-4"
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setAiPreview(null)} disabled={aiApplying}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setAiPreview(null)}
+              disabled={aiApplying}
+            >
               取消
             </Button>
             <Button
@@ -961,8 +1520,11 @@ export function ActivityNotesPanel({
           <div className="grid gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-8)] border border-border bg-bg-subtle px-3 py-2">
               <p className="text-ui text-text-soft">
-                已选择 <span className="font-medium text-text">{aiSelectionSummary.selectedCount}</span> /{" "}
-                {aiSelectionSummary.totalCount} 项
+                已选择{" "}
+                <span className="font-medium text-text">
+                  {aiSelectionSummary.selectedCount}
+                </span>{" "}
+                / {aiSelectionSummary.totalCount} 项
               </p>
               {aiSelectionSummary.hasInvalidSelection ? (
                 <p className="text-ui text-danger">选中的候选内容不能为空。</p>
@@ -974,149 +1536,164 @@ export function ActivityNotesPanel({
             <div
               className={[
                 "grid gap-4",
-                showConclusionSuggestions && showTodoSuggestions ? "md:grid-cols-2" : "",
+                showConclusionSuggestions && showTodoSuggestions
+                  ? "md:grid-cols-2"
+                  : "",
               ].join(" ")}
             >
-            {showConclusionSuggestions ? (
-              <SurfaceCard subtle className="grid gap-3 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
-                    会议结论
-                  </p>
-                  <StatusBadge tone="neutral">
-                    {aiSelectionSummary.selectedConclusions}/{aiPreview.conclusions.length} 已选
-                  </StatusBadge>
-                </div>
-                {aiPreview.conclusions.length > 0 ? (
-                  <ol className="grid gap-3">
-                    {aiPreview.conclusions.map((suggestion, index) => (
-                      <li
-                        key={suggestion.suggestionId}
-                        className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg p-3"
-                      >
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            aria-label={`选择结论 ${index + 1}`}
-                            checked={suggestion.checked}
-                            disabled={aiApplying}
-                            onChange={() => toggleAiConclusion(suggestion.suggestionId)}
-                          />
-                          <div className="min-w-0 flex-1 grid gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-body font-medium text-text">结论 {index + 1}</p>
-                              <span className="text-caption text-text-soft">
-                                {suggestion.checked ? "已勾选" : "未勾选"}
-                              </span>
-                            </div>
-                            <AiSuggestionInlineEditor
-                              ariaLabel={`结论内容 ${index + 1}`}
-                              value={suggestion.content}
+              {showConclusionSuggestions ? (
+                <SurfaceCard subtle className="grid gap-3 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
+                      会议结论
+                    </p>
+                    <StatusBadge tone="neutral">
+                      {aiSelectionSummary.selectedConclusions}/
+                      {aiPreview.conclusions.length} 已选
+                    </StatusBadge>
+                  </div>
+                  {aiPreview.conclusions.length > 0 ? (
+                    <ol className="grid gap-3">
+                      {aiPreview.conclusions.map((suggestion, index) => (
+                        <li
+                          key={suggestion.suggestionId}
+                          className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg p-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`选择结论 ${index + 1}`}
+                              checked={suggestion.checked}
                               disabled={aiApplying}
-                              onChange={(nextValue) =>
-                                updateAiConclusionField(
-                                  suggestion.suggestionId,
-                                  "content",
-                                  nextValue,
-                                )
+                              onChange={() =>
+                                toggleAiConclusion(suggestion.suggestionId)
                               }
                             />
-                            <div className="flex justify-end">
-                              <ProjectStarButton
-                                active={suggestion.promotedToProject}
+                            <div className="min-w-0 flex-1 grid gap-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-body font-medium text-text">
+                                  结论 {index + 1}
+                                </p>
+                                <span className="text-caption text-text-soft">
+                                  {suggestion.checked ? "已勾选" : "未勾选"}
+                                </span>
+                              </div>
+                              <AiSuggestionInlineEditor
+                                ariaLabel={`结论内容 ${index + 1}`}
+                                value={suggestion.content}
                                 disabled={aiApplying}
-                                onClick={() =>
+                                onChange={(nextValue) =>
                                   updateAiConclusionField(
                                     suggestion.suggestionId,
-                                    "promotedToProject",
-                                    !suggestion.promotedToProject,
+                                    "content",
+                                    nextValue,
                                   )
                                 }
                               />
+                              <div className="flex justify-end">
+                                <ProjectStarButton
+                                  active={suggestion.promotedToProject}
+                                  disabled={aiApplying}
+                                  onClick={() =>
+                                    updateAiConclusionField(
+                                      suggestion.suggestionId,
+                                      "promotedToProject",
+                                      !suggestion.promotedToProject,
+                                    )
+                                  }
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <EmptyState text="这次没有提炼出明确结论。" compact />
-                )}
-              </SurfaceCard>
-            ) : null}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <EmptyState text="这次没有提炼出明确结论。" compact />
+                  )}
+                </SurfaceCard>
+              ) : null}
 
-            {showTodoSuggestions ? (
-              <SurfaceCard subtle className="grid gap-3 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
-                    待办事项
-                  </p>
-                  <StatusBadge tone="neutral">
-                    {aiSelectionSummary.selectedTodos}/{aiPreview.todos.length} 已选
-                  </StatusBadge>
-                </div>
-                {aiPreview.todos.length > 0 ? (
-                  <ol className="grid gap-3">
-                    {aiPreview.todos.map((suggestion, index) => (
-                      <li
-                        key={suggestion.suggestionId}
-                        className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg p-3"
-                      >
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            aria-label={`选择待办 ${index + 1}`}
-                            checked={suggestion.checked}
-                            disabled={aiApplying}
-                            onChange={() => toggleAiTodo(suggestion.suggestionId)}
-                          />
-                          <div className="min-w-0 flex-1 grid gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-body font-medium text-text">待办 {index + 1}</p>
-                              <span className="text-caption text-text-soft">
-                                {suggestion.checked ? "已勾选" : "未勾选"}
-                              </span>
-                            </div>
-                            <AiSuggestionInlineEditor
-                              ariaLabel={`待办内容 ${index + 1}`}
-                              value={suggestion.content}
+              {showTodoSuggestions ? (
+                <SurfaceCard subtle className="grid gap-3 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
+                      待办事项
+                    </p>
+                    <StatusBadge tone="neutral">
+                      {aiSelectionSummary.selectedTodos}/
+                      {aiPreview.todos.length} 已选
+                    </StatusBadge>
+                  </div>
+                  {aiPreview.todos.length > 0 ? (
+                    <ol className="grid gap-3">
+                      {aiPreview.todos.map((suggestion, index) => (
+                        <li
+                          key={suggestion.suggestionId}
+                          className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg p-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`选择待办 ${index + 1}`}
+                              checked={suggestion.checked}
                               disabled={aiApplying}
-                              onChange={(nextValue) =>
-                                updateAiTodoField(
-                                  suggestion.suggestionId,
-                                  "content",
-                                  nextValue,
-                                )
+                              onChange={() =>
+                                toggleAiTodo(suggestion.suggestionId)
                               }
                             />
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-ui text-text-soft">优先级</span>
-                              <TodoPriorityDropdown
-                                priority={suggestion.priority}
-                                onSelect={(nextPriority) =>
+                            <div className="min-w-0 flex-1 grid gap-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-body font-medium text-text">
+                                  待办 {index + 1}
+                                </p>
+                                <span className="text-caption text-text-soft">
+                                  {suggestion.checked ? "已勾选" : "未勾选"}
+                                </span>
+                              </div>
+                              <AiSuggestionInlineEditor
+                                ariaLabel={`待办内容 ${index + 1}`}
+                                value={suggestion.content}
+                                disabled={aiApplying}
+                                onChange={(nextValue) =>
                                   updateAiTodoField(
                                     suggestion.suggestionId,
-                                    "priority",
-                                    nextPriority,
+                                    "content",
+                                    nextValue,
                                   )
                                 }
                               />
-                              <span className="text-caption text-text-soft">
-                                {suggestion.priority === suggestion.autoPriority
-                                  ? "系统推荐"
-                                  : `原推荐为 ${todoPriorityOptionLabel(suggestion.autoPriority)}`}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-ui text-text-soft">
+                                  优先级
+                                </span>
+                                <TodoPriorityDropdown
+                                  priority={suggestion.priority}
+                                  onSelect={(nextPriority) =>
+                                    updateAiTodoField(
+                                      suggestion.suggestionId,
+                                      "priority",
+                                      nextPriority,
+                                    )
+                                  }
+                                />
+                                <span className="text-caption text-text-soft">
+                                  {suggestion.priority ===
+                                  suggestion.autoPriority
+                                    ? "系统推荐"
+                                    : `原推荐为 ${todoPriorityOptionLabel(suggestion.autoPriority)}`}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <EmptyState text="这次没有提炼出待办事项。" compact />
-                )}
-              </SurfaceCard>
-            ) : null}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <EmptyState text="这次没有提炼出待办事项。" compact />
+                  )}
+                </SurfaceCard>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1133,7 +1710,13 @@ function RecordTypeBadge({
   colorKey: ReturnType<typeof noteTemplateColorKey>;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-4)] px-2 py-1 text-caption font-medium tracking-[0.08em] text-text" style={{ backgroundColor: `color-mix(in srgb, ${fileTagColorValue(colorKey)} 14%, var(--color-bg))`, color: fileTagColorValue(colorKey) }}>
+    <span
+      className="inline-flex items-center gap-1.5 rounded-[var(--radius-4)] px-2 py-1 text-caption font-medium tracking-[0.08em] text-text"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${fileTagColorValue(colorKey)} 14%, var(--color-bg))`,
+        color: fileTagColorValue(colorKey),
+      }}
+    >
       <span
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ backgroundColor: fileTagColorValue(colorKey) }}
@@ -1226,17 +1809,69 @@ function AiSuggestionInlineEditor({
   );
 }
 
-function buildConclusionSuggestionDraft(suggestion: AiSuggestionRecord): AiConclusionDraft {
+function relativeFocusPointFromMouseEvent(
+  element: HTMLElement,
+  clientX: number,
+  clientY: number,
+) {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top,
+    mode: "content-relative" as const,
+  };
+}
+
+function isSavedNoteRecord(value: unknown): value is NoteRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    "activityId" in value &&
+    "contentMarkdown" in value
+  );
+}
+
+function isPreviewInteractiveTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement
+    ? Boolean(
+        target.closest(
+          "a, button, input, select, textarea, summary, [role='button'], [data-note-preview-interactive='true']",
+        ),
+      )
+    : false;
+}
+
+function shouldIgnoreRecordContextMenuTarget(target: EventTarget | null) {
+  if (shouldIgnoreContextMenuTarget(target)) {
+    return true;
+  }
+
+  return target instanceof HTMLElement
+    ? Boolean(target.closest("a, [data-note-preview-interactive='true']"))
+    : false;
+}
+
+function buildConclusionSuggestionDraft(
+  suggestion: AiSuggestionRecord,
+): AiConclusionDraft {
   return {
     suggestionId: suggestion.id,
     checked: true,
-    content: readSuggestionPayloadString(suggestion.payload, "content") ?? suggestion.preview,
-    promotedToProject: readSuggestionPayloadBoolean(suggestion.payload, "promotedToProject") ?? true,
+    content:
+      readSuggestionPayloadString(suggestion.payload, "content") ??
+      suggestion.preview,
+    promotedToProject:
+      readSuggestionPayloadBoolean(suggestion.payload, "promotedToProject") ??
+      true,
   };
 }
 
 function buildTodoSuggestionDraft(suggestion: AiSuggestionRecord): AiTodoDraft {
-  const content = readSuggestionPayloadString(suggestion.payload, "content") ?? suggestion.preview;
+  const content =
+    readSuggestionPayloadString(suggestion.payload, "content") ??
+    suggestion.preview;
   const autoPriority = resolveSuggestedTodoPriority(
     content,
     readSuggestionPayloadString(suggestion.payload, "priority"),
@@ -1251,14 +1886,38 @@ function buildTodoSuggestionDraft(suggestion: AiSuggestionRecord): AiTodoDraft {
   };
 }
 
-function readSuggestionPayloadString(payload: Record<string, unknown>, key: string) {
+function readSuggestionPayloadString(
+  payload: Record<string, unknown>,
+  key: string,
+) {
   const value = payload[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
-function readSuggestionPayloadBoolean(payload: Record<string, unknown>, key: string) {
+function readSuggestionPayloadBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+) {
   const value = payload[key];
   return typeof value === "boolean" ? value : null;
+}
+
+function readSuggestedNoteTitle(
+  suggestions: AiSuggestionRecord[],
+  noteId: number,
+) {
+  const titleSuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.noteId === noteId &&
+      suggestion.suggestionType === "activity_title",
+  );
+
+  return titleSuggestion
+    ? (readSuggestionPayloadString(titleSuggestion.payload, "proposedTitle") ??
+        titleSuggestion.preview)
+    : null;
 }
 
 function buildComposerFromDraft(
@@ -1268,19 +1927,27 @@ function buildComposerFromDraft(
   return {
     key: `draft:${draft.localId}:${draft.noteType}`,
     noteType: draft.noteType,
-    title: draft.title || noteTemplateDefaultTitle(draft.noteType, noteTemplateSettings),
+    title: normalizeNoteTitleInput(
+      draft.title,
+      draft.noteType,
+      noteTemplateSettings,
+    ),
     contentMarkdown: draft.contentMarkdown,
-    contentHtml: draft.contentHtml || noteTemplateDefaultHtml(draft.noteType, noteTemplateSettings),
+    contentHtml:
+      draft.contentHtml ||
+      noteTemplateDefaultHtml(draft.noteType, noteTemplateSettings),
   };
 }
 
 function buildRecordResultItems({
   draftNote,
   notes,
+  noteTemplateSettings,
   showDraft,
 }: {
   draftNote: DraftNoteState | null;
   notes: NoteRecord[];
+  noteTemplateSettings?: RecordTypeSettingsSnapshot | null;
   showDraft: boolean;
 }): RecordResultItem[] {
   const items: RecordResultItem[] = [];
@@ -1290,16 +1957,19 @@ function buildRecordResultItems({
       value: `draft:${draftNote.localId}`,
       noteId: undefined,
       noteType: draftNote.noteType,
-      summary: summarizeNoteContent({
-        contentMarkdown: draftNote.contentMarkdown,
-        contentHtml: draftNote.contentHtml,
-      }),
+      title: resolveNoteDisplayTitle(
+        {
+          title: draftNote.title,
+          contentMarkdown: draftNote.contentMarkdown,
+          contentHtml: draftNote.contentHtml,
+        },
+        draftNote.noteType,
+        noteTemplateSettings,
+      ),
       previewHtml: getRenderableNoteHtml({
         contentHtml: draftNote.contentHtml,
         contentMarkdown: draftNote.contentMarkdown,
       }),
-      updatedAt: null,
-      isDraft: true,
     });
   }
 
@@ -1308,14 +1978,37 @@ function buildRecordResultItems({
       value: `note:${note.id}`,
       noteId: note.id,
       noteType: note.noteType,
-      summary: summarizeNoteContent(note),
+      title: resolveNoteDisplayTitle(note, note.noteType, noteTemplateSettings),
       previewHtml: getRenderableNoteHtml(note),
-      updatedAt: note.updatedAt,
-      isDraft: false,
     });
   }
 
   return items;
+}
+
+function sortRecordResultItemsByTopValue(
+  items: RecordResultItem[],
+  topValue: string | null,
+) {
+  if (!topValue) {
+    return items;
+  }
+
+  const topIndex = items.findIndex((item) => item.value === topValue);
+
+  if (topIndex <= 0) {
+    return items;
+  }
+
+  const nextItems = [...items];
+  const [topItem] = nextItems.splice(topIndex, 1);
+
+  if (!topItem) {
+    return items;
+  }
+
+  nextItems.unshift(topItem);
+  return nextItems;
 }
 
 function buildComposerFromNote(
@@ -1326,22 +2019,14 @@ function buildComposerFromNote(
     key: `note:${note.id}:${note.updatedAt}:${note.noteType}`,
     noteId: note.id,
     noteType: note.noteType,
-    title: note.title?.trim() || noteTemplateDefaultTitle(note.noteType, noteTemplateSettings),
+    title: normalizeNoteTitleInput(
+      note.title,
+      note.noteType,
+      noteTemplateSettings,
+    ),
     contentMarkdown: note.contentMarkdown,
-    contentHtml: getRenderableNoteHtml(note),
+    contentHtml: getEditableNoteHtml(note),
   };
-}
-
-function resolveNoteTitle(
-  currentTitle: string | null | undefined,
-  currentTemplate: NoteTemplateKey,
-  noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
-) {
-  if (isDefaultNoteTitle(currentTitle, currentTemplate, noteTemplateSettings)) {
-    return noteTemplateDefaultTitle(currentTemplate, noteTemplateSettings);
-  }
-
-  return currentTitle?.trim() || noteTemplateDefaultTitle(currentTemplate, noteTemplateSettings);
 }
 
 function persistComposerNote({
@@ -1353,6 +2038,7 @@ function persistComposerNote({
   noteTemplateSettings,
   onUpsertNote,
   projectId,
+  resolvedTitle,
   setEditorItem,
   setComposer,
   setDraftNote,
@@ -1366,6 +2052,7 @@ function persistComposerNote({
   noteTemplateSettings?: RecordTypeSettingsSnapshot | null;
   onUpsertNote: (input: NoteUpsertInput) => Promise<NoteRecord>;
   projectId: number;
+  resolvedTitle: string;
   setEditorItem: Dispatch<SetStateAction<EditorItem>>;
   setComposer: Dispatch<SetStateAction<ComposerState | null>>;
   setDraftNote: Dispatch<SetStateAction<DraftNoteState | null>>;
@@ -1374,11 +2061,12 @@ function persistComposerNote({
   const normalizedValue = normalizeRichEditorValue(value);
 
   if (editorItem.kind === "draft") {
-    const currentDraft = draftNote ?? createDraftNote(composer.noteType, noteTemplateSettings);
+    const currentDraft =
+      draftNote ?? createDraftNote(composer.noteType, noteTemplateSettings);
     const nextDraft = {
       ...currentDraft,
       noteType: composer.noteType,
-      title: composer.title,
+      title: resolvedTitle,
       contentMarkdown: normalizedValue.markdown,
       contentHtml: normalizedValue.html,
     };
@@ -1393,7 +2081,7 @@ function persistComposerNote({
       projectId,
       activityId,
       noteType: composer.noteType,
-      title: resolveNoteTitle(nextDraft.title, nextDraft.noteType, noteTemplateSettings),
+      title: resolvedTitle,
       markdown: normalizedValue.markdown,
       html: normalizedValue.html,
     }).then((createdNote) => {
@@ -1413,7 +2101,7 @@ function persistComposerNote({
     activityId,
     noteId: activeNote.id,
     noteType: composer.noteType,
-    title: resolveNoteTitle(activeNote.title, activeNote.noteType, noteTemplateSettings),
+    title: resolvedTitle,
     markdown: normalizedValue.markdown,
     html: normalizedValue.html,
   }).then((updatedNote) => {
@@ -1423,13 +2111,18 @@ function persistComposerNote({
 }
 
 function isDraftPristine(
-  draft: Pick<DraftNoteState, "contentHtml" | "contentMarkdown">,
+  draft: Pick<DraftNoteState, "title" | "contentHtml" | "contentMarkdown">,
   template: NoteTemplateKey,
   noteTemplateSettings?: RecordTypeSettingsSnapshot | null,
 ) {
   return (
+    normalizeNoteTitleInput(draft.title, template, noteTemplateSettings)
+      .length === 0 &&
     normalizeEditorHtml(draft.contentHtml, noteTemplateSettings) ===
-      normalizeEditorHtml(noteTemplateDefaultHtml(template, noteTemplateSettings), noteTemplateSettings) &&
+      normalizeEditorHtml(
+        noteTemplateDefaultHtml(template, noteTemplateSettings),
+        noteTemplateSettings,
+      ) &&
     draft.contentMarkdown.trim().length === 0
   );
 }
@@ -1441,5 +2134,8 @@ function normalizeEditorHtml(
   const normalized = html.trim();
   return normalized.length > 0
     ? normalized
-    : noteTemplateDefaultHtml(defaultNoteTemplateKey(noteTemplateSettings), noteTemplateSettings);
+    : noteTemplateDefaultHtml(
+        defaultNoteTemplateKey(noteTemplateSettings),
+        noteTemplateSettings,
+      );
 }

@@ -1,9 +1,29 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import {
+  type FocusEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle } from "lucide-react";
+import {
+  ChevronDown,
+  FileText,
+  Lightbulb,
+  ListTodo,
+  LoaderCircle,
+  Star,
+  Trash2,
+} from "lucide-react";
 
-import type { ActivityCardData, ConclusionRecord, DocumentRecord } from "../../lib/types";
+import type {
+  ActivityCardData,
+  ConclusionRecord,
+  DocumentRecord,
+} from "../../lib/types";
 import {
   isAiCapabilityConfigured,
   isAiFeatureReady,
@@ -12,10 +32,20 @@ import {
 } from "../../lib/ai";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import { activityAttributeLabel } from "../../lib/constants";
-import { activityPath, formatDateTime, parseRouteId, projectPath } from "../../lib/formatters";
+import {
+  activityPath,
+  formatDateTime,
+  parseRouteId,
+  projectPath,
+} from "../../lib/formatters";
+import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useActivityMutations } from "../../hooks/useActivityMutations";
 import { useAiMutations } from "../../hooks/useAiMutations";
+import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
+import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
+import { useExclusiveActivation } from "../../hooks/useExclusiveActivation";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import {
   EMPTY_RICH_EDITOR_HTML,
@@ -25,17 +55,17 @@ import {
   type RichEditorValue,
 } from "../rich-editor";
 import { ManagedDocumentSection } from "../document/ManagedDocumentSection";
-import { ProjectSidebar, type ProjectSidebarActivityItem } from "../layout/ProjectSidebar";
+import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
+import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import {
+  ActionContextMenu,
   Button,
-  DeleteContextMenu,
   EmptyState,
-  ProjectStarButton,
   SectionHeader,
-  SurfaceCard,
+  TextField,
 } from "../../ui/components";
 import { TodoRail } from "../todo";
 import { ActivityTagDropdown } from "./ActivityTagDropdown";
@@ -57,13 +87,16 @@ export function ActivityPage() {
   });
 
   const activeProject = useMemo(
-    () => (projectsQuery.data ?? []).find((project) => project.id === projectId) ?? null,
+    () =>
+      (projectsQuery.data ?? []).find((project) => project.id === projectId) ??
+      null,
     [projectId, projectsQuery.data],
   );
 
   const activitiesQuery = useQuery({
     queryKey: ["activities", projectId],
-    queryFn: () => projectMindApi.activityList({ projectId: projectId as number }),
+    queryFn: () =>
+      projectMindApi.activityList({ projectId: projectId as number }),
     enabled: projectId !== null && activityId !== null,
   });
   const aiSettingsQuery = useQuery({
@@ -81,29 +114,15 @@ export function ActivityPage() {
 
   const activity = useMemo(() => {
     if (!activityId) return null;
-    const found = (activitiesQuery.data ?? []).find((item) => item.id === activityId);
+    const found = (activitiesQuery.data ?? []).find(
+      (item) => item.id === activityId,
+    );
     return found ? { ...found, isExpanded: true } : null;
   }, [activitiesQuery.data, activityId]);
-  const sidebarActivities = useMemo<ProjectSidebarActivityItem[]>(
-    () =>
-      (activitiesQuery.data ?? []).map((item) => ({
-        id: item.id,
-        title: item.title,
-        activityTime: item.activityTime,
-        attributeLabel: item.attributeLabel,
-        attributeColorKey: item.attributeColorKey,
-        documentCount: item.digest.documentCount,
-        completedTodoCount: item.digest.completedTodoCount,
-        totalTodoCount: item.digest.totalTodoCount,
-        statusLabel: item.digest.statusLabel,
-        statusColorKey: item.digest.statusColorKey,
-      })),
-    [activitiesQuery.data],
-  );
-
   const {
     activityMetaMutation,
     noteMutation,
+    noteDeleteMutation,
     conclusionMutation,
     conclusionUpdateMutation,
     conclusionDeleteMutation,
@@ -122,15 +141,68 @@ export function ActivityPage() {
 
   useFocusTarget(focusId, [activity]);
 
-  const [conclusionDraft, setConclusionDraft] = useState<RichEditorValue>(emptyRichEditorValue());
-  const [promoteConclusion, setPromoteConclusion] = useState(true);
-  const [conclusionComposerOpen, setConclusionComposerOpen] = useState(false);
+  const [conclusionDraft, setConclusionDraft] = useState<RichEditorValue>(
+    emptyRichEditorValue(),
+  );
+  const [pendingConclusionFocusPoint, setPendingConclusionFocusPoint] =
+    useState<{
+      key: string;
+      point: { x: number; y: number };
+    } | null>(null);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [conclusionContextMenu, setConclusionContextMenu] = useState<{
     conclusionId: number;
     x: number;
     y: number;
   } | null>(null);
   const [pageDragActive, setPageDragActive] = useState(false);
+  const [activitySummaryExpanded, setActivitySummaryExpanded] = useState(false);
+  const titleSkipBlurRef = useRef(false);
+  const autoEditTitleActivityIdRef = useRef<number | null>(null);
+  const {
+    activeKey: activeConclusionKey,
+    clearActive: clearActiveConclusion,
+    register: registerConclusionActivation,
+    requestActivation: requestConclusionActivation,
+  } = useExclusiveActivation<string>();
+  const activitySummarySectionRef = useDismissOnOutside<HTMLElement>({
+    enabled: activitySummaryExpanded,
+    onDismiss: () => setActivitySummaryExpanded(false),
+  });
+  const {
+    fileTags,
+    pendingImportPaths,
+    pendingImportTagIds,
+    requestImportPaths,
+    togglePendingImportTag,
+    closeImportTagDialog,
+    confirmImportTagDialog,
+    manageImportTags,
+  } = useDocumentImportFlow({
+    projectId: activity?.projectId ?? null,
+    activityId: activity?.id ?? null,
+    onDocumentsImported: (documents) => {
+      documents.forEach((document) =>
+        appendDocumentToActivityCache(queryClient, document),
+      );
+    },
+  });
+  const handleWindowDrop = useCallback(
+    async (paths: string[]) => {
+      if (!activity) {
+        return;
+      }
+
+      await requestImportPaths(paths);
+    },
+    [activity, requestImportPaths],
+  );
+  const { nativeWindowFileDrop } = useWindowFileDrop({
+    enabled: Boolean(activity),
+    onDrop: handleWindowDrop,
+    onHoverChange: setPageDragActive,
+  });
 
   const visibleSuggestionTypes = visibleAiSuggestionTypes(aiSettingsQuery.data);
   const suggestionGenerationReady = isAiCapabilityConfigured(
@@ -138,10 +210,21 @@ export function ActivityPage() {
     "suggestion_generation",
   );
   const showAiRefine = visibleSuggestionTypes.length > 0;
-  const showActivitySummary = isAiFeatureVisible(aiSettingsQuery.data, "summary.activity_summary");
-  const summaryReady = isAiFeatureReady(aiSettingsQuery.data, "summary.activity_summary");
+  const showActivitySummary = isAiFeatureVisible(
+    aiSettingsQuery.data,
+    "summary.activity_summary",
+  );
+  const summaryReady = isAiFeatureReady(
+    aiSettingsQuery.data,
+    "summary.activity_summary",
+  );
+  const isConclusionComposerActive =
+    activeConclusionKey === CONCLUSION_COMPOSER_KEY;
   const activityNameById = useMemo(
-    () => (activity ? new Map([[activity.id, activity.title]]) : new Map<number, string>()),
+    () =>
+      activity
+        ? new Map([[activity.id, activity.title]])
+        : new Map<number, string>(),
     [activity],
   );
   const activityUnfinishedTodos = useMemo(
@@ -155,7 +238,9 @@ export function ActivityPage() {
   const contextMenuConclusion = useMemo(
     () =>
       conclusionContextMenu && activity
-        ? activity.conclusions.find((item) => item.id === conclusionContextMenu.conclusionId) ?? null
+        ? (activity.conclusions.find(
+            (item) => item.id === conclusionContextMenu.conclusionId,
+          ) ?? null)
         : null,
     [activity, conclusionContextMenu],
   );
@@ -165,6 +250,43 @@ export function ActivityPage() {
       setConclusionContextMenu(null);
     }
   }, [conclusionContextMenu, contextMenuConclusion]);
+
+  useEffect(() => {
+    if (activeConclusionKey === null) {
+      setPendingConclusionFocusPoint(null);
+    }
+  }, [activeConclusionKey]);
+
+  useEffect(() => {
+    setConclusionDraft(emptyRichEditorValue());
+    setPendingConclusionFocusPoint(null);
+    clearActiveConclusion();
+  }, [activity?.id, clearActiveConclusion]);
+
+  useEffect(() => {
+    setActivitySummaryExpanded(false);
+  }, [activity?.id]);
+
+  useEffect(() => {
+    if (!activity) {
+      setTitleDraft("");
+      setTitleEditing(false);
+      return;
+    }
+
+    setTitleDraft(activity.title);
+
+    if (
+      focusId === "activity-title" &&
+      autoEditTitleActivityIdRef.current !== activity.id
+    ) {
+      autoEditTitleActivityIdRef.current = activity.id;
+      setTitleEditing(true);
+      return;
+    }
+
+    setTitleEditing(false);
+  }, [activity?.id, activity?.title, focusId]);
 
   const importDocumentForEditor = useCallback(
     async (sourcePath: string) => {
@@ -181,18 +303,91 @@ export function ActivityPage() {
         });
 
         appendDocumentToActivityCache(queryClient, document);
-        void queryClient.invalidateQueries({ queryKey: ["overview", document.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["dashboard", document.projectId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["overview", document.projectId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["dashboard", document.projectId],
+        });
         void queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
 
         return document;
       } catch (error) {
-        pushToast({ tone: "error", title: "导入文件失败", detail: String(error) });
+        pushToast({
+          tone: "error",
+          title: "导入文件失败",
+          detail: String(error),
+        });
         throw error;
       }
     },
     [activity, pushToast, queryClient],
   );
+
+  const importNoteImageForEditor = useCallback(
+    async (sourcePath: string) => {
+      if (!activity) {
+        throw new Error("当前活动尚未加载完成");
+      }
+
+      try {
+        return await projectMindApi.documentImportNoteImage({
+          projectId: activity.projectId,
+          activityId: activity.id,
+          sourcePath,
+        });
+      } catch (error) {
+        pushToast({
+          tone: "error",
+          title: "导入图片失败",
+          detail: String(error),
+        });
+        throw error;
+      }
+    },
+    [activity, pushToast],
+  );
+
+  const importClipboardImageForEditor = useCallback(
+    async (file: File) => {
+      if (!activity) {
+        throw new Error("当前活动尚未加载完成");
+      }
+
+      try {
+        return await projectMindApi.documentImportClipboardNoteImage({
+          projectId: activity.projectId,
+          activityId: activity.id,
+          fileName: buildClipboardImageFileName(file),
+          mimeType: file.type || "image/png",
+          dataBase64: await fileToBase64(file),
+        });
+      } catch (error) {
+        pushToast({
+          tone: "error",
+          title: "导入粘贴图片失败",
+          detail: String(error),
+        });
+        throw error;
+      }
+    },
+    [activity, pushToast],
+  );
+
+  const handleOpenActivityDocumentPicker = useCallback(async () => {
+    if (!activeProject || !activity) {
+      return;
+    }
+
+    const sourcePaths = await desktopApi.pickFiles({
+      title: `选择文件 · ${activeProject.rootPath}`,
+    });
+    if (sourcePaths.length === 0) {
+      return;
+    }
+
+    await requestImportPaths(sourcePaths);
+  }, [activeProject, activity, requestImportPaths]);
 
   const generateAiSuggestionsForNote = useCallback(
     async (noteId: number) => {
@@ -210,35 +405,30 @@ export function ActivityPage() {
   );
 
   const acceptAiSuggestion = useCallback(
-    async (input: Parameters<typeof aiAcceptMutation.mutateAsync>[0]) => aiAcceptMutation.mutateAsync(input),
+    async (input: Parameters<typeof aiAcceptMutation.mutateAsync>[0]) =>
+      aiAcceptMutation.mutateAsync(input),
     [aiAcceptMutation],
   );
 
-  const importDocumentToCurrentActivity = useCallback(
-    (sourcePath: string) =>
-      projectMindApi.documentImport({
-        projectId: activity?.projectId as number,
-        activityId: activity?.id as number,
-        sourcePath,
-        isStarred: false,
-      }),
-    [activity?.id, activity?.projectId],
-  );
-
-  const resetConclusionComposer = useCallback(() => {
+  const resetConclusionComposerDraft = useCallback(() => {
     setConclusionDraft(emptyRichEditorValue());
-    setPromoteConclusion(true);
-    setConclusionComposerOpen(false);
   }, []);
 
-  const handleCreateConclusion = useCallback(async () => {
-    if (!activity) {
-      return;
+  const closeConclusionComposer = useCallback(() => {
+    resetConclusionComposerDraft();
+    setPendingConclusionFocusPoint(null);
+    clearActiveConclusion(CONCLUSION_COMPOSER_KEY);
+  }, [clearActiveConclusion, resetConclusionComposerDraft]);
+
+  const commitOrCloseConclusionComposer = useCallback(async () => {
+    if (!activity || conclusionMutation.isPending) {
+      return false;
     }
 
     const normalizedDraft = normalizeRichEditorValue(conclusionDraft);
     if (!normalizedDraft.markdown) {
-      return;
+      closeConclusionComposer();
+      return true;
     }
 
     try {
@@ -247,19 +437,29 @@ export function ActivityPage() {
         activityId: activity.id,
         markdown: normalizedDraft.markdown,
         html: normalizedDraft.html,
-        promotedToProject: promoteConclusion,
+        promotedToProject: false,
       });
 
-      resetConclusionComposer();
+      closeConclusionComposer();
+      return true;
     } catch {
+      return false;
+    }
+  }, [activity, closeConclusionComposer, conclusionDraft, conclusionMutation]);
+
+  useEffect(() => {
+    if (!isConclusionComposerActive) {
       return;
     }
+
+    return registerConclusionActivation(
+      CONCLUSION_COMPOSER_KEY,
+      commitOrCloseConclusionComposer,
+    );
   }, [
-    activity,
-    conclusionDraft,
-    conclusionMutation,
-    promoteConclusion,
-    resetConclusionComposer,
+    commitOrCloseConclusionComposer,
+    isConclusionComposerActive,
+    registerConclusionActivation,
   ]);
 
   const handlePageDrop = useCallback(
@@ -271,35 +471,31 @@ export function ActivityPage() {
         return;
       }
 
-      const droppedFiles = Array.from(event.dataTransfer.files) as Array<File & { path?: string }>;
-      const droppedPaths = droppedFiles
-        .map((file) => file.path?.trim())
-        .filter((path): path is string => Boolean(path));
-
-      if (droppedPaths.length === 0) {
-        pushToast({
-          tone: "error",
-          title: "无法读取拖拽文件",
-          detail: "当前拖拽源没有暴露本地路径，请改用“选择文件”导入。",
-        });
-        return;
-      }
-
-      try {
-        const importedDocuments = await Promise.all(
-          droppedPaths.map((sourcePath) => importDocumentToCurrentActivity(sourcePath)),
-        );
-
-        importedDocuments.forEach((document) => appendDocumentToActivityCache(queryClient, document));
-        void queryClient.invalidateQueries({ queryKey: ["overview", activity.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["dashboard", activity.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
-      } catch (error) {
-        pushToast({ tone: "error", title: "导入文件失败", detail: String(error) });
-      }
+      await requestImportPaths(extractDroppedFilePaths(event.dataTransfer));
     },
-    [activity, importDocumentToCurrentActivity, pushToast, queryClient],
+    [activity, requestImportPaths],
   );
+
+  const handleSaveActivityTitle = useCallback(() => {
+    if (!activity) {
+      return;
+    }
+
+    const nextTitle = titleDraft.trim();
+    const currentTitle = activity.title.trim();
+    if (nextTitle === currentTitle) {
+      setTitleDraft(activity.title);
+      setTitleEditing(false);
+      return;
+    }
+
+    activityMetaMutation.mutate({
+      activityId: activity.id,
+      title: nextTitle,
+    });
+    setTitleDraft(nextTitle);
+    setTitleEditing(false);
+  }, [activity, activityMetaMutation, titleDraft]);
 
   if (!activeProject) {
     return (
@@ -312,19 +508,6 @@ export function ActivityPage() {
   if (activitiesQuery.isLoading) {
     return (
       <div className="flex h-full min-h-0 overflow-hidden bg-bg">
-        <ProjectSidebar
-          project={{
-            name: activeProject.name,
-            rootPath: activeProject.rootPath,
-            isArchived: activeProject.isArchived,
-          }}
-          activities={sidebarActivities}
-          activeActivityId={activityId}
-          onOpenProject={() => navigate(projectPath(activeProject.id))}
-          onOpenActivity={(nextActivityId) =>
-            navigate(activityPath(activeProject.id, nextActivityId))
-          }
-        />
         <section className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto bg-bg">
           <div className="flex items-center gap-2 text-body text-text-soft">
             <LoaderCircle className="spin" size={16} />
@@ -352,172 +535,313 @@ export function ActivityPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-bg">
-      <ProjectSidebar
-        project={{
-          name: activeProject.name,
-          rootPath: activeProject.rootPath,
-          isArchived: activeProject.isArchived,
-        }}
-        activities={sidebarActivities}
-        activeActivityId={activity?.id ?? activityId}
-        onOpenProject={() => navigate(projectPath(activeProject.id))}
-        onOpenActivity={(nextActivityId) =>
-          navigate(activityPath(activeProject.id, nextActivityId))
-        }
-      />
-
       <section
         data-testid="activity-page-dropzone"
         className={[
           "min-h-0 flex-1 overflow-y-auto bg-bg transition-[background-color] duration-[160ms] ease-[var(--ease-soft)]",
-          pageDragActive ? "bg-[color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg))]" : "",
+          pageDragActive
+            ? "bg-[color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg))]"
+            : "",
         ].join(" ")}
         onDragOver={(event) => {
+          if (nativeWindowFileDrop) {
+            return;
+          }
           event.preventDefault();
           if (activity) {
             setPageDragActive(true);
           }
         }}
         onDragLeave={(event) => {
+          if (nativeWindowFileDrop) {
+            return;
+          }
           event.preventDefault();
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          if (
+            event.currentTarget.contains(event.relatedTarget as Node | null)
+          ) {
             return;
           }
           setPageDragActive(false);
         }}
-        onDrop={handlePageDrop}
+        onDrop={nativeWindowFileDrop ? undefined : handlePageDrop}
       >
         {!activity ? (
           <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-center px-6 py-8">
-            <EmptyState text="没有找到这个 activity。" className="w-full max-w-xl" />
+            <EmptyState
+              text="没有找到这个 activity。"
+              className="w-full max-w-xl"
+            />
           </div>
         ) : (
           <div className="activity-page__content-shell mx-auto flex w-full max-w-6xl flex-col px-6 py-6">
-            <div className="mb-6 border-b border-border pb-5">
-              <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                {activeProject.name}
-              </p>
-              <div className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-                <div className="min-w-0">
-                  <h1 className="text-headline font-medium tracking-tight text-text">
-                    {activity.title || "Untitled Activity"}
-                  </h1>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
-                    <ActivityTagDropdown
-                      label={activityAttributeLabel(activity.attributeLabel)}
-                      colorKey={activity.attributeColorKey ?? null}
-                      busy={activityMetaMutation.isPending}
-                      selectedOptionId={activity.attributeOptionId ?? null}
-                      options={
-                        activitySettingsQuery.data?.activityAttributeOptions.map((option) => ({
-                          id: option.id,
-                          label: option.label,
-                          colorKey: option.colorKey,
-                        })) ?? []
-                      }
-                      clearLabel="不设置属性"
-                      emptyText="还没有活动属性"
-                      manageLabel="管理活动属性"
-                      onSelect={(optionId) =>
-                        activityMetaMutation.mutate({
-                          activityId: activity.id,
-                          attributeOptionId: optionId,
-                        })
-                      }
-                      onClear={() =>
-                        activityMetaMutation.mutate({
-                          activityId: activity.id,
-                          clearAttributeOption: true,
-                        })
-                      }
-                      onManage={() => openSettings("activity")}
-                    />
-                    <ActivityTagDropdown
-                      label={activity.statusLabel}
-                      colorKey={activity.statusColorKey}
-                      busy={activityMetaMutation.isPending}
-                      selectedOptionId={activity.statusOptionId}
-                      options={
-                        activitySettingsQuery.data?.activityStatusOptions.map((option) => ({
-                          id: option.id,
-                          label: option.label,
-                          colorKey: option.colorKey,
-                        })) ?? []
-                      }
-                      emptyText="还没有活动状态"
-                      manageLabel="管理活动状态"
-                      onSelect={(optionId) =>
-                        activityMetaMutation.mutate({
-                          activityId: activity.id,
-                          statusOptionId: optionId,
-                        })
-                      }
-                      onManage={() => openSettings("activity")}
-                    />
-                    <span className="text-ui text-text-soft">
-                      {formatDateTime(activity.activityTime)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div className="activity-page__layout">
-              <section className="activity-page__notes-column grid min-w-0 gap-5">
+              <section className="activity-page__notes-column grid min-w-0 gap-6">
+                <section
+                  ref={activitySummarySectionRef}
+                  className="grid gap-4 border-b border-border pb-6"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                    <div className="min-w-0">
+                      <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                        {activeProject.name}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <ActivityTagDropdown
+                          label={activityAttributeLabel(
+                            activity.attributeLabel,
+                          )}
+                          colorKey={activity.attributeColorKey ?? null}
+                          busy={activityMetaMutation.isPending}
+                          selectedOptionId={activity.attributeOptionId ?? null}
+                          options={
+                            activitySettingsQuery.data?.activityAttributeOptions.map(
+                              (option) => ({
+                                id: option.id,
+                                label: option.label,
+                                colorKey: option.colorKey,
+                              }),
+                            ) ?? []
+                          }
+                          clearLabel="不设置属性"
+                          emptyText="还没有活动属性"
+                          manageLabel="管理活动属性"
+                          onSelect={(optionId) =>
+                            activityMetaMutation.mutate({
+                              activityId: activity.id,
+                              attributeOptionId: optionId,
+                            })
+                          }
+                          onClear={() =>
+                            activityMetaMutation.mutate({
+                              activityId: activity.id,
+                              clearAttributeOption: true,
+                            })
+                          }
+                          onManage={() => openSettings("activity")}
+                        />
+                        <h1 className="text-headline font-medium tracking-tight text-text">
+                          {titleEditing ? (
+                            <TextField
+                              aria-label="Activity 名称"
+                              value={titleDraft}
+                              autoFocus
+                              className="h-11 min-w-[16rem] max-w-[34rem] rounded-[var(--radius-8)] border-border-strong bg-bg px-3 text-headline font-medium tracking-tight"
+                              placeholder="填写 Activity 名称"
+                              onFocus={(event) => event.currentTarget.select()}
+                              onChange={(event) =>
+                                setTitleDraft(event.target.value)
+                              }
+                              onBlur={() => {
+                                if (titleSkipBlurRef.current) {
+                                  titleSkipBlurRef.current = false;
+                                  return;
+                                }
+                                handleSaveActivityTitle();
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  event.currentTarget.blur();
+                                }
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  titleSkipBlurRef.current = true;
+                                  setTitleDraft(activity.title);
+                                  setTitleEditing(false);
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-headline font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
+                              onClick={() => setTitleEditing(true)}
+                            >
+                              {activity.title || "Untitled Activity"}
+                            </button>
+                          )}
+                        </h1>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <ActivityTagDropdown
+                          label={activity.statusLabel}
+                          colorKey={activity.statusColorKey}
+                          busy={activityMetaMutation.isPending}
+                          selectedOptionId={activity.statusOptionId}
+                          options={
+                            activitySettingsQuery.data?.activityStatusOptions.map(
+                              (option) => ({
+                                id: option.id,
+                                label: option.label,
+                                colorKey: option.colorKey,
+                              }),
+                            ) ?? []
+                          }
+                          emptyText="还没有活动状态"
+                          manageLabel="管理活动状态"
+                          onSelect={(optionId) =>
+                            activityMetaMutation.mutate({
+                              activityId: activity.id,
+                              statusOptionId: optionId,
+                            })
+                          }
+                          onManage={() => openSettings("activity")}
+                        />
+                        <span className="text-ui text-text-soft">
+                          <span
+                            className="inline-flex items-center gap-1 opacity-75"
+                            aria-label={`文件 ${activity.documents.length}`}
+                            title={`文件 ${activity.documents.length}`}
+                          >
+                            <FileText size={13} aria-hidden="true" />
+                            <span>{activity.documents.length}</span>
+                          </span>
+                        </span>
+                        <span className="text-ui text-text-soft">
+                          <span
+                            className="inline-flex items-center gap-1 opacity-75"
+                            aria-label={`结论 ${activity.conclusions.length}`}
+                            title={`结论 ${activity.conclusions.length}`}
+                          >
+                            <Lightbulb size={13} aria-hidden="true" />
+                            <span>{activity.conclusions.length}</span>
+                          </span>
+                        </span>
+                        <span className="text-ui text-text-soft">
+                          <span
+                            className="inline-flex items-center gap-1 opacity-75"
+                            aria-label={`Todo ${activity.digest.completedTodoCount}/${activity.digest.totalTodoCount}`}
+                            title={`Todo ${activity.digest.completedTodoCount}/${activity.digest.totalTodoCount}`}
+                          >
+                            <ListTodo size={13} aria-hidden="true" />
+                            <span>
+                              {activity.digest.completedTodoCount}/{activity.digest.totalTodoCount}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="text-ui text-text-soft opacity-75">
+                          {formatDateTime(activity.activityTime)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {showActivitySummary ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={
+                          activitySummaryExpanded ? "subtle" : "secondary"
+                        }
+                        aria-expanded={activitySummaryExpanded}
+                        onClick={() =>
+                          setActivitySummaryExpanded((expanded) => !expanded)
+                        }
+                        trailingIcon={
+                          <ChevronDown
+                            size={14}
+                            className={[
+                              "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+                              activitySummaryExpanded ? "rotate-180" : "",
+                            ].join(" ")}
+                          />
+                        }
+                      >
+                        AI 概览
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {showActivitySummary && activitySummaryExpanded ? (
+                    <div className="border-t border-border pt-5">
+                      <AiArtifactCard
+                        eyebrow="AI Summary"
+                        title="AI 总结"
+                        input={{
+                          kind: "activity_summary",
+                          projectId: activity.projectId,
+                          activityId: activity.id,
+                        }}
+                        aiEnabled={summaryReady}
+                        sectionsLayout="single-column"
+                        display="embedded"
+                      />
+                    </div>
+                  ) : null}
+                </section>
+
                 <ActivityNotesPanel
                   projectId={activity.projectId}
                   activityId={activity.id}
                   notes={activity.notes}
                   recordTypeSettings={recordTypeSettingsQuery.data}
                   saving={noteMutation.isPending}
+                  deletingNote={noteDeleteMutation.isPending}
                   showAiRefine={showAiRefine}
                   aiReady={suggestionGenerationReady}
                   enabledSuggestionTypes={visibleSuggestionTypes}
                   onUpsertNote={(input) => noteMutation.mutateAsync(input)}
+                  onDeleteNote={(noteId) =>
+                    noteDeleteMutation.mutateAsync({ noteId })
+                  }
+                  onImportImage={importNoteImageForEditor}
                   onImportDocument={importDocumentForEditor}
+                  onImportClipboardImage={importClipboardImageForEditor}
                   onGenerateAiSuggestions={generateAiSuggestionsForNote}
                   onAcceptAiSuggestion={acceptAiSuggestion}
                   onManageRecordTypes={() => openSettings("record-types")}
                 />
               </section>
 
-              <section className="activity-page__details-column grid min-w-0 gap-5">
-                {showActivitySummary ? (
-                  <AiArtifactCard
-                    eyebrow="AI Summary"
-                    title="AI 总结"
-                    description="提炼本次活动的概览、关键结论、风险和下一步建议。"
-                    input={{
-                      kind: "activity_summary",
-                      projectId: activity.projectId,
-                      activityId: activity.id,
-                    }}
-                    aiEnabled={summaryReady}
-                    sectionsLayout="single-column"
-                  />
-                ) : null}
-
+              <section className="activity-page__details-column grid min-w-0 gap-6">
                 <section className="grid gap-4">
                   <SectionHeader
                     eyebrow="Documents"
                     title="文件材料"
-                    description="导入与当前活动相关的文件和附件。"
+                    actions={
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          void handleOpenActivityDocumentPicker();
+                        }}
+                      >
+                        导入文件
+                      </Button>
+                    }
                   />
                   <ManagedDocumentSection
                     projectId={activity.projectId}
                     projectRootPath={activeProject.rootPath}
                     activityId={activity.id}
                     documents={activity.documents}
-                    layout="grid"
+                    layout="list"
                     importButtonLabel="导入文件"
+                    showImportButton={false}
                     emptyText="还没有关联文件。"
                     compactHeader
                     pageDropActive={pageDragActive}
                     pageDropMessage="整个 activity 页面都支持拖入，文件会直接归入当前 activity"
+                    onDropFiles={requestImportPaths}
                   />
                 </section>
+                {pendingImportPaths ? (
+                  <DocumentImportTagDialog
+                    paths={pendingImportPaths}
+                    tags={fileTags}
+                    selectedTagIds={pendingImportTagIds}
+                    onToggleTag={togglePendingImportTag}
+                    onClose={closeImportTagDialog}
+                    onConfirm={() => {
+                      void confirmImportTagDialog();
+                    }}
+                    onManageTags={manageImportTags}
+                  />
+                ) : null}
 
-                <section className="grid gap-4">
+                <section className="grid gap-4 border-t border-border pt-6">
                   <SectionHeader
                     eyebrow="Conclusions"
                     title="结论"
@@ -526,123 +850,172 @@ export function ActivityPage() {
                         type="button"
                         size="sm"
                         variant="secondary"
-                        onClick={() => setConclusionComposerOpen(true)}
+                        onClick={() => {
+                          setPendingConclusionFocusPoint(null);
+                          void requestConclusionActivation(
+                            CONCLUSION_COMPOSER_KEY,
+                          );
+                        }}
                       >
                         新增结论
                       </Button>
                     }
                   />
 
-                  <SurfaceCard subtle className="grid gap-4 p-4">
-                    {conclusionComposerOpen ? (
-                      <div className="grid gap-3">
-                        <p className="text-body font-medium text-text">新增结论</p>
+                  <div className="grid gap-1.5">
+                    {isConclusionComposerActive ? (
+                      <article
+                        className="border-b border-[color-mix(in_srgb,var(--color-border)_88%,transparent)] py-1.5"
+                        onBlurCapture={(event) => {
+                          if (isFocusMovingWithinCurrentTarget(event)) {
+                            return;
+                          }
+
+                          void commitOrCloseConclusionComposer();
+                        }}
+                      >
                         <div
-                          className="rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3 transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus-within:border-accent"
+                          className="inline-object-item"
                           onKeyDownCapture={(event) => {
                             if (event.key === "Escape") {
                               event.preventDefault();
-                              resetConclusionComposer();
+                              closeConclusionComposer();
+                              return;
+                            }
+                            if (isSubmitShortcut(event)) {
+                              event.preventDefault();
+                              blurKeyboardTarget(event.target);
                             }
                           }}
                         >
-                          <RichEditor
-                            html={conclusionDraft.html}
-                            variant="bare"
-                            enableTables={false}
-                            placeholder="记录已确认的判断、共识或决定。"
-                            onChange={setConclusionDraft}
-                          />
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <ProjectStarButton
-                            active={promoteConclusion}
-                            disabled={conclusionMutation.isPending}
-                            onClick={() => setPromoteConclusion((current) => !current)}
-                          />
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              disabled={conclusionMutation.isPending}
-                              onClick={resetConclusionComposer}
-                            >
-                              取消
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="primary"
-                              disabled={conclusionMutation.isPending}
-                              onClick={() => void handleCreateConclusion()}
-                            >
-                              {conclusionMutation.isPending ? "保存中..." : "保存结论"}
-                            </Button>
+                          <div
+                            className="inline-object-rail"
+                            aria-hidden="true"
+                          >
+                            <div className="inline-object-guide" />
+                          </div>
+                          <div className="inline-object-panel inline-object-panel--active">
+                            <RichEditor
+                              html={conclusionDraft.html}
+                              variant="bare"
+                              autoFocus={
+                                pendingConclusionFocusPoint?.key ===
+                                CONCLUSION_COMPOSER_KEY
+                                  ? pendingConclusionFocusPoint.point
+                                  : true
+                              }
+                              enableTables={false}
+                              placeholder="记录已确认的判断、共识或决定。"
+                              onChange={setConclusionDraft}
+                            />
                           </div>
                         </div>
-                      </div>
+                      </article>
                     ) : null}
 
-                    <div className="grid gap-3 border-t border-border pt-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-ui font-medium uppercase tracking-[0.16em] text-text-soft">
-                          当前结论
-                        </p>
-                        <span className="text-caption text-text-soft">
-                          {activity.conclusions.length} 条
-                        </span>
+                    {activity.conclusions.length > 0 ? (
+                      <div className="grid gap-0">
+                        {activity.conclusions.map((item) => (
+                          <InlineActivityConclusionEditor
+                            key={item.id}
+                            conclusion={item}
+                            activationKey={conclusionActivationKey(item.id)}
+                            autoFocusTarget={
+                              pendingConclusionFocusPoint?.key ===
+                              conclusionActivationKey(item.id)
+                                ? pendingConclusionFocusPoint.point
+                                : true
+                            }
+                            busy={
+                              conclusionUpdateMutation.isPending ||
+                              conclusionDeleteMutation.isPending
+                            }
+                            isActive={
+                              activeConclusionKey ===
+                              conclusionActivationKey(item.id)
+                            }
+                            registerActivation={registerConclusionActivation}
+                            onDeactivate={() =>
+                              clearActiveConclusion(
+                                conclusionActivationKey(item.id),
+                              )
+                            }
+                            onRequestActivate={(focusPoint) => {
+                              setPendingConclusionFocusPoint(
+                                focusPoint
+                                  ? {
+                                      key: conclusionActivationKey(item.id),
+                                      point: focusPoint,
+                                    }
+                                  : null,
+                              );
+                              return requestConclusionActivation(
+                                conclusionActivationKey(item.id),
+                              );
+                            }}
+                            onOpenContextMenu={(conclusionId, x, y) =>
+                              setConclusionContextMenu({ conclusionId, x, y })
+                            }
+                            onSave={async (
+                              conclusionId,
+                              markdown,
+                              html,
+                              promotedToProject,
+                            ) => {
+                              await conclusionUpdateMutation.mutateAsync({
+                                conclusionId,
+                                markdown,
+                                html,
+                                promotedToProject,
+                              });
+                            }}
+                          />
+                        ))}
                       </div>
+                    ) : isConclusionComposerActive ? null : (
+                      <EmptyState text="还没有结论。" compact />
+                    )}
 
-                      {activity.conclusions.length > 0 ? (
-                        <div className="grid gap-3">
-                          {activity.conclusions.map((item) => (
-                            <InlineActivityConclusionEditor
-                              key={item.id}
-                              conclusion={item}
-                              busy={
-                                conclusionUpdateMutation.isPending ||
-                                conclusionDeleteMutation.isPending
-                              }
-                              onOpenContextMenu={(conclusionId, x, y) =>
-                                setConclusionContextMenu({ conclusionId, x, y })
-                              }
-                              onSave={async (conclusionId, markdown, html, promotedToProject) => {
-                                await conclusionUpdateMutation.mutateAsync({
-                                  conclusionId,
-                                  markdown,
-                                  html,
-                                  promotedToProject,
-                                });
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <EmptyState
-                          text={conclusionComposerOpen ? "还没有结论。" : "还没有结论，点“新增结论”开始记录。"}
-                          compact
-                        />
-                      )}
-                    </div>
                     {conclusionContextMenu && contextMenuConclusion ? (
-                      <DeleteContextMenu
+                      <ActionContextMenu
                         x={conclusionContextMenu.x}
                         y={conclusionContextMenu.y}
                         ariaLabel="结论操作"
-                        disabled={conclusionDeleteMutation.isPending}
                         onClose={() => setConclusionContextMenu(null)}
-                        onDelete={() => {
-                          if (!window.confirm("确定删除这条结论吗？删除后无法恢复。")) {
-                            return;
-                          }
-                          void conclusionDeleteMutation.mutateAsync({
-                            conclusionId: contextMenuConclusion.id,
-                          });
-                        }}
+                        actions={[
+                          {
+                            icon: Star,
+                            label: contextMenuConclusion.promotedToProject
+                              ? "取消项目级标星"
+                              : "设为项目级标星",
+                            disabled:
+                              conclusionUpdateMutation.isPending ||
+                              conclusionDeleteMutation.isPending,
+                            onSelect: () => {
+                              void conclusionUpdateMutation.mutateAsync({
+                                conclusionId: contextMenuConclusion.id,
+                                markdown: contextMenuConclusion.contentMarkdown,
+                                html: contextMenuConclusion.contentHtml,
+                                promotedToProject:
+                                  !contextMenuConclusion.promotedToProject,
+                              });
+                            },
+                          },
+                          {
+                            icon: Trash2,
+                            label: "删除",
+                            tone: "danger",
+                            disabled: conclusionDeleteMutation.isPending,
+                            onSelect: () => {
+                              void conclusionDeleteMutation.mutateAsync({
+                                conclusionId: contextMenuConclusion.id,
+                              });
+                            },
+                          },
+                        ]}
                       />
                     ) : null}
-                  </SurfaceCard>
+                  </div>
                 </section>
               </section>
             </div>
@@ -665,7 +1038,9 @@ export function ActivityPage() {
               ...payload,
             })
           }
-          onToggleStatus={(todoId, status) => todoStatusMutation.mutateAsync({ todoId, status })}
+          onToggleStatus={(todoId, status) =>
+            todoStatusMutation.mutateAsync({ todoId, status })
+          }
           onUpdatePriority={(todoId, priority) =>
             todoPriorityMutation.mutateAsync({ todoId, priority })
           }
@@ -678,7 +1053,13 @@ export function ActivityPage() {
           onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
           onOpenTodoSource={(todo) => {
             if (!todo.activityId) return;
-            navigate(activityPath(activity.projectId, todo.activityId, `todo-${todo.id}`));
+            navigate(
+              activityPath(
+                activity.projectId,
+                todo.activityId,
+                `todo-${todo.id}`,
+              ),
+            );
           }}
           onError={(message) =>
             pushToast({ tone: "error", title: "进展保存失败", detail: message })
@@ -688,6 +1069,8 @@ export function ActivityPage() {
     </div>
   );
 }
+
+const CONCLUSION_COMPOSER_KEY = "composer";
 
 function emptyRichEditorValue(): RichEditorValue {
   return {
@@ -699,12 +1082,30 @@ function emptyRichEditorValue(): RichEditorValue {
 
 function InlineActivityConclusionEditor({
   conclusion,
+  activationKey,
+  autoFocusTarget,
   busy,
+  isActive,
+  registerActivation,
+  onDeactivate,
+  onRequestActivate,
   onOpenContextMenu,
   onSave,
 }: {
   conclusion: ConclusionRecord;
+  activationKey: string;
+  autoFocusTarget: boolean | { x: number; y: number };
   busy: boolean;
+  isActive: boolean;
+  registerActivation: (
+    key: string,
+    handler: () => Promise<boolean> | boolean,
+  ) => () => void;
+  onDeactivate: () => void;
+  onRequestActivate: (focusPoint?: {
+    x: number;
+    y: number;
+  }) => Promise<boolean>;
   onOpenContextMenu: (conclusionId: number, x: number, y: number) => void;
   onSave: (
     conclusionId: number,
@@ -713,9 +1114,10 @@ function InlineActivityConclusionEditor({
     promotedToProject: boolean,
   ) => Promise<unknown>;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<RichEditorValue>(() => buildConclusionDraft(conclusion));
-  const [promotedToProject, setPromotedToProject] = useState(conclusion.promotedToProject);
+  const [draft, setDraft] = useState<RichEditorValue>(() =>
+    buildConclusionDraft(conclusion),
+  );
+  const saveInFlightRef = useRef(false);
   const renderableHtml = useMemo(
     () =>
       getRenderableRichTextHtml({
@@ -727,150 +1129,167 @@ function InlineActivityConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
-    setPromotedToProject(conclusion.promotedToProject);
-    setEditing(false);
-  }, [
-    conclusion.contentHtml,
-    conclusion.contentMarkdown,
-    conclusion.id,
-    conclusion.promotedToProject,
-  ]);
+  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
+
+  const resetEditingState = useCallback(() => {
+    setDraft(buildConclusionDraft(conclusion));
+  }, [conclusion]);
+
+  const commitOrClose = useCallback(async () => {
+    if (busy || saveInFlightRef.current) {
+      return false;
+    }
+
+    const normalizedDraft = normalizeRichEditorValue(draft);
+    const initialDraft = normalizeRichEditorValue(
+      buildConclusionDraft(conclusion),
+    );
+
+    if (!normalizedDraft.markdown) {
+      resetEditingState();
+      onDeactivate();
+      return true;
+    }
+
+    if (
+      normalizedDraft.markdown === initialDraft.markdown &&
+      normalizedDraft.html === initialDraft.html
+    ) {
+      onDeactivate();
+      return true;
+    }
+
+    saveInFlightRef.current = true;
+
+    try {
+      await onSave(
+        conclusion.id,
+        normalizedDraft.markdown,
+        normalizedDraft.html,
+        conclusion.promotedToProject,
+      );
+      onDeactivate();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [busy, conclusion, draft, onDeactivate, onSave, resetEditingState]);
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    return registerActivation(activationKey, commitOrClose);
+  }, [activationKey, commitOrClose, isActive, registerActivation]);
 
   return (
     <article
       id={`conclusion-${conclusion.id}`}
-      className="grid gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0"
+      className="border-b border-[color-mix(in_srgb,var(--color-border)_88%,transparent)] py-1.5 last:border-b-0"
+      onMouseDownCapture={(event) => {
+        if (isActive || event.button !== 2 || shouldIgnoreContextMenuTarget(event.target)) {
+          return;
+        }
+
+        event.preventDefault();
+      }}
+      onBlurCapture={(event) => {
+        if (!isActive || isFocusMovingWithinCurrentTarget(event)) {
+          return;
+        }
+
+        void commitOrClose();
+      }}
       onContextMenu={(event) => {
-        if (editing || shouldIgnoreContextMenuTarget(event.target)) {
+        if (isActive || shouldIgnoreContextMenuTarget(event.target)) {
           return;
         }
         event.preventDefault();
         onOpenContextMenu(conclusion.id, event.clientX, event.clientY);
       }}
     >
-      {editing ? (
-        <div className="grid gap-2">
+      <div
+        className="inline-object-item"
+        onKeyDownCapture={(event) => {
+          if (!isActive) {
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            resetEditingState();
+            onDeactivate();
+            return;
+          }
+          if (isSubmitShortcut(event)) {
+            event.preventDefault();
+            blurKeyboardTarget(event.target);
+          }
+        }}
+      >
+        <div className="inline-object-rail" aria-hidden="true">
           <div
-            className="rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3 transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus-within:border-accent"
-            onKeyDownCapture={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setDraft(buildConclusionDraft(conclusion));
-                setPromotedToProject(conclusion.promotedToProject);
-                setEditing(false);
-              }
-            }}
-          >
+            className={inlineObjectGuideClass(conclusion.promotedToProject)}
+          />
+        </div>
+        <div
+          role={isActive ? undefined : "button"}
+          tabIndex={isActive || busy ? -1 : 0}
+          className={[
+            "inline-object-panel",
+            isActive
+              ? "inline-object-panel--active"
+              : "inline-object-panel--interactive",
+          ].join(" ")}
+          onMouseDown={(event) => {
+            if (
+              isActive ||
+              busy ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              shouldIgnoreContextMenuTarget(event.target)
+            ) {
+              return;
+            }
+
+            event.preventDefault();
+            void onRequestActivate(
+              relativeFocusPointFromMouseEvent(
+                event.currentTarget,
+                event.clientX,
+                event.clientY,
+              ),
+            );
+          }}
+          onKeyDown={(event) => {
+            if (isActive || busy) {
+              return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              void onRequestActivate();
+            }
+          }}
+        >
+          {isActive ? (
             <RichEditor
               html={draft.html}
               variant="bare"
+              autoFocus={autoFocusTarget}
               enableTables={false}
               placeholder="记录已确认的判断、共识或决定。"
               onChange={setDraft}
             />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <ProjectStarButton
-                active={promotedToProject}
-                disabled={busy}
-                onClick={() => setPromotedToProject((current) => !current)}
-              />
-              <p className="text-ui text-text-soft">{formatDateTime(conclusion.updatedAt)}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(buildConclusionDraft(conclusion));
-                  setPromotedToProject(conclusion.promotedToProject);
-                  setEditing(false);
-                }}
-              >
-                取消
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                disabled={busy}
-                onClick={() => {
-                  void (async () => {
-                    const normalizedDraft = normalizeRichEditorValue(draft);
-                    if (!normalizedDraft.markdown) {
-                      return;
-                    }
-
-                    try {
-                      await onSave(
-                        conclusion.id,
-                        normalizedDraft.markdown,
-                        normalizedDraft.html,
-                        promotedToProject,
-                      );
-                      setEditing(false);
-                    } catch {
-                      return;
-                    }
-                  })();
-                }}
-              >
-                {busy ? "保存中..." : "保存修改"}
-              </Button>
-            </div>
-          </div>
+          ) : (
+            <RichEditor html={renderableHtml} variant="bare" readOnly />
+          )}
         </div>
-      ) : (
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-          <div className="min-w-0">
-            <div
-              role="button"
-              tabIndex={busy ? -1 : 0}
-              className="cursor-text rounded-[var(--radius-6)] outline-none transition-colors hover:bg-bg-hover focus-visible:ring-2 focus-visible:ring-accent/40"
-              onClick={() => {
-                if (!busy) {
-                  setEditing(true);
-                }
-              }}
-              onKeyDown={(event) => {
-                if (busy) {
-                  return;
-                }
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setEditing(true);
-                }
-              }}
-            >
-              <RichEditor html={renderableHtml} variant="bare" readOnly />
-              <p className="mt-2 text-ui text-text-soft">{formatDateTime(conclusion.updatedAt)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 justify-self-start sm:justify-self-end">
-            <ProjectStarButton
-              active={conclusion.promotedToProject}
-              disabled={busy}
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await onSave(
-                      conclusion.id,
-                      conclusion.contentMarkdown,
-                      conclusion.contentHtml,
-                      !conclusion.promotedToProject,
-                    );
-                  } catch {
-                    return;
-                  }
-                })();
-              }}
-            />
-          </div>
-        </div>
-      )}
+      </div>
     </article>
   );
 }
@@ -883,6 +1302,52 @@ function buildConclusionDraft(conclusion: ConclusionRecord): RichEditorValue {
     }),
     text: conclusion.contentMarkdown,
     markdown: conclusion.contentMarkdown,
+  };
+}
+
+function conclusionActivationKey(conclusionId: number) {
+  return `conclusion:${conclusionId}`;
+}
+
+function inlineObjectGuideClass(accented: boolean) {
+  return accented
+    ? "inline-object-guide inline-object-guide--accent"
+    : "inline-object-guide";
+}
+
+function isFocusMovingWithinCurrentTarget(event: FocusEvent<HTMLElement>) {
+  const nextFocusedElement = event.relatedTarget;
+  return (
+    nextFocusedElement instanceof Node &&
+    event.currentTarget.contains(nextFocusedElement)
+  );
+}
+
+function isSubmitShortcut(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}) {
+  return event.key === "Enter" && (event.ctrlKey || event.metaKey);
+}
+
+function blurKeyboardTarget(target: EventTarget | null) {
+  if (target instanceof HTMLElement) {
+    target.blur();
+  }
+}
+
+function relativeFocusPointFromMouseEvent(
+  element: HTMLElement,
+  clientX: number,
+  clientY: number,
+) {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top,
+    mode: "content-relative" as const,
   };
 }
 
@@ -902,11 +1367,15 @@ function appendDocumentToActivityCache(
           return activity;
         }
 
-        const alreadyExists = activity.documents.some((item) => item.id === document.id);
+        const alreadyExists = activity.documents.some(
+          (item) => item.id === document.id,
+        );
 
         return {
           ...activity,
-          documents: alreadyExists ? activity.documents : [document, ...activity.documents],
+          documents: alreadyExists
+            ? activity.documents
+            : [document, ...activity.documents],
           digest: {
             ...activity.digest,
             documentCount: alreadyExists
@@ -917,4 +1386,48 @@ function appendDocumentToActivityCache(
       });
     },
   );
+}
+
+async function fileToBase64(file: File) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+function buildClipboardImageFileName(file: File) {
+  const extension = extensionForMimeType(file.type);
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, "")
+    .slice(0, 14);
+
+  return `clipboard-image-${timestamp}.${extension}`;
+}
+
+function extensionForMimeType(mimeType: string) {
+  switch (mimeType.trim().toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/svg+xml":
+      return "svg";
+    case "image/bmp":
+      return "bmp";
+    case "image/avif":
+      return "avif";
+    default:
+      return "png";
+  }
 }

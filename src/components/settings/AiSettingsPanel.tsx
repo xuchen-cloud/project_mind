@@ -75,9 +75,13 @@ interface BindingDraft {
 
 interface AiSettingsPanelProps {
   open: boolean;
+  onUnlockAiSecrets?: () => Promise<boolean>;
 }
 
-export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
+export function AiSettingsPanel({
+  open,
+  onUnlockAiSecrets = async () => false,
+}: AiSettingsPanelProps) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
 
@@ -88,6 +92,7 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
   });
 
   const snapshot = aiSettingsQuery.data;
+  const aiSecretsUnlocked = snapshot?.aiSecretsUnlocked ?? true;
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [bindingMode, setBindingMode] = useState<BindingMode>("normal");
@@ -428,6 +433,7 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
               size="sm"
               variant="secondary"
               leadingIcon={<Plus size={14} />}
+              disabled={!aiSecretsUnlocked}
               onClick={() => {
                 if (isCreatingProfile) {
                   closeCreateProfile();
@@ -440,6 +446,22 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
             </Button>
           }
         />
+
+        {!aiSecretsUnlocked ? (
+          <SurfaceCard subtle className="rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-body font-medium text-text">Workspace secrets 已锁定</p>
+                <p className="mt-1 text-ui text-text-soft">
+                  保存 API Key、测试连接和执行 AI 能力前，需要先输入当前 workspace 密码。
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="primary" onClick={() => void onUnlockAiSecrets()}>
+                解锁 Secrets
+              </Button>
+            </div>
+          </SurfaceCard>
+        ) : null}
 
         {isCreatingProfile ? (
           <div className="rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle p-3">
@@ -460,6 +482,7 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
                 setDraft={setProfileDraft}
                 savePending={saveProfileMutation.isPending}
                 deletePending={deleteProfileMutation.isPending}
+                actionsDisabled={!aiSecretsUnlocked}
                 profileTestJob={profileTestJob}
                 profileTestJobActive={profileTestJobActive}
                 testResult={testResult}
@@ -492,6 +515,7 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
                 setDraft={setProfileDraft}
                 savePending={saveProfileMutation.isPending}
                 deletePending={deleteProfileMutation.isPending}
+                actionsDisabled={!aiSecretsUnlocked}
                 profileTestJob={profileTestJob}
                 profileTestJobActive={profileTestJobActive}
                 testResult={selectedProfileId === profile.id ? testResult : null}
@@ -656,9 +680,9 @@ export function AiSettingsPanel({ open }: AiSettingsPanelProps) {
           </SurfaceCard>
 
           <SurfaceCard subtle className="flex flex-wrap items-center gap-2 px-3.5 py-3">
-            <StatusBadge tone="neutral">本机加密</StatusBadge>
+            <StatusBadge tone="neutral">Workspace 密码加密</StatusBadge>
             <p className="text-body text-text-muted">
-              密钥按设备绑定加密存储，迁移机器后需要重新录入。
+              AI 密钥跟随当前 workspace 一起保存，切换或复制 workspace 后可继续使用同一套配置。
             </p>
           </SurfaceCard>
         </div>
@@ -674,6 +698,7 @@ function AiProfileRow({
   setDraft,
   savePending,
   deletePending,
+  actionsDisabled,
   profileTestJob,
   profileTestJobActive,
   testResult,
@@ -689,6 +714,7 @@ function AiProfileRow({
   setDraft: Dispatch<SetStateAction<AiProviderProfileUpsertInput>>;
   savePending: boolean;
   deletePending: boolean;
+  actionsDisabled: boolean;
   profileTestJob: ReturnType<typeof useAiJobTarget>;
   profileTestJobActive: boolean;
   testResult: AiProfileTestResult | null;
@@ -740,6 +766,7 @@ function AiProfileRow({
             setDraft={setDraft}
             savePending={savePending}
             deletePending={deletePending}
+            actionsDisabled={actionsDisabled}
             profileTestJob={profileTestJob}
             profileTestJobActive={profileTestJobActive}
             testResult={testResult}
@@ -759,6 +786,7 @@ function AiProfileEditorFields({
   setDraft,
   savePending,
   deletePending,
+  actionsDisabled,
   profileTestJob,
   profileTestJobActive,
   testResult,
@@ -772,6 +800,7 @@ function AiProfileEditorFields({
   setDraft: Dispatch<SetStateAction<AiProviderProfileUpsertInput>>;
   savePending: boolean;
   deletePending: boolean;
+  actionsDisabled: boolean;
   profileTestJob: ReturnType<typeof useAiJobTarget>;
   profileTestJobActive: boolean;
   testResult: AiProfileTestResult | null;
@@ -912,14 +941,20 @@ function AiProfileEditorFields({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
-        <Button type="button" variant="primary" size="sm" disabled={savePending} onClick={onSave}>
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          disabled={savePending || actionsDisabled}
+          onClick={onSave}
+        >
           {savePending ? "保存中..." : "保存"}
         </Button>
         <Button
           type="button"
           variant="secondary"
           size="sm"
-          disabled={profileTestJobActive}
+          disabled={profileTestJobActive || actionsDisabled}
           onClick={onTest}
         >
           {profileTestJob?.status === "queued"

@@ -2,25 +2,24 @@ import { useState } from "react";
 import { FolderOpen } from "lucide-react";
 import type { ProjectCreateInput } from "../../lib/types";
 import { PROJECT_STATUS_OPTIONS } from "../../lib/constants";
-import { desktopApi } from "../../services/desktopApi";
 import { Button, Dialog, TextField } from "../../ui/components";
 
 interface CreateProjectModalProps {
+  workspaceRoot: string;
   onClose: () => void;
   onSubmit: (input: ProjectCreateInput) => void;
   isPending: boolean;
 }
 
-export function CreateProjectModal({ onClose, onSubmit, isPending }: CreateProjectModalProps) {
+export function CreateProjectModal({
+  workspaceRoot,
+  onClose,
+  onSubmit,
+  isPending,
+}: CreateProjectModalProps) {
   const [name, setName] = useState("");
   const [summary, setSummary] = useState("");
   const [status, setStatus] = useState("active");
-  const [workspaceRoot, setWorkspaceRoot] = useState("");
-
-  const handlePickFolder = async () => {
-    const selected = await desktopApi.pickDirectory("选择工作区文件夹");
-    if (typeof selected === "string") setWorkspaceRoot(selected);
-  };
 
   return (
     <Dialog
@@ -50,7 +49,7 @@ export function CreateProjectModal({ onClose, onSubmit, isPending }: CreateProje
         </div>
         <div>
           <p className="text-title font-medium text-text">Project Mind Workspace</p>
-          <p className="text-body text-text-muted">项目目录将作为本地工作区根路径。</p>
+          <p className="text-body text-text-muted">新项目会直接创建在当前 workspace 根目录下。</p>
         </div>
       </div>
 
@@ -59,8 +58,8 @@ export function CreateProjectModal({ onClose, onSubmit, isPending }: CreateProje
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!name.trim() || !workspaceRoot.trim()) return;
-          onSubmit({ name, summary, status, workspaceRoot });
+          if (!name.trim()) return;
+          onSubmit({ name, summary, status });
         }}
       >
         <label className="block space-y-1.5">
@@ -96,19 +95,8 @@ export function CreateProjectModal({ onClose, onSubmit, isPending }: CreateProje
             </select>
           </label>
           <label className="block space-y-1.5">
-            <span className="text-ui font-medium text-text-muted">工作区目录</span>
-            <div className="flex gap-2">
-              <TextField
-                value={workspaceRoot}
-                onChange={(e) => setWorkspaceRoot(e.target.value)}
-                required
-                className="flex-1"
-                placeholder="例如：D:\\Workspaces\\alpha 或 /Users/alex/workspaces/alpha"
-              />
-              <Button type="button" variant="secondary" onClick={handlePickFolder}>
-                选择
-              </Button>
-            </div>
+            <span className="text-ui font-medium text-text-muted">当前 Workspace</span>
+            <TextField value={workspaceRoot} readOnly className="flex-1" />
           </label>
         </div>
       </form>

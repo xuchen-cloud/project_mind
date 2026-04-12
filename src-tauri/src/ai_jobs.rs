@@ -17,6 +17,8 @@ type JobEmitter = Arc<dyn Fn(&AiJobSnapshot) + Send + Sync>;
 #[derive(Clone)]
 pub struct AiJobManager {
     db_path: PathBuf,
+    workspace_root: PathBuf,
+    secret_state: Arc<Mutex<Option<String>>>,
     emitter: JobEmitter,
     inner: Arc<Mutex<AiJobManagerState>>,
 }
@@ -31,9 +33,17 @@ struct AiJobManagerState {
 }
 
 impl AiJobManager {
-    pub fn new(db_path: PathBuf, max_concurrency: i64, emitter: JobEmitter) -> Self {
+    pub fn new(
+        db_path: PathBuf,
+        workspace_root: PathBuf,
+        secret_state: Arc<Mutex<Option<String>>>,
+        max_concurrency: i64,
+        emitter: JobEmitter,
+    ) -> Self {
         Self {
             db_path,
+            workspace_root,
+            secret_state,
             emitter,
             inner: Arc::new(Mutex::new(AiJobManagerState {
                 next_id: 1,
@@ -151,8 +161,13 @@ impl AiJobManager {
 
             let manager = self.clone();
             thread::spawn(move || {
+                let secret_password = {
+                    let guard = lock_secret_state(&manager.secret_state);
+                    guard.clone()
+                };
                 let result =
-                    Database::open(&manager.db_path).and_then(|mut db| db.execute_ai_job(request));
+                    Database::open(&manager.db_path, &manager.workspace_root, secret_password)
+                        .and_then(|mut db| db.execute_ai_job(request));
                 match result {
                     Ok(result) => manager.finish_success(job_id, result),
                     Err(error) => manager.finish_error(job_id, error.to_string()),
@@ -211,6 +226,13 @@ fn lock_state(inner: &Arc<Mutex<AiJobManagerState>>) -> MutexGuard<'_, AiJobMana
     }
 }
 
+fn lock_secret_state(inner: &Arc<Mutex<Option<String>>>) -> MutexGuard<'_, Option<String>> {
+    match inner.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -222,7 +244,7 @@ mod tests {
         path::PathBuf,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, Mutex,
         },
         thread,
         time::{Duration, Instant},
@@ -272,7 +294,10 @@ mod tests {
     #[test]
     fn list_active_shows_queued_and_running_jobs() {
         let db_path = temp_db_path("active_jobs");
-        let mut db = Database::open(&db_path).unwrap();
+        let root = db_path.parent().unwrap().to_path_buf();
+        let workspace_root = root.join("workspace");
+        fs::create_dir_all(&workspace_root).unwrap();
+        let mut db = Database::open(&db_path, &workspace_root, Some("secret".to_string())).unwrap();
         db.ai_execution_settings_upsert(AiExecutionSettings { max_concurrency: 1 })
             .unwrap();
         seed_mock_profile(&mut db).unwrap();
@@ -282,6 +307,8 @@ mod tests {
         let emitter_count = emitted.clone();
         let manager = AiJobManager::new(
             db_path,
+            workspace_root,
+            Arc::new(Mutex::new(Some("secret".to_string()))),
             1,
             Arc::new(move |_| {
                 emitter_count.fetch_add(1, Ordering::Relaxed);

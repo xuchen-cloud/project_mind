@@ -13,11 +13,18 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", status: "active", rootPath: "/", fileLayoutVersion: 1, summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[{ id: 1, name: "Alpha", status: "active", rootPath: "/", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        currentWorkspace={{
+          rootPath: "/tmp/workspace",
+          metadataPath: "/tmp/workspace/.project-mind/workspace.json",
+          displayName: "Test Workspace",
+          createdAt: "",
+        }}
+        aiSecretsUnlocked
         activeProjectId={1}
         todayActive={false}
         askOpen={false}
-        archivedProjects={[{ id: 2, name: "Beta", status: "paused", rootPath: "/", fileLayoutVersion: 1, summary: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
+        archivedProjects={[{ id: 2, name: "Beta", status: "paused", rootPath: "/", summary: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
         searchInput="bet"
         onSearchInput={vi.fn()}
         searchGroups={[
@@ -41,6 +48,12 @@ describe("WorkspaceTopBar", () => {
         onCloseArchive={vi.fn()}
         onOpenProject={vi.fn()}
         onRestoreProject={onRestoreProject}
+        workspaceMenuOpen={false}
+        onToggleWorkspaceMenu={vi.fn()}
+        onCloseWorkspaceMenu={vi.fn()}
+        onOpenWorkspaceFolder={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
+        onLockAiSecrets={vi.fn()}
         onCreateProject={vi.fn()}
         onOpenToday={vi.fn()}
         onOpenAsk={onOpenAsk}
@@ -48,6 +61,9 @@ describe("WorkspaceTopBar", () => {
         onSearchSelect={onSearchSelect}
       />,
     );
+
+    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.queryByText("Project Mind")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Ask" }));
     expect(onOpenAsk).toHaveBeenCalledTimes(1);

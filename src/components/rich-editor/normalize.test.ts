@@ -23,4 +23,14 @@ describe("normalizeRichEditorHtml", () => {
   it("collapses boundary-only blank content to the empty editor html", () => {
     expect(normalizeRichEditorHtml("<p> </p><p></p>")).toBe(EMPTY_RICH_EDITOR_HTML);
   });
+
+  it("preserves embedded image nodes while trimming boundary blanks", () => {
+    expect(
+      normalizeRichEditorHtml(
+        '<p> </p><p><img src="data:image/png;base64,AAAA" data-path="/tmp/demo.png" data-mime-type="image/png" alt="demo"></p><p> </p>',
+      ),
+    ).toBe(
+      '<p><img src="data:image/png;base64,AAAA" data-path="/tmp/demo.png" data-mime-type="image/png" alt="demo"></p>',
+    );
+  });
 });

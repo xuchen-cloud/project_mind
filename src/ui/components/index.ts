@@ -1,5 +1,7 @@
 export { Button } from "./Button";
 export type { ButtonProps, ButtonSize, ButtonVariant } from "./Button";
+export { ActionContextMenu } from "./ActionContextMenu";
+export type { ContextMenuAction } from "./ActionContextMenu";
 export { DeleteContextMenu } from "./DeleteContextMenu";
 export { Dialog } from "./Dialog";
 export { EmptyState } from "./EmptyState";

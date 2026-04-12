@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -92,7 +92,7 @@ describe("TodoRail", () => {
     });
   });
 
-  it("creates todos, supports multiple inline expansions, and toggles collapse", async () => {
+  it("creates todos, auto-collapses expanded history on blur, and toggles collapse", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
@@ -122,14 +122,17 @@ describe("TodoRail", () => {
       priority: "not_urgent_important",
     });
 
-    const expandButtons = screen.getAllByRole("button", { name: "展开历史进展" });
-    await user.click(expandButtons[0]);
-    await user.click(expandButtons[1]);
+    const firstTodoRow = screen.getByText("Prepare demo notes").closest("article");
+    const secondTodoRow = screen.getByText("Sync with finance").closest("article");
 
-    expect(screen.getByText("等待财务确认")).toBeInTheDocument();
-    expect(screen.getByText("已收集财务问题")).toBeInTheDocument();
-    expect(screen.getAllByText("已同步法务")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(2);
+    await user.click(within(firstTodoRow!).getByRole("button", { name: "展开历史进展" }));
+    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(1);
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("button", { name: "收起历史进展" })).not.toBeInTheDocument();
+
+    await user.click(within(secondTodoRow!).getByRole("button", { name: "展开历史进展" }));
+    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
     expect(useUiStore.getState().todoRailCollapsed).toBe(true);

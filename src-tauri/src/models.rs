@@ -10,7 +10,6 @@ pub struct ProjectRecord {
     pub name: String,
     pub status: String,
     pub root_path: String,
-    pub file_layout_version: i64,
     pub summary: String,
     pub is_archived: bool,
     pub created_at: String,
@@ -24,7 +23,6 @@ pub struct ProjectListItem {
     pub name: String,
     pub status: String,
     pub root_path: String,
-    pub file_layout_version: i64,
     pub summary: String,
     pub is_archived: bool,
     pub created_at: String,
@@ -271,8 +269,27 @@ pub struct AiSettingsSnapshot {
     pub bindings: Vec<AiCapabilityBindingRecord>,
     pub has_usable_default: bool,
     pub security_mode: String,
+    pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
     pub feature_settings: AiFeatureSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummary {
+    pub root_path: String,
+    pub metadata_path: String,
+    pub display_name: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceStatusSnapshot {
+    pub current_workspace: Option<WorkspaceSummary>,
+    pub recent_workspaces: Vec<WorkspaceSummary>,
+    pub ai_secrets_unlocked: bool,
+    pub security_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -556,7 +573,25 @@ pub struct ProjectCreateInput {
     pub name: String,
     pub summary: Option<String>,
     pub status: Option<String>,
-    pub workspace_root: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCreateInput {
+    pub root_path: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceOpenInput {
+    pub root_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceUnlockInput {
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -682,6 +717,12 @@ pub struct NoteUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NoteDeleteInput {
+    pub note_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConclusionCreateInput {
     pub project_id: i64,
     pub activity_id: Option<i64>,
@@ -769,6 +810,36 @@ pub struct DocumentImportInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DocumentImportClipboardImageInput {
+    pub project_id: i64,
+    pub activity_id: Option<i64>,
+    pub file_name: String,
+    pub mime_type: String,
+    pub data_base64: String,
+    pub is_starred: bool,
+    pub tag_ids: Option<Vec<i64>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentImportNoteImageInput {
+    pub project_id: i64,
+    pub activity_id: Option<i64>,
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentImportClipboardNoteImageInput {
+    pub project_id: i64,
+    pub activity_id: Option<i64>,
+    pub file_name: String,
+    pub mime_type: String,
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentUpdateMetaInput {
     pub document_id: i64,
     pub activity_id: Option<Option<i64>>,
@@ -794,7 +865,7 @@ pub struct DocumentListVersionsInput {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentAddVersionInput {
     pub document_id: i64,
-    pub source_path: String,
+    pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
