@@ -23,6 +23,7 @@ import { desktopApi } from "./services/desktopApi";
 import { useFeedbackStore } from "./state/feedback-store";
 import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
+import { useActivityMutations } from "./hooks/useActivityMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { AskPanel } from "./components/ai/AskPanel";
 import {
@@ -341,6 +342,9 @@ export function WorkspaceLayout() {
     openSettings,
     closeSettings,
     setSettingsSection,
+    projectRecentPaths,
+    rememberProjectRoute,
+    clearProjectRecentPaths,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
 
@@ -435,6 +439,11 @@ export function WorkspaceLayout() {
     visibleProjects,
     (path, options) => navigate(path, options),
   );
+  const { createActivityMutation } = useActivityMutations({
+    onCreateActivitySuccess: (activity) => {
+      navigate(activityPath(activity.projectId, activity.id, "activity-title"));
+    },
+  });
 
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
@@ -442,6 +451,7 @@ export function WorkspaceLayout() {
         for (const key of workspaceScopedQueryKeys()) {
           queryClient.removeQueries({ queryKey: key });
         }
+        clearProjectRecentPaths();
         resetAiJobSync();
       }
       queryClient.setQueryData(["workspace-status"], snapshot);
@@ -456,7 +466,7 @@ export function WorkspaceLayout() {
         void ensureAiJobSync();
       }
     },
-    [queryClient],
+    [clearProjectRecentPaths, queryClient],
   );
 
   const closeUnlockDialog = useCallback((unlocked: boolean) => {
@@ -677,6 +687,14 @@ export function WorkspaceLayout() {
   }, [navigate, shouldAutoNavigate, visibleProjects]);
 
   useEffect(() => {
+    if (activeProjectId === null || !location.pathname.startsWith(`/projects/${activeProjectId}`)) {
+      return;
+    }
+
+    rememberProjectRoute(activeProjectId, `${location.pathname}${location.search}`);
+  }, [activeProjectId, location.pathname, location.search, rememberProjectRoute]);
+
+  useEffect(() => {
     if (typeof document === "undefined" || !hasWorkspace) {
       return;
     }
@@ -718,6 +736,23 @@ export function WorkspaceLayout() {
       unlockResolverRef.current = null;
     };
   }, []);
+
+  const handleCreateActivityFromSidebar = useCallback(() => {
+    if (!activeProject || createActivityMutation.isPending) {
+      return;
+    }
+
+    createActivityMutation.mutate({
+      projectId: activeProject.id,
+      title: "",
+      activityTime: new Date().toISOString(),
+    });
+  }, [activeProject, createActivityMutation]);
+
+  const resolveProjectNavigationPath = useCallback(
+    (projectId: number) => projectRecentPaths[projectId] ?? projectPath(projectId),
+    [projectRecentPaths],
+  );
 
   if (!currentWorkspace) {
     return (
@@ -778,7 +813,7 @@ export function WorkspaceLayout() {
       archiveOpen={archiveOpen}
       onToggleArchive={() => setArchiveOpen((current) => !current)}
       onCloseArchive={() => setArchiveOpen(false)}
-      onOpenProject={(id) => navigate(projectPath(id))}
+      onOpenProject={(id) => navigate(resolveProjectNavigationPath(id))}
       onRestoreProject={(id) => archiveMutation.mutate({ projectId: id, isArchived: false })}
       workspaceMenuOpen={workspaceMenuOpen}
       onToggleWorkspaceMenu={() => setWorkspaceMenuOpen((current) => !current)}
@@ -826,6 +861,7 @@ export function WorkspaceLayout() {
           onOpenActivity={(nextActivityId) =>
             navigate(activityPath(activeProject.id, nextActivityId))
           }
+          onCreateActivity={handleCreateActivityFromSidebar}
         />
       ) : null}
 

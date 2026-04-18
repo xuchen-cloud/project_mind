@@ -10,6 +10,7 @@ interface UiStore {
   projectComposer: "conclusion" | "todo" | null;
   projectSidebarCollapsed: boolean;
   todoRailCollapsed: boolean;
+  projectRecentPaths: Record<number, string>;
   setCreateProjectOpen: (open: boolean) => void;
   setCreateActivityOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -19,6 +20,8 @@ interface UiStore {
   setProjectComposer: (value: "conclusion" | "todo" | null) => void;
   setProjectSidebarCollapsed: (collapsed: boolean) => void;
   setTodoRailCollapsed: (collapsed: boolean) => void;
+  rememberProjectRoute: (projectId: number, path: string) => void;
+  clearProjectRecentPaths: () => void;
   toggleProjectSidebarCollapsed: () => void;
   toggleTodoRailCollapsed: () => void;
 }
@@ -31,6 +34,7 @@ export const useUiStore = create<UiStore>((set) => ({
   projectComposer: null,
   projectSidebarCollapsed: false,
   todoRailCollapsed: false,
+  projectRecentPaths: {},
   setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
   setCreateActivityOpen: (createActivityOpen) => set({ createActivityOpen }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
@@ -40,6 +44,17 @@ export const useUiStore = create<UiStore>((set) => ({
   setProjectComposer: (projectComposer) => set({ projectComposer }),
   setProjectSidebarCollapsed: (projectSidebarCollapsed) => set({ projectSidebarCollapsed }),
   setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
+  rememberProjectRoute: (projectId, path) =>
+    set((state) => ({
+      projectRecentPaths:
+        state.projectRecentPaths[projectId] === path
+          ? state.projectRecentPaths
+          : {
+              ...state.projectRecentPaths,
+              [projectId]: path,
+            },
+    })),
+  clearProjectRecentPaths: () => set({ projectRecentPaths: {} }),
   toggleProjectSidebarCollapsed: () =>
     set((state) => ({ projectSidebarCollapsed: !state.projectSidebarCollapsed })),
   toggleTodoRailCollapsed: () =>

@@ -16,6 +16,7 @@ import { formatDateTime } from "../../lib/formatters";
 const {
   mockProjectsList,
   mockActivityList,
+  mockProjectGetOverview,
   mockAiSettingsGet,
   mockActivitySettingsGet,
   mockRecordTypeSettingsGet,
@@ -43,6 +44,7 @@ const {
 } = vi.hoisted(() => ({
   mockProjectsList: vi.fn(),
   mockActivityList: vi.fn(),
+  mockProjectGetOverview: vi.fn(),
   mockAiSettingsGet: vi.fn(),
   mockActivitySettingsGet: vi.fn(),
   mockRecordTypeSettingsGet: vi.fn(),
@@ -76,6 +78,7 @@ vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     projectsList: mockProjectsList,
     activityList: mockActivityList,
+    projectGetOverview: mockProjectGetOverview,
     aiSettingsGet: mockAiSettingsGet,
     activitySettingsGet: mockActivitySettingsGet,
     recordTypeSettingsGet: mockRecordTypeSettingsGet,
@@ -145,9 +148,12 @@ vi.mock("../../hooks/useTodoMutations", () => ({
   useTodoMutations: () => ({
     todoMutation: { mutate: vi.fn() },
     todoContentMutation: { mutateAsync: vi.fn() },
+    todoActivityMutation: { mutateAsync: vi.fn() },
     todoStatusMutation: { mutateAsync: vi.fn() },
     todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
+    todoProgressUpdateMutation: { mutateAsync: vi.fn() },
+    todoProgressDeleteMutation: { mutateAsync: vi.fn() },
     todoDeleteMutation: { mutateAsync: mockTodoDeleteMutateAsync },
   }),
 }));
@@ -195,10 +201,18 @@ vi.mock("../todo", () => ({
 vi.mock("../document/ManagedDocumentSection", () => ({
   ManagedDocumentSection: ({
     documents,
+    activityId,
   }: {
     documents: Array<{ name: string }>;
+    activityId?: number | null;
   }) => (
-    <div data-testid="managed-document-section">
+    <div
+      data-testid={
+        activityId === null || activityId === undefined
+          ? "managed-document-section-project"
+          : "managed-document-section-activity"
+      }
+    >
       <div data-testid="managed-document-count">{documents.length}</div>
       {documents.map((document) => (
         <div key={document.name}>{document.name}</div>
@@ -251,9 +265,14 @@ vi.mock("../rich-editor", () => ({
       return <div>{value}</div>;
     }
 
+    const ariaLabel =
+      placeholder === "填写当前 Activity 的背景、目标、范围和关键约束。"
+        ? "Activity 简介"
+        : "结论编辑器";
+
     return (
       <textarea
-        aria-label="结论编辑器"
+        aria-label={ariaLabel}
         placeholder={placeholder}
         value={value}
         onChange={(event) => {
@@ -327,6 +346,7 @@ describe("ActivityPage", () => {
   beforeEach(() => {
     mockProjectsList.mockReset();
     mockActivityList.mockReset();
+    mockProjectGetOverview.mockReset();
     mockAiSettingsGet.mockReset();
     mockActivitySettingsGet.mockReset();
     mockRecordTypeSettingsGet.mockReset();
@@ -358,6 +378,7 @@ describe("ActivityPage", () => {
 
     mockProjectsList.mockResolvedValue([buildProject()]);
     mockActivityList.mockResolvedValue([buildActivity()]);
+    mockProjectGetOverview.mockResolvedValue(buildProjectOverview());
     mockAiSettingsGet.mockResolvedValue({});
     mockActivitySettingsGet.mockResolvedValue({
       activityAttributeOptions: [
@@ -534,7 +555,7 @@ describe("ActivityPage", () => {
       activityId: 11,
       markdown: "新增的活动结论",
       html: "<p>新增的活动结论</p>",
-      promotedToProject: false,
+      promotedToProject: true,
     });
 
     await waitFor(() =>
@@ -542,6 +563,75 @@ describe("ActivityPage", () => {
         screen.queryByPlaceholderText("记录已确认的判断、共识或决定。"),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps project-level starred documents collapsed and separate from activity documents", async () => {
+    const user = userEvent.setup();
+
+    mockActivityList.mockResolvedValue([
+      {
+        ...buildActivity(),
+        documents: [
+          buildDocumentRecord({
+            id: 41,
+            name: "activity-brief.pdf",
+            baseName: "activity-brief.pdf",
+            activityId: 11,
+            isStarred: true,
+            managedPath: "/tmp/project-atlas/activities/预算讨论/activity-brief.pdf",
+          }),
+        ],
+      },
+    ]);
+    mockProjectGetOverview.mockResolvedValue(
+      buildProjectOverview({
+        projectDocuments: [
+          buildDocumentRecord({
+            id: 51,
+            name: "project-starred.pdf",
+            baseName: "project-starred.pdf",
+            activityId: null,
+            isStarred: true,
+            sourceActivityTitle: null,
+            managedPath: "/tmp/project-atlas/project/project-starred.pdf",
+          }),
+          buildDocumentRecord({
+            id: 52,
+            name: "project-plain.pdf",
+            baseName: "project-plain.pdf",
+            activityId: null,
+            isStarred: false,
+            sourceActivityTitle: null,
+            managedPath: "/tmp/project-atlas/project/project-plain.pdf",
+          }),
+        ],
+      }),
+    );
+
+    renderActivityPage();
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    expect(screen.getByText("项目级标星文件")).toBeInTheDocument();
+    expect(screen.getByLabelText("切换项目文件展示")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    const activityDocumentSection = screen.getByTestId("managed-document-section-activity");
+    expect(within(activityDocumentSection).getByTestId("managed-document-count")).toHaveTextContent(
+      "1",
+    );
+    expect(within(activityDocumentSection).getByText("activity-brief.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("project-starred.pdf")).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("切换项目文件展示"));
+
+    const projectDocumentSection = await screen.findByTestId("managed-document-section-project");
+    expect(within(projectDocumentSection).getByTestId("managed-document-count")).toHaveTextContent(
+      "1",
+    );
+    expect(within(projectDocumentSection).getByText("project-starred.pdf")).toBeInTheDocument();
+    expect(within(projectDocumentSection).queryByText("project-plain.pdf")).not.toBeInTheDocument();
   });
 
   it("renders editable header tags and removes the old review button", async () => {
@@ -581,6 +671,27 @@ describe("ActivityPage", () => {
     expect(mockActivityMetaMutate).toHaveBeenCalledWith({
       activityId: 11,
       statusOptionId: 5,
+    });
+  });
+
+  it("edits the activity brief inline and saves on blur", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    expect(
+      await screen.findByRole("button", { name: "当前范围与预期结果" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "当前范围与预期结果" }));
+    await user.clear(screen.getByLabelText("Activity 简介"));
+    await user.type(screen.getByLabelText("Activity 简介"), "更新后的活动简介");
+    await user.tab();
+
+    expect(mockActivityMetaMutate).toHaveBeenCalledWith({
+      activityId: 11,
+      briefMarkdown: "更新后的活动简介",
+      briefHtml: "<p>更新后的活动简介</p>",
     });
   });
 
@@ -687,7 +798,7 @@ describe("ActivityPage", () => {
       activityId: 11,
       markdown: "新增的活动结论",
       html: "<p>新增的活动结论</p>",
-      promotedToProject: false,
+      promotedToProject: true,
     });
   });
 
@@ -714,7 +825,7 @@ describe("ActivityPage", () => {
       activityId: 11,
       markdown: "只保留在活动内",
       html: "<p>只保留在活动内</p>",
-      promotedToProject: false,
+      promotedToProject: true,
     });
   });
 
@@ -847,7 +958,7 @@ describe("ActivityPage", () => {
       activityId: 11,
       markdown: "待保存的新结论",
       html: "<p>待保存的新结论</p>",
-      promotedToProject: false,
+      promotedToProject: true,
     });
     expect(screen.getByDisplayValue("第一条结论")).toBeInTheDocument();
     expect(screen.getAllByLabelText("结论编辑器")).toHaveLength(1);
@@ -933,6 +1044,45 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("creates a pinned conclusion when the pin toggle is enabled", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "新增结论" }));
+    await user.type(screen.getByLabelText("结论编辑器"), "置顶的活动结论");
+    await user.click(screen.getByRole("button", { name: "置顶" }));
+    fireEvent.blur(screen.getByLabelText("结论编辑器"));
+
+    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 11,
+      markdown: "置顶的活动结论",
+      html: "<p>置顶的活动结论</p>",
+      promotedToProject: true,
+      isPinned: true,
+    });
+  });
+
+  it("toggles conclusion pinning from the context menu", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    fireEvent.contextMenu(await screen.findByText("已确认预算分配方案"), {
+      clientX: 160,
+      clientY: 84,
+    });
+    await user.click(screen.getByRole("menuitem", { name: "置顶" }));
+
+    expect(mockConclusionUpdateMutateAsync).toHaveBeenCalledWith({
+      conclusionId: 21,
+      markdown: "已确认预算分配方案",
+      html: "<p>已确认预算分配方案</p>",
+      isPinned: true,
+    });
+  });
+
   it("keeps an inactive conclusion out of edit mode when right-clicking", async () => {
     renderActivityPage();
 
@@ -997,7 +1147,7 @@ describe("ActivityPage", () => {
         projectId: 9,
         activityId: 11,
         sourcePath: "/tmp/project-atlas/inbox/brief.pdf",
-        isStarred: false,
+        isStarred: true,
       }),
     );
   });
@@ -1024,7 +1174,7 @@ describe("ActivityPage", () => {
         projectId: 9,
         activityId: 11,
         sourcePath: "/tmp/project-atlas/inbox/brief v2.pdf",
-        isStarred: false,
+        isStarred: true,
       }),
     );
   });
@@ -1112,7 +1262,7 @@ describe("ActivityPage", () => {
         projectId: 9,
         activityId: 11,
         sourcePath: "/tmp/project-atlas/inbox/brief.pdf",
-        isStarred: false,
+        isStarred: true,
         tagIds: [3],
       }),
     );
@@ -1177,6 +1327,28 @@ function renderActivityPage({
   );
 }
 
+function buildProjectOverview(overrides: {
+  projectDocuments?: Array<ReturnType<typeof buildDocumentRecord>>;
+} = {}) {
+  return {
+    project: {
+      id: 9,
+      name: "Project Atlas",
+      summary: "",
+      status: "active",
+      rootPath: "/tmp/project-atlas",
+      isArchived: false,
+      createdAt: "2026-04-06T08:00:00.000Z",
+      updatedAt: "2026-04-06T09:00:00.000Z",
+    },
+    activityFeed: [],
+    projectDocuments: overrides.projectDocuments ?? [],
+    conclusionGroups: [],
+    unfinishedTodos: [],
+    finishedTodos: [],
+  };
+}
+
 function buildProject(): ProjectListItem {
   return {
     id: 9,
@@ -1201,6 +1373,8 @@ function buildActivity(): ActivityCardData {
     attributeLabel: "MEETING",
     attributeColorKey: "blue",
     title: "预算讨论",
+    briefMarkdown: "当前范围与预期结果",
+    briefHtml: "<p>当前范围与预期结果</p>",
     activityTime: "2026-04-06T10:00:00.000Z",
     statusOptionId: 4,
     statusLabel: "已整理",
@@ -1269,6 +1443,7 @@ function buildActivityConclusion(
   id: number,
   contentMarkdown: string,
   promotedToProject: boolean,
+  isPinned = false,
 ) {
   return {
     id,
@@ -1278,6 +1453,7 @@ function buildActivityConclusion(
     contentMarkdown,
     contentHtml: `<p>${contentMarkdown}</p>`,
     promotedToProject,
+    isPinned,
     sourceActivityTitle: "预算讨论",
     createdAt: "2026-04-06T10:20:00.000Z",
     updatedAt: "2026-04-06T10:25:00.000Z",

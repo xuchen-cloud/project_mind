@@ -1,16 +1,18 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { activityPath, projectPath } from "../../lib/formatters";
 import { workspaceDayString } from "../../lib/aiArtifacts";
 import { isAiFeatureReady, isAiFeatureVisible } from "../../lib/ai";
+import { useTodayQuickNoteMutations } from "../../hooks/useTodayQuickNoteMutations";
 import { useWorkspaceNoteMutations } from "../../hooks/useWorkspaceNoteMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { EmptyState, SurfaceCard } from "../../ui/components";
 import { AiArtifactCard } from "../ai/AiArtifactCard";
+import { TodayQuickNotePanel } from "./TodayQuickNotePanel";
 import { TodayTodoSection } from "./TodayTodoSection";
 import { WorkspaceNotesPanel } from "./WorkspaceNotesPanel";
 
@@ -31,6 +33,10 @@ export function TodayPage() {
     queryKey: ["workspace-todos"],
     queryFn: projectMindApi.workspaceTodoList,
   });
+  const todayQuickNoteQuery = useQuery({
+    queryKey: ["today-quick-note"],
+    queryFn: projectMindApi.todayQuickNoteGet,
+  });
   const workspaceNotesQuery = useQuery({
     queryKey: ["workspace-notes"],
     queryFn: projectMindApi.workspaceNoteList,
@@ -40,17 +46,42 @@ export function TodayPage() {
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
     [projectsQuery.data],
   );
+  const activityQueries = useQueries({
+    queries: visibleProjects.map((project) => ({
+      queryKey: ["activities", project.id],
+      queryFn: () => projectMindApi.activityList({ projectId: project.id }),
+      enabled: visibleProjects.length > 0,
+    })),
+  });
   const showTodayBrief = isAiFeatureVisible(aiSettingsQuery.data, "summary.daily_brief");
   const aiEnabled = isAiFeatureReady(aiSettingsQuery.data, "summary.daily_brief");
   const allTodos = workspaceTodosQuery.data ?? [];
+  const { todayQuickNoteMutation } = useTodayQuickNoteMutations();
   const { workspaceNoteMutation, workspaceNoteDeleteMutation } = useWorkspaceNoteMutations();
   const {
+    todoMutation,
     todoContentMutation,
+    todoActivityMutation,
     todoDeleteMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoProgressUpdateMutation,
+    todoProgressDeleteMutation,
     todoStatusMutation,
   } = useTodoMutations(allTodos);
+  const activityOptionsByProject = useMemo(
+    () =>
+      new Map(
+        visibleProjects.map((project, index) => [
+          project.id,
+          (activityQueries[index]?.data ?? []).map((activity) => ({
+            id: activity.id,
+            title: activity.title,
+          })),
+        ]),
+      ),
+    [activityQueries, visibleProjects],
+  );
 
   return (
     <section className="h-full overflow-y-auto bg-bg">
@@ -86,9 +117,17 @@ export function TodayPage() {
           )
         ) : null}
 
+        <TodayQuickNotePanel
+          note={todayQuickNoteQuery.data ?? null}
+          saving={todayQuickNoteMutation.isPending}
+          onUpsertNote={(input) => todayQuickNoteMutation.mutateAsync(input)}
+        />
+
         <TodayTodoSection
           projects={visibleProjects}
+          activityOptionsByProject={activityOptionsByProject}
           todos={allTodos}
+          onCreateTodo={(payload) => todoMutation.mutate(payload)}
           onToggleStatus={(todoId, status) =>
             todoStatusMutation.mutateAsync({ todoId, status })
           }
@@ -98,8 +137,17 @@ export function TodayPage() {
           onUpdateContent={(todoId, content) =>
             todoContentMutation.mutateAsync({ todoId, content })
           }
+          onUpdateActivity={(todoId, activityId) =>
+            todoActivityMutation.mutateAsync({ todoId, activityId })
+          }
           onAddProgress={(todoId, payload) =>
             todoProgressMutation.mutateAsync({ todoId, ...payload })
+          }
+          onUpdateProgress={(progressId, payload) =>
+            todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
+          }
+          onDeleteProgress={(progressId) =>
+            todoProgressDeleteMutation.mutateAsync({ progressId })
           }
           onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
           onOpenTodoSource={(todo) => {

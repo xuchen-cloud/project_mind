@@ -20,15 +20,22 @@ interface TodoRailProps {
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
   activityNameById: ReadonlyMap<number, string>;
+  activityOptions: Array<{ id: number; title: string }>;
   createPlaceholder: string;
   onCreateTodo: (payload: { content: string; priority: TodoPriority }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onUpdateProgress: (
+    progressId: number,
+    payload: { content: string; progressDate: string },
+  ) => Promise<unknown> | void;
+  onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
@@ -63,12 +70,16 @@ export function TodoRail({
   unfinishedTodos,
   finishedTodos,
   activityNameById,
+  activityOptions,
   createPlaceholder,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
+  onUpdateActivity,
   onAddProgress,
+  onUpdateProgress,
+  onDeleteProgress,
   onDeleteTodo,
   onOpenTodoSource,
   onError,
@@ -277,6 +288,7 @@ export function TodoRail({
           <TodoList
             todos={todos}
             activityNameById={activityNameById}
+            activityOptions={activityOptions}
             compact
             allowInlineEdit={tab === "unfinished"}
             allowInlineProgress={tab === "unfinished"}
@@ -286,7 +298,10 @@ export function TodoRail({
             onToggleStatus={onToggleStatus}
             onUpdatePriority={onUpdatePriority}
             onUpdateContent={onUpdateContent}
+            onUpdateActivity={onUpdateActivity}
             onAddProgress={onAddProgress}
+            onUpdateProgress={onUpdateProgress}
+            onDeleteProgress={onDeleteProgress}
             onDeleteTodo={onDeleteTodo}
             onOpenTodoSource={onOpenTodoSource}
             onError={onError}

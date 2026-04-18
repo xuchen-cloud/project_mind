@@ -36,9 +36,11 @@ use crate::{
         RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
         RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
         RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-        TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
-        TodoUpdateStatusInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
-        WorkspaceNoteUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateActivityInput,
+        TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
+        TodoUpdateStatusInput, TodayQuickNoteUpsertInput, WorkspaceNoteDeleteInput,
+        WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceSearchInput,
+        WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -124,6 +126,8 @@ const LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY: &str = "green";
 const AI_ARTIFACT_STATUS_FRESH: &str = "fresh";
 const AI_ARTIFACT_STATUS_STALE: &str = "stale";
 const AI_ARTIFACT_STATUS_ERROR: &str = "error";
+const WORKSPACE_NOTE_KIND_STANDARD: &str = "workspace_note";
+const WORKSPACE_NOTE_KIND_TODAY_QUICK: &str = "today_quick_note";
 const WORKSPACE_PATH_PREFIX: &str = "workspace:";
 const ABSOLUTE_PATH_PREFIX: &str = "absolute:";
 const ACTIVITY_SUMMARY_SECTIONS: [&str; 3] = ["关键结论", "未决问题 / 风险", "下一步建议"];
@@ -158,6 +162,8 @@ struct ActivityFsRecord {
     project_id: i64,
     attribute_option_id: Option<i64>,
     title: String,
+    brief_markdown: String,
+    brief_html: String,
     activity_time: String,
     status_option_id: Option<i64>,
     is_pinned: bool,
@@ -354,6 +360,8 @@ impl Database {
               status TEXT NOT NULL DEFAULT 'active',
               root_path TEXT NOT NULL,
               summary TEXT NOT NULL DEFAULT '',
+              summary_markdown TEXT NOT NULL DEFAULT '',
+              summary_html TEXT NOT NULL DEFAULT '',
               is_archived INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
@@ -383,6 +391,8 @@ impl Database {
               category TEXT NOT NULL,
               attribute_option_id INTEGER,
               title TEXT NOT NULL DEFAULT '',
+              brief_markdown TEXT NOT NULL DEFAULT '',
+              brief_html TEXT NOT NULL DEFAULT '',
               folder_name TEXT NOT NULL DEFAULT '',
               activity_time TEXT NOT NULL,
               is_pinned INTEGER NOT NULL DEFAULT 0,
@@ -412,6 +422,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS workspace_notes (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
+              note_kind TEXT NOT NULL DEFAULT 'workspace_note',
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
@@ -428,6 +439,7 @@ impl Database {
               content_html TEXT NOT NULL DEFAULT '',
               content TEXT NOT NULL,
               promoted_to_project INTEGER NOT NULL DEFAULT 0,
+              is_pinned INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -608,9 +620,34 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
         )?;
         self.ensure_column(
+            "projects",
+            "summary_markdown",
+            "ALTER TABLE projects ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "projects",
+            "summary_html",
+            "ALTER TABLE projects ADD COLUMN summary_html TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "workspace_notes",
+            "note_kind",
+            "ALTER TABLE workspace_notes ADD COLUMN note_kind TEXT NOT NULL DEFAULT 'workspace_note'",
+        )?;
+        self.ensure_column(
             "activities",
             "folder_name",
             "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "activities",
+            "brief_markdown",
+            "ALTER TABLE activities ADD COLUMN brief_markdown TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "activities",
+            "brief_html",
+            "ALTER TABLE activities ADD COLUMN brief_html TEXT NOT NULL DEFAULT ''",
         )?;
         self.ensure_column(
             "activity_attribute_options",
@@ -636,6 +673,11 @@ impl Database {
             "conclusions",
             "content_html",
             "ALTER TABLE conclusions ADD COLUMN content_html TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "conclusions",
+            "is_pinned",
+            "ALTER TABLE conclusions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
         )?;
         self.ensure_column(
             "documents",
@@ -675,6 +717,16 @@ impl Database {
             "#,
             [],
         )?;
+        self.conn.execute(
+            r#"
+            UPDATE projects
+            SET summary_markdown = summary
+            WHERE TRIM(COALESCE(summary_markdown, '')) = ''
+              AND TRIM(COALESCE(summary, '')) <> ''
+            "#,
+            [],
+        )?;
+        self.backfill_project_summary_html()?;
         if self.schema_version()? < TODO_SCHEMA_VERSION {
             self.rebuild_todo_schema()?;
             self.set_schema_version(TODO_SCHEMA_VERSION)?;
@@ -816,7 +868,8 @@ impl Database {
         let sql = format!(
             r#"
             SELECT
-              p.id, p.name, p.status, p.root_path, p.summary, p.is_archived, p.created_at, p.updated_at,
+              p.id, p.name, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
+              p.is_archived, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM activities a WHERE a.project_id = p.id) AS activity_count,
               (
                 SELECT COUNT(*)
@@ -848,12 +901,14 @@ impl Database {
                 status: row.get(2)?,
                 root_path: self.decode_path_ref_to_string(&root_path_ref),
                 summary: row.get(4)?,
-                is_archived: int_to_bool(row.get::<_, i64>(5)?),
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                activity_count: row.get(8)?,
-                unorganized_count: row.get(9)?,
-                open_todo_count: row.get(10)?,
+                summary_markdown: row.get(5)?,
+                summary_html: row.get(6)?,
+                is_archived: int_to_bool(row.get::<_, i64>(7)?),
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                activity_count: row.get(10)?,
+                unorganized_count: row.get(11)?,
+                open_todo_count: row.get(12)?,
             })
         })?;
 
@@ -884,16 +939,24 @@ impl Database {
         }
         fs::create_dir_all(&project_dir)?;
 
+        let summary = input.summary.unwrap_or_default();
+        let summary_markdown = summary.clone();
+        let summary_html = rich_text_html_from_markdown(&summary_markdown);
+
         self.conn.execute(
             r#"
-            INSERT INTO projects (name, status, root_path, summary, is_archived, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
+            INSERT INTO projects (
+              name, status, root_path, summary, summary_markdown, summary_html, is_archived, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)
             "#,
             params![
                 project_name,
                 input.status.unwrap_or_else(|| "active".to_string()),
                 self.encode_path_ref(&project_dir),
-                input.summary.unwrap_or_default(),
+                summary,
+                summary_markdown,
+                summary_html,
                 timestamp,
                 timestamp
             ],
@@ -1124,11 +1187,38 @@ impl Database {
         if project_name != current.name {
             self.rename_project_root(&current, &project_name)?;
         }
+        let next_summary = input.summary.trim().to_string();
+        let next_summary_markdown = input
+            .summary_markdown
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if next_summary == current.summary {
+                    current.summary_markdown.clone()
+                } else {
+                    next_summary.clone()
+                }
+            });
+        let next_summary_html = input
+            .summary_html
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if next_summary == current.summary && input.summary_markdown.is_none() {
+                    current.summary_html.clone()
+                } else {
+                    rich_text_html_from_markdown(&next_summary_markdown)
+                }
+            });
         self.conn.execute(
-            "UPDATE projects SET name = ?1, summary = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+            "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, status = ?5, updated_at = ?6 WHERE id = ?7",
             params![
                 project_name,
-                input.summary,
+                next_summary,
+                next_summary_markdown,
+                next_summary_html,
                 input.status.unwrap_or(current.status),
                 now_iso(),
                 input.project_id
@@ -1161,10 +1251,11 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO activities (
-              project_id, category, attribute_option_id, title, folder_name, activity_time, is_pinned,
-              is_expanded, organize_status, status_option_id, created_at, updated_at
+              project_id, category, attribute_option_id, title, brief_markdown, brief_html,
+              folder_name, activity_time, is_pinned, is_expanded, organize_status,
+              status_option_id, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, '', ?5, 0, 0, ?6, NULL, ?7, ?8)
+            VALUES (?1, ?2, ?3, ?4, '', '', '', ?5, 0, 0, ?6, NULL, ?7, ?8)
             "#,
             params![
                 input.project_id,
@@ -1212,9 +1303,27 @@ impl Database {
         let timestamp = now_iso();
         let current = self.activity_row(input.activity_id)?;
         let next_title = input.title.unwrap_or_else(|| current.title.clone());
+        let next_brief_markdown = input
+            .brief_markdown
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+            .unwrap_or_else(|| current.brief_markdown.clone());
         let next_activity_time = input
             .activity_time
             .unwrap_or_else(|| current.activity_time.clone());
+        let next_brief_html = input
+            .brief_html
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if input.brief_markdown.is_some() {
+                    rich_text_html_from_markdown(&next_brief_markdown)
+                } else {
+                    current.brief_html.clone()
+                }
+            });
         let next_attribute_option_id = if input.clear_attribute_option.unwrap_or(false) {
             None
         } else if let Some(option_id) = input.attribute_option_id {
@@ -1243,18 +1352,22 @@ impl Database {
             r#"
             UPDATE activities
             SET title = ?1,
-                category = ?2,
-                attribute_option_id = ?3,
-                activity_time = ?4,
-                is_pinned = ?5,
-                is_expanded = ?6,
-                organize_status = ?7,
-                status_option_id = ?8,
-                updated_at = ?9
-            WHERE id = ?10
+                brief_markdown = ?2,
+                brief_html = ?3,
+                category = ?4,
+                attribute_option_id = ?5,
+                activity_time = ?6,
+                is_pinned = ?7,
+                is_expanded = ?8,
+                organize_status = ?9,
+                status_option_id = ?10,
+                updated_at = ?11
+            WHERE id = ?12
             "#,
             params![
                 next_title,
+                next_brief_markdown,
+                next_brief_html,
                 next_attribute_label.unwrap_or_default(),
                 next_attribute_option_id,
                 next_activity_time,
@@ -1603,11 +1716,12 @@ impl Database {
             r#"
             SELECT id
             FROM workspace_notes
+            WHERE note_kind = ?1
             ORDER BY updated_at DESC, created_at DESC
             "#,
         )?;
         let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
+            .query_map([WORKSPACE_NOTE_KIND_STANDARD], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter()
             .map(|id| self.workspace_note_record(id))
@@ -1640,11 +1754,82 @@ impl Database {
                 self.conn.execute(
                     r#"
                     INSERT INTO workspace_notes (
-                      title, content_markdown, content_html, created_at, updated_at
+                      note_kind, title, content_markdown, content_html, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                     "#,
-                    params![input.title, input.markdown, input.html, timestamp, timestamp],
+                    params![
+                        WORKSPACE_NOTE_KIND_STANDARD,
+                        input.title,
+                        input.markdown,
+                        input.html,
+                        timestamp,
+                        timestamp
+                    ],
+                )?;
+                self.workspace_note_record(self.conn.last_insert_rowid())
+            }
+        }
+    }
+
+    pub fn today_quick_note_get(&mut self) -> Result<Option<WorkspaceNoteRecord>> {
+        let quick_note_id = self
+            .conn
+            .query_row(
+                r#"
+                SELECT id
+                FROM workspace_notes
+                WHERE note_kind = ?1
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                "#,
+                [WORKSPACE_NOTE_KIND_TODAY_QUICK],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        quick_note_id
+            .map(|note_id| self.workspace_note_record(note_id))
+            .transpose()
+    }
+
+    pub fn today_quick_note_upsert(
+        &mut self,
+        input: TodayQuickNoteUpsertInput,
+    ) -> Result<WorkspaceNoteRecord> {
+        let timestamp = now_iso();
+        let existing = self.today_quick_note_get()?;
+
+        match existing {
+            Some(note) => {
+                self.conn.execute(
+                    r#"
+                    UPDATE workspace_notes
+                    SET title = NULL,
+                        content_markdown = ?1,
+                        content_html = ?2,
+                        updated_at = ?3
+                    WHERE id = ?4
+                    "#,
+                    params![input.markdown, input.html, timestamp, note.id],
+                )?;
+                self.workspace_note_record(note.id)
+            }
+            None => {
+                self.conn.execute(
+                    r#"
+                    INSERT INTO workspace_notes (
+                      note_kind, title, content_markdown, content_html, created_at, updated_at
+                    )
+                    VALUES (?1, NULL, ?2, ?3, ?4, ?5)
+                    "#,
+                    params![
+                        WORKSPACE_NOTE_KIND_TODAY_QUICK,
+                        input.markdown,
+                        input.html,
+                        timestamp,
+                        timestamp
+                    ],
                 )?;
                 self.workspace_note_record(self.conn.last_insert_rowid())
             }
@@ -1666,9 +1851,9 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO conclusions (
-              project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, created_at, updated_at
+              project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, is_pinned, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
             params![
                 input.project_id,
@@ -1678,6 +1863,7 @@ impl Database {
                 input.html,
                 input.markdown,
                 bool_to_int(input.promoted_to_project),
+                bool_to_int(input.is_pinned.unwrap_or(false)),
                 timestamp,
                 timestamp
             ],
@@ -1696,7 +1882,7 @@ impl Database {
                 r#"
                 SELECT id FROM conclusions
                 WHERE project_id = ?1 AND activity_id = ?2
-                ORDER BY updated_at DESC
+                ORDER BY is_pinned DESC, created_at DESC
                 "#,
             )?;
             let ids = stmt
@@ -1721,8 +1907,9 @@ impl Database {
                 content_html = ?2,
                 content = ?3,
                 promoted_to_project = ?4,
-                updated_at = ?5
-            WHERE id = ?6
+                is_pinned = ?5,
+                updated_at = ?6
+            WHERE id = ?7
             "#,
             params![
                 input.markdown,
@@ -1733,6 +1920,7 @@ impl Database {
                         .promoted_to_project
                         .unwrap_or(current.promoted_to_project)
                 ),
+                bool_to_int(input.is_pinned.unwrap_or(current.is_pinned)),
                 now_iso(),
                 input.conclusion_id
             ],
@@ -1796,6 +1984,44 @@ impl Database {
         Ok(record)
     }
 
+    pub fn todo_update_activity(&mut self, input: TodoUpdateActivityInput) -> Result<TodoRecord> {
+        let current = self.todo_record(input.todo_id)?;
+        if let Some(activity_id) = input.activity_id {
+            let activity_project_id = self
+                .conn
+                .query_row(
+                    "SELECT project_id FROM activities WHERE id = ?1",
+                    [activity_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow!("目标 Activity 不存在"))?;
+
+            if activity_project_id != current.project_id {
+                return Err(anyhow!("Todo 只能改绑到同项目下的 Activity"));
+            }
+        }
+
+        self.conn.execute(
+            "UPDATE todos SET activity_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![input.activity_id, now_iso(), input.todo_id],
+        )?;
+        let record = self.todo_record(input.todo_id)?;
+
+        match (current.activity_id, record.activity_id) {
+            (Some(previous), Some(next)) if previous == next => self.touch_activity(previous)?,
+            (Some(previous), Some(next)) => {
+                self.touch_activity(previous)?;
+                self.touch_activity(next)?;
+            }
+            (Some(previous), None) => self.touch_activity(previous)?,
+            (None, Some(next)) => self.touch_activity(next)?,
+            (None, None) => self.touch_project(record.project_id)?,
+        }
+
+        Ok(record)
+    }
+
     pub fn todo_update_status(&mut self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
@@ -1842,6 +2068,51 @@ impl Database {
             self.touch_activity(activity_id)?;
         }
         self.todo_progress_record(progress_id)
+    }
+
+    pub fn todo_update_progress(
+        &mut self,
+        input: TodoUpdateProgressInput,
+    ) -> Result<TodoProgressRecord> {
+        let current = self.todo_progress_record(input.progress_id)?;
+        let todo = self.todo_record(current.todo_id)?;
+        let timestamp = now_iso();
+
+        self.conn.execute(
+            "UPDATE todo_progresses SET content = ?1, progress_date = ?2 WHERE id = ?3",
+            params![input.content, input.progress_date, input.progress_id],
+        )?;
+        self.conn.execute(
+            "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
+            params![timestamp, current.todo_id],
+        )?;
+        self.touch_project(todo.project_id)?;
+        if let Some(activity_id) = todo.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.todo_progress_record(input.progress_id)
+    }
+
+    pub fn todo_delete_progress(
+        &mut self,
+        input: TodoDeleteProgressInput,
+    ) -> Result<TodoProgressRecord> {
+        let current = self.todo_progress_record(input.progress_id)?;
+        let todo = self.todo_record(current.todo_id)?;
+
+        self.conn.execute(
+            "DELETE FROM todo_progresses WHERE id = ?1",
+            [input.progress_id],
+        )?;
+        self.conn.execute(
+            "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
+            params![now_iso(), current.todo_id],
+        )?;
+        self.touch_project(todo.project_id)?;
+        if let Some(activity_id) = todo.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(current)
     }
 
     pub fn todo_delete(&mut self, input: TodoDeleteInput) -> Result<TodoRecord> {
@@ -3732,6 +4003,7 @@ impl Database {
             markdown: markdown.to_string(),
             html: rich_text_html_from_markdown(markdown),
             promoted_to_project,
+            is_pinned: None,
         })
     }
 
@@ -3826,6 +4098,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: kickoff.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -3918,6 +4192,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: labeling.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -3978,6 +4254,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: legal.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4075,6 +4353,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: alignment.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4139,6 +4419,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: feature_review.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4212,6 +4494,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: crm.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4306,6 +4590,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: scope.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4366,6 +4652,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: prompt.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -4426,6 +4714,8 @@ impl Database {
         self.activity_update_meta(ActivityUpdateMetaInput {
             activity_id: review_flow.id,
             title: None,
+            brief_markdown: None,
+            brief_html: None,
             attribute_option_id: None,
             clear_attribute_option: None,
             activity_time: None,
@@ -5895,7 +6185,8 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, name, status, root_path, summary, is_archived, created_at, updated_at
+                SELECT id, name, status, root_path, summary, summary_markdown, summary_html,
+                  is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
                 [project_id],
@@ -5907,9 +6198,11 @@ impl Database {
                         status: row.get(2)?,
                         root_path: self.decode_path_ref_to_string(&root_path_ref),
                         summary: row.get(4)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(5)?),
-                        created_at: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        summary_markdown: row.get(5)?,
+                        summary_html: row.get(6)?,
+                        is_archived: int_to_bool(row.get::<_, i64>(7)?),
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
                     })
                 },
             )
@@ -5921,8 +6214,8 @@ impl Database {
             .query_row(
                 r#"
                 SELECT
-                  project_id, attribute_option_id, title, activity_time, status_option_id,
-                  is_pinned, is_expanded, folder_name
+                  project_id, attribute_option_id, title, brief_markdown, brief_html,
+                  activity_time, status_option_id, is_pinned, is_expanded, folder_name
                 FROM activities WHERE id = ?1
                 "#,
                 [activity_id],
@@ -5931,11 +6224,13 @@ impl Database {
                         project_id: row.get(0)?,
                         attribute_option_id: row.get(1)?,
                         title: row.get(2)?,
-                        activity_time: row.get(3)?,
-                        status_option_id: row.get(4)?,
-                        is_pinned: int_to_bool(row.get::<_, i64>(5)?),
-                        is_expanded: int_to_bool(row.get::<_, i64>(6)?),
-                        folder_name: row.get(7)?,
+                        brief_markdown: row.get(3)?,
+                        brief_html: row.get(4)?,
+                        activity_time: row.get(5)?,
+                        status_option_id: row.get(6)?,
+                        is_pinned: int_to_bool(row.get::<_, i64>(7)?),
+                        is_expanded: int_to_bool(row.get::<_, i64>(8)?),
+                        folder_name: row.get(9)?,
                     })
                 },
             )
@@ -6001,6 +6296,7 @@ impl Database {
                   COALESCE(NULLIF(c.content_markdown, ''), c.content),
                   c.content_html,
                   c.promoted_to_project,
+                  c.is_pinned,
                   a.title,
                   c.created_at,
                   c.updated_at
@@ -6018,9 +6314,10 @@ impl Database {
                         content_markdown: row.get(4)?,
                         content_html: row.get(5)?,
                         promoted_to_project: int_to_bool(row.get::<_, i64>(6)?),
-                        source_activity_title: row.get(7)?,
-                        created_at: row.get(8)?,
-                        updated_at: row.get(9)?,
+                        is_pinned: int_to_bool(row.get::<_, i64>(7)?),
+                        source_activity_title: row.get(8)?,
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
                     })
                 },
             )
@@ -6383,7 +6680,7 @@ impl Database {
 
     fn fetch_conclusions(&self, activity_id: i64) -> Result<Vec<ConclusionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM conclusions WHERE activity_id = ?1 ORDER BY updated_at DESC",
+            "SELECT id FROM conclusions WHERE activity_id = ?1 ORDER BY is_pinned DESC, created_at DESC",
         )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
@@ -7517,7 +7814,7 @@ impl Database {
         let mut groups = Vec::new();
 
         let mut project_stmt = self.conn.prepare(
-            "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id IS NULL ORDER BY updated_at DESC",
+            "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id IS NULL ORDER BY is_pinned DESC, created_at DESC",
         )?;
         let project_ids = project_stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
@@ -7545,7 +7842,7 @@ impl Database {
 
         for (activity_id, activity_title) in activities {
             let mut conclusion_stmt = self.conn.prepare(
-                "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id = ?2 AND promoted_to_project = 1 ORDER BY updated_at DESC",
+                "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id = ?2 AND promoted_to_project = 1 ORDER BY is_pinned DESC, created_at DESC",
             )?;
             let conclusion_ids = conclusion_stmt
                 .query_map(params![project_id, activity_id], |row| row.get::<_, i64>(0))?
@@ -7628,6 +7925,8 @@ impl Database {
               ao.label,
               ao.color_key,
               a.title,
+              a.brief_markdown,
+              a.brief_html,
               a.activity_time,
               COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
               COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
@@ -7656,14 +7955,16 @@ impl Database {
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
-                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
-                    int_to_bool(row.get::<_, i64>(10)?),
-                    int_to_bool(row.get::<_, i64>(11)?),
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, String>(11)?,
                     int_to_bool(row.get::<_, i64>(12)?),
-                    row.get::<_, String>(13)?,
-                    row.get::<_, String>(14)?,
+                    int_to_bool(row.get::<_, i64>(13)?),
+                    int_to_bool(row.get::<_, i64>(14)?),
+                    row.get::<_, String>(15)?,
+                    row.get::<_, String>(16)?,
                 ))
             },
         )?;
@@ -7679,12 +7980,12 @@ impl Database {
             attribute_label: base.3.clone(),
             attribute_color_key: base.4.clone(),
             title: base.5.clone(),
-            activity_time: base.6.clone(),
-            status_option_id: base.7,
-            status_label: base.8.clone(),
-            status_color_key: base.9.clone(),
-            status_needs_attention: base.10,
-            is_pinned: base.11,
+            activity_time: base.8.clone(),
+            status_option_id: base.9,
+            status_label: base.10.clone(),
+            status_color_key: base.11.clone(),
+            status_needs_attention: base.12,
+            is_pinned: base.13,
             note_count: notes.len() as i64,
             conclusion_count: conclusions.len() as i64,
             todo_count: todos.len() as i64,
@@ -7704,15 +8005,17 @@ impl Database {
             attribute_label: base.3,
             attribute_color_key: base.4,
             title: base.5,
-            activity_time: base.6,
-            status_option_id: base.7,
-            status_label: base.8,
-            status_color_key: base.9,
-            status_needs_attention: base.10,
-            is_pinned: base.11,
-            is_expanded: base.12,
-            created_at: base.13,
-            updated_at: base.14,
+            brief_markdown: base.6,
+            brief_html: base.7,
+            activity_time: base.8,
+            status_option_id: base.9,
+            status_label: base.10,
+            status_color_key: base.11,
+            status_needs_attention: base.12,
+            is_pinned: base.13,
+            is_expanded: base.14,
+            created_at: base.15,
+            updated_at: base.16,
             digest,
             notes,
             conclusions,
@@ -7728,9 +8031,9 @@ impl Database {
         promoted_only: bool,
     ) -> Result<Vec<ConclusionRecord>> {
         let query = if promoted_only {
-            "SELECT id FROM conclusions WHERE project_id = ?1 AND promoted_to_project = 1 ORDER BY updated_at DESC LIMIT 8"
+            "SELECT id FROM conclusions WHERE project_id = ?1 AND promoted_to_project = 1 ORDER BY is_pinned DESC, created_at DESC LIMIT 8"
         } else {
-            "SELECT id FROM conclusions WHERE project_id = ?1 ORDER BY updated_at DESC"
+            "SELECT id FROM conclusions WHERE project_id = ?1 ORDER BY is_pinned DESC, created_at DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -8339,6 +8642,40 @@ impl Database {
         if !self.has_column(table, column)? {
             self.conn.execute(sql, [])?;
         }
+        Ok(())
+    }
+
+    fn backfill_project_summary_html(&self) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, summary_markdown, summary
+            FROM projects
+            WHERE TRIM(COALESCE(summary_html, '')) = ''
+            "#,
+        )?;
+        let updates = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        for (project_id, summary_markdown, summary) in updates {
+            let markdown = if summary_markdown.trim().is_empty() {
+                summary
+            } else {
+                summary_markdown
+            };
+            self.conn.execute(
+                "UPDATE projects SET summary_html = ?1 WHERE id = ?2",
+                params![rich_text_html_from_markdown(&markdown), project_id],
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -10234,6 +10571,145 @@ mod tests {
     }
 
     #[test]
+    fn todo_update_activity_rebinds_within_project_and_can_clear_to_project_level() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity_a = create_activity(&mut database, project.id, "Budget Review");
+        let activity_b = create_activity(&mut database, project.id, "Project Retro");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity_a.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+
+        let rebound = database
+            .todo_update_activity(TodoUpdateActivityInput {
+                todo_id: todo.id,
+                activity_id: Some(activity_b.id),
+            })
+            .unwrap();
+
+        assert_eq!(rebound.activity_id, Some(activity_b.id));
+        assert_eq!(rebound.source_activity_title.as_deref(), Some("Project Retro"));
+
+        let cleared = database
+            .todo_update_activity(TodoUpdateActivityInput {
+                todo_id: todo.id,
+                activity_id: None,
+            })
+            .unwrap();
+
+        assert_eq!(cleared.activity_id, None);
+        assert_eq!(cleared.source_activity_title, None);
+    }
+
+    #[test]
+    fn conclusion_list_orders_pinned_first_then_created_at() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+
+        let pinned_older = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "较早置顶结论".to_string(),
+                html: "<p>较早置顶结论</p>".to_string(),
+                promoted_to_project: true,
+                is_pinned: Some(true),
+            })
+            .unwrap();
+        thread::sleep(Duration::from_millis(5));
+
+        let unpinned_newer = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "较新普通结论".to_string(),
+                html: "<p>较新普通结论</p>".to_string(),
+                promoted_to_project: true,
+                is_pinned: Some(false),
+            })
+            .unwrap();
+        thread::sleep(Duration::from_millis(5));
+
+        let pinned_newest = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: None,
+                markdown: "最新置顶结论".to_string(),
+                html: "<p>最新置顶结论</p>".to_string(),
+                promoted_to_project: true,
+                is_pinned: Some(true),
+            })
+            .unwrap();
+
+        let conclusions = database
+            .conclusion_list(ConclusionListInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+            })
+            .unwrap();
+
+        let ids = conclusions.iter().map(|item| item.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec![pinned_newest.id, pinned_older.id, unpinned_newer.id]);
+    }
+
+    #[test]
+    fn project_overview_groups_prioritize_pinned_project_conclusions() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let pinned_older = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: None,
+                note_id: None,
+                markdown: "较早置顶项目结论".to_string(),
+                html: "<p>较早置顶项目结论</p>".to_string(),
+                promoted_to_project: false,
+                is_pinned: Some(true),
+            })
+            .unwrap();
+        thread::sleep(Duration::from_millis(5));
+
+        let unpinned_newer = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: None,
+                note_id: None,
+                markdown: "较新普通项目结论".to_string(),
+                html: "<p>较新普通项目结论</p>".to_string(),
+                promoted_to_project: false,
+                is_pinned: Some(false),
+            })
+            .unwrap();
+
+        let overview = database
+            .project_get_overview(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        let project_group = overview
+            .conclusion_groups
+            .iter()
+            .find(|group| group.activity_id.is_none())
+            .unwrap();
+        let ids = project_group
+            .conclusions
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec![pinned_older.id, unpinned_newer.id]);
+    }
+
+    #[test]
     fn conclusion_delete_removes_record_and_returns_deleted_conclusion() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -10246,6 +10722,7 @@ mod tests {
                 markdown: "确认第一阶段只覆盖中文场景".to_string(),
                 html: "<p>确认第一阶段只覆盖中文场景</p>".to_string(),
                 promoted_to_project: true,
+                is_pinned: None,
             })
             .unwrap();
 
@@ -10305,6 +10782,87 @@ mod tests {
     }
 
     #[test]
+    fn todo_update_progress_persists_changes_and_refreshes_todo_timestamp() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+        let progress = database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: "已同步法务".to_string(),
+                progress_date: "2026-04-06".to_string(),
+            })
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(5));
+
+        let updated = database
+            .todo_update_progress(TodoUpdateProgressInput {
+                progress_id: progress.id,
+                content: "已同步法务并补充截止时间".to_string(),
+                progress_date: "2026-04-07".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(updated.id, progress.id);
+        assert_eq!(updated.content, "已同步法务并补充截止时间");
+        assert_eq!(updated.progress_date, "2026-04-07");
+
+        let refreshed = database.todo_record(todo.id).unwrap();
+        assert_eq!(refreshed.progresses[0].content, "已同步法务并补充截止时间");
+        assert_eq!(refreshed.progresses[0].progress_date, "2026-04-07");
+        assert_ne!(refreshed.updated_at, todo.updated_at);
+    }
+
+    #[test]
+    fn todo_delete_progress_removes_only_target_progress() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+        let progress_a = database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: "已同步法务".to_string(),
+                progress_date: "2026-04-06".to_string(),
+            })
+            .unwrap();
+        let progress_b = database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: "等待财务确认".to_string(),
+                progress_date: "2026-04-05".to_string(),
+            })
+            .unwrap();
+
+        let deleted = database
+            .todo_delete_progress(TodoDeleteProgressInput {
+                progress_id: progress_b.id,
+            })
+            .unwrap();
+
+        assert_eq!(deleted.id, progress_b.id);
+        assert!(database.todo_progress_record(progress_b.id).is_err());
+
+        let refreshed = database.todo_record(todo.id).unwrap();
+        assert_eq!(refreshed.progresses.len(), 1);
+        assert_eq!(refreshed.progresses[0].id, progress_a.id);
+    }
+
+    #[test]
     fn project_update_summary_can_rename_project_and_refresh_updated_at() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -10317,6 +10875,8 @@ mod tests {
                 project_id: project.id,
                 name: Some("Alpha Prime".to_string()),
                 summary: "最新项目简介".to_string(),
+                summary_markdown: Some("## 最新项目简介\n- 风险已同步".to_string()),
+                summary_html: Some("<h2>最新项目简介</h2><ul><li>风险已同步</li></ul>".to_string()),
                 status: Some("active".to_string()),
             })
             .unwrap();
@@ -10324,6 +10884,8 @@ mod tests {
         assert_eq!(updated.id, project.id);
         assert_eq!(updated.name, "Alpha Prime");
         assert_eq!(updated.summary, "最新项目简介");
+        assert_eq!(updated.summary_markdown, "## 最新项目简介\n- 风险已同步");
+        assert_eq!(updated.summary_html, "<h2>最新项目简介</h2><ul><li>风险已同步</li></ul>");
         assert_ne!(updated.updated_at, project.updated_at);
         assert_eq!(
             updated.root_path,
@@ -10339,8 +10901,43 @@ mod tests {
         let refreshed = database.project_record(project.id).unwrap();
         assert_eq!(refreshed.name, "Alpha Prime");
         assert_eq!(refreshed.summary, "最新项目简介");
+        assert_eq!(refreshed.summary_markdown, updated.summary_markdown);
+        assert_eq!(refreshed.summary_html, updated.summary_html);
         assert_eq!(refreshed.updated_at, updated.updated_at);
         assert_eq!(refreshed.root_path, updated.root_path);
+    }
+
+    #[test]
+    fn project_update_summary_preserves_existing_rich_text_when_only_renaming() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let enriched = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: project.id,
+                name: None,
+                summary: "阶段目标与关键约束".to_string(),
+                summary_markdown: Some("## 阶段目标\n- 关键约束".to_string()),
+                summary_html: Some("<h2>阶段目标</h2><ul><li>关键约束</li></ul>".to_string()),
+                status: Some(project.status.clone()),
+            })
+            .unwrap();
+
+        let renamed = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: enriched.summary.clone(),
+                summary_markdown: None,
+                summary_html: None,
+                status: Some(enriched.status.clone()),
+            })
+            .unwrap();
+
+        assert_eq!(renamed.name, "Alpha Prime");
+        assert_eq!(renamed.summary, enriched.summary);
+        assert_eq!(renamed.summary_markdown, enriched.summary_markdown);
+        assert_eq!(renamed.summary_html, enriched.summary_html);
     }
 
     #[test]
@@ -10446,6 +11043,7 @@ mod tests {
                 markdown: "[附件] 活动附件".to_string(),
                 html: rich_html.clone(),
                 promoted_to_project: false,
+                is_pinned: None,
             })
             .unwrap();
 
@@ -10455,6 +11053,8 @@ mod tests {
                 project_id: project.id,
                 name: Some("Alpha Prime".to_string()),
                 summary: project.summary.clone(),
+                summary_markdown: None,
+                summary_html: None,
                 status: Some(project.status.clone()),
             })
             .unwrap();
@@ -10584,6 +11184,8 @@ mod tests {
                 project_id: project.id,
                 name: Some("Alpha Prime".to_string()),
                 summary: project.summary.clone(),
+                summary_markdown: None,
+                summary_html: None,
                 status: Some(project.status.clone()),
             })
             .unwrap_err();
@@ -10736,6 +11338,8 @@ mod tests {
             .activity_update_meta(ActivityUpdateMetaInput {
                 activity_id: activity.id,
                 title: None,
+                brief_markdown: None,
+                brief_html: None,
                 attribute_option_id: None,
                 clear_attribute_option: None,
                 activity_time: None,
@@ -10766,6 +11370,55 @@ mod tests {
             DEFAULT_ACTIVITY_STATUS_COLOR_KEY
         );
         assert!(refreshed.status_needs_attention);
+    }
+
+    #[test]
+    fn activity_update_meta_persists_brief_and_preserves_it_on_title_changes() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let updated = database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: None,
+                brief_markdown: Some("## 当前背景\n- 已完成范围澄清".to_string()),
+                brief_html: Some(
+                    "<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>".to_string(),
+                ),
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: None,
+            })
+            .unwrap();
+
+        assert_eq!(updated.brief_markdown, "## 当前背景\n- 已完成范围澄清");
+        assert_eq!(
+            updated.brief_html,
+            "<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>"
+        );
+
+        let renamed = database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: Some("Kickoff Review".to_string()),
+                brief_markdown: None,
+                brief_html: None,
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: None,
+            })
+            .unwrap();
+
+        assert_eq!(renamed.title, "Kickoff Review");
+        assert_eq!(renamed.brief_markdown, updated.brief_markdown);
+        assert_eq!(renamed.brief_html, updated.brief_html);
     }
 
     #[test]
@@ -11219,6 +11872,7 @@ mod tests {
                 markdown: "[附件] agenda".to_string(),
                 html: rich_html,
                 promoted_to_project: false,
+                is_pinned: None,
             })
             .unwrap();
 
@@ -11227,6 +11881,8 @@ mod tests {
             .activity_update_meta(ActivityUpdateMetaInput {
                 activity_id: activity.id,
                 title: Some("Review Final".to_string()),
+                brief_markdown: None,
+                brief_html: None,
                 attribute_option_id: None,
                 clear_attribute_option: None,
                 activity_time: None,
@@ -11271,6 +11927,8 @@ mod tests {
             .activity_update_meta(ActivityUpdateMetaInput {
                 activity_id: activity.id,
                 title: Some("Review Final".to_string()),
+                brief_markdown: None,
+                brief_html: None,
                 attribute_option_id: None,
                 clear_attribute_option: None,
                 activity_time: None,
@@ -11619,6 +12277,7 @@ mod tests {
                 markdown: "这是项目级结论".to_string(),
                 html: "<p>这是项目级结论</p>".to_string(),
                 promoted_to_project: true,
+                is_pinned: None,
             })
             .unwrap();
         let hidden = database
@@ -11629,6 +12288,7 @@ mod tests {
                 markdown: "这条只留在活动里".to_string(),
                 html: "<p>这条只留在活动里</p>".to_string(),
                 promoted_to_project: false,
+                is_pinned: None,
             })
             .unwrap();
 
@@ -12114,6 +12774,44 @@ mod tests {
         let remaining = database.workspace_note_list().unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, updated_first.id);
+    }
+
+    #[test]
+    fn today_quick_note_is_singleton_and_stays_out_of_workspace_notes() {
+        let (_harness, mut database) = setup_database();
+
+        let first = database
+            .today_quick_note_upsert(TodayQuickNoteUpsertInput {
+                markdown: "第一版今日快记".to_string(),
+                html: "<p>第一版今日快记</p>".to_string(),
+            })
+            .unwrap();
+        let second = database
+            .today_quick_note_upsert(TodayQuickNoteUpsertInput {
+                markdown: "更新后的今日快记".to_string(),
+                html: "<p>更新后的今日快记</p>".to_string(),
+            })
+            .unwrap();
+        let workspace_note = database
+            .workspace_note_upsert(WorkspaceNoteUpsertInput {
+                note_id: None,
+                title: Some("工作区记录".to_string()),
+                markdown: "常规工作区记录".to_string(),
+                html: "<p>常规工作区记录</p>".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.title, None);
+
+        let quick_note = database.today_quick_note_get().unwrap().unwrap();
+        assert_eq!(quick_note.id, second.id);
+        assert_eq!(quick_note.content_markdown, "更新后的今日快记");
+
+        let listed = database.workspace_note_list().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, workspace_note.id);
+        assert_eq!(listed[0].title.as_deref(), Some("工作区记录"));
     }
 
     #[test]

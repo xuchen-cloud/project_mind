@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RouterProvider, createMemoryRouter } from "react-router-dom";
+import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
@@ -28,6 +28,47 @@ vi.mock("./services/projectMindApi", () => ({
     projectsList: vi.fn(async () => []),
     workspaceSearch: vi.fn(async () => []),
     activityList: vi.fn(async () => []),
+    activityCreate: vi.fn(async () => ({
+      id: 88,
+      projectId: 1,
+      attributeOptionId: null,
+      attributeLabel: null,
+      attributeColorKey: null,
+      title: "",
+      activityTime: "2026-04-11T00:00:00.000Z",
+      statusOptionId: 1,
+      statusLabel: "待启动",
+      statusColorKey: "amber",
+      isPinned: false,
+      isExpanded: false,
+      createdAt: "",
+      updatedAt: "",
+      digest: {
+        id: 88,
+        projectId: 1,
+        attributeOptionId: null,
+        attributeLabel: null,
+        attributeColorKey: null,
+        title: "",
+        activityTime: "2026-04-11T00:00:00.000Z",
+        statusOptionId: 1,
+        statusLabel: "待启动",
+        statusColorKey: "amber",
+        isPinned: false,
+        noteCount: 0,
+        conclusionCount: 0,
+        todoCount: 0,
+        documentCount: 0,
+        completedTodoCount: 0,
+        totalTodoCount: 0,
+        hasOpenTodos: false,
+      },
+      notes: [],
+      conclusions: [],
+      todos: [],
+      documents: [],
+      aiSuggestions: [],
+    })),
     workspaceTodoList: vi.fn(async () => []),
     workspaceNoteList: vi.fn(async () => []),
     workspaceNoteUpsert: vi.fn(),
@@ -132,6 +173,7 @@ import { useUiStore } from "./state/ui-store";
 
 describe("WorkspaceLayout", () => {
   beforeEach(() => {
+    vi.resetAllMocks();
     useUiStore.setState({
       createProjectOpen: false,
       createActivityOpen: false,
@@ -140,6 +182,7 @@ describe("WorkspaceLayout", () => {
       projectComposer: null,
       projectSidebarCollapsed: false,
       todoRailCollapsed: false,
+      projectRecentPaths: {},
     });
   });
 
@@ -252,7 +295,7 @@ describe("WorkspaceLayout", () => {
   });
 
   it("renders the project activity sidebar at shell level while keeping the top tabs", async () => {
-    vi.mocked(projectMindApi.projectsList).mockResolvedValueOnce([
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
       {
         id: 1,
         name: "Alpha Project",
@@ -333,6 +376,239 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByRole("button", { name: "收起项目侧边栏" })).toBeInTheDocument();
     expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
     expect(screen.getByText("project route body")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建 Activity" })).toBeInTheDocument();
+  });
+
+  it("creates a new activity from the sidebar and navigates into it", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 2,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.activityList).mockResolvedValue([
+      {
+        id: 11,
+        projectId: 1,
+        attributeOptionId: null,
+        attributeLabel: "会议",
+        attributeColorKey: "blue",
+        title: "Kickoff Review",
+        activityTime: "2026-04-11T00:00:00.000Z",
+        statusOptionId: 1,
+        statusLabel: "已整理",
+        statusColorKey: "green",
+        isPinned: false,
+        isExpanded: false,
+        createdAt: "",
+        updatedAt: "",
+        digest: {
+          id: 11,
+          projectId: 1,
+          attributeOptionId: null,
+          attributeLabel: "会议",
+          attributeColorKey: "blue",
+          title: "Kickoff Review",
+          activityTime: "2026-04-11T00:00:00.000Z",
+          statusOptionId: 1,
+          statusLabel: "已整理",
+          statusColorKey: "green",
+          isPinned: false,
+          noteCount: 0,
+          conclusionCount: 0,
+          todoCount: 1,
+          documentCount: 2,
+          completedTodoCount: 0,
+          totalTodoCount: 1,
+          hasOpenTodos: true,
+        },
+        notes: [],
+        conclusions: [],
+        todos: [],
+        documents: [],
+        aiSuggestions: [],
+      },
+    ]);
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            { path: "projects/:projectId", element: <div>project route body</div> },
+            { path: "projects/:projectId/activities/:activityId", element: <div>activity route body</div> },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByLabelText("项目导航侧边栏");
+    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
+
+    await waitFor(() => expect(vi.mocked(projectMindApi.activityCreate)).toHaveBeenCalled());
+    expect(vi.mocked(projectMindApi.activityCreate).mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        projectId: 1,
+        title: "",
+        activityTime: expect.any(String),
+      }),
+    );
+    await screen.findByText("activity route body");
+  });
+
+  it("returns to the remembered project route when switching back by top tabs", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      {
+        id: 2,
+        name: "Beta Project",
+        status: "active",
+        rootPath: "/tmp/beta",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 0,
+        unorganizedCount: 0,
+        openTodoCount: 0,
+      },
+    ]);
+    vi.mocked(projectMindApi.activityList).mockImplementation(async ({ projectId }) =>
+      projectId === 1
+        ? [
+            {
+              id: 11,
+              projectId: 1,
+              attributeOptionId: null,
+              attributeLabel: null,
+              attributeColorKey: null,
+              title: "Kickoff Review",
+              activityTime: "2026-04-11T00:00:00.000Z",
+              statusOptionId: 1,
+              statusLabel: "已整理",
+              statusColorKey: "green",
+              isPinned: false,
+              isExpanded: false,
+              createdAt: "",
+              updatedAt: "",
+              digest: {
+                id: 11,
+                projectId: 1,
+                attributeOptionId: null,
+                attributeLabel: null,
+                attributeColorKey: null,
+                title: "Kickoff Review",
+                activityTime: "2026-04-11T00:00:00.000Z",
+                statusOptionId: 1,
+                statusLabel: "已整理",
+                statusColorKey: "green",
+                isPinned: false,
+                noteCount: 0,
+                conclusionCount: 0,
+                todoCount: 0,
+                documentCount: 0,
+                completedTodoCount: 0,
+                totalTodoCount: 0,
+                hasOpenTodos: false,
+              },
+              notes: [],
+              conclusions: [],
+              todos: [],
+              documents: [],
+              aiSuggestions: [],
+            },
+          ]
+        : [],
+    );
+
+    const LocationDisplay = () => {
+      const location = useLocation();
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+    };
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId",
+              element: (
+                <>
+                  <div>project route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+            {
+              path: "projects/:projectId/activities/:activityId",
+              element: (
+                <>
+                  <div>activity route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1/activities/11?focus=todo-3"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("activity route body")).toBeInTheDocument();
+    expect(screen.getByTestId("location-display")).toHaveTextContent(
+      "/projects/1/activities/11?focus=todo-3",
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Beta Project" }));
+    expect(await screen.findByText("project route body")).toBeInTheDocument();
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/2");
+
+    await user.click(screen.getByRole("button", { name: "Alpha Project" }));
+    expect(await screen.findByText("activity route body")).toBeInTheDocument();
+    expect(screen.getByTestId("location-display")).toHaveTextContent(
+      "/projects/1/activities/11?focus=todo-3",
+    );
   });
 
   it("keeps Today visible while hiding Ask when assistant is off", async () => {

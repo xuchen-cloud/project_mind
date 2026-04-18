@@ -1,10 +1,19 @@
-import { type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FocusEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   LoaderCircle,
   MoreHorizontal,
+  Pin,
   Plus,
   Share2,
   Star,
@@ -16,6 +25,7 @@ import type {
   ConclusionGroup,
   ConclusionRecord,
   DocumentRecord,
+  ProjectRecord,
   ProjectOverviewData,
 } from "../../lib/types";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
@@ -106,9 +116,12 @@ export function ProjectOverviewPage() {
   const {
     todoMutation,
     todoContentMutation,
+    todoActivityMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoProgressUpdateMutation,
+    todoProgressDeleteMutation,
     todoDeleteMutation,
   } = useTodoMutations([
     ...(overviewQuery.data?.unfinishedTodos ?? []),
@@ -118,7 +131,11 @@ export function ProjectOverviewPage() {
   const [nameEditing, setNameEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
-  const [summaryDraft, setSummaryDraft] = useState("");
+  const [summaryDraft, setSummaryDraft] = useState<RichEditorValue>({
+    html: "",
+    text: "",
+    markdown: "",
+  });
   const [pendingConclusionFocusPoint, setPendingConclusionFocusPoint] = useState<{
     id: number;
     point: { x: number; y: number };
@@ -127,7 +144,6 @@ export function ProjectOverviewPage() {
   const [projectBriefExpanded, setProjectBriefExpanded] = useState(false);
   const nameSkipBlurRef = useRef(false);
   const summarySkipBlurRef = useRef(false);
-  const summaryTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const {
     activeKey: activeConclusionId,
     clearActive: clearActiveConclusion,
@@ -143,19 +159,16 @@ export function ProjectOverviewPage() {
     if (activeProject) {
       setNameDraft(activeProject.name);
       setNameEditing(false);
-      setSummaryDraft(activeProject.summary);
+      setSummaryDraft(buildProjectSummaryDraft(activeProject));
       setSummaryEditing(false);
     }
-  }, [activeProject?.id, activeProject?.name, activeProject?.summary]);
-
-  useEffect(() => {
-    if (!summaryEditing || !summaryTextareaRef.current) {
-      return;
-    }
-    const textarea = summaryTextareaRef.current;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 120)}px`;
-  }, [summaryDraft, summaryEditing]);
+  }, [
+    activeProject?.id,
+    activeProject?.name,
+    activeProject?.summary,
+    activeProject?.summaryHtml,
+    activeProject?.summaryMarkdown,
+  ]);
 
   useEffect(() => {
     setProjectBriefExpanded(false);
@@ -168,6 +181,16 @@ export function ProjectOverviewPage() {
 
   const overview = overviewQuery.data;
   useFocusTarget(focusId, [overview]);
+  const projectSummaryHtml = useMemo(
+    () =>
+      activeProject
+        ? getRenderableRichTextHtml({
+            html: activeProject.summaryHtml,
+            markdown: activeProject.summaryMarkdown || activeProject.summary,
+          })
+        : "",
+    [activeProject],
+  );
 
   const activityMetaById = useMemo(
     () => new Map(overview?.activityFeed.map((activity) => [activity.id, activity]) ?? []),
@@ -175,6 +198,14 @@ export function ProjectOverviewPage() {
   );
   const activityNameById = useMemo(
     () => new Map(overview?.activityFeed.map((activity) => [activity.id, activity.title]) ?? []),
+    [overview?.activityFeed],
+  );
+  const activityOptions = useMemo(
+    () =>
+      (overview?.activityFeed ?? []).map((activity) => ({
+        id: activity.id,
+        title: activity.title.trim() ? activity.title : "Untitled Activity",
+      })),
     [overview?.activityFeed],
   );
   const allConclusionIds = useMemo(
@@ -256,6 +287,8 @@ export function ProjectOverviewPage() {
       projectId: activeProject.id,
       name: nextName,
       summary: activeProject.summary,
+      summaryMarkdown: activeProject.summaryMarkdown,
+      summaryHtml: activeProject.summaryHtml,
       status: activeProject.status,
     });
     setNameDraft(nextName);
@@ -263,21 +296,30 @@ export function ProjectOverviewPage() {
   }
 
   function handleSaveProjectSummary() {
-    if (!activeProject) {
+    if (!activeProject || summaryMutation.isPending) {
       return;
     }
-    const nextSummary = summaryDraft.trim();
-    if (nextSummary === activeProject.summary.trim()) {
-      setSummaryDraft(activeProject.summary);
+    const normalizedDraft = normalizeRichEditorValue(summaryDraft);
+    const initialDraft = normalizeRichEditorValue(buildProjectSummaryDraft(activeProject));
+
+    if (
+      normalizedDraft.text === initialDraft.text &&
+      normalizedDraft.markdown === initialDraft.markdown &&
+      normalizedDraft.html === initialDraft.html
+    ) {
+      setSummaryDraft(buildProjectSummaryDraft(activeProject));
       setSummaryEditing(false);
       return;
     }
+
     summaryMutation.mutate({
       projectId: activeProject.id,
-      summary: nextSummary,
+      summary: normalizedDraft.text,
+      summaryMarkdown: normalizedDraft.markdown,
+      summaryHtml: normalizedDraft.html,
       status: activeProject.status,
     });
-    setSummaryDraft(nextSummary);
+    setSummaryDraft(normalizedDraft);
     setSummaryEditing(false);
   }
 
@@ -383,6 +425,9 @@ export function ProjectOverviewPage() {
                       {activeProject.name}
                     </button>
                   )}
+                  {activeProject.status ? (
+                    <StatusBadge tone="neutral">{activeProject.status}</StatusBadge>
+                  ) : null}
                   {activeProject.isArchived ? (
                     <StatusBadge tone="neutral">archived</StatusBadge>
                   ) : null}
@@ -461,51 +506,65 @@ export function ProjectOverviewPage() {
             </div>
 
             {summaryEditing ? (
-              <textarea
-                ref={summaryTextareaRef}
-                aria-label="项目简介"
-                value={summaryDraft}
-                rows={4}
-                autoFocus
-                placeholder="填写项目当前阶段、目标和关键约束。"
-                className="min-h-[7.5rem] w-full max-w-3xl resize-none overflow-hidden rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 text-body leading-6 text-text outline-none transition-[border-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-                onChange={(event) => setSummaryDraft(event.target.value)}
-                onBlur={() => {
+              <div
+                className="w-full max-w-3xl rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 shadow-[var(--shadow-sm)]"
+                onBlurCapture={(event) => {
+                  if (isFocusMovingWithinCurrentTarget(event)) {
+                    return;
+                  }
                   if (summarySkipBlurRef.current) {
                     summarySkipBlurRef.current = false;
                     return;
                   }
                   handleSaveProjectSummary();
                 }}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-                  }
+                onKeyDownCapture={(event) => {
                   if (event.key === "Escape") {
                     event.preventDefault();
                     summarySkipBlurRef.current = true;
-                    setSummaryDraft(activeProject.summary);
+                    setSummaryDraft(buildProjectSummaryDraft(activeProject));
                     setSummaryEditing(false);
-                    event.currentTarget.blur();
+                    blurKeyboardTarget(event.target);
+                    return;
+                  }
+                  if (isSubmitShortcut(event)) {
+                    event.preventDefault();
+                    blurKeyboardTarget(event.target);
                   }
                 }}
-              />
+              >
+                <RichEditor
+                  html={summaryDraft.html}
+                  variant="toolbar"
+                  autoFocus
+                  enableTables={false}
+                  placeholder="填写项目当前阶段、目标和关键约束。"
+                  onChange={setSummaryDraft}
+                />
+              </div>
             ) : (
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 className="w-full max-w-3xl rounded-[var(--radius-8)] border border-transparent bg-bg px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-[color-mix(in_srgb,var(--color-bg)_72%,var(--color-bg-subtle))] hover:shadow-[var(--shadow-sm)]"
                 onClick={() => setSummaryEditing(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSummaryEditing(true);
+                  }
+                }}
               >
-                <span
-                  className={cn(
-                    "block whitespace-pre-wrap text-body leading-6",
-                    activeProject.summary ? "text-text-muted" : "text-text-soft",
-                  )}
-                >
-                  {activeProject.summary || "点击添加项目简介，说明当前阶段、目标和关键约束。"}
-                </span>
-              </button>
+                {activeProject.summaryMarkdown || activeProject.summaryHtml || activeProject.summary ? (
+                  <div className="pointer-events-none text-text-muted">
+                    <RichEditor html={projectSummaryHtml} variant="bare" readOnly />
+                  </div>
+                ) : (
+                  <span className="block whitespace-pre-wrap text-body leading-6 text-text-soft">
+                    点击添加项目简介，说明当前阶段、目标和关键约束。
+                  </span>
+                )}
+              </div>
             )}
 
             {showProjectBrief && projectBriefExpanded ? (
@@ -567,12 +626,13 @@ export function ProjectOverviewPage() {
                       group={group}
                       activity={activity}
                       index={index}
-                      onSave={(conclusionId, markdown, html, promotedToProject) =>
+                      onSave={(conclusionId, markdown, html, promotedToProject, isPinned) =>
                         conclusionUpdateMutation.mutate({
                           conclusionId,
                           markdown,
                           html,
                           promotedToProject,
+                          ...(isPinned === undefined ? {} : { isPinned }),
                         })
                       }
                       onDelete={(conclusionId) =>
@@ -609,6 +669,7 @@ export function ProjectOverviewPage() {
         unfinishedTodos={overview.unfinishedTodos}
         finishedTodos={overview.finishedTodos}
         activityNameById={activityNameById}
+        activityOptions={activityOptions}
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={(payload) => todoMutation.mutate({ projectId: activeProject.id, ...payload })}
         onToggleStatus={(todoId, status) => todoStatusMutation.mutateAsync({ todoId, status })}
@@ -618,8 +679,17 @@ export function ProjectOverviewPage() {
         onUpdateContent={(todoId, content) =>
           todoContentMutation.mutateAsync({ todoId, content })
         }
+        onUpdateActivity={(todoId, activityId) =>
+          todoActivityMutation.mutateAsync({ todoId, activityId })
+        }
         onAddProgress={(todoId, payload) =>
           todoProgressMutation.mutateAsync({ todoId, ...payload })
+        }
+        onUpdateProgress={(progressId, payload) =>
+          todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
+        }
+        onDeleteProgress={(progressId) =>
+          todoProgressDeleteMutation.mutateAsync({ progressId })
         }
         onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
         onOpenTodoSource={(todo) => {
@@ -655,6 +725,7 @@ function ConclusionGroupSection({
     markdown: string,
     html: string,
     promotedToProject: boolean,
+    isPinned?: boolean,
   ) => Promise<unknown> | unknown;
   onDelete: (conclusionId: number) => Promise<unknown> | void;
   activeConclusionId: number | null;
@@ -738,6 +809,22 @@ function ConclusionGroupSection({
           onClose={() => setContextMenu(null)}
           actions={[
             {
+              icon: Pin,
+              label: contextMenuConclusion.isPinned ? "取消置顶" : "置顶",
+              disabled: busy,
+              onSelect: () => {
+                void Promise.resolve(
+                  onSave(
+                    contextMenuConclusion.id,
+                    contextMenuConclusion.contentMarkdown,
+                    contextMenuConclusion.contentHtml,
+                    contextMenuConclusion.promotedToProject,
+                    !Boolean(contextMenuConclusion.isPinned),
+                  ),
+                );
+              },
+            },
+            {
               icon: Star,
               label: contextMenuConclusion.promotedToProject
                 ? "取消项目级标星"
@@ -797,9 +884,11 @@ function InlineConclusionEditor({
     markdown: string,
     html: string,
     promotedToProject: boolean,
+    isPinned?: boolean,
   ) => Promise<unknown> | unknown;
 }) {
   const [draft, setDraft] = useState<RichEditorValue>(() => buildConclusionDraft(conclusion));
+  const [draftPinned, setDraftPinned] = useState(Boolean(conclusion.isPinned));
   const saveInFlightRef = useRef(false);
   const renderableHtml = useMemo(
     () =>
@@ -812,10 +901,12 @@ function InlineConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
-  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
+    setDraftPinned(Boolean(conclusion.isPinned));
+  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id, conclusion.isPinned]);
 
   const resetEditingState = useCallback(() => {
     setDraft(buildConclusionDraft(conclusion));
+    setDraftPinned(Boolean(conclusion.isPinned));
   }, [conclusion]);
 
   const commitOrClose = useCallback(async () => {
@@ -834,7 +925,8 @@ function InlineConclusionEditor({
 
     if (
       normalizedDraft.markdown === initialDraft.markdown &&
-      normalizedDraft.html === initialDraft.html
+      normalizedDraft.html === initialDraft.html &&
+      draftPinned === Boolean(conclusion.isPinned)
     ) {
       onDeactivate();
       return true;
@@ -848,6 +940,7 @@ function InlineConclusionEditor({
         normalizedDraft.markdown,
         normalizedDraft.html,
         conclusion.promotedToProject,
+        draftPinned === Boolean(conclusion.isPinned) ? undefined : draftPinned,
       );
       onDeactivate();
       return true;
@@ -956,20 +1049,68 @@ function InlineConclusionEditor({
           }}
         >
           {isActive ? (
-            <RichEditor
-              html={draft.html}
-              variant="bare"
-              autoFocus={autoFocusTarget}
-              enableTables={false}
-              placeholder="记录已确认的判断、共识或决定。"
-              onChange={setDraft}
-            />
+            <div className="grid gap-2">
+              <RichEditor
+                html={draft.html}
+                variant="bare"
+                autoFocus={autoFocusTarget}
+                enableTables={false}
+                placeholder="记录已确认的判断、共识或决定。"
+                onChange={setDraft}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <ConclusionFlagButton
+                  active={draftPinned}
+                  label={draftPinned ? "已置顶" : "置顶"}
+                  onClick={() => setDraftPinned((value) => !value)}
+                >
+                  <Pin size={12} />
+                </ConclusionFlagButton>
+              </div>
+            </div>
           ) : (
-            <RichEditor html={renderableHtml} variant="bare" readOnly />
+            <div className="grid gap-2">
+              {conclusion.isPinned ? (
+                <span className="inline-flex items-center gap-1 text-caption font-medium text-text-soft">
+                  <Pin size={12} />
+                  置顶
+                </span>
+              ) : null}
+              <RichEditor html={renderableHtml} variant="bare" readOnly />
+            </div>
           )}
         </div>
       </div>
     </article>
+  );
+}
+
+function ConclusionFlagButton({
+  active,
+  label,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+        active
+          ? "border-[color-mix(in_srgb,var(--color-accent)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
+          : "border-border bg-bg-subtle text-text-soft hover:border-border-strong hover:text-text",
+      )}
+      onClick={onClick}
+    >
+      {children}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -981,6 +1122,19 @@ function buildConclusionDraft(conclusion: ConclusionRecord): RichEditorValue {
     }),
     text: conclusion.contentMarkdown,
     markdown: conclusion.contentMarkdown,
+  };
+}
+
+function buildProjectSummaryDraft(project: Pick<ProjectRecord, "summary" | "summaryMarkdown" | "summaryHtml">) {
+  const markdown = project.summaryMarkdown?.trim() ? project.summaryMarkdown : project.summary;
+
+  return {
+    html: getRenderableRichTextHtml({
+      html: project.summaryHtml,
+      markdown,
+    }),
+    text: project.summary,
+    markdown,
   };
 }
 

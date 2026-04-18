@@ -103,12 +103,16 @@ describe("TodoRail", () => {
         unfinishedTodos={[todoWithHistory, anotherTodoWithHistory]}
         finishedTodos={[finishedTodo]}
         activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={onCreateTodo}
         onToggleStatus={vi.fn()}
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
@@ -150,12 +154,16 @@ describe("TodoRail", () => {
         unfinishedTodos={[todoWithoutHistory]}
         finishedTodos={[finishedTodo]}
         activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={vi.fn()}
         onToggleStatus={onToggleStatus}
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
@@ -174,7 +182,6 @@ describe("TodoRail", () => {
   it("deletes a todo from the context menu", async () => {
     const user = userEvent.setup();
     const onDeleteTodo = vi.fn();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(
       <TodoRail
@@ -183,12 +190,16 @@ describe("TodoRail", () => {
         unfinishedTodos={[todoWithoutHistory]}
         finishedTodos={[]}
         activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={vi.fn()}
         onToggleStatus={vi.fn()}
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onDeleteTodo={onDeleteTodo}
         onOpenTodoSource={vi.fn()}
       />,
@@ -201,10 +212,7 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("menuitem", { name: "删除" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith("确定删除这条代办吗？删除后无法恢复。");
     expect(onDeleteTodo).toHaveBeenCalledWith(4);
-
-    confirmSpy.mockRestore();
   });
 
   it("filters by priority and keeps the selection across tabs", async () => {
@@ -252,12 +260,16 @@ describe("TodoRail", () => {
           },
         ]}
         activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
         createPlaceholder="写下一条需要推进的 Todo"
         onCreateTodo={vi.fn()}
         onToggleStatus={vi.fn()}
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onDeleteTodo={vi.fn()}
         onOpenTodoSource={vi.fn()}
       />,
@@ -283,5 +295,79 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("button", { name: "未完成" }));
     expect(screen.getByText("Critical legal review")).toBeInTheDocument();
     expect(screen.queryByText("Prepare board memo")).not.toBeInTheDocument();
+  });
+
+  it("updates a historical progress from its context menu", async () => {
+    const user = userEvent.setup();
+    const onUpdateProgress = vi.fn();
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithHistory]}
+        finishedTodos={[]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={onUpdateProgress}
+        onDeleteProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "展开历史进展" }));
+    fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "编辑进展" }));
+
+    const textbox = screen.getByRole("textbox");
+    await user.clear(textbox);
+    await user.type(textbox, "已完成财务确认");
+    await user.keyboard("{Enter}");
+
+    expect(onUpdateProgress).toHaveBeenCalledWith(102, {
+      content: "已完成财务确认",
+      progressDate: "2026-04-05",
+    });
+  });
+
+  it("deletes a historical progress from its context menu", async () => {
+    const user = userEvent.setup();
+    const onDeleteProgress = vi.fn();
+
+    render(
+      <TodoRail
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithHistory]}
+        finishedTodos={[]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={onDeleteProgress}
+        onDeleteTodo={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "展开历史进展" }));
+    fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "删除进展" }));
+
+    expect(onDeleteProgress).toHaveBeenCalledWith(102);
   });
 });

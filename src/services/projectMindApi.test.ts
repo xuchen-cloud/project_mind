@@ -37,6 +37,8 @@ describe("projectMindApi", () => {
       projectId: 1,
       name: "Project Prime",
       summary: "最新项目简介",
+      summaryMarkdown: "## 最新项目简介",
+      summaryHtml: "<h2>最新项目简介</h2>",
       status: "active",
     });
 
@@ -47,6 +49,8 @@ describe("projectMindApi", () => {
           projectId: 1,
           name: "Project Prime",
           summary: "最新项目简介",
+          summaryMarkdown: "## 最新项目简介",
+          summaryHtml: "<h2>最新项目简介</h2>",
           status: "active",
         },
       },
@@ -69,6 +73,24 @@ describe("projectMindApi", () => {
     await projectMindApi.workspaceTodoList();
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_todo_list");
+  });
+
+  it("maps today quick note commands to the correct command names", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce(null);
+    await projectMindApi.todayQuickNoteGet();
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("today_quick_note_get");
+
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 9 });
+    await projectMindApi.todayQuickNoteUpsert({
+      markdown: "今日快记",
+      html: "<p>今日快记</p>",
+    });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("today_quick_note_upsert", {
+      input: {
+        markdown: "今日快记",
+        html: "<p>今日快记</p>",
+      },
+    });
   });
 
   it("maps workspace note upsert to the correct command", async () => {
@@ -172,6 +194,7 @@ describe("projectMindApi", () => {
       markdown: "> 调整后的结论",
       html: "<blockquote><p>调整后的结论</p></blockquote>",
       promotedToProject: false,
+      isPinned: true,
     });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("conclusion_update", {
@@ -180,6 +203,7 @@ describe("projectMindApi", () => {
         markdown: "> 调整后的结论",
         html: "<blockquote><p>调整后的结论</p></blockquote>",
         promotedToProject: false,
+        isPinned: true,
       },
     });
   });
@@ -220,6 +244,25 @@ describe("projectMindApi", () => {
     );
   });
 
+  it("maps todo activity update to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 5,
+      activityId: 12,
+    });
+
+    await projectMindApi.todoUpdateActivity({
+      todoId: 5,
+      activityId: 12,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_activity", {
+      input: {
+        todoId: 5,
+        activityId: 12,
+      },
+    });
+  });
+
   it("maps todo delete to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 5 });
 
@@ -232,6 +275,47 @@ describe("projectMindApi", () => {
         todoId: 5,
       },
     });
+  });
+
+  it("maps todo progress update to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 9,
+      content: "已更新进展",
+    });
+
+    await projectMindApi.todoUpdateProgress({
+      progressId: 9,
+      content: "已更新进展",
+      progressDate: "2026-04-06",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
+      "todo_update_progress",
+      {
+        input: {
+          progressId: 9,
+          content: "已更新进展",
+          progressDate: "2026-04-06",
+        },
+      },
+    );
+  });
+
+  it("maps todo progress delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 9 });
+
+    await projectMindApi.todoDeleteProgress({
+      progressId: 9,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
+      "todo_delete_progress",
+      {
+        input: {
+          progressId: 9,
+        },
+      },
+    );
   });
 
   it("maps ai suggestion accept with edited payload to the correct command", async () => {

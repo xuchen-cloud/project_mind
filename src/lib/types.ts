@@ -4,6 +4,8 @@ export interface ProjectRecord {
   status: string;
   rootPath: string;
   summary: string;
+  summaryMarkdown?: string;
+  summaryHtml?: string;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -38,6 +40,7 @@ export interface ConclusionRecord {
   contentMarkdown: string;
   contentHtml: string;
   promotedToProject: boolean;
+  isPinned?: boolean;
   sourceActivityTitle?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -390,6 +393,8 @@ export interface ActivityCardData {
   attributeLabel?: string | null;
   attributeColorKey?: FileTagColorKey | null;
   title: string;
+  briefMarkdown?: string;
+  briefHtml?: string;
   activityTime: string;
   statusOptionId: number;
   statusLabel: string;
@@ -450,6 +455,8 @@ export interface ProjectUpdateSummaryInput {
   projectId: number;
   name?: string;
   summary: string;
+  summaryMarkdown?: string;
+  summaryHtml?: string;
   status?: string;
 }
 
@@ -481,6 +488,8 @@ export interface ActivityCreateInput {
 export interface ActivityUpdateMetaInput {
   activityId: number;
   title?: string;
+  briefMarkdown?: string;
+  briefHtml?: string;
   attributeOptionId?: number | null;
   clearAttributeOption?: boolean;
   activityTime?: string;
@@ -548,6 +557,11 @@ export interface WorkspaceNoteUpsertInput {
   html: string;
 }
 
+export interface TodayQuickNoteUpsertInput {
+  markdown: string;
+  html: string;
+}
+
 export interface WorkspaceNoteDeleteInput {
   noteId: number;
 }
@@ -559,6 +573,7 @@ export interface ConclusionCreateInput {
   markdown: string;
   html: string;
   promotedToProject: boolean;
+  isPinned?: boolean;
 }
 
 export interface ConclusionListInput {
@@ -571,6 +586,7 @@ export interface ConclusionUpdateInput {
   markdown: string;
   html: string;
   promotedToProject?: boolean;
+  isPinned?: boolean;
 }
 
 export interface ConclusionDeleteInput {
@@ -589,6 +605,11 @@ export interface TodoUpdateContentInput {
   content: string;
 }
 
+export interface TodoUpdateActivityInput {
+  todoId: number;
+  activityId: number | null;
+}
+
 export interface TodoUpdateStatusInput {
   todoId: number;
   status: TodoStatus;
@@ -603,6 +624,16 @@ export interface TodoAddProgressInput {
   todoId: number;
   content: string;
   progressDate: string;
+}
+
+export interface TodoUpdateProgressInput {
+  progressId: number;
+  content: string;
+  progressDate: string;
+}
+
+export interface TodoDeleteProgressInput {
+  progressId: number;
 }
 
 export interface TodoDeleteInput {

@@ -27,10 +27,17 @@ describe("TodoListItem", () => {
       <TodoListItem
         todo={todo}
         activityNameById={new Map([[11, "预算讨论"]])}
+        activityOptions={[
+          { id: 11, title: "预算讨论" },
+          { id: 12, title: "项目复盘" },
+        ]}
         onToggleStatus={vi.fn()}
         onUpdatePriority={onUpdatePriority}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onOpenTodoSource={onOpenTodoSource}
         onToggleExpanded={vi.fn()}
         onOpenContextMenu={vi.fn()}
@@ -53,10 +60,14 @@ describe("TodoListItem", () => {
       <TodoListItem
         todo={todo}
         activityNameById={new Map([[11, "预算讨论"]])}
+        activityOptions={[{ id: 11, title: "预算讨论" }]}
         onToggleStatus={vi.fn()}
         onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
         onOpenTodoSource={vi.fn()}
         onToggleExpanded={vi.fn()}
         onOpenContextMenu={onOpenContextMenu}
@@ -69,5 +80,67 @@ describe("TodoListItem", () => {
     });
 
     expect(onOpenContextMenu).toHaveBeenCalledWith(7, 120, 48);
+  });
+
+  it("rebinds the todo to another activity from the inline source selector", async () => {
+    const user = userEvent.setup();
+    const onUpdateActivity = vi.fn(async () => undefined);
+
+    render(
+      <TodoListItem
+        todo={todo}
+        activityNameById={new Map([[11, "预算讨论"]])}
+        activityOptions={[
+          { id: 11, title: "预算讨论" },
+          { id: 12, title: "项目复盘" },
+        ]}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={onUpdateActivity}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onOpenContextMenu={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
+    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "12");
+
+    expect(onUpdateActivity).toHaveBeenCalledWith(7, 12);
+  });
+
+  it("clears the todo back to project level from the inline source selector", async () => {
+    const user = userEvent.setup();
+    const onUpdateActivity = vi.fn(async () => undefined);
+
+    render(
+      <TodoListItem
+        todo={todo}
+        activityNameById={new Map([[11, "预算讨论"]])}
+        activityOptions={[
+          { id: 11, title: "预算讨论" },
+          { id: 12, title: "项目复盘" },
+        ]}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={onUpdateActivity}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onOpenContextMenu={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
+    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "");
+
+    expect(onUpdateActivity).toHaveBeenCalledWith(7, null);
   });
 });

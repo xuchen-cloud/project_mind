@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
+  activityList: vi.fn(),
   aiSettingsGet: vi.fn(),
   workspaceTodoList: vi.fn(),
+  todayQuickNoteGet: vi.fn(),
   workspaceNoteList: vi.fn(),
 }));
 
@@ -16,11 +18,21 @@ vi.mock("../../services/projectMindApi", () => ({
 
 vi.mock("../../hooks/useTodoMutations", () => ({
   useTodoMutations: () => ({
+    todoMutation: { mutate: vi.fn() },
     todoContentMutation: { mutateAsync: vi.fn() },
+    todoActivityMutation: { mutateAsync: vi.fn() },
     todoDeleteMutation: { mutateAsync: vi.fn() },
     todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
+    todoProgressUpdateMutation: { mutateAsync: vi.fn() },
+    todoProgressDeleteMutation: { mutateAsync: vi.fn() },
     todoStatusMutation: { mutateAsync: vi.fn() },
+  }),
+}));
+
+vi.mock("../../hooks/useTodayQuickNoteMutations", () => ({
+  useTodayQuickNoteMutations: () => ({
+    todayQuickNoteMutation: { mutateAsync: vi.fn(), isPending: false },
   }),
 }));
 
@@ -45,6 +57,10 @@ vi.mock("./TodayTodoSection", () => ({
   TodayTodoSection: () => <div>workspace todo section</div>,
 }));
 
+vi.mock("./TodayQuickNotePanel", () => ({
+  TodayQuickNotePanel: () => <div>today quick note panel</div>,
+}));
+
 vi.mock("./WorkspaceNotesPanel", () => ({
   WorkspaceNotesPanel: () => <div>workspace notes panel</div>,
 }));
@@ -64,8 +80,10 @@ function renderPage() {
 describe("TodayPage", () => {
   beforeEach(() => {
     apiMocks.projectsList.mockReset();
+    apiMocks.activityList.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.workspaceTodoList.mockReset();
+    apiMocks.todayQuickNoteGet.mockReset();
     apiMocks.workspaceNoteList.mockReset();
   });
 
@@ -108,12 +126,15 @@ describe("TodayPage", () => {
         },
       },
     });
+    apiMocks.activityList.mockResolvedValueOnce([]);
     apiMocks.workspaceTodoList.mockResolvedValueOnce([]);
+    apiMocks.todayQuickNoteGet.mockResolvedValueOnce(null);
     apiMocks.workspaceNoteList.mockResolvedValueOnce([]);
 
     renderPage();
 
     expect(await screen.findByText("今日概览")).toBeInTheDocument();
+    expect(screen.getByText("today quick note panel")).toBeInTheDocument();
     expect(screen.getByText("workspace todo section")).toBeInTheDocument();
     expect(screen.getByText("workspace notes panel")).toBeInTheDocument();
   });
@@ -144,10 +165,12 @@ describe("TodayPage", () => {
       },
     });
     apiMocks.workspaceTodoList.mockResolvedValueOnce([]);
+    apiMocks.todayQuickNoteGet.mockResolvedValueOnce(null);
     apiMocks.workspaceNoteList.mockResolvedValueOnce([]);
 
     renderPage();
 
+    expect(await screen.findByText("today quick note panel")).toBeInTheDocument();
     expect(await screen.findByText("workspace todo section")).toBeInTheDocument();
     expect(screen.getByText("workspace notes panel")).toBeInTheDocument();
     await waitFor(() => {

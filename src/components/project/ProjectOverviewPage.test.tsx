@@ -82,9 +82,12 @@ vi.mock("../../hooks/useTodoMutations", () => ({
   useTodoMutations: () => ({
     todoMutation: { mutate: vi.fn() },
     todoContentMutation: { mutateAsync: vi.fn() },
+    todoActivityMutation: { mutateAsync: vi.fn() },
     todoStatusMutation: { mutateAsync: vi.fn() },
     todoPriorityMutation: { mutateAsync: vi.fn() },
     todoProgressMutation: { mutateAsync: vi.fn() },
+    todoProgressUpdateMutation: { mutateAsync: vi.fn() },
+    todoProgressDeleteMutation: { mutateAsync: vi.fn() },
     todoDeleteMutation: { mutateAsync: mockTodoDeleteMutateAsync },
   }),
 }));
@@ -144,9 +147,12 @@ vi.mock("../rich-editor", () => ({
       return <div>{value}</div>;
     }
 
+    const ariaLabel =
+      placeholder === "填写项目当前阶段、目标和关键约束。" ? "项目简介" : "结论编辑器";
+
     return (
       <textarea
-        aria-label="结论编辑器"
+        aria-label={ariaLabel}
         placeholder={placeholder}
         value={value}
         onChange={(event) => {
@@ -242,6 +248,13 @@ describe("ProjectOverviewPage", () => {
     expect(mockOpenFolder).toHaveBeenCalledWith("/tmp/project-atlas");
   });
 
+  it("shows the current project status next to the title", async () => {
+    renderProjectOverviewPage();
+
+    expect(await screen.findByText("Project Atlas")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+  });
+
   it("edits the project name inline and saves automatically on submit", async () => {
     const user = userEvent.setup();
 
@@ -257,6 +270,8 @@ describe("ProjectOverviewPage", () => {
       projectId: 9,
       name: "Atlas Prime",
       summary: "阶段目标与风险说明",
+      summaryMarkdown: "阶段目标与风险说明",
+      summaryHtml: "<p>阶段目标与风险说明</p>",
       status: "active",
     });
   });
@@ -276,6 +291,8 @@ describe("ProjectOverviewPage", () => {
     expect(mockSummaryMutate).toHaveBeenCalledWith({
       projectId: 9,
       summary: "更新后的项目简介",
+      summaryMarkdown: "更新后的项目简介",
+      summaryHtml: "<p>更新后的项目简介</p>",
       status: "active",
     });
   });
@@ -745,6 +762,37 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
+  it("toggles pinning from the project conclusion context menu", async () => {
+    const user = userEvent.setup();
+
+    mockProjectGetOverview.mockResolvedValue(
+      buildOverview({
+        conclusionGroups: [
+          buildConclusionGroup("预算讨论", [
+            buildOverviewConclusion(31, "一个项目级关键结论", 11, true),
+          ]),
+        ],
+      }),
+    );
+
+    renderProjectOverviewPage();
+
+    fireEvent.contextMenu(await screen.findByText("一个项目级关键结论"), {
+      clientX: 180,
+      clientY: 96,
+    });
+
+    await user.click(screen.getByRole("menuitem", { name: "置顶" }));
+
+    expect(mockConclusionUpdateMutate).toHaveBeenCalledWith({
+      conclusionId: 31,
+      markdown: "一个项目级关键结论",
+      html: "<p>一个项目级关键结论</p>",
+      promotedToProject: true,
+      isPinned: true,
+    });
+  });
+
   it("expands the embedded AI brief and auto-collapses it on outside press", async () => {
     const user = userEvent.setup();
 
@@ -832,6 +880,8 @@ function buildProject(): ProjectListItem {
     status: "active",
     rootPath: "/tmp/project-atlas",
     summary: "阶段目标与风险说明",
+    summaryMarkdown: "阶段目标与风险说明",
+    summaryHtml: "<p>阶段目标与风险说明</p>",
     isArchived: false,
     createdAt: "2026-04-06T08:00:00.000Z",
     updatedAt: "2026-04-06T09:00:00.000Z",
@@ -901,6 +951,7 @@ function buildOverviewConclusion(
   contentMarkdown: string,
   activityId: number | null,
   promotedToProject: boolean,
+  isPinned = false,
 ) {
   return {
     id,
@@ -909,6 +960,7 @@ function buildOverviewConclusion(
     contentMarkdown,
     contentHtml: `<p>${contentMarkdown}</p>`,
     promotedToProject,
+    isPinned,
     createdAt: "2026-04-06T10:10:00.000Z",
     updatedAt: "2026-04-06T10:10:00.000Z",
   };

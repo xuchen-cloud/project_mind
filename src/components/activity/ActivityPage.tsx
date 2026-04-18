@@ -1,5 +1,6 @@
 import {
   type FocusEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -15,6 +16,7 @@ import {
   Lightbulb,
   ListTodo,
   LoaderCircle,
+  Pin,
   Star,
   Trash2,
 } from "lucide-react";
@@ -99,6 +101,11 @@ export function ActivityPage() {
       projectMindApi.activityList({ projectId: projectId as number }),
     enabled: projectId !== null && activityId !== null,
   });
+  const overviewQuery = useQuery({
+    queryKey: ["overview", projectId],
+    queryFn: () => projectMindApi.projectGetOverview({ projectId: projectId as number }),
+    enabled: projectId !== null,
+  });
   const aiSettingsQuery = useQuery({
     queryKey: ["ai-settings"],
     queryFn: projectMindApi.aiSettingsGet,
@@ -130,9 +137,12 @@ export function ActivityPage() {
   const {
     todoMutation,
     todoContentMutation,
+    todoActivityMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoProgressUpdateMutation,
+    todoProgressDeleteMutation,
     todoDeleteMutation,
   } = useTodoMutations(activity?.todos);
   const { aiGenerateMutation, aiAcceptMutation } = useAiMutations();
@@ -144,6 +154,11 @@ export function ActivityPage() {
   const [conclusionDraft, setConclusionDraft] = useState<RichEditorValue>(
     emptyRichEditorValue(),
   );
+  const [activityBriefEditing, setActivityBriefEditing] = useState(false);
+  const [activityBriefDraft, setActivityBriefDraft] = useState<RichEditorValue>(
+    emptyRichEditorValue(),
+  );
+  const [conclusionPinnedDraft, setConclusionPinnedDraft] = useState(false);
   const [pendingConclusionFocusPoint, setPendingConclusionFocusPoint] =
     useState<{
       key: string;
@@ -158,7 +173,10 @@ export function ActivityPage() {
   } | null>(null);
   const [pageDragActive, setPageDragActive] = useState(false);
   const [activitySummaryExpanded, setActivitySummaryExpanded] = useState(false);
+  const [projectStarredDocumentsExpanded, setProjectStarredDocumentsExpanded] =
+    useState(false);
   const titleSkipBlurRef = useRef(false);
+  const activityBriefSkipBlurRef = useRef(false);
   const autoEditTitleActivityIdRef = useRef<number | null>(null);
   const {
     activeKey: activeConclusionKey,
@@ -227,9 +245,34 @@ export function ActivityPage() {
         : new Map<number, string>(),
     [activity],
   );
+  const activityOptions = useMemo(
+    () =>
+      (activitiesQuery.data ?? []).map((item) => ({
+        id: item.id,
+        title: item.title.trim() ? item.title : "Untitled Activity",
+      })),
+    [activitiesQuery.data],
+  );
   const activityUnfinishedTodos = useMemo(
     () => activity?.todos.filter((todo) => todo.status !== "finished") ?? [],
     [activity?.todos],
+  );
+  const projectStarredDocuments = useMemo(
+    () =>
+      (overviewQuery.data?.projectDocuments ?? []).filter(
+        (document) => document.activityId === null && document.isStarred,
+      ),
+    [overviewQuery.data?.projectDocuments],
+  );
+  const activityBriefHtml = useMemo(
+    () =>
+      activity
+        ? getRenderableRichTextHtml({
+            html: activity.briefHtml,
+            markdown: activity.briefMarkdown,
+          })
+        : EMPTY_RICH_EDITOR_HTML,
+    [activity?.briefHtml, activity?.briefMarkdown],
   );
   const activityFinishedTodos = useMemo(
     () => activity?.todos.filter((todo) => todo.status === "finished") ?? [],
@@ -259,12 +302,15 @@ export function ActivityPage() {
 
   useEffect(() => {
     setConclusionDraft(emptyRichEditorValue());
+    setActivityBriefDraft(activity ? buildActivityBriefDraft(activity) : emptyRichEditorValue());
+    setActivityBriefEditing(false);
     setPendingConclusionFocusPoint(null);
     clearActiveConclusion();
-  }, [activity?.id, clearActiveConclusion]);
+  }, [activity, clearActiveConclusion]);
 
   useEffect(() => {
     setActivitySummaryExpanded(false);
+    setProjectStarredDocumentsExpanded(false);
   }, [activity?.id]);
 
   useEffect(() => {
@@ -299,7 +345,7 @@ export function ActivityPage() {
           projectId: activity.projectId,
           activityId: activity.id,
           sourcePath,
-          isStarred: false,
+          isStarred: true,
         });
 
         appendDocumentToActivityCache(queryClient, document);
@@ -412,6 +458,7 @@ export function ActivityPage() {
 
   const resetConclusionComposerDraft = useCallback(() => {
     setConclusionDraft(emptyRichEditorValue());
+    setConclusionPinnedDraft(false);
   }, []);
 
   const closeConclusionComposer = useCallback(() => {
@@ -437,7 +484,8 @@ export function ActivityPage() {
         activityId: activity.id,
         markdown: normalizedDraft.markdown,
         html: normalizedDraft.html,
-        promotedToProject: false,
+        promotedToProject: true,
+        ...(conclusionPinnedDraft ? { isPinned: true } : {}),
       });
 
       closeConclusionComposer();
@@ -445,7 +493,13 @@ export function ActivityPage() {
     } catch {
       return false;
     }
-  }, [activity, closeConclusionComposer, conclusionDraft, conclusionMutation]);
+  }, [
+    activity,
+    closeConclusionComposer,
+    conclusionDraft,
+    conclusionMutation,
+    conclusionPinnedDraft,
+  ]);
 
   useEffect(() => {
     if (!isConclusionComposerActive) {
@@ -497,6 +551,31 @@ export function ActivityPage() {
     setTitleEditing(false);
   }, [activity, activityMetaMutation, titleDraft]);
 
+  const handleSaveActivityBrief = useCallback(() => {
+    if (!activity || activityMetaMutation.isPending) {
+      return;
+    }
+
+    const normalizedDraft = normalizeRichEditorValue(activityBriefDraft);
+    const initialDraft = normalizeRichEditorValue(buildActivityBriefDraft(activity));
+    if (
+      normalizedDraft.markdown === initialDraft.markdown &&
+      normalizedDraft.html === initialDraft.html
+    ) {
+      setActivityBriefDraft(buildActivityBriefDraft(activity));
+      setActivityBriefEditing(false);
+      return;
+    }
+
+    activityMetaMutation.mutate({
+      activityId: activity.id,
+      briefMarkdown: normalizedDraft.markdown,
+      briefHtml: normalizedDraft.html,
+    });
+    setActivityBriefDraft(normalizedDraft);
+    setActivityBriefEditing(false);
+  }, [activity, activityBriefDraft, activityMetaMutation]);
+
   if (!activeProject) {
     return (
       <div className="flex h-full items-center justify-center text-body text-text-soft">
@@ -520,12 +599,16 @@ export function ActivityPage() {
           unfinishedTodos={[]}
           finishedTodos={[]}
           activityNameById={new Map<number, string>()}
+          activityOptions={[]}
           createPlaceholder="写下一条来自当前 activity 的 Todo"
           onCreateTodo={() => undefined}
           onToggleStatus={() => undefined}
           onUpdatePriority={() => undefined}
           onUpdateContent={() => undefined}
+          onUpdateActivity={() => undefined}
           onAddProgress={() => undefined}
+          onUpdateProgress={() => undefined}
+          onDeleteProgress={() => undefined}
           onDeleteTodo={() => undefined}
           onOpenTodoSource={() => undefined}
         />
@@ -753,6 +836,73 @@ export function ActivityPage() {
                     ) : null}
                   </div>
 
+                  <div className="grid gap-2">
+                    <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                      Activity 简介
+                    </p>
+                    {activityBriefEditing ? (
+                      <div
+                        className="w-full rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 shadow-[var(--shadow-sm)]"
+                        onBlurCapture={(event) => {
+                          if (isFocusMovingWithinCurrentTarget(event)) {
+                            return;
+                          }
+                          if (activityBriefSkipBlurRef.current) {
+                            activityBriefSkipBlurRef.current = false;
+                            return;
+                          }
+                          handleSaveActivityBrief();
+                        }}
+                        onKeyDownCapture={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            activityBriefSkipBlurRef.current = true;
+                            setActivityBriefDraft(buildActivityBriefDraft(activity));
+                            setActivityBriefEditing(false);
+                            blurKeyboardTarget(event.target);
+                            return;
+                          }
+                          if (isSubmitShortcut(event)) {
+                            event.preventDefault();
+                            blurKeyboardTarget(event.target);
+                          }
+                        }}
+                      >
+                        <RichEditor
+                          html={activityBriefDraft.html}
+                          variant="toolbar"
+                          autoFocus
+                          enableTables={false}
+                          placeholder="填写当前 Activity 的背景、目标、范围和关键约束。"
+                          onChange={setActivityBriefDraft}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="w-full rounded-[var(--radius-8)] border border-transparent bg-bg px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg-hover hover:shadow-[var(--shadow-sm)]"
+                        onClick={() => setActivityBriefEditing(true)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setActivityBriefEditing(true);
+                          }
+                        }}
+                      >
+                        {activity.briefMarkdown || activity.briefHtml ? (
+                          <div className="pointer-events-none text-text-muted">
+                            <RichEditor html={activityBriefHtml} variant="bare" readOnly />
+                          </div>
+                        ) : (
+                          <span className="block whitespace-pre-wrap text-body leading-6 text-text-soft">
+                            点击添加 Activity 简介，记录当前背景、目标、范围和关键约束。
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {showActivitySummary && activitySummaryExpanded ? (
                     <div className="border-t border-border pt-5">
                       <AiArtifactCard
@@ -827,6 +977,51 @@ export function ActivityPage() {
                     onDropFiles={requestImportPaths}
                   />
                 </section>
+                <section className="grid gap-3">
+                  <button
+                    type="button"
+                    className="flex items-center justify-between gap-3 rounded-[var(--radius-8)] border border-border bg-bg px-4 py-3 text-left transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg-hover"
+                    aria-label="切换项目文件展示"
+                    aria-expanded={projectStarredDocumentsExpanded}
+                    onClick={() =>
+                      setProjectStarredDocumentsExpanded((expanded) => !expanded)
+                    }
+                  >
+                    <div className="min-w-0">
+                      <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                        Starred
+                      </p>
+                      <h3 className="mt-1 text-body font-medium text-text">
+                        项目级标星文件
+                      </h3>
+                      <p className="mt-1 text-ui leading-5 text-text-soft">
+                        默认收起展示当前项目根目录下已标星的文件，不与当前 Activity 文件混排。
+                      </p>
+                    </div>
+                    <span className="flex shrink-0 items-center gap-2 text-ui font-medium text-text-soft">
+                      <span>{projectStarredDocuments.length}</span>
+                      <ChevronDown
+                        size={16}
+                        className={[
+                          "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+                          projectStarredDocumentsExpanded ? "rotate-180" : "",
+                        ].join(" ")}
+                      />
+                    </span>
+                  </button>
+
+                  {projectStarredDocumentsExpanded ? (
+                    <ManagedDocumentSection
+                      projectId={activity.projectId}
+                      projectRootPath={activeProject.rootPath}
+                      documents={projectStarredDocuments}
+                      layout="list"
+                      showImportButton={false}
+                      emptyText="当前项目还没有项目级标星文件。"
+                      compactHeader
+                    />
+                  ) : null}
+                </section>
                 {pendingImportPaths ? (
                   <DocumentImportTagDialog
                     paths={pendingImportPaths}
@@ -895,19 +1090,32 @@ export function ActivityPage() {
                             <div className="inline-object-guide" />
                           </div>
                           <div className="inline-object-panel inline-object-panel--active">
-                            <RichEditor
-                              html={conclusionDraft.html}
-                              variant="bare"
-                              autoFocus={
-                                pendingConclusionFocusPoint?.key ===
-                                CONCLUSION_COMPOSER_KEY
-                                  ? pendingConclusionFocusPoint.point
-                                  : true
-                              }
-                              enableTables={false}
-                              placeholder="记录已确认的判断、共识或决定。"
-                              onChange={setConclusionDraft}
-                            />
+                            <div className="grid gap-2">
+                              <RichEditor
+                                html={conclusionDraft.html}
+                                variant="bare"
+                                autoFocus={
+                                  pendingConclusionFocusPoint?.key ===
+                                  CONCLUSION_COMPOSER_KEY
+                                    ? pendingConclusionFocusPoint.point
+                                    : true
+                                }
+                                enableTables={false}
+                                placeholder="记录已确认的判断、共识或决定。"
+                                onChange={setConclusionDraft}
+                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <ConclusionFlagButton
+                                  active={conclusionPinnedDraft}
+                                  label={conclusionPinnedDraft ? "已置顶" : "置顶"}
+                                  onClick={() =>
+                                    setConclusionPinnedDraft((value) => !value)
+                                  }
+                                >
+                                  <Pin size={12} />
+                                </ConclusionFlagButton>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </article>
@@ -961,12 +1169,14 @@ export function ActivityPage() {
                               markdown,
                               html,
                               promotedToProject,
+                              isPinned,
                             ) => {
                               await conclusionUpdateMutation.mutateAsync({
                                 conclusionId,
                                 markdown,
                                 html,
                                 promotedToProject,
+                                ...(isPinned === undefined ? {} : { isPinned }),
                               });
                             }}
                           />
@@ -983,6 +1193,21 @@ export function ActivityPage() {
                         ariaLabel="结论操作"
                         onClose={() => setConclusionContextMenu(null)}
                         actions={[
+                          {
+                            icon: Pin,
+                            label: contextMenuConclusion.isPinned ? "取消置顶" : "置顶",
+                            disabled:
+                              conclusionUpdateMutation.isPending ||
+                              conclusionDeleteMutation.isPending,
+                            onSelect: () => {
+                              void conclusionUpdateMutation.mutateAsync({
+                                conclusionId: contextMenuConclusion.id,
+                                markdown: contextMenuConclusion.contentMarkdown,
+                                html: contextMenuConclusion.contentHtml,
+                                isPinned: !Boolean(contextMenuConclusion.isPinned),
+                              });
+                            },
+                          },
                           {
                             icon: Star,
                             label: contextMenuConclusion.promotedToProject
@@ -1030,6 +1255,7 @@ export function ActivityPage() {
           unfinishedTodos={activityUnfinishedTodos}
           finishedTodos={activityFinishedTodos}
           activityNameById={activityNameById}
+          activityOptions={activityOptions}
           createPlaceholder="写下一条来自当前 activity 的 Todo"
           onCreateTodo={(payload) =>
             todoMutation.mutate({
@@ -1047,8 +1273,17 @@ export function ActivityPage() {
           onUpdateContent={(todoId, content) =>
             todoContentMutation.mutateAsync({ todoId, content })
           }
+          onUpdateActivity={(todoId, activityId) =>
+            todoActivityMutation.mutateAsync({ todoId, activityId })
+          }
           onAddProgress={(todoId, payload) =>
             todoProgressMutation.mutateAsync({ todoId, ...payload })
+          }
+          onUpdateProgress={(progressId, payload) =>
+            todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
+          }
+          onDeleteProgress={(progressId) =>
+            todoProgressDeleteMutation.mutateAsync({ progressId })
           }
           onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
           onOpenTodoSource={(todo) => {
@@ -1077,6 +1312,19 @@ function emptyRichEditorValue(): RichEditorValue {
     html: EMPTY_RICH_EDITOR_HTML,
     text: "",
     markdown: "",
+  };
+}
+
+function buildActivityBriefDraft(
+  activity: Pick<ActivityCardData, "briefMarkdown" | "briefHtml">,
+): RichEditorValue {
+  return {
+    html: getRenderableRichTextHtml({
+      html: activity.briefHtml,
+      markdown: activity.briefMarkdown,
+    }),
+    text: activity.briefMarkdown ?? "",
+    markdown: activity.briefMarkdown ?? "",
   };
 }
 
@@ -1112,11 +1360,13 @@ function InlineActivityConclusionEditor({
     markdown: string,
     html: string,
     promotedToProject: boolean,
+    isPinned?: boolean,
   ) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<RichEditorValue>(() =>
     buildConclusionDraft(conclusion),
   );
+  const [draftPinned, setDraftPinned] = useState(Boolean(conclusion.isPinned));
   const saveInFlightRef = useRef(false);
   const renderableHtml = useMemo(
     () =>
@@ -1129,10 +1379,12 @@ function InlineActivityConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
-  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
+    setDraftPinned(Boolean(conclusion.isPinned));
+  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id, conclusion.isPinned]);
 
   const resetEditingState = useCallback(() => {
     setDraft(buildConclusionDraft(conclusion));
+    setDraftPinned(Boolean(conclusion.isPinned));
   }, [conclusion]);
 
   const commitOrClose = useCallback(async () => {
@@ -1153,7 +1405,8 @@ function InlineActivityConclusionEditor({
 
     if (
       normalizedDraft.markdown === initialDraft.markdown &&
-      normalizedDraft.html === initialDraft.html
+      normalizedDraft.html === initialDraft.html &&
+      draftPinned === Boolean(conclusion.isPinned)
     ) {
       onDeactivate();
       return true;
@@ -1167,6 +1420,7 @@ function InlineActivityConclusionEditor({
         normalizedDraft.markdown,
         normalizedDraft.html,
         conclusion.promotedToProject,
+        draftPinned === Boolean(conclusion.isPinned) ? undefined : draftPinned,
       );
       onDeactivate();
       return true;
@@ -1277,20 +1531,68 @@ function InlineActivityConclusionEditor({
           }}
         >
           {isActive ? (
-            <RichEditor
-              html={draft.html}
-              variant="bare"
-              autoFocus={autoFocusTarget}
-              enableTables={false}
-              placeholder="记录已确认的判断、共识或决定。"
-              onChange={setDraft}
-            />
+            <div className="grid gap-2">
+              <RichEditor
+                html={draft.html}
+                variant="bare"
+                autoFocus={autoFocusTarget}
+                enableTables={false}
+                placeholder="记录已确认的判断、共识或决定。"
+                onChange={setDraft}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <ConclusionFlagButton
+                  active={draftPinned}
+                  label={draftPinned ? "已置顶" : "置顶"}
+                  onClick={() => setDraftPinned((value) => !value)}
+                >
+                  <Pin size={12} />
+                </ConclusionFlagButton>
+              </div>
+            </div>
           ) : (
-            <RichEditor html={renderableHtml} variant="bare" readOnly />
+            <div className="grid gap-2">
+              {conclusion.isPinned ? (
+                <span className="inline-flex items-center gap-1 text-caption font-medium text-text-soft">
+                  <Pin size={12} />
+                  置顶
+                </span>
+              ) : null}
+              <RichEditor html={renderableHtml} variant="bare" readOnly />
+            </div>
           )}
         </div>
       </div>
     </article>
+  );
+}
+
+function ConclusionFlagButton({
+  active,
+  label,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+        active
+          ? "border-[color-mix(in_srgb,var(--color-accent)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
+          : "border-border bg-bg-subtle text-text-soft hover:border-border-strong hover:text-text",
+      ].join(" ")}
+      onClick={onClick}
+    >
+      {children}
+      <span>{label}</span>
+    </button>
   );
 }
 

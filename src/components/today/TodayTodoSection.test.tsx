@@ -73,15 +73,31 @@ const todos: TodoRecord[] = [
   },
 ];
 
-function renderSection(nextTodos: TodoRecord[] = todos) {
+const activityOptionsByProject = new Map<number, Array<{ id: number; title: string }>>([
+  [
+    1,
+    [
+      { id: 31, title: "Alpha Review" },
+      { id: 32, title: "Alpha Retro" },
+    ],
+  ],
+  [2, [{ id: 21, title: "Beta Kickoff" }]],
+]);
+
+function renderSection(nextTodos: TodoRecord[] = todos, onCreateTodo = vi.fn()) {
   render(
     <TodayTodoSection
       projects={projects}
+      activityOptionsByProject={activityOptionsByProject}
       todos={nextTodos}
+      onCreateTodo={onCreateTodo}
       onToggleStatus={vi.fn()}
       onUpdatePriority={vi.fn()}
       onUpdateContent={vi.fn()}
+      onUpdateActivity={vi.fn()}
       onAddProgress={vi.fn()}
+      onUpdateProgress={vi.fn()}
+      onDeleteProgress={vi.fn()}
       onDeleteTodo={vi.fn()}
       onOpenTodoSource={vi.fn()}
     />,
@@ -115,5 +131,41 @@ describe("TodayTodoSection", () => {
     renderSection([]);
 
     expect(screen.getByText("当前没有需要展示的 Todo")).toBeInTheDocument();
+  });
+
+  it("creates a project-level todo after choosing a project", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn();
+
+    renderSection(todos, onCreateTodo);
+
+    await user.type(screen.getByPlaceholderText("例如：整理本周访谈结论"), "整理项目时间线");
+    await user.selectOptions(screen.getByLabelText("选择归属项目"), "1");
+    await user.click(screen.getByRole("button", { name: "新增 Todo" }));
+
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      projectId: 1,
+      content: "整理项目时间线",
+      priority: "not_urgent_important",
+    });
+  });
+
+  it("includes the selected activity when creating a todo", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn();
+
+    renderSection(todos, onCreateTodo);
+
+    await user.type(screen.getByPlaceholderText("例如：整理本周访谈结论"), "跟进 Beta 启动会");
+    await user.selectOptions(screen.getByLabelText("选择归属项目"), "2");
+    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "21");
+    await user.click(screen.getByRole("button", { name: "新增 Todo" }));
+
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      projectId: 2,
+      activityId: 21,
+      content: "跟进 Beta 启动会",
+      priority: "not_urgent_important",
+    });
   });
 });

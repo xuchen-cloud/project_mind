@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import type { ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
-import { EmptyState, SectionHeader, SurfaceCard } from "../../ui/components";
+import { Button, EmptyState, SectionHeader, SurfaceCard, TextField } from "../../ui/components";
 import { TodoList } from "../todo/TodoList";
 import { TodoSortSwitch } from "../todo/TodoSortSwitch";
 import {
@@ -13,14 +13,27 @@ import {
 
 interface TodayTodoSectionProps {
   projects: ProjectListItem[];
+  activityOptionsByProject: ReadonlyMap<number, Array<{ id: number; title: string }>>;
   todos: TodoRecord[];
+  onCreateTodo: (payload: {
+    projectId: number;
+    activityId?: number;
+    content: string;
+    priority: TodoPriority;
+  }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onUpdateProgress: (
+    progressId: number,
+    payload: { content: string; progressDate: string },
+  ) => Promise<unknown> | void;
+  onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
@@ -28,11 +41,16 @@ interface TodayTodoSectionProps {
 
 export function TodayTodoSection({
   projects,
+  activityOptionsByProject,
   todos,
+  onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
+  onUpdateActivity,
   onAddProgress,
+  onUpdateProgress,
+  onDeleteProgress,
   onDeleteTodo,
   onOpenTodoSource,
   onError,
@@ -41,6 +59,10 @@ export function TodayTodoSection({
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
+  const [draftContent, setDraftContent] = useState("");
+  const [draftPriority, setDraftPriority] = useState<TodoPriority>("not_urgent_important");
+  const [draftProjectId, setDraftProjectId] = useState<number | null>(null);
+  const [draftActivityId, setDraftActivityId] = useState<number | null>(null);
 
   const activityNameById = useMemo(
     () =>
@@ -84,6 +106,10 @@ export function TodayTodoSection({
     [filteredTodos, projects, sortMode, todos],
   );
   const showSortSwitch = filteredTodos.length > 1;
+  const draftActivityOptions = useMemo(
+    () => (draftProjectId === null ? [] : activityOptionsByProject.get(draftProjectId) ?? []),
+    [activityOptionsByProject, draftProjectId],
+  );
 
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
     setExpandedTodoIds((current) => {
@@ -100,6 +126,23 @@ export function TodayTodoSection({
     });
   }
 
+  function submitCreate() {
+    const content = draftContent.trim();
+    if (!content || draftProjectId === null) {
+      return;
+    }
+
+    onCreateTodo({
+      projectId: draftProjectId,
+      ...(draftActivityId !== null ? { activityId: draftActivityId } : {}),
+      content,
+      priority: draftPriority,
+    });
+    setDraftContent("");
+    setDraftActivityId(null);
+    setDraftPriority("not_urgent_important");
+  }
+
   return (
     <section className="grid gap-4">
       <SectionHeader
@@ -109,6 +152,99 @@ export function TodayTodoSection({
       />
 
       <SurfaceCard className="grid gap-4 p-4">
+        <SurfaceCard subtle className="grid gap-3 p-3">
+          <div className="grid gap-1">
+            <p className="text-ui font-medium text-text">新增 Todo</p>
+            <p className="text-ui leading-5 text-text-soft">
+              在 Today 里新增待办时，必须选择归属项目，也可以顺手绑定到具体 Activity。
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_11rem_13rem_auto] md:items-end">
+            <label className="grid gap-1.5">
+              <span className="text-ui font-medium text-text-muted">内容</span>
+              <TextField
+                value={draftContent}
+                onChange={(event) => setDraftContent(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitCreate();
+                  }
+                }}
+                placeholder="例如：整理本周访谈结论"
+              />
+            </label>
+
+            <label className="grid gap-1.5">
+              <span className="text-ui font-medium text-text-muted">项目</span>
+              <select
+                aria-label="选择归属项目"
+                value={draftProjectId ?? ""}
+                className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  const nextProjectId = nextValue ? Number(nextValue) : null;
+                  setDraftProjectId(nextProjectId);
+                  setDraftActivityId(null);
+                }}
+              >
+                <option value="">选择项目</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1.5">
+              <span className="text-ui font-medium text-text-muted">Activity</span>
+              <select
+                aria-label="选择归属 Activity"
+                value={draftActivityId ?? ""}
+                disabled={draftProjectId === null}
+                className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setDraftActivityId(nextValue ? Number(nextValue) : null);
+                }}
+              >
+                <option value="">项目级 Todo</option>
+                {draftActivityOptions.map((activity) => (
+                  <option key={activity.id} value={activity.id}>
+                    {activity.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={!draftContent.trim() || draftProjectId === null}
+              onClick={submitCreate}
+            >
+              新增 Todo
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
+            {TODO_PRIORITY_OPTIONS.map((option) => (
+              <PriorityPillButton
+                key={option.value}
+                active={draftPriority === option.value}
+                priority={option.value}
+                title={option.optionLabel}
+                onClick={() => setDraftPriority(option.value)}
+              >
+                {option.code}
+              </PriorityPillButton>
+            ))}
+          </div>
+        </SurfaceCard>
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center rounded-full border border-border bg-bg p-1">
             <TodayTabButton active={tab === "unfinished"} onClick={() => setTab("unfinished")}>
@@ -162,6 +298,7 @@ export function TodayTodoSection({
                 <TodoList
                   todos={group.todos}
                   activityNameById={activityNameById}
+                  activityOptions={activityOptionsByProject.get(group.project.id) ?? []}
                   compact
                   allowInlineEdit={tab === "unfinished"}
                   allowInlineProgress={tab === "unfinished"}
@@ -171,7 +308,10 @@ export function TodayTodoSection({
                   onToggleStatus={onToggleStatus}
                   onUpdatePriority={onUpdatePriority}
                   onUpdateContent={onUpdateContent}
+                  onUpdateActivity={onUpdateActivity}
                   onAddProgress={onAddProgress}
+                  onUpdateProgress={onUpdateProgress}
+                  onDeleteProgress={onDeleteProgress}
                   onDeleteTodo={onDeleteTodo}
                   onOpenTodoSource={onOpenTodoSource}
                   onError={onError}

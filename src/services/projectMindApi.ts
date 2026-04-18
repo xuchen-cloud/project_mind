@@ -71,11 +71,15 @@ import type {
   TodoAddProgressInput,
   TodoCreateInput,
   TodoDeleteInput,
+  TodoDeleteProgressInput,
   TodoProgressRecord,
   TodoRecord,
+  TodoUpdateActivityInput,
   TodoUpdateContentInput,
+  TodoUpdateProgressInput,
   TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
+  TodayQuickNoteUpsertInput,
   WorkspaceNoteDeleteInput,
   WorkspaceNoteRecord,
   WorkspaceNoteUpsertInput,
@@ -170,6 +174,8 @@ export const projectMindApi = {
     desktopApi.command<ConclusionRecord>("conclusion_delete", { input }),
   todoCreate: (input: TodoCreateInput) =>
     desktopApi.command<TodoRecord>("todo_create", { input }),
+  todoUpdateActivity: (input: TodoUpdateActivityInput) =>
+    desktopApi.command<TodoRecord>("todo_update_activity", { input }),
   todoUpdateContent: (input: TodoUpdateContentInput) =>
     desktopApi.command<TodoRecord>("todo_update_content", { input }),
   todoUpdatePriority: (input: TodoUpdatePriorityInput) =>
@@ -178,12 +184,20 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord>("todo_update_status", { input }),
   todoAddProgress: (input: TodoAddProgressInput) =>
     desktopApi.command<TodoProgressRecord>("todo_add_progress", { input }),
+  todoUpdateProgress: (input: TodoUpdateProgressInput) =>
+    desktopApi.command<TodoProgressRecord>("todo_update_progress", { input }),
+  todoDeleteProgress: (input: TodoDeleteProgressInput) =>
+    desktopApi.command<TodoProgressRecord>("todo_delete_progress", { input }),
   todoDelete: (input: TodoDeleteInput) =>
     desktopApi.command<TodoRecord>("todo_delete", { input }),
   todoListOpen: (input: ProjectIdInput) =>
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
   workspaceTodoList: () =>
     desktopApi.command<TodoRecord[]>("workspace_todo_list"),
+  todayQuickNoteGet: () =>
+    desktopApi.command<WorkspaceNoteRecord | null>("today_quick_note_get"),
+  todayQuickNoteUpsert: (input: TodayQuickNoteUpsertInput) =>
+    desktopApi.command<WorkspaceNoteRecord>("today_quick_note_upsert", { input }),
   workspaceNoteList: () =>
     desktopApi.command<WorkspaceNoteRecord[]>("workspace_note_list"),
   workspaceNoteUpsert: (input: WorkspaceNoteUpsertInput) =>

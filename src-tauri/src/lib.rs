@@ -35,10 +35,12 @@ use models::{
     ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem, ProjectOverviewData,
     ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
     RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
-    RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
-    TodoDeleteInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
-    TodoUpdatePriorityInput, TodoUpdateStatusInput, WorkspaceCreateInput, WorkspaceNoteDeleteInput,
-    WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
+    RichTextStyleSettings, RichTextStyleUpsertInput, TodayQuickNoteUpsertInput,
+    TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
+    TodoProgressRecord, TodoRecord, TodoUpdateActivityInput, TodoUpdateContentInput,
+    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
+    WorkspaceCreateInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
+    WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
     WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
@@ -641,6 +643,14 @@ fn todo_create(state: State<'_, AppState>, input: TodoCreateInput) -> CommandRes
 }
 
 #[tauri::command]
+fn todo_update_activity(
+    state: State<'_, AppState>,
+    input: TodoUpdateActivityInput,
+) -> CommandResult<TodoRecord> {
+    with_db(state, |db| db.todo_update_activity(input))
+}
+
+#[tauri::command]
 fn todo_update_status(
     state: State<'_, AppState>,
     input: TodoUpdateStatusInput,
@@ -673,6 +683,22 @@ fn todo_add_progress(
 }
 
 #[tauri::command]
+fn todo_update_progress(
+    state: State<'_, AppState>,
+    input: TodoUpdateProgressInput,
+) -> CommandResult<TodoProgressRecord> {
+    with_db(state, |db| db.todo_update_progress(input))
+}
+
+#[tauri::command]
+fn todo_delete_progress(
+    state: State<'_, AppState>,
+    input: TodoDeleteProgressInput,
+) -> CommandResult<TodoProgressRecord> {
+    with_db(state, |db| db.todo_delete_progress(input))
+}
+
+#[tauri::command]
 fn todo_delete(state: State<'_, AppState>, input: TodoDeleteInput) -> CommandResult<TodoRecord> {
     with_db(state, |db| db.todo_delete(input))
 }
@@ -693,6 +719,21 @@ fn workspace_todo_list(state: State<'_, AppState>) -> CommandResult<Vec<TodoReco
 #[tauri::command]
 fn workspace_note_list(state: State<'_, AppState>) -> CommandResult<Vec<WorkspaceNoteRecord>> {
     with_db(state, |db| db.workspace_note_list())
+}
+
+#[tauri::command]
+fn today_quick_note_get(
+    state: State<'_, AppState>,
+) -> CommandResult<Option<WorkspaceNoteRecord>> {
+    with_db(state, |db| db.today_quick_note_get())
+}
+
+#[tauri::command]
+fn today_quick_note_upsert(
+    state: State<'_, AppState>,
+    input: TodayQuickNoteUpsertInput,
+) -> CommandResult<WorkspaceNoteRecord> {
+    with_db(state, |db| db.today_quick_note_upsert(input))
 }
 
 #[tauri::command]
@@ -990,13 +1031,18 @@ pub fn run() {
             conclusion_update,
             conclusion_delete,
             todo_create,
+            todo_update_activity,
             todo_update_status,
             todo_update_priority,
             todo_update_content,
             todo_add_progress,
+            todo_update_progress,
+            todo_delete_progress,
             todo_delete,
             todo_list_open,
             workspace_todo_list,
+            today_quick_note_get,
+            today_quick_note_upsert,
             workspace_note_list,
             workspace_note_upsert,
             workspace_note_delete,

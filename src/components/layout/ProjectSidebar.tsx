@@ -5,6 +5,7 @@ import {
   FolderKanban,
   Lightbulb,
   ListTodo,
+  Plus,
 } from "lucide-react";
 
 import type { FileTagColorKey } from "../../lib/types";
@@ -38,6 +39,7 @@ interface ProjectSidebarProps {
   activeActivityId?: number | null;
   onOpenProject: () => void;
   onOpenActivity: (activityId: number) => void;
+  onCreateActivity: () => void;
 }
 
 function activityMonogram(title: string, index: number) {
@@ -51,6 +53,7 @@ export function ProjectSidebar({
   activeActivityId = null,
   onOpenProject,
   onOpenActivity,
+  onCreateActivity,
 }: ProjectSidebarProps) {
   const { projectSidebarCollapsed, toggleProjectSidebarCollapsed } = useUiStore();
 
@@ -118,6 +121,15 @@ export function ProjectSidebar({
       <div className={cn("min-h-0 flex-1 overflow-y-auto", projectSidebarCollapsed ? "px-2 py-3" : "px-3 py-3")}>
         {projectSidebarCollapsed ? (
           <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              aria-label="新建 Activity"
+              title="新建 Activity"
+              className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border border-dashed border-border bg-transparent text-text-muted transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg hover:text-text"
+              onClick={onCreateActivity}
+            >
+              <Plus size={16} />
+            </button>
             {activities.map((activity, index) => (
               <button
                 key={activity.id}
@@ -137,9 +149,19 @@ export function ProjectSidebar({
           </div>
         ) : activities.length > 0 ? (
           <div className="grid gap-1.5">
-            <p className="px-1 text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-              Activities
-            </p>
+            <div className="flex items-center justify-between gap-2 px-1">
+              <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                Activities
+              </p>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-[var(--radius-6)] border border-transparent px-2 py-1 text-ui font-medium text-text-muted transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg hover:text-text"
+                onClick={onCreateActivity}
+              >
+                <Plus size={14} />
+                <span>新建 Activity</span>
+              </button>
+            </div>
             {activities.map((activity) => (
               <button
                 key={activity.id}
@@ -200,7 +222,17 @@ export function ProjectSidebar({
             ))}
           </div>
         ) : (
-          <p className="px-2 text-ui text-text-soft">还没有 activity。</p>
+          <div className="grid gap-2 px-1">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-8)] border border-dashed border-border bg-transparent px-3 py-2 text-ui font-medium text-text-muted transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg hover:text-text"
+              onClick={onCreateActivity}
+            >
+              <Plus size={14} />
+              <span>新建 Activity</span>
+            </button>
+            <p className="px-1 text-ui text-text-soft">还没有 activity。</p>
+          </div>
         )}
       </div>
     </aside>

@@ -248,6 +248,20 @@ describe("ActivityNotesPanel", () => {
     );
   });
 
+  it("creates a default note draft when clicking the empty state", async () => {
+    const user = userEvent.setup();
+
+    renderPanel({
+      notes: [],
+    });
+
+    await user.click(screen.getByRole("button", { name: "按默认记录类型新建记录" }));
+
+    expect(screen.getByLabelText("记录编辑器")).toBeInTheDocument();
+    expect(screen.getByLabelText("记录编辑器")).toHaveFocus();
+    expect(screen.getByLabelText("记录标题")).toHaveValue("");
+  });
+
   it("trims boundary blank lines and spaces before saving a note", async () => {
     const user = userEvent.setup();
     const onUpsertNote = vi.fn(async () => ({
@@ -1048,6 +1062,38 @@ describe("ActivityNotesPanel", () => {
       html: "<p>客户确认需要补充上下文</p>",
     });
     expect(onGenerateAiSuggestions).not.toHaveBeenCalled();
+  });
+
+  it("moves focus from the title input into the editor body on Tab and Enter", async () => {
+    const user = userEvent.setup();
+
+    renderPanel({
+      notes: [baseNote],
+    });
+
+    const recordToggle = screen.getByRole("button", { name: /原始记录/ });
+    const quickNoteCard = recordToggle.closest("article");
+
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+
+    const titleInput = within(quickNoteCard!).getByLabelText("记录标题");
+    const editor = within(quickNoteCard!).getByLabelText("记录编辑器");
+
+    titleInput.focus();
+    expect(titleInput).toHaveFocus();
+
+    fireEvent.keyDown(titleInput, {
+      key: "Tab",
+    });
+    expect(editor).toHaveFocus();
+
+    titleInput.focus();
+    expect(titleInput).toHaveFocus();
+
+    fireEvent.keyDown(titleInput, {
+      key: "Enter",
+    });
+    expect(editor).toHaveFocus();
   });
 });
 

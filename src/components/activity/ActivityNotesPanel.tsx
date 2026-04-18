@@ -1024,6 +1024,15 @@ export function ActivityNotesPanel({
     },
   });
 
+  const focusComposerBody = useCallback(() => {
+    const nextTarget =
+      editingRecordRef.current?.querySelector<HTMLElement>(
+        "[aria-label='记录编辑器'], .ProseMirror",
+      ) ?? null;
+
+    nextTarget?.focus();
+  }, [editingRecordRef]);
+
   useEffect(() => {
     setEditorPersistState("idle");
     setTitleDirty(false);
@@ -1189,6 +1198,18 @@ export function ActivityNotesPanel({
                               handleTitleChange(event.target.value)
                             }
                             onKeyDown={(event) => {
+                              if (
+                                !event.metaKey &&
+                                !event.ctrlKey &&
+                                !event.altKey &&
+                                !event.shiftKey &&
+                                (event.key === "Tab" || event.key === "Enter")
+                              ) {
+                                event.preventDefault();
+                                focusComposerBody();
+                                return;
+                              }
+
                               if (
                                 (event.metaKey || event.ctrlKey) &&
                                 event.key === "Enter"
@@ -1451,7 +1472,14 @@ export function ActivityNotesPanel({
               })}
             </div>
           ) : (
-            <EmptyState text="还没有记录。" compact />
+            <button
+              type="button"
+              className="w-full text-left"
+              aria-label="按默认记录类型新建记录"
+              onClick={() => handleCreateNote(defaultRecordType)}
+            >
+              <EmptyState text="还没有记录。" compact />
+            </button>
           )}
         </div>
       </section>

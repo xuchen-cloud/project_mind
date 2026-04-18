@@ -32,6 +32,18 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
     },
   });
 
+  const todoActivityMutation = useMutation({
+    mutationFn: projectMindApi.todoUpdateActivity,
+    onSuccess: async (todo) => {
+      setStatus({ tone: "success", label: "Moved", message: "待办归属已更新" });
+      await refreshAll(queryClient, todo.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "更新待办归属失败" });
+      pushToast({ tone: "error", title: "更新待办归属失败", detail: String(error) });
+    },
+  });
+
   const todoStatusMutation = useMutation({
     mutationFn: projectMindApi.todoUpdateStatus,
     onSuccess: async (todo) => {
@@ -74,6 +86,38 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
     },
   });
 
+  const todoProgressUpdateMutation = useMutation({
+    mutationFn: projectMindApi.todoUpdateProgress,
+    onSuccess: async (_, variables) => {
+      const source = allTodos?.find((todo) =>
+        todo.progresses.some((progress) => progress.id === variables.progressId),
+      );
+      if (!source) return;
+      setStatus({ tone: "success", label: "Updated", message: "进展已更新" });
+      await refreshAll(queryClient, source.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "更新进展失败" });
+      pushToast({ tone: "error", title: "更新进展失败", detail: String(error) });
+    },
+  });
+
+  const todoProgressDeleteMutation = useMutation({
+    mutationFn: projectMindApi.todoDeleteProgress,
+    onSuccess: async (_, variables) => {
+      const source = allTodos?.find((todo) =>
+        todo.progresses.some((progress) => progress.id === variables.progressId),
+      );
+      if (!source) return;
+      setStatus({ tone: "success", label: "Deleted", message: "进展已删除" });
+      await refreshAll(queryClient, source.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除进展失败" });
+      pushToast({ tone: "error", title: "删除进展失败", detail: String(error) });
+    },
+  });
+
   const todoDeleteMutation = useMutation({
     mutationFn: projectMindApi.todoDelete,
     onSuccess: async (todo) => {
@@ -89,9 +133,12 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
   return {
     todoMutation,
     todoContentMutation,
+    todoActivityMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,
+    todoProgressUpdateMutation,
+    todoProgressDeleteMutation,
     todoDeleteMutation,
   };
 }

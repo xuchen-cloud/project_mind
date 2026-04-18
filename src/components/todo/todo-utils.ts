@@ -120,7 +120,11 @@ function isValidCalendarDate(year: number, month: number, day: number) {
   );
 }
 
-export function parseProgressInput(input: string, now = new Date()) {
+export function parseProgressInput(
+  input: string,
+  now = new Date(),
+  fallbackDate?: string,
+) {
   const trimmed = input.trim();
   if (!trimmed) {
     return { ok: false as const, error: "进展内容不能为空。" };
@@ -130,7 +134,7 @@ export function parseProgressInput(input: string, now = new Date()) {
   if (!match) {
     return {
       ok: true as const,
-      progressDate: formatLocalDate(now),
+      progressDate: fallbackDate ?? formatLocalDate(now),
       content: trimmed,
     };
   }

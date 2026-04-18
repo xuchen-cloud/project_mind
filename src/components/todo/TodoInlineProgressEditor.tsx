@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { CornerDownLeft } from "lucide-react";
+import { CornerDownLeft, Pencil, Trash2 } from "lucide-react";
 
+import { ActionContextMenu } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { formatMonthDay, parseProgressInput } from "./todo-utils";
 
@@ -12,25 +13,43 @@ export function TodoInlineProgressEditor({
   latestProgress,
   editable,
   onSave,
+  onUpdateLatestProgress,
+  onDeleteLatestProgress,
   onError,
 }: {
-  latestProgress: { content: string; progressDate: string } | null;
+  latestProgress: { id: number; content: string; progressDate: string } | null;
   editable: boolean;
   onSave: (payload: { content: string; progressDate: string }) => Promise<unknown> | void;
+  onUpdateLatestProgress?: (
+    progressId: number,
+    payload: { content: string; progressDate: string },
+  ) => Promise<unknown> | void;
+  onDeleteLatestProgress?: (progressId: number) => Promise<unknown> | void;
   onError?: (message: string) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"add" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const saveInFlightRef = useRef(false);
   const skipBlurSaveRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editing = mode !== null;
 
   useEffect(() => {
     if (!editing) {
       setDraft("");
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (mode === "edit" && latestProgress) {
+      setDraft(latestProgress.content);
+    }
+    if (mode === "add") {
+      setDraft("");
+    }
+  }, [latestProgress, mode]);
 
   useEffect(() => {
     if (!editing || !textareaRef.current) {
@@ -45,7 +64,17 @@ export function TodoInlineProgressEditor({
     if (saveInFlightRef.current) {
       return;
     }
-    const parsed = parseProgressInput(normalizeProgressDraft(draft));
+    const normalizedDraft = normalizeProgressDraft(draft).trim();
+    if (!normalizedDraft || /^@\d{4}$/u.test(normalizedDraft)) {
+      setMode(null);
+      return;
+    }
+
+    const parsed = parseProgressInput(
+      normalizedDraft,
+      new Date(),
+      mode === "edit" ? latestProgress?.progressDate : undefined,
+    );
     if (!parsed.ok) {
       onError?.(parsed.error);
       return;
@@ -53,11 +82,18 @@ export function TodoInlineProgressEditor({
     saveInFlightRef.current = true;
     setSaving(true);
     try {
-      await onSave({
-        content: parsed.content,
-        progressDate: parsed.progressDate,
-      });
-      setEditing(false);
+      if (mode === "edit" && latestProgress && onUpdateLatestProgress) {
+        await onUpdateLatestProgress(latestProgress.id, {
+          content: parsed.content,
+          progressDate: parsed.progressDate,
+        });
+      } else {
+        await onSave({
+          content: parsed.content,
+          progressDate: parsed.progressDate,
+        });
+      }
+      setMode(null);
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -91,7 +127,7 @@ export function TodoInlineProgressEditor({
             if (event.key === "Escape") {
               event.preventDefault();
               skipBlurSaveRef.current = true;
-              setEditing(false);
+              setMode(null);
               event.currentTarget.blur();
             }
           }}
@@ -120,15 +156,50 @@ export function TodoInlineProgressEditor({
   }
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "grid min-w-0 gap-1 rounded-[var(--radius-6)] bg-transparent p-0 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
-        latestProgress ? "hover:text-text" : "hover:text-text-muted",
-      )}
-      onClick={() => setEditing(true)}
-    >
-      {content}
-    </button>
+    <div className="grid min-w-0 gap-1">
+      <button
+        type="button"
+        className={cn(
+          "grid min-w-0 gap-1 rounded-[var(--radius-6)] bg-transparent p-0 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+          latestProgress ? "hover:text-text" : "hover:text-text-muted",
+        )}
+        onClick={() => setMode("add")}
+        onContextMenu={(event) => {
+          if (!latestProgress) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          setContextMenu({ x: event.clientX, y: event.clientY });
+        }}
+      >
+        {content}
+      </button>
+      {contextMenu && latestProgress ? (
+        <ActionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          ariaLabel="进展操作"
+          onClose={() => setContextMenu(null)}
+          actions={[
+            {
+              icon: Pencil,
+              label: "编辑进展",
+              onSelect: () => {
+                setMode("edit");
+              },
+            },
+            {
+              icon: Trash2,
+              label: "删除进展",
+              tone: "danger",
+              onSelect: () => {
+                void onDeleteLatestProgress?.(latestProgress.id);
+              },
+            },
+          ]}
+        />
+      ) : null}
+    </div>
   );
 }

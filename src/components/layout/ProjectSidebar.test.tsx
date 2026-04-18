@@ -22,6 +22,7 @@ describe("ProjectSidebar", () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
     const onOpenActivity = vi.fn();
+    const onCreateActivity = vi.fn();
 
     render(
       <ProjectSidebar
@@ -57,6 +58,7 @@ describe("ProjectSidebar", () => {
         activeActivityId={11}
         onOpenProject={onOpenProject}
         onOpenActivity={onOpenActivity}
+        onCreateActivity={onCreateActivity}
       />,
     );
 
@@ -84,6 +86,9 @@ describe("ProjectSidebar", () => {
     await user.click(screen.getByText("Alpha Project").closest("button")!);
     expect(onOpenProject).toHaveBeenCalledTimes(1);
 
+    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
+    expect(onCreateActivity).toHaveBeenCalledTimes(1);
+
     await user.click(screen.getByText("Budget Sync").closest("button")!);
     expect(onOpenActivity).toHaveBeenCalledWith(12);
 
@@ -91,6 +96,9 @@ describe("ProjectSidebar", () => {
     expect(useUiStore.getState().projectSidebarCollapsed).toBe(true);
     expect(screen.getByRole("button", { name: "展开项目侧边栏" })).toBeInTheDocument();
     expect(screen.queryByText("Budget Sync")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
+    expect(onCreateActivity).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "B" }));
     expect(onOpenActivity).toHaveBeenCalledWith(12);

@@ -7,6 +7,7 @@ import { TodoListItem } from "./TodoListItem";
 export function TodoList({
   todos,
   activityNameById,
+  activityOptions,
   compact = false,
   allowInlineEdit = false,
   allowInlineProgress = false,
@@ -16,13 +17,17 @@ export function TodoList({
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
+  onUpdateActivity,
   onAddProgress,
+  onUpdateProgress,
+  onDeleteProgress,
   onDeleteTodo,
   onOpenTodoSource,
   onError,
 }: {
   todos: TodoRecord[];
   activityNameById: ReadonlyMap<number, string>;
+  activityOptions: Array<{ id: number; title: string }>;
   compact?: boolean;
   allowInlineEdit?: boolean;
   allowInlineProgress?: boolean;
@@ -32,10 +37,16 @@ export function TodoList({
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
+  onUpdateProgress: (
+    progressId: number,
+    payload: { content: string; progressDate: string },
+  ) => Promise<unknown> | void;
+  onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
@@ -68,6 +79,7 @@ export function TodoList({
               compact={compact}
               allowInlineEdit={allowInlineEdit}
               allowInlineProgress={allowInlineProgress}
+              activityOptions={activityOptions}
               expanded={expandedTodoIds.has(todo.id)}
               activityNameById={activityNameById}
               onError={onError}
@@ -75,7 +87,10 @@ export function TodoList({
               onToggleStatus={onToggleStatus}
               onUpdatePriority={onUpdatePriority}
               onUpdateContent={onUpdateContent}
+              onUpdateActivity={onUpdateActivity}
               onAddProgress={onAddProgress}
+              onUpdateProgress={onUpdateProgress}
+              onDeleteProgress={onDeleteProgress}
               onOpenContextMenu={(todoId, x, y) => setContextMenu({ todoId, x, y })}
               onOpenTodoSource={onOpenTodoSource}
             />
@@ -91,9 +106,6 @@ export function TodoList({
           ariaLabel="待办操作"
           onClose={() => setContextMenu(null)}
           onDelete={() => {
-            if (!window.confirm("确定删除这条代办吗？删除后无法恢复。")) {
-              return;
-            }
             void Promise.resolve(onDeleteTodo(contextMenuTodo.id));
           }}
         />

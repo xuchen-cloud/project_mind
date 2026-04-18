@@ -11,6 +11,8 @@ pub struct ProjectRecord {
     pub status: String,
     pub root_path: String,
     pub summary: String,
+    pub summary_markdown: String,
+    pub summary_html: String,
     pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -24,6 +26,8 @@ pub struct ProjectListItem {
     pub status: String,
     pub root_path: String,
     pub summary: String,
+    pub summary_markdown: String,
+    pub summary_html: String,
     pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -56,6 +60,7 @@ pub struct ConclusionRecord {
     pub content_markdown: String,
     pub content_html: String,
     pub promoted_to_project: bool,
+    pub is_pinned: bool,
     pub source_activity_title: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -519,6 +524,8 @@ pub struct ActivityCardData {
     pub attribute_label: Option<String>,
     pub attribute_color_key: Option<String>,
     pub title: String,
+    pub brief_markdown: String,
+    pub brief_html: String,
     pub activity_time: String,
     pub status_option_id: i64,
     pub status_label: String,
@@ -619,6 +626,8 @@ pub struct ProjectUpdateSummaryInput {
     pub project_id: i64,
     pub name: Option<String>,
     pub summary: String,
+    pub summary_markdown: Option<String>,
+    pub summary_html: Option<String>,
     pub status: Option<String>,
 }
 
@@ -662,6 +671,8 @@ pub struct ActivityCreateInput {
 pub struct ActivityUpdateMetaInput {
     pub activity_id: i64,
     pub title: Option<String>,
+    pub brief_markdown: Option<String>,
+    pub brief_html: Option<String>,
     pub attribute_option_id: Option<i64>,
     pub clear_attribute_option: Option<bool>,
     pub activity_time: Option<String>,
@@ -751,6 +762,13 @@ pub struct WorkspaceNoteUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TodayQuickNoteUpsertInput {
+    pub markdown: String,
+    pub html: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceNoteDeleteInput {
     pub note_id: i64,
 }
@@ -764,6 +782,7 @@ pub struct ConclusionCreateInput {
     pub markdown: String,
     pub html: String,
     pub promoted_to_project: bool,
+    pub is_pinned: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -780,6 +799,7 @@ pub struct ConclusionUpdateInput {
     pub markdown: String,
     pub html: String,
     pub promoted_to_project: Option<bool>,
+    pub is_pinned: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -806,6 +826,13 @@ pub struct TodoUpdateContentInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TodoUpdateActivityInput {
+    pub todo_id: i64,
+    pub activity_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TodoUpdateStatusInput {
     pub todo_id: i64,
     pub status: String,
@@ -824,6 +851,20 @@ pub struct TodoAddProgressInput {
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoUpdateProgressInput {
+    pub progress_id: i64,
+    pub content: String,
+    pub progress_date: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoDeleteProgressInput {
+    pub progress_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

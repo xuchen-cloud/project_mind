@@ -41,13 +41,14 @@ export function useDocumentImportFlow({
       }
 
       try {
+        const defaultIsStarred = activityId !== null;
         const documents = await Promise.all(
           paths.map((sourcePath) =>
             projectMindApi.documentImport({
               projectId,
               ...(activityId !== null ? { activityId } : {}),
               sourcePath,
-              isStarred: false,
+              isStarred: defaultIsStarred,
               ...(tagIds.length > 0 ? { tagIds } : {}),
             }),
           ),
