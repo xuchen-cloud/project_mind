@@ -15,9 +15,10 @@ use crate::{
     ai_provider::{self, ResolvedAiProfile},
     models::{
         AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
-        ActivityCardData, ActivityCreateInput, ActivityDigest, ActivityOptionDeleteInput,
-        ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
-        ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiAnswerCitationRecord,
+        ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityDigest,
+        ActivityOptionDeleteInput, ActivitySettingsSnapshot, ActivityStatusOption,
+        ActivityStatusOptionUpsertInput, ActivityUpdateMetaInput, AiAcceptSuggestionInput,
+        AiAnswerCitationRecord,
         AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope, AiArtifactCitationRecord,
         AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord, AiCapabilityBindingRecord,
         AiCapabilityBindingUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
@@ -29,18 +30,19 @@ use crate::{
         DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
         DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
         DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
-        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot, NoteDeleteInput,
-        NoteRecord, NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard,
-        ProjectIdInput, ProjectListItem, ProjectOverviewData, ProjectRecord,
-        ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
-        RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
-        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
-        RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-        TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateActivityInput,
-        TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
-        TodoUpdateStatusInput, TodayQuickNoteUpsertInput, WorkspaceNoteDeleteInput,
-        WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceSearchInput,
-        WorkspaceSearchResult,
+        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot,
+        InternalReferenceResolveInput, InternalReferenceResolveResult,
+        InternalReferenceSearchInput, InternalReferenceSearchResult, NoteDeleteInput, NoteRecord,
+        NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
+        ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
+        ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
+        RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextFontSelection,
+        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
+        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
+        TodoProgressRecord, TodoRecord, TodoUpdateActivityInput, TodoUpdateContentInput,
+        TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
+        TodayQuickNoteUpsertInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
+        WorkspaceNoteUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -117,6 +119,7 @@ const MEETING_RECORD_TYPE_TEMPLATE_HTML: &str =
     "<h2>背景</h2><p></p><h2>讨论要点</h2><p></p><h2>初步结论</h2><p></p><h2>行动项</h2><p></p>";
 const SYSTEM_ACTIVITY_STATUS_PENDING: &str = "pending";
 const SYSTEM_ACTIVITY_STATUS_PENDING_LABEL: &str = "待启动";
+const UNTITLED_ACTIVITY_PREFIX: &str = "未命名 Activity";
 const LEGACY_ACTIVITY_STATUS_REVIEW_LABEL: &str = "待复核";
 const LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL: &str = "已整理";
 const DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY: &str = "slate";
@@ -1242,7 +1245,7 @@ impl Database {
     pub fn activity_create(&mut self, input: ActivityCreateInput) -> Result<ActivityCardData> {
         self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
-        let activity_title = input.title.unwrap_or_default();
+        let requested_title = input.title.unwrap_or_default();
         let attribute_option = match input.attribute_option_id {
             Some(option_id) => Some(self.activity_attribute_option_record(option_id)?),
             None => None,
@@ -1264,7 +1267,7 @@ impl Database {
                     .map(|option| option.label.as_str())
                     .unwrap_or(""),
                 input.attribute_option_id,
-                activity_title,
+                requested_title.trim(),
                 input.activity_time,
                 legacy_organize_status_for_system(pending_status.is_system),
                 timestamp,
@@ -1272,12 +1275,13 @@ impl Database {
             ],
         )?;
         let activity_id = self.conn.last_insert_rowid();
+        let activity_title = normalize_activity_title(&requested_title, activity_id);
         let project = self.project_record(input.project_id)?;
         let folder_name = self.default_activity_folder_name(&activity_title, activity_id);
         self.create_activity_directory(&project.root_path, &folder_name)?;
         self.conn.execute(
-            "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
-            params![folder_name, activity_id],
+            "UPDATE activities SET title = ?1, folder_name = ?2 WHERE id = ?3",
+            params![activity_title, folder_name, activity_id],
         )?;
         self.touch_project(input.project_id)?;
         self.activity_card(activity_id)
@@ -1302,7 +1306,11 @@ impl Database {
     ) -> Result<ActivityCardData> {
         let timestamp = now_iso();
         let current = self.activity_row(input.activity_id)?;
-        let next_title = input.title.unwrap_or_else(|| current.title.clone());
+        let next_title = input
+            .title
+            .as_deref()
+            .map(|title| normalize_activity_title(title, input.activity_id))
+            .unwrap_or_else(|| current.title.clone());
         let next_brief_markdown = input
             .brief_markdown
             .as_deref()
@@ -1381,6 +1389,47 @@ impl Database {
         )?;
         self.touch_activity(input.activity_id)?;
         self.activity_card(input.activity_id)
+    }
+
+    pub fn activity_delete(&mut self, input: ActivityDeleteInput) -> Result<ActivityCardData> {
+        let deleted = self.activity_card(input.activity_id)?;
+        let current = self.activity_row(input.activity_id)?;
+        let project_id = current.project_id;
+        self.ensure_project_file_layout(project_id)?;
+        let project = self.project_record(project_id)?;
+        let project_root = PathBuf::from(&project.root_path);
+
+        for document in self.fetch_all_documents_for_activity(input.activity_id)? {
+            self.document_delete(DocumentDeleteInput {
+                document_id: document.id,
+            })?;
+        }
+
+        for todo_id in self.fetch_todo_ids_for_activity(input.activity_id)? {
+            self.todo_delete(TodoDeleteInput { todo_id })?;
+        }
+
+        self.conn
+            .execute("DELETE FROM activities WHERE id = ?1", [input.activity_id])?;
+
+        let folder_name = if current.folder_name.trim().is_empty() {
+            self.default_activity_folder_name(&current.title, input.activity_id)
+        } else {
+            current.folder_name
+        };
+        let activity_dir = project_root.join(folder_name);
+        let note_asset_dir = project_root
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join(PROJECT_NOTE_ASSET_DIR_NAME)
+            .join(format!("activity-{}", input.activity_id));
+        let cleanup_paths = [activity_dir, note_asset_dir]
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>();
+        move_paths_to_trash(&cleanup_paths)?;
+
+        self.touch_project(project_id)?;
+        Ok(deleted)
     }
 
     pub fn activity_settings_get(&mut self) -> Result<ActivitySettingsSnapshot> {
@@ -2864,12 +2913,13 @@ impl Database {
                 let activity_id = suggestion
                     .activity_id
                     .ok_or_else(|| anyhow!("title suggestion requires activity"))?;
+                let next_title = normalize_activity_title(proposed_title, activity_id);
                 self.ensure_project_file_layout(suggestion.project_id)?;
                 let current = self.activity_row(activity_id)?;
-                self.rename_activity_folder(activity_id, &current, proposed_title, &timestamp)?;
+                self.rename_activity_folder(activity_id, &current, &next_title, &timestamp)?;
                 self.conn.execute(
                     "UPDATE activities SET title = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![proposed_title, timestamp, activity_id],
+                    params![next_title, timestamp, activity_id],
                 )?;
                 entity_kind = "activity".to_string();
                 entity_id = activity_id;
@@ -3676,6 +3726,413 @@ impl Database {
         results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
 
         Ok(results)
+    }
+
+    pub fn internal_reference_search(
+        &mut self,
+        input: InternalReferenceSearchInput,
+    ) -> Result<Vec<InternalReferenceSearchResult>> {
+        let scope = input.scope.trim();
+        let limit = if input.limit <= 0 {
+            8
+        } else {
+            input.limit.min(16)
+        };
+        let project_id = match scope {
+            "project" => {
+                let Some(project_id) = input.project_id else {
+                    return Ok(Vec::new());
+                };
+                Some(project_id)
+            }
+            "workspace" => None,
+            _ => return Err(anyhow!("unsupported internal reference scope: {scope}")),
+        };
+        let query = input.query.trim().to_string();
+        let pattern = format!("%{}%", query);
+
+        let mut results = Vec::new();
+
+        let note_sql = r#"
+            SELECT
+              base.id,
+              base.project_id,
+              base.activity_id,
+              base.label,
+              base.project_name,
+              base.activity_title,
+              base.updated_at
+            FROM (
+              SELECT
+                n.id,
+                n.project_id,
+                n.activity_id,
+                CASE
+                  WHEN NULLIF(TRIM(n.title), '') IS NOT NULL AND TRIM(n.title) != '记录'
+                    THEN TRIM(n.title)
+                  ELSE COALESCE(NULLIF(TRIM(n.content_markdown), ''), '记录')
+                END AS label,
+                COALESCE(NULLIF(TRIM(n.title), ''), '') AS search_text,
+                COALESCE(NULLIF(TRIM(n.content_markdown), ''), '') AS secondary_text,
+                p.name AS project_name,
+                a.title AS activity_title,
+                n.updated_at
+              FROM notes n
+              INNER JOIN projects p ON p.id = n.project_id
+              INNER JOIN activities a ON a.id = n.activity_id
+            ) base
+            WHERE (?1 = '%%' OR base.search_text LIKE ?1 OR base.secondary_text LIKE ?1)
+              AND (?2 IS NULL OR base.project_id = ?2)
+            ORDER BY base.updated_at DESC
+            LIMIT ?3
+            "#
+            .to_string();
+        let mut stmt = self.conn.prepare(&note_sql)?;
+        let rows = stmt.query_map(
+            params![pattern.as_str(), project_id, limit],
+            |row| {
+                let project_name: String = row.get(4)?;
+                let activity_title: String = row.get(5)?;
+                Ok(InternalReferenceSearchResult {
+                    kind: "note".to_string(),
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    label: truncate_text(&normalize_internal_reference_label(&row.get::<_, String>(3)?), 72),
+                    subtitle: build_internal_reference_subtitle(&project_name, Some(&activity_title)),
+                    updated_at: row.get(6)?,
+                })
+            },
+        )?;
+        results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+
+        let conclusion_sql = r#"
+            SELECT
+              base.id,
+              base.project_id,
+              base.activity_id,
+              base.label,
+              base.project_name,
+              base.activity_title,
+              base.updated_at
+            FROM (
+              SELECT
+                c.id,
+                c.project_id,
+                c.activity_id,
+                COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '结论') AS label,
+                COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '') AS search_text,
+                COALESCE(a.title, '') AS secondary_text,
+                p.name AS project_name,
+                a.title AS activity_title,
+                c.updated_at
+              FROM conclusions c
+              INNER JOIN projects p ON p.id = c.project_id
+              LEFT JOIN activities a ON a.id = c.activity_id
+            ) base
+            WHERE (?1 = '%%' OR base.search_text LIKE ?1 OR base.secondary_text LIKE ?1)
+              AND (?2 IS NULL OR base.project_id = ?2)
+            ORDER BY base.updated_at DESC
+            LIMIT ?3
+            "#
+            .to_string();
+        let mut stmt = self.conn.prepare(&conclusion_sql)?;
+        let rows = stmt.query_map(
+            params![pattern.as_str(), project_id, limit],
+            |row| {
+                let project_name: String = row.get(4)?;
+                let activity_title: Option<String> = row.get(5)?;
+                Ok(InternalReferenceSearchResult {
+                    kind: "conclusion".to_string(),
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    label: truncate_text(&normalize_internal_reference_label(&row.get::<_, String>(3)?), 72),
+                    subtitle: build_internal_reference_subtitle(
+                        &project_name,
+                        activity_title.as_deref(),
+                    ),
+                    updated_at: row.get(6)?,
+                })
+            },
+        )?;
+        results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+
+        let todo_sql = r#"
+            SELECT
+              base.id,
+              base.project_id,
+              base.activity_id,
+              base.label,
+              base.project_name,
+              base.activity_title,
+              base.updated_at
+            FROM (
+              SELECT
+                t.id,
+                t.project_id,
+                t.activity_id,
+                COALESCE(NULLIF(TRIM(t.content), ''), 'Todo') AS label,
+                COALESCE(NULLIF(TRIM(t.content), ''), '') AS search_text,
+                COALESCE(a.title, '') AS secondary_text,
+                p.name AS project_name,
+                a.title AS activity_title,
+                t.updated_at
+              FROM todos t
+              INNER JOIN projects p ON p.id = t.project_id
+              LEFT JOIN activities a ON a.id = t.activity_id
+            ) base
+            WHERE (?1 = '%%' OR base.search_text LIKE ?1 OR base.secondary_text LIKE ?1)
+              AND (?2 IS NULL OR base.project_id = ?2)
+            ORDER BY base.updated_at DESC
+            LIMIT ?3
+            "#
+            .to_string();
+        let mut stmt = self.conn.prepare(&todo_sql)?;
+        let rows = stmt.query_map(
+            params![pattern.as_str(), project_id, limit],
+            |row| {
+                let project_name: String = row.get(4)?;
+                let activity_title: Option<String> = row.get(5)?;
+                Ok(InternalReferenceSearchResult {
+                    kind: "todo".to_string(),
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    label: truncate_text(&normalize_internal_reference_label(&row.get::<_, String>(3)?), 72),
+                    subtitle: build_internal_reference_subtitle(
+                        &project_name,
+                        activity_title.as_deref(),
+                    ),
+                    updated_at: row.get(6)?,
+                })
+            },
+        )?;
+        results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+
+        let document_sql = format!(
+            r#"
+            SELECT
+              base.id,
+              base.project_id,
+              base.activity_id,
+              base.label,
+              base.project_name,
+              base.activity_title,
+              base.updated_at
+            FROM (
+              SELECT
+                d.id,
+                d.project_id,
+                d.activity_id,
+                d.name AS label,
+                d.name AS search_text,
+                COALESCE(a.title, '') AS secondary_text,
+                p.name AS project_name,
+                a.title AS activity_title,
+                d.updated_at
+              FROM documents d
+              INNER JOIN projects p ON p.id = d.project_id
+              LEFT JOIN activities a ON a.id = d.activity_id
+              WHERE d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}'
+            ) base
+            WHERE (?1 = '%%' OR base.search_text LIKE ?1 OR base.secondary_text LIKE ?1)
+              AND (?2 IS NULL OR base.project_id = ?2)
+            ORDER BY base.updated_at DESC
+            LIMIT ?3
+            "#
+        );
+        let mut stmt = self.conn.prepare(&document_sql)?;
+        let rows = stmt.query_map(
+            params![pattern.as_str(), project_id, limit],
+            |row| {
+                let project_name: String = row.get(4)?;
+                let activity_title: Option<String> = row.get(5)?;
+                Ok(InternalReferenceSearchResult {
+                    kind: "document".to_string(),
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    label: truncate_text(&normalize_internal_reference_label(&row.get::<_, String>(3)?), 72),
+                    subtitle: build_internal_reference_subtitle(
+                        &project_name,
+                        activity_title.as_deref(),
+                    ),
+                    updated_at: row.get(6)?,
+                })
+            },
+        )?;
+        results.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+
+        results.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        results.truncate(limit as usize);
+
+        Ok(results)
+    }
+
+    pub fn internal_reference_resolve(
+        &mut self,
+        input: InternalReferenceResolveInput,
+    ) -> Result<Option<InternalReferenceResolveResult>> {
+        match input.kind.trim() {
+            "note" => self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT
+                      n.id,
+                      n.project_id,
+                      n.activity_id,
+                      CASE
+                        WHEN NULLIF(TRIM(n.title), '') IS NOT NULL AND TRIM(n.title) != '记录'
+                          THEN TRIM(n.title)
+                        ELSE COALESCE(NULLIF(TRIM(n.content_markdown), ''), '记录')
+                      END AS label
+                    FROM notes n
+                    WHERE n.id = ?1
+                    "#,
+                    [input.id],
+                    |row| {
+                        let id: i64 = row.get(0)?;
+                        let project_id: i64 = row.get(1)?;
+                        let activity_id: i64 = row.get(2)?;
+                        let label = truncate_text(
+                            &normalize_internal_reference_label(&row.get::<_, String>(3)?),
+                            72,
+                        );
+                        Ok(InternalReferenceResolveResult {
+                            kind: "note".to_string(),
+                            id,
+                            label,
+                            project_id,
+                            activity_id: Some(activity_id),
+                            route: build_activity_note_route(project_id, activity_id, id),
+                            focus_id: None,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into),
+            "conclusion" => self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT
+                      c.id,
+                      c.project_id,
+                      c.activity_id,
+                      COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '结论')
+                    FROM conclusions c
+                    WHERE c.id = ?1
+                    "#,
+                    [input.id],
+                    |row| {
+                        let id: i64 = row.get(0)?;
+                        let project_id: i64 = row.get(1)?;
+                        let activity_id: Option<i64> = row.get(2)?;
+                        Ok(InternalReferenceResolveResult {
+                            kind: "conclusion".to_string(),
+                            id,
+                            label: truncate_text(
+                                &normalize_internal_reference_label(&row.get::<_, String>(3)?),
+                                72,
+                            ),
+                            project_id,
+                            activity_id,
+                            route: build_internal_reference_route(
+                                project_id,
+                                activity_id,
+                                &format!("conclusion-{id}"),
+                            ),
+                            focus_id: Some(format!("conclusion-{id}")),
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into),
+            "todo" => self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT
+                      t.id,
+                      t.project_id,
+                      t.activity_id,
+                      COALESCE(NULLIF(TRIM(t.content), ''), 'Todo')
+                    FROM todos t
+                    WHERE t.id = ?1
+                    "#,
+                    [input.id],
+                    |row| {
+                        let id: i64 = row.get(0)?;
+                        let project_id: i64 = row.get(1)?;
+                        let activity_id: Option<i64> = row.get(2)?;
+                        Ok(InternalReferenceResolveResult {
+                            kind: "todo".to_string(),
+                            id,
+                            label: truncate_text(
+                                &normalize_internal_reference_label(&row.get::<_, String>(3)?),
+                                72,
+                            ),
+                            project_id,
+                            activity_id,
+                            route: build_internal_reference_route(
+                                project_id,
+                                activity_id,
+                                &format!("todo-{id}"),
+                            ),
+                            focus_id: Some(format!("todo-{id}")),
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into),
+            "document" => self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT
+                      d.id,
+                      d.project_id,
+                      d.activity_id,
+                      d.name
+                    FROM documents d
+                    WHERE d.id = ?1
+                      AND d.storage_mode != ?2
+                    "#,
+                    params![input.id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                    |row| {
+                        let id: i64 = row.get(0)?;
+                        let project_id: i64 = row.get(1)?;
+                        let activity_id: Option<i64> = row.get(2)?;
+                        Ok(InternalReferenceResolveResult {
+                            kind: "document".to_string(),
+                            id,
+                            label: truncate_text(
+                                &normalize_internal_reference_label(&row.get::<_, String>(3)?),
+                                72,
+                            ),
+                            project_id,
+                            activity_id,
+                            route: build_internal_reference_route(
+                                project_id,
+                                activity_id,
+                                &format!("document-{id}"),
+                            ),
+                            focus_id: Some(format!("document-{id}")),
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into),
+            other => Err(anyhow!("unsupported internal reference kind: {other}")),
+        }
     }
 
     pub fn reset_and_seed_demo_data(&mut self, workspace_root: &Path) -> Result<DemoSeedResult> {
@@ -6712,6 +7169,16 @@ impl Database {
             .collect()
     }
 
+    fn fetch_todo_ids_for_activity(&self, activity_id: i64) -> Result<Vec<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM todos WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+        let ids = stmt
+            .query_map([activity_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(ids)
+    }
+
     fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY updated_at DESC",
@@ -6721,6 +7188,16 @@ impl Database {
                 params![activity_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
                 |row| row.get::<_, i64>(0),
             )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| self.document_record(id)).collect()
+    }
+
+    fn fetch_all_documents_for_activity(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM documents WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+        let ids = stmt
+            .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
@@ -7186,16 +7663,11 @@ impl Database {
     }
 
     fn default_activity_folder_name(&self, title: &str, activity_id: i64) -> String {
-        let raw = if title.trim().is_empty() {
-            format!("未命名 Activity {}", activity_id)
-        } else {
-            title.trim().to_string()
-        };
-
+        let raw = normalize_activity_title(title, activity_id);
         let sanitized = normalize_windows_safe_component(&raw);
 
         if sanitized.is_empty() {
-            normalize_windows_safe_component(&format!("未命名 Activity {}", activity_id))
+            normalize_windows_safe_component(&untitled_activity_title(activity_id))
         } else {
             sanitized
         }
@@ -7856,11 +8328,7 @@ impl Database {
                 .collect::<Result<Vec<_>>>()?;
             groups.push(ConclusionGroup {
                 activity_id: Some(activity_id),
-                activity_title: if activity_title.trim().is_empty() {
-                    "Untitled Activity".to_string()
-                } else {
-                    activity_title
-                },
+                activity_title: normalize_activity_title(&activity_title, activity_id),
                 conclusions,
             });
         }
@@ -8759,6 +9227,8 @@ fn sanitize_import_file_name(file_name: &str, mime_type: &str) -> Result<String>
         "image/svg+xml" => "svg",
         "image/bmp" => "bmp",
         "image/avif" => "avif",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
         _ => "png",
     };
     let fallback_name = format!("clipboard-image.{fallback_extension}");
@@ -8808,6 +9278,54 @@ fn ai_artifact_scope_key(
         activity_id.unwrap_or_default(),
         artifact_date.unwrap_or_default().trim()
     )
+}
+
+fn normalize_internal_reference_label(value: &str) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        "未命名引用".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn untitled_activity_title(activity_id: i64) -> String {
+    format!("{UNTITLED_ACTIVITY_PREFIX} {activity_id}")
+}
+
+fn normalize_activity_title(value: &str, activity_id: i64) -> String {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        untitled_activity_title(activity_id)
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn build_internal_reference_subtitle(project_name: &str, activity_title: Option<&str>) -> String {
+    match activity_title.map(str::trim) {
+        Some(activity_title) if !activity_title.is_empty() => {
+            format!("{} · {}", project_name.trim(), activity_title)
+        }
+        _ => project_name.trim().to_string(),
+    }
+}
+
+fn build_activity_note_route(project_id: i64, activity_id: i64, note_id: i64) -> String {
+    format!("/projects/{project_id}/activities/{activity_id}/notes/{note_id}")
+}
+
+fn build_internal_reference_route(
+    project_id: i64,
+    activity_id: Option<i64>,
+    focus_id: &str,
+) -> String {
+    match activity_id {
+        Some(activity_id) => {
+            format!("/projects/{project_id}/activities/{activity_id}?focus={focus_id}")
+        }
+        None => format!("/projects/{project_id}?focus={focus_id}"),
+    }
 }
 
 fn push_artifact_source(
@@ -11422,6 +11940,152 @@ mod tests {
     }
 
     #[test]
+    fn activity_create_assigns_unique_default_title_when_blank() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+
+        let created = database
+            .activity_create(ActivityCreateInput {
+                project_id: project.id,
+                attribute_option_id: None,
+                title: Some("   ".to_string()),
+                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(created.title, format!("未命名 Activity {}", created.id));
+    }
+
+    #[test]
+    fn activity_update_meta_assigns_unique_default_title_when_cleared() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let updated = database
+            .activity_update_meta(ActivityUpdateMetaInput {
+                activity_id: activity.id,
+                title: Some("   ".to_string()),
+                brief_markdown: None,
+                brief_html: None,
+                attribute_option_id: None,
+                clear_attribute_option: None,
+                activity_time: None,
+                is_pinned: None,
+                is_expanded: None,
+                status_option_id: None,
+            })
+            .unwrap();
+
+        assert_eq!(updated.title, format!("未命名 Activity {}", activity.id));
+    }
+
+    #[test]
+    fn activity_delete_removes_related_notes_conclusions_todos_and_documents() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            "quick_note",
+            "范围确认记录",
+        );
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: Some(note.id),
+                markdown: "已确认第一阶段交付范围".to_string(),
+                html: "<p>已确认第一阶段交付范围</p>".to_string(),
+                promoted_to_project: true,
+                is_pinned: None,
+            })
+            .unwrap();
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "同步第一阶段排期",
+            "not_urgent_important",
+        );
+
+        let activity_source = harness.root.join("kickoff-brief.pdf");
+        fs::write(&activity_source, b"brief").unwrap();
+        let activity_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: activity_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let root_source = harness.root.join("root-overview.pdf");
+        fs::write(&root_source, b"root").unwrap();
+        let root_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: None,
+                source_path: root_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let note_image = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                file_name: "kickoff-inline.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode("inline-image"),
+            })
+            .unwrap();
+
+        let activity_dir = PathBuf::from(&activity_document.managed_path)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let note_asset_dir = PathBuf::from(&note_image.managed_path)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+
+        let deleted = database
+            .activity_delete(ActivityDeleteInput {
+                activity_id: activity.id,
+            })
+            .unwrap();
+
+        assert_eq!(deleted.id, activity.id);
+        assert_eq!(deleted.project_id, project.id);
+        assert!(database.activity_card(activity.id).is_err());
+        assert!(database.note_record(note.id).is_err());
+        assert!(database.conclusion_record(conclusion.id).is_err());
+        assert!(database.todo_record(todo.id).is_err());
+        assert!(database.document_record(activity_document.id).is_err());
+        assert!(database.document_record(note_image.id).is_err());
+        assert!(database.document_record(root_document.id).is_ok());
+        assert!(!Path::new(&activity_document.managed_path).exists());
+        assert!(!activity_dir.exists());
+        assert!(!note_asset_dir.exists());
+        assert_eq!(database.activity_list(ProjectIdInput { project_id: project.id }).unwrap().len(), 0);
+        assert_eq!(
+            database
+                .fetch_documents_for_project(project.id, false)
+                .unwrap()
+                .into_iter()
+                .map(|document| document.id)
+                .collect::<Vec<_>>(),
+            vec![root_document.id]
+        );
+    }
+
+    #[test]
     fn system_activity_status_can_be_edited_and_remains_non_deletable() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -11800,6 +12464,217 @@ mod tests {
     }
 
     #[test]
+    fn internal_reference_search_supports_scope_and_all_supported_kinds() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let other_project = database
+            .project_create(ProjectCreateInput {
+                name: "Beta".to_string(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let other_activity = create_activity(&mut database, other_project.id, "Retro");
+
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            "quick_note",
+            "预算讨论纪要",
+        );
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: Some(note.id),
+                markdown: "已确认预算审批路径".to_string(),
+                html: "<p>已确认预算审批路径</p>".to_string(),
+                promoted_to_project: false,
+                is_pinned: None,
+            })
+            .unwrap();
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "推进预算审批",
+            "not_urgent_important",
+        );
+        let document_source = harness.root.join("project-brief.pdf");
+        fs::write(&document_source, b"brief").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: document_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        let other_todo = create_todo(
+            &mut database,
+            other_project.id,
+            Some(other_activity.id),
+            "跨项目事项",
+            "not_urgent_important",
+        );
+
+        let project_results = database
+            .internal_reference_search(InternalReferenceSearchInput {
+                query: "".to_string(),
+                project_id: Some(project.id),
+                scope: "project".to_string(),
+                limit: 20,
+            })
+            .unwrap();
+        let workspace_results = database
+            .internal_reference_search(InternalReferenceSearchInput {
+                query: "".to_string(),
+                project_id: None,
+                scope: "workspace".to_string(),
+                limit: 20,
+            })
+            .unwrap();
+
+        assert!(project_results
+            .iter()
+            .any(|result| result.kind == "note" && result.id == note.id));
+        assert!(project_results
+            .iter()
+            .any(|result| result.kind == "conclusion" && result.id == conclusion.id));
+        assert!(project_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == todo.id));
+        assert!(project_results
+            .iter()
+            .any(|result| result.kind == "document" && result.id == document.id));
+        assert!(!project_results.iter().any(|result| result.id == other_todo.id));
+        assert!(workspace_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == other_todo.id));
+    }
+
+    #[test]
+    fn internal_reference_resolve_returns_current_routes_after_todo_and_document_moves() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+        let next_activity = create_activity(&mut database, project.id, "Delivery");
+        let note = create_note(
+            &mut database,
+            project.id,
+            activity.id,
+            "quick_note",
+            "预算讨论纪要",
+        );
+        let conclusion = database
+            .conclusion_create(ConclusionCreateInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                note_id: Some(note.id),
+                markdown: "已确认预算审批路径".to_string(),
+                html: "<p>已确认预算审批路径</p>".to_string(),
+                promoted_to_project: false,
+                is_pinned: None,
+            })
+            .unwrap();
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "推进预算审批",
+            "not_urgent_important",
+        );
+        let document_source = harness.root.join("delivery-brief.pdf");
+        fs::write(&document_source, b"brief").unwrap();
+        let document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                source_path: document_source.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        database
+            .todo_update_activity(TodoUpdateActivityInput {
+                todo_id: todo.id,
+                activity_id: Some(next_activity.id),
+            })
+            .unwrap();
+        database
+            .document_update_meta(DocumentUpdateMetaInput {
+                document_id: document.id,
+                activity_id: Some(Some(next_activity.id)),
+                base_name: None,
+                is_starred: None,
+                tag_ids: None,
+            })
+            .unwrap();
+
+        let resolved_note = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "note".to_string(),
+                id: note.id,
+            })
+            .unwrap()
+            .unwrap();
+        let resolved_conclusion = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "conclusion".to_string(),
+                id: conclusion.id,
+            })
+            .unwrap()
+            .unwrap();
+        let resolved_todo = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "todo".to_string(),
+                id: todo.id,
+            })
+            .unwrap()
+            .unwrap();
+        let resolved_document = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "document".to_string(),
+                id: document.id,
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            resolved_note.route,
+            format!(
+                "/projects/{}/activities/{}/notes/{}",
+                project.id, activity.id, note.id
+            )
+        );
+        assert_eq!(
+            resolved_conclusion.route,
+            format!(
+                "/projects/{}/activities/{}?focus=conclusion-{}",
+                project.id, activity.id, conclusion.id
+            )
+        );
+        assert_eq!(
+            resolved_todo.route,
+            format!(
+                "/projects/{}/activities/{}?focus=todo-{}",
+                project.id, next_activity.id, todo.id
+            )
+        );
+        assert_eq!(
+            resolved_document.route,
+            format!(
+                "/projects/{}/activities/{}?focus=document-{}",
+                project.id, next_activity.id, document.id
+            )
+        );
+    }
+
+    #[test]
     fn clipboard_note_image_import_uses_hidden_folder_and_internal_storage_mode() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -11825,6 +12700,28 @@ mod tests {
             .managed_path
             .contains(".project-mind/embedded-note-assets/activity-"));
         assert!(database.fetch_documents(activity.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn clipboard_note_image_import_preserves_heic_extension_when_name_is_blank() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        let document = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: Some(activity.id),
+                file_name: "".to_string(),
+                mime_type: "image/heic".to_string(),
+                data_base64: STANDARD.encode("clipboard-note-image"),
+            })
+            .unwrap();
+
+        assert!(Path::new(&document.managed_path).exists());
+        assert_eq!(fs::read(&document.managed_path).unwrap(), b"clipboard-note-image");
+        assert!(document.name.ends_with(".heic"));
+        assert!(document.managed_path.ends_with(".heic"));
     }
 
     #[test]

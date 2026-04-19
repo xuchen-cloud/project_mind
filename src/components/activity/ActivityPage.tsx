@@ -1,6 +1,5 @@
 import {
   type FocusEvent,
-  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type {
   ActivityCardData,
   ConclusionRecord,
@@ -33,8 +33,10 @@ import {
   visibleAiSuggestionTypes,
 } from "../../lib/ai";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
-import { activityAttributeLabel } from "../../lib/constants";
+import { activityAttributeLabel, resolveActivityTitle } from "../../lib/constants";
 import {
+  activityDraftNotePath,
+  activityNotePath,
   activityPath,
   formatDateTime,
   parseRouteId,
@@ -44,6 +46,7 @@ import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useActivityMutations } from "../../hooks/useActivityMutations";
 import { useAiMutations } from "../../hooks/useAiMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
+import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
@@ -65,8 +68,10 @@ import { useUiStore } from "../../state/ui-store";
 import {
   ActionContextMenu,
   Button,
+  Dialog,
   EmptyState,
   SectionHeader,
+  SurfaceCard,
   TextField,
 } from "../../ui/components";
 import { TodoRail } from "../todo";
@@ -126,14 +131,21 @@ export function ActivityPage() {
     );
     return found ? { ...found, isExpanded: true } : null;
   }, [activitiesQuery.data, activityId]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const {
     activityMetaMutation,
+    deleteActivityMutation,
     noteMutation,
     noteDeleteMutation,
     conclusionMutation,
     conclusionUpdateMutation,
     conclusionDeleteMutation,
-  } = useActivityMutations();
+  } = useActivityMutations({
+    onDeleteActivitySuccess: (deletedActivity) => {
+      setDeleteDialogOpen(false);
+      navigate(projectPath(deletedActivity.projectId));
+    },
+  });
   const {
     todoMutation,
     todoContentMutation,
@@ -148,6 +160,7 @@ export function ActivityPage() {
   const { aiGenerateMutation, aiAcceptMutation } = useAiMutations();
   const { openSettings } = useUiStore();
   const { pushToast } = useFeedbackStore();
+  const openInternalReference = useInternalReferenceNavigation();
 
   useFocusTarget(focusId, [activity]);
 
@@ -158,7 +171,6 @@ export function ActivityPage() {
   const [activityBriefDraft, setActivityBriefDraft] = useState<RichEditorValue>(
     emptyRichEditorValue(),
   );
-  const [conclusionPinnedDraft, setConclusionPinnedDraft] = useState(false);
   const [pendingConclusionFocusPoint, setPendingConclusionFocusPoint] =
     useState<{
       key: string;
@@ -241,7 +253,7 @@ export function ActivityPage() {
   const activityNameById = useMemo(
     () =>
       activity
-        ? new Map([[activity.id, activity.title]])
+        ? new Map([[activity.id, resolveActivityTitle(activity.title, activity.id)]])
         : new Map<number, string>(),
     [activity],
   );
@@ -249,7 +261,7 @@ export function ActivityPage() {
     () =>
       (activitiesQuery.data ?? []).map((item) => ({
         id: item.id,
-        title: item.title.trim() ? item.title : "Untitled Activity",
+        title: resolveActivityTitle(item.title, item.id),
       })),
     [activitiesQuery.data],
   );
@@ -260,10 +272,15 @@ export function ActivityPage() {
   const projectStarredDocuments = useMemo(
     () =>
       (overviewQuery.data?.projectDocuments ?? []).filter(
-        (document) => document.activityId === null && document.isStarred,
+        (document) => document.activityId == null && document.isStarred,
       ),
     [overviewQuery.data?.projectDocuments],
   );
+  useEffect(() => {
+    if (projectStarredDocuments.length === 0) {
+      setProjectStarredDocumentsExpanded(false);
+    }
+  }, [projectStarredDocuments.length]);
   const activityBriefHtml = useMemo(
     () =>
       activity
@@ -320,7 +337,7 @@ export function ActivityPage() {
       return;
     }
 
-    setTitleDraft(activity.title);
+    setTitleDraft(resolveActivityTitle(activity.title, activity.id));
 
     if (
       focusId === "activity-title" &&
@@ -458,7 +475,6 @@ export function ActivityPage() {
 
   const resetConclusionComposerDraft = useCallback(() => {
     setConclusionDraft(emptyRichEditorValue());
-    setConclusionPinnedDraft(false);
   }, []);
 
   const closeConclusionComposer = useCallback(() => {
@@ -485,7 +501,6 @@ export function ActivityPage() {
         markdown: normalizedDraft.markdown,
         html: normalizedDraft.html,
         promotedToProject: true,
-        ...(conclusionPinnedDraft ? { isPinned: true } : {}),
       });
 
       closeConclusionComposer();
@@ -498,7 +513,6 @@ export function ActivityPage() {
     closeConclusionComposer,
     conclusionDraft,
     conclusionMutation,
-    conclusionPinnedDraft,
   ]);
 
   useEffect(() => {
@@ -535,10 +549,10 @@ export function ActivityPage() {
       return;
     }
 
-    const nextTitle = titleDraft.trim();
+    const nextTitle = resolveActivityTitle(titleDraft, activity.id);
     const currentTitle = activity.title.trim();
     if (nextTitle === currentTitle) {
-      setTitleDraft(activity.title);
+      setTitleDraft(resolveActivityTitle(activity.title, activity.id));
       setTitleEditing(false);
       return;
     }
@@ -576,6 +590,18 @@ export function ActivityPage() {
     setActivityBriefEditing(false);
   }, [activity, activityBriefDraft, activityMetaMutation]);
 
+  const handleDeleteActivity = useCallback(async () => {
+    if (!activity || deleteActivityMutation.isPending) {
+      return;
+    }
+
+    try {
+      await deleteActivityMutation.mutateAsync({ activityId: activity.id });
+    } catch {
+      return;
+    }
+  }, [activity, deleteActivityMutation]);
+
   if (!activeProject) {
     return (
       <div className="flex h-full items-center justify-center text-body text-text-soft">
@@ -594,6 +620,7 @@ export function ActivityPage() {
           </div>
         </section>
         <TodoRail
+          projectId={activeProject.id}
           title="Activity 待办"
           scopeLabel={activeProject.name}
           unfinishedTodos={[]}
@@ -611,6 +638,7 @@ export function ActivityPage() {
           onDeleteProgress={() => undefined}
           onDeleteTodo={() => undefined}
           onOpenTodoSource={() => undefined}
+          onOpenInternalReference={openInternalReference}
         />
       </div>
     );
@@ -621,7 +649,8 @@ export function ActivityPage() {
       <section
         data-testid="activity-page-dropzone"
         className={[
-          "min-h-0 flex-1 overflow-y-auto bg-bg transition-[background-color] duration-[160ms] ease-[var(--ease-soft)]",
+          "min-h-0 flex-1 bg-bg transition-[background-color] duration-[160ms] ease-[var(--ease-soft)]",
+          "overflow-y-auto",
           pageDragActive
             ? "bg-[color-mix(in_srgb,var(--color-accent)_3%,var(--color-bg))]"
             : "",
@@ -657,11 +686,18 @@ export function ActivityPage() {
             />
           </div>
         ) : (
-          <div className="activity-page__content-shell mx-auto flex w-full max-w-6xl flex-col px-6 py-6">
-            <div className="activity-page__layout">
-              <section className="activity-page__notes-column grid min-w-0 gap-6">
+          <div
+            className={[
+              "activity-page__content-shell mx-auto flex w-full max-w-6xl flex-col px-6 py-6",
+            ].join(" ")}
+          >
+            <div className={["activity-page__layout"].join(" ")}>
+              <section
+                className={["activity-page__notes-column grid min-w-0 gap-6"].join(" ")}
+              >
                 <section
                   ref={activitySummarySectionRef}
+                  data-testid="activity-page-summary-section"
                   className="grid gap-4 border-b border-border pb-6"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
@@ -730,7 +766,9 @@ export function ActivityPage() {
                                 if (event.key === "Escape") {
                                   event.preventDefault();
                                   titleSkipBlurRef.current = true;
-                                  setTitleDraft(activity.title);
+                                  setTitleDraft(
+                                    resolveActivityTitle(activity.title, activity.id),
+                                  );
                                   setTitleEditing(false);
                                   event.currentTarget.blur();
                                 }
@@ -742,7 +780,7 @@ export function ActivityPage() {
                               className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-headline font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
                               onClick={() => setTitleEditing(true)}
                             >
-                              {activity.title || "Untitled Activity"}
+                              {resolveActivityTitle(activity.title, activity.id)}
                             </button>
                           )}
                         </h1>
@@ -810,97 +848,132 @@ export function ActivityPage() {
                       </div>
                     </div>
 
-                    {showActivitySummary ? (
+                    <div className="flex items-center gap-2">
+                      {showActivitySummary ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            activitySummaryExpanded ? "subtle" : "secondary"
+                          }
+                          aria-expanded={activitySummaryExpanded}
+                          onClick={() =>
+                            setActivitySummaryExpanded((expanded) => !expanded)
+                          }
+                          trailingIcon={
+                            <ChevronDown
+                              size={14}
+                              className={[
+                                "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+                                activitySummaryExpanded ? "rotate-180" : "",
+                              ].join(" ")}
+                            />
+                          }
+                        >
+                          AI 概览
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
-                        variant={
-                          activitySummaryExpanded ? "subtle" : "secondary"
-                        }
-                        aria-expanded={activitySummaryExpanded}
-                        onClick={() =>
-                          setActivitySummaryExpanded((expanded) => !expanded)
-                        }
-                        trailingIcon={
-                          <ChevronDown
-                            size={14}
-                            className={[
-                              "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
-                              activitySummaryExpanded ? "rotate-180" : "",
-                            ].join(" ")}
-                          />
-                        }
+                        variant="danger"
+                        leadingIcon={<Trash2 size={14} />}
+                        disabled={deleteActivityMutation.isPending}
+                        onClick={() => setDeleteDialogOpen(true)}
                       >
-                        AI 概览
+                        删除 Activity
                       </Button>
-                    ) : null}
+                    </div>
                   </div>
 
-                  <div className="grid gap-2">
-                    <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                      Activity 简介
-                    </p>
-                    {activityBriefEditing ? (
-                      <div
-                        className="w-full rounded-[var(--radius-8)] border border-border-strong bg-bg px-4 py-3 shadow-[var(--shadow-sm)]"
-                        onBlurCapture={(event) => {
-                          if (isFocusMovingWithinCurrentTarget(event)) {
-                            return;
-                          }
-                          if (activityBriefSkipBlurRef.current) {
-                            activityBriefSkipBlurRef.current = false;
-                            return;
-                          }
-                          handleSaveActivityBrief();
-                        }}
-                        onKeyDownCapture={(event) => {
-                          if (event.key === "Escape") {
-                            event.preventDefault();
-                            activityBriefSkipBlurRef.current = true;
-                            setActivityBriefDraft(buildActivityBriefDraft(activity));
-                            setActivityBriefEditing(false);
-                            blurKeyboardTarget(event.target);
-                            return;
-                          }
-                          if (isSubmitShortcut(event)) {
-                            event.preventDefault();
-                            blurKeyboardTarget(event.target);
-                          }
-                        }}
-                      >
+                  <div>
+                    <div
+                      role={activityBriefEditing ? undefined : "button"}
+                      tabIndex={activityBriefEditing ? undefined : 0}
+                      className={[
+                        "w-full rounded-[var(--radius-8)] bg-bg px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
+                        activityBriefEditing
+                          ? "border border-border-strong shadow-[var(--shadow-sm)]"
+                          : "border border-transparent hover:border-border hover:bg-bg-hover hover:shadow-[var(--shadow-sm)]",
+                      ].join(" ")}
+                      onClick={() => {
+                        if (!activityBriefEditing) {
+                          setActivityBriefEditing(true);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (activityBriefEditing) {
+                          return;
+                        }
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setActivityBriefEditing(true);
+                        }
+                      }}
+                      onBlurCapture={
+                        activityBriefEditing
+                          ? (event) => {
+                              if (isFocusMovingWithinCurrentTarget(event)) {
+                                return;
+                              }
+                              if (activityBriefSkipBlurRef.current) {
+                                activityBriefSkipBlurRef.current = false;
+                                return;
+                              }
+                              handleSaveActivityBrief();
+                            }
+                          : undefined
+                      }
+                      onKeyDownCapture={
+                        activityBriefEditing
+                          ? (event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                activityBriefSkipBlurRef.current = true;
+                                setActivityBriefDraft(buildActivityBriefDraft(activity));
+                                setActivityBriefEditing(false);
+                                blurKeyboardTarget(event.target);
+                                return;
+                              }
+                              if (isSubmitShortcut(event)) {
+                                event.preventDefault();
+                                blurKeyboardTarget(event.target);
+                              }
+                            }
+                          : undefined
+                      }
+                    >
+                      {activityBriefEditing ? (
                         <RichEditor
                           html={activityBriefDraft.html}
-                          variant="toolbar"
+                          variant="bare"
                           autoFocus
                           enableTables={false}
                           placeholder="填写当前 Activity 的背景、目标、范围和关键约束。"
+                          internalReferences={{
+                            context: { scope: "project", projectId: activity.projectId },
+                            onOpenReference: openInternalReference,
+                          }}
                           onChange={setActivityBriefDraft}
                         />
-                      </div>
-                    ) : (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        className="w-full rounded-[var(--radius-8)] border border-transparent bg-bg px-4 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] hover:border-border hover:bg-bg-hover hover:shadow-[var(--shadow-sm)]"
-                        onClick={() => setActivityBriefEditing(true)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setActivityBriefEditing(true);
-                          }
-                        }}
-                      >
-                        {activity.briefMarkdown || activity.briefHtml ? (
-                          <div className="pointer-events-none text-text-muted">
-                            <RichEditor html={activityBriefHtml} variant="bare" readOnly />
-                          </div>
-                        ) : (
-                          <span className="block whitespace-pre-wrap text-body leading-6 text-text-soft">
-                            点击添加 Activity 简介，记录当前背景、目标、范围和关键约束。
-                          </span>
-                        )}
-                      </div>
-                    )}
+                      ) : activity.briefMarkdown || activity.briefHtml ? (
+                        <div className="text-text-muted">
+                          <RichEditor
+                            html={activityBriefHtml}
+                            variant="bare"
+                            readOnly
+                            internalReferences={{
+                              context: { scope: "project", projectId: activity.projectId },
+                              onOpenReference: openInternalReference,
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <span className="block whitespace-pre-wrap text-body leading-6 text-text-soft">
+                          点击添加 Activity 简介，记录当前背景、目标、范围和关键约束。
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {showActivitySummary && activitySummaryExpanded ? (
@@ -941,10 +1014,25 @@ export function ActivityPage() {
                   onGenerateAiSuggestions={generateAiSuggestionsForNote}
                   onAcceptAiSuggestion={acceptAiSuggestion}
                   onManageRecordTypes={() => openSettings("record-types")}
+                  onOpenNoteFocus={(target) =>
+                    navigate(
+                      target.kind === "saved"
+                        ? activityNotePath(activity.projectId, activity.id, target.noteId)
+                        : activityDraftNotePath(
+                            activity.projectId,
+                            activity.id,
+                            target.localId,
+                          ),
+                    )
+                  }
+                  onOpenInternalReference={openInternalReference}
                 />
               </section>
 
-              <section className="activity-page__details-column grid min-w-0 gap-6">
+              <section
+                data-testid="activity-page-details-column"
+                className="activity-page__details-column grid min-w-0 gap-6"
+              >
                 <section className="grid gap-4">
                   <SectionHeader
                     eyebrow="Documents"
@@ -962,65 +1050,70 @@ export function ActivityPage() {
                       </Button>
                     }
                   />
-                  <ManagedDocumentSection
-                    projectId={activity.projectId}
-                    projectRootPath={activeProject.rootPath}
-                    activityId={activity.id}
-                    documents={activity.documents}
-                    layout="list"
-                    importButtonLabel="导入文件"
-                    showImportButton={false}
-                    emptyText="还没有关联文件。"
-                    compactHeader
-                    pageDropActive={pageDragActive}
-                    pageDropMessage="整个 activity 页面都支持拖入，文件会直接归入当前 activity"
-                    onDropFiles={requestImportPaths}
-                  />
-                </section>
-                <section className="grid gap-3">
-                  <button
-                    type="button"
-                    className="flex items-center justify-between gap-3 rounded-[var(--radius-8)] border border-border bg-bg px-4 py-3 text-left transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg-hover"
-                    aria-label="切换项目文件展示"
-                    aria-expanded={projectStarredDocumentsExpanded}
-                    onClick={() =>
-                      setProjectStarredDocumentsExpanded((expanded) => !expanded)
-                    }
+                  <SurfaceCard
+                    subtle
+                    data-testid="activity-documents-card"
+                    className="grid gap-3 p-3"
                   >
-                    <div className="min-w-0">
-                      <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                        Starred
-                      </p>
-                      <h3 className="mt-1 text-body font-medium text-text">
-                        项目级标星文件
-                      </h3>
-                      <p className="mt-1 text-ui leading-5 text-text-soft">
-                        默认收起展示当前项目根目录下已标星的文件，不与当前 Activity 文件混排。
-                      </p>
-                    </div>
-                    <span className="flex shrink-0 items-center gap-2 text-ui font-medium text-text-soft">
-                      <span>{projectStarredDocuments.length}</span>
-                      <ChevronDown
-                        size={16}
-                        className={[
-                          "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
-                          projectStarredDocumentsExpanded ? "rotate-180" : "",
-                        ].join(" ")}
-                      />
-                    </span>
-                  </button>
-
-                  {projectStarredDocumentsExpanded ? (
                     <ManagedDocumentSection
                       projectId={activity.projectId}
                       projectRootPath={activeProject.rootPath}
-                      documents={projectStarredDocuments}
+                      activityId={activity.id}
+                      documents={activity.documents}
                       layout="list"
+                      importButtonLabel="导入文件"
                       showImportButton={false}
-                      emptyText="当前项目还没有项目级标星文件。"
+                      emptyText="还没有关联文件。"
                       compactHeader
+                      chrome="embedded"
+                      pageDropActive={pageDragActive}
+                      pageDropMessage="整个 activity 页面都支持拖入，文件会直接归入当前 activity"
+                      onDropFiles={requestImportPaths}
                     />
-                  ) : null}
+                    {projectStarredDocuments.length > 0 ? (
+                      <div className="border-t border-border pt-3">
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-8)] bg-transparent px-1 py-1.5 text-left transition-[color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
+                          aria-label="切换项目文件展示"
+                          aria-expanded={projectStarredDocumentsExpanded}
+                          onClick={() =>
+                            setProjectStarredDocumentsExpanded((expanded) => !expanded)
+                          }
+                        >
+                          <span className="flex min-w-0 items-center gap-2 text-ui font-medium text-text">
+                            <Star size={14} className="text-text-soft" />
+                            <span>项目文件</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2 text-ui text-text-soft">
+                            <span>{projectStarredDocuments.length}</span>
+                            <ChevronDown
+                              size={16}
+                              className={[
+                                "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+                                projectStarredDocumentsExpanded ? "rotate-180" : "",
+                              ].join(" ")}
+                            />
+                          </span>
+                        </button>
+
+                        {projectStarredDocumentsExpanded ? (
+                          <div className="mt-2">
+                            <ManagedDocumentSection
+                              projectId={activity.projectId}
+                              projectRootPath={activeProject.rootPath}
+                              documents={projectStarredDocuments}
+                              layout="list"
+                              showImportButton={false}
+                              emptyText="当前项目还没有项目文件。"
+                              compactHeader
+                              chrome="embedded"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </SurfaceCard>
                 </section>
                 {pendingImportPaths ? (
                   <DocumentImportTagDialog
@@ -1102,19 +1195,12 @@ export function ActivityPage() {
                                 }
                                 enableTables={false}
                                 placeholder="记录已确认的判断、共识或决定。"
+                                internalReferences={{
+                                  context: { scope: "project", projectId: activity.projectId },
+                                  onOpenReference: openInternalReference,
+                                }}
                                 onChange={setConclusionDraft}
                               />
-                              <div className="flex flex-wrap items-center gap-2">
-                                <ConclusionFlagButton
-                                  active={conclusionPinnedDraft}
-                                  label={conclusionPinnedDraft ? "已置顶" : "置顶"}
-                                  onClick={() =>
-                                    setConclusionPinnedDraft((value) => !value)
-                                  }
-                                >
-                                  <Pin size={12} />
-                                </ConclusionFlagButton>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -1164,6 +1250,7 @@ export function ActivityPage() {
                             onOpenContextMenu={(conclusionId, x, y) =>
                               setConclusionContextMenu({ conclusionId, x, y })
                             }
+                            onOpenInternalReference={openInternalReference}
                             onSave={async (
                               conclusionId,
                               markdown,
@@ -1183,7 +1270,19 @@ export function ActivityPage() {
                         ))}
                       </div>
                     ) : isConclusionComposerActive ? null : (
-                      <EmptyState text="还没有结论。" compact />
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        aria-label="空态新增结论"
+                        onClick={() => {
+                          setPendingConclusionFocusPoint(null);
+                          void requestConclusionActivation(
+                            CONCLUSION_COMPOSER_KEY,
+                          );
+                        }}
+                      >
+                        <EmptyState text="还没有结论。" compact />
+                      </button>
                     )}
 
                     {conclusionContextMenu && contextMenuConclusion ? (
@@ -1249,12 +1348,64 @@ export function ActivityPage() {
       </section>
 
       {activity ? (
+        <Dialog
+          open={deleteDialogOpen}
+          title="删除 Activity"
+          description="删除后会移除当前 activity 及其关联内容，请确认后继续。"
+          onClose={() => {
+            if (!deleteActivityMutation.isPending) {
+              setDeleteDialogOpen(false);
+            }
+          }}
+          widthClassName="max-w-lg"
+          footer={
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={deleteActivityMutation.isPending}
+                onClick={() => setDeleteDialogOpen(false)}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={deleteActivityMutation.isPending}
+                onClick={() => {
+                  void handleDeleteActivity();
+                }}
+              >
+                {deleteActivityMutation.isPending ? "删除中..." : "确认删除"}
+              </Button>
+            </>
+          }
+        >
+          <div className="grid gap-3 text-body text-text">
+            <p>
+              将删除 <strong>{resolveActivityTitle(activity.title, activity.id)}</strong>。
+            </p>
+            <p className="text-text-muted">
+              对应的活动记录、结论、Todo、文件都会删除，活动文件夹和嵌入图片也会一并清理。
+            </p>
+            <ul className="grid gap-1 text-text-muted">
+              <li>活动记录：{activity.notes.length} 条</li>
+              <li>结论：{activity.conclusions.length} 条</li>
+              <li>Todo：{activity.todos.length} 条</li>
+              <li>文件：{activity.documents.length} 个</li>
+            </ul>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {activity ? (
         <TodoRail
-          title="Activity 待办"
-          scopeLabel={activity.title || "Untitled Activity"}
-          unfinishedTodos={activityUnfinishedTodos}
-          finishedTodos={activityFinishedTodos}
-          activityNameById={activityNameById}
+          projectId={activity.projectId}
+        title="Activity 待办"
+        scopeLabel={resolveActivityTitle(activity.title, activity.id)}
+        unfinishedTodos={activityUnfinishedTodos}
+        finishedTodos={activityFinishedTodos}
+        activityNameById={activityNameById}
           activityOptions={activityOptions}
           createPlaceholder="写下一条来自当前 activity 的 Todo"
           onCreateTodo={(payload) =>
@@ -1299,6 +1450,7 @@ export function ActivityPage() {
           onError={(message) =>
             pushToast({ tone: "error", title: "进展保存失败", detail: message })
           }
+          onOpenInternalReference={openInternalReference}
         />
       ) : null}
     </div>
@@ -1339,6 +1491,7 @@ function InlineActivityConclusionEditor({
   onRequestActivate,
   onOpenContextMenu,
   onSave,
+  onOpenInternalReference,
 }: {
   conclusion: ConclusionRecord;
   activationKey: string;
@@ -1362,11 +1515,13 @@ function InlineActivityConclusionEditor({
     promotedToProject: boolean,
     isPinned?: boolean,
   ) => Promise<unknown>;
+  onOpenInternalReference?: (
+    reference: InternalReferenceTarget,
+  ) => Promise<boolean> | boolean;
 }) {
   const [draft, setDraft] = useState<RichEditorValue>(() =>
     buildConclusionDraft(conclusion),
   );
-  const [draftPinned, setDraftPinned] = useState(Boolean(conclusion.isPinned));
   const saveInFlightRef = useRef(false);
   const renderableHtml = useMemo(
     () =>
@@ -1379,12 +1534,10 @@ function InlineActivityConclusionEditor({
 
   useEffect(() => {
     setDraft(buildConclusionDraft(conclusion));
-    setDraftPinned(Boolean(conclusion.isPinned));
-  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id, conclusion.isPinned]);
+  }, [conclusion.contentHtml, conclusion.contentMarkdown, conclusion.id]);
 
   const resetEditingState = useCallback(() => {
     setDraft(buildConclusionDraft(conclusion));
-    setDraftPinned(Boolean(conclusion.isPinned));
   }, [conclusion]);
 
   const commitOrClose = useCallback(async () => {
@@ -1405,8 +1558,7 @@ function InlineActivityConclusionEditor({
 
     if (
       normalizedDraft.markdown === initialDraft.markdown &&
-      normalizedDraft.html === initialDraft.html &&
-      draftPinned === Boolean(conclusion.isPinned)
+      normalizedDraft.html === initialDraft.html
     ) {
       onDeactivate();
       return true;
@@ -1420,7 +1572,6 @@ function InlineActivityConclusionEditor({
         normalizedDraft.markdown,
         normalizedDraft.html,
         conclusion.promotedToProject,
-        draftPinned === Boolean(conclusion.isPinned) ? undefined : draftPinned,
       );
       onDeactivate();
       return true;
@@ -1538,61 +1689,42 @@ function InlineActivityConclusionEditor({
                 autoFocus={autoFocusTarget}
                 enableTables={false}
                 placeholder="记录已确认的判断、共识或决定。"
+                internalReferences={{
+                  context: { scope: "project", projectId: conclusion.projectId },
+                  onOpenReference: onOpenInternalReference,
+                }}
                 onChange={setDraft}
               />
-              <div className="flex flex-wrap items-center gap-2">
-                <ConclusionFlagButton
-                  active={draftPinned}
-                  label={draftPinned ? "已置顶" : "置顶"}
-                  onClick={() => setDraftPinned((value) => !value)}
-                >
-                  <Pin size={12} />
-                </ConclusionFlagButton>
-              </div>
             </div>
           ) : (
             <div className="grid gap-2">
-              {conclusion.isPinned ? (
-                <span className="inline-flex items-center gap-1 text-caption font-medium text-text-soft">
-                  <Pin size={12} />
-                  置顶
-                </span>
-              ) : null}
-              <RichEditor html={renderableHtml} variant="bare" readOnly />
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <RichEditor
+                    html={renderableHtml}
+                    variant="bare"
+                    readOnly
+                    internalReferences={{
+                      context: { scope: "project", projectId: conclusion.projectId },
+                      onOpenReference: onOpenInternalReference,
+                    }}
+                  />
+                </div>
+                {conclusion.isPinned ? (
+                  <span
+                    className="inline-flex shrink-0 items-center justify-center rounded-full text-text-soft opacity-70"
+                    aria-label="已置顶"
+                    title="已置顶"
+                  >
+                    <Pin size={11} />
+                  </span>
+                ) : null}
+              </div>
             </div>
           )}
         </div>
       </div>
     </article>
-  );
-}
-
-function ConclusionFlagButton({
-  active,
-  label,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      className={[
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
-        active
-          ? "border-[color-mix(in_srgb,var(--color-accent)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
-          : "border-border bg-bg-subtle text-text-soft hover:border-border-strong hover:text-text",
-      ].join(" ")}
-      onClick={onClick}
-    >
-      {children}
-      <span>{label}</span>
-    </button>
   );
 }
 
@@ -1729,6 +1861,10 @@ function extensionForMimeType(mimeType: string) {
       return "bmp";
     case "image/avif":
       return "avif";
+    case "image/heic":
+      return "heic";
+    case "image/heif":
+      return "heif";
     default:
       return "png";
   }

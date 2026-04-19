@@ -10,6 +10,7 @@ import {
   getRenderableRichTextHtml,
   renderMarkdownToHtml,
 } from "../../lib/richTextContent";
+import { buildInternalReferenceToken } from "../../lib/internalReferences";
 
 export const EMPTY_RICH_EDITOR_HTML = EMPTY_RICH_TEXT_HTML;
 export { getRenderableRichTextHtml, renderMarkdownToHtml };
@@ -131,6 +132,23 @@ const markdownSerializer = new MarkdownSerializer(
           : "未命名文件";
       state.write(`[附件] ${state.esc(title)}`);
       state.closeBlock(node);
+    },
+    internalReference(state, node) {
+      state.write(
+        buildInternalReferenceToken({
+          refKind:
+            node.attrs.refKind === "conclusion" ||
+            node.attrs.refKind === "todo" ||
+            node.attrs.refKind === "document"
+              ? node.attrs.refKind
+              : "note",
+          refId: Number(node.attrs.refId) || 0,
+          label:
+            typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
+              ? node.attrs.label
+              : "未命名引用",
+        }),
+      );
     },
   },
   {

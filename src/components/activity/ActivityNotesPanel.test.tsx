@@ -15,7 +15,12 @@ import type {
   NoteRecord,
   RecordTypeSettingsSnapshot,
 } from "../../lib/types";
+import {
+  createUiStoreState,
+  useUiStore,
+} from "../../state/ui-store";
 import { ActivityNotesPanel } from "./ActivityNotesPanel";
+import { resetActivityNoteSessions } from "./note-session";
 
 const { mockPushToast } = vi.hoisted(() => ({
   mockPushToast: vi.fn(),
@@ -28,6 +33,7 @@ vi.mock("../../state/feedback-store", () => ({
 }));
 
 vi.mock("../rich-editor", () => ({
+  RICH_EDITOR_FOCUS_REQUEST_EVENT: "project-mind-rich-editor-focus-request",
   normalizeRichEditorValue: (value: {
     html: string;
     text: string;
@@ -208,6 +214,9 @@ const baseNote: NoteRecord = {
 describe("ActivityNotesPanel", () => {
   beforeEach(() => {
     mockPushToast.mockReset();
+    useUiStore.persist.clearStorage();
+    useUiStore.setState(createUiStoreState());
+    resetActivityNoteSessions();
   });
 
   afterEach(() => {
@@ -713,6 +722,61 @@ describe("ActivityNotesPanel", () => {
     );
   });
 
+  it("opens the dedicated note focus page via callback without closing the current editor", async () => {
+    const user = userEvent.setup();
+    const onOpenNoteFocus = vi.fn();
+
+    renderPanel({
+      notes: [baseNote],
+      onOpenNoteFocus,
+    });
+
+    const quickNoteCard = screen
+      .getByRole("button", { name: /原始记录/ })
+      .closest("article");
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    await user.clear(within(quickNoteCard!).getByLabelText("记录编辑器"));
+    await user.type(within(quickNoteCard!).getByLabelText("记录编辑器"), "准备进入专注页");
+    await user.click(within(quickNoteCard!).getByRole("button", { name: "全页编辑" }));
+
+    expect(onOpenNoteFocus).toHaveBeenCalledWith({
+      kind: "saved",
+      noteId: 1,
+    });
+    expect(within(quickNoteCard!).getByLabelText("记录编辑器")).toHaveValue(
+      "准备进入专注页",
+    );
+  });
+
+  it("restores the cached editing session after remounting from the focus page", async () => {
+    const user = userEvent.setup();
+    const onOpenNoteFocus = vi.fn();
+
+    const firstRender = renderPanel({
+      notes: [baseNote],
+      onOpenNoteFocus,
+    });
+
+    const quickNoteCard = screen
+      .getByRole("button", { name: /原始记录/ })
+      .closest("article");
+    await user.click(within(quickNoteCard!).getByLabelText(/编辑记录：/));
+    await user.clear(within(quickNoteCard!).getByLabelText("记录编辑器"));
+    await user.type(within(quickNoteCard!).getByLabelText("记录编辑器"), "从专注页返回后继续编辑");
+    await user.click(within(quickNoteCard!).getByRole("button", { name: "全页编辑" }));
+
+    firstRender.unmount();
+
+    renderPanel({
+      notes: [baseNote],
+    });
+
+    expect(screen.getByLabelText("记录编辑器")).toHaveValue(
+      "从专注页返回后继续编辑",
+    );
+    expect(screen.getByLabelText("记录标题")).toHaveValue("");
+  });
+
   it("creates a meeting-note draft from the new menu and saves it", async () => {
     const user = userEvent.setup();
     const onUpsertNote = vi.fn(async () => ({
@@ -1046,7 +1110,9 @@ describe("ActivityNotesPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "新建" }));
     await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
-    await user.type(screen.getByLabelText("记录标题"), "法务审查");
+    fireEvent.change(screen.getByLabelText("记录标题"), {
+      target: { value: "法务审查" },
+    });
     await user.type(
       screen.getByLabelText("记录编辑器"),
       "客户确认需要补充上下文",
@@ -1098,7 +1164,11 @@ describe("ActivityNotesPanel", () => {
 });
 
 function renderPanel({
+  projectId = 9,
+  activityId = 11,
   notes = [],
+  fullPageActive = false,
+  onFullPageChange = vi.fn(),
   onUpsertNote = vi.fn(async () => baseNote) as (
     input: import("../../lib/types").NoteUpsertInput,
   ) => Promise<NoteRecord>,
@@ -1108,8 +1178,13 @@ function renderPanel({
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
   onDeleteNote,
+  onOpenNoteFocus,
 }: {
+  projectId?: number;
+  activityId?: number;
   notes?: NoteRecord[];
+  fullPageActive?: boolean;
+  onFullPageChange?: (next: boolean) => void;
   onUpsertNote?: (
     input: import("../../lib/types").NoteUpsertInput,
   ) => Promise<NoteRecord>;
@@ -1121,12 +1196,15 @@ function renderPanel({
     input: import("../../lib/types").AiAcceptSuggestionInput,
   ) => Promise<import("../../lib/types").AcceptedSuggestionResult>;
   onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
+  onOpenNoteFocus?: (target: { kind: "saved"; noteId: number } | { kind: "draft"; localId: string }) => void;
 }) {
   return render(
     <ActivityNotesPanel
-      projectId={9}
-      activityId={11}
+      projectId={projectId}
+      activityId={activityId}
       notes={notes}
+      fullPageActive={fullPageActive}
+      onFullPageChange={onFullPageChange}
       recordTypeSettings={recordTypeSettings}
       saving={false}
       onUpsertNote={onUpsertNote}
@@ -1138,6 +1216,7 @@ function renderPanel({
       enabledSuggestionTypes={enabledSuggestionTypes}
       onGenerateAiSuggestions={onGenerateAiSuggestions}
       onAcceptAiSuggestion={onAcceptAiSuggestion}
+      onOpenNoteFocus={onOpenNoteFocus}
     />,
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { DeleteContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
@@ -24,6 +25,8 @@ export function TodoList({
   onDeleteTodo,
   onOpenTodoSource,
   onError,
+  onEmptyClick,
+  onOpenInternalReference,
 }: {
   todos: TodoRecord[];
   activityNameById: ReadonlyMap<number, string>;
@@ -50,6 +53,8 @@ export function TodoList({
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
+  onEmptyClick?: () => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }) {
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;
@@ -93,11 +98,18 @@ export function TodoList({
               onDeleteProgress={onDeleteProgress}
               onOpenContextMenu={(todoId, x, y) => setContextMenu({ todoId, x, y })}
               onOpenTodoSource={onOpenTodoSource}
+              onOpenInternalReference={onOpenInternalReference}
             />
           ))}
         </div>
       ) : (
-        <EmptyState text={emptyText} compact />
+        onEmptyClick ? (
+          <button type="button" className="w-full text-left" onClick={onEmptyClick}>
+            <EmptyState text={emptyText} compact />
+          </button>
+        ) : (
+          <EmptyState text={emptyText} compact />
+        )
       )}
       {contextMenu && contextMenuTodo ? (
         <DeleteContextMenu

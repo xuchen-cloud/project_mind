@@ -5,6 +5,7 @@ import type {
   ActivityAttributeOptionUpsertInput,
   ActivityCardData,
   ActivityCreateInput,
+  ActivityDeleteInput,
   ActivityOptionDeleteInput,
   ActivitySettingsSnapshot,
   ActivityStatusOption,
@@ -50,6 +51,10 @@ import type {
   FileTagOptionUpsertInput,
   FileTagRecord,
   FileTagSettingsSnapshot,
+  InternalReferenceResolveInput,
+  InternalReferenceResolveResult,
+  InternalReferenceSearchInput,
+  InternalReferenceSearchResult,
   NoteDeleteInput,
   NoteRecord,
   NoteUpsertInput,
@@ -120,6 +125,8 @@ export const projectMindApi = {
     desktopApi.command<ActivityCardData[]>("activity_list", { input }),
   activityUpdateMeta: (input: ActivityUpdateMetaInput) =>
     desktopApi.command<ActivityCardData>("activity_update_meta", { input }),
+  activityDelete: (input: ActivityDeleteInput) =>
+    desktopApi.command<ActivityCardData>("activity_delete", { input }),
   activitySettingsGet: () =>
     desktopApi.command<ActivitySettingsSnapshot>("activity_settings_get"),
   activityAttributeOptionUpsert: (input: ActivityAttributeOptionUpsertInput) =>
@@ -274,6 +281,14 @@ export const projectMindApi = {
     desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
   aiExecutionSettingsUpsert: (input: AiExecutionSettings) =>
     desktopApi.command<AiExecutionSettings>("ai_execution_settings_upsert", {
+      input,
+    }),
+  internalReferenceSearch: (input: InternalReferenceSearchInput) =>
+    desktopApi.command<InternalReferenceSearchResult[]>("internal_reference_search", {
+      input,
+    }),
+  internalReferenceResolve: (input: InternalReferenceResolveInput) =>
+    desktopApi.command<InternalReferenceResolveResult | null>("internal_reference_resolve", {
       input,
     }),
   workspaceSearch: (input: WorkspaceSearchInput) =>

@@ -1,12 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { createPortal } from "react-dom";
 
-import type { TodoPriority } from "../../lib/types";
 import { PopoverPanel } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
-import { TodoPriorityBadge } from "./TodoPriorityBadge";
-import { TODO_PRIORITY_OPTIONS, priorityOptionLabel } from "./todo-utils";
 
 interface FloatingMenuPosition {
   left: number;
@@ -14,12 +11,14 @@ interface FloatingMenuPosition {
   width: number;
 }
 
-export function TodoPriorityDropdown({
-  priority,
+export function TodoSourceDropdown({
+  activityId,
+  activityOptions,
   onSelect,
 }: {
-  priority: TodoPriority;
-  onSelect: (priority: TodoPriority) => Promise<unknown> | void;
+  activityId: number | null;
+  activityOptions: Array<{ id: number; title: string }>;
+  onSelect: (activityId: number | null) => Promise<unknown> | void;
 }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -35,6 +34,7 @@ export function TodoPriorityDropdown({
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
+
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
         setOpen(false);
       }
@@ -69,7 +69,7 @@ export function TodoPriorityDropdown({
       const gap = 8;
       const triggerRect = triggerRef.current.getBoundingClientRect();
       const menuHeight = menuRef.current?.offsetHeight ?? 0;
-      const menuWidth = Math.max(menuRef.current?.offsetWidth ?? 0, 192);
+      const menuWidth = Math.max(menuRef.current?.offsetWidth ?? 0, 208);
       const spaceBelow = window.innerHeight - triggerRect.bottom;
       const shouldOpenUp =
         menuHeight > 0 &&
@@ -87,13 +87,13 @@ export function TodoPriorityDropdown({
           );
       const left = Math.max(
         viewportPadding,
-        Math.min(triggerRect.left, window.innerWidth - menuWidth - viewportPadding),
+        Math.min(triggerRect.left - 8, window.innerWidth - menuWidth - viewportPadding),
       );
 
       setMenuPosition({
         left,
         top,
-        width: Math.max(triggerRect.width, 192),
+        width: Math.max(menuWidth, 208),
       });
     };
 
@@ -106,15 +106,15 @@ export function TodoPriorityDropdown({
     };
   }, [open]);
 
-  async function handleSelect(nextPriority: TodoPriority) {
-    if (nextPriority === priority) {
+  async function handleSelect(nextActivityId: number | null) {
+    if (nextActivityId === activityId) {
       setOpen(false);
       return;
     }
 
     setBusy(true);
     try {
-      await onSelect(nextPriority);
+      await onSelect(nextActivityId);
       setOpen(false);
     } finally {
       setBusy(false);
@@ -127,13 +127,22 @@ export function TodoPriorityDropdown({
         ref={triggerRef}
         type="button"
         disabled={busy}
-        className="inline-flex items-center rounded-[var(--radius-6)] bg-transparent p-0 transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-60"
-        aria-label={`修改优先级：${priorityOptionLabel(priority)}`}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-transparent text-text-soft transition-colors hover:text-text disabled:pointer-events-none disabled:opacity-60"
+        aria-label="修改归属 Activity"
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
       >
-        <TodoPriorityBadge priority={priority} />
+        <ChevronDown
+          size={12}
+          className={cn(
+            "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+            open && "rotate-180",
+          )}
+        />
       </button>
 
       {open && typeof document !== "undefined"
@@ -145,42 +154,49 @@ export function TodoPriorityDropdown({
                 position: "fixed",
                 left: menuPosition?.left ?? 0,
                 top: menuPosition?.top ?? 0,
-                width: menuPosition?.width ?? 192,
+                width: menuPosition?.width ?? 208,
                 visibility: menuPosition ? "visible" : "hidden",
               }}
             >
-              <PopoverPanel className="min-w-[12rem] p-1.5">
-                <div className="grid gap-1">
-                  {TODO_PRIORITY_OPTIONS.map((option) => (
+              <PopoverPanel className="min-w-[13rem] p-1.5">
+                <div className="grid gap-1" role="menu" aria-label="选择归属 Activity">
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={activityId === null}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-[var(--radius-6)] px-2.5 py-2 text-left text-ui transition-colors",
+                      activityId === null
+                        ? "bg-bg-hover text-text"
+                        : "bg-transparent text-text-muted hover:bg-bg-hover hover:text-text",
+                    )}
+                    onClick={() => {
+                      void handleSelect(null);
+                    }}
+                  >
+                    <span>项目级 Todo</span>
+                    {activityId === null ? <Check size={14} className="shrink-0" /> : null}
+                  </button>
+                  {activityOptions.map((option) => (
                     <button
-                      key={option.value}
+                      key={option.id}
                       type="button"
                       role="menuitemradio"
-                      aria-checked={option.value === priority}
+                      aria-checked={activityId === option.id}
                       className={cn(
                         "flex w-full items-center justify-between gap-3 rounded-[var(--radius-6)] px-2.5 py-2 text-left text-ui transition-colors",
-                        option.value === priority
+                        activityId === option.id
                           ? "bg-bg-hover text-text"
                           : "bg-transparent text-text-muted hover:bg-bg-hover hover:text-text",
                       )}
                       onClick={() => {
-                        void handleSelect(option.value);
+                        void handleSelect(option.id);
                       }}
                     >
-                      <span className="flex items-center gap-2">
-                        <span
-                          className="inline-flex min-w-[2rem] items-center justify-center rounded-full border px-1.5 py-0.5 text-caption font-medium tracking-[0.12em]"
-                          style={{
-                            borderColor: `color-mix(in srgb, ${option.colorValue} 22%, var(--color-border))`,
-                            backgroundColor: `color-mix(in srgb, ${option.colorValue} 9%, var(--color-bg))`,
-                            color: option.colorValue,
-                          }}
-                        >
-                          {option.code}
-                        </span>
-                        <span>{option.label}</span>
-                      </span>
-                      {option.value === priority ? <Check size={14} className="shrink-0" /> : null}
+                      <span className="truncate">{option.title}</span>
+                      {activityId === option.id ? (
+                        <Check size={14} className="shrink-0" />
+                      ) : null}
                     </button>
                   ))}
                 </div>

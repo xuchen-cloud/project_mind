@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import {
+  findInternalReferenceElement,
+  readInternalReferenceElement,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
+import {
   EMPTY_RICH_TEXT_HTML,
   getEditableRichTextHtml,
   getRenderableRichTextHtml,
@@ -34,6 +39,7 @@ interface WorkspaceNotesPanelProps {
     html: string;
   }) => Promise<WorkspaceNoteRecord>;
   onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
 interface DraftWorkspaceNoteState {
@@ -69,6 +75,7 @@ export function WorkspaceNotesPanel({
   deletingNote = false,
   onUpsertNote,
   onDeleteNote,
+  onOpenInternalReference,
 }: WorkspaceNotesPanelProps) {
   const { pushToast } = useFeedbackStore();
   const [optimisticNotes, setOptimisticNotes] = useState<Record<number, WorkspaceNoteRecord>>({});
@@ -586,6 +593,10 @@ export function WorkspaceNotesPanel({
                             )
                           }
                           placeholder="记录今天需要随手沉淀的背景、判断和临时结论。"
+                          internalReferences={{
+                            context: { scope: "workspace" },
+                            onOpenReference: onOpenInternalReference,
+                          }}
                           onChange={handleEditorChange}
                           onPersistStateChange={setEditorPersistState}
                           onBlurPersisted={(savedNote) => {
@@ -645,6 +656,22 @@ export function WorkspaceNotesPanel({
                                 event.preventDefault();
                                 handleEditRecord(item.value);
                               }
+                            }}
+                            onClick={(event) => {
+                              const internalReferenceElement = findInternalReferenceElement(
+                                event.target,
+                              );
+                              const reference = readInternalReferenceElement(
+                                internalReferenceElement,
+                              );
+
+                              if (!reference || !onOpenInternalReference) {
+                                return;
+                              }
+
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void onOpenInternalReference(reference);
                             }}
                           >
                             <div

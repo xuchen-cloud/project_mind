@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -204,6 +205,8 @@ describe("ActivityNotesPanel image persistence", () => {
         projectId={9}
         activityId={11}
         notes={[]}
+        fullPageActive={false}
+        onFullPageChange={vi.fn()}
         recordTypeSettings={recordTypeSettings}
         saving={false}
         onUpsertNote={onUpsertNote}
@@ -250,5 +253,106 @@ describe("ActivityNotesPanel image persistence", () => {
 
     expect(image.getAttribute("src")).toContain("data:image/png;base64,");
     expect(onImportImage).toHaveBeenCalledWith("/tmp/clip.png");
+  });
+
+  it("routes pasted images from a brand-new empty note through the clipboard import handler", async () => {
+    const user = userEvent.setup();
+    const onImportClipboardImage = vi.fn(
+      async (file: File): Promise<DocumentRecord> => ({
+        id: 302,
+        projectId: 9,
+        activityId: 11,
+        name: file.name,
+        baseName: "clipboard-empty",
+        originalPath: "",
+        managedPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/clipboard-empty.png",
+        historyDirPath:
+          "/tmp/project-atlas/.project-mind/embedded-note-assets/activity-11/.302.pm-versions",
+        storageMode: "managed_note_image",
+        mimeType: file.type || "image/png",
+        isStarred: false,
+        currentVersionNumber: 1,
+        versionCount: 1,
+        sourceActivityTitle: null,
+        health: "normal",
+        tags: [],
+        createdAt: "2026-04-12T09:00:00.000Z",
+        updatedAt: "2026-04-12T09:00:00.000Z",
+      }),
+    );
+    const onUpsertNote = vi.fn(
+      async (input: {
+        noteId?: number;
+        noteType: string;
+        title?: string;
+        markdown: string;
+        html: string;
+      }): Promise<NoteRecord> => ({
+        id: input.noteId ?? 102,
+        projectId: 9,
+        activityId: 11,
+        noteType: input.noteType,
+        title: input.title ?? null,
+        contentMarkdown: input.markdown,
+        contentHtml: input.html,
+        createdAt: "2026-04-12T09:00:00.000Z",
+        updatedAt: "2026-04-12T09:05:00.000Z",
+      }),
+    );
+
+    const { container } = render(
+      <ActivityNotesPanel
+        projectId={9}
+        activityId={11}
+        notes={[]}
+        fullPageActive={false}
+        onFullPageChange={vi.fn()}
+        recordTypeSettings={recordTypeSettings}
+        saving={false}
+        onUpsertNote={onUpsertNote}
+        onImportImage={vi.fn()}
+        onImportDocument={vi.fn()}
+      onImportClipboardImage={onImportClipboardImage}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新建" }));
+    await user.click(screen.getByRole("menuitem", { name: "原始记录" }));
+
+    const editorSurface = await waitFor(() => {
+      const nextSurface = container.querySelector(
+        ".ProseMirror.rich-editor__surface",
+      );
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(editorSurface);
+    });
+    await user.click(editorSurface);
+
+    const pastedFile = new File(["fake"], "empty-note-paste.png", {
+      type: "image/png",
+    });
+    Object.defineProperty(pastedFile, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("fake").buffer,
+    });
+
+    fireEvent.paste(editorSurface, {
+      clipboardData: {
+        files: [pastedFile],
+        items: [],
+        getData: () => "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(onImportClipboardImage).toHaveBeenCalledWith(pastedFile);
+    });
+    expect(onUpsertNote).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ import {
   Plus,
 } from "lucide-react";
 
+import { resolveActivityTitle } from "../../lib/constants";
 import type { FileTagColorKey } from "../../lib/types";
 import { useUiStore } from "../../state/ui-store";
 import { IconButton, StatusBadge } from "../../ui/components";
@@ -134,7 +135,7 @@ export function ProjectSidebar({
               <button
                 key={activity.id}
                 type="button"
-                title={activity.title || "Untitled Activity"}
+                title={resolveActivityTitle(activity.title, activity.id)}
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border text-ui font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
                   activity.id === activeActivityId
@@ -143,7 +144,7 @@ export function ProjectSidebar({
                 )}
                 onClick={() => onOpenActivity(activity.id)}
               >
-                {activityMonogram(activity.title, index)}
+                {activityMonogram(resolveActivityTitle(activity.title, activity.id), index)}
               </button>
             ))}
           </div>
@@ -183,7 +184,7 @@ export function ProjectSidebar({
                     />
                   ) : null}
                   <p className="text-body font-medium leading-5 text-text">
-                    {activity.title || "Untitled Activity"}
+                    {resolveActivityTitle(activity.title, activity.id)}
                   </p>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-ui text-text-soft">

@@ -67,6 +67,36 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps internal reference commands to the correct names", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
+    await projectMindApi.internalReferenceSearch({
+      query: "[[",
+      projectId: 1,
+      scope: "project",
+      limit: 8,
+    });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("internal_reference_search", {
+      input: {
+        query: "[[",
+        projectId: 1,
+        scope: "project",
+        limit: 8,
+      },
+    });
+
+    serviceMocks.commandMock.mockResolvedValueOnce(null);
+    await projectMindApi.internalReferenceResolve({
+      kind: "todo",
+      id: 18,
+    });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("internal_reference_resolve", {
+      input: {
+        kind: "todo",
+        id: 18,
+      },
+    });
+  });
+
   it("maps workspace todo list to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce([]);
 
@@ -160,6 +190,20 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("note_delete", {
       input: {
         noteId: 7,
+      },
+    });
+  });
+
+  it("maps activity delete to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
+
+    await projectMindApi.activityDelete({
+      activityId: 11,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("activity_delete", {
+      input: {
+        activityId: 11,
       },
     });
   });

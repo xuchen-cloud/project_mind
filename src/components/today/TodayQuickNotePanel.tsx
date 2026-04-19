@@ -1,8 +1,8 @@
 import { type FocusEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import { getEditableRichTextHtml } from "../../lib/richTextContent";
 import type { WorkspaceNoteRecord } from "../../lib/types";
-import { SectionHeader } from "../../ui/components";
 import {
   normalizeRichEditorValue,
   RichEditor,
@@ -16,12 +16,14 @@ interface TodayQuickNotePanelProps {
     markdown: string;
     html: string;
   }) => Promise<WorkspaceNoteRecord>;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
 export function TodayQuickNotePanel({
   note,
   saving = false,
   onUpsertNote,
+  onOpenInternalReference,
 }: TodayQuickNotePanelProps) {
   const [draft, setDraft] = useState<RichEditorValue>(() => buildTodayQuickNoteDraft(note));
   const skipBlurRef = useRef(false);
@@ -56,47 +58,42 @@ export function TodayQuickNotePanel({
   }, [draft, note, onUpsertNote, saving]);
 
   return (
-    <section className="grid gap-4">
-      <SectionHeader
-        eyebrow="Capture"
-        title="今日快记"
-        description="固定单例区域，随手记下今天最重要的背景、判断、临时结论或提醒，不替代工作区记录列表。"
+    <section
+      onBlurCapture={(event) => {
+        if (isFocusMovingWithinCurrentTarget(event)) {
+          return;
+        }
+        if (skipBlurRef.current) {
+          skipBlurRef.current = false;
+          return;
+        }
+        void handleSave();
+      }}
+      onKeyDownCapture={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          skipBlurRef.current = true;
+          setDraft(buildTodayQuickNoteDraft(note));
+          blurKeyboardTarget(event.target);
+          return;
+        }
+        if (isSubmitShortcut(event)) {
+          event.preventDefault();
+          blurKeyboardTarget(event.target);
+        }
+      }}
+    >
+      <RichEditor
+        html={draft.html}
+        variant="toolbar"
+        enableTables={false}
+        placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
+        internalReferences={{
+          context: { scope: "workspace" },
+          onOpenReference: onOpenInternalReference,
+        }}
+        onChange={setDraft}
       />
-
-      <div
-        className="rounded-[var(--radius-12)] border border-border bg-bg px-4 py-3 shadow-[var(--shadow-sm)]"
-        onBlurCapture={(event) => {
-          if (isFocusMovingWithinCurrentTarget(event)) {
-            return;
-          }
-          if (skipBlurRef.current) {
-            skipBlurRef.current = false;
-            return;
-          }
-          void handleSave();
-        }}
-        onKeyDownCapture={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            skipBlurRef.current = true;
-            setDraft(buildTodayQuickNoteDraft(note));
-            blurKeyboardTarget(event.target);
-            return;
-          }
-          if (isSubmitShortcut(event)) {
-            event.preventDefault();
-            blurKeyboardTarget(event.target);
-          }
-        }}
-      >
-        <RichEditor
-          html={draft.html}
-          variant="toolbar"
-          enableTables={false}
-          placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
-          onChange={setDraft}
-        />
-      </div>
     </section>
   );
 }

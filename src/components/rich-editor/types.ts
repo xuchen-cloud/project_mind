@@ -1,4 +1,7 @@
-export type RichEditorVariant = "toolbar" | "bare";
+import type { InternalReferenceTarget } from "../../lib/internalReferences";
+import type { InternalReferenceContext } from "../../lib/types";
+
+export type RichEditorVariant = "toolbar" | "bare" | "page";
 
 export type RichEditorPersistState = "idle" | "dirty" | "saving" | "saved" | "error";
 
@@ -23,4 +26,9 @@ export interface RichEditorAssetHandlers {
   insertImage?: (sourcePath: string) => Promise<RichEditorAsset>;
   insertPastedImage?: (file: File) => Promise<RichEditorAsset>;
   insertFile?: (sourcePath: string) => Promise<RichEditorAsset>;
+}
+
+export interface RichEditorInternalReferenceOptions {
+  context: InternalReferenceContext;
+  onOpenReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }

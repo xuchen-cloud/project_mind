@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Editor, JSONContent } from "@tiptap/core";
+import { DOMSerializer, type Slice } from "@tiptap/pm/model";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import type { EditorView } from "@tiptap/pm/view";
@@ -45,9 +46,22 @@ import {
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import { fileUriToPath } from "../../lib/formatters";
+import {
+  buildInternalReferenceTarget,
+  findInternalReferenceElement,
+  findInternalReferenceTextTrigger,
+  readInternalReferenceElement,
+  setInternalReferenceElementBroken,
+} from "../../lib/internalReferences";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
+import { richTextHtmlToPlainText } from "../../lib/richTextContent";
+import type { InternalReferenceSearchResult } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
 import { ActionContextMenu, type ContextMenuAction, PopoverPanel, ToolbarButton } from "../../ui/components";
+import {
+  InternalReferencePicker,
+  useInternalReferenceSearch,
+} from "../internal-reference";
 import { ImageAnnotationDialog } from "./ImageAnnotationDialog";
 import { buildRichEditorExtensions } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
@@ -55,14 +69,28 @@ import { normalizeRichEditorValue } from "./normalize";
 import type {
   RichEditorAsset,
   RichEditorAssetHandlers,
+  RichEditorInternalReferenceOptions,
   RichEditorPersistState,
   RichEditorValue,
   RichEditorVariant,
 } from "./types";
 
-const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "avif"];
+const IMAGE_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "svg",
+  "heic",
+  "heif",
+  "avif",
+];
 const TABLE_INSERT_GRID_SIZE = 6;
 const DEFAULT_TABLE_DIMENSIONS = { rows: 3, cols: 3 };
+export const RICH_EDITOR_FOCUS_REQUEST_EVENT =
+  "project-mind-rich-editor-focus-request";
 
 type SaveReason =
   | "debounced"
@@ -153,6 +181,7 @@ interface RichEditorProps {
   onBlurPersisted?: (result: unknown) => void;
   onModEnter?: () => Promise<unknown> | unknown;
   onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
+  internalReferences?: RichEditorInternalReferenceOptions;
   renderToolbarExtras?: (context: {
     persistState: RichEditorPersistState;
     save: (options?: { force?: boolean }) => Promise<unknown>;
@@ -176,6 +205,7 @@ export function RichEditor({
   onBlurPersisted,
   onModEnter,
   onOpenAsset,
+  internalReferences,
   renderToolbarExtras,
 }: RichEditorProps) {
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
@@ -184,6 +214,13 @@ export function RichEditor({
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
   const [uiTick, setUiTick] = useState(0);
+  const [referencePicker, setReferencePicker] = useState<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
 
   const autosaveConfig = useMemo<AutosaveConfig>(() => {
     if (typeof autosave === "object") {
@@ -216,6 +253,15 @@ export function RichEditor({
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const persistStateRef = useRef<RichEditorPersistState>("idle");
   const syntheticPasteRef = useRef(false);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const referencePickerRef = useRef<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const referenceActiveIndexRef = useRef(0);
+  const referenceResultsRef = useRef<InternalReferenceSearchResult[]>([]);
 
   const handlePastedImages = useCallback(
     async (view: EditorView, files: File[]) => {
@@ -226,6 +272,7 @@ export function RichEditor({
           continue;
         }
 
+        focusEmptyEditorSelection(view);
         insertImageAtSelection(view, imageAttrs);
       }
     },
@@ -240,11 +287,110 @@ export function RichEditor({
         return;
       }
 
+      focusEmptyEditorSelection(view);
       syntheticPasteRef.current = true;
       view.pasteHTML(nextHtml, createSyntheticPasteEvent());
     },
     [assetHandlers],
   );
+
+  const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
+    open: Boolean(referencePicker),
+    query: referencePicker?.query ?? "",
+    context: internalReferences?.context,
+    limit: 8,
+  });
+
+  referencePickerRef.current = referencePicker;
+  referenceActiveIndexRef.current = referenceActiveIndex;
+  referenceResultsRef.current = referenceResults;
+
+  const closeInternalReferencePicker = useCallback(() => {
+    setReferencePicker(null);
+    setReferenceActiveIndex(0);
+  }, []);
+
+  const syncInternalReferencePicker = useCallback(
+    (nextEditor: Editor | null) => {
+      if (!nextEditor || readOnly || !internalReferences?.context) {
+        closeInternalReferencePicker();
+        return;
+      }
+
+      const nextTrigger = resolveEditorInternalReferenceTrigger(nextEditor, frameRef.current);
+
+      setReferencePicker((current) => {
+        if (!nextTrigger) {
+          return null;
+        }
+
+        if (
+          current &&
+          current.start === nextTrigger.start &&
+          current.end === nextTrigger.end &&
+          current.query === nextTrigger.query &&
+          current.position.left === nextTrigger.position.left &&
+          current.position.top === nextTrigger.position.top
+        ) {
+          return current;
+        }
+
+        return nextTrigger;
+      });
+    },
+    [closeInternalReferencePicker, internalReferences?.context, readOnly],
+  );
+
+  const handleSelectInternalReference = useCallback(
+    (view: EditorView, reference: InternalReferenceSearchResult) => {
+      const trigger = referencePickerRef.current;
+      const nodeType = view.state.schema.nodes.internalReference;
+
+      if (!trigger || !nodeType) {
+        return false;
+      }
+
+      const target = buildInternalReferenceTarget(reference);
+      const referenceNode = nodeType.create({
+        refKind: target.refKind,
+        refId: target.refId,
+        label: target.label,
+      });
+      const tr = view.state.tr.delete(trigger.start, trigger.end);
+
+      tr.insert(trigger.start, referenceNode);
+
+      const nextSelectionPos = trigger.start + referenceNode.nodeSize;
+      tr.insertText(" ", nextSelectionPos);
+      tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
+      view.dispatch(tr.scrollIntoView());
+      closeInternalReferencePicker();
+      return true;
+    },
+    [closeInternalReferencePicker],
+  );
+
+  useEffect(() => {
+    if (!referencePicker) {
+      return;
+    }
+
+    setReferenceActiveIndex((current) => {
+      if (referenceResults.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, referenceResults.length - 1);
+    });
+  }, [referencePicker, referenceResults.length]);
+
+  useEffect(() => {
+    if (!referencePicker) {
+      return;
+    }
+
+    setReferenceActiveIndex(0);
+  }, [referencePicker?.query]);
 
   const updatePersistState = useCallback(
     (nextState: RichEditorPersistState) => {
@@ -264,6 +410,7 @@ export function RichEditor({
       attributes: {
         class: "rich-editor__surface",
       },
+      clipboardTextSerializer: (content, view) => serializeRichTextClipboard(content, view),
       transformPastedHTML: (rawHtml) => sanitizePastedHtml(rawHtml),
       handlePaste: (view, event) => {
         if (syntheticPasteRef.current) {
@@ -305,6 +452,58 @@ export function RichEditor({
         return true;
       },
       handleKeyDown: (_view, event) => {
+        const activeReferencePicker = referencePickerRef.current;
+
+        if (!readOnly && activeReferencePicker) {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeInternalReferencePicker();
+            return true;
+          }
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setReferenceActiveIndex((current) => {
+              if (referenceResultsRef.current.length === 0) {
+                return 0;
+              }
+
+              return (current + 1) % referenceResultsRef.current.length;
+            });
+            return true;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setReferenceActiveIndex((current) => {
+              if (referenceResultsRef.current.length === 0) {
+                return 0;
+              }
+
+              return current === 0
+                ? referenceResultsRef.current.length - 1
+                : current - 1;
+            });
+            return true;
+          }
+
+          if (event.key === "Enter" && referenceResultsRef.current.length > 0) {
+            event.preventDefault();
+            return handleSelectInternalReference(
+              _view,
+              referenceResultsRef.current[
+                Math.max(
+                  0,
+                  Math.min(
+                    referenceActiveIndexRef.current,
+                    referenceResultsRef.current.length - 1,
+                  ),
+                )
+              ],
+            );
+          }
+        }
+
         if (
           onModEnter &&
           !readOnly &&
@@ -325,16 +524,19 @@ export function RichEditor({
     onCreate: () => {
       updatePersistState("idle");
     },
-    onFocus: () => {
+    onFocus: ({ editor: nextEditor }) => {
       setIsFocused(true);
       setUiTick((tick) => tick + 1);
+      syncInternalReferencePicker(nextEditor);
     },
     onBlur: () => {
       setIsFocused(false);
       setUiTick((tick) => tick + 1);
+      closeInternalReferencePicker();
     },
-    onSelectionUpdate: () => {
+    onSelectionUpdate: ({ editor: nextEditor }) => {
       setUiTick((tick) => tick + 1);
+      syncInternalReferencePicker(nextEditor);
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (taskShortcutTransformRef.current) {
@@ -348,6 +550,7 @@ export function RichEditor({
 
       onChange?.(snapshot);
       setUiTick((tick) => tick + 1);
+      syncInternalReferencePicker(nextEditor);
 
       if (snapshot.html !== lastPersistedHtmlRef.current) {
         updatePersistState("dirty");
@@ -473,18 +676,56 @@ export function RichEditor({
   }, [editor, readOnly]);
 
   useEffect(() => {
+    syncInternalReferencePicker(editor ?? null);
+  }, [editor, syncInternalReferencePicker]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const editorDom = editor.view.dom;
+    const handleFocusRequest = () => {
+      editor.commands.focus("end");
+    };
+
+    editorDom.addEventListener(
+      RICH_EDITOR_FOCUS_REQUEST_EVENT,
+      handleFocusRequest,
+    );
+    return () => {
+      editorDom.removeEventListener(
+        RICH_EDITOR_FOCUS_REQUEST_EVENT,
+        handleFocusRequest,
+      );
+    };
+  }, [editor]);
+
+  useEffect(() => {
     if (!editor || readOnly || !autoFocus || autoFocusAppliedRef.current) {
       return;
     }
 
     autoFocusAppliedRef.current = true;
+    focusEditorForAutoFocus(editor, autoFocus);
 
+    let secondFrameId: number | null = null;
     const frame = window.requestAnimationFrame(() => {
       focusEditorForAutoFocus(editor, autoFocus);
+      secondFrameId = window.requestAnimationFrame(() => {
+        focusEditorForAutoFocus(editor, autoFocus);
+      });
     });
+    const timeoutId = window.setTimeout(() => {
+      focusEditorForAutoFocus(editor, autoFocus);
+    }, 96);
 
     return () => {
       window.cancelAnimationFrame(frame);
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+      window.clearTimeout(timeoutId);
     };
   }, [autoFocus, editor, readOnly]);
 
@@ -709,8 +950,25 @@ export function RichEditor({
     }
   }, [assetHandlers, editor, readOnly]);
 
-  const handleAssetClick = useCallback(
-    async (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleFrameClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const internalReferenceElement = findInternalReferenceElement(event.target);
+
+      if (internalReferenceElement) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const reference = readInternalReferenceElement(internalReferenceElement);
+
+        if (reference && internalReferences?.onOpenReference) {
+          void Promise.resolve(internalReferences.onOpenReference(reference)).then((opened) => {
+            setInternalReferenceElementBroken(internalReferenceElement, !opened);
+          });
+        }
+
+        return;
+      }
+
       if (!onOpenAsset) {
         return;
       }
@@ -734,8 +992,8 @@ export function RichEditor({
         : undefined;
       const meta = attachment.dataset.meta || undefined;
 
-      try {
-        await onOpenAsset({
+      void Promise.resolve(
+        onOpenAsset({
           kind: "file",
           title,
           href,
@@ -743,12 +1001,12 @@ export function RichEditor({
           mimeType,
           documentId,
           meta,
-        });
-      } catch {
+        }),
+      ).catch(() => {
         // The caller owns error presentation.
-      }
+      });
     },
-    [onOpenAsset],
+    [internalReferences?.onOpenReference, onOpenAsset],
   );
 
   const openImageAnnotationDialog = useCallback(
@@ -897,6 +1155,36 @@ export function RichEditor({
       setContextMenu(null);
     },
     [editor, enableTables, openImageAnnotationDialog, readOnly],
+  );
+
+  const handleFrameMouseDownCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (
+        !editor ||
+        readOnly ||
+        event.button !== 0 ||
+        !(event.target instanceof HTMLElement)
+      ) {
+        return;
+      }
+
+      if (
+        event.target.closest(
+          "button, a, input, select, textarea, [data-rich-editor-openable='true'], [contenteditable='false']",
+        )
+      ) {
+        return;
+      }
+
+      const proseMirrorTarget = event.target.closest(".ProseMirror");
+
+      if (!proseMirrorTarget) {
+        window.requestAnimationFrame(() => {
+          editor.commands.focus("end");
+        });
+      }
+    },
+    [editor, readOnly],
   );
 
   const toolbarGroups = useMemo(() => {
@@ -1077,7 +1365,7 @@ export function RichEditor({
         .filter(Boolean)
         .join(" ")}
     >
-      {variant === "toolbar" ? (
+      {variant === "toolbar" || variant === "page" ? (
         <div className="rich-editor__toolbar" aria-label="文本格式工具栏">
           <div className="rich-editor__toolbar-main">
             {toolbarGroups.map((group, index) => (
@@ -1169,12 +1457,31 @@ export function RichEditor({
       ) : null}
 
       <div
+        ref={frameRef}
         className="rich-editor__frame"
-        onClick={handleAssetClick}
+        onMouseDownCapture={handleFrameMouseDownCapture}
+        onClick={handleFrameClick}
         onDoubleClick={handleEditorDoubleClick}
         onContextMenu={handleEditorContextMenu}
       >
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
+        {referencePicker && internalReferences?.context && !readOnly ? (
+          <InternalReferencePicker
+            open
+            loading={referenceLoading}
+            results={referenceResults}
+            activeIndex={referenceActiveIndex}
+            className="absolute z-20 w-[22rem]"
+            style={{
+              left: `${referencePicker.position.left}px`,
+              top: `${referencePicker.position.top}px`,
+            }}
+            onHoverIndex={setReferenceActiveIndex}
+            onSelect={(reference) => {
+              void handleSelectInternalReference(editor.view, reference);
+            }}
+          />
+        ) : null}
       </div>
       {contextMenu ? (
         <ActionContextMenu
@@ -1383,6 +1690,44 @@ function resolveRelativeAutoFocusPoint(editor: Editor, autoFocus: RichEditorAuto
   return {
     left: rect.left + autoFocus.x,
     top: rect.top + autoFocus.y,
+  };
+}
+
+function resolveEditorInternalReferenceTrigger(
+  editor: Editor,
+  frameElement: HTMLDivElement | null,
+) {
+  if (!frameElement || !editor.isEditable) {
+    return null;
+  }
+
+  const { selection } = editor.state;
+
+  if (!(selection instanceof TextSelection) || !selection.empty || editor.isActive("codeBlock")) {
+    return null;
+  }
+
+  const trigger = findInternalReferenceTextTrigger(
+    editor.state.doc.textBetween(selection.$from.start(), selection.from, "\n", "\0"),
+    selection.$from.parentOffset,
+  );
+
+  if (!trigger) {
+    return null;
+  }
+
+  const absoluteStart = selection.from - trigger.query.length - 2;
+  const frameRect = frameElement.getBoundingClientRect();
+  const caretRect = editor.view.coordsAtPos(selection.from);
+
+  return {
+    start: absoluteStart,
+    end: selection.from,
+    query: trigger.query,
+    position: {
+      left: Math.max(8, caretRect.left - frameRect.left),
+      top: Math.max(8, caretRect.bottom - frameRect.top + 8),
+    },
   };
 }
 
@@ -2084,10 +2429,9 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
   }
 
   if (command === "copy") {
-    const selectedText = window.getSelection()?.toString() || editor.state.doc.textBetween(
-      editor.state.selection.from,
-      editor.state.selection.to,
-      "\n",
+    const selectedText = serializeRichTextClipboard(
+      editor.state.selection.content(),
+      editor.view,
     );
 
     if (!selectedText) {
@@ -2100,6 +2444,21 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
       // Clipboard permissions vary by webview/browser; fail silently.
     }
   }
+}
+
+function serializeRichTextClipboard(content: Slice, view: EditorView) {
+  if (typeof document === "undefined") {
+    return content.content.textBetween(0, content.content.size, "\n");
+  }
+
+  const serializer = DOMSerializer.fromSchema(view.state.schema);
+  const container = document.createElement("div");
+
+  container.appendChild(serializer.serializeFragment(content.content, { document }));
+
+  return richTextHtmlToPlainText(container.innerHTML, {
+    preserveStructure: true,
+  });
 }
 
 function findNodePos(editorView: EditorView, element: HTMLElement, nodeTypeName: string) {
@@ -2198,15 +2557,31 @@ function insertImageAtSelection(view: EditorView, attrs: Record<string, unknown>
   ensureInsertionCursor({ tr });
 
   const imageNode = imageType.create(attrs);
-  const { from } = tr.selection;
 
   tr.replaceSelectionWith(imageNode, false);
 
-  const paragraphPos = from + imageNode.nodeSize;
+  const paragraphPos = tr.selection.to;
 
   tr.insert(paragraphPos, paragraphType.create());
   tr.setSelection(TextSelection.create(tr.doc, paragraphPos + 1));
   view.dispatch(tr.scrollIntoView());
+}
+
+function focusEmptyEditorSelection(view: EditorView) {
+  const firstNode = view.state.doc.firstChild;
+  const isSingleEmptyParagraph =
+    view.state.doc.childCount === 1 &&
+    firstNode?.type.name === "paragraph" &&
+    firstNode.content.size === 0;
+
+  if (!isSingleEmptyParagraph) {
+    return;
+  }
+
+  view.focus();
+  view.dispatch(
+    view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)),
+  );
 }
 
 async function readFileAsDataUrl(file: File) {
@@ -2505,6 +2880,10 @@ function inferImageMimeType(source: string) {
     return "image/heic";
   }
 
+  if (normalized.endsWith(".heif")) {
+    return "image/heif";
+  }
+
   if (normalized.endsWith(".png")) {
     return "image/png";
   }
@@ -2616,6 +2995,8 @@ function extensionForMimeType(mimeType: string) {
       return "avif";
     case "image/heic":
       return "heic";
+    case "image/heif":
+      return "heif";
     default:
       return "png";
   }

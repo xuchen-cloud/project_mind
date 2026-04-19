@@ -2,9 +2,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  type KeyboardEvent,
+  type PointerEvent,
+  type CSSProperties,
   useRef,
   useState,
   type Dispatch,
+  type MouseEvent,
   type SetStateAction,
 } from "react";
 import { LoaderCircle, Pin, PinOff, Sparkles } from "lucide-react";
@@ -14,7 +18,16 @@ import {
   aiNoteSuggestionsJobTargetKey,
   useAiJobTarget,
 } from "../../lib/aiJobs";
-import { normalizeRichEditorValue, RichEditor } from "../rich-editor";
+import {
+  findInternalReferenceElement,
+  readInternalReferenceElement,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
+import {
+  normalizeRichEditorValue,
+  RichEditor,
+  RICH_EDITOR_FOCUS_REQUEST_EVENT,
+} from "../rich-editor";
 import type { RichEditorPersistState, RichEditorValue } from "../rich-editor";
 import { fileTagColorValue } from "../../lib/constants";
 import { fileHref } from "../../lib/formatters";
@@ -53,6 +66,11 @@ import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
+  ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
+  clampActivityNoteEditorWidthPx,
+  useUiStore,
+} from "../../state/ui-store";
+import {
   Button,
   DeleteContextMenu,
   Dialog,
@@ -66,11 +84,23 @@ import {
   TextField,
 } from "../../ui/components";
 import { TodoPriorityDropdown } from "../todo/TodoPriorityDropdown";
+import {
+  buildNoteFocusTarget,
+  clearActivityNoteSession,
+  createActivityNoteSessionSnapshot,
+  createClosedActivityNoteSession,
+  getActivityNoteSession,
+  isInactiveActivityNoteSession,
+  setActivityNoteSession,
+  type NoteFocusTarget,
+} from "./note-session";
 
 interface ActivityNotesPanelProps {
   projectId: number;
   activityId: number;
   notes: NoteRecord[];
+  fullPageActive?: boolean;
+  onFullPageChange?: (next: boolean) => void;
   recordTypeSettings?: RecordTypeSettingsSnapshot | null;
   saving: boolean;
   deletingNote?: boolean;
@@ -87,6 +117,8 @@ interface ActivityNotesPanelProps {
     input: AiAcceptSuggestionInput,
   ) => Promise<AcceptedSuggestionResult>;
   onManageRecordTypes?: () => void;
+  onOpenNoteFocus?: (target: NoteFocusTarget) => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
 interface DraftNoteState {
@@ -140,10 +172,14 @@ interface AiTodoDraft {
   autoPriority: TodoPriority;
 }
 
+const FULL_PAGE_DRAG_BREAKPOINT_PX = 768;
+
 export function ActivityNotesPanel({
   projectId,
   activityId,
   notes,
+  fullPageActive = false,
+  onFullPageChange = () => undefined,
   recordTypeSettings = null,
   saving,
   deletingNote = false,
@@ -158,8 +194,11 @@ export function ActivityNotesPanel({
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
   onManageRecordTypes,
+  onOpenNoteFocus,
+  onOpenInternalReference,
 }: ActivityNotesPanelProps) {
   const { pushToast } = useFeedbackStore();
+  const storedSession = getActivityNoteSession(activityId) ?? createClosedActivityNoteSession();
   const [optimisticNotes, setOptimisticNotes] = useState<
     Record<number, NoteRecord>
   >({});
@@ -189,21 +228,33 @@ export function ActivityNotesPanel({
     () => noteTemplateOptions(recordTypeSettings),
     [recordTypeSettings],
   );
-  const [draftNote, setDraftNote] = useState<DraftNoteState | null>(null);
-  const [editorItem, setEditorItem] = useState<EditorItem>({ kind: "closed" });
+  const [draftNote, setDraftNote] = useState<DraftNoteState | null>(
+    storedSession.draftNote,
+  );
+  const [editorItem, setEditorItem] = useState<EditorItem>(
+    storedSession.editorItem,
+  );
   const [editorPersistState, setEditorPersistState] =
-    useState<RichEditorPersistState>("idle");
-  const [titleDirty, setTitleDirty] = useState(false);
-  const [composer, setComposer] = useState<ComposerState | null>(null);
-  const [aiPreview, setAiPreview] = useState<AiRefinePreview | null>(null);
+    useState<RichEditorPersistState>(storedSession.editorPersistState);
+  const [titleDirty, setTitleDirty] = useState(storedSession.titleDirty);
+  const [composer, setComposer] = useState<ComposerState | null>(
+    storedSession.composer,
+  );
+  const [aiPreview, setAiPreview] = useState<AiRefinePreview | null>(
+    storedSession.aiPreview,
+  );
   const [aiPersisting, setAiPersisting] = useState(false);
-  const [aiJobNoteId, setAiJobNoteId] = useState<number | null>(null);
+  const [aiJobNoteId, setAiJobNoteId] = useState<number | null>(
+    storedSession.aiJobNoteId,
+  );
   const [aiApplying, setAiApplying] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [expandedRecordValue, setExpandedRecordValue] = useState<string | null>(
-    null,
+    storedSession.expandedRecordValue,
   );
-  const [topRecordValue, setTopRecordValue] = useState<string | null>(null);
+  const [topRecordValue, setTopRecordValue] = useState<string | null>(
+    storedSession.topRecordValue,
+  );
   const [contextMenu, setContextMenu] = useState<{
     noteId: number;
     value: string;
@@ -214,6 +265,17 @@ export function ActivityNotesPanel({
     value: string;
     point: { x: number; y: number };
   } | null>(null);
+  const [editorWidthDraftPx, setEditorWidthDraftPx] = useState<number | null>(
+    null,
+  );
+  const [editorWidthDragging, setEditorWidthDragging] = useState(false);
+  const [composerBodyFocusRequestKey, setComposerBodyFocusRequestKey] =
+    useState(0);
+  const [compactViewport, setCompactViewport] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.innerWidth <= FULL_PAGE_DRAG_BREAKPOINT_PX,
+  );
   const suggestionTypeSet = useMemo(
     () => new Set<AiSuggestionFeatureType>(enabledSuggestionTypes),
     [enabledSuggestionTypes],
@@ -223,6 +285,16 @@ export function ActivityNotesPanel({
 
   const previousActivityIdRef = useRef(activityId);
   const editorExitInFlightRef = useRef(false);
+  const internalEditorActionRef = useRef(false);
+  const internalEditorActionFrameRef = useRef<number | null>(null);
+  const internalEditorActionCleanupFrameRef = useRef<number | null>(null);
+  const internalEditorActionTimeoutRef = useRef<number | null>(null);
+  const editorWidthDragStateRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startWidthPx: number;
+  } | null>(null);
+  const editorWidthHandleRef = useRef<HTMLButtonElement | null>(null);
   const aiJob = useAiJobTarget(
     aiJobNoteId !== null
       ? aiNoteSuggestionsJobTargetKey(aiJobNoteId)
@@ -254,6 +326,14 @@ export function ActivityNotesPanel({
     (editorItem.kind === "draft" ||
       !isDraftPristine(draftNote, draftNote.noteType, recordTypeSettings));
   const editorOpen = composer !== null;
+  const activityNoteEditorWidthPx = useUiStore(
+    (state) => state.activityNoteEditorWidthPx,
+  );
+  const setActivityNoteEditorWidthPx = useUiStore(
+    (state) => state.setActivityNoteEditorWidthPx,
+  );
+  const effectiveEditorWidthPx =
+    editorWidthDraftPx ?? activityNoteEditorWidthPx ?? ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX;
 
   const closeEditor = useCallback(() => {
     if (
@@ -276,18 +356,72 @@ export function ActivityNotesPanel({
     }
 
     previousActivityIdRef.current = activityId;
-    setAiPreview(null);
-    setAiJobNoteId(null);
+    const nextSession =
+      getActivityNoteSession(activityId) ?? createClosedActivityNoteSession();
+    setAiPreview(nextSession.aiPreview);
+    setAiJobNoteId(nextSession.aiJobNoteId);
     setPendingEditorFocusPoint(null);
-    setDraftNote(null);
+    setDraftNote(nextSession.draftNote);
     setOptimisticNotes({});
     setCreateMenuOpen(false);
-    setExpandedRecordValue(null);
-    setTopRecordValue(null);
+    setExpandedRecordValue(nextSession.expandedRecordValue);
+    setTopRecordValue(nextSession.topRecordValue);
     setContextMenu(null);
-    setEditorItem({ kind: "closed" });
-    setComposer(null);
+    setEditorItem(nextSession.editorItem);
+    setComposer(nextSession.composer);
+    setTitleDirty(nextSession.titleDirty);
+    setEditorPersistState(nextSession.editorPersistState);
+    setAiPersisting(false);
+    setAiApplying(false);
   }, [activityId]);
+
+  useEffect(() => {
+    const snapshot = createActivityNoteSessionSnapshot({
+      draftNote,
+      editorItem,
+      composer,
+      titleDirty,
+      editorPersistState,
+      aiPreview,
+      aiJobNoteId,
+      expandedRecordValue,
+      topRecordValue,
+    });
+
+    if (isInactiveActivityNoteSession(snapshot)) {
+      clearActivityNoteSession(activityId);
+      return;
+    }
+
+    setActivityNoteSession(activityId, snapshot);
+  }, [
+    activityId,
+    aiJobNoteId,
+    aiPreview,
+    composer,
+    draftNote,
+    editorItem,
+    editorPersistState,
+    expandedRecordValue,
+    titleDirty,
+    topRecordValue,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const updateCompactViewport = () => {
+      setCompactViewport(window.innerWidth <= FULL_PAGE_DRAG_BREAKPOINT_PX);
+    };
+
+    updateCompactViewport();
+    window.addEventListener("resize", updateCompactViewport);
+    return () => {
+      window.removeEventListener("resize", updateCompactViewport);
+    };
+  }, []);
 
   useEffect(() => {
     if (!showAiRefine || enabledSuggestionTypes.length === 0) {
@@ -338,10 +472,172 @@ export function ActivityNotesPanel({
     }
   }, [activeNote, composer, draftNote, editorItem.kind, recordTypeSettings]);
 
+  useEffect(() => {
+    if (!fullPageActive || editorOpen) {
+      return;
+    }
+
+    onFullPageChange(false);
+  }, [editorOpen, fullPageActive, onFullPageChange]);
+
+  useEffect(() => {
+    if (fullPageActive) {
+      return;
+    }
+
+    editorWidthDragStateRef.current = null;
+    setEditorWidthDraftPx(null);
+    setEditorWidthDragging(false);
+  }, [fullPageActive]);
+
+  useEffect(() => {
+    if (!editorWidthDragging) {
+      editorWidthDragStateRef.current = null;
+      setEditorWidthDraftPx(null);
+      return;
+    }
+
+    const handlePointerMove = (
+      event: globalThis.PointerEvent | globalThis.MouseEvent,
+    ) => {
+      const dragState = editorWidthDragStateRef.current;
+
+      if (
+        !dragState ||
+        (dragState.pointerId !== null &&
+          "pointerId" in event &&
+          event.pointerId !== dragState.pointerId)
+      ) {
+        return;
+      }
+
+      const nextWidthPx = clampActivityNoteEditorWidthPx(
+        dragState.startWidthPx + (event.clientX - dragState.startX),
+      );
+      setEditorWidthDraftPx(nextWidthPx);
+    };
+
+    const finishPointerDrag = (
+      event: globalThis.PointerEvent | globalThis.MouseEvent,
+    ) => {
+      const dragState = editorWidthDragStateRef.current;
+
+      if (
+        !dragState ||
+        (dragState.pointerId !== null &&
+          "pointerId" in event &&
+          event.pointerId !== dragState.pointerId)
+      ) {
+        return;
+      }
+
+      if (dragState) {
+        const nextWidthPx =
+          editorWidthDraftPx ?? clampActivityNoteEditorWidthPx(dragState.startWidthPx);
+        setActivityNoteEditorWidthPx(nextWidthPx);
+        if (dragState.pointerId !== null) {
+          editorWidthHandleRef.current?.releasePointerCapture?.(
+            dragState.pointerId,
+          );
+        }
+      }
+
+      editorWidthDragStateRef.current = null;
+      setEditorWidthDraftPx(null);
+      setEditorWidthDragging(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishPointerDrag);
+    window.addEventListener("pointercancel", finishPointerDrag);
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", finishPointerDrag);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishPointerDrag);
+      window.removeEventListener("pointercancel", finishPointerDrag);
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", finishPointerDrag);
+    };
+  }, [
+    editorWidthDraftPx,
+    editorWidthDragging,
+    setActivityNoteEditorWidthPx,
+  ]);
+
   const editorHasPendingChanges =
     titleDirty ||
     editorPersistState === "dirty" ||
     editorPersistState === "saving";
+  const clearInternalEditorAction = useCallback(() => {
+    internalEditorActionRef.current = false;
+
+    if (
+      typeof window !== "undefined" &&
+      internalEditorActionFrameRef.current !== null
+    ) {
+      window.cancelAnimationFrame(internalEditorActionFrameRef.current);
+      internalEditorActionFrameRef.current = null;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      internalEditorActionCleanupFrameRef.current !== null
+    ) {
+      window.cancelAnimationFrame(internalEditorActionCleanupFrameRef.current);
+      internalEditorActionCleanupFrameRef.current = null;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      internalEditorActionTimeoutRef.current !== null
+    ) {
+      window.clearTimeout(internalEditorActionTimeoutRef.current);
+      internalEditorActionTimeoutRef.current = null;
+    }
+  }, []);
+  const markInternalEditorAction = useCallback(() => {
+    internalEditorActionRef.current = true;
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (internalEditorActionFrameRef.current !== null) {
+      window.cancelAnimationFrame(internalEditorActionFrameRef.current);
+    }
+    if (internalEditorActionCleanupFrameRef.current !== null) {
+      window.cancelAnimationFrame(internalEditorActionCleanupFrameRef.current);
+    }
+    if (internalEditorActionTimeoutRef.current !== null) {
+      window.clearTimeout(internalEditorActionTimeoutRef.current);
+    }
+
+    internalEditorActionFrameRef.current = window.requestAnimationFrame(() => {
+      internalEditorActionFrameRef.current = null;
+      internalEditorActionCleanupFrameRef.current =
+        window.requestAnimationFrame(() => {
+          internalEditorActionCleanupFrameRef.current = null;
+          internalEditorActionRef.current = false;
+        });
+    });
+    internalEditorActionTimeoutRef.current = window.setTimeout(() => {
+      internalEditorActionTimeoutRef.current = null;
+      clearInternalEditorAction();
+    }, 180);
+  }, [clearInternalEditorAction]);
+  const handleInternalEditorActionPress = useCallback(
+    (
+      event:
+        | MouseEvent<HTMLButtonElement>
+        | PointerEvent<HTMLButtonElement>,
+    ) => {
+      markInternalEditorAction();
+      event.preventDefault();
+    },
+    [markInternalEditorAction],
+  );
   const preventEditorTransition = useCallback(() => {
     if (editorExitInFlightRef.current) {
       return true;
@@ -388,6 +684,7 @@ export function ActivityNotesPanel({
       setComposer(buildComposerFromDraft(nextDraft, recordTypeSettings));
       setExpandedRecordValue(`draft:${nextDraft.localId}`);
       setCreateMenuOpen(false);
+      setComposerBodyFocusRequestKey((current) => current + 1);
     },
     [draftNote, preventEditorTransition, pushToast, recordTypeSettings],
   );
@@ -1017,21 +1314,224 @@ export function ActivityNotesPanel({
     [closeEditor, editorValue, preventEditorTransition],
   );
 
-  const editingRecordRef = useDismissOnOutside<HTMLElement>({
+  const editingRecordRef = useDismissOnOutside<HTMLDivElement>({
     enabled: editorOpen && aiPreview === null,
     onDismiss: () => {
+      if (internalEditorActionRef.current) {
+        return;
+      }
       void handleSaveAndClose();
     },
   });
 
   const focusComposerBody = useCallback(() => {
-    const nextTarget =
+    const proseMirrorTarget =
+      editingRecordRef.current?.querySelector<HTMLElement>(".ProseMirror") ??
+      null;
+
+    if (proseMirrorTarget) {
+      proseMirrorTarget.dispatchEvent(
+        new Event(RICH_EDITOR_FOCUS_REQUEST_EVENT),
+      );
+      proseMirrorTarget.focus();
+      return;
+    }
+
+    const mockEditorTarget =
       editingRecordRef.current?.querySelector<HTMLElement>(
-        "[aria-label='记录编辑器'], .ProseMirror",
+        "[aria-label='记录编辑器']",
       ) ?? null;
 
-    nextTarget?.focus();
+    mockEditorTarget?.focus();
   }, [editingRecordRef]);
+
+  useEffect(() => {
+    if (
+      composerBodyFocusRequestKey === 0 ||
+      !editorOpen ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    let secondFrameId: number | null = null;
+    const firstFrameId = window.requestAnimationFrame(() => {
+      focusComposerBody();
+      secondFrameId = window.requestAnimationFrame(() => {
+        focusComposerBody();
+      });
+    });
+    const timeoutId = window.setTimeout(() => {
+      focusComposerBody();
+    }, 96);
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+      window.clearTimeout(timeoutId);
+    };
+  }, [composerBodyFocusRequestKey, editorOpen, focusComposerBody]);
+
+  const toggleFullPageEditor = useCallback(
+    (next: boolean) => {
+      if (!editorOpen || next === fullPageActive) {
+        return;
+      }
+
+      markInternalEditorAction();
+      onFullPageChange(next);
+
+      window.requestAnimationFrame(() => {
+        focusComposerBody();
+      });
+    },
+    [
+      editorOpen,
+      focusComposerBody,
+      fullPageActive,
+      markInternalEditorAction,
+      onFullPageChange,
+    ],
+  );
+  const handleOpenFocusPage = useCallback(() => {
+    if (!editorOpen || !onOpenNoteFocus) {
+      return;
+    }
+
+    const target = buildNoteFocusTarget({
+      editorItem,
+      draftNote,
+    });
+
+    if (!target) {
+      return;
+    }
+
+    markInternalEditorAction();
+    setActivityNoteSession(
+      activityId,
+      createActivityNoteSessionSnapshot({
+        draftNote,
+        editorItem,
+        composer,
+        titleDirty,
+        editorPersistState,
+        aiPreview,
+        aiJobNoteId,
+        expandedRecordValue,
+        topRecordValue,
+      }),
+    );
+    onOpenNoteFocus(target);
+  }, [
+    activityId,
+    aiJobNoteId,
+    aiPreview,
+    composer,
+    draftNote,
+    editorItem,
+    editorOpen,
+    editorPersistState,
+    expandedRecordValue,
+    onOpenNoteFocus,
+    titleDirty,
+    topRecordValue,
+    markInternalEditorAction,
+  ]);
+
+  const handleFullPageKeyDownCapture = useCallback(
+    (event: KeyboardEvent<HTMLElement>) => {
+      if (!fullPageActive || event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onFullPageChange(false);
+    },
+    [fullPageActive, onFullPageChange],
+  );
+
+  const handleEditorWidthHandlePointerDown = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (
+        editorWidthDragStateRef.current ||
+        !fullPageActive ||
+        compactViewport ||
+        event.button !== 0 ||
+        editorWidthDragging
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const nextWidthPx = clampActivityNoteEditorWidthPx(
+        effectiveEditorWidthPx,
+      );
+
+      editorWidthDragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidthPx: nextWidthPx,
+      };
+      setEditorWidthDraftPx(nextWidthPx);
+      setEditorWidthDragging(true);
+      editorWidthHandleRef.current?.setPointerCapture?.(event.pointerId);
+    },
+    [
+      compactViewport,
+      editorWidthDragging,
+      effectiveEditorWidthPx,
+      fullPageActive,
+    ],
+  );
+
+  const handleEditorWidthHandleMouseDown = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      if (
+        editorWidthDragStateRef.current ||
+        !fullPageActive ||
+        compactViewport ||
+        event.button !== 0 ||
+        editorWidthDragging
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const nextWidthPx = clampActivityNoteEditorWidthPx(
+        effectiveEditorWidthPx,
+      );
+
+      editorWidthDragStateRef.current = {
+        pointerId: null,
+        startX: event.clientX,
+        startWidthPx: nextWidthPx,
+      };
+      setEditorWidthDraftPx(nextWidthPx);
+      setEditorWidthDragging(true);
+    },
+    [
+      compactViewport,
+      editorWidthDragging,
+      effectiveEditorWidthPx,
+      fullPageActive,
+    ],
+  );
+
+  const visibleRecordResultItems = useMemo(
+    () =>
+      fullPageActive && editorValue
+        ? recordResultItems.filter((item) => item.value === editorValue)
+        : recordResultItems,
+    [editorValue, fullPageActive, recordResultItems],
+  );
 
   useEffect(() => {
     setEditorPersistState("idle");
@@ -1060,76 +1560,91 @@ export function ActivityNotesPanel({
     );
   }, [recordResultItems]);
 
+  useEffect(() => {
+    return () => {
+      clearInternalEditorAction();
+    };
+  }, [clearInternalEditorAction]);
+
   return (
     <>
-      <section className="activity-notes min-w-0">
-        <SectionHeader
-          eyebrow="Activity Notes"
-          title="记录"
-          className="activity-notes__header"
-          actions={
-            <div className="relative">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={saving}
-                aria-haspopup="menu"
-                aria-expanded={createMenuOpen}
-                onClick={() => setCreateMenuOpen((current) => !current)}
-              >
-                新建
-              </Button>
-              {createMenuOpen ? (
-                <PopoverPanel
-                  className="absolute right-0 top-[calc(100%+8px)] z-10 grid min-w-48 gap-1 p-1"
-                  role="menu"
-                  aria-label="新建记录菜单"
+      <section
+        className={[
+          "activity-notes min-w-0",
+          fullPageActive ? "activity-notes--fullpage" : "",
+        ].join(" ")}
+        data-testid="activity-notes-panel"
+        data-full-page-active={fullPageActive ? "true" : "false"}
+      >
+        {!fullPageActive ? (
+          <SectionHeader
+            eyebrow="Activity Notes"
+            title="记录"
+            className="activity-notes__header"
+            actions={
+              <div className="relative">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={saving}
+                  aria-haspopup="menu"
+                  aria-expanded={createMenuOpen}
+                  onClick={() => setCreateMenuOpen((current) => !current)}
                 >
-                  {recordTypeMenuOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="menuitem"
-                      className="flex items-center gap-2 rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
-                      onClick={() => handleCreateNote(option.value)}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: fileTagColorValue(option.colorKey),
-                        }}
-                        aria-hidden="true"
-                      />
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                  {onManageRecordTypes ? (
-                    <div className="mt-1 border-t border-border pt-1">
-                      <Button
+                  新建
+                </Button>
+                {createMenuOpen ? (
+                  <PopoverPanel
+                    className="absolute right-0 top-[calc(100%+8px)] z-10 grid min-w-48 gap-1 p-1"
+                    role="menu"
+                    aria-label="新建记录菜单"
+                  >
+                    {recordTypeMenuOptions.map((option) => (
+                      <button
+                        key={option.value}
                         type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="w-full justify-start px-3"
-                        onClick={() => {
-                          onManageRecordTypes();
-                          setCreateMenuOpen(false);
-                        }}
+                        role="menuitem"
+                        className="flex items-center gap-2 rounded-[var(--radius-6)] px-3 py-2 text-left text-body text-text transition-colors hover:bg-bg-hover"
+                        onClick={() => handleCreateNote(option.value)}
                       >
-                        管理记录类型
-                      </Button>
-                    </div>
-                  ) : null}
-                </PopoverPanel>
-              ) : null}
-            </div>
-          }
-        />
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: fileTagColorValue(option.colorKey),
+                          }}
+                          aria-hidden="true"
+                        />
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                    {onManageRecordTypes ? (
+                      <div className="mt-1 border-t border-border pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="w-full justify-start px-3"
+                          onClick={() => {
+                            onManageRecordTypes();
+                            setCreateMenuOpen(false);
+                          }}
+                        >
+                          管理记录类型
+                        </Button>
+                      </div>
+                    ) : null}
+                  </PopoverPanel>
+                ) : null}
+              </div>
+            }
+          />
+        ) : null}
 
         <div className="activity-notes__rail">
-          {recordResultItems.length > 0 ? (
+          {visibleRecordResultItems.length > 0 ? (
             <div className="activity-notes__results">
-              {recordResultItems.map((item) => {
+              {visibleRecordResultItems.map((item) => {
                 const isEditing = editorValue === item.value;
                 const isTopRecord = topRecordValue === item.value;
                 const isExpanded = expandedRecordValue === item.value || isEditing;
@@ -1138,9 +1653,9 @@ export function ActivityNotesPanel({
                   <article
                     key={item.value}
                     id={item.noteId ? `note-${item.noteId}` : undefined}
-                    ref={isEditing ? editingRecordRef : undefined}
                     className={[
                       "activity-notes__result-item",
+                      fullPageActive ? "activity-notes__result-item--fullpage" : "",
                       isEditing ? "" : "context-menu-no-select",
                       isExpanded ? "activity-notes__result-item--active" : "",
                     ].join(" ")}
@@ -1177,142 +1692,226 @@ export function ActivityNotesPanel({
                     }}
                   >
                     {isEditing && composer ? (
-                      <div className="activity-notes__result-editor">
-                        <div className="activity-notes__editor-header">
-                          <RecordTypeBadge
-                            label={noteTemplateLabel(
-                              composer.noteType,
-                              recordTypeSettings,
-                            )}
-                            colorKey={noteTemplateColorKey(
-                              composer.noteType,
-                              recordTypeSettings,
-                            )}
-                          />
-                          <TextField
-                            className="activity-notes__editor-title"
-                            aria-label="记录标题"
-                            value={composer.title}
-                            placeholder="输入标题"
-                            onChange={(event) =>
-                              handleTitleChange(event.target.value)
-                            }
-                            onKeyDown={(event) => {
-                              if (
-                                !event.metaKey &&
-                                !event.ctrlKey &&
-                                !event.altKey &&
-                                !event.shiftKey &&
-                                (event.key === "Tab" || event.key === "Enter")
-                              ) {
-                                event.preventDefault();
-                                focusComposerBody();
-                                return;
+                      <div
+                        ref={editingRecordRef}
+                        data-testid={
+                          fullPageActive
+                            ? "activity-notes-fullpage-overlay"
+                            : undefined
+                        }
+                        className={[
+                          "activity-notes__result-editor",
+                          fullPageActive
+                            ? "activity-notes__result-editor--fullpage"
+                            : "",
+                          editorWidthDragging
+                            ? "activity-notes__result-editor--resizing"
+                            : "",
+                        ].join(" ")}
+                        role={fullPageActive ? "dialog" : undefined}
+                        aria-modal={fullPageActive ? "false" : undefined}
+                        onKeyDownCapture={handleFullPageKeyDownCapture}
+                      >
+                        <div
+                          data-testid={
+                            fullPageActive
+                              ? "activity-notes-fullpage-editor-shell"
+                              : undefined
+                          }
+                          className={[
+                            "activity-notes__editor-shell",
+                            fullPageActive
+                              ? "activity-notes__editor-shell--fullpage"
+                              : "",
+                          ].join(" ")}
+                          style={
+                            fullPageActive && !compactViewport
+                              ? ({
+                                  "--activity-notes-editor-max-width":
+                                    `${effectiveEditorWidthPx}px`,
+                                } as CSSProperties)
+                              : undefined
+                          }
+                        >
+                          <div className="activity-notes__editor-header">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <RecordTypeBadge
+                                label={noteTemplateLabel(
+                                  composer.noteType,
+                                  recordTypeSettings,
+                                )}
+                                colorKey={noteTemplateColorKey(
+                                  composer.noteType,
+                                  recordTypeSettings,
+                                )}
+                              />
+                              {fullPageActive ? (
+                                <StatusBadge tone="accent">全页编辑</StatusBadge>
+                              ) : null}
+                            </div>
+                            <TextField
+                              className="activity-notes__editor-title"
+                              aria-label="记录标题"
+                              value={composer.title}
+                              placeholder="输入标题"
+                              onChange={(event) =>
+                                handleTitleChange(event.target.value)
                               }
+                              onKeyDown={(event) => {
+                                if (
+                                  !event.metaKey &&
+                                  !event.ctrlKey &&
+                                  !event.altKey &&
+                                  !event.shiftKey &&
+                                  (event.key === "Tab" || event.key === "Enter")
+                                ) {
+                                  event.preventDefault();
+                                  focusComposerBody();
+                                  return;
+                                }
 
-                              if (
-                                (event.metaKey || event.ctrlKey) &&
-                                event.key === "Enter"
-                              ) {
-                                event.preventDefault();
-                                void handleSaveAndClose();
-                              }
-                            }}
-                          />
-                          <div className="activity-notes__editor-actions">
-                            {showAiRefine ? (
+                                if (
+                                  (event.metaKey || event.ctrlKey) &&
+                                  event.key === "Enter"
+                                ) {
+                                  event.preventDefault();
+                                  void handleSaveAndClose();
+                                }
+                              }}
+                            />
+                            <div className="activity-notes__editor-actions">
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="ghost"
-                                leadingIcon={
-                                  aiPersisting || aiJobActive || aiApplying ? (
-                                    <LoaderCircle className="spin" size={14} />
-                                  ) : (
-                                    <Sparkles size={14} />
-                                  )
+                                variant={fullPageActive ? "subtle" : "ghost"}
+                                onPointerDown={
+                                  handleInternalEditorActionPress
                                 }
-                                disabled={aiActionDisabled}
-                                onClick={() => void handleAiRefine()}
+                                onMouseDown={handleInternalEditorActionPress}
+                                onClick={() => {
+                                  if (onOpenNoteFocus) {
+                                    handleOpenFocusPage();
+                                    return;
+                                  }
+                                  toggleFullPageEditor(!fullPageActive);
+                                }}
                               >
-                                {aiActionLabel}
+                                {onOpenNoteFocus
+                                  ? "全页编辑"
+                                  : fullPageActive
+                                    ? "退出全页"
+                                    : "全页"}
                               </Button>
-                            ) : null}
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="primary"
-                              disabled={
-                                saving ||
-                                editorPersistState === "saving" ||
-                                aiPersisting
-                              }
-                              onClick={() => void handleSaveAndClose()}
-                            >
-                              {editorPersistState === "saving"
-                                ? "保存中..."
-                                : "保存"}
-                            </Button>
+                              {showAiRefine ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  leadingIcon={
+                                    aiPersisting || aiJobActive || aiApplying ? (
+                                      <LoaderCircle className="spin" size={14} />
+                                    ) : (
+                                      <Sparkles size={14} />
+                                    )
+                                  }
+                                  disabled={aiActionDisabled}
+                                  onPointerDown={
+                                    handleInternalEditorActionPress
+                                  }
+                                  onMouseDown={handleInternalEditorActionPress}
+                                  onClick={() => {
+                                    markInternalEditorAction();
+                                    void handleAiRefine();
+                                  }}
+                                >
+                                  {aiActionLabel}
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="primary"
+                                disabled={
+                                  saving ||
+                                  editorPersistState === "saving" ||
+                                  aiPersisting
+                                }
+                                onPointerDown={
+                                  handleInternalEditorActionPress
+                                }
+                                onMouseDown={handleInternalEditorActionPress}
+                                onClick={() => {
+                                  markInternalEditorAction();
+                                  void handleSaveAndClose();
+                                }}
+                              >
+                                {editorPersistState === "saving"
+                                  ? "保存中..."
+                                  : "保存"}
+                              </Button>
+                            </div>
                           </div>
-                        </div>
 
-                        <RichEditor
-                          key={editorKey}
-                          html={composer.contentHtml}
-                          variant="toolbar"
-                          autoFocus={
-                            pendingEditorFocusPoint?.value === item.value
-                              ? pendingEditorFocusPoint.point
-                              : true
-                          }
-                          autosave={{
-                            onChange: false,
-                            onBlur: true,
-                            onWindowBlur: true,
-                            onVisibilityChange: true,
-                          }}
-                          shouldPersistOnBlur={(relatedTarget) =>
-                            !(
-                              relatedTarget instanceof Node &&
-                              editingRecordRef.current?.contains(relatedTarget)
-                            )
-                          }
-                          placeholder={noteTemplatePlaceholder(
-                            composer.noteType,
-                            recordTypeSettings,
-                          )}
-                          onChange={handleEditorChange}
-                          onPersistStateChange={setEditorPersistState}
-                          onBlurPersisted={(savedNote) => {
-                            window.requestAnimationFrame(() => {
-                              if (
-                                editingRecordRef.current?.contains(
-                                  document.activeElement,
-                                )
-                              ) {
-                                return;
+                          <div className="activity-notes__editor-body">
+                            <RichEditor
+                              key={editorKey}
+                              html={composer.contentHtml}
+                              variant="toolbar"
+                              autoFocus={
+                                pendingEditorFocusPoint?.value === item.value
+                                  ? pendingEditorFocusPoint.point
+                                  : true
                               }
+                              autosave={{
+                                onChange: false,
+                                onBlur: true,
+                                onWindowBlur: true,
+                                onVisibilityChange: true,
+                              }}
+                              shouldPersistOnBlur={(relatedTarget) => {
+                                if (internalEditorActionRef.current) {
+                                  return false;
+                                }
 
-                              void handleSaveAndClose(savedNote);
-                            });
-                          }}
-                          onModEnter={() => handleSaveAndClose()}
-                          onSave={handleSave}
-                          assetHandlers={{
-                            insertImage: async (sourcePath) => {
-                              const doc = await onImportImage(sourcePath);
-                              return {
-                                kind: "image" as const,
-                                title: doc.name,
-                                path: doc.managedPath,
-                                mimeType: doc.mimeType,
-                                documentId: doc.id,
-                              };
-                            },
-                            insertPastedImage: onImportClipboardImage
-                              ? async (file) => {
-                                  const doc =
-                                    await onImportClipboardImage(file);
+                                return !(
+                                  relatedTarget instanceof Node &&
+                                  editingRecordRef.current?.contains(
+                                    relatedTarget,
+                                  )
+                                );
+                              }}
+                              placeholder={noteTemplatePlaceholder(
+                                composer.noteType,
+                                recordTypeSettings,
+                              )}
+                              internalReferences={{
+                                context: { scope: "project", projectId },
+                                onOpenReference: onOpenInternalReference,
+                              }}
+                              onChange={handleEditorChange}
+                              onPersistStateChange={setEditorPersistState}
+                              onBlurPersisted={(savedNote) => {
+                                window.requestAnimationFrame(() => {
+                                  if (internalEditorActionRef.current) {
+                                    return;
+                                  }
+
+                                  if (
+                                    editingRecordRef.current?.contains(
+                                      document.activeElement,
+                                    )
+                                  ) {
+                                    return;
+                                  }
+
+                                  void handleSaveAndClose(savedNote);
+                                });
+                              }}
+                              onModEnter={() => handleSaveAndClose()}
+                              onSave={handleSave}
+                              assetHandlers={{
+                                insertImage: async (sourcePath) => {
+                                  const doc = await onImportImage(sourcePath);
                                   return {
                                     kind: "image" as const,
                                     title: doc.name,
@@ -1320,27 +1919,57 @@ export function ActivityNotesPanel({
                                     mimeType: doc.mimeType,
                                     documentId: doc.id,
                                   };
-                                }
-                              : undefined,
-                            insertFile: async (sourcePath) => {
-                              const doc = await onImportDocument(sourcePath);
-                              return {
-                                kind: "file" as const,
-                                title: doc.name,
-                                path: doc.managedPath,
-                                href: fileHref(doc.managedPath),
-                                mimeType: doc.mimeType,
-                                documentId: doc.id,
-                                meta: doc.mimeType,
-                              };
-                            },
-                          }}
-                          onOpenAsset={(asset) =>
-                            asset.path
-                              ? desktopApi.revealPath(asset.path)
-                              : undefined
-                          }
-                        />
+                                },
+                                insertPastedImage: onImportClipboardImage
+                                  ? async (file) => {
+                                      const doc =
+                                        await onImportClipboardImage(file);
+                                      return {
+                                        kind: "image" as const,
+                                        title: doc.name,
+                                        path: doc.managedPath,
+                                        mimeType: doc.mimeType,
+                                        documentId: doc.id,
+                                      };
+                                    }
+                                  : undefined,
+                                insertFile: async (sourcePath) => {
+                                  const doc = await onImportDocument(sourcePath);
+                                  return {
+                                    kind: "file" as const,
+                                    title: doc.name,
+                                    path: doc.managedPath,
+                                    href: fileHref(doc.managedPath),
+                                    mimeType: doc.mimeType,
+                                    documentId: doc.id,
+                                    meta: doc.mimeType,
+                                  };
+                                },
+                              }}
+                              onOpenAsset={(asset) =>
+                                asset.path
+                                  ? desktopApi.revealPath(asset.path)
+                                  : undefined
+                              }
+                            />
+                          </div>
+
+                          {fullPageActive && !compactViewport ? (
+                            <button
+                              ref={editorWidthHandleRef}
+                              type="button"
+                              aria-label="调整正文宽度"
+                              className="activity-notes__editor-width-handle"
+                              onMouseDown={handleEditorWidthHandleMouseDown}
+                              onPointerDown={handleEditorWidthHandlePointerDown}
+                            >
+                              <span
+                                className="activity-notes__editor-width-handle-grip"
+                                aria-hidden="true"
+                              />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     ) : isExpanded ? (
                       <div className="activity-notes__result-browse">
@@ -1431,6 +2060,22 @@ export function ActivityNotesPanel({
                                 handleEditRecord(item.value);
                               }
                             }}
+                            onClick={(event) => {
+                              const internalReferenceElement = findInternalReferenceElement(
+                                event.target,
+                              );
+                              const reference = readInternalReferenceElement(
+                                internalReferenceElement,
+                              );
+
+                              if (!reference || !onOpenInternalReference) {
+                                return;
+                              }
+
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void onOpenInternalReference(reference);
+                            }}
                           >
                             <div
                               className="rich-editor__surface activity-notes__result-preview-body"
@@ -1471,7 +2116,7 @@ export function ActivityNotesPanel({
                 );
               })}
             </div>
-          ) : (
+          ) : !fullPageActive ? (
             <button
               type="button"
               className="w-full text-left"
@@ -1480,7 +2125,7 @@ export function ActivityNotesPanel({
             >
               <EmptyState text="还没有记录。" compact />
             </button>
-          )}
+          ) : null}
         </div>
       </section>
 

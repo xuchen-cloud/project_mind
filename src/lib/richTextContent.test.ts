@@ -46,4 +46,29 @@ describe("richTextHtmlToPlainText", () => {
       ),
     ).toBe("客户 | 状态 / ACME | 跟进中");
   });
+
+  it("preserves ordered and nested list structure when requested", () => {
+    expect(
+      richTextHtmlToPlainText(
+        [
+          '<ol start="3">',
+          "<li><p>第一步</p></li>",
+          '<li data-type="taskItem" data-checked="true">',
+          "<div><p>核对结果</p><ul><li><p>补一条说明</p></li></ul></div>",
+          "</li>",
+          "</ol>",
+        ].join(""),
+        { preserveStructure: true },
+      ),
+    ).toBe(["3. 第一步", "4. 核对结果", "  - 补一条说明"].join("\n"));
+  });
+
+  it("avoids stray spacing while keeping plain-text line breaks", () => {
+    expect(
+      richTextHtmlToPlainText(
+        "<p>  Alpha <strong>Beta</strong> </p><p>Gamma<br />Delta</p>",
+        { preserveStructure: true },
+      ),
+    ).toBe(["Alpha Beta", "Gamma", "Delta"].join("\n"));
+  });
 });

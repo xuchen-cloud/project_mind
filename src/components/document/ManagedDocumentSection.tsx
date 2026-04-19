@@ -23,7 +23,7 @@ import {
   Upload,
 } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
+import { fileTagColorValue, resolveActivityTitle } from "../../lib/constants";
 import type {
   DocumentRecord,
   DocumentTagRecord,
@@ -55,6 +55,7 @@ interface ManagedDocumentSectionProps {
   projectRootPath: string;
   documents: DocumentRecord[];
   layout?: LayoutMode;
+  chrome?: "card" | "embedded";
   activityId?: number | null;
   importButtonLabel?: string;
   showImportButton?: boolean;
@@ -80,6 +81,7 @@ export function ManagedDocumentSection({
   projectRootPath,
   documents,
   layout = "grid",
+  chrome = "card",
   activityId = null,
   importButtonLabel = "导入文件",
   showImportButton = true,
@@ -484,30 +486,10 @@ export function ManagedDocumentSection({
 
   const visibleDragActive = dragActive || pageDropActive;
   const isGridLayout = layout === "grid";
-
-  return (
-    <div ref={rootRef} className="grid gap-4">
-      <SurfaceCard
-        subtle
-        className={[
-          "overflow-visible transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
-          visibleDragActive
-            ? "border-accent bg-bg-hover shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
-            : "",
-        ].join(" ")}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragActive(true);
-        }}
-        onDragLeave={(event) => {
-          event.preventDefault();
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-            return;
-          }
-          setDragActive(false);
-        }}
-        onDrop={handleDrop}
-      >
+  const showCardChrome = chrome === "card";
+  const listContent = (
+    <>
+      {showCardChrome ? (
         <div
           className={[
             "flex flex-wrap items-center justify-between gap-2 border-b border-border",
@@ -545,185 +527,250 @@ export function ManagedDocumentSection({
             </Button>
           ) : null}
         </div>
+      ) : null}
 
-        {visibleDragActive ? (
-          <div className="flex items-center gap-2 border-b border-border bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] px-3 py-2 text-ui text-text">
-            <Upload size={13} />
-            <span>{pageDropMessage ?? "松手即可把文件归入当前上下文"}</span>
-          </div>
-        ) : null}
+      {visibleDragActive ? (
+        <div
+          className={[
+            "flex items-center gap-2 text-ui text-text",
+            showCardChrome
+              ? "border-b border-border bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] px-3 py-2"
+              : "rounded-[var(--radius-8)] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] px-3 py-2",
+          ].join(" ")}
+        >
+          <Upload size={13} />
+          <span>{pageDropMessage ?? "松手即可把文件归入当前上下文"}</span>
+        </div>
+      ) : null}
 
-        {filteredDocuments.length === 0 ? (
-          <div className="px-3 py-3">
-            <EmptyState
-              text={selectedTagIds.length > 0 ? "当前筛选条件下没有文件。" : emptyText}
-              compact
-            />
-          </div>
-        ) : (
-          <div
-            className={
-              isGridLayout
-                ? "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2 p-2"
+      {filteredDocuments.length === 0 ? (
+        <div className={showCardChrome ? "px-3 py-3" : ""}>
+          <EmptyState
+            text={selectedTagIds.length > 0 ? "当前筛选条件下没有文件。" : emptyText}
+            compact
+          />
+        </div>
+      ) : (
+        <div
+          className={
+            isGridLayout
+              ? "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2 p-2"
+              : showCardChrome
+                ? "grid gap-1.5"
                 : "grid gap-1.5"
+          }
+        >
+          {filteredDocuments.map((document) => {
+            const isEditing = editingDocumentId === document.id;
+            const isContextOpen = contextMenu?.documentId === document.id;
+            const locationLabel = buildDocumentLocationLabel(document);
+            const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
+            const badges = (
+              <>
+                <DocumentTagDots tags={tags} />
+                {document.health === "missing" ? (
+                  <StatusBadge tone="danger" className="px-1 py-0 text-[10px] tracking-[0.1em]">
+                    失效
+                  </StatusBadge>
+                ) : null}
+              </>
+            );
+
+            return (
+              <SurfaceCard
+                key={document.id}
+                id={`document-${document.id}`}
+                className={[
+                  "relative",
+                  isEditing ? "" : "context-menu-no-select",
+                  isGridLayout
+                    ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]"
+                    : "group flex cursor-pointer items-center gap-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
+                  document.health === "missing"
+                    ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
+                    : isContextOpen
+                      ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
+                      : "border-border bg-bg hover:border-border-strong hover:bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
+                ].join(" ")}
+                role="button"
+                tabIndex={0}
+                aria-label={buildDocumentAriaLabel(document.baseName, tags)}
+                onClick={(event) => handleRowClick(document, event)}
+                onMouseDownCapture={(event) => handleRowMouseDownCapture(document, event)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openContextMenu(document.id, event.clientX, event.clientY);
+                }}
+                onKeyDown={(event) => handleRowKeyDown(document, event)}
+              >
+                {isGridLayout ? (
+                  <>
+                    <div className="min-w-0 grid content-start gap-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        {badges}
+                      </div>
+
+                      <div className="min-h-0 min-w-0">
+                        {isEditing ? (
+                          <input
+                            data-document-interactive="true"
+                            autoFocus
+                            value={nameDraft}
+                            onChange={(event) => setNameDraft(event.target.value)}
+                            onClick={stopPropagation}
+                            onDoubleClick={stopPropagation}
+                            onBlur={() => commitRename(document)}
+                            onKeyDown={(event) =>
+                              handleRenameKeyDown(document, event, cancelRename, commitRename)
+                            }
+                            className="inline-object-input h-6 w-full px-1.5 text-[12px] leading-4 text-text outline-none"
+                          />
+                        ) : (
+                          <div className="flex min-w-0 items-center gap-1">
+                            <p
+                              className="overflow-hidden text-[12px] font-medium leading-4.5 text-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                              title={document.baseName}
+                              onDoubleClick={(event) => {
+                                stopPropagation(event);
+                                beginRename(document);
+                              }}
+                            >
+                              {document.baseName}
+                            </p>
+                            {document.versionCount > 1 ? (
+                              <DocumentVersionDropdown
+                                document={document}
+                                onOpenVersion={(version) =>
+                                  runDesktopAction(
+                                    desktopApi.openFile(version.managedPath),
+                                    "打开版本文件失败",
+                                    version.managedPath,
+                                  )
+                                }
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="truncate text-[10px] leading-3.5 text-text-soft" title={locationLabel}>
+                        {locationLabel}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {isEditing ? (
+                          <input
+                            data-document-interactive="true"
+                            autoFocus
+                            value={nameDraft}
+                            onChange={(event) => setNameDraft(event.target.value)}
+                            onClick={stopPropagation}
+                            onDoubleClick={stopPropagation}
+                            onBlur={() => commitRename(document)}
+                            onKeyDown={(event) =>
+                              handleRenameKeyDown(document, event, cancelRename, commitRename)
+                            }
+                            className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
+                          />
+                        ) : (
+                          <div className="flex min-w-0 flex-1 items-center gap-1">
+                            <p
+                              className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
+                              title={document.baseName}
+                              onDoubleClick={(event) => {
+                                stopPropagation(event);
+                                beginRename(document);
+                              }}
+                            >
+                              {document.baseName}
+                            </p>
+                            {document.versionCount > 1 ? (
+                              <DocumentVersionDropdown
+                                document={document}
+                                onOpenVersion={(version) =>
+                                  runDesktopAction(
+                                    desktopApi.openFile(version.managedPath),
+                                    "打开版本文件失败",
+                                    version.managedPath,
+                                  )
+                                }
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                        {badges}
+                      </div>
+                      <p className="truncate text-[10px] leading-4 text-text-soft" title={locationLabel}>
+                        {locationLabel}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </SurfaceCard>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      className={showCardChrome ? "grid gap-4" : "grid gap-3"}
+    >
+      {showCardChrome ? (
+        <SurfaceCard
+          subtle
+          className={[
+            "overflow-visible transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
+            visibleDragActive
+              ? "border-accent bg-bg-hover shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
+              : "",
+          ].join(" ")}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              return;
             }
-          >
-            {filteredDocuments.map((document) => {
-              const isEditing = editingDocumentId === document.id;
-              const isContextOpen = contextMenu?.documentId === document.id;
-              const locationLabel = buildDocumentLocationLabel(document);
-              const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
-              const badges = (
-                <>
-                  <DocumentTagDots tags={tags} />
-                  {document.health === "missing" ? (
-                    <StatusBadge tone="danger" className="px-1 py-0 text-[10px] tracking-[0.1em]">
-                      失效
-                    </StatusBadge>
-                  ) : null}
-                </>
-              );
-
-              return (
-                <SurfaceCard
-                  key={document.id}
-                  id={`document-${document.id}`}
-                  className={[
-                    "relative",
-                    isEditing ? "" : "context-menu-no-select",
-                    isGridLayout
-                      ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]"
-                      : "group flex cursor-pointer items-center gap-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
-                    document.health === "missing"
-                      ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
-                      : isContextOpen
-                        ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
-                        : "border-border bg-bg hover:border-border-strong hover:bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
-                  ].join(" ")}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={buildDocumentAriaLabel(document.baseName, tags)}
-                  onClick={(event) => handleRowClick(document, event)}
-                  onMouseDownCapture={(event) => handleRowMouseDownCapture(document, event)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    openContextMenu(document.id, event.clientX, event.clientY);
-                  }}
-                  onKeyDown={(event) => handleRowKeyDown(document, event)}
-                >
-                  {isGridLayout ? (
-                    <>
-                      <div className="min-w-0 grid content-start gap-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1">
-                          {badges}
-                        </div>
-
-                        <div className="min-h-0 min-w-0">
-                          {isEditing ? (
-                            <input
-                              data-document-interactive="true"
-                              autoFocus
-                              value={nameDraft}
-                              onChange={(event) => setNameDraft(event.target.value)}
-                              onClick={stopPropagation}
-                              onDoubleClick={stopPropagation}
-                              onBlur={() => commitRename(document)}
-                              onKeyDown={(event) =>
-                                handleRenameKeyDown(document, event, cancelRename, commitRename)
-                              }
-                              className="inline-object-input h-6 w-full px-1.5 text-[12px] leading-4 text-text outline-none"
-                            />
-                          ) : (
-                            <div className="flex min-w-0 items-center gap-1">
-                              <p
-                                className="overflow-hidden text-[12px] font-medium leading-4.5 text-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-                                title={document.baseName}
-                              onDoubleClick={(event) => {
-                                stopPropagation(event);
-                                beginRename(document);
-                              }}
-                              >
-                                {document.baseName}
-                              </p>
-                              {document.versionCount > 1 ? (
-                                <DocumentVersionDropdown
-                                  document={document}
-                                  onOpenVersion={(version) =>
-                                    runDesktopAction(
-                                      desktopApi.openFile(version.managedPath),
-                                      "打开版本文件失败",
-                                      version.managedPath,
-                                    )
-                                  }
-                                />
-                              ) : null}
-                            </div>
-                          )}
-                        </div>
-
-                        <p className="truncate text-[10px] leading-3.5 text-text-soft" title={locationLabel}>
-                          {locationLabel}
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          {isEditing ? (
-                            <input
-                              data-document-interactive="true"
-                              autoFocus
-                              value={nameDraft}
-                              onChange={(event) => setNameDraft(event.target.value)}
-                              onClick={stopPropagation}
-                              onDoubleClick={stopPropagation}
-                              onBlur={() => commitRename(document)}
-                              onKeyDown={(event) =>
-                                handleRenameKeyDown(document, event, cancelRename, commitRename)
-                              }
-                              className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
-                            />
-                          ) : (
-                            <div className="flex min-w-0 flex-1 items-center gap-1">
-                              <p
-                                className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
-                                title={document.baseName}
-                              onDoubleClick={(event) => {
-                                stopPropagation(event);
-                                beginRename(document);
-                              }}
-                              >
-                                {document.baseName}
-                              </p>
-                              {document.versionCount > 1 ? (
-                                <DocumentVersionDropdown
-                                  document={document}
-                                  onOpenVersion={(version) =>
-                                    runDesktopAction(
-                                      desktopApi.openFile(version.managedPath),
-                                      "打开版本文件失败",
-                                      version.managedPath,
-                                    )
-                                  }
-                                />
-                              ) : null}
-                            </div>
-                          )}
-                          {badges}
-                        </div>
-                        <p className="truncate text-[10px] leading-4 text-text-soft" title={locationLabel}>
-                          {locationLabel}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </SurfaceCard>
-              );
-            })}
-          </div>
-        )}
-      </SurfaceCard>
+            setDragActive(false);
+          }}
+          onDrop={handleDrop}
+        >
+          {listContent}
+        </SurfaceCard>
+      ) : (
+        <div
+          className={[
+            "grid gap-2",
+            visibleDragActive
+              ? "rounded-[var(--radius-8)] bg-bg-hover shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]"
+              : "",
+          ].join(" ")}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              return;
+            }
+            setDragActive(false);
+          }}
+          onDrop={handleDrop}
+        >
+          {listContent}
+        </div>
+      )}
 
       {contextMenuDocument && contextMenu ? (
         <PopoverPanel
@@ -843,7 +890,9 @@ export function ManagedDocumentSection({
 }
 
 function buildDocumentLocationLabel(document: DocumentRecord) {
-  return document.activityId ? document.sourceActivityTitle || "未命名 Activity" : "项目根目录";
+  return document.activityId
+    ? resolveActivityTitle(document.sourceActivityTitle, document.activityId)
+    : "项目根目录";
 }
 
 function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {

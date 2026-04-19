@@ -1,7 +1,23 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronUp, Plus } from "lucide-react";
 
+import {
+  buildInternalReferenceTarget,
+  buildInternalReferenceToken,
+  findInternalReferenceTextTrigger,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
+import { resolveActivityTitle } from "../../lib/constants";
 import type { ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
-import { Button, EmptyState, SectionHeader, SurfaceCard, TextField } from "../../ui/components";
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  SectionHeader,
+  SurfaceCard,
+  TextField,
+} from "../../ui/components";
+import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
 import { TodoList } from "../todo/TodoList";
 import { TodoSortSwitch } from "../todo/TodoSortSwitch";
 import {
@@ -15,6 +31,7 @@ interface TodayTodoSectionProps {
   projects: ProjectListItem[];
   activityOptionsByProject: ReadonlyMap<number, Array<{ id: number; title: string }>>;
   todos: TodoRecord[];
+  onOpenProject: (projectId: number) => void;
   onCreateTodo: (payload: {
     projectId: number;
     activityId?: number;
@@ -37,12 +54,14 @@ interface TodayTodoSectionProps {
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
 export function TodayTodoSection({
   projects,
   activityOptionsByProject,
   todos,
+  onOpenProject,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
@@ -54,22 +73,49 @@ export function TodayTodoSection({
   onDeleteTodo,
   onOpenTodoSource,
   onError,
+  onOpenInternalReference,
 }: TodayTodoSectionProps) {
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
+  const [composeProjectId, setComposeProjectId] = useState<number | null>(null);
   const [draftContent, setDraftContent] = useState("");
   const [draftPriority, setDraftPriority] = useState<TodoPriority>("not_urgent_important");
-  const [draftProjectId, setDraftProjectId] = useState<number | null>(null);
-  const [draftActivityId, setDraftActivityId] = useState<number | null>(null);
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
+  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceTrigger =
+    composeProjectId !== null ? findInternalReferenceTextTrigger(draftContent, selectionStart) : null;
+  const referenceTriggerKey = referenceTrigger
+    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
+    : null;
+  const referencePickerOpen =
+    Boolean(referenceTrigger) && dismissedTriggerKey !== referenceTriggerKey;
+  const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
+    open: referencePickerOpen,
+    query: referenceTrigger?.query ?? "",
+    context:
+      composeProjectId === null
+        ? null
+        : { scope: "project", projectId: composeProjectId },
+    limit: 8,
+  });
 
   const activityNameById = useMemo(
     () =>
       new Map(
         todos.flatMap((todo) =>
-          todo.activityId && todo.sourceActivityTitle
-            ? ([[todo.activityId, todo.sourceActivityTitle]] as const)
+          todo.activityId &&
+          todo.sourceActivityTitle !== undefined &&
+          todo.sourceActivityTitle !== null
+            ? ([
+                [
+                  todo.activityId,
+                  resolveActivityTitle(todo.sourceActivityTitle, todo.activityId),
+                ],
+              ] as const)
             : [],
         ),
       ),
@@ -86,7 +132,7 @@ export function TodayTodoSection({
       ? nextTabTodos
       : nextTabTodos.filter((todo) => todo.priority === priorityFilter);
   }, [priorityFilter, tab, todos]);
-  const groupedTodos = useMemo(
+  const projectGroups = useMemo(
     () =>
       projects
         .map((project) => ({
@@ -101,16 +147,40 @@ export function TodayTodoSection({
           totalFinished: todos.filter(
             (todo) => todo.projectId === project.id && todo.status === "finished",
           ).length,
-        }))
-        .filter((group) => group.todos.length > 0),
+        })),
     [filteredTodos, projects, sortMode, todos],
   );
   const showSortSwitch = filteredTodos.length > 1;
-  const draftActivityOptions = useMemo(
-    () => (draftProjectId === null ? [] : activityOptionsByProject.get(draftProjectId) ?? []),
-    [activityOptionsByProject, draftProjectId],
+  const visibleGroups = useMemo(
+    () =>
+      tab === "unfinished"
+        ? projectGroups
+        : projectGroups.filter((group) => group.todos.length > 0),
+    [projectGroups, tab],
   );
 
+  useEffect(() => {
+    if (!referencePickerOpen) {
+      setReferenceActiveIndex(0);
+      return;
+    }
+
+    setReferenceActiveIndex((current) => {
+      if (referenceResults.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, referenceResults.length - 1);
+    });
+  }, [referencePickerOpen, referenceResults.length]);
+
+  useEffect(() => {
+    if (!referencePickerOpen) {
+      return;
+    }
+
+    setReferenceActiveIndex(0);
+  }, [referencePickerOpen, referenceTrigger?.query]);
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
     setExpandedTodoIds((current) => {
       const next = new Set(current);
@@ -126,21 +196,69 @@ export function TodayTodoSection({
     });
   }
 
-  function submitCreate() {
+  function openComposer(projectId: number) {
+    setComposeProjectId((current) => {
+      const nextProjectId = current === projectId ? null : projectId;
+
+      if (nextProjectId === null) {
+        setDraftContent("");
+        setDraftPriority("not_urgent_important");
+        setSelectionStart(null);
+        setDismissedTriggerKey(null);
+      } else if (current !== projectId) {
+        setDraftContent("");
+        setDraftPriority("not_urgent_important");
+        setSelectionStart(null);
+        setDismissedTriggerKey(null);
+      }
+
+      return nextProjectId;
+    });
+  }
+
+  function submitCreate(projectId: number) {
     const content = draftContent.trim();
-    if (!content || draftProjectId === null) {
+    if (!content) {
       return;
     }
 
     onCreateTodo({
-      projectId: draftProjectId,
-      ...(draftActivityId !== null ? { activityId: draftActivityId } : {}),
+      projectId,
       content,
       priority: draftPriority,
     });
     setDraftContent("");
-    setDraftActivityId(null);
+    setComposeProjectId(null);
     setDraftPriority("not_urgent_important");
+    setSelectionStart(null);
+    setDismissedTriggerKey(null);
+  }
+
+  function handleReferenceInsert(reference: {
+    kind: "note" | "conclusion" | "todo" | "document";
+    id: number;
+    label: string;
+  }) {
+    if (!referenceTrigger) {
+      return;
+    }
+
+    const target = buildInternalReferenceTarget(reference);
+    const token = `${buildInternalReferenceToken(target)} `;
+    const nextContent =
+      draftContent.slice(0, referenceTrigger.start) +
+      token +
+      draftContent.slice(referenceTrigger.end);
+    const nextSelection = referenceTrigger.start + token.length;
+
+    setDraftContent(nextContent);
+    setSelectionStart(nextSelection);
+    setDismissedTriggerKey(null);
+
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
   }
 
   return (
@@ -152,99 +270,6 @@ export function TodayTodoSection({
       />
 
       <SurfaceCard className="grid gap-4 p-4">
-        <SurfaceCard subtle className="grid gap-3 p-3">
-          <div className="grid gap-1">
-            <p className="text-ui font-medium text-text">新增 Todo</p>
-            <p className="text-ui leading-5 text-text-soft">
-              在 Today 里新增待办时，必须选择归属项目，也可以顺手绑定到具体 Activity。
-            </p>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_11rem_13rem_auto] md:items-end">
-            <label className="grid gap-1.5">
-              <span className="text-ui font-medium text-text-muted">内容</span>
-              <TextField
-                value={draftContent}
-                onChange={(event) => setDraftContent(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    submitCreate();
-                  }
-                }}
-                placeholder="例如：整理本周访谈结论"
-              />
-            </label>
-
-            <label className="grid gap-1.5">
-              <span className="text-ui font-medium text-text-muted">项目</span>
-              <select
-                aria-label="选择归属项目"
-                value={draftProjectId ?? ""}
-                className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  const nextProjectId = nextValue ? Number(nextValue) : null;
-                  setDraftProjectId(nextProjectId);
-                  setDraftActivityId(null);
-                }}
-              >
-                <option value="">选择项目</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="grid gap-1.5">
-              <span className="text-ui font-medium text-text-muted">Activity</span>
-              <select
-                aria-label="选择归属 Activity"
-                value={draftActivityId ?? ""}
-                disabled={draftProjectId === null}
-                className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setDraftActivityId(nextValue ? Number(nextValue) : null);
-                }}
-              >
-                <option value="">项目级 Todo</option>
-                {draftActivityOptions.map((activity) => (
-                  <option key={activity.id} value={activity.id}>
-                    {activity.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={!draftContent.trim() || draftProjectId === null}
-              onClick={submitCreate}
-            >
-              新增 Todo
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1">
-            {TODO_PRIORITY_OPTIONS.map((option) => (
-              <PriorityPillButton
-                key={option.value}
-                active={draftPriority === option.value}
-                priority={option.value}
-                title={option.optionLabel}
-                onClick={() => setDraftPriority(option.value)}
-              >
-                {option.code}
-              </PriorityPillButton>
-            ))}
-          </div>
-        </SurfaceCard>
-
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center rounded-full border border-border bg-bg p-1">
             <TodayTabButton active={tab === "unfinished"} onClick={() => setTab("unfinished")}>
@@ -279,13 +304,34 @@ export function TodayTodoSection({
           </div>
         </div>
 
-        {groupedTodos.length > 0 ? (
+        {projects.length === 0 ? (
+          <EmptyState text="还没有可用项目。" compact />
+        ) : visibleGroups.length > 0 ? (
           <div className="grid gap-3">
-            {groupedTodos.map((group) => (
+            {visibleGroups.map((group) => (
               <SurfaceCard key={group.project.id} subtle className="grid gap-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-body font-medium text-text">{group.project.name}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="min-w-0 rounded-[var(--radius-6)] bg-transparent text-left text-body font-medium text-text transition-colors hover:text-accent"
+                        onClick={() => onOpenProject(group.project.id)}
+                      >
+                        {group.project.name}
+                      </button>
+                      {tab === "unfinished" ? (
+                        <IconButton
+                          type="button"
+                          size="sm"
+                          variant={composeProjectId === group.project.id ? "secondary" : "ghost"}
+                          aria-label={`${group.project.name} 新建 Todo`}
+                          onClick={() => openComposer(group.project.id)}
+                        >
+                          <Plus size={14} />
+                        </IconButton>
+                      ) : null}
+                    </div>
                     <p className="text-ui text-text-soft">
                       {group.totalUnfinished} 未完成 · {group.totalFinished} 已完成
                     </p>
@@ -295,27 +341,147 @@ export function TodayTodoSection({
                   </p>
                 </div>
 
-                <TodoList
-                  todos={group.todos}
-                  activityNameById={activityNameById}
-                  activityOptions={activityOptionsByProject.get(group.project.id) ?? []}
-                  compact
-                  allowInlineEdit={tab === "unfinished"}
-                  allowInlineProgress={tab === "unfinished"}
-                  expandedTodoIds={expandedTodoIds}
-                  onToggleExpanded={toggleExpanded}
-                  emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
-                  onToggleStatus={onToggleStatus}
-                  onUpdatePriority={onUpdatePriority}
-                  onUpdateContent={onUpdateContent}
-                  onUpdateActivity={onUpdateActivity}
-                  onAddProgress={onAddProgress}
-                  onUpdateProgress={onUpdateProgress}
-                  onDeleteProgress={onDeleteProgress}
-                  onDeleteTodo={onDeleteTodo}
-                  onOpenTodoSource={onOpenTodoSource}
-                  onError={onError}
-                />
+                {composeProjectId === group.project.id ? (
+                  <div className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="relative min-w-0 flex-1">
+                        <TextField
+                          ref={composerInputRef}
+                          className="min-w-0 flex-1"
+                          value={draftContent}
+                          onChange={(event) => {
+                            setDraftContent(event.target.value);
+                            setSelectionStart(event.target.selectionStart);
+                          }}
+                          onClick={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                          onKeyUp={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                          onSelect={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                          onKeyDown={(event) => {
+                            if (referencePickerOpen && composeProjectId === group.project.id) {
+                              if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                setReferenceActiveIndex((current) => {
+                                  if (referenceResults.length === 0) {
+                                    return 0;
+                                  }
+
+                                  return (current + 1) % referenceResults.length;
+                                });
+                                return;
+                              }
+
+                              if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                setReferenceActiveIndex((current) => {
+                                  if (referenceResults.length === 0) {
+                                    return 0;
+                                  }
+
+                                  return current === 0 ? referenceResults.length - 1 : current - 1;
+                                });
+                                return;
+                              }
+
+                              if (event.key === "Enter" && referenceResults.length > 0) {
+                                event.preventDefault();
+                                handleReferenceInsert(
+                                  referenceResults[referenceActiveIndex] ?? referenceResults[0],
+                                );
+                                return;
+                              }
+
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                setDismissedTriggerKey(referenceTriggerKey);
+                                return;
+                              }
+                            }
+
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              submitCreate(group.project.id);
+                            }
+                          }}
+                          placeholder={`在 ${group.project.name} 里新增一条 Todo`}
+                        />
+                        <InternalReferencePicker
+                          open={referencePickerOpen && composeProjectId === group.project.id}
+                          loading={referenceLoading}
+                          results={referenceResults}
+                          activeIndex={referenceActiveIndex}
+                          className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+                          onHoverIndex={setReferenceActiveIndex}
+                          onSelect={handleReferenceInsert}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!draftContent.trim()}
+                        onClick={() => submitCreate(group.project.id)}
+                      >
+                        保存
+                      </Button>
+                      <IconButton
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`${group.project.name} 收起新建 Todo`}
+                        title="收起"
+                        onClick={() => openComposer(group.project.id)}
+                      >
+                        <ChevronUp size={14} />
+                      </IconButton>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1">
+                      {TODO_PRIORITY_OPTIONS.map((option) => (
+                        <PriorityPillButton
+                          key={option.value}
+                          active={draftPriority === option.value}
+                          priority={option.value}
+                          title={option.optionLabel}
+                          onClick={() => setDraftPriority(option.value)}
+                        >
+                          {option.code}
+                        </PriorityPillButton>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {group.todos.length > 0 || composeProjectId !== group.project.id ? (
+                  <TodoList
+                    todos={group.todos}
+                    activityNameById={activityNameById}
+                    activityOptions={activityOptionsByProject.get(group.project.id) ?? []}
+                    compact
+                    allowInlineEdit={tab === "unfinished"}
+                    allowInlineProgress={tab === "unfinished"}
+                    expandedTodoIds={expandedTodoIds}
+                    onToggleExpanded={toggleExpanded}
+                    emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
+                    onToggleStatus={onToggleStatus}
+                    onUpdatePriority={onUpdatePriority}
+                    onUpdateContent={onUpdateContent}
+                    onUpdateActivity={onUpdateActivity}
+                    onAddProgress={onAddProgress}
+                    onUpdateProgress={onUpdateProgress}
+                    onDeleteProgress={onDeleteProgress}
+                    onDeleteTodo={onDeleteTodo}
+                    onOpenTodoSource={onOpenTodoSource}
+                    onError={onError}
+                    onOpenInternalReference={onOpenInternalReference}
+                    onEmptyClick={
+                      tab === "unfinished"
+                        ? () => {
+                            openComposer(group.project.id);
+                          }
+                        : undefined
+                    }
+                  />
+                ) : null}
               </SurfaceCard>
             ))}
           </div>

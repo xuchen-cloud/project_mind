@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectListItem, TodoRecord } from "../../lib/types";
+import type { ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
 import { TodayTodoSection } from "./TodayTodoSection";
 
 const projects: ProjectListItem[] = [
@@ -84,12 +84,27 @@ const activityOptionsByProject = new Map<number, Array<{ id: number; title: stri
   [2, [{ id: 21, title: "Beta Kickoff" }]],
 ]);
 
-function renderSection(nextTodos: TodoRecord[] = todos, onCreateTodo = vi.fn()) {
+function renderSection(
+  nextTodos: TodoRecord[] = todos,
+  {
+    onCreateTodo = vi.fn(),
+    onOpenProject = vi.fn(),
+  }: {
+    onCreateTodo?: (payload: {
+      projectId: number;
+      activityId?: number;
+      content: string;
+      priority: TodoPriority;
+    }) => void;
+    onOpenProject?: (projectId: number) => void;
+  } = {},
+) {
   render(
     <TodayTodoSection
       projects={projects}
       activityOptionsByProject={activityOptionsByProject}
       todos={nextTodos}
+      onOpenProject={onOpenProject}
       onCreateTodo={onCreateTodo}
       onToggleStatus={vi.fn()}
       onUpdatePriority={vi.fn()}
@@ -108,8 +123,8 @@ describe("TodayTodoSection", () => {
   it("groups todos by project using project order", () => {
     renderSection();
 
-    const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["Alpha", "Beta"]);
+    expect(screen.getAllByRole("button", { name: "Alpha" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Beta" })).toHaveLength(1);
     expect(screen.getByText("Alpha unfinished")).toBeInTheDocument();
     expect(screen.getByText("Beta unfinished")).toBeInTheDocument();
   });
@@ -127,21 +142,38 @@ describe("TodayTodoSection", () => {
     expect(screen.queryByText("Alpha unfinished")).not.toBeInTheDocument();
   });
 
-  it("shows an empty state when there are no matching todos", () => {
-    renderSection([]);
+  it("shows an empty state when there are no projects", () => {
+    render(
+      <TodayTodoSection
+        projects={[]}
+        activityOptionsByProject={new Map()}
+        todos={[]}
+        onOpenProject={vi.fn()}
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
 
-    expect(screen.getByText("当前没有需要展示的 Todo")).toBeInTheDocument();
+    expect(screen.getByText("还没有可用项目。")).toBeInTheDocument();
   });
 
-  it("creates a project-level todo after choosing a project", async () => {
+  it("creates a project-level todo inside a project block", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
-    renderSection(todos, onCreateTodo);
+    renderSection(todos, { onCreateTodo });
 
-    await user.type(screen.getByPlaceholderText("例如：整理本周访谈结论"), "整理项目时间线");
-    await user.selectOptions(screen.getByLabelText("选择归属项目"), "1");
-    await user.click(screen.getByRole("button", { name: "新增 Todo" }));
+    await user.click(screen.getByRole("button", { name: "Alpha 新建 Todo" }));
+    await user.type(screen.getByPlaceholderText("在 Alpha 里新增一条 Todo"), "整理项目时间线");
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onCreateTodo).toHaveBeenCalledWith({
       projectId: 1,
@@ -150,22 +182,61 @@ describe("TodayTodoSection", () => {
     });
   });
 
-  it("includes the selected activity when creating a todo", async () => {
+  it("creates todos without showing an activity selector", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
-    renderSection(todos, onCreateTodo);
+    renderSection(todos, { onCreateTodo });
 
-    await user.type(screen.getByPlaceholderText("例如：整理本周访谈结论"), "跟进 Beta 启动会");
-    await user.selectOptions(screen.getByLabelText("选择归属项目"), "2");
-    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "21");
-    await user.click(screen.getByRole("button", { name: "新增 Todo" }));
+    await user.click(screen.getByRole("button", { name: "Beta 新建 Todo" }));
+    expect(
+      screen.queryByLabelText("选择 Beta 的归属 Activity"),
+    ).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("在 Beta 里新增一条 Todo"), "跟进 Beta 启动会");
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onCreateTodo).toHaveBeenCalledWith({
       projectId: 2,
-      activityId: 21,
       content: "跟进 Beta 启动会",
       priority: "not_urgent_important",
     });
+  });
+
+  it("hides the empty-state block while composing a todo in an empty project group", async () => {
+    const user = userEvent.setup();
+
+    renderSection([todos[1] as TodoRecord]);
+
+    expect(screen.getByText("当前没有未完成 Todo。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Beta 新建 Todo" }));
+
+    expect(screen.getByPlaceholderText("在 Beta 里新增一条 Todo")).toBeInTheDocument();
+    expect(screen.queryByText("当前没有未完成 Todo。")).not.toBeInTheDocument();
+  });
+
+  it("uses a compact triangle button to collapse the composer", async () => {
+    const user = userEvent.setup();
+
+    renderSection(todos);
+
+    await user.click(screen.getByRole("button", { name: "Alpha 新建 Todo" }));
+
+    expect(screen.queryByRole("button", { name: "收起" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Alpha 收起新建 Todo" }));
+
+    expect(screen.queryByPlaceholderText("在 Alpha 里新增一条 Todo")).not.toBeInTheDocument();
+  });
+
+  it("opens the related project page from the project name", async () => {
+    const user = userEvent.setup();
+    const onOpenProject = vi.fn();
+
+    renderSection(todos, { onOpenProject });
+
+    await user.click(screen.getByRole("button", { name: "Alpha" }));
+
+    expect(onOpenProject).toHaveBeenCalledWith(1);
   });
 });

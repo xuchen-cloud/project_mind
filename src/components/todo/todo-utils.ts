@@ -7,6 +7,7 @@ import {
   todoPriorityOrder,
   todoPriorityTone,
 } from "../../lib/todo-priority";
+import { resolveActivityTitle } from "../../lib/constants";
 import type { TodoPriority, TodoProgressRecord, TodoRecord } from "../../lib/types";
 
 export type TodoSortMode = "time" | "priority";
@@ -74,9 +75,10 @@ export function resolveTodoSourceMeta(
     return { label: "项目级", kind: "project" as const };
   }
   const activityName = activityNameById.get(activityId);
-  return activityName
-    ? { label: activityName, kind: "activity" as const }
-    : { label: "关联 Activity 已删除", kind: "deleted" as const };
+  if (activityName === undefined) {
+    return { label: "关联 Activity 已删除", kind: "deleted" as const };
+  }
+  return { label: resolveActivityTitle(activityName, activityId), kind: "activity" as const };
 }
 
 export function resolveTodoSource(

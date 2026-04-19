@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { buildInternalReferenceHtml } from "../../lib/internalReferences";
+import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { RichEditor } from "./RichEditor";
 
@@ -192,6 +194,17 @@ function selectTextContent(node: Text, start: number, end: number) {
 
   range.setStart(node, start);
   range.setEnd(node, end);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+}
+
+function selectTextRange(startNode: Text, startOffset: number, endNode: Text, endOffset: number) {
+  const selection = window.getSelection();
+  const range = document.createRange();
+
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
   selection?.removeAllRanges();
   selection?.addRange(range);
   document.dispatchEvent(new Event("selectionchange"));
@@ -748,6 +761,47 @@ describe("RichEditor images", () => {
     });
   });
 
+  it("inserts a pasted image into an empty editor without requiring seed text", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const insertPastedImage = vi.fn(async (file: File) => {
+      await Promise.resolve();
+
+      return {
+        kind: "image" as const,
+        title: file.name,
+        path: "/tmp/managed/empty-editor.png",
+        mimeType: file.type || "image/png",
+        documentId: 22,
+      };
+    });
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        assetHandlers={{
+          insertPastedImage,
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+    const pastedFile = new File(["fake"], "empty-editor.png", { type: "image/png" });
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [pastedFile],
+        items: [],
+        getData: () => "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(insertPastedImage).toHaveBeenCalledWith(pastedFile);
+    });
+    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/empty-editor.png"');
+  });
+
   it("imports pasted html data-url images through the clipboard handler", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -789,6 +843,128 @@ describe("RichEditor images", () => {
 
     expect(pastedFile.type).toBe("image/png");
     expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.png"');
+  });
+
+  it("preserves heic format metadata for pasted html data-url images", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const insertPastedImage = vi.fn(async (file: File) => ({
+      kind: "image" as const,
+      title: file.name,
+      path: "/tmp/managed/html-paste.heic",
+      mimeType: file.type || "image/heic",
+      documentId: 21,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        assetHandlers={{
+          insertPastedImage,
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [],
+        items: [],
+        getData: (type: string) =>
+          type === "text/html"
+            ? '<img src="data:image/heic;base64,QUFBQQ==" />'
+            : "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(insertPastedImage).toHaveBeenCalledTimes(1);
+    });
+
+    const pastedFile = insertPastedImage.mock.calls[0]?.[0] as File;
+
+    expect(pastedFile.type).toBe("image/heic");
+    expect(pastedFile.name).toBe("clipboard-image-1.heic");
+    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.heic"');
+  });
+});
+
+describe("RichEditor internal references", () => {
+  it("opens the picker on [[ and inserts an internal reference token", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const searchSpy = vi
+      .spyOn(projectMindApi, "internalReferenceSearch")
+      .mockResolvedValue([
+        {
+          kind: "todo",
+          id: 18,
+          label: "推进预算审批",
+          projectId: 1,
+          activityId: 2,
+          subtitle: "Alpha · Kickoff",
+          updatedAt: "2026-04-06T10:00:00.000Z",
+        },
+      ]);
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        internalReferences={{
+          context: { scope: "project", projectId: 1 },
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    await user.keyboard("[[[[");
+
+    expect(await screen.findByRole("listbox", { name: "内部引用选择器" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /Todo.*推进预算审批/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+
+      expect(latestValue?.html).toContain('data-type="internal-reference"');
+      expect(latestValue?.markdown).toContain("[[todo:18|推进预算审批]]");
+    });
+
+    searchSpy.mockRestore();
+  });
+
+  it("marks unresolved internal references as broken when clicking them", async () => {
+    const user = userEvent.setup();
+    const onOpenReference = vi.fn(async () => false);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        readOnly
+        defaultHtml={`<p>${buildInternalReferenceHtml({
+          refKind: "todo",
+          refId: 18,
+          label: "推进预算审批",
+        })}</p>`}
+        internalReferences={{
+          context: { scope: "project", projectId: 1 },
+          onOpenReference,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Todo.*推进预算审批/u }));
+
+    await waitFor(() => {
+      expect(onOpenReference).toHaveBeenCalledWith({
+        refKind: "todo",
+        refId: 18,
+        label: "推进预算审批",
+      });
+      expect(container.querySelector(".internal-reference-chip.is-broken")).toBeTruthy();
+    });
   });
 });
 
@@ -914,6 +1090,45 @@ describe("RichEditor context menus", () => {
 
     expect(await screen.findByRole("menu", { name: "文本操作" })).toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "表格操作" })).not.toBeInTheDocument();
+  });
+
+  it("copies ordered lists as readable plain text when execCommand falls back", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    const execCommand = document.execCommand as unknown as ReturnType<typeof vi.fn>;
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<ol><li><p>第一项</p></li><li><p>第二项</p></li></ol>"
+      />,
+    );
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText,
+      },
+    });
+
+    const textNodes = await waitFor(() => {
+      const nextNodes = Array.from(container.querySelectorAll(".ProseMirror li p"))
+        .map((element) => element.firstChild)
+        .filter((node): node is Text => node?.nodeType === Node.TEXT_NODE);
+
+      expect(nextNodes).toHaveLength(2);
+      return nextNodes;
+    });
+
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextRange(textNodes[0], 0, textNodes[1], textNodes[1].textContent?.length ?? 0);
+    fireEvent.contextMenu(textNodes[0].parentElement as HTMLElement, { clientX: 24, clientY: 24 });
+
+    execCommand.mockReturnValueOnce(false);
+    await user.click(await screen.findByRole("menuitem", { name: /复制/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(["1. 第一项", "2. 第二项"].join("\n"));
+    });
   });
 });
 

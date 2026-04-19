@@ -19,12 +19,12 @@ interface ActivityTagDropdownProps {
   colorKey?: FileTagColorKey | null;
   selectedOptionId?: number | null;
   options: ActivityTagDropdownOption[];
-  manageLabel: string;
+  manageLabel?: string;
   emptyText: string;
   busy?: boolean;
   clearLabel?: string;
   onSelect: (optionId: number) => void;
-  onManage: () => void;
+  onManage?: () => void;
   onClear?: () => void;
 }
 
@@ -146,20 +146,22 @@ export function ActivityTagDropdown({
             ) : null}
           </div>
 
-          <div className="mt-1 border-t border-border pt-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="w-full justify-start px-2.5"
-              onClick={() => {
-                onManage();
-                setOpen(false);
-              }}
-            >
-              {manageLabel}
-            </Button>
-          </div>
+          {onManage && manageLabel ? (
+            <div className="mt-1 border-t border-border pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start px-2.5"
+                onClick={() => {
+                  onManage();
+                  setOpen(false);
+                }}
+              >
+                {manageLabel}
+              </Button>
+            </div>
+          ) : null}
         </PopoverPanel>
       ) : null}
     </div>

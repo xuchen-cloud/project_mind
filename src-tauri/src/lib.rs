@@ -19,8 +19,9 @@ use db::Database;
 pub use db::DemoSeedResult;
 use models::{
     AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
-    ActivityCardData, ActivityCreateInput, ActivityOptionDeleteInput, ActivitySettingsSnapshot,
-    ActivityStatusOption, ActivityStatusOptionUpsertInput, ActivityUpdateMetaInput,
+    ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityOptionDeleteInput,
+    ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
+    ActivityUpdateMetaInput,
     AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult, AiArtifactGetInput,
     AiArtifactRecord, AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
     AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobSnapshot,
@@ -31,17 +32,19 @@ use models::{
     DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
     DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
     DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
-    FileTagSettingsSnapshot, NoteDeleteInput, NoteRecord, NoteUpsertInput, ProjectArchiveInput,
-    ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem, ProjectOverviewData,
-    ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
-    RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
-    RichTextStyleSettings, RichTextStyleUpsertInput, TodayQuickNoteUpsertInput,
-    TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
-    TodoProgressRecord, TodoRecord, TodoUpdateActivityInput, TodoUpdateContentInput,
-    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
-    WorkspaceCreateInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
-    WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
-    WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
+    FileTagSettingsSnapshot, InternalReferenceResolveInput, InternalReferenceResolveResult,
+    InternalReferenceSearchInput, InternalReferenceSearchResult, NoteDeleteInput, NoteRecord,
+    NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
+    ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
+    ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
+    RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextStyleSettings,
+    RichTextStyleUpsertInput, TodayQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput,
+    TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
+    TodoUpdateActivityInput, TodoUpdateContentInput, TodoUpdatePriorityInput,
+    TodoUpdateProgressInput, TodoUpdateStatusInput, WorkspaceCreateInput,
+    WorkspaceNoteDeleteInput, WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput,
+    WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
+    WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
@@ -515,6 +518,14 @@ fn activity_update_meta(
 }
 
 #[tauri::command]
+fn activity_delete(
+    state: State<'_, AppState>,
+    input: ActivityDeleteInput,
+) -> CommandResult<ActivityCardData> {
+    with_db(state, |db| db.activity_delete(input))
+}
+
+#[tauri::command]
 fn activity_settings_get(state: State<'_, AppState>) -> CommandResult<ActivitySettingsSnapshot> {
     with_db(state, |db| db.activity_settings_get())
 }
@@ -967,6 +978,22 @@ fn workspace_search(
     with_db(state, |db| db.workspace_search(input))
 }
 
+#[tauri::command]
+fn internal_reference_search(
+    state: State<'_, AppState>,
+    input: InternalReferenceSearchInput,
+) -> CommandResult<Vec<InternalReferenceSearchResult>> {
+    with_db(state, |db| db.internal_reference_search(input))
+}
+
+#[tauri::command]
+fn internal_reference_resolve(
+    state: State<'_, AppState>,
+    input: InternalReferenceResolveInput,
+) -> CommandResult<Option<InternalReferenceResolveResult>> {
+    with_db(state, |db| db.internal_reference_resolve(input))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1013,6 +1040,7 @@ pub fn run() {
             activity_create,
             activity_list,
             activity_update_meta,
+            activity_delete,
             activity_settings_get,
             activity_attribute_option_upsert,
             activity_attribute_option_delete,
@@ -1072,6 +1100,8 @@ pub fn run() {
             ai_jobs_list_active,
             ai_execution_settings_upsert,
             ai_feature_settings_upsert,
+            internal_reference_search,
+            internal_reference_resolve,
             workspace_search
         ])
         .run(tauri::generate_context!())

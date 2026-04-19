@@ -142,6 +142,24 @@ export function activityPath(projectId: number, activityId: number, focus?: stri
     : `/projects/${projectId}/activities/${activityId}`;
 }
 
+export function activityNotePath(
+  projectId: number,
+  activityId: number,
+  noteId: number,
+) {
+  return `/projects/${projectId}/activities/${activityId}/notes/${noteId}`;
+}
+
+export function activityDraftNotePath(
+  projectId: number,
+  activityId: number,
+  draftLocalId: string,
+) {
+  return `/projects/${projectId}/activities/${activityId}/notes/draft/${encodeURIComponent(
+    draftLocalId,
+  )}`;
+}
+
 export function todayPath() {
   return "/today";
 }

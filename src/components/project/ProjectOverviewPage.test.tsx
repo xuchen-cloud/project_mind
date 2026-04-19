@@ -113,6 +113,7 @@ vi.mock("../layout/ProjectSidebar", () => ({
 
 vi.mock("../rich-editor", () => ({
   EMPTY_RICH_EDITOR_HTML: "",
+  RICH_EDITOR_FOCUS_REQUEST_EVENT: "project-mind-rich-editor-focus-request",
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
     const normalizedText = value.text.trim();
     const normalizedMarkdown = value.markdown.trim();
@@ -252,7 +253,26 @@ describe("ProjectOverviewPage", () => {
     renderProjectOverviewPage();
 
     expect(await screen.findByText("Project Atlas")).toBeInTheDocument();
-    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "进行中" })).toBeInTheDocument();
+  });
+
+  it("updates the project status from the header tag dropdown", async () => {
+    const user = userEvent.setup();
+
+    renderProjectOverviewPage();
+
+    expect(await screen.findByText("Project Atlas")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "进行中" }));
+    await user.click(screen.getByRole("button", { name: "暂缓" }));
+
+    expect(mockSummaryMutate).toHaveBeenCalledWith({
+      projectId: 9,
+      summary: "阶段目标与风险说明",
+      summaryMarkdown: "阶段目标与风险说明",
+      summaryHtml: "<p>阶段目标与风险说明</p>",
+      status: "paused",
+    });
   });
 
   it("edits the project name inline and saves automatically on submit", async () => {
@@ -281,9 +301,17 @@ describe("ProjectOverviewPage", () => {
 
     renderProjectOverviewPage();
 
-    expect(await screen.findByRole("button", { name: "阶段目标与风险说明" })).toBeInTheDocument();
+    expect(await screen.findByText("阶段目标与风险说明")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "编辑简介" }),
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "阶段目标与风险说明" }));
+    await user.click(
+      screen.getByRole("button", { name: /阶段目标与风险说明/ }),
+    );
+    expect(
+      screen.queryByLabelText("文本格式工具栏"),
+    ).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("项目简介"));
     await user.type(screen.getByLabelText("项目简介"), "更新后的项目简介");
     await user.tab();

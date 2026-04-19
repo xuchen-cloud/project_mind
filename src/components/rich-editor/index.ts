@@ -1,4 +1,7 @@
-export { RichEditor } from "./RichEditor";
+export {
+  RichEditor,
+  RICH_EDITOR_FOCUS_REQUEST_EVENT,
+} from "./RichEditor";
 export {
   EMPTY_RICH_EDITOR_HTML,
   getRenderableRichTextHtml,
@@ -8,6 +11,7 @@ export { normalizeRichEditorHtml, normalizeRichEditorValue } from "./normalize";
 export type {
   RichEditorAsset,
   RichEditorAssetHandlers,
+  RichEditorInternalReferenceOptions,
   RichEditorPersistState,
   RichEditorValue,
   RichEditorVariant,

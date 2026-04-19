@@ -3,12 +3,30 @@ import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-re
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
-import type { TodoPriority, TodoProgressRecord, TodoRecord } from "../../lib/types";
+import {
+  buildInternalReferenceTarget,
+  buildInternalReferenceToken,
+  findInternalReferenceTextTrigger,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
+import type {
+  InternalReferenceSearchResult,
+  TodoPriority,
+  TodoProgressRecord,
+  TodoRecord,
+} from "../../lib/types";
 import { ActionContextMenu, IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import {
+  InternalReferenceInlineText,
+  InternalReferencePicker,
+  useInternalReferenceSearch,
+} from "../internal-reference";
 import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 import { TodoPriorityDropdown } from "./TodoPriorityDropdown";
+import { TodoReferenceEditor } from "./TodoReferenceEditor";
+import { TodoSourceDropdown } from "./TodoSourceDropdown";
 import {
   formatFullDate,
   formatMonthDay,
@@ -37,6 +55,7 @@ export function TodoListItem({
   onToggleExpanded,
   onOpenContextMenu,
   onError,
+  onOpenInternalReference,
 }: {
   todo: TodoRecord;
   isFirst?: boolean;
@@ -63,12 +82,10 @@ export function TodoListItem({
   onToggleExpanded: (todoId: number, nextExpanded?: boolean) => void;
   onOpenContextMenu: (todoId: number, x: number, y: number) => void;
   onError?: (message: string) => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }) {
   const [toggling, setToggling] = useState(false);
-  const [sourceSelecting, setSourceSelecting] = useState(false);
-  const [sourceSaving, setSourceSaving] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement | null>(null);
-  const sourceSelectRef = useRef<HTMLSelectElement | null>(null);
   const sortedProgresses = sortTodoProgresses(todo.progresses);
   const latestProgress = sortedProgresses[0] ?? null;
   const previousProgresses = sortedProgresses.slice(1);
@@ -90,12 +107,6 @@ export function TodoListItem({
     onToggleExpanded(todo.id, false);
   }, [canExpand, expanded, onToggleExpanded, todo.id]);
 
-  useEffect(() => {
-    if (sourceSelecting) {
-      sourceSelectRef.current?.focus();
-    }
-  }, [sourceSelecting]);
-
   async function handleToggle() {
     setToggling(true);
     try {
@@ -105,21 +116,13 @@ export function TodoListItem({
     }
   }
 
-  async function handleSourceChange(nextValue: string) {
-    const nextActivityId = nextValue ? Number(nextValue) : null;
+  async function handleSourceChange(nextActivityId: number | null) {
     const currentActivityId = todo.activityId ?? null;
     if (nextActivityId === currentActivityId) {
-      setSourceSelecting(false);
       return;
     }
 
-    setSourceSaving(true);
-    try {
-      await onUpdateActivity(todo.id, nextActivityId);
-      setSourceSelecting(false);
-    } finally {
-      setSourceSaving(false);
-    }
+    await onUpdateActivity(todo.id, nextActivityId);
   }
 
   return (
@@ -144,6 +147,8 @@ export function TodoListItem({
         <TodoInlineContentEditor
           value={todo.content}
           editable={allowInlineEdit}
+          internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+          onOpenInternalReference={onOpenInternalReference}
           onSave={(content) => onUpdateContent(todo.id, content)}
         />
 
@@ -153,63 +158,26 @@ export function TodoListItem({
             onSelect={(priority) => onUpdatePriority(todo.id, priority)}
           />
           <span className="text-text-soft">·</span>
-          {sourceSelecting ? (
-            <select
-              ref={sourceSelectRef}
-              aria-label="选择归属 Activity"
-              value={todo.activityId ?? ""}
-              disabled={sourceSaving}
-              className="h-7 min-w-[8rem] max-w-full rounded-[var(--radius-6)] border border-border bg-bg px-2 text-caption text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-              onBlur={() => {
-                if (!sourceSaving) {
-                  setSourceSelecting(false);
-                }
-              }}
-              onChange={(event) => {
-                void handleSourceChange(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setSourceSelecting(false);
-                }
-              }}
-            >
-              <option value="">项目级 Todo</option>
-              {activityOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.title}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div className="flex min-w-0 items-center gap-1">
-              {sourceMeta.kind === "activity" ? (
-                <button
-                  type="button"
-                  className="max-w-full truncate bg-transparent text-text-soft transition-colors hover:text-text"
-                  onClick={() => onOpenTodoSource(todo)}
-                >
-                  {sourceMeta.label}
-                </button>
-              ) : (
-                <span className="truncate text-text-soft">{sourceMeta.label}</span>
-              )}
-              {canChangeSource ? (
-                <button
-                  type="button"
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-transparent text-text-soft transition-colors hover:text-text"
-                  aria-label="修改归属 Activity"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSourceSelecting(true);
-                  }}
-                >
-                  <ChevronDown size={12} />
-                </button>
-              ) : null}
-            </div>
-          )}
+          <div className="flex min-w-0 items-center gap-1">
+            {sourceMeta.kind === "activity" ? (
+              <button
+                type="button"
+                className="max-w-full truncate bg-transparent text-text-soft transition-colors hover:text-text"
+                onClick={() => onOpenTodoSource(todo)}
+              >
+                {sourceMeta.label}
+              </button>
+            ) : (
+              <span className="truncate text-text-soft">{sourceMeta.label}</span>
+            )}
+            {canChangeSource ? (
+              <TodoSourceDropdown
+                activityId={todo.activityId ?? null}
+                activityOptions={activityOptions}
+                onSelect={handleSourceChange}
+              />
+            ) : null}
+          </div>
         </div>
 
         <TodoInlineProgressEditor
@@ -224,6 +192,8 @@ export function TodoListItem({
           }
           editable={allowInlineProgress}
           onError={onError}
+          internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+          onOpenInternalReference={onOpenInternalReference}
           onSave={(payload) => onAddProgress(todo.id, payload)}
           onUpdateLatestProgress={onUpdateProgress}
           onDeleteLatestProgress={onDeleteProgress}
@@ -236,11 +206,13 @@ export function TodoListItem({
                 <TodoHistoryProgressItem
                   key={progress.id}
                   progress={progress}
+                  projectId={todo.projectId}
                   editable={allowInlineProgress}
                   bordered={index > 0}
                   onUpdateProgress={onUpdateProgress}
                   onDeleteProgress={onDeleteProgress}
                   onError={onError}
+                  onOpenInternalReference={onOpenInternalReference}
                 />
               ))}
             </div>
@@ -281,13 +253,16 @@ export function TodoListItem({
 
 function TodoHistoryProgressItem({
   progress,
+  projectId,
   editable,
   bordered,
   onUpdateProgress,
   onDeleteProgress,
   onError,
+  onOpenInternalReference,
 }: {
   progress: TodoProgressRecord;
+  projectId: number;
   editable: boolean;
   bordered: boolean;
   onUpdateProgress: (
@@ -296,30 +271,63 @@ function TodoHistoryProgressItem({
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onError?: (message: string) => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(progress.content);
   const [saving, setSaving] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
+  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
   const saveInFlightRef = useRef(false);
   const skipBlurSaveRef = useRef(false);
+  const referenceTrigger = editing
+    ? findInternalReferenceTextTrigger(draft, selectionStart)
+    : null;
+  const referenceTriggerKey = referenceTrigger
+    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
+    : null;
+  const referencePickerOpen =
+    Boolean(referenceTrigger) && dismissedTriggerKey !== referenceTriggerKey;
+  const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
+    open: referencePickerOpen,
+    query: referenceTrigger?.query ?? "",
+    context: { scope: "project", projectId },
+    limit: 8,
+  });
 
   useEffect(() => {
     if (!editing) {
       setDraft(progress.content);
+      setSelectionStart(null);
+      setDismissedTriggerKey(null);
     }
   }, [editing, progress.content]);
 
   useEffect(() => {
-    if (!editing || !textareaRef.current) {
+    if (!referencePickerOpen) {
+      setReferenceActiveIndex(0);
       return;
     }
 
-    const textarea = textareaRef.current;
-    textarea.style.height = "0px";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [draft, editing]);
+    setReferenceActiveIndex((current) => {
+      if (referenceResults.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, referenceResults.length - 1);
+    });
+  }, [referencePickerOpen, referenceResults.length]);
+
+  useEffect(() => {
+    if (!referencePickerOpen) {
+      return;
+    }
+
+    setReferenceActiveIndex(0);
+  }, [referencePickerOpen, referenceTrigger?.query]);
 
   async function handleSave() {
     if (saveInFlightRef.current) {
@@ -352,38 +360,111 @@ function TodoHistoryProgressItem({
     }
   }
 
+  function handleReferenceInsert(reference: InternalReferenceSearchResult) {
+    if (!referenceTrigger) {
+      return;
+    }
+
+    const target = buildInternalReferenceTarget(reference);
+    const token = `${buildInternalReferenceToken(target)} `;
+    const nextDraft =
+      draft.slice(0, referenceTrigger.start) + token + draft.slice(referenceTrigger.end);
+    const nextSelection = referenceTrigger.start + token.length;
+
+    setDraft(nextDraft);
+    setSelectionStart(nextSelection);
+    setDismissedTriggerKey(null);
+
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+    });
+  }
+
   if (editing) {
     return (
       <div className={cn("grid gap-2 py-2", bordered && "border-t border-border")}>
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          className="min-h-8 w-full resize-none overflow-hidden rounded-[var(--radius-6)] border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] px-2.5 py-1.5 text-ui leading-5 text-text outline-none"
-          value={draft}
-          autoFocus
-          disabled={saving}
-          placeholder="@0315 已与财务确认方案"
-          onChange={(event) => setDraft(normalizeProgressDraft(event.target.value))}
-          onBlur={() => {
-            if (skipBlurSaveRef.current) {
-              skipBlurSaveRef.current = false;
-              return;
-            }
-            void handleSave();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.blur();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              skipBlurSaveRef.current = true;
-              setEditing(false);
-              event.currentTarget.blur();
-            }
-          }}
-        />
+        <div className="relative">
+          <TodoReferenceEditor
+            editorRef={editorRef}
+            value={draft}
+            selectionOffset={selectionStart}
+            autoFocus
+            disabled={saving}
+            placeholder="@0315 已与财务确认方案"
+            textClassName="text-ui leading-5"
+            onChange={(nextValue, nextSelection) => {
+              setDraft(normalizeProgressDraft(nextValue));
+              setSelectionStart(nextSelection);
+            }}
+            onSelectionChange={setSelectionStart}
+            onBlur={() => {
+              if (skipBlurSaveRef.current) {
+                skipBlurSaveRef.current = false;
+                return;
+              }
+              void handleSave();
+            }}
+            onKeyDown={(event) => {
+              if (referencePickerOpen) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setReferenceActiveIndex((current) => {
+                    if (referenceResults.length === 0) {
+                      return 0;
+                    }
+
+                    return (current + 1) % referenceResults.length;
+                  });
+                  return;
+                }
+
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setReferenceActiveIndex((current) => {
+                    if (referenceResults.length === 0) {
+                      return 0;
+                    }
+
+                    return current === 0 ? referenceResults.length - 1 : current - 1;
+                  });
+                  return;
+                }
+
+                if (event.key === "Enter" && referenceResults.length > 0) {
+                  event.preventDefault();
+                  handleReferenceInsert(referenceResults[referenceActiveIndex] ?? referenceResults[0]);
+                  return;
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDismissedTriggerKey(referenceTriggerKey);
+                  return;
+                }
+              }
+
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                skipBlurSaveRef.current = true;
+                setEditing(false);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          <InternalReferencePicker
+            open={referencePickerOpen}
+            loading={referenceLoading}
+            results={referenceResults}
+            activeIndex={referenceActiveIndex}
+            className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+            onHoverIndex={setReferenceActiveIndex}
+            onSelect={handleReferenceInsert}
+          />
+        </div>
       </div>
     );
   }
@@ -401,7 +482,12 @@ function TodoHistoryProgressItem({
       }}
     >
       <p className="text-ui leading-5 text-text-muted">
-        <span className="break-words">{progress.content}</span>
+        <InternalReferenceInlineText
+          value={progress.content}
+          className="break-words"
+          variant="todo-inline"
+          onOpenInternalReference={onOpenInternalReference}
+        />
         <span
           className="ml-2 text-caption text-text-soft"
           title={formatFullDate(progress.progressDate)}

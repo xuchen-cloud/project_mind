@@ -6,14 +6,14 @@
 - 打开或新建 Workspace，并把数据库、配置、AI 缓存、日志和临时文件统一收纳在 Workspace 下的 `.project-mind/`
 - 记录最近使用的 Workspace，支持切换 Workspace、打开 Workspace 根目录，以及锁定 / 解锁 AI secrets
 - 在当前 Workspace 内创建项目，并在根目录下生成同名项目文件夹
-- 在项目页维护摘要、项目级文件、结论时间线、Todo Rail，并支持归档 / 恢复项目
-- 在项目内创建 Activity，维护活动属性与活动状态字典，并自动为 Activity 生成独立目录
-- 在 Activity 中编写记录，支持自定义记录类型与模板、富文本正文、图片 / 附件 / 表格、截图粘贴、文件插入和单条记录置顶
-- 在 Activity 中沉淀结论，并提升到项目首页展示
-- 在项目级与 Activity 级创建 Todo、切换状态、调整优先级并追加进展
-- 管理项目 / Activity 文件，支持拖拽导入、导入前批量打标签、标签筛选、打开 / 定位 / 重命名 / 标星 / 删除、版本浏览与新增版本、失效检测
-- 在顶部工作台搜索项目、活动、结论、Todo 和文件，并跳转到对应锚点
-- 提供 `Today`、`Ask`、`Activity Summary`、`Project Brief` 等 AI 入口
+- 在项目页维护项目状态、富文本简介、项目级文件、结论时间线、Todo Rail 和 `Project Brief` AI 概览，并支持归档 / 恢复项目
+- 在项目内创建 Activity，维护活动属性、活动状态、富文本简介，并自动为 Activity 生成独立目录
+- 在 Activity 中编写记录，支持自定义记录类型与模板、富文本正文、图片 / 附件 / 表格、截图粘贴、空白编辑器直接粘贴图片、文件插入、内部引用 `[[...]]`、单条记录置顶，以及独立记录专注页
+- 在 Activity 中沉淀结论，支持提升到项目首页展示、统一置顶排序，并可从引用或焦点锚点回跳
+- 在项目级与 Activity 级创建 Todo，切换状态、调整优先级、修改所属 Activity / 清空为项目级、维护最新进展与历史进展，并在 Todo 正文 / 进展中使用内部引用 `[[...]]`
+- 管理项目 / Activity 文件，支持拖拽导入、导入前批量打标签、标签筛选、打开 / 定位 / 重命名 / 标星 / 删除、版本浏览与新增版本、失效检测，以及在 Activity 页面按需展开“项目文件”折叠区
+- 在顶部工作台搜索项目、活动、结论、Todo 和文件，并通过现有项目路由、`focus` 锚点和记录专注页进行跳转
+- 提供始终可访问的 `Today` 工作台（固定快记、Today Todo、workspace notes、AI 今日概览）、`Ask`、`Activity Summary`、`Project Brief` 等入口
 - 配置 AI provider profile、能力绑定、能力开关、执行并发，并用 Workspace 密码加密保存 API Key
 - 配置富文本正文、标题和列表的全局排版样式
 
@@ -90,6 +90,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 - `src/`：React 前端、页面布局、编辑器组件、状态管理、Tauri API 封装
 - `src-tauri/`：Tauri 宿主、Workspace 运行时、SQLite 数据层、文件系统能力、AI 作业与命令接口
 - `docs/product-prd.md`：基于当前实现整理的产品基线 PRD
+- `docs/record-today-reference-requirements.md`：记录 / Today / Todo / 引用相关增量需求与完成状态
 - `docs/system-design.md`：当前 workspace-first 架构、模块边界与数据流
 - `docs/design-system.md`：当前视觉基础、组件约束、状态语义与交互规则
 - `docs/alpha-ux.md`：当前信息架构、页面职责、核心用户流与状态清单

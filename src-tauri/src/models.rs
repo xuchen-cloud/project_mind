@@ -575,6 +575,30 @@ pub struct ProjectOverviewData {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InternalReferenceSearchResult {
+    pub kind: String,
+    pub id: i64,
+    pub label: String,
+    pub project_id: i64,
+    pub activity_id: Option<i64>,
+    pub subtitle: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InternalReferenceResolveResult {
+    pub kind: String,
+    pub id: i64,
+    pub label: String,
+    pub project_id: i64,
+    pub activity_id: Option<i64>,
+    pub route: String,
+    pub focus_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSearchResult {
     pub kind: String,
     pub id: i64,
@@ -652,6 +676,22 @@ pub struct WorkspaceSearchInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InternalReferenceSearchInput {
+    pub query: String,
+    pub project_id: Option<i64>,
+    pub scope: String,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InternalReferenceResolveInput {
+    pub kind: String,
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectArchiveInput {
     pub project_id: i64,
     pub is_archived: bool,
@@ -679,6 +719,12 @@ pub struct ActivityUpdateMetaInput {
     pub is_pinned: Option<bool>,
     pub is_expanded: Option<bool>,
     pub status_option_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityDeleteInput {
+    pub activity_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

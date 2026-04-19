@@ -17,6 +17,7 @@ vi.mock("../../state/feedback-store", () => ({
 }));
 
 vi.mock("../rich-editor", () => ({
+  RICH_EDITOR_FOCUS_REQUEST_EVENT: "project-mind-rich-editor-focus-request",
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => {
     const normalizedText = value.text.trim();
     const normalizedMarkdown = value.markdown.trim();

@@ -9,6 +9,7 @@ export const PROJECT_STATUS_OPTIONS = [
 
 export const EMPTY_ACTIVITY_ATTRIBUTE_LABEL = "未设置属性";
 export const DEFAULT_ACTIVITY_STATUS_LABEL = "待启动";
+export const UNTITLED_ACTIVITY_PREFIX = "未命名 Activity";
 
 export const TODO_STATUS_OPTIONS = [
   { value: "unfinished", label: "未完成" },
@@ -112,6 +113,15 @@ export function activityAttributeLabel(value?: string | null) {
 export function activityStatusLabel(value?: string | null) {
   const normalized = value?.trim();
   return normalized ? normalized : DEFAULT_ACTIVITY_STATUS_LABEL;
+}
+
+export function untitledActivityTitle(activityId: number) {
+  return `${UNTITLED_ACTIVITY_PREFIX} ${activityId}`;
+}
+
+export function resolveActivityTitle(value: string | null | undefined, activityId: number) {
+  const normalized = value?.trim();
+  return normalized ? normalized : untitledActivityTitle(activityId);
 }
 
 export function todoStatusLabel(value: string) {

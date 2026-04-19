@@ -28,6 +28,7 @@ const {
   mockConclusionUpdateMutateAsync,
   mockConclusionDeleteMutateAsync,
   mockActivityMetaMutate,
+  mockActivityDeleteMutateAsync,
   mockNoteMutateAsync,
   mockNoteDeleteMutateAsync,
   mockOpenSettings,
@@ -56,6 +57,7 @@ const {
   mockConclusionUpdateMutateAsync: vi.fn(),
   mockConclusionDeleteMutateAsync: vi.fn(),
   mockActivityMetaMutate: vi.fn(),
+  mockActivityDeleteMutateAsync: vi.fn(),
   mockNoteMutateAsync: vi.fn(),
   mockNoteDeleteMutateAsync: vi.fn(),
   mockOpenSettings: vi.fn(),
@@ -100,6 +102,10 @@ vi.mock("../../services/desktopApi", () => ({
 vi.mock("../../hooks/useActivityMutations", () => ({
   useActivityMutations: () => ({
     activityMetaMutation: { isPending: false, mutate: mockActivityMetaMutate },
+    deleteActivityMutation: {
+      isPending: false,
+      mutateAsync: mockActivityDeleteMutateAsync,
+    },
     noteMutation: { isPending: false, mutateAsync: mockNoteMutateAsync },
     noteDeleteMutation: {
       isPending: false,
@@ -202,9 +208,11 @@ vi.mock("../document/ManagedDocumentSection", () => ({
   ManagedDocumentSection: ({
     documents,
     activityId,
+    chrome,
   }: {
     documents: Array<{ name: string }>;
     activityId?: number | null;
+    chrome?: "card" | "embedded";
   }) => (
     <div
       data-testid={
@@ -212,6 +220,7 @@ vi.mock("../document/ManagedDocumentSection", () => ({
           ? "managed-document-section-project"
           : "managed-document-section-activity"
       }
+      data-chrome={chrome ?? "card"}
     >
       <div data-testid="managed-document-count">{documents.length}</div>
       {documents.map((document) => (
@@ -223,6 +232,7 @@ vi.mock("../document/ManagedDocumentSection", () => ({
 
 vi.mock("../rich-editor", () => ({
   EMPTY_RICH_EDITOR_HTML: "",
+  RICH_EDITOR_FOCUS_REQUEST_EVENT: "project-mind-rich-editor-focus-request",
   normalizeRichEditorValue: (value: {
     html: string;
     text: string;
@@ -290,15 +300,25 @@ vi.mock("../rich-editor", () => ({
 
 vi.mock("./ActivityNotesPanel", () => ({
   ActivityNotesPanel: (props: {
+    onOpenNoteFocus?: (target: { kind: "saved"; noteId: number }) => void;
     onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
     onImportImage?: (sourcePath: string) => Promise<unknown>;
     onImportDocument?: (sourcePath: string) => Promise<unknown>;
     onImportClipboardImage?: (file: File) => Promise<unknown>;
   }) => {
     return (
-      <section data-testid="activity-notes-panel">
+      <section
+        data-testid="activity-notes-panel"
+        data-full-page-active="false"
+      >
         <div data-testid="activity-notes-editor">记录编辑器区</div>
         <div data-testid="activity-notes-results">记录结果</div>
+        <button
+          type="button"
+          onClick={() => props.onOpenNoteFocus?.({ kind: "saved", noteId: 21 })}
+        >
+          打开专注页模拟
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -358,6 +378,7 @@ describe("ActivityPage", () => {
     mockConclusionUpdateMutateAsync.mockReset();
     mockConclusionDeleteMutateAsync.mockReset();
     mockActivityMetaMutate.mockReset();
+    mockActivityDeleteMutateAsync.mockReset();
     mockNoteMutateAsync.mockReset();
     mockNoteDeleteMutateAsync.mockReset();
     mockOpenSettings.mockReset();
@@ -565,6 +586,40 @@ describe("ActivityPage", () => {
     );
   });
 
+  it("navigates to the dedicated note focus route when the notes panel opens focus mode", async () => {
+    const user = userEvent.setup();
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/9/activities/11"]}>
+          <Routes>
+            <Route
+              path="/projects/:projectId/activities/:activityId"
+              element={<ActivityPage />}
+            />
+            <Route
+              path="/projects/:projectId/activities/:activityId/notes/:noteId"
+              element={<div data-testid="note-focus-route">记录专注页</div>}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "打开专注页模拟" }));
+
+    expect(await screen.findByTestId("note-focus-route")).toBeInTheDocument();
+  });
+
   it("keeps project-level starred documents collapsed and separate from activity documents", async () => {
     const user = userEvent.setup();
 
@@ -590,18 +645,18 @@ describe("ActivityPage", () => {
             id: 51,
             name: "project-starred.pdf",
             baseName: "project-starred.pdf",
-            activityId: null,
+            activityId: undefined,
             isStarred: true,
-            sourceActivityTitle: null,
+            sourceActivityTitle: undefined,
             managedPath: "/tmp/project-atlas/project/project-starred.pdf",
           }),
           buildDocumentRecord({
             id: 52,
             name: "project-plain.pdf",
             baseName: "project-plain.pdf",
-            activityId: null,
+            activityId: undefined,
             isStarred: false,
-            sourceActivityTitle: null,
+            sourceActivityTitle: undefined,
             managedPath: "/tmp/project-atlas/project/project-plain.pdf",
           }),
         ],
@@ -611,13 +666,16 @@ describe("ActivityPage", () => {
     renderActivityPage();
 
     expect(await screen.findByText("文件材料")).toBeInTheDocument();
-    expect(screen.getByText("项目级标星文件")).toBeInTheDocument();
+    expect(screen.getByText("项目文件")).toBeInTheDocument();
     expect(screen.getByLabelText("切换项目文件展示")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
+    const documentsCard = screen.getByTestId("activity-documents-card");
 
     const activityDocumentSection = screen.getByTestId("managed-document-section-activity");
+    expect(activityDocumentSection).toHaveAttribute("data-chrome", "embedded");
+    expect(documentsCard).toContainElement(activityDocumentSection);
     expect(within(activityDocumentSection).getByTestId("managed-document-count")).toHaveTextContent(
       "1",
     );
@@ -627,11 +685,21 @@ describe("ActivityPage", () => {
     await user.click(screen.getByLabelText("切换项目文件展示"));
 
     const projectDocumentSection = await screen.findByTestId("managed-document-section-project");
+    expect(projectDocumentSection).toHaveAttribute("data-chrome", "embedded");
+    expect(documentsCard).toContainElement(projectDocumentSection);
     expect(within(projectDocumentSection).getByTestId("managed-document-count")).toHaveTextContent(
       "1",
     );
     expect(within(projectDocumentSection).getByText("project-starred.pdf")).toBeInTheDocument();
     expect(within(projectDocumentSection).queryByText("project-plain.pdf")).not.toBeInTheDocument();
+  });
+
+  it("hides the project files dropdown when there are no project-level starred documents", async () => {
+    renderActivityPage();
+
+    expect(await screen.findByText("文件材料")).toBeInTheDocument();
+    expect(screen.queryByText("项目文件")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("切换项目文件展示")).not.toBeInTheDocument();
   });
 
   it("renders editable header tags and removes the old review button", async () => {
@@ -679,11 +747,17 @@ describe("ActivityPage", () => {
 
     renderActivityPage();
 
+    expect(await screen.findByText("当前范围与预期结果")).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "当前范围与预期结果" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "编辑简介" }),
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "当前范围与预期结果" }));
+    await user.click(
+      screen.getByRole("button", { name: /当前范围与预期结果/ }),
+    );
+    expect(
+      screen.queryByLabelText("文本格式工具栏"),
+    ).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("Activity 简介"));
     await user.type(screen.getByLabelText("Activity 简介"), "更新后的活动简介");
     await user.tab();
@@ -777,6 +851,46 @@ describe("ActivityPage", () => {
     });
   });
 
+  it("falls back to a unique untitled activity name when the title is cleared", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "预算讨论" }));
+    await user.clear(screen.getByLabelText("Activity 名称"));
+    await user.type(screen.getByLabelText("Activity 名称"), "{Enter}");
+
+    expect(mockActivityMetaMutate).toHaveBeenCalledWith({
+      activityId: 11,
+      title: "未命名 Activity 11",
+    });
+  });
+
+  it("asks for confirmation before deleting an activity and deletes related content on confirm", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "删除 Activity" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "删除 Activity" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("活动记录：0 条")).toBeInTheDocument();
+    expect(screen.getByText("结论：1 条")).toBeInTheDocument();
+    expect(screen.getByText("Todo：0 条")).toBeInTheDocument();
+    expect(screen.getByText("文件：0 个")).toBeInTheDocument();
+    expect(
+      screen.getByText(/对应的活动记录、结论、Todo、文件都会删除/u),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+
+    expect(mockActivityDeleteMutateAsync).toHaveBeenCalledWith({
+      activityId: 11,
+    });
+  });
+
   it("trims boundary blank lines and spaces before saving a conclusion", async () => {
     const user = userEvent.setup();
 
@@ -858,6 +972,28 @@ describe("ActivityPage", () => {
     expect(
       screen.queryByRole("button", { name: "取消" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens the conclusion composer from the empty state", async () => {
+    const user = userEvent.setup();
+    mockActivityList.mockResolvedValue([
+      {
+        ...buildActivity(),
+        digest: {
+          ...buildActivity().digest,
+          conclusionCount: 0,
+        },
+        conclusions: [],
+      },
+    ]);
+
+    renderActivityPage();
+
+    await user.click(await screen.findByRole("button", { name: "空态新增结论" }));
+
+    expect(
+      screen.getByPlaceholderText("记录已确认的判断、共识或决定。"),
+    ).toBeInTheDocument();
   });
 
   it("edits an existing conclusion in place", async () => {
@@ -1044,24 +1180,15 @@ describe("ActivityPage", () => {
     });
   });
 
-  it("creates a pinned conclusion when the pin toggle is enabled", async () => {
+  it("keeps pin controls out of the conclusion editor UI", async () => {
     const user = userEvent.setup();
 
     renderActivityPage();
 
     await user.click(await screen.findByRole("button", { name: "新增结论" }));
-    await user.type(screen.getByLabelText("结论编辑器"), "置顶的活动结论");
-    await user.click(screen.getByRole("button", { name: "置顶" }));
-    fireEvent.blur(screen.getByLabelText("结论编辑器"));
 
-    expect(mockConclusionMutateAsync).toHaveBeenCalledWith({
-      projectId: 9,
-      activityId: 11,
-      markdown: "置顶的活动结论",
-      html: "<p>置顶的活动结论</p>",
-      promotedToProject: true,
-      isPinned: true,
-    });
+    expect(screen.queryByRole("button", { name: "置顶" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消置顶" })).not.toBeInTheDocument();
   });
 
   it("toggles conclusion pinning from the context menu", async () => {

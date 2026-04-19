@@ -108,7 +108,7 @@ describe("TodoListItem", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
-    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "12");
+    await user.click(screen.getByRole("menuitemradio", { name: "项目复盘" }));
 
     expect(onUpdateActivity).toHaveBeenCalledWith(7, 12);
   });
@@ -139,7 +139,7 @@ describe("TodoListItem", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
-    await user.selectOptions(screen.getByLabelText("选择归属 Activity"), "");
+    await user.click(screen.getByRole("menuitemradio", { name: "项目级 Todo" }));
 
     expect(onUpdateActivity).toHaveBeenCalledWith(7, null);
   });

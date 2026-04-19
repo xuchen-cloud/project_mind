@@ -435,6 +435,46 @@ export interface ProjectOverviewData {
   finishedTodos: TodoRecord[];
 }
 
+export type InternalReferenceKind = "note" | "conclusion" | "todo" | "document";
+export type InternalReferenceScope = "project" | "workspace";
+
+export interface InternalReferenceContext {
+  scope: InternalReferenceScope;
+  projectId?: number | null;
+}
+
+export interface InternalReferenceSearchInput {
+  query: string;
+  projectId?: number | null;
+  scope: InternalReferenceScope;
+  limit: number;
+}
+
+export interface InternalReferenceSearchResult {
+  kind: InternalReferenceKind;
+  id: number;
+  label: string;
+  projectId: number;
+  activityId?: number | null;
+  subtitle: string;
+  updatedAt: string;
+}
+
+export interface InternalReferenceResolveInput {
+  kind: InternalReferenceKind;
+  id: number;
+}
+
+export interface InternalReferenceResolveResult {
+  kind: InternalReferenceKind;
+  id: number;
+  label: string;
+  projectId: number;
+  activityId?: number | null;
+  route: string;
+  focusId?: string | null;
+}
+
 export interface WorkspaceSearchResult {
   kind: "project" | "activity" | "conclusion" | "todo" | "document";
   id: number;
@@ -496,6 +536,10 @@ export interface ActivityUpdateMetaInput {
   isPinned?: boolean;
   isExpanded?: boolean;
   statusOptionId?: number;
+}
+
+export interface ActivityDeleteInput {
+  activityId: number;
 }
 
 export interface ActivityAttributeOptionUpsertInput {

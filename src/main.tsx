@@ -12,6 +12,7 @@ import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { ActivityPage } from "./components/activity/ActivityPage";
+import { ActivityNoteFocusPage } from "./components/activity/ActivityNoteFocusPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import { TodayPage } from "./components/today/TodayPage";
 
@@ -26,6 +27,14 @@ const router = createHashRouter([
       {
         path: "projects/:projectId/activities/:activityId",
         element: <ActivityPage />,
+      },
+      {
+        path: "projects/:projectId/activities/:activityId/notes/draft/:draftLocalId",
+        element: <ActivityNoteFocusPage />,
+      },
+      {
+        path: "projects/:projectId/activities/:activityId/notes/:noteId",
+        element: <ActivityNoteFocusPage />,
       },
       {
         path: "settings/:section",

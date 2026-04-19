@@ -7,6 +7,7 @@ import { refreshAll } from "./shared";
 
 interface UseActivityMutationsOptions {
   onCreateActivitySuccess?: (activity: ActivityCardData) => void;
+  onDeleteActivitySuccess?: (activity: ActivityCardData) => void;
 }
 
 export function useActivityMutations(options: UseActivityMutationsOptions = {}) {
@@ -35,6 +36,19 @@ export function useActivityMutations(options: UseActivityMutationsOptions = {}) 
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "活动更新失败" });
       pushToast({ tone: "error", title: "活动更新失败", detail: String(error) });
+    },
+  });
+
+  const deleteActivityMutation = useMutation({
+    mutationFn: projectMindApi.activityDelete,
+    onSuccess: async (activity) => {
+      setStatus({ tone: "success", label: "Deleted", message: "活动已删除" });
+      options.onDeleteActivitySuccess?.(activity);
+      await refreshAll(queryClient, activity.projectId);
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除活动失败" });
+      pushToast({ tone: "error", title: "删除活动失败", detail: String(error) });
     },
   });
 
@@ -119,6 +133,7 @@ export function useActivityMutations(options: UseActivityMutationsOptions = {}) 
   return {
     createActivityMutation,
     activityMetaMutation,
+    deleteActivityMutation,
     noteMutation,
     noteDeleteMutation,
     conclusionMutation,

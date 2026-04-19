@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { activityPath, projectPath } from "../../lib/formatters";
 import { workspaceDayString } from "../../lib/aiArtifacts";
 import { isAiFeatureReady, isAiFeatureVisible } from "../../lib/ai";
+import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useTodayQuickNoteMutations } from "../../hooks/useTodayQuickNoteMutations";
 import { useWorkspaceNoteMutations } from "../../hooks/useWorkspaceNoteMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
@@ -20,6 +21,7 @@ export function TodayPage() {
   const navigate = useNavigate();
   const today = useMemo(() => workspaceDayString(), []);
   const { pushToast } = useFeedbackStore();
+  const openInternalReference = useInternalReferenceNavigation();
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "all"],
@@ -86,16 +88,7 @@ export function TodayPage() {
   return (
     <section className="h-full overflow-y-auto bg-bg">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8">
-        <div className="grid gap-2">
-          <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-            Workspace
-          </p>
-          <h1 className="text-display font-medium tracking-tight text-text">Today</h1>
-          <p className="max-w-4xl text-body leading-7 text-text-muted">
-            这是整个工作区的首页。先看今天的整体判断，再按项目处理 To Do，并把零散线索记在工作区级记录里。
-          </p>
-          <p className="text-ui text-text-soft">日期：{today}</p>
-        </div>
+        <h1 className="text-display font-medium tracking-tight text-text">Today</h1>
 
         {showTodayBrief ? (
           !projectsQuery.isLoading && visibleProjects.length === 0 ? (
@@ -121,12 +114,16 @@ export function TodayPage() {
           note={todayQuickNoteQuery.data ?? null}
           saving={todayQuickNoteMutation.isPending}
           onUpsertNote={(input) => todayQuickNoteMutation.mutateAsync(input)}
+          onOpenInternalReference={openInternalReference}
         />
 
         <TodayTodoSection
           projects={visibleProjects}
           activityOptionsByProject={activityOptionsByProject}
           todos={allTodos}
+          onOpenProject={(projectId) => {
+            navigate(projectPath(projectId));
+          }}
           onCreateTodo={(payload) => todoMutation.mutate(payload)}
           onToggleStatus={(todoId, status) =>
             todoStatusMutation.mutateAsync({ todoId, status })
@@ -161,6 +158,7 @@ export function TodayPage() {
           onError={(message) => {
             pushToast({ tone: "error", title: "Todo 处理失败", detail: message });
           }}
+          onOpenInternalReference={openInternalReference}
         />
 
         <WorkspaceNotesPanel
@@ -169,6 +167,7 @@ export function TodayPage() {
           deletingNote={workspaceNoteDeleteMutation.isPending}
           onUpsertNote={(input) => workspaceNoteMutation.mutateAsync(input)}
           onDeleteNote={(noteId) => workspaceNoteDeleteMutation.mutateAsync({ noteId })}
+          onOpenInternalReference={openInternalReference}
         />
       </div>
     </section>

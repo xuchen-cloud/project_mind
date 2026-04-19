@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { projectMindApi } from "../../services/projectMindApi";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 
 describe("TodoInlineProgressEditor", () => {
@@ -16,9 +17,9 @@ describe("TodoInlineProgressEditor", () => {
     expect(screen.queryByText(/\+\s*进展/u)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
-    expect(screen.getByRole("textbox").tagName).toBe("TEXTAREA");
+    expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "true");
 
-    await user.type(screen.getByPlaceholderText("@0315 已与财务确认方案"), "@0315 已确认方案");
+    await user.type(screen.getByRole("textbox"), "@0315 已确认方案");
     await user.keyboard("{Enter}");
 
     expect(onSave).toHaveBeenCalledWith({
@@ -40,7 +41,7 @@ describe("TodoInlineProgressEditor", () => {
 
     await user.click(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
 
-    expect(screen.getByPlaceholderText("@0315 已与财务确认方案")).toBeInTheDocument();
+    expect(screen.getByText("@0315 已与财务确认方案")).toBeInTheDocument();
   });
 
   it("normalizes pasted line breaks before saving", async () => {
@@ -52,9 +53,10 @@ describe("TodoInlineProgressEditor", () => {
     await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
 
     const textbox = screen.getByRole("textbox");
-    fireEvent.change(textbox, { target: { value: "@0315 已确认\n方案" } });
+    textbox.textContent = "@0315 已确认\n方案";
+    fireEvent.input(textbox);
 
-    expect(screen.getByRole("textbox")).toHaveValue("@0315 已确认 方案");
+    expect(screen.getByRole("textbox")).toHaveTextContent("@0315 已确认 方案");
 
     await user.keyboard("{Enter}");
 
@@ -146,5 +148,51 @@ describe("TodoInlineProgressEditor", () => {
     await user.click(screen.getByRole("menuitem", { name: "删除进展" }));
 
     expect(onDeleteLatestProgress).toHaveBeenCalledWith(23);
+  });
+
+  it("supports internal reference insertion and display for progress content", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onOpenInternalReference = vi.fn(async () => true);
+    const searchSpy = vi
+      .spyOn(projectMindApi, "internalReferenceSearch")
+      .mockResolvedValue([
+        {
+          kind: "document",
+          id: 51,
+          label: "project-brief.pdf",
+          projectId: 1,
+          activityId: 2,
+          subtitle: "Alpha · Kickoff",
+          updatedAt: "2026-04-06T10:00:00.000Z",
+        },
+      ]);
+
+    const { container } = render(
+      <TodoInlineProgressEditor
+        latestProgress={null}
+        editable
+        onSave={onSave}
+        onError={vi.fn()}
+        internalReferenceContext={{ scope: "project", projectId: 1 }}
+        onOpenInternalReference={onOpenInternalReference}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.keyboard("[[[[");
+    expect(await screen.findByRole("option", { name: /文件.*project-brief\.pdf/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("textbox")).toHaveTextContent("文件project-brief.pdf");
+    expect(container.querySelector(".internal-reference-chip--todo")).toBeTruthy();
+
+    await user.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledWith({
+      content: "[[document:51|project-brief.pdf]]",
+      progressDate: expect.any(String),
+    });
+
+    searchSpy.mockRestore();
   });
 });

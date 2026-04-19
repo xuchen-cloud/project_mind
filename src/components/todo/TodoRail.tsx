@@ -1,10 +1,21 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ListTodo, Plus } from "lucide-react";
 
-import type { TodoPriority, TodoRecord } from "../../lib/types";
+import {
+  buildInternalReferenceTarget,
+  buildInternalReferenceToken,
+  findInternalReferenceTextTrigger,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
+import type {
+  InternalReferenceSearchResult,
+  TodoPriority,
+  TodoRecord,
+} from "../../lib/types";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton, SurfaceCard, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
 import {
@@ -15,6 +26,7 @@ import {
 } from "./todo-utils";
 
 interface TodoRailProps {
+  projectId?: number;
   title: string;
   scopeLabel: string;
   unfinishedTodos: TodoRecord[];
@@ -39,6 +51,7 @@ interface TodoRailProps {
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
+  onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
 function RailTabButton({
@@ -65,6 +78,7 @@ function RailTabButton({
 }
 
 export function TodoRail({
+  projectId,
   title,
   scopeLabel,
   unfinishedTodos,
@@ -83,6 +97,7 @@ export function TodoRail({
   onDeleteTodo,
   onOpenTodoSource,
   onError,
+  onOpenInternalReference,
 }: TodoRailProps) {
   const { todoRailCollapsed, setTodoRailCollapsed, toggleTodoRailCollapsed } = useUiStore();
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
@@ -92,6 +107,25 @@ export function TodoRail({
   const [content, setContent] = useState("");
   const [priority, setPriority] = useState<TodoPriority>("not_urgent_important");
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
+  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceTrigger = isComposing ? findInternalReferenceTextTrigger(content, selectionStart) : null;
+  const referenceTriggerKey = referenceTrigger
+    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
+    : null;
+  const referencePickerOpen =
+    Boolean(referenceTrigger) && dismissedTriggerKey !== referenceTriggerKey;
+  const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
+    open: referencePickerOpen,
+    query: referenceTrigger?.query ?? "",
+    context:
+      projectId === undefined
+        ? null
+        : { scope: "project", projectId },
+    limit: 8,
+  });
 
   const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
   const todos = useMemo(() => {
@@ -107,6 +141,38 @@ export function TodoRail({
     [finishedTodos.length, unfinishedTodos.length],
   );
 
+  useEffect(() => {
+    if (!referencePickerOpen) {
+      setReferenceActiveIndex(0);
+      return;
+    }
+
+    setReferenceActiveIndex((current) => {
+      if (referenceResults.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, referenceResults.length - 1);
+    });
+  }, [referencePickerOpen, referenceResults.length]);
+
+  useEffect(() => {
+    if (!referencePickerOpen) {
+      return;
+    }
+
+    setReferenceActiveIndex(0);
+  }, [referencePickerOpen, referenceTrigger?.query]);
+
+  useEffect(() => {
+    if (isComposing) {
+      return;
+    }
+
+    setSelectionStart(null);
+    setDismissedTriggerKey(null);
+  }, [isComposing]);
+
   function submitCreate() {
     if (!content.trim()) {
       return;
@@ -115,6 +181,29 @@ export function TodoRail({
     setContent("");
     setPriority("not_urgent_important");
     setIsComposing(false);
+    setSelectionStart(null);
+    setDismissedTriggerKey(null);
+  }
+
+  function handleReferenceInsert(reference: InternalReferenceSearchResult) {
+    if (!referenceTrigger) {
+      return;
+    }
+
+    const target = buildInternalReferenceTarget(reference);
+    const token = `${buildInternalReferenceToken(target)} `;
+    const nextContent =
+      content.slice(0, referenceTrigger.start) + token + content.slice(referenceTrigger.end);
+    const nextSelection = referenceTrigger.start + token.length;
+
+    setContent(nextContent);
+    setSelectionStart(nextSelection);
+    setDismissedTriggerKey(null);
+
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
   }
 
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
@@ -252,17 +341,73 @@ export function TodoRail({
 
         {isComposing ? (
           <SurfaceCard className="mb-3 grid gap-2 p-3">
-            <TextField
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitCreate();
-                }
-              }}
-              placeholder={createPlaceholder}
-            />
+            <div className="relative">
+              <TextField
+                ref={composerInputRef}
+                value={content}
+                onChange={(event) => {
+                  setContent(event.target.value);
+                  setSelectionStart(event.target.selectionStart);
+                }}
+                onClick={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                onKeyUp={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                onSelect={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                onKeyDown={(event) => {
+                  if (referencePickerOpen) {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setReferenceActiveIndex((current) => {
+                        if (referenceResults.length === 0) {
+                          return 0;
+                        }
+
+                        return (current + 1) % referenceResults.length;
+                      });
+                      return;
+                    }
+
+                    if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setReferenceActiveIndex((current) => {
+                        if (referenceResults.length === 0) {
+                          return 0;
+                        }
+
+                        return current === 0 ? referenceResults.length - 1 : current - 1;
+                      });
+                      return;
+                    }
+
+                    if (event.key === "Enter" && referenceResults.length > 0) {
+                      event.preventDefault();
+                      handleReferenceInsert(referenceResults[referenceActiveIndex] ?? referenceResults[0]);
+                      return;
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setDismissedTriggerKey(referenceTriggerKey);
+                      return;
+                    }
+                  }
+
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitCreate();
+                  }
+                }}
+                placeholder={createPlaceholder}
+              />
+              <InternalReferencePicker
+                open={referencePickerOpen}
+                loading={referenceLoading}
+                results={referenceResults}
+                activeIndex={referenceActiveIndex}
+                className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+                onHoverIndex={setReferenceActiveIndex}
+                onSelect={handleReferenceInsert}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
@@ -305,6 +450,14 @@ export function TodoRail({
             onDeleteTodo={onDeleteTodo}
             onOpenTodoSource={onOpenTodoSource}
             onError={onError}
+            onOpenInternalReference={onOpenInternalReference}
+            onEmptyClick={
+              tab === "unfinished"
+                ? () => {
+                    setIsComposing(true);
+                  }
+                : undefined
+            }
           />
         </div>
       </div>
