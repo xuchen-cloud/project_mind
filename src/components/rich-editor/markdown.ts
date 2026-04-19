@@ -215,6 +215,22 @@ export function serializeEditorMarkdown(editor: Editor) {
   return markdownSerializer.serialize(editor.state.doc).trim();
 }
 
+export function serializeRichTextNodesMarkdown(
+  editor: Editor,
+  nodes: readonly ProseMirrorNode[],
+) {
+  const doc = editor.state.schema.topNodeType.createAndFill(
+    null,
+    nodes.map((node) => node.copy(node.content)),
+  );
+
+  if (!doc) {
+    return "";
+  }
+
+  return markdownSerializer.serialize(doc).trim();
+}
+
 function backticksFor(node: ProseMirrorNode, side: number) {
   const ticks = /`+/g;
   let match: RegExpExecArray | null = null;

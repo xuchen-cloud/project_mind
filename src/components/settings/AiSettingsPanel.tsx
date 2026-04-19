@@ -39,6 +39,8 @@ import {
 import type {
   AiCapability,
   AiCapabilityBindingUpsertInput,
+  AiEditorRewriteActionRecord,
+  AiEditorRewriteActionUpsertInput,
   AiExecutionSettings,
   AiFeatureKey,
   AiFeatureSettings,
@@ -62,6 +64,7 @@ import {
 import {
   settingsCardClassName,
   settingsFieldClassName,
+  settingsFieldHintClassName,
   settingsFieldLabelClassName,
   settingsSelectClassName,
 } from "./shared";
@@ -71,6 +74,13 @@ type BindingMode = "normal" | "advanced";
 interface BindingDraft {
   profileId: string;
   model: string;
+}
+
+interface EditorRewriteActionDraft {
+  id?: number;
+  label: string;
+  prompt: string;
+  enabled: boolean;
 }
 
 interface AiSettingsPanelProps {
@@ -101,6 +111,10 @@ export function AiSettingsPanel({
     createAiProfileDraft(),
   );
   const [testResult, setTestResult] = useState<AiProfileTestResult | null>(null);
+  const [isCreatingRewriteAction, setIsCreatingRewriteAction] = useState(false);
+  const [rewriteActionDraft, setRewriteActionDraft] = useState<EditorRewriteActionDraft>(
+    createEditorRewriteActionDraft(),
+  );
 
   const hasCustomBindings =
     snapshot?.bindings.some((binding) => binding.capability !== "default" && !binding.useDefault) ??
@@ -276,12 +290,59 @@ export function AiSettingsPanel({
       pushToast({ tone: "error", title: "更新 AI 能力开关失败", detail });
     },
   });
+  const saveEditorRewriteActionMutation = useMutation({
+    mutationFn: projectMindApi.aiEditorRewriteActionUpsert,
+    onSuccess: async (action) => {
+      setStatus({ tone: "success", label: "Saved", message: "编辑改写动作已保存" });
+      setIsCreatingRewriteAction(false);
+      setRewriteActionDraft(createEditorRewriteActionDraft());
+      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+        current
+          ? {
+              ...current,
+              editorRewriteActions: upsertEditorRewriteActionRecord(
+                current.editorRewriteActions,
+                action,
+              ),
+            }
+          : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+    },
+    onError: (error) => {
+      const detail = getErrorMessage(error, "保存编辑改写动作失败");
+      setStatus({ tone: "error", label: "Error", message: "保存编辑改写动作失败" });
+      pushToast({ tone: "error", title: "保存编辑改写动作失败", detail });
+    },
+  });
+  const deleteEditorRewriteActionMutation = useMutation({
+    mutationFn: projectMindApi.aiEditorRewriteActionDelete,
+    onSuccess: async (actions) => {
+      setStatus({ tone: "success", label: "Deleted", message: "编辑改写动作已删除" });
+      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+        current
+          ? {
+              ...current,
+              editorRewriteActions: actions,
+            }
+          : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+    },
+    onError: (error) => {
+      const detail = getErrorMessage(error, "删除编辑改写动作失败");
+      setStatus({ tone: "error", label: "Error", message: "删除编辑改写动作失败" });
+      pushToast({ tone: "error", title: "删除编辑改写动作失败", detail });
+    },
+  });
 
   const enabledProfilesCount = snapshot?.profiles.filter((profile) => profile.enabled).length ?? 0;
   const bindingControlsBusy = saveBindingMutation.isPending || bindingModeBusy;
   const executionBusy = saveExecutionMutation.isPending;
   const featureSettings = featureSettingsFromSnapshot(snapshot);
   const featureToggleBusy = saveFeatureSettingsMutation.isPending;
+  const editorRewriteActionsBusy =
+    saveEditorRewriteActionMutation.isPending || deleteEditorRewriteActionMutation.isPending;
 
   const beginCreateProfile = useCallback(() => {
     setSelectedProfileId(null);
@@ -306,6 +367,14 @@ export function AiSettingsPanel({
     setSelectedProfileId(null);
     setProfileDraft(createAiProfileDraft());
     setTestResult(null);
+  }, []);
+  const beginCreateRewriteAction = useCallback(() => {
+    setIsCreatingRewriteAction(true);
+    setRewriteActionDraft(createEditorRewriteActionDraft());
+  }, []);
+  const closeCreateRewriteAction = useCallback(() => {
+    setIsCreatingRewriteAction(false);
+    setRewriteActionDraft(createEditorRewriteActionDraft());
   }, []);
 
   const handleBindingModeChange = useCallback(
@@ -654,6 +723,77 @@ export function AiSettingsPanel({
         </div>
 
         <div className="grid gap-3">
+          <SurfaceCard className={settingsCardClassName}>
+            <SectionHeader
+              eyebrow="Editor Rewrite"
+              title="编辑改写动作"
+              actions={
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <StatusBadge tone={editorRewriteActionsBusy ? "warning" : "neutral"}>
+                    {editorRewriteActionsBusy ? "保存中" : "可在右键菜单直接调用"}
+                  </StatusBadge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    leadingIcon={<Plus size={14} />}
+                    onClick={() => {
+                      if (isCreatingRewriteAction) {
+                        closeCreateRewriteAction();
+                        return;
+                      }
+                      beginCreateRewriteAction();
+                    }}
+                  >
+                    {isCreatingRewriteAction ? "取消" : "新增动作"}
+                  </Button>
+                </div>
+              }
+            />
+
+            <div className="mt-3 grid gap-2.5">
+              <p className="text-body text-text-muted">
+                用户选中文本后，右键即可直接调用这里配置的动作。系统会自动带上原始选区、扩选后的整段内容和上下文。
+              </p>
+              <p className="text-ui text-text-soft">
+                动作名称和提示词只决定“做什么”。要实际运行，还需要在「能力绑定」里给默认能力或「编辑改写」绑定一个可用的文本模型。
+              </p>
+
+              {isCreatingRewriteAction ? (
+                <EditorRewriteActionEditor
+                  draft={rewriteActionDraft}
+                  setDraft={setRewriteActionDraft}
+                  busy={editorRewriteActionsBusy}
+                  autoFocusName
+                  onSave={() => saveEditorRewriteActionMutation.mutate(rewriteActionDraft)}
+                  onCancel={closeCreateRewriteAction}
+                />
+              ) : null}
+
+              {snapshot.editorRewriteActions.length > 0 ? (
+                <div className="grid gap-2.5">
+                  {snapshot.editorRewriteActions.map((action) => (
+                    <EditorRewriteActionRow
+                      key={action.id}
+                      action={action}
+                      busy={editorRewriteActionsBusy}
+                      onSave={(input) => saveEditorRewriteActionMutation.mutate(input)}
+                      onDelete={(actionId) =>
+                        deleteEditorRewriteActionMutation.mutate({ actionId })
+                      }
+                    />
+                  ))}
+                </div>
+              ) : !isCreatingRewriteAction ? (
+                <EmptyState
+                  compact
+                  className="min-h-36"
+                  text="还没有编辑改写动作。新增后，右键文本选区就能直接调用。"
+                />
+              ) : null}
+            </div>
+          </SurfaceCard>
+
           <SurfaceCard className={settingsCardClassName}>
             <SectionHeader
               eyebrow="Execution"
@@ -1313,9 +1453,189 @@ function capabilityDescription(capability: AiManagedCapability) {
       return "控制 Activity / 项目 / Today 的 AI 总结类模块。";
     case "suggestion_generation":
       return "控制记录区的 AI 提炼按钮和候选写入流程。";
+    case "editor_rewrite":
+      return "控制记录编辑器和 Workspace Notes 的选区级 AI 改写入口。";
     default:
       return capability;
   }
+}
+
+function createEditorRewriteActionDraft(
+  action?: AiEditorRewriteActionRecord | null,
+): EditorRewriteActionDraft {
+  return {
+    id: action?.id,
+    label: action?.label ?? "",
+    prompt: action?.prompt ?? "",
+    enabled: action?.enabled ?? true,
+  };
+}
+
+function upsertEditorRewriteActionRecord(
+  actions: AiEditorRewriteActionRecord[],
+  nextAction: AiEditorRewriteActionRecord,
+) {
+  const index = actions.findIndex((action) => action.id === nextAction.id);
+  if (index < 0) {
+    return [...actions, nextAction];
+  }
+
+  return actions.map((action, currentIndex) =>
+    currentIndex === index ? nextAction : action,
+  );
+}
+
+function EditorRewriteActionRow({
+  action,
+  busy,
+  onSave,
+  onDelete,
+}: {
+  action: AiEditorRewriteActionRecord;
+  busy: boolean;
+  onSave: (input: AiEditorRewriteActionUpsertInput) => void;
+  onDelete: (actionId: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState<EditorRewriteActionDraft>(() =>
+    createEditorRewriteActionDraft(action),
+  );
+
+  useEffect(() => {
+    setDraft(createEditorRewriteActionDraft(action));
+  }, [action]);
+
+  return (
+    <article
+      className={[
+        "rounded-[var(--radius-8)] border bg-bg transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)]",
+        expanded
+          ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]"
+          : "border-border hover:border-border-strong",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="truncate text-body font-medium text-text">{action.label}</p>
+            <StatusBadge tone={action.enabled ? "success" : "warning"}>
+              {action.enabled ? "启用" : "停用"}
+            </StatusBadge>
+          </div>
+          <p className="mt-1 line-clamp-2 text-ui text-text-soft">{action.prompt}</p>
+        </div>
+        <span className="shrink-0 text-ui font-medium text-text-muted">
+          {expanded ? "收起" : "展开"}
+        </span>
+      </button>
+
+      {expanded ? (
+        <div className="border-t border-border px-3 pb-3 pt-3">
+          <EditorRewriteActionEditor
+            draft={draft}
+            setDraft={setDraft}
+            busy={busy}
+            onSave={() =>
+              onSave({
+                id: action.id,
+                label: draft.label,
+                prompt: draft.prompt,
+                enabled: draft.enabled,
+              })
+            }
+            onDelete={() => onDelete(action.id)}
+          />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function EditorRewriteActionEditor({
+  draft,
+  setDraft,
+  busy,
+  onSave,
+  onCancel,
+  onDelete,
+  autoFocusName = false,
+}: {
+  draft: EditorRewriteActionDraft;
+  setDraft: Dispatch<SetStateAction<EditorRewriteActionDraft>>;
+  busy: boolean;
+  onSave: () => void;
+  onCancel?: () => void;
+  onDelete?: () => void;
+  autoFocusName?: boolean;
+}) {
+  return (
+    <>
+      <div className="grid gap-3">
+        <label className={settingsFieldClassName}>
+          <span className={settingsFieldLabelClassName}>动作名称</span>
+          <TextField
+            fieldSize="sm"
+            autoFocus={autoFocusName}
+            value={draft.label}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, label: event.target.value }))
+            }
+            placeholder="比如：翻译成英文"
+          />
+        </label>
+
+        <label className={settingsFieldClassName}>
+          <span className={settingsFieldLabelClassName}>提示词</span>
+          <textarea
+            value={draft.prompt}
+            disabled={busy}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, prompt: event.target.value }))
+            }
+            rows={5}
+            className="min-h-28 rounded-[var(--radius-8)] border border-border bg-bg px-3 py-2.5 text-body text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:bg-bg-subtle disabled:text-text-soft"
+            placeholder="比如：请保持原意，把这段文字翻译成自然、专业的英文。"
+          />
+          <span className={settingsFieldHintClassName}>
+            这里只写动作意图即可，系统会自动注入选中文本、扩展后的段落内容和编辑上下文。
+          </span>
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <TogglePill
+          label={draft.enabled ? "启用" : "停用"}
+          ariaLabel="编辑改写动作启用开关"
+          checked={draft.enabled}
+          disabled={busy}
+          onChange={(checked) =>
+            setDraft((current) => ({ ...current, enabled: checked }))
+          }
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
+        <Button type="button" variant="primary" size="sm" disabled={busy} onClick={onSave}>
+          {busy ? "保存中..." : "保存"}
+        </Button>
+        {onCancel ? (
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+            取消
+          </Button>
+        ) : null}
+        {onDelete ? (
+          <Button type="button" variant="danger" size="sm" disabled={busy} onClick={onDelete}>
+            删除
+          </Button>
+        ) : null}
+      </div>
+    </>
+  );
 }
 
 function maskKey(last4: string) {

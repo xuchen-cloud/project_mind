@@ -1,6 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 
 import type {
+  AiEditorRewriteInput,
+  AiEditorRewriteResult,
   AiAnswerQuestionInput,
   AiAnswerResult,
   AiAnswerScope,
@@ -39,6 +41,10 @@ export function aiNoteSuggestionsJobTargetKey(noteId: number) {
 
 export function aiProfileTestJobTargetKey(profileId?: number | null) {
   return `profile-test:${profileId ?? "draft"}`;
+}
+
+export function aiEditorRewriteJobTargetKey(seed: string) {
+  return `editor-rewrite:${seed}`;
 }
 
 export function isAiJobActive(job: AiJobSnapshot | null | undefined) {
@@ -139,6 +145,17 @@ export function profileTestJobInput(input: AiProfileTestInput): AiJobEnqueueInpu
   };
 }
 
+export function editorRewriteJobInput(
+  targetKey: string,
+  input: AiEditorRewriteInput,
+): AiJobEnqueueInput {
+  return {
+    kind: "editor_rewrite",
+    targetKey,
+    input,
+  };
+}
+
 export function readArtifactJobResult(job: AiJobSnapshot): AiArtifactRecord {
   if (job.result?.kind !== "artifact_refresh") {
     throw new Error("AI artifact job did not return an artifact result");
@@ -169,6 +186,14 @@ export function readProfileTestJobResult(job: AiJobSnapshot): AiProfileTestResul
   }
 
   return job.result.testResult;
+}
+
+export function readEditorRewriteJobResult(job: AiJobSnapshot): AiEditorRewriteResult {
+  if (job.result?.kind !== "editor_rewrite") {
+    throw new Error("AI editor rewrite job did not return a rewrite result");
+  }
+
+  return job.result.rewrite;
 }
 
 async function waitForAiJob(jobId: number) {

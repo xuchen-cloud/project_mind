@@ -47,6 +47,7 @@ export const AI_CAPABILITY_OPTIONS = [
   { value: "assistant", label: "AI 助手" },
   { value: "summary", label: "AI 总结" },
   { value: "suggestion_generation", label: "建议生成" },
+  { value: "editor_rewrite", label: "编辑改写" },
 ] as const;
 
 export const AI_VISIBLE_CAPABILITY_OPTIONS: Array<{
@@ -56,6 +57,7 @@ export const AI_VISIBLE_CAPABILITY_OPTIONS: Array<{
   { value: "assistant", label: "Ask" },
   { value: "summary", label: "AI 总结" },
   { value: "suggestion_generation", label: "AI 提炼" },
+  { value: "editor_rewrite", label: "编辑改写" },
 ];
 
 export const AI_FEATURE_OPTIONS: Array<{

@@ -1,11 +1,14 @@
-use std::time::Instant;
+use std::{
+    io::{BufRead, BufReader},
+    time::Instant,
+};
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 
-use crate::models::AiArtifactSection;
+use crate::models::{AiArtifactSection, AiEditorRewriteContext};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedAiProfile {
@@ -40,6 +43,12 @@ pub struct AnswerPayload {
 pub struct ProviderTestOutcome {
     pub message: String,
     pub latency_ms: i64,
+    pub resolved_model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditorRewritePayload {
+    pub rewritten_markdown: String,
     pub resolved_model: Option<String>,
 }
 
@@ -96,6 +105,38 @@ pub fn generate_answer(
     normalize_answer(&response.text)
 }
 
+pub fn rewrite_selection(
+    profile: &ResolvedAiProfile,
+    action_prompt: &str,
+    selected_text: &str,
+    expanded_markdown: &str,
+    placeholder_tokens: &[String],
+    context: Option<&AiEditorRewriteContext>,
+    mut on_stream: impl FnMut(String),
+) -> Result<EditorRewritePayload> {
+    ensure_text_support(profile)?;
+
+    let prompt = rewrite_prompt(
+        action_prompt,
+        selected_text,
+        expanded_markdown,
+        placeholder_tokens,
+        context,
+    );
+    let response =
+        request_text_streaming(profile, rewrite_system_prompt(), &prompt, &mut on_stream)
+            .or_else(|_| {
+                let response = request_text(profile, rewrite_system_prompt(), &prompt)?;
+                on_stream(response.text.clone());
+                Ok::<ProviderTextResponse, anyhow::Error>(response)
+            })?;
+
+    Ok(EditorRewritePayload {
+        rewritten_markdown: response.text,
+        resolved_model: response.resolved_model,
+    })
+}
+
 struct ProviderTextResponse {
     text: String,
     resolved_model: Option<String>,
@@ -122,6 +163,36 @@ fn request_text(
         "openai_compatible" => openai_request(&client, profile, system_prompt, user_prompt),
         "anthropic_compatible" => anthropic_request(&client, profile, system_prompt, user_prompt),
         "gemini_compatible" => gemini_request(&client, profile, system_prompt, user_prompt),
+        other => Err(anyhow!("unsupported AI provider family: {other}")),
+    }
+}
+
+fn request_text_streaming(
+    profile: &ResolvedAiProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    on_stream: &mut impl FnMut(String),
+) -> Result<ProviderTextResponse> {
+    if profile.base_url.contains("mock.local") || profile.base_url.starts_with("mock://") {
+        let text = mock_provider_text(user_prompt);
+        emit_mock_stream_text(&text, on_stream);
+        return Ok(ProviderTextResponse {
+            text,
+            resolved_model: Some("mock-model".to_string()),
+        });
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .context("failed to initialize AI HTTP client")?;
+
+    match profile.provider_family.as_str() {
+        "openai_compatible" => openai_request_stream(&client, profile, system_prompt, user_prompt, on_stream),
+        "anthropic_compatible" => {
+            anthropic_request_stream(&client, profile, system_prompt, user_prompt, on_stream)
+        }
+        "gemini_compatible" => gemini_request_stream(&client, profile, system_prompt, user_prompt, on_stream),
         other => Err(anyhow!("unsupported AI provider family: {other}")),
     }
 }
@@ -248,6 +319,18 @@ fn openai_chat_request_body(
         }
     }
 
+    body
+}
+
+fn openai_chat_stream_request_body(
+    profile: &ResolvedAiProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Value {
+    let mut body = openai_chat_request_body(profile, system_prompt, user_prompt);
+    if let Some(object) = body.as_object_mut() {
+        object.insert("stream".to_string(), json!(true));
+    }
     body
 }
 
@@ -411,6 +494,233 @@ fn gemini_request(
     })
 }
 
+fn openai_request_stream(
+    client: &Client,
+    profile: &ResolvedAiProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    on_stream: &mut impl FnMut(String),
+) -> Result<ProviderTextResponse> {
+    let url = join_url(&profile.base_url, "chat/completions");
+    let response = client
+        .post(url.clone())
+        .header(AUTHORIZATION, bearer_value(&profile.api_key)?)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&openai_chat_stream_request_body(
+            profile,
+            system_prompt,
+            user_prompt,
+        ))
+        .send()
+        .with_context(|| {
+            format!(
+                "failed to call OpenAI-compatible provider streaming endpoint (endpoint: {url}, model: {})",
+                profile.model
+            )
+        })?;
+
+    let mut resolved_model = Some(profile.model.clone());
+    let mut text = String::new();
+
+    consume_sse_events(response, |event| {
+        if event == "[DONE]" {
+            return Ok(());
+        }
+
+        let json: Value =
+            serde_json::from_str(event).context("failed to parse OpenAI-compatible SSE event")?;
+        if resolved_model.is_none() {
+            resolved_model = json
+                .get("model")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+        }
+
+        let chunk = read_openai_stream_chunk(&json);
+        if !chunk.is_empty() {
+            text.push_str(&chunk);
+            on_stream(text.clone());
+        }
+        Ok(())
+    })?;
+
+    if text.trim().is_empty() {
+        return Err(anyhow!(
+            "OpenAI-compatible streaming response did not contain any text deltas"
+        ));
+    }
+
+    Ok(ProviderTextResponse {
+        text,
+        resolved_model,
+    })
+}
+
+fn anthropic_request_stream(
+    client: &Client,
+    profile: &ResolvedAiProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    on_stream: &mut impl FnMut(String),
+) -> Result<ProviderTextResponse> {
+    let url = join_url(&profile.base_url, "messages");
+    let response = client
+        .post(url.clone())
+        .header("x-api-key", &profile.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header(CONTENT_TYPE, "application/json")
+        .json(&json!({
+            "model": profile.model,
+            "max_tokens": 1500,
+            "system": system_prompt,
+            "messages": [
+                { "role": "user", "content": user_prompt }
+            ],
+            "stream": true
+        }))
+        .send()
+        .with_context(|| {
+            format!(
+                "failed to call Claude-compatible provider streaming endpoint (endpoint: {url}, model: {})",
+                profile.model
+            )
+        })?;
+
+    let mut resolved_model = Some(profile.model.clone());
+    let mut text = String::new();
+
+    consume_sse_events(response, |event| {
+        let json: Value =
+            serde_json::from_str(event).context("failed to parse Claude-compatible SSE event")?;
+        if resolved_model.is_none() {
+            resolved_model = json
+                .get("message")
+                .and_then(|message| message.get("model"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    json.get("model")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                });
+        }
+
+        let chunk = json
+            .get("delta")
+            .and_then(|delta| delta.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !chunk.is_empty() {
+            text.push_str(chunk);
+            on_stream(text.clone());
+        }
+        Ok(())
+    })?;
+
+    if text.trim().is_empty() {
+        return Err(anyhow!(
+            "Claude-compatible streaming response did not contain any text deltas"
+        ));
+    }
+
+    Ok(ProviderTextResponse {
+        text,
+        resolved_model,
+    })
+}
+
+fn gemini_request_stream(
+    client: &Client,
+    profile: &ResolvedAiProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    on_stream: &mut impl FnMut(String),
+) -> Result<ProviderTextResponse> {
+    let url = format!(
+        "{}/models/{}:streamGenerateContent?alt=sse",
+        profile.base_url.trim_end_matches('/'),
+        profile.model
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-goog-api-key",
+        HeaderValue::from_str(&profile.api_key).context("invalid Gemini-compatible API key")?,
+    );
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    let response = client
+        .post(url.clone())
+        .headers(headers)
+        .json(&json!({
+            "systemInstruction": {
+                "parts": [{ "text": system_prompt }]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{ "text": user_prompt }]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.2
+            }
+        }))
+        .send()
+        .with_context(|| {
+            format!(
+                "failed to call Gemini-compatible provider streaming endpoint (endpoint: {url}, model: {})",
+                profile.model
+            )
+        })?;
+
+    let mut resolved_model = Some(profile.model.clone());
+    let mut text = String::new();
+
+    consume_sse_events(response, |event| {
+        let json: Value =
+            serde_json::from_str(event).context("failed to parse Gemini-compatible SSE event")?;
+        if resolved_model.is_none() {
+            resolved_model = json
+                .get("modelVersion")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+        }
+
+        let chunk = json
+            .get("candidates")
+            .and_then(Value::as_array)
+            .and_then(|candidates| candidates.first())
+            .and_then(|candidate| candidate.get("content"))
+            .and_then(|content| content.get("parts"))
+            .and_then(Value::as_array)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
+
+        if !chunk.is_empty() {
+            text.push_str(&chunk);
+            on_stream(text.clone());
+        }
+        Ok(())
+    })?;
+
+    if text.trim().is_empty() {
+        return Err(anyhow!(
+            "Gemini-compatible streaming response did not contain any text deltas"
+        ));
+    }
+
+    Ok(ProviderTextResponse {
+        text,
+        resolved_model,
+    })
+}
+
 fn parse_json_response(response: Response) -> Result<Value> {
     let status = response.status();
     let request_id = extract_response_request_id(response.headers());
@@ -437,6 +747,65 @@ fn parse_json_response(response: Response) -> Result<Value> {
             preview_text(&text, 280)
         )
     })
+}
+
+fn consume_sse_events(
+    response: Response,
+    mut on_event: impl FnMut(&str) -> Result<()>,
+) -> Result<()> {
+    let status = response.status();
+    let request_id = extract_response_request_id(response.headers());
+    if !status.is_success() {
+        let body = response
+            .text()
+            .context("failed to read AI provider response body")?;
+        let request_id_fragment = request_id
+            .as_deref()
+            .map(|value| format!(", request_id={value}"))
+            .unwrap_or_default();
+        return Err(anyhow!(
+            "AI provider request failed ({}{}): {}",
+            status.as_u16(),
+            request_id_fragment,
+            extract_error_message(&body)
+        ));
+    }
+
+    let mut reader = BufReader::new(response);
+    let mut line = String::new();
+    let mut pending_data = Vec::new();
+
+    loop {
+        line.clear();
+        let bytes_read = reader
+            .read_line(&mut line)
+            .context("failed to read AI provider SSE response body")?;
+        if bytes_read == 0 {
+            if !pending_data.is_empty() {
+                on_event(&pending_data.join("\n"))?;
+            }
+            break;
+        }
+
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            if !pending_data.is_empty() {
+                on_event(&pending_data.join("\n"))?;
+                pending_data.clear();
+            }
+            continue;
+        }
+
+        if trimmed.starts_with(':') {
+            continue;
+        }
+
+        if let Some(data) = trimmed.strip_prefix("data:") {
+            pending_data.push(data.trim_start().to_string());
+        }
+    }
+
+    Ok(())
 }
 
 fn extract_error_message(body: &str) -> String {
@@ -548,6 +917,69 @@ fn read_openai_content(json: &Value) -> Option<String> {
     collect_openai_reasoning_segments(json.get("content"), &mut reasoning_segments);
 
     join_text_segments(reasoning_segments)
+}
+
+fn read_openai_stream_chunk(json: &Value) -> String {
+    let mut segments = Vec::new();
+
+    if let Some(choice) = json
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+    {
+        collect_openai_stream_segments(choice.get("delta"), &mut segments);
+        collect_openai_stream_segments(choice.get("message"), &mut segments);
+        collect_openai_stream_segments(choice.get("text"), &mut segments);
+    }
+
+    collect_openai_stream_segments(json.get("delta"), &mut segments);
+    collect_openai_stream_segments(json.get("output"), &mut segments);
+    collect_openai_stream_segments(json.get("content"), &mut segments);
+    collect_openai_stream_segments(json.get("output_text"), &mut segments);
+
+    segments.join("")
+}
+
+fn collect_openai_stream_segments(value: Option<&Value>, segments: &mut Vec<String>) {
+    let Some(value) = value else {
+        return;
+    };
+
+    match value {
+        Value::String(text) => {
+            if !text.is_empty() {
+                segments.push(text.to_string());
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_openai_stream_segments(Some(item), segments);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(text) = map.get("text").and_then(Value::as_str) {
+                if !text.is_empty() {
+                    segments.push(text.to_string());
+                }
+            }
+            if let Some(value) = map.get("value") {
+                collect_openai_stream_segments(Some(value), segments);
+            }
+            if let Some(content) = map.get("content") {
+                collect_openai_stream_segments(Some(content), segments);
+            }
+            if let Some(parts) = map.get("parts") {
+                collect_openai_stream_segments(Some(parts), segments);
+            }
+            if let Some(delta) = map.get("delta") {
+                collect_openai_stream_segments(Some(delta), segments);
+            }
+            if let Some(output_text) = map.get("output_text") {
+                collect_openai_stream_segments(Some(output_text), segments);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_openai_text_segments(value: Option<&Value>, segments: &mut Vec<String>) {
@@ -788,6 +1220,14 @@ fn answer_system_prompt() -> &'static str {
     "You answer questions from structured local project sources. Reply with valid JSON only. Do not wrap the JSON in markdown fences."
 }
 
+fn rewrite_system_prompt() -> &'static str {
+    concat!(
+        "You rewrite selected rich-text markdown blocks inside a local editor. ",
+        "Reply with markdown only. Do not add explanations. Do not wrap the markdown in code fences. ",
+        "Any placeholder token provided by the system must be preserved exactly, unchanged, and in the same order."
+    )
+}
+
 fn suggestion_prompt(activity_title: &str, source_text: &str) -> String {
     format!(
         concat!(
@@ -860,6 +1300,76 @@ fn answer_prompt(scope: &str, question: &str, context_text: &str) -> String {
         question = truncate_chars(question, 1200),
         context_text = truncate_chars(context_text, 16000)
     )
+}
+
+fn rewrite_prompt(
+    action_prompt: &str,
+    selected_text: &str,
+    expanded_markdown: &str,
+    placeholder_tokens: &[String],
+    context: Option<&AiEditorRewriteContext>,
+) -> String {
+    let placeholder_rules = if placeholder_tokens.is_empty() {
+        "- No placeholder tokens are present.".to_string()
+    } else {
+        placeholder_tokens
+            .iter()
+            .map(|token| format!("- Preserve this token exactly: {token}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let context_text = context
+        .map(render_editor_rewrite_context)
+        .unwrap_or_else(|| "scope=unknown".to_string());
+
+    format!(
+        concat!(
+            "User-configured rewrite instruction:\n",
+            "{action_prompt}\n\n",
+            "Exact original selection:\n",
+            "{selected_text}\n\n",
+            "Expanded markdown block(s) to rewrite:\n",
+            "{expanded_markdown}\n\n",
+            "Editor context:\n",
+            "{context_text}\n\n",
+            "Placeholder preservation rules:\n",
+            "{placeholder_rules}\n\n",
+            "Return only the rewritten markdown for the expanded block(s)."
+        ),
+        action_prompt = truncate_chars(action_prompt.trim(), 4000),
+        selected_text = truncate_chars(selected_text, 4000),
+        expanded_markdown = truncate_chars(expanded_markdown, 20000),
+        context_text = context_text,
+        placeholder_rules = placeholder_rules
+    )
+}
+
+fn render_editor_rewrite_context(context: &AiEditorRewriteContext) -> String {
+    let mut parts = vec![format!("scope={}", context.scope.trim())];
+
+    if let Some(project_id) = context.project_id {
+        parts.push(format!("project_id={project_id}"));
+    }
+    if let Some(activity_id) = context.activity_id {
+        parts.push(format!("activity_id={activity_id}"));
+    }
+    if let Some(note_id) = context.note_id {
+        parts.push(format!("note_id={note_id}"));
+    }
+    if let Some(workspace_note_id) = context.workspace_note_id {
+        parts.push(format!("workspace_note_id={workspace_note_id}"));
+    }
+    if let Some(source_label) = context
+        .source_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(format!("source_label={source_label}"));
+    }
+
+    parts.join(", ")
 }
 
 fn normalize_suggestions(raw_text: &str) -> Result<SuggestionPayload> {
@@ -1080,7 +1590,47 @@ fn mock_provider_text(user_prompt: &str) -> String {
         .unwrap_or_else(|_| "{\"answerMarkdown\":\"mock\",\"citations\":[]}".to_string());
     }
 
+    if user_prompt.contains("Expanded markdown block(s) to rewrite:") {
+        let expanded_markdown =
+            extract_mock_section(user_prompt, "Expanded markdown block(s) to rewrite:");
+        let selection = extract_mock_section(user_prompt, "Exact original selection:");
+        let rewritten = if expanded_markdown.trim().is_empty() {
+            selection.trim().to_string()
+        } else {
+            expanded_markdown
+                .lines()
+                .map(|line| {
+                    if line.trim().is_empty() {
+                        String::new()
+                    } else if line.contains("PM_TOKEN_") {
+                        line.to_string()
+                    } else if line.starts_with('#') || line.starts_with('-') || line.starts_with('*') {
+                        format!("{line}（已按要求优化表达）")
+                    } else {
+                        format!("{line}（已按要求优化表达）")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        return rewritten;
+    }
+
     "OK".to_string()
+}
+
+fn emit_mock_stream_text(value: &str, on_stream: &mut impl FnMut(String)) {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.is_empty() {
+        on_stream(String::new());
+        return;
+    }
+
+    let mut built = String::new();
+    for chunk in chars.chunks(24) {
+        built.extend(chunk.iter().copied());
+        on_stream(built.clone());
+    }
 }
 
 fn extract_mock_refs(user_prompt: &str) -> Vec<String> {
@@ -1099,6 +1649,27 @@ fn extract_mock_refs(user_prompt: &str) -> Vec<String> {
         }
     }
     refs
+}
+
+fn extract_mock_section(user_prompt: &str, heading: &str) -> String {
+    let Some(start) = user_prompt.find(heading) else {
+        return String::new();
+    };
+    let rest = &user_prompt[start + heading.len()..];
+    let trimmed = rest.trim_start_matches('\n');
+    let next_headings = [
+        "\n\nExact original selection:",
+        "\n\nExpanded markdown block(s) to rewrite:",
+        "\n\nEditor context:",
+        "\n\nPlaceholder preservation rules:",
+        "\n\nReturn only the rewritten markdown for the expanded block(s).",
+    ];
+    let end = next_headings
+        .iter()
+        .filter_map(|candidate| trimmed.find(candidate))
+        .min()
+        .unwrap_or(trimmed.len());
+    trimmed[..end].trim().to_string()
 }
 
 fn extract_section_titles(user_prompt: &str) -> Vec<String> {

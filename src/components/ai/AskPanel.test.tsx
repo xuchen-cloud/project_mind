@@ -82,6 +82,7 @@ function configuredAiSettings(): AiSettingsSnapshot {
         assistant: true,
         summary: true,
         suggestion_generation: true,
+        editor_rewrite: true,
       },
       features: {
         "summary.activity_summary": true,
@@ -91,6 +92,7 @@ function configuredAiSettings(): AiSettingsSnapshot {
         "suggestion_generation.todo": true,
       },
     },
+    editorRewriteActions: [],
   };
 }
 
@@ -147,6 +149,7 @@ describe("AskPanel", () => {
           assistant: true,
           summary: true,
           suggestion_generation: true,
+          editor_rewrite: true,
         },
         features: {
           "summary.activity_summary": true,
@@ -156,6 +159,7 @@ describe("AskPanel", () => {
           "suggestion_generation.todo": true,
         },
       },
+      editorRewriteActions: [],
     });
 
     expect(await screen.findByText("Assistant 能力未配置")).toBeInTheDocument();

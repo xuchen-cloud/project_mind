@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { DOMSerializer, type Slice } from "@tiptap/pm/model";
-import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
-import type { EditorView } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import {
   ArrowDownToLine,
@@ -30,6 +31,7 @@ import {
   ListTodo,
   LoaderCircle,
   Maximize2,
+  MoreHorizontal,
   Paperclip,
   PanelLeft,
   PanelTop,
@@ -42,9 +44,18 @@ import {
   Table2,
   TextSelect,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
+import { isAiCapabilityConfigured, isAiCapabilityVisible } from "../../lib/ai";
+import {
+  aiEditorRewriteJobTargetKey,
+  editorRewriteJobInput,
+  ensureAiJobSync,
+  readEditorRewriteJobResult,
+  useAiJobTarget,
+} from "../../lib/aiJobs";
 import { fileUriToPath } from "../../lib/formatters";
 import {
   buildInternalReferenceTarget,
@@ -55,13 +66,33 @@ import {
 } from "../../lib/internalReferences";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
 import { richTextHtmlToPlainText } from "../../lib/richTextContent";
-import type { InternalReferenceSearchResult } from "../../lib/types";
+import type {
+  AiEditorRewriteContext,
+  AiSettingsSnapshot,
+  InternalReferenceSearchResult,
+} from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
-import { ActionContextMenu, type ContextMenuAction, PopoverPanel, ToolbarButton } from "../../ui/components";
+import { projectMindApi } from "../../services/projectMindApi";
+import { useFeedbackStore } from "../../state/feedback-store";
+import {
+  ActionContextMenu,
+  type ContextMenuAction,
+  PopoverPanel,
+  ToolbarButton,
+} from "../../ui/components";
 import {
   InternalReferencePicker,
   useInternalReferenceSearch,
 } from "../internal-reference";
+import {
+  buildEditorRewritePreviewHtml,
+  type EditorRewriteBlockRange,
+  buildEditorRewriteSelection,
+  buildEditorRewriteSlice,
+  type EditorRewritePlaceholder,
+} from "./editorRewrite";
+import { RichEditorAiMenu, type RichEditorAiMenuIconAction, type RichEditorAiMenuTextAction } from "./RichEditorAiMenu";
+import { RichEditorRewriteWidget } from "./RichEditorRewriteWidget";
 import { ImageAnnotationDialog } from "./ImageAnnotationDialog";
 import { buildRichEditorExtensions } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
@@ -91,6 +122,9 @@ const TABLE_INSERT_GRID_SIZE = 6;
 const DEFAULT_TABLE_DIMENSIONS = { rows: 3, cols: 3 };
 export const RICH_EDITOR_FOCUS_REQUEST_EVENT =
   "project-mind-rich-editor-focus-request";
+const RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY = new PluginKey(
+  "project-mind-rich-editor-rewrite-widget",
+);
 
 type SaveReason =
   | "debounced"
@@ -123,6 +157,12 @@ interface EditorContextMenuState {
   y: number;
   ariaLabel: string;
   actions: ContextMenuAction[];
+  autoFocus?: boolean;
+}
+
+interface EditorAiMenuState {
+  x: number;
+  y: number;
 }
 
 interface ImageContextMenuTarget {
@@ -156,6 +196,33 @@ interface RichEditorAutoFocusPoint {
   mode?: "viewport" | "content-relative";
 }
 
+interface StoredTextSelection {
+  from: number;
+  to: number;
+}
+
+interface EditorRewriteSessionState {
+  targetKey: string;
+  actionId?: number | null;
+  actionLabel: string;
+  from: number;
+  to: number;
+  originalMarkdown: string;
+  placeholders: EditorRewritePlaceholder[];
+  blockRanges: EditorRewriteBlockRange[];
+}
+
+type EditorRewriteDisplayStatus = "queued" | "running" | "succeeded" | "failed";
+
+interface EditorRewriteWidgetState {
+  actionLabel: string;
+  anchorPos: number;
+  blockRanges: EditorRewriteBlockRange[];
+  status: EditorRewriteDisplayStatus;
+  previewHtml: string;
+  errorMessage?: string | null;
+}
+
 interface RichEditorProps {
   html?: string;
   defaultHtml?: string;
@@ -182,6 +249,9 @@ interface RichEditorProps {
   onModEnter?: () => Promise<unknown> | unknown;
   onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
   internalReferences?: RichEditorInternalReferenceOptions;
+  aiSettings?: AiSettingsSnapshot;
+  aiRewriteContext?: AiEditorRewriteContext;
+  onOpenAiSettings?: () => void;
   renderToolbarExtras?: (context: {
     persistState: RichEditorPersistState;
     save: (options?: { force?: boolean }) => Promise<unknown>;
@@ -206,13 +276,19 @@ export function RichEditor({
   onModEnter,
   onOpenAsset,
   internalReferences,
+  aiSettings,
+  aiRewriteContext,
+  onOpenAiSettings,
   renderToolbarExtras,
 }: RichEditorProps) {
+  const { pushToast } = useFeedbackStore();
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isFocused, setIsFocused] = useState(false);
   const [assetBusy, setAssetBusy] = useState<null | "image" | "file">(null);
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
+  const [aiMenu, setAiMenu] = useState<EditorAiMenuState | null>(null);
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
+  const [rewriteSession, setRewriteSession] = useState<EditorRewriteSessionState | null>(null);
   const [uiTick, setUiTick] = useState(0);
   const [referencePicker, setReferencePicker] = useState<null | {
     start: number;
@@ -254,6 +330,7 @@ export function RichEditor({
   const persistStateRef = useRef<RichEditorPersistState>("idle");
   const syntheticPasteRef = useRef(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const storedTextSelectionRef = useRef<StoredTextSelection | null>(null);
   const referencePickerRef = useRef<null | {
     start: number;
     end: number;
@@ -262,6 +339,71 @@ export function RichEditor({
   }>(null);
   const referenceActiveIndexRef = useRef(0);
   const referenceResultsRef = useRef<InternalReferenceSearchResult[]>([]);
+  const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
+  const rewriteWidgetCallbacksRef = useRef<{
+    onAccept: () => void;
+    onClose: () => void;
+    onOpenAiSettings?: () => void;
+  }>({
+    onAccept: () => {},
+    onClose: () => {},
+    onOpenAiSettings: undefined,
+  });
+  const rewriteJob = useAiJobTarget(rewriteSession?.targetKey ?? "__rich-editor-rewrite-idle__");
+  const enabledRewriteActions = useMemo(
+    () => aiSettings?.editorRewriteActions.filter((action) => action.enabled) ?? [],
+    [aiSettings?.editorRewriteActions],
+  );
+  const editorRewriteVisible = Boolean(aiSettings) && isAiCapabilityVisible(aiSettings, "editor_rewrite");
+  const editorRewriteReady = Boolean(aiSettings) && isAiCapabilityConfigured(aiSettings, "editor_rewrite");
+  const editorInteractionLocked = Boolean(rewriteSession);
+  const effectiveReadOnly = readOnly || editorInteractionLocked;
+  const rewritePreviewMarkdown =
+    rewriteJob?.status === "succeeded"
+      ? readEditorRewriteJobResult(rewriteJob).rewrittenMarkdown
+      : rewriteJob?.streamText ?? "";
+  const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
+    ? "需先解锁 AI 配置"
+    : !editorRewriteReady
+      ? "需先配置 AI 模型"
+      : null;
+
+  const rememberCurrentTextSelection = useCallback((nextEditor: Editor | null) => {
+    if (!nextEditor) {
+      storedTextSelectionRef.current = null;
+      return;
+    }
+
+    const selection = nextEditor.state.selection;
+    if (selection instanceof TextSelection && !selection.empty) {
+      storedTextSelectionRef.current = {
+        from: selection.from,
+        to: selection.to,
+      };
+      return;
+    }
+
+    storedTextSelectionRef.current = null;
+  }, []);
+
+  const restoreStoredTextSelection = useCallback((nextEditor: Editor) => {
+    const storedSelection = storedTextSelectionRef.current;
+
+    if (!storedSelection) {
+      return false;
+    }
+
+    try {
+      nextEditor.view.dispatch(
+        nextEditor.state.tr.setSelection(
+          TextSelection.create(nextEditor.state.doc, storedSelection.from, storedSelection.to),
+        ),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const handlePastedImages = useCallback(
     async (view: EditorView, files: File[]) => {
@@ -312,7 +454,7 @@ export function RichEditor({
 
   const syncInternalReferencePicker = useCallback(
     (nextEditor: Editor | null) => {
-      if (!nextEditor || readOnly || !internalReferences?.context) {
+      if (!nextEditor || effectiveReadOnly || !internalReferences?.context) {
         closeInternalReferencePicker();
         return;
       }
@@ -338,7 +480,7 @@ export function RichEditor({
         return nextTrigger;
       });
     },
-    [closeInternalReferencePicker, internalReferences?.context, readOnly],
+    [closeInternalReferencePicker, effectiveReadOnly, internalReferences?.context],
   );
 
   const handleSelectInternalReference = useCallback(
@@ -403,7 +545,7 @@ export function RichEditor({
 
   const editor = useEditor({
     immediatelyRender: false,
-    editable: !readOnly,
+    editable: !effectiveReadOnly,
     extensions: buildRichEditorExtensions(placeholder),
     content: normalizeHtml(html ?? defaultHtml),
     editorProps: {
@@ -418,7 +560,7 @@ export function RichEditor({
           return false;
         }
 
-        if (readOnly) {
+        if (effectiveReadOnly) {
           return false;
         }
 
@@ -454,7 +596,7 @@ export function RichEditor({
       handleKeyDown: (_view, event) => {
         const activeReferencePicker = referencePickerRef.current;
 
-        if (!readOnly && activeReferencePicker) {
+        if (!effectiveReadOnly && activeReferencePicker) {
           if (event.key === "Escape") {
             event.preventDefault();
             closeInternalReferencePicker();
@@ -506,7 +648,7 @@ export function RichEditor({
 
         if (
           onModEnter &&
-          !readOnly &&
+          !effectiveReadOnly &&
           !event.isComposing &&
           event.key === "Enter" &&
           (event.metaKey || event.ctrlKey)
@@ -527,6 +669,7 @@ export function RichEditor({
     onFocus: ({ editor: nextEditor }) => {
       setIsFocused(true);
       setUiTick((tick) => tick + 1);
+      rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
     },
     onBlur: () => {
@@ -536,6 +679,7 @@ export function RichEditor({
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
       setUiTick((tick) => tick + 1);
+      rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
     },
     onUpdate: ({ editor: nextEditor }) => {
@@ -559,6 +703,67 @@ export function RichEditor({
       }
     },
   });
+
+  const rewritePreviewHtml = useMemo(() => {
+    if (!editor || !rewriteSession) {
+      return "";
+    }
+
+    try {
+      return buildEditorRewritePreviewHtml(
+        editor,
+        rewritePreviewMarkdown,
+        rewriteSession.placeholders,
+      );
+    } catch {
+      return "";
+    }
+  }, [editor, rewritePreviewMarkdown, rewriteSession]);
+  const rewriteDisplayStatus: EditorRewriteDisplayStatus = rewriteSession
+    ? rewriteJob?.status ?? "queued"
+    : "queued";
+  const rewriteWidgetState = useMemo<EditorRewriteWidgetState | null>(() => {
+    if (!rewriteSession) {
+      return null;
+    }
+
+    return {
+      actionLabel: rewriteSession.actionLabel,
+      anchorPos: rewriteSession.to,
+      blockRanges: rewriteSession.blockRanges,
+      status: rewriteDisplayStatus,
+      previewHtml: rewritePreviewHtml,
+      errorMessage: rewriteJob?.errorMessage ?? null,
+    };
+  }, [rewriteDisplayStatus, rewriteJob?.errorMessage, rewritePreviewHtml, rewriteSession]);
+
+  rewriteWidgetStateRef.current = rewriteWidgetState;
+
+  useEffect(() => {
+    if (!editor) {
+      return undefined;
+    }
+
+    const handleSelectionChange = () => {
+      const selection = readDomTextSelection(editor);
+      if (selection) {
+        storedTextSelectionRef.current = selection;
+      }
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    editor.view.dispatch(
+      editor.state.tr.setMeta(RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY, Date.now()),
+    );
+  }, [editor, rewriteWidgetState, uiTick]);
 
   const clearPersistTimer = useCallback(() => {
     if (saveTimerRef.current) {
@@ -672,8 +877,8 @@ export function RichEditor({
       return;
     }
 
-    editor.setEditable(!readOnly);
-  }, [editor, readOnly]);
+    editor.setEditable(!effectiveReadOnly);
+  }, [editor, effectiveReadOnly]);
 
   useEffect(() => {
     syncInternalReferencePicker(editor ?? null);
@@ -702,7 +907,7 @@ export function RichEditor({
   }, [editor]);
 
   useEffect(() => {
-    if (!editor || readOnly || !autoFocus || autoFocusAppliedRef.current) {
+    if (!editor || effectiveReadOnly || !autoFocus || autoFocusAppliedRef.current) {
       return;
     }
 
@@ -727,7 +932,7 @@ export function RichEditor({
       }
       window.clearTimeout(timeoutId);
     };
-  }, [autoFocus, editor, readOnly]);
+  }, [autoFocus, editor, effectiveReadOnly]);
 
   useEffect(() => {
     if (!editor || !autosaveConfig.enabled || !autosaveConfig.saveOnChange || !onSave || readOnly) {
@@ -1082,20 +1287,182 @@ export function RichEditor({
   );
 
   const editorHasTableSelection = useMemo(
-    () => Boolean(editor && !readOnly && editor.isEditable && editor.isActive("table")),
-    [editor, readOnly, uiTick],
+    () => Boolean(editor && !effectiveReadOnly && editor.isEditable && editor.isActive("table")),
+    [editor, effectiveReadOnly, uiTick],
   );
 
   const tableToolbarGroups = useMemo(() => {
     if (!enableTables || !editor || !editorHasTableSelection) {
       return [] as ToolbarItem[][];
     }
-    return buildTableToolbarGroups(editor, readOnly);
-  }, [editor, editorHasTableSelection, enableTables, readOnly, uiTick]);
+    return buildTableToolbarGroups(editor, effectiveReadOnly);
+  }, [editor, editorHasTableSelection, effectiveReadOnly, enableTables, uiTick]);
+
+  const closeRewriteSession = useCallback(() => {
+    setRewriteSession(null);
+  }, []);
+
+  const closeAiMenu = useCallback(() => {
+    setAiMenu(null);
+  }, []);
+
+  const startEditorRewrite = useCallback(
+    async (options: {
+      actionId?: number | null;
+      actionLabel: string;
+      promptOverride?: string | null;
+    }) => {
+      if (!editor) {
+        return;
+      }
+
+      if (rewriteUnavailableReason) {
+        onOpenAiSettings?.();
+        pushToast({
+          tone: "error",
+          title: "AI 改写暂不可用",
+          detail:
+            rewriteUnavailableReason === "需先解锁 AI 配置"
+              ? "请先解锁 AI 配置，再运行编辑改写动作。"
+              : "请先在 AI 设置里完成编辑改写能力绑定。",
+        });
+        return;
+      }
+
+      restoreStoredTextSelection(editor);
+      const selection = buildEditorRewriteSelection(editor);
+      if (!selection) {
+        return;
+      }
+
+      const targetKey = aiEditorRewriteJobTargetKey(
+        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      );
+
+      setRewriteSession({
+        targetKey,
+        actionId: options.actionId ?? null,
+        actionLabel: options.actionLabel,
+        from: selection.from,
+        to: selection.to,
+        originalMarkdown: selection.expandedMarkdown,
+        placeholders: selection.placeholders,
+        blockRanges: selection.blockRanges,
+      });
+      setAiMenu(null);
+      setContextMenu(null);
+
+      try {
+        await ensureAiJobSync();
+        await projectMindApi.aiJobEnqueue(
+          editorRewriteJobInput(targetKey, {
+            actionId: options.actionId ?? null,
+            promptOverride: options.promptOverride ?? null,
+            selectedText: selection.selectedText,
+            expandedMarkdown: selection.expandedMarkdown,
+            placeholderTokens: selection.placeholders.map((item) => item.token),
+            context: aiRewriteContext,
+          }),
+        );
+      } catch (error) {
+        setRewriteSession(null);
+        pushToast({
+          tone: "error",
+          title: "AI 改写失败",
+          detail: error instanceof Error ? error.message : "启动改写任务失败",
+        });
+      }
+    },
+    [
+      aiRewriteContext,
+      editor,
+      onOpenAiSettings,
+      pushToast,
+      restoreStoredTextSelection,
+      rewriteUnavailableReason,
+    ],
+  );
+
+  const runEditorRewriteAction = useCallback(
+    (actionId: number, actionLabel: string) => {
+      void startEditorRewrite({
+        actionId,
+        actionLabel,
+        promptOverride: null,
+      });
+    },
+    [startEditorRewrite],
+  );
+
+  const runEditorRewritePrompt = useCallback(
+    (promptOverride: string) => {
+      void startEditorRewrite({
+        actionId: null,
+        actionLabel: "AI 编辑",
+        promptOverride,
+      });
+    },
+    [startEditorRewrite],
+  );
+
+  const applyRewriteResult = useCallback(
+    () => {
+      if (!editor || !rewriteSession || rewriteJob?.status !== "succeeded") {
+        return;
+      }
+
+      try {
+        const rewrite = readEditorRewriteJobResult(rewriteJob);
+        const slice = buildEditorRewriteSlice(
+          editor,
+          rewrite.rewrittenMarkdown,
+          rewriteSession.placeholders,
+        );
+        const tr = editor.state.tr;
+
+        tr.replaceRange(rewriteSession.from, rewriteSession.to, slice);
+        editor.view.dispatch(tr.scrollIntoView());
+        setRewriteSession(null);
+      } catch (error) {
+        pushToast({
+          tone: "error",
+          title: "应用 AI 改写失败",
+          detail: error instanceof Error ? error.message : "改写结果无法写回编辑器",
+        });
+      }
+    },
+    [editor, pushToast, rewriteJob, rewriteSession],
+  );
+
+  rewriteWidgetCallbacksRef.current = {
+    onAccept: () => {
+      applyRewriteResult();
+    },
+    onClose: () => {
+      closeRewriteSession();
+    },
+    onOpenAiSettings,
+  };
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const plugin = createEditorRewriteWidgetPlugin({
+      getWidgetState: () => rewriteWidgetStateRef.current,
+      getCallbacks: () => rewriteWidgetCallbacksRef.current,
+    });
+
+    editor.registerPlugin(plugin);
+    return () => {
+      editor.unregisterPlugin(RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY);
+    };
+  }, [editor]);
 
   const handleEditorContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!editor) {
+      if (!editor || editorInteractionLocked) {
         return;
       }
 
@@ -1104,24 +1471,23 @@ export function RichEditor({
       }
 
       const target = event.target instanceof Element ? event.target : null;
-      const hasTextSelection = syncDomTextSelectionToEditor(editor) || hasExpandedTextSelection(editor);
+      const hasTextSelection =
+        syncDomTextSelectionToEditor(editor) ||
+        syncStoredTextSelectionToEditor(editor, storedTextSelectionRef.current, {
+          coords: {
+            left: event.clientX,
+            top: event.clientY,
+          },
+          target,
+        }) ||
+        hasExpandedTextSelection(editor);
 
-      if (hasTextSelection) {
-        event.preventDefault();
-        setContextMenu({
-          x: event.clientX,
-          y: event.clientY,
-          ariaLabel: "文本操作",
-          actions: buildTextContextMenuActions(editor, readOnly),
-        });
-        return;
-      }
-
-      const imageTarget = resolveImageContextMenuTarget(editor, target);
+      const imageTarget = !hasTextSelection ? resolveImageContextMenuTarget(editor, target) : null;
 
       if (imageTarget) {
         selectImageNode(editor, imageTarget.nodePos);
         event.preventDefault();
+        setAiMenu(null);
         setContextMenu({
           x: event.clientX,
           y: event.clientY,
@@ -1130,47 +1496,116 @@ export function RichEditor({
             editor,
             imageTarget,
             onBrowseImage: (targetElement) => openImageAnnotationDialog(imageTarget, targetElement),
-            readOnly,
+            readOnly: effectiveReadOnly,
           }),
+          autoFocus: false,
         });
         return;
       }
 
-      if (enableTables) {
+      if (!hasTextSelection && enableTables) {
         const tableFocusPos = resolveTableFocusPos(editor, target);
 
         if (typeof tableFocusPos === "number") {
           focusTableAtPos(editor, tableFocusPos);
           event.preventDefault();
+          setAiMenu(null);
           setContextMenu({
             x: event.clientX,
             y: event.clientY,
             ariaLabel: "表格操作",
-            actions: buildTableContextMenuActions(buildTableToolbarGroups(editor, readOnly)),
+            actions: buildTableContextMenuActions(
+              buildTableToolbarGroups(editor, effectiveReadOnly),
+            ),
+            autoFocus: false,
           });
           return;
         }
       }
 
+      const proseMirrorTarget = target?.closest(".ProseMirror");
+      if (proseMirrorTarget) {
+        event.preventDefault();
+        if (hasTextSelection && editorRewriteVisible && !effectiveReadOnly) {
+          setContextMenu(null);
+          setAiMenu({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          return;
+        }
+
+        setAiMenu(null);
+        setContextMenu({
+          x: event.clientX,
+          y: event.clientY,
+          ariaLabel: "文本操作",
+          actions: buildTextContextMenuActions(editor, effectiveReadOnly),
+          autoFocus: false,
+        });
+        return;
+      }
+
       setContextMenu(null);
+      setAiMenu(null);
     },
-    [editor, enableTables, openImageAnnotationDialog, readOnly],
+    [
+      editor,
+      editorInteractionLocked,
+      editorRewriteVisible,
+      effectiveReadOnly,
+      enableTables,
+      onOpenAiSettings,
+      openImageAnnotationDialog,
+      runEditorRewriteAction,
+    ],
   );
 
-  const handleFrameMouseDownCapture = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleFramePointerDownCapture = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
       if (
         !editor ||
-        readOnly ||
-        event.button !== 0 ||
+        effectiveReadOnly ||
         !(event.target instanceof HTMLElement)
       ) {
         return;
       }
 
       if (
+        isContextMenuPointerTrigger(event.button, event.ctrlKey) &&
+        storedTextSelectionRef.current &&
+        event.target.closest(".ProseMirror")
+      ) {
+        event.preventDefault();
+      }
+    },
+    [editor, effectiveReadOnly],
+  );
+
+  const handleFrameMouseDownCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (
+        !editor ||
+        effectiveReadOnly ||
+        !(event.target instanceof HTMLElement)
+      ) {
+        return;
+      }
+
+      if (isContextMenuPointerTrigger(event.button, event.ctrlKey)) {
+        if (storedTextSelectionRef.current && event.target.closest(".ProseMirror")) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (event.button !== 0) {
+        return;
+      }
+
+      if (
         event.target.closest(
-          "button, a, input, select, textarea, [data-rich-editor-openable='true'], [contenteditable='false']",
+          "button, a, input, select, textarea, [data-rich-editor-openable='true'], [contenteditable='false'], .rich-editor__rewrite-widget",
         )
       ) {
         return;
@@ -1184,7 +1619,7 @@ export function RichEditor({
         });
       }
     },
-    [editor, readOnly],
+    [editor, effectiveReadOnly],
   );
 
   const toolbarGroups = useMemo(() => {
@@ -1351,6 +1786,162 @@ export function RichEditor({
     uiTick,
   ]);
 
+  const aiMenuPrimaryActions = useMemo<RichEditorAiMenuIconAction[]>(() => {
+    if (!editor) {
+      return [];
+    }
+
+    const runWithSelection = (command: () => boolean) => {
+      restoreStoredTextSelection(editor);
+      command();
+    };
+
+    return [
+      {
+        key: "ordered-list",
+        label: "有序列表",
+        icon: ListOrdered,
+        active: editor.isActive("orderedList"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleOrderedList().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleOrderedList().run()),
+      },
+      {
+        key: "highlight",
+        label: "着重色",
+        icon: Highlighter,
+        active: editor.isActive("highlight"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleHighlight().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleHighlight().run()),
+      },
+      {
+        key: "bold",
+        label: "加粗",
+        icon: Bold,
+        active: editor.isActive("bold"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleBold().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleBold().run()),
+      },
+      {
+        key: "italic",
+        label: "斜体",
+        icon: Italic,
+        active: editor.isActive("italic"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleItalic().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleItalic().run()),
+      },
+      {
+        key: "strike",
+        label: "中划线",
+        icon: Strikethrough,
+        active: editor.isActive("strike"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleStrike().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleStrike().run()),
+      },
+      {
+        key: "code-block",
+        label: "代码段",
+        icon: Code2,
+        active: editor.isActive("codeBlock"),
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleCodeBlock().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleCodeBlock().run()),
+      },
+    ];
+  }, [editor, effectiveReadOnly, restoreStoredTextSelection, uiTick]);
+
+  const aiMenuMoreActions = useMemo<RichEditorAiMenuTextAction[]>(() => {
+    if (!editor) {
+      return [];
+    }
+
+    const runWithSelection = (command: () => boolean) => {
+      restoreStoredTextSelection(editor);
+      command();
+    };
+
+    return [
+      {
+        key: "paragraph",
+        label: "正文",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().setParagraph().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().setParagraph().run()),
+      },
+      {
+        key: "h1",
+        label: "H1",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleHeading({ level: 1 }).run(),
+        onSelect: () =>
+          runWithSelection(() => editor.chain().focus().toggleHeading({ level: 1 }).run()),
+      },
+      {
+        key: "h2",
+        label: "H2",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleHeading({ level: 2 }).run(),
+        onSelect: () =>
+          runWithSelection(() => editor.chain().focus().toggleHeading({ level: 2 }).run()),
+      },
+      {
+        key: "h3",
+        label: "H3",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleHeading({ level: 3 }).run(),
+        onSelect: () =>
+          runWithSelection(() => editor.chain().focus().toggleHeading({ level: 3 }).run()),
+      },
+      {
+        key: "bullet-list",
+        label: "无序列表",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleBulletList().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleBulletList().run()),
+      },
+      {
+        key: "task-list",
+        label: "Todo List",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleTaskList().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleTaskList().run()),
+      },
+      {
+        key: "blockquote",
+        label: "引用",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().toggleBlockquote().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().toggleBlockquote().run()),
+      },
+      {
+        key: "copy",
+        label: "复制",
+        disabled: false,
+        onSelect: () => {
+          restoreStoredTextSelection(editor);
+          void runEditorClipboardCommand(editor, "copy");
+        },
+      },
+      {
+        key: "cut",
+        label: "剪切",
+        disabled: effectiveReadOnly || !editor.isEditable,
+        onSelect: () => {
+          restoreStoredTextSelection(editor);
+          void runEditorClipboardCommand(editor, "cut");
+        },
+      },
+      {
+        key: "select-all",
+        label: "全选",
+        disabled: effectiveReadOnly || !editor.can().chain().focus().selectAll().run(),
+        onSelect: () => runWithSelection(() => editor.chain().focus().selectAll().run()),
+      },
+    ];
+  }, [editor, effectiveReadOnly, restoreStoredTextSelection, uiTick]);
+
+  const aiMenuSkillActions = useMemo(
+    () =>
+      enabledRewriteActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        disabled: Boolean(rewriteUnavailableReason),
+        onSelect: () => runEditorRewriteAction(action.id, action.label),
+      })),
+    [enabledRewriteActions, rewriteUnavailableReason, runEditorRewriteAction],
+  );
+
   if (!editor) {
     return <div className="rich-editor rich-editor--loading">加载编辑器中...</div>;
   }
@@ -1360,7 +1951,7 @@ export function RichEditor({
       className={[
         "rich-editor",
         `rich-editor--${variant}`,
-        readOnly ? "is-readonly" : "",
+        effectiveReadOnly ? "is-readonly" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -1450,7 +2041,7 @@ export function RichEditor({
         </div>
       ) : null}
 
-      {variant === "bare" && enableTables && !readOnly && isFocused ? (
+      {variant === "bare" && enableTables && !effectiveReadOnly && isFocused ? (
         <div className="rich-editor__bare-actions">
           <TableInsertButton compact onInsert={insertTable} />
         </div>
@@ -1459,13 +2050,14 @@ export function RichEditor({
       <div
         ref={frameRef}
         className="rich-editor__frame"
+        onPointerDownCapture={handleFramePointerDownCapture}
         onMouseDownCapture={handleFrameMouseDownCapture}
         onClick={handleFrameClick}
         onDoubleClick={handleEditorDoubleClick}
         onContextMenu={handleEditorContextMenu}
       >
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
-        {referencePicker && internalReferences?.context && !readOnly ? (
+        {referencePicker && internalReferences?.context && !effectiveReadOnly ? (
           <InternalReferencePicker
             open
             loading={referenceLoading}
@@ -1489,7 +2081,21 @@ export function RichEditor({
           y={contextMenu.y}
           ariaLabel={contextMenu.ariaLabel}
           actions={contextMenu.actions}
+          autoFocus={contextMenu.autoFocus}
           onClose={closeContextMenu}
+        />
+      ) : null}
+      {aiMenu ? (
+        <RichEditorAiMenu
+          x={aiMenu.x}
+          y={aiMenu.y}
+          primaryActions={aiMenuPrimaryActions}
+          moreActions={aiMenuMoreActions}
+          skills={aiMenuSkillActions}
+          disabledReason={rewriteUnavailableReason}
+          onClose={closeAiMenu}
+          onOpenSettings={onOpenAiSettings}
+          onSubmitPrompt={runEditorRewritePrompt}
         />
       ) : null}
       {annotationDialog ? (
@@ -1984,14 +2590,16 @@ function buildTableContextMenuActions(groups: ToolbarItem[][]) {
   });
 }
 
-function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
+function buildTextContextMenuActions(
+  editor: Editor,
+  readOnly: boolean,
+) {
   const canRun = (callback: (chain: any) => { run: () => boolean }) =>
     !readOnly && editor.isEditable && callback(editor.can().chain().focus()).run();
   const runCommand = (callback: (chain: any) => { run: () => boolean }) => () => {
     callback(editor.chain().focus()).run();
   };
-
-  return [
+  const formatActions: ContextMenuAction[] = [
     {
       key: "text-bold",
       label: "加粗",
@@ -2015,7 +2623,9 @@ function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
       disabled: !canRun((chain) => chain.toggleHighlight()),
       onSelect: runCommand((chain) => chain.toggleHighlight()),
     },
-    { type: "separator", key: "text-separator-format-inline" },
+  ];
+
+  const blockActions: ContextMenuAction[] = [
     {
       key: "text-paragraph",
       label: "正文",
@@ -2044,7 +2654,6 @@ function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
       disabled: !canRun((chain) => chain.toggleHeading({ level: 3 })),
       onSelect: runCommand((chain) => chain.toggleHeading({ level: 3 })),
     },
-    { type: "separator", key: "text-separator-format-block" },
     {
       key: "text-bullet-list",
       label: "无序列表",
@@ -2080,7 +2689,9 @@ function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
       disabled: !canRun((chain) => chain.toggleCodeBlock()),
       onSelect: runCommand((chain) => chain.toggleCodeBlock()),
     },
-    { type: "separator", key: "text-separator-clipboard" },
+  ];
+
+  const clipboardActions: ContextMenuAction[] = [
     {
       key: "text-copy",
       label: "复制",
@@ -2109,7 +2720,148 @@ function buildTextContextMenuActions(editor: Editor, readOnly: boolean) {
       disabled: !editor.can().chain().focus().selectAll().run(),
       onSelect: runCommand((chain) => chain.selectAll()),
     },
-  ] satisfies ContextMenuAction[];
+  ];
+
+  const groupedActions: ContextMenuAction[] = [
+    {
+      type: "submenu",
+      key: "text-group-format",
+      label: "格式",
+      icon: Bold,
+      actions: formatActions,
+      disabled: formatActions.every((action) => action.type !== "separator" && action.disabled),
+    },
+    {
+      type: "submenu",
+      key: "text-group-block",
+      label: "块",
+      icon: Pilcrow,
+      actions: blockActions,
+      disabled: blockActions.every((action) => action.type !== "separator" && action.disabled),
+    },
+  ];
+
+  groupedActions.push({
+    type: "submenu",
+    key: "text-group-clipboard",
+    label: "剪贴板",
+    icon: Copy,
+    actions: clipboardActions,
+    disabled: clipboardActions.every((action) => action.type !== "separator" && action.disabled),
+  });
+
+  return groupedActions;
+}
+
+function createEditorRewriteWidgetPlugin(options: {
+  getWidgetState: () => EditorRewriteWidgetState | null;
+  getCallbacks: () => {
+    onAccept: () => void;
+    onClose: () => void;
+    onOpenAiSettings?: () => void;
+  };
+}) {
+  let widgetRoot: Root | null = null;
+  let widgetDom: HTMLDivElement | null = null;
+
+  const ensureWidgetDom = () => {
+    if (!widgetDom) {
+      widgetDom = document.createElement("div");
+      widgetDom.className = "rich-editor__rewrite-widget-host";
+      widgetRoot = createRoot(widgetDom);
+    }
+
+    return widgetDom;
+  };
+
+  const renderWidget = () => {
+    const widgetState = options.getWidgetState();
+    if (!widgetRoot) {
+      return;
+    }
+
+    if (!widgetState) {
+      widgetRoot.render(null);
+      return;
+    }
+
+    widgetRoot.render(
+      <RichEditorRewriteWidget
+        actionLabel={widgetState.actionLabel}
+        status={widgetState.status}
+        previewHtml={widgetState.previewHtml}
+        errorMessage={widgetState.errorMessage}
+        onAccept={options.getCallbacks().onAccept}
+        onClose={options.getCallbacks().onClose}
+        onOpenAiSettings={options.getCallbacks().onOpenAiSettings}
+      />,
+    );
+  };
+
+  return new Plugin({
+    key: RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY,
+    state: {
+      init: () => 0,
+      apply(tr, value) {
+        return tr.getMeta(RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY) ?? value;
+      },
+    },
+    props: {
+      decorations(state) {
+        const widgetState = options.getWidgetState();
+
+        if (!widgetState) {
+          return null;
+        }
+
+        const decorations = widgetState.blockRanges
+          .filter((range) => !range.isPlaceholder)
+          .map((range) =>
+            Decoration.node(range.from - 1, range.to, {
+              class: "rich-editor__rewrite-origin-block",
+            }),
+          );
+
+        decorations.push(
+          Decoration.widget(
+            widgetState.anchorPos,
+            () => {
+              const dom = ensureWidgetDom();
+              renderWidget();
+              return dom;
+            },
+            {
+              side: 1,
+              ignoreSelection: true,
+              key: "rich-editor-rewrite-widget",
+              stopEvent: (event) =>
+                event.target instanceof Node
+                  ? ensureWidgetDom().contains(event.target)
+                  : false,
+            },
+          ),
+        );
+
+        return DecorationSet.create(state.doc, decorations);
+      },
+    },
+    view() {
+      renderWidget();
+      return {
+        update() {
+          renderWidget();
+        },
+        destroy() {
+          const rootToUnmount = widgetRoot;
+          widgetRoot = null;
+          widgetDom = null;
+          queueMicrotask(() => {
+            rootToUnmount?.unmount();
+          });
+        },
+      };
+    },
+  });
 }
 
 function buildImageContextMenuActions({
@@ -2205,7 +2957,11 @@ function hasExpandedTextSelection(editor: Editor) {
   return editor.state.selection instanceof TextSelection && !editor.state.selection.empty;
 }
 
-function syncDomTextSelectionToEditor(editor: Editor) {
+function isContextMenuPointerTrigger(button: number, ctrlKey: boolean) {
+  return button === 2 || (button === 0 && ctrlKey);
+}
+
+function readDomTextSelection(editor: Editor): StoredTextSelection | null {
   const domSelection = window.getSelection();
 
   if (
@@ -2214,7 +2970,7 @@ function syncDomTextSelectionToEditor(editor: Editor) {
     domSelection.isCollapsed ||
     domSelection.toString().trim().length === 0
   ) {
-    return false;
+    return null;
   }
 
   const range = domSelection.getRangeAt(0);
@@ -2224,7 +2980,7 @@ function syncDomTextSelectionToEditor(editor: Editor) {
     !editor.view.dom.contains(startContainer) ||
     !editor.view.dom.contains(endContainer)
   ) {
-    return false;
+    return null;
   }
 
   try {
@@ -2233,15 +2989,146 @@ function syncDomTextSelectionToEditor(editor: Editor) {
     const from = Math.min(start, end);
     const to = Math.max(start, end);
 
-    if (from === to) {
+    return from === to ? null : { from, to };
+  } catch {
+    return null;
+  }
+}
+
+function syncDomTextSelectionToEditor(editor: Editor) {
+  const domSelection = readDomTextSelection(editor);
+  if (!domSelection) {
+    return false;
+  }
+
+  editor.view.dispatch(
+    editor.state.tr.setSelection(
+      TextSelection.create(editor.state.doc, domSelection.from, domSelection.to),
+    ),
+  );
+  return true;
+}
+
+function syncStoredTextSelectionToEditor(
+  editor: Editor,
+  storedSelection: StoredTextSelection | null,
+  options: {
+    coords?: { left: number; top: number };
+    target?: Element | null;
+  },
+) {
+  if (!storedSelection) {
+    return false;
+  }
+
+  const anchorPos = resolveContextMenuAnchorPos(editor, options.target ?? null, options.coords);
+
+  if (anchorPos === null) {
+    return false;
+  }
+
+  const sameTextBlock = isPosWithinSameTextBlock(editor, anchorPos, storedSelection);
+
+  if (anchorPos < storedSelection.from || anchorPos > storedSelection.to) {
+    if (!sameTextBlock) {
       return false;
     }
+  }
 
-    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)));
+  try {
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, storedSelection.from, storedSelection.to),
+      ),
+    );
     return true;
   } catch {
     return false;
   }
+}
+
+function resolveContextMenuAnchorPos(
+  editor: Editor,
+  target: Element | null,
+  coords?: { left: number; top: number },
+) {
+  const clampPos = (pos: number) =>
+    Math.max(1, Math.min(pos, editor.state.doc.content.size));
+
+  const hit = coords ? editor.view.posAtCoords(coords) : null;
+  if (hit) {
+    return clampPos(hit.pos);
+  }
+
+  const candidateEntries: Array<{ node: Node; offset: number }> = [];
+  const pushCandidate = (node: Node | null, offset = 0) => {
+    if (!node || !editor.view.dom.contains(node)) {
+      return;
+    }
+
+    if (candidateEntries.some((entry) => entry.node === node && entry.offset === offset)) {
+      return;
+    }
+
+    candidateEntries.push({ node, offset });
+  };
+
+  pushCandidate(target);
+  pushCandidate(target?.firstChild ?? null);
+  pushCandidate(findFirstTextDescendant(target));
+
+  for (const candidate of candidateEntries) {
+    try {
+      return clampPos(editor.view.posAtDOM(candidate.node, candidate.offset));
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function findFirstTextDescendant(node: Node | null) {
+  if (!node) {
+    return null;
+  }
+
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node as Text;
+  }
+
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  return walker.nextNode() as Text | null;
+}
+
+function isPosWithinSameTextBlock(
+  editor: Editor,
+  pos: number,
+  storedSelection: StoredTextSelection,
+) {
+  const range = resolveTextBlockRange(editor, pos);
+
+  if (!range) {
+    return false;
+  }
+
+  return storedSelection.from >= range.from && storedSelection.to <= range.to;
+}
+
+function resolveTextBlockRange(editor: Editor, pos: number) {
+  const clampedPos = Math.max(1, Math.min(pos, editor.state.doc.content.size));
+  const resolvedPos = editor.state.doc.resolve(clampedPos);
+
+  for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
+    if (resolvedPos.node(depth).isTextblock) {
+      return {
+        from: resolvedPos.start(depth),
+        to: resolvedPos.end(depth),
+      };
+    }
+  }
+
+  return null;
 }
 
 function resolveImageContextMenuTarget(

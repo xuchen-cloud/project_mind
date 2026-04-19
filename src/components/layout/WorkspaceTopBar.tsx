@@ -38,7 +38,7 @@ interface WorkspaceTopBarProps {
   archivedProjects: ProjectListItem[];
   searchInput: string;
   onSearchInput: (value: string) => void;
-  searchGroups: Array<readonly [string, WorkspaceSearchResult[]]>;
+  searchResults: WorkspaceSearchResult[];
   searching: boolean;
   archiveOpen: boolean;
   onToggleArchive: () => void;
@@ -71,7 +71,7 @@ export function WorkspaceTopBar({
   archivedProjects,
   searchInput,
   onSearchInput,
-  searchGroups,
+  searchResults,
   searching,
   archiveOpen,
   onToggleArchive,
@@ -153,7 +153,7 @@ export function WorkspaceTopBar({
           <SearchField
             value={searchInput}
             onChange={(event) => onSearchInput(event.target.value)}
-            placeholder="搜索项目、活动、Todo、文件"
+            placeholder="搜索项目、活动、记录、结论、Todo、文件"
             className="w-64"
             loading={searching}
           />
@@ -165,35 +165,27 @@ export function WorkspaceTopBar({
                   <LoaderCircle className="spin" size={14} />
                   搜索中...
                 </div>
-              ) : searchGroups.length > 0 ? (
-                searchGroups.map(([group, results]) => (
-                  <div key={group} className="py-1">
-                    <p className="px-2 py-1 text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                      {group}
-                    </p>
-                    {results.map((result) => (
-                      <button
-                        key={`${result.kind}-${result.id}`}
-                        type="button"
-                        className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left transition-colors hover:bg-bg-hover"
-                        onClick={() => onSearchSelect(result)}
-                      >
-                        <div className="mb-1 flex items-center gap-2">
-                          <p className="truncate text-body font-medium text-text">
-                            {result.title || "Untitled"}
-                          </p>
-                          <StatusBadge tone="neutral">{result.kind}</StatusBadge>
-                        </div>
-                        <p className="truncate text-ui text-text-soft">
+              ) : searchResults.length > 0 ? (
+                <div className="py-1">
+                  {searchResults.map((result) => (
+                    <button
+                      key={`${result.kind}-${result.id}`}
+                      type="button"
+                      className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left transition-colors hover:bg-bg-hover"
+                      onClick={() => onSearchSelect(result)}
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <p className="truncate text-body font-medium text-text">
                           {result.title || "Untitled"}
                         </p>
-                        <p className="truncate text-ui text-text-soft">
-                          {result.subtitle || result.matchedText}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                ))
+                        <StatusBadge tone="neutral">{result.kind}</StatusBadge>
+                      </div>
+                      <p className="truncate text-ui text-text-soft">
+                        {result.subtitle || result.matchedText}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               ) : (
                 <div className="p-3 text-center text-ui text-text-soft">没有匹配结果</div>
               )}

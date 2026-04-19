@@ -406,6 +406,7 @@ describe("projectMindApi", () => {
           assistant: true,
           summary: true,
           suggestion_generation: true,
+          editor_rewrite: true,
         },
         features: {
           "summary.activity_summary": true,
@@ -415,6 +416,7 @@ describe("projectMindApi", () => {
           "suggestion_generation.todo": true,
         },
       },
+      editorRewriteActions: [],
     });
 
     await projectMindApi.aiSettingsGet();
@@ -812,6 +814,49 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("maps editor rewrite action upserts to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 1,
+      label: "翻译成英文",
+      prompt: "请翻译成自然英文",
+      enabled: true,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await projectMindApi.aiEditorRewriteActionUpsert({
+      label: "翻译成英文",
+      prompt: "请翻译成自然英文",
+      enabled: true,
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
+      "ai_editor_rewrite_action_upsert",
+      {
+        input: {
+          label: "翻译成英文",
+          prompt: "请翻译成自然英文",
+          enabled: true,
+        },
+      },
+    );
+  });
+
+  it("maps editor rewrite action deletes to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
+
+    await projectMindApi.aiEditorRewriteActionDelete({ actionId: 7 });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
+      "ai_editor_rewrite_action_delete",
+      {
+        input: {
+          actionId: 7,
+        },
+      },
+    );
+  });
+
   it("maps ai feature settings updates to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       masterEnabled: true,
@@ -819,6 +864,7 @@ describe("projectMindApi", () => {
         assistant: false,
         summary: true,
         suggestion_generation: true,
+        editor_rewrite: true,
       },
       features: {
         "summary.activity_summary": true,
@@ -835,6 +881,7 @@ describe("projectMindApi", () => {
         assistant: false,
         summary: true,
         suggestion_generation: true,
+        editor_rewrite: true,
       },
       features: {
         "summary.activity_summary": true,
@@ -854,6 +901,7 @@ describe("projectMindApi", () => {
             assistant: false,
             summary: true,
             suggestion_generation: true,
+            editor_rewrite: true,
           },
           features: {
             "summary.activity_summary": true,

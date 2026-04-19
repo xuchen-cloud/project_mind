@@ -27,20 +27,15 @@ describe("WorkspaceTopBar", () => {
         archivedProjects={[{ id: 2, name: "Beta", status: "paused", rootPath: "/", summary: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
         searchInput="bet"
         onSearchInput={vi.fn()}
-        searchGroups={[
-          [
-            "project",
-            [
-              {
-                kind: "project",
-                id: 2,
-                projectId: 2,
-                title: "Beta",
-                subtitle: "Archived project",
-                matchedText: "Beta",
-              },
-            ],
-          ],
+        searchResults={[
+          {
+            kind: "project",
+            id: 2,
+            projectId: 2,
+            title: "Beta",
+            subtitle: "Archived project",
+            matchedText: "Beta",
+          },
         ]}
         searching={false}
         archiveOpen

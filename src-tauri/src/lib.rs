@@ -24,11 +24,13 @@ use models::{
     ActivityUpdateMetaInput,
     AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult, AiArtifactGetInput,
     AiArtifactRecord, AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
-    AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobSnapshot,
-    AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
-    AiProviderProfileUpsertInput, AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput,
-    ConclusionDeleteInput, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
-    DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+    AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
+    AiEditorRewriteActionUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
+    AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
+    AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
+    AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput,
+    ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, DocumentAddVersionInput,
+    DocumentDeleteInput, DocumentImportClipboardImageInput,
     DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
     DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
     DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
@@ -926,6 +928,22 @@ fn ai_binding_upsert(
 }
 
 #[tauri::command]
+fn ai_editor_rewrite_action_upsert(
+    state: State<'_, AppState>,
+    input: AiEditorRewriteActionUpsertInput,
+) -> CommandResult<AiEditorRewriteActionRecord> {
+    with_db(state, |db| db.ai_editor_rewrite_action_upsert(input))
+}
+
+#[tauri::command]
+fn ai_editor_rewrite_action_delete(
+    state: State<'_, AppState>,
+    input: AiEditorRewriteActionDeleteInput,
+) -> CommandResult<Vec<AiEditorRewriteActionRecord>> {
+    with_db(state, |db| db.ai_editor_rewrite_action_delete(input))
+}
+
+#[tauri::command]
 fn ai_job_enqueue(
     state: State<'_, AppState>,
     input: AiJobEnqueueInput,
@@ -1095,6 +1113,8 @@ pub fn run() {
             ai_profile_delete,
             ai_profile_test,
             ai_binding_upsert,
+            ai_editor_rewrite_action_upsert,
+            ai_editor_rewrite_action_delete,
             ai_job_enqueue,
             ai_job_get,
             ai_jobs_list_active,

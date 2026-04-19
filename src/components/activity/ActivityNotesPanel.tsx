@@ -53,6 +53,7 @@ import {
 import type {
   AcceptedSuggestionResult,
   AiAcceptSuggestionInput,
+  AiSettingsSnapshot,
   AiSuggestionRecord,
   AiSuggestionFeatureType,
   DocumentRecord,
@@ -112,11 +113,13 @@ interface ActivityNotesPanelProps {
   showAiRefine?: boolean;
   aiReady?: boolean;
   enabledSuggestionTypes?: AiSuggestionFeatureType[];
+  aiSettings?: AiSettingsSnapshot;
   onGenerateAiSuggestions?: (noteId: number) => Promise<AiSuggestionRecord[]>;
   onAcceptAiSuggestion?: (
     input: AiAcceptSuggestionInput,
   ) => Promise<AcceptedSuggestionResult>;
   onManageRecordTypes?: () => void;
+  onOpenAiSettings?: () => void;
   onOpenNoteFocus?: (target: NoteFocusTarget) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
@@ -191,9 +194,11 @@ export function ActivityNotesPanel({
   showAiRefine = false,
   aiReady = false,
   enabledSuggestionTypes = [],
+  aiSettings,
   onGenerateAiSuggestions,
   onAcceptAiSuggestion,
   onManageRecordTypes,
+  onOpenAiSettings,
   onOpenNoteFocus,
   onOpenInternalReference,
 }: ActivityNotesPanelProps) {
@@ -1888,6 +1893,15 @@ export function ActivityNotesPanel({
                                 context: { scope: "project", projectId },
                                 onOpenReference: onOpenInternalReference,
                               }}
+                              aiSettings={aiSettings}
+                              aiRewriteContext={{
+                                scope: "activity_note",
+                                projectId,
+                                activityId,
+                                noteId: composer.noteId ?? null,
+                                sourceLabel: composer.title || null,
+                              }}
+                              onOpenAiSettings={onOpenAiSettings}
                               onChange={handleEditorChange}
                               onPersistStateChange={setEditorPersistState}
                               onBlurPersisted={(savedNote) => {

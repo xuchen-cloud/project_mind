@@ -90,6 +90,7 @@ impl AiJobManager {
                 started_at: None,
                 finished_at: None,
                 error_message: None,
+                stream_text: None,
                 result: None,
             };
 
@@ -148,6 +149,7 @@ impl AiJobManager {
                     snapshot.status = AiJobStatus::Running;
                     snapshot.started_at = Some(now_iso());
                     snapshot.error_message = None;
+                    snapshot.stream_text = None;
                     snapshot.result = None;
                     Some((job_id, request, snapshot.clone()))
                 }
@@ -167,7 +169,11 @@ impl AiJobManager {
                 };
                 let result =
                     Database::open(&manager.db_path, &manager.workspace_root, secret_password)
-                        .and_then(|mut db| db.execute_ai_job(request));
+                        .and_then(|mut db| {
+                            db.execute_ai_job_with_progress(request, |stream_text| {
+                                manager.update_stream_text(job_id, stream_text);
+                            })
+                        });
                 match result {
                     Ok(result) => manager.finish_success(job_id, result),
                     Err(error) => manager.finish_error(job_id, error.to_string()),
@@ -187,6 +193,9 @@ impl AiJobManager {
             snapshot.status = AiJobStatus::Succeeded;
             snapshot.finished_at = Some(now_iso());
             snapshot.error_message = None;
+            if let AiJobResult::EditorRewrite { rewrite } = &result {
+                snapshot.stream_text = Some(rewrite.rewritten_markdown.clone());
+            }
             snapshot.result = Some(result);
             snapshot.clone()
         };
@@ -212,6 +221,25 @@ impl AiJobManager {
 
         self.emit(&snapshot);
         self.try_start_jobs();
+    }
+
+    fn update_stream_text(&self, job_id: i64, stream_text: String) {
+        let snapshot = {
+            let mut state = lock_state(&self.inner);
+            let Some(snapshot) = state.jobs.get_mut(&job_id) else {
+                return;
+            };
+            if snapshot.status != AiJobStatus::Running {
+                return;
+            }
+            if snapshot.stream_text.as_deref() == Some(stream_text.as_str()) {
+                return;
+            }
+            snapshot.stream_text = Some(stream_text);
+            snapshot.clone()
+        };
+
+        self.emit(&snapshot);
     }
 
     fn emit(&self, snapshot: &AiJobSnapshot) {

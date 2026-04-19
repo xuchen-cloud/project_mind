@@ -43,6 +43,7 @@ export function defaultAiFeatureSettings(): AiFeatureSettings {
       assistant: true,
       summary: true,
       suggestion_generation: true,
+      editor_rewrite: true,
     },
     features: {
       "summary.activity_summary": true,

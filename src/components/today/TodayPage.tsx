@@ -11,6 +11,7 @@ import { useWorkspaceNoteMutations } from "../../hooks/useWorkspaceNoteMutations
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
+import { useUiStore } from "../../state/ui-store";
 import { EmptyState, SurfaceCard } from "../../ui/components";
 import { AiArtifactCard } from "../ai/AiArtifactCard";
 import { TodayQuickNotePanel } from "./TodayQuickNotePanel";
@@ -21,6 +22,7 @@ export function TodayPage() {
   const navigate = useNavigate();
   const today = useMemo(() => workspaceDayString(), []);
   const { pushToast } = useFeedbackStore();
+  const { openSettings } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
 
   const projectsQuery = useQuery({
@@ -165,8 +167,10 @@ export function TodayPage() {
           notes={workspaceNotesQuery.data ?? []}
           saving={workspaceNoteMutation.isPending}
           deletingNote={workspaceNoteDeleteMutation.isPending}
+          aiSettings={aiSettingsQuery.data}
           onUpsertNote={(input) => workspaceNoteMutation.mutateAsync(input)}
           onDeleteNote={(noteId) => workspaceNoteDeleteMutation.mutateAsync({ noteId })}
+          onOpenAiSettings={() => openSettings("ai")}
           onOpenInternalReference={openInternalReference}
         />
       </div>

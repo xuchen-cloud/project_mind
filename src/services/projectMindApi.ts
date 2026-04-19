@@ -18,6 +18,9 @@ import type {
   AiArtifactRecord,
   AiCapabilityBindingRecord,
   AiCapabilityBindingUpsertInput,
+  AiEditorRewriteActionDeleteInput,
+  AiEditorRewriteActionRecord,
+  AiEditorRewriteActionUpsertInput,
   AiExecutionSettings,
   AiFeatureSettings,
   AiFeatureSettingsUpsertInput,
@@ -269,6 +272,20 @@ export const projectMindApi = {
     desktopApi.command<AiCapabilityBindingRecord>("ai_binding_upsert", {
       input,
     }),
+  aiEditorRewriteActionUpsert: (input: AiEditorRewriteActionUpsertInput) =>
+    desktopApi.command<AiEditorRewriteActionRecord>(
+      "ai_editor_rewrite_action_upsert",
+      {
+        input,
+      },
+    ),
+  aiEditorRewriteActionDelete: (input: AiEditorRewriteActionDeleteInput) =>
+    desktopApi.command<AiEditorRewriteActionRecord[]>(
+      "ai_editor_rewrite_action_delete",
+      {
+        input,
+      },
+    ),
   aiFeatureSettingsUpsert: (input: AiFeatureSettingsUpsertInput) =>
     desktopApi.command<AiFeatureSettings>("ai_feature_settings_upsert", {
       input,

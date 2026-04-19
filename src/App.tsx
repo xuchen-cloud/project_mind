@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderKanban, FolderOpen, LockKeyhole, ShieldEllipsis, Sparkles } from "lucide-react";
+import {
+  FolderKanban,
+  FolderOpen,
+  LockKeyhole,
+  ShieldEllipsis,
+  Sparkles,
+} from "lucide-react";
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import type {
@@ -13,7 +19,13 @@ import type {
 import { isAiCapabilityVisible } from "./lib/ai";
 import { deriveAskScopeContext } from "./lib/aiAsk";
 import { ensureAiJobSync, resetAiJobSync } from "./lib/aiJobs";
-import { activityPath, parseRouteId, projectPath, todayPath } from "./lib/formatters";
+import {
+  activityNotePath,
+  activityPath,
+  parseRouteId,
+  projectPath,
+  todayPath,
+} from "./lib/formatters";
 import {
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
   applyRichTextStyleVariables,
@@ -26,6 +38,7 @@ import { useProjectMutations } from "./hooks/useProjectMutations";
 import { useActivityMutations } from "./hooks/useActivityMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { AskPanel } from "./components/ai/AskPanel";
+import { ActivityDeleteDialog } from "./components/activity/ActivityDeleteDialog";
 import {
   ProjectSidebar,
   type ProjectSidebarActivityItem,
@@ -35,7 +48,13 @@ import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
 import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
-import { Button, Dialog, EmptyState, SurfaceCard, TextField } from "./ui/components";
+import {
+  Button,
+  Dialog,
+  EmptyState,
+  SurfaceCard,
+  TextField,
+} from "./ui/components";
 
 function workspaceScopedQueryKeys() {
   return [
@@ -55,7 +74,9 @@ function workspaceScopedQueryKeys() {
   ] as const;
 }
 
-function toProjectSidebarActivities(activities: ActivityCardData[]): ProjectSidebarActivityItem[] {
+function toProjectSidebarActivities(
+  activities: ActivityCardData[],
+): ProjectSidebarActivityItem[] {
   return activities.map((activity) => ({
     id: activity.id,
     title: activity.title,
@@ -88,7 +109,9 @@ function WorkspaceGatePage({
     return (
       <div className="flex h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_42%),linear-gradient(180deg,var(--color-bg)_0%,var(--color-bg-subtle)_100%)] px-6">
         <SurfaceCard className="w-full max-w-xl p-8 text-center">
-          <p className="text-body text-text-soft">正在检查最近使用的 workspace...</p>
+          <p className="text-body text-text-soft">
+            正在检查最近使用的 workspace...
+          </p>
         </SurfaceCard>
       </div>
     );
@@ -110,11 +133,13 @@ function WorkspaceGatePage({
                 先打开一个 Workspace，再继续整理项目。
               </h1>
               <p className="max-w-2xl text-body leading-7 text-text-soft">
-                所有项目、数据库、AI 缓存、日志和设置都会存放在同一个 workspace 里的
+                所有项目、数据库、AI 缓存、日志和设置都会存放在同一个 workspace
+                里的
                 <code className="mx-1 rounded bg-bg-subtle px-1.5 py-0.5 text-ui">
                   .project-mind
                 </code>
-                隐藏目录中。复制整个 workspace 后，另一台电脑也可以直接继续使用。
+                隐藏目录中。复制整个 workspace
+                后，另一台电脑也可以直接继续使用。
               </p>
             </div>
           </div>
@@ -141,9 +166,12 @@ function WorkspaceGatePage({
           </div>
 
           <div className="grid gap-3 rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle/80 p-4">
-            <p className="text-ui font-medium text-text">旧版本本地数据已清理</p>
+            <p className="text-ui font-medium text-text">
+              旧版本本地数据已清理
+            </p>
             <p className="text-ui leading-6 text-text-soft">
-              当前版本不再读取系统 app data 中的历史业务库。后续请直接打开或创建新的 workspace。
+              当前版本不再读取系统 app data
+              中的历史业务库。后续请直接打开或创建新的 workspace。
             </p>
           </div>
         </SurfaceCard>
@@ -154,7 +182,9 @@ function WorkspaceGatePage({
               <p className="text-caption font-medium uppercase tracking-[0.18em] text-text-soft">
                 Recent
               </p>
-              <h2 className="mt-1 text-title font-semibold text-text">最近使用的 Workspace</h2>
+              <h2 className="mt-1 text-title font-semibold text-text">
+                最近使用的 Workspace
+              </h2>
             </div>
             <ShieldEllipsis size={18} className="text-text-soft" />
           </div>
@@ -227,7 +257,12 @@ function CreateWorkspaceDialog({
           <Button variant="ghost" onClick={onClose}>
             取消
           </Button>
-          <Button type="button" variant="primary" disabled={pending} onClick={onSubmit}>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={pending}
+            onClick={onSubmit}
+          >
             {pending ? "创建中..." : "创建 Workspace"}
           </Button>
         </>
@@ -235,7 +270,9 @@ function CreateWorkspaceDialog({
     >
       <div className="grid gap-4">
         <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">Workspace 根目录</span>
+          <span className="text-ui font-medium text-text-muted">
+            Workspace 根目录
+          </span>
           <div className="flex gap-2">
             <TextField
               value={rootPath}
@@ -250,7 +287,9 @@ function CreateWorkspaceDialog({
         </label>
 
         <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">Workspace 密码</span>
+          <span className="text-ui font-medium text-text-muted">
+            Workspace 密码
+          </span>
           <TextField
             type="password"
             value={password}
@@ -298,7 +337,12 @@ function UnlockWorkspaceSecretsDialog({
           <Button variant="ghost" onClick={onClose}>
             取消
           </Button>
-          <Button type="button" variant="primary" disabled={pending} onClick={onSubmit}>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={pending}
+            onClick={onSubmit}
+          >
             {pending ? "解锁中..." : "解锁"}
           </Button>
         </>
@@ -306,7 +350,9 @@ function UnlockWorkspaceSecretsDialog({
     >
       <div className="grid gap-3">
         <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">Workspace 密码</span>
+          <span className="text-ui font-medium text-text-muted">
+            Workspace 密码
+          </span>
           <TextField
             type="password"
             value={password}
@@ -380,19 +426,24 @@ export function WorkspaceLayout() {
     [projectsQuery.data],
   );
   const activeProject = useMemo(
-    () => (projectsQuery.data ?? []).find((project) => project.id === activeProjectId) ?? null,
+    () =>
+      (projectsQuery.data ?? []).find(
+        (project) => project.id === activeProjectId,
+      ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
   const projectSidebarQuery = useQuery({
     queryKey: ["activities", activeProjectId],
-    queryFn: () => projectMindApi.activityList({ projectId: activeProjectId as number }),
+    queryFn: () =>
+      projectMindApi.activityList({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
   });
   const projectSidebarActivities = useMemo(
     () => toProjectSidebarActivities(projectSidebarQuery.data ?? []),
     [projectSidebarQuery.data],
   );
-  const showProjectSidebarShell = hasWorkspace && activeProjectId !== null && activeProject !== null;
+  const showProjectSidebarShell =
+    hasWorkspace && activeProjectId !== null && activeProject !== null;
 
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 260);
@@ -402,17 +453,6 @@ export function WorkspaceLayout() {
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
   });
 
-  const searchGroups = useMemo(() => {
-    if (!searchQuery.data) return [];
-    const groups = new Map<string, WorkspaceSearchResult[]>();
-    for (const result of searchQuery.data) {
-      const group = groups.get(result.kind) ?? [];
-      group.push(result);
-      groups.set(result.kind, group);
-    }
-    return Array.from(groups.entries());
-  }, [searchQuery.data]);
-
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -420,7 +460,9 @@ export function WorkspaceLayout() {
   const [createWorkspaceRoot, setCreateWorkspaceRoot] = useState("");
   const [createWorkspacePassword, setCreateWorkspacePassword] = useState("");
   const [createWorkspacePending, setCreateWorkspacePending] = useState(false);
-  const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
+  const [createWorkspaceError, setCreateWorkspaceError] = useState<
+    string | null
+  >(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [unlockPassword, setUnlockPassword] = useState("");
   const [unlockPending, setUnlockPending] = useState(false);
@@ -428,10 +470,17 @@ export function WorkspaceLayout() {
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const askScopeContext = useMemo(
-    () => deriveAskScopeContext(location.pathname, activeProjectId, activeActivityId),
+    () =>
+      deriveAskScopeContext(
+        location.pathname,
+        activeProjectId,
+        activeActivityId,
+      ),
     [activeActivityId, activeProjectId, location.pathname],
   );
-  const [askScope, setAskScope] = useState<AiAnswerScope>(askScopeContext.defaultScope);
+  const [askScope, setAskScope] = useState<AiAnswerScope>(
+    askScopeContext.defaultScope,
+  );
   const askVisible = isAiCapabilityVisible(aiSettingsQuery.data, "assistant");
   const todayVisible = hasWorkspace;
 
@@ -439,11 +488,33 @@ export function WorkspaceLayout() {
     visibleProjects,
     (path, options) => navigate(path, options),
   );
-  const { createActivityMutation } = useActivityMutations({
-    onCreateActivitySuccess: (activity) => {
-      navigate(activityPath(activity.projectId, activity.id, "activity-title"));
-    },
-  });
+  const [sidebarDeleteActivityId, setSidebarDeleteActivityId] = useState<
+    number | null
+  >(null);
+  const sidebarDeleteActivity = useMemo(
+    () =>
+      (projectSidebarQuery.data ?? []).find(
+        (activity) => activity.id === sidebarDeleteActivityId,
+      ) ?? null,
+    [projectSidebarQuery.data, sidebarDeleteActivityId],
+  );
+
+  const { createActivityMutation, deleteActivityMutation } =
+    useActivityMutations({
+      onCreateActivitySuccess: (activity) => {
+        navigate(
+          activityPath(activity.projectId, activity.id, "activity-title"),
+        );
+      },
+      onDeleteActivitySuccess: (activity) => {
+        setSidebarDeleteActivityId((current) =>
+          current === activity.id ? null : current,
+        );
+        if (activity.id === activeActivityId) {
+          navigate(projectPath(activity.projectId));
+        }
+      },
+    });
 
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
@@ -503,13 +574,23 @@ export function WorkspaceLayout() {
 
     try {
       setUnlockPending(true);
-      const snapshot = await projectMindApi.workspaceUnlock({ password: unlockPassword });
+      const snapshot = await projectMindApi.workspaceUnlock({
+        password: unlockPassword,
+      });
       await applyWorkspaceStatus(snapshot, false);
       closeUnlockDialog(true);
-      setStatus({ tone: "success", label: "Unlocked", message: "AI secrets 已解锁" });
+      setStatus({
+        tone: "success",
+        label: "Unlocked",
+        message: "AI secrets 已解锁",
+      });
     } catch (error) {
       setUnlockError(String(error));
-      setStatus({ tone: "error", label: "Error", message: "解锁 workspace secrets 失败" });
+      setStatus({
+        tone: "error",
+        label: "Error",
+        message: "解锁 workspace secrets 失败",
+      });
     } finally {
       setUnlockPending(false);
     }
@@ -532,7 +613,8 @@ export function WorkspaceLayout() {
     async (presetRootPath?: string) => {
       try {
         const selectedRoot =
-          presetRootPath ?? (await desktopApi.pickDirectory("选择已有 Workspace"));
+          presetRootPath ??
+          (await desktopApi.pickDirectory("选择已有 Workspace"));
         if (!selectedRoot || typeof selectedRoot !== "string") {
           return;
         }
@@ -544,7 +626,11 @@ export function WorkspaceLayout() {
         });
       } catch (error) {
         const detail = String(error);
-        setStatus({ tone: "error", label: "Error", message: "打开 workspace 失败" });
+        setStatus({
+          tone: "error",
+          label: "Error",
+          message: "打开 workspace 失败",
+        });
         pushToast({ tone: "error", title: "打开 workspace 失败", detail });
       }
     },
@@ -552,7 +638,8 @@ export function WorkspaceLayout() {
   );
 
   const handlePickCreateWorkspaceRoot = useCallback(async () => {
-    const selected = await desktopApi.pickDirectory("选择新 Workspace 的根目录");
+    const selected =
+      await desktopApi.pickDirectory("选择新 Workspace 的根目录");
     if (typeof selected === "string") {
       setCreateWorkspaceRoot(selected);
     }
@@ -588,7 +675,11 @@ export function WorkspaceLayout() {
     } catch (error) {
       const detail = String(error);
       setCreateWorkspaceError(detail);
-      setStatus({ tone: "error", label: "Error", message: "创建 workspace 失败" });
+      setStatus({
+        tone: "error",
+        label: "Error",
+        message: "创建 workspace 失败",
+      });
       pushToast({ tone: "error", title: "创建 workspace 失败", detail });
     } finally {
       setCreateWorkspacePending(false);
@@ -606,10 +697,18 @@ export function WorkspaceLayout() {
     try {
       const snapshot = await projectMindApi.workspaceLock();
       await applyWorkspaceStatus(snapshot, false);
-      setStatus({ tone: "success", label: "Locked", message: "AI secrets 已锁定" });
+      setStatus({
+        tone: "success",
+        label: "Locked",
+        message: "AI secrets 已锁定",
+      });
     } catch (error) {
       const detail = String(error);
-      setStatus({ tone: "error", label: "Error", message: "锁定 AI secrets 失败" });
+      setStatus({
+        tone: "error",
+        label: "Error",
+        message: "锁定 AI secrets 失败",
+      });
       pushToast({ tone: "error", title: "锁定 AI secrets 失败", detail });
     }
   }, [applyWorkspaceStatus, pushToast, setStatus]);
@@ -621,21 +720,43 @@ export function WorkspaceLayout() {
         navigate(projectPath(result.projectId));
       } else if (result.kind === "activity") {
         navigate(activityPath(result.projectId, result.id));
+      } else if (result.kind === "note") {
+        if (result.activityId) {
+          navigate(activityNotePath(result.projectId, result.activityId, result.id));
+        }
       } else if (result.kind === "todo") {
         if (result.activityId) {
-          navigate(activityPath(result.projectId, result.activityId, `todo-${result.id}`));
+          navigate(
+            activityPath(
+              result.projectId,
+              result.activityId,
+              `todo-${result.id}`,
+            ),
+          );
         } else {
           navigate(projectPath(result.projectId, `todo-${result.id}`));
         }
       } else if (result.kind === "conclusion") {
         if (result.activityId) {
-          navigate(activityPath(result.projectId, result.activityId, `conclusion-${result.id}`));
+          navigate(
+            activityPath(
+              result.projectId,
+              result.activityId,
+              `conclusion-${result.id}`,
+            ),
+          );
         } else {
           navigate(projectPath(result.projectId, `conclusion-${result.id}`));
         }
       } else if (result.kind === "document") {
         if (result.activityId) {
-          navigate(activityPath(result.projectId, result.activityId, `document-${result.id}`));
+          navigate(
+            activityPath(
+              result.projectId,
+              result.activityId,
+              `document-${result.id}`,
+            ),
+          );
         } else {
           navigate(projectPath(result.projectId, `document-${result.id}`));
         }
@@ -677,7 +798,12 @@ export function WorkspaceLayout() {
             : "workspace 已打开，需要时再创建项目",
       });
     }
-  }, [hasWorkspace, projectsQuery.isLoading, setStatus, visibleProjects.length]);
+  }, [
+    hasWorkspace,
+    projectsQuery.isLoading,
+    setStatus,
+    visibleProjects.length,
+  ]);
 
   useEffect(() => {
     if (shouldAutoNavigate) {
@@ -687,12 +813,23 @@ export function WorkspaceLayout() {
   }, [navigate, shouldAutoNavigate, visibleProjects]);
 
   useEffect(() => {
-    if (activeProjectId === null || !location.pathname.startsWith(`/projects/${activeProjectId}`)) {
+    if (
+      activeProjectId === null ||
+      !location.pathname.startsWith(`/projects/${activeProjectId}`)
+    ) {
       return;
     }
 
-    rememberProjectRoute(activeProjectId, `${location.pathname}${location.search}`);
-  }, [activeProjectId, location.pathname, location.search, rememberProjectRoute]);
+    rememberProjectRoute(
+      activeProjectId,
+      `${location.pathname}${location.search}`,
+    );
+  }, [
+    activeProjectId,
+    location.pathname,
+    location.search,
+    rememberProjectRoute,
+  ]);
 
   useEffect(() => {
     if (typeof document === "undefined" || !hasWorkspace) {
@@ -718,6 +855,12 @@ export function WorkspaceLayout() {
       setAskOpen(false);
     }
   }, [askOpen, askVisible]);
+
+  useEffect(() => {
+    if (sidebarDeleteActivityId !== null && !sidebarDeleteActivity) {
+      setSidebarDeleteActivityId(null);
+    }
+  }, [sidebarDeleteActivity, sidebarDeleteActivityId]);
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -749,8 +892,30 @@ export function WorkspaceLayout() {
     });
   }, [activeProject, createActivityMutation]);
 
+  const handleOpenSidebarDeleteDialog = useCallback(
+    (activityId: number) => {
+      if (deleteActivityMutation.isPending) {
+        return;
+      }
+
+      setSidebarDeleteActivityId(activityId);
+    },
+    [deleteActivityMutation.isPending],
+  );
+
+  const handleConfirmSidebarDelete = useCallback(() => {
+    if (!sidebarDeleteActivity || deleteActivityMutation.isPending) {
+      return;
+    }
+
+    void deleteActivityMutation.mutateAsync({
+      activityId: sidebarDeleteActivity.id,
+    });
+  }, [deleteActivityMutation, sidebarDeleteActivity]);
+
   const resolveProjectNavigationPath = useCallback(
-    (projectId: number) => projectRecentPaths[projectId] ?? projectPath(projectId),
+    (projectId: number) =>
+      projectRecentPaths[projectId] ?? projectPath(projectId),
     [projectRecentPaths],
   );
 
@@ -765,7 +930,9 @@ export function WorkspaceLayout() {
             setCreateWorkspaceError(null);
             setCreateWorkspaceOpen(true);
           }}
-          onOpenRecent={(rootPath) => void handleOpenExistingWorkspace(rootPath)}
+          onOpenRecent={(rootPath) =>
+            void handleOpenExistingWorkspace(rootPath)
+          }
         />
 
         <CreateWorkspaceDialog
@@ -808,17 +975,21 @@ export function WorkspaceLayout() {
       archivedProjects={archivedProjects}
       searchInput={searchInput}
       onSearchInput={setSearchInput}
-      searchGroups={searchGroups}
+      searchResults={searchQuery.data ?? []}
       searching={searchQuery.isLoading}
       archiveOpen={archiveOpen}
       onToggleArchive={() => setArchiveOpen((current) => !current)}
       onCloseArchive={() => setArchiveOpen(false)}
       onOpenProject={(id) => navigate(resolveProjectNavigationPath(id))}
-      onRestoreProject={(id) => archiveMutation.mutate({ projectId: id, isArchived: false })}
+      onRestoreProject={(id) =>
+        archiveMutation.mutate({ projectId: id, isArchived: false })
+      }
       workspaceMenuOpen={workspaceMenuOpen}
       onToggleWorkspaceMenu={() => setWorkspaceMenuOpen((current) => !current)}
       onCloseWorkspaceMenu={() => setWorkspaceMenuOpen(false)}
-      onOpenWorkspaceFolder={() => void desktopApi.openFolder(currentWorkspace.rootPath)}
+      onOpenWorkspaceFolder={() =>
+        void desktopApi.openFolder(currentWorkspace.rootPath)
+      }
       onSwitchWorkspace={() => void handleOpenExistingWorkspace()}
       onLockAiSecrets={() => void handleLockAiSecrets()}
       onCreateProject={() => setCreateProjectOpen(true)}
@@ -835,7 +1006,11 @@ export function WorkspaceLayout() {
         text="当前还没有项目。需要开始整理时再创建即可，后续活动、结论、待办和文件都会围绕项目组织。"
         icon={<FolderKanban size={18} />}
         action={
-          <Button type="button" variant="primary" onClick={() => setCreateProjectOpen(true)}>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => setCreateProjectOpen(true)}
+          >
             创建项目
           </Button>
         }
@@ -862,6 +1037,7 @@ export function WorkspaceLayout() {
             navigate(activityPath(activeProject.id, nextActivityId))
           }
           onCreateActivity={handleCreateActivityFromSidebar}
+          onDeleteActivity={handleOpenSidebarDeleteDialog}
         />
       ) : null}
 
@@ -875,7 +1051,7 @@ export function WorkspaceLayout() {
             todayActive
               ? "Today"
               : activeProjectId !== null
-                ? activeProject?.name ?? null
+                ? (activeProject?.name ?? null)
                 : currentWorkspace.displayName
           }
           detail={`${visibleProjects.length} projects`}
@@ -921,6 +1097,20 @@ export function WorkspaceLayout() {
         onUnlockAiSecrets={requestUnlockAiSecrets}
         onClose={closeSettings}
       />
+
+      {sidebarDeleteActivity ? (
+        <ActivityDeleteDialog
+          open
+          activity={sidebarDeleteActivity}
+          busy={deleteActivityMutation.isPending}
+          onClose={() => {
+            if (!deleteActivityMutation.isPending) {
+              setSidebarDeleteActivityId(null);
+            }
+          }}
+          onConfirm={handleConfirmSidebarDelete}
+        />
+      ) : null}
 
       <AskPanel
         open={askVisible && askOpen}

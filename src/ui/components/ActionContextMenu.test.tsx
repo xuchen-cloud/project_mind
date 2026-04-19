@@ -97,4 +97,62 @@ describe("ActionContextMenu", () => {
     await user.click(screen.getByRole("button", { name: "outside" }));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it("opens a submenu and runs nested actions", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onNestedSelect = vi.fn();
+
+    render(
+      <ActionContextMenu
+        x={24}
+        y={32}
+        ariaLabel="测试菜单"
+        onClose={onClose}
+        actions={[
+          {
+            type: "submenu",
+            key: "format",
+            label: "格式",
+            actions: [
+              {
+                key: "bold",
+                label: "加粗",
+                icon: Copy,
+                onSelect: onNestedSelect,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    await user.hover(screen.getByRole("menuitem", { name: "格式" }));
+    await user.click(await screen.findByRole("menuitem", { name: "加粗" }));
+
+    expect(onNestedSelect).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not steal focus when autoFocus is disabled", () => {
+    render(
+      <ActionContextMenu
+        x={24}
+        y={32}
+        ariaLabel="测试菜单"
+        autoFocus={false}
+        onClose={vi.fn()}
+        actions={[
+          {
+            key: "copy",
+            label: "复制",
+            icon: Copy,
+            onSelect: vi.fn(),
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("menu", { name: "测试菜单" })).not.toHaveFocus();
+  });
 });

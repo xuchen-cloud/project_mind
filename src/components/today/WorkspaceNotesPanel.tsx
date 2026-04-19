@@ -12,7 +12,7 @@ import {
   getRenderableRichTextHtml,
   richTextHtmlToPlainText,
 } from "../../lib/richTextContent";
-import type { WorkspaceNoteRecord } from "../../lib/types";
+import type { AiSettingsSnapshot, WorkspaceNoteRecord } from "../../lib/types";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
   Button,
@@ -32,6 +32,7 @@ interface WorkspaceNotesPanelProps {
   notes: WorkspaceNoteRecord[];
   saving?: boolean;
   deletingNote?: boolean;
+  aiSettings?: AiSettingsSnapshot;
   onUpsertNote: (input: {
     noteId?: number;
     title?: string;
@@ -39,6 +40,7 @@ interface WorkspaceNotesPanelProps {
     html: string;
   }) => Promise<WorkspaceNoteRecord>;
   onDeleteNote?: (noteId: number) => Promise<unknown> | unknown;
+  onOpenAiSettings?: () => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
 }
 
@@ -73,8 +75,10 @@ export function WorkspaceNotesPanel({
   notes,
   saving = false,
   deletingNote = false,
+  aiSettings,
   onUpsertNote,
   onDeleteNote,
+  onOpenAiSettings,
   onOpenInternalReference,
 }: WorkspaceNotesPanelProps) {
   const { pushToast } = useFeedbackStore();
@@ -597,6 +601,13 @@ export function WorkspaceNotesPanel({
                             context: { scope: "workspace" },
                             onOpenReference: onOpenInternalReference,
                           }}
+                          aiSettings={aiSettings}
+                          aiRewriteContext={{
+                            scope: "workspace_note",
+                            workspaceNoteId: composer.noteId ?? null,
+                            sourceLabel: composer.title || null,
+                          }}
+                          onOpenAiSettings={onOpenAiSettings}
                           onChange={handleEditorChange}
                           onPersistStateChange={setEditorPersistState}
                           onBlurPersisted={(savedNote) => {

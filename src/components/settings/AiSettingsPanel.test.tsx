@@ -13,6 +13,8 @@ const {
   mockAiProfileUpsert,
   mockAiProfileDelete,
   mockAiProfileTest,
+  mockAiEditorRewriteActionUpsert,
+  mockAiEditorRewriteActionDelete,
   mockEnqueueAndWait,
   mockUseAiJobTarget,
   mockSetStatus,
@@ -25,6 +27,8 @@ const {
   mockAiProfileUpsert: vi.fn(),
   mockAiProfileDelete: vi.fn(),
   mockAiProfileTest: vi.fn(),
+  mockAiEditorRewriteActionUpsert: vi.fn(),
+  mockAiEditorRewriteActionDelete: vi.fn(),
   mockEnqueueAndWait: vi.fn(),
   mockUseAiJobTarget: vi.fn(),
   mockSetStatus: vi.fn(),
@@ -40,6 +44,8 @@ vi.mock("../../services/projectMindApi", () => ({
     aiProfileUpsert: mockAiProfileUpsert,
     aiProfileDelete: mockAiProfileDelete,
     aiProfileTest: mockAiProfileTest,
+    aiEditorRewriteActionUpsert: mockAiEditorRewriteActionUpsert,
+    aiEditorRewriteActionDelete: mockAiEditorRewriteActionDelete,
   },
 }));
 
@@ -77,6 +83,8 @@ describe("AiSettingsPanel", () => {
     mockAiProfileUpsert.mockReset();
     mockAiProfileDelete.mockReset();
     mockAiProfileTest.mockReset();
+    mockAiEditorRewriteActionUpsert.mockReset();
+    mockAiEditorRewriteActionDelete.mockReset();
     mockEnqueueAndWait.mockReset();
     mockUseAiJobTarget.mockReset();
     mockSetStatus.mockReset();
@@ -157,6 +165,13 @@ describe("AiSettingsPanel", () => {
           model: null,
           updatedAt: "",
         },
+        {
+          capability: "editor_rewrite",
+          useDefault: true,
+          profileId: null,
+          model: null,
+          updatedAt: "",
+        },
       ],
       hasUsableDefault: true,
       securityMode: "workspace_password_encrypted",
@@ -170,6 +185,7 @@ describe("AiSettingsPanel", () => {
           assistant: true,
           summary: true,
           suggestion_generation: true,
+          editor_rewrite: true,
         },
         features: {
           "summary.activity_summary": true,
@@ -179,6 +195,7 @@ describe("AiSettingsPanel", () => {
           "suggestion_generation.todo": true,
         },
       },
+      editorRewriteActions: [],
     };
 
     mockAiSettingsGet.mockImplementation(async () => aiSettingsSnapshot);
@@ -219,6 +236,34 @@ describe("AiSettingsPanel", () => {
         ),
       };
       return nextBinding;
+    });
+    mockAiEditorRewriteActionUpsert.mockImplementation(async (input) => {
+      const nextAction = {
+        id: input.id ?? aiSettingsSnapshot.editorRewriteActions.length + 1,
+        label: input.label,
+        prompt: input.prompt,
+        enabled: input.enabled,
+        createdAt: "",
+        updatedAt: "",
+      };
+      aiSettingsSnapshot = {
+        ...aiSettingsSnapshot,
+        editorRewriteActions: input.id
+          ? aiSettingsSnapshot.editorRewriteActions.map((action) =>
+              action.id === input.id ? nextAction : action,
+            )
+          : [...aiSettingsSnapshot.editorRewriteActions, nextAction],
+      };
+      return nextAction;
+    });
+    mockAiEditorRewriteActionDelete.mockImplementation(async ({ actionId }) => {
+      aiSettingsSnapshot = {
+        ...aiSettingsSnapshot,
+        editorRewriteActions: aiSettingsSnapshot.editorRewriteActions.filter(
+          (action) => action.id !== actionId,
+        ),
+      };
+      return aiSettingsSnapshot.editorRewriteActions;
     });
     mockAiFeatureSettingsUpsert.mockImplementation(async (input) => {
       aiSettingsSnapshot = {
@@ -275,7 +320,7 @@ describe("AiSettingsPanel", () => {
     expect(screen.getAllByLabelText("接入配置")).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "专业模式" }));
-    expect(screen.getAllByLabelText("接入配置")).toHaveLength(4);
+    expect(screen.getAllByLabelText("接入配置")).toHaveLength(5);
 
     await user.selectOptions(screen.getAllByLabelText("接入配置")[1], "2");
 
@@ -313,6 +358,32 @@ describe("AiSettingsPanel", () => {
     await waitFor(() =>
       expect(mockAiExecutionSettingsUpsert).toHaveBeenCalledWith(
         { maxConcurrency: 3 },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("creates a custom editor rewrite action from the settings panel", async () => {
+    const user = userEvent.setup();
+
+    renderPanel();
+
+    await screen.findByText("编辑改写动作");
+    await user.click(screen.getByRole("button", { name: "新增动作" }));
+    await user.type(await screen.findByLabelText("动作名称"), "翻译成英文");
+    await user.type(
+      screen.getByPlaceholderText("比如：请保持原意，把这段文字翻译成自然、专业的英文。"),
+      "请翻译成自然英文",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(mockAiEditorRewriteActionUpsert).toHaveBeenCalledWith(
+        {
+          label: "翻译成英文",
+          prompt: "请翻译成自然英文",
+          enabled: true,
+        },
         expect.anything(),
       ),
     );

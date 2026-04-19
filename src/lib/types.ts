@@ -281,7 +281,8 @@ export type AiJobKind =
   | "artifact_refresh"
   | "answer_question"
   | "note_suggestions"
-  | "profile_test";
+  | "profile_test"
+  | "editor_rewrite";
 
 export type AiJobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -313,11 +314,23 @@ export interface AiProfileTestJobResult extends AiJobBase {
   testResult: AiProfileTestResult;
 }
 
+export interface AiEditorRewriteResult {
+  actionId?: number | null;
+  rewrittenMarkdown: string;
+  resolvedModel?: string | null;
+}
+
+export interface AiEditorRewriteJobResult extends AiJobBase {
+  kind: "editor_rewrite";
+  rewrite: AiEditorRewriteResult;
+}
+
 export type AiJobResult =
   | AiArtifactRefreshJobResult
   | AiAnswerQuestionJobResult
   | AiNoteSuggestionsJobResult
-  | AiProfileTestJobResult;
+  | AiProfileTestJobResult
+  | AiEditorRewriteJobResult;
 
 export interface AiJobSnapshot {
   id: number;
@@ -328,6 +341,7 @@ export interface AiJobSnapshot {
   startedAt?: string | null;
   finishedAt?: string | null;
   errorMessage?: string | null;
+  streamText?: string | null;
   result?: AiJobResult | null;
 }
 
@@ -355,11 +369,38 @@ export interface AiProfileTestJobInput {
   input: AiProfileTestInput;
 }
 
+export type AiEditorRewriteScope = "activity_note" | "workspace_note";
+
+export interface AiEditorRewriteContext {
+  scope: AiEditorRewriteScope;
+  projectId?: number | null;
+  activityId?: number | null;
+  noteId?: number | null;
+  workspaceNoteId?: number | null;
+  sourceLabel?: string | null;
+}
+
+export interface AiEditorRewriteInput {
+  actionId?: number | null;
+  promptOverride?: string | null;
+  selectedText: string;
+  expandedMarkdown: string;
+  placeholderTokens: string[];
+  context?: AiEditorRewriteContext;
+}
+
+export interface AiEditorRewriteJobInput {
+  kind: "editor_rewrite";
+  targetKey: string;
+  input: AiEditorRewriteInput;
+}
+
 export type AiJobEnqueueInput =
   | AiArtifactRefreshJobInput
   | AiAnswerQuestionJobInput
   | AiNoteSuggestionsJobInput
-  | AiProfileTestJobInput;
+  | AiProfileTestJobInput
+  | AiEditorRewriteJobInput;
 
 export interface AiAnswerCitationRecord {
   refCode: string;
@@ -476,7 +517,7 @@ export interface InternalReferenceResolveResult {
 }
 
 export interface WorkspaceSearchResult {
-  kind: "project" | "activity" | "conclusion" | "todo" | "document";
+  kind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
   id: number;
   projectId: number;
   activityId?: number | null;
@@ -766,6 +807,15 @@ export interface AcceptedSuggestionResult {
   entityId: number;
 }
 
+export interface AiEditorRewriteActionRecord {
+  id: number;
+  label: string;
+  prompt: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type AiProviderFamily =
   | "openai_compatible"
   | "anthropic_compatible"
@@ -775,7 +825,8 @@ export type AiCapability =
   | "default"
   | "assistant"
   | "summary"
-  | "suggestion_generation";
+  | "suggestion_generation"
+  | "editor_rewrite";
 
 export type AiManagedCapability = Exclude<AiCapability, "default">;
 
@@ -826,6 +877,7 @@ export interface AiSettingsSnapshot {
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
   featureSettings: AiFeatureSettings;
+  editorRewriteActions: AiEditorRewriteActionRecord[];
 }
 
 export interface WorkspaceSummary {
@@ -939,3 +991,14 @@ export interface AiCapabilityBindingUpsertInput {
 }
 
 export type AiFeatureSettingsUpsertInput = AiFeatureSettings;
+
+export interface AiEditorRewriteActionUpsertInput {
+  id?: number;
+  label: string;
+  prompt: string;
+  enabled: boolean;
+}
+
+export interface AiEditorRewriteActionDeleteInput {
+  actionId: number;
+}

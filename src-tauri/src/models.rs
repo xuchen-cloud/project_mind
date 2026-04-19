@@ -279,6 +279,17 @@ pub struct AiCapabilityBindingRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteActionRecord {
+    pub id: i64,
+    pub label: String,
+    pub prompt: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettingsSnapshot {
@@ -289,6 +300,7 @@ pub struct AiSettingsSnapshot {
     pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
     pub feature_settings: AiFeatureSettings,
+    pub editor_rewrite_actions: Vec<AiEditorRewriteActionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,6 +411,25 @@ pub struct AiAnswerResult {
     pub skill_version: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteContext {
+    pub scope: String,
+    pub project_id: Option<i64>,
+    pub activity_id: Option<i64>,
+    pub note_id: Option<i64>,
+    pub workspace_note_id: Option<i64>,
+    pub source_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteResult {
+    pub action_id: Option<i64>,
+    pub rewritten_markdown: String,
+    pub resolved_model: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AiJobKind {
@@ -406,6 +437,7 @@ pub enum AiJobKind {
     AnswerQuestion,
     NoteSuggestions,
     ProfileTest,
+    EditorRewrite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -453,6 +485,9 @@ pub enum AiJobResult {
         #[serde(rename = "testResult")]
         test_result: AiProfileTestResult,
     },
+    EditorRewrite {
+        rewrite: AiEditorRewriteResult,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -466,6 +501,7 @@ pub struct AiJobSnapshot {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+    pub stream_text: Option<String>,
     pub result: Option<AiJobResult>,
 }
 
@@ -1012,6 +1048,17 @@ pub struct AiAcceptSuggestionInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteInput {
+    pub action_id: Option<i64>,
+    pub prompt_override: Option<String>,
+    pub selected_text: String,
+    pub expanded_markdown: String,
+    pub placeholder_tokens: Vec<String>,
+    pub context: Option<AiEditorRewriteContext>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiArtifactGetInput {
     pub kind: String,
     pub project_id: Option<i64>,
@@ -1051,6 +1098,11 @@ pub enum AiJobEnqueueInput {
         target_key: String,
         input: AiProfileTestInput,
     },
+    EditorRewrite {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiEditorRewriteInput,
+    },
 }
 
 impl AiJobEnqueueInput {
@@ -1060,6 +1112,7 @@ impl AiJobEnqueueInput {
             Self::AnswerQuestion { .. } => AiJobKind::AnswerQuestion,
             Self::NoteSuggestions { .. } => AiJobKind::NoteSuggestions,
             Self::ProfileTest { .. } => AiJobKind::ProfileTest,
+            Self::EditorRewrite { .. } => AiJobKind::EditorRewrite,
         }
     }
 
@@ -1068,7 +1121,8 @@ impl AiJobEnqueueInput {
             Self::ArtifactRefresh { target_key, .. }
             | Self::AnswerQuestion { target_key, .. }
             | Self::NoteSuggestions { target_key, .. }
-            | Self::ProfileTest { target_key, .. } => target_key,
+            | Self::ProfileTest { target_key, .. }
+            | Self::EditorRewrite { target_key, .. } => target_key,
         }
     }
 }
@@ -1116,6 +1170,21 @@ pub struct AiCapabilityBindingUpsertInput {
     pub use_default: bool,
     pub profile_id: Option<i64>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteActionUpsertInput {
+    pub id: Option<i64>,
+    pub label: String,
+    pub prompt: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorRewriteActionDeleteInput {
+    pub action_id: i64,
 }
 
 pub type RichTextStyleUpsertInput = RichTextStyleSettings;

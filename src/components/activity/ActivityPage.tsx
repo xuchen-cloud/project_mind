@@ -33,7 +33,10 @@ import {
   visibleAiSuggestionTypes,
 } from "../../lib/ai";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
-import { activityAttributeLabel, resolveActivityTitle } from "../../lib/constants";
+import {
+  activityAttributeLabel,
+  resolveActivityTitle,
+} from "../../lib/constants";
 import {
   activityDraftNotePath,
   activityNotePath,
@@ -68,13 +71,14 @@ import { useUiStore } from "../../state/ui-store";
 import {
   ActionContextMenu,
   Button,
-  Dialog,
   EmptyState,
+  IconButton,
   SectionHeader,
   SurfaceCard,
   TextField,
 } from "../../ui/components";
 import { TodoRail } from "../todo";
+import { ActivityDeleteDialog } from "./ActivityDeleteDialog";
 import { ActivityTagDropdown } from "./ActivityTagDropdown";
 import { ActivityNotesPanel } from "./ActivityNotesPanel";
 import { AiArtifactCard } from "../ai/AiArtifactCard";
@@ -108,7 +112,8 @@ export function ActivityPage() {
   });
   const overviewQuery = useQuery({
     queryKey: ["overview", projectId],
-    queryFn: () => projectMindApi.projectGetOverview({ projectId: projectId as number }),
+    queryFn: () =>
+      projectMindApi.projectGetOverview({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
   const aiSettingsQuery = useQuery({
@@ -253,7 +258,9 @@ export function ActivityPage() {
   const activityNameById = useMemo(
     () =>
       activity
-        ? new Map([[activity.id, resolveActivityTitle(activity.title, activity.id)]])
+        ? new Map([
+            [activity.id, resolveActivityTitle(activity.title, activity.id)],
+          ])
         : new Map<number, string>(),
     [activity],
   );
@@ -319,7 +326,9 @@ export function ActivityPage() {
 
   useEffect(() => {
     setConclusionDraft(emptyRichEditorValue());
-    setActivityBriefDraft(activity ? buildActivityBriefDraft(activity) : emptyRichEditorValue());
+    setActivityBriefDraft(
+      activity ? buildActivityBriefDraft(activity) : emptyRichEditorValue(),
+    );
     setActivityBriefEditing(false);
     setPendingConclusionFocusPoint(null);
     clearActiveConclusion();
@@ -508,12 +517,7 @@ export function ActivityPage() {
     } catch {
       return false;
     }
-  }, [
-    activity,
-    closeConclusionComposer,
-    conclusionDraft,
-    conclusionMutation,
-  ]);
+  }, [activity, closeConclusionComposer, conclusionDraft, conclusionMutation]);
 
   useEffect(() => {
     if (!isConclusionComposerActive) {
@@ -571,7 +575,9 @@ export function ActivityPage() {
     }
 
     const normalizedDraft = normalizeRichEditorValue(activityBriefDraft);
-    const initialDraft = normalizeRichEditorValue(buildActivityBriefDraft(activity));
+    const initialDraft = normalizeRichEditorValue(
+      buildActivityBriefDraft(activity),
+    );
     if (
       normalizedDraft.markdown === initialDraft.markdown &&
       normalizedDraft.html === initialDraft.html
@@ -693,7 +699,9 @@ export function ActivityPage() {
           >
             <div className={["activity-page__layout"].join(" ")}>
               <section
-                className={["activity-page__notes-column grid min-w-0 gap-6"].join(" ")}
+                className={[
+                  "activity-page__notes-column grid min-w-0 gap-6",
+                ].join(" ")}
               >
                 <section
                   ref={activitySummarySectionRef}
@@ -767,7 +775,10 @@ export function ActivityPage() {
                                   event.preventDefault();
                                   titleSkipBlurRef.current = true;
                                   setTitleDraft(
-                                    resolveActivityTitle(activity.title, activity.id),
+                                    resolveActivityTitle(
+                                      activity.title,
+                                      activity.id,
+                                    ),
                                   );
                                   setTitleEditing(false);
                                   event.currentTarget.blur();
@@ -780,7 +791,10 @@ export function ActivityPage() {
                               className="rounded-[var(--radius-8)] bg-transparent px-2 py-1 text-left text-headline font-medium tracking-tight text-text transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:bg-bg-hover"
                               onClick={() => setTitleEditing(true)}
                             >
-                              {resolveActivityTitle(activity.title, activity.id)}
+                              {resolveActivityTitle(
+                                activity.title,
+                                activity.id,
+                              )}
                             </button>
                           )}
                         </h1>
@@ -838,7 +852,8 @@ export function ActivityPage() {
                           >
                             <ListTodo size={13} aria-hidden="true" />
                             <span>
-                              {activity.digest.completedTodoCount}/{activity.digest.totalTodoCount}
+                              {activity.digest.completedTodoCount}/
+                              {activity.digest.totalTodoCount}
                             </span>
                           </span>
                         </span>
@@ -873,16 +888,18 @@ export function ActivityPage() {
                           AI 概览
                         </Button>
                       ) : null}
-                      <Button
+                      <IconButton
                         type="button"
                         size="sm"
-                        variant="danger"
-                        leadingIcon={<Trash2 size={14} />}
+                        variant="ghost"
+                        aria-label="删除 Activity"
+                        title="删除 Activity"
+                        className="text-text-soft hover:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)] hover:text-danger focus-visible:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)] focus-visible:text-danger"
                         disabled={deleteActivityMutation.isPending}
                         onClick={() => setDeleteDialogOpen(true)}
                       >
-                        删除 Activity
-                      </Button>
+                        <Trash2 size={14} />
+                      </IconButton>
                     </div>
                   </div>
 
@@ -930,7 +947,9 @@ export function ActivityPage() {
                               if (event.key === "Escape") {
                                 event.preventDefault();
                                 activityBriefSkipBlurRef.current = true;
-                                setActivityBriefDraft(buildActivityBriefDraft(activity));
+                                setActivityBriefDraft(
+                                  buildActivityBriefDraft(activity),
+                                );
                                 setActivityBriefEditing(false);
                                 blurKeyboardTarget(event.target);
                                 return;
@@ -951,7 +970,10 @@ export function ActivityPage() {
                           enableTables={false}
                           placeholder="填写当前 Activity 的背景、目标、范围和关键约束。"
                           internalReferences={{
-                            context: { scope: "project", projectId: activity.projectId },
+                            context: {
+                              scope: "project",
+                              projectId: activity.projectId,
+                            },
                             onOpenReference: openInternalReference,
                           }}
                           onChange={setActivityBriefDraft}
@@ -963,14 +985,18 @@ export function ActivityPage() {
                             variant="bare"
                             readOnly
                             internalReferences={{
-                              context: { scope: "project", projectId: activity.projectId },
+                              context: {
+                                scope: "project",
+                                projectId: activity.projectId,
+                              },
                               onOpenReference: openInternalReference,
                             }}
                           />
                         </div>
                       ) : (
                         <span className="block whitespace-pre-wrap text-body leading-6 text-text-soft">
-                          点击添加 Activity 简介，记录当前背景、目标、范围和关键约束。
+                          点击添加 Activity
+                          简介，记录当前背景、目标、范围和关键约束。
                         </span>
                       )}
                     </div>
@@ -1004,6 +1030,7 @@ export function ActivityPage() {
                   showAiRefine={showAiRefine}
                   aiReady={suggestionGenerationReady}
                   enabledSuggestionTypes={visibleSuggestionTypes}
+                  aiSettings={aiSettingsQuery.data}
                   onUpsertNote={(input) => noteMutation.mutateAsync(input)}
                   onDeleteNote={(noteId) =>
                     noteDeleteMutation.mutateAsync({ noteId })
@@ -1014,10 +1041,15 @@ export function ActivityPage() {
                   onGenerateAiSuggestions={generateAiSuggestionsForNote}
                   onAcceptAiSuggestion={acceptAiSuggestion}
                   onManageRecordTypes={() => openSettings("record-types")}
+                  onOpenAiSettings={() => openSettings("ai")}
                   onOpenNoteFocus={(target) =>
                     navigate(
                       target.kind === "saved"
-                        ? activityNotePath(activity.projectId, activity.id, target.noteId)
+                        ? activityNotePath(
+                            activity.projectId,
+                            activity.id,
+                            target.noteId,
+                          )
                         : activityDraftNotePath(
                             activity.projectId,
                             activity.id,
@@ -1078,7 +1110,9 @@ export function ActivityPage() {
                           aria-label="切换项目文件展示"
                           aria-expanded={projectStarredDocumentsExpanded}
                           onClick={() =>
-                            setProjectStarredDocumentsExpanded((expanded) => !expanded)
+                            setProjectStarredDocumentsExpanded(
+                              (expanded) => !expanded,
+                            )
                           }
                         >
                           <span className="flex min-w-0 items-center gap-2 text-ui font-medium text-text">
@@ -1091,7 +1125,9 @@ export function ActivityPage() {
                               size={16}
                               className={[
                                 "transition-transform duration-[160ms] ease-[var(--ease-soft)]",
-                                projectStarredDocumentsExpanded ? "rotate-180" : "",
+                                projectStarredDocumentsExpanded
+                                  ? "rotate-180"
+                                  : "",
                               ].join(" ")}
                             />
                           </span>
@@ -1196,7 +1232,10 @@ export function ActivityPage() {
                                 enableTables={false}
                                 placeholder="记录已确认的判断、共识或决定。"
                                 internalReferences={{
-                                  context: { scope: "project", projectId: activity.projectId },
+                                  context: {
+                                    scope: "project",
+                                    projectId: activity.projectId,
+                                  },
                                   onOpenReference: openInternalReference,
                                 }}
                                 onChange={setConclusionDraft}
@@ -1294,7 +1333,9 @@ export function ActivityPage() {
                         actions={[
                           {
                             icon: Pin,
-                            label: contextMenuConclusion.isPinned ? "取消置顶" : "置顶",
+                            label: contextMenuConclusion.isPinned
+                              ? "取消置顶"
+                              : "置顶",
                             disabled:
                               conclusionUpdateMutation.isPending ||
                               conclusionDeleteMutation.isPending,
@@ -1303,7 +1344,9 @@ export function ActivityPage() {
                                 conclusionId: contextMenuConclusion.id,
                                 markdown: contextMenuConclusion.contentMarkdown,
                                 html: contextMenuConclusion.contentHtml,
-                                isPinned: !Boolean(contextMenuConclusion.isPinned),
+                                isPinned: !Boolean(
+                                  contextMenuConclusion.isPinned,
+                                ),
                               });
                             },
                           },
@@ -1348,64 +1391,29 @@ export function ActivityPage() {
       </section>
 
       {activity ? (
-        <Dialog
+        <ActivityDeleteDialog
           open={deleteDialogOpen}
-          title="删除 Activity"
-          description="删除后会移除当前 activity 及其关联内容，请确认后继续。"
+          activity={activity}
+          busy={deleteActivityMutation.isPending}
           onClose={() => {
             if (!deleteActivityMutation.isPending) {
               setDeleteDialogOpen(false);
             }
           }}
-          widthClassName="max-w-lg"
-          footer={
-            <>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={deleteActivityMutation.isPending}
-                onClick={() => setDeleteDialogOpen(false)}
-              >
-                取消
-              </Button>
-              <Button
-                type="button"
-                variant="danger"
-                disabled={deleteActivityMutation.isPending}
-                onClick={() => {
-                  void handleDeleteActivity();
-                }}
-              >
-                {deleteActivityMutation.isPending ? "删除中..." : "确认删除"}
-              </Button>
-            </>
-          }
-        >
-          <div className="grid gap-3 text-body text-text">
-            <p>
-              将删除 <strong>{resolveActivityTitle(activity.title, activity.id)}</strong>。
-            </p>
-            <p className="text-text-muted">
-              对应的活动记录、结论、Todo、文件都会删除，活动文件夹和嵌入图片也会一并清理。
-            </p>
-            <ul className="grid gap-1 text-text-muted">
-              <li>活动记录：{activity.notes.length} 条</li>
-              <li>结论：{activity.conclusions.length} 条</li>
-              <li>Todo：{activity.todos.length} 条</li>
-              <li>文件：{activity.documents.length} 个</li>
-            </ul>
-          </div>
-        </Dialog>
+          onConfirm={() => {
+            void handleDeleteActivity();
+          }}
+        />
       ) : null}
 
       {activity ? (
         <TodoRail
           projectId={activity.projectId}
-        title="Activity 待办"
-        scopeLabel={resolveActivityTitle(activity.title, activity.id)}
-        unfinishedTodos={activityUnfinishedTodos}
-        finishedTodos={activityFinishedTodos}
-        activityNameById={activityNameById}
+          title="Activity 待办"
+          scopeLabel={resolveActivityTitle(activity.title, activity.id)}
+          unfinishedTodos={activityUnfinishedTodos}
+          finishedTodos={activityFinishedTodos}
+          activityNameById={activityNameById}
           activityOptions={activityOptions}
           createPlaceholder="写下一条来自当前 activity 的 Todo"
           onCreateTodo={(payload) =>
@@ -1595,7 +1603,11 @@ function InlineActivityConclusionEditor({
       id={`conclusion-${conclusion.id}`}
       className="border-b border-[color-mix(in_srgb,var(--color-border)_88%,transparent)] py-1.5 last:border-b-0"
       onMouseDownCapture={(event) => {
-        if (isActive || event.button !== 2 || shouldIgnoreContextMenuTarget(event.target)) {
+        if (
+          isActive ||
+          event.button !== 2 ||
+          shouldIgnoreContextMenuTarget(event.target)
+        ) {
           return;
         }
 
@@ -1690,7 +1702,10 @@ function InlineActivityConclusionEditor({
                 enableTables={false}
                 placeholder="记录已确认的判断、共识或决定。"
                 internalReferences={{
-                  context: { scope: "project", projectId: conclusion.projectId },
+                  context: {
+                    scope: "project",
+                    projectId: conclusion.projectId,
+                  },
                   onOpenReference: onOpenInternalReference,
                 }}
                 onChange={setDraft}
@@ -1705,7 +1720,10 @@ function InlineActivityConclusionEditor({
                     variant="bare"
                     readOnly
                     internalReferences={{
-                      context: { scope: "project", projectId: conclusion.projectId },
+                      context: {
+                        scope: "project",
+                        projectId: conclusion.projectId,
+                      },
                       onOpenReference: onOpenInternalReference,
                     }}
                   />

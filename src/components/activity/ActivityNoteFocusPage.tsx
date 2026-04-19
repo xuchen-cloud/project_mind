@@ -51,6 +51,7 @@ import { useInternalReferenceNavigation } from "../../hooks/useInternalReference
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
+import { useUiStore } from "../../state/ui-store";
 import {
   Button,
   Dialog,
@@ -112,6 +113,7 @@ export function ActivityNoteFocusPage() {
     return null;
   }, [draftLocalId, noteId]);
   const { pushToast } = useFeedbackStore();
+  const { openSettings } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const { noteMutation } = useActivityMutations();
   const { aiGenerateMutation, aiAcceptMutation } = useAiMutations();
@@ -952,6 +954,15 @@ export function ActivityNoteFocusPage() {
                   context: { scope: "project", projectId: projectId as number },
                   onOpenReference: openInternalReference,
                 }}
+                aiSettings={aiSettingsQuery.data}
+                aiRewriteContext={{
+                  scope: "activity_note",
+                  projectId: projectId as number,
+                  activityId: activityId as number,
+                  noteId: composer.noteId ?? null,
+                  sourceLabel: composer.title || null,
+                }}
+                onOpenAiSettings={() => openSettings("ai")}
                 onChange={handleEditorChange}
                 onPersistStateChange={setEditorPersistState}
                 onModEnter={() =>
