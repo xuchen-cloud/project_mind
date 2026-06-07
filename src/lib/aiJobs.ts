@@ -24,15 +24,14 @@ const AI_JOB_EVENT = "ai-job-updated";
 let aiJobSyncPromise: Promise<void> | null = null;
 
 export function aiArtifactJobTargetKey(input: AiArtifactGetInput) {
-  return `artifact:${input.kind}:${input.projectId ?? "workspace"}:${input.activityId ?? "none"}:${input.artifactDate ?? "none"}`;
+  return `artifact:${input.kind}:${input.projectId ?? "workspace"}:${input.artifactDate ?? "none"}`;
 }
 
 export function aiAskJobTargetKey(
   scope: AiAnswerScope,
   projectId: number | null,
-  activityId: number | null,
 ) {
-  return `ask:${scope}:${projectId ?? "workspace"}:${activityId ?? "none"}`;
+  return `ask:${scope}:${projectId ?? "workspace"}`;
 }
 
 export function aiNoteSuggestionsJobTargetKey(noteId: number) {
@@ -120,11 +119,10 @@ export function artifactRefreshJobInput(input: AiArtifactGetInput): AiJobEnqueue
 export function answerQuestionJobInput(
   input: AiAnswerQuestionInput,
   projectId: number | null,
-  activityId: number | null,
 ): AiJobEnqueueInput {
   return {
     kind: "answer_question",
-    targetKey: aiAskJobTargetKey(input.scope, projectId, activityId),
+    targetKey: aiAskJobTargetKey(input.scope, projectId),
     input,
   };
 }

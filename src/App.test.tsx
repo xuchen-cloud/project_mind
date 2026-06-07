@@ -236,6 +236,7 @@ describe("WorkspaceLayout", () => {
       projectComposer: null,
       projectSidebarCollapsed: false,
       todoRailCollapsed: false,
+      openProjectIds: [],
       projectRecentPaths: {},
     });
   });
@@ -247,7 +248,10 @@ describe("WorkspaceLayout", () => {
         {
           path: "/",
           element: <WorkspaceLayout />,
-          children: [{ index: true, element: <div>workspace outlet</div> }],
+          children: [
+            { index: true, element: <div>workspace outlet</div> },
+            { path: "today", element: <div>today route</div> },
+          ],
         },
       ],
       { initialEntries: ["/"] },
@@ -277,7 +281,10 @@ describe("WorkspaceLayout", () => {
         {
           path: "/",
           element: <WorkspaceLayout />,
-          children: [{ index: true, element: <div>workspace outlet</div> }],
+          children: [
+            { index: true, element: <div>workspace outlet</div> },
+            { path: "today", element: <div>today route</div> },
+          ],
         },
       ],
       { initialEntries: ["/"] },
@@ -377,6 +384,7 @@ describe("WorkspaceLayout", () => {
       {
         id: 1,
         name: "Alpha Project",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
         summary: "",
@@ -455,7 +463,7 @@ describe("WorkspaceLayout", () => {
     );
 
     expect(await screen.findByLabelText("项目导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "收起项目侧边栏" }),
     ).toBeInTheDocument();
@@ -473,6 +481,7 @@ describe("WorkspaceLayout", () => {
       {
         id: 1,
         name: "Alpha Project",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
         summary: "",
@@ -676,6 +685,7 @@ describe("WorkspaceLayout", () => {
       {
         id: 1,
         name: "Alpha Project",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
         summary: "",
@@ -759,11 +769,13 @@ describe("WorkspaceLayout", () => {
 
   it("returns to the remembered project route when switching back by top tabs", async () => {
     const user = userEvent.setup();
+    useUiStore.setState({ openProjectIds: [1, 2] });
 
     vi.mocked(projectMindApi.projectsList).mockResolvedValue([
       {
         id: 1,
         name: "Alpha Project",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
         summary: "",
@@ -777,6 +789,7 @@ describe("WorkspaceLayout", () => {
       {
         id: 2,
         name: "Beta Project",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/beta",
         summary: "",
@@ -934,7 +947,10 @@ describe("WorkspaceLayout", () => {
         {
           path: "/",
           element: <WorkspaceLayout />,
-          children: [{ index: true, element: <div>workspace outlet</div> }],
+          children: [
+            { index: true, element: <div>workspace outlet</div> },
+            { path: "today", element: <div>today route</div> },
+          ],
         },
       ],
       { initialEntries: ["/"] },
@@ -950,7 +966,7 @@ describe("WorkspaceLayout", () => {
     expect(
       screen.queryByRole("button", { name: "Ask" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
   });
 
   it("keeps /today accessible even when the daily brief feature is off", async () => {

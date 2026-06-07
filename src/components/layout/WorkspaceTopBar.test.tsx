@@ -13,7 +13,7 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", status: "active", rootPath: "/", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
         currentWorkspace={{
           rootPath: "/tmp/workspace",
           metadataPath: "/tmp/workspace/.project-mind/workspace.json",
@@ -24,7 +24,7 @@ describe("WorkspaceTopBar", () => {
         activeProjectId={1}
         todayActive={false}
         askOpen={false}
-        archivedProjects={[{ id: 2, name: "Beta", status: "paused", rootPath: "/", summary: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
+        archivedProjects={[{ id: 2, name: "Beta", kind: "normal", status: "paused", rootPath: "/", summary: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
         searchInput="bet"
         onSearchInput={vi.fn()}
         searchResults={[
@@ -42,6 +42,7 @@ describe("WorkspaceTopBar", () => {
         onToggleArchive={vi.fn()}
         onCloseArchive={vi.fn()}
         onOpenProject={vi.fn()}
+        onCloseProject={vi.fn()}
         onRestoreProject={onRestoreProject}
         workspaceMenuOpen={false}
         onToggleWorkspaceMenu={vi.fn()}
@@ -57,7 +58,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
     expect(screen.queryByText("Project Mind")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Ask" }));

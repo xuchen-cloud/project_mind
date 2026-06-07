@@ -1,4 +1,4 @@
-import { FileText, Files, Settings2, Sparkles, Tags } from "lucide-react";
+import { Contact, FileText, Files, Settings2, Sparkles } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -6,8 +6,8 @@ import type { SettingsSection } from "../../state/ui-store";
 import { useUiStore } from "../../state/ui-store";
 import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
-import { ActivitySettingsPanel } from "./ActivitySettingsPanel";
 import { AiSettingsPanel } from "./AiSettingsPanel";
+import { ContactSettingsPanel } from "./ContactSettingsPanel";
 import { FileTagSettingsPanel } from "./FileTagSettingsPanel";
 import { RecordTypeSettingsPanel } from "./RecordTypeSettingsPanel";
 import { RichTextStylePanel } from "./RichTextStylePanel";
@@ -26,19 +26,19 @@ const SETTINGS_SECTIONS: Array<{
   icon: typeof Settings2;
 }> = [
   {
-    value: "activity",
-    label: "活动标签",
-    icon: Tags,
-  },
-  {
     value: "file-tags",
-    label: "文件标签",
+    label: "项目标签",
     icon: Files,
   },
   {
     value: "record-types",
     label: "记录类型",
     icon: FileText,
+  },
+  {
+    value: "contacts",
+    label: "联系人",
+    icon: Contact,
   },
   {
     value: "ai",
@@ -98,14 +98,14 @@ export function SettingsDialog({
         </aside>
 
         <div className="min-w-0 p-3.5 sm:p-4">
-          <section hidden={activeSection !== "activity"} aria-label="活动标签">
-            <ActivitySettingsPanel open={open} />
-          </section>
-          <section hidden={activeSection !== "file-tags"} aria-label="文件标签">
+          <section hidden={activeSection !== "file-tags"} aria-label="项目标签">
             <FileTagSettingsPanel open={open} />
           </section>
           <section hidden={activeSection !== "record-types"} aria-label="记录类型">
             <RecordTypeSettingsPanel open={open} />
+          </section>
+          <section hidden={activeSection !== "contacts"} aria-label="联系人">
+            <ContactSettingsPanel open={open} />
           </section>
           <section hidden={activeSection !== "ai"} aria-label="AI 设置">
             <AiSettingsPanel open={open} onUnlockAiSecrets={onUnlockAiSecrets} />
@@ -142,8 +142,11 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   if (section === "record-types") {
     return "record-types";
   }
+  if (section === "contacts") {
+    return "contacts";
+  }
   if (section === "ai") {
     return "ai";
   }
-  return "activity";
+  return "file-tags";
 }

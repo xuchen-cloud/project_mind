@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
-import type { TodoPriority, TodoRecord } from "../../lib/types";
+import type { ContactMentionTarget } from "../../lib/contactMentions";
+import type { FileTagRecord, TodoPriority, TodoRecord } from "../../lib/types";
 import { DeleteContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 
 export function TodoList({
   todos,
-  activityNameById,
-  activityOptions,
   compact = false,
   allowInlineEdit = false,
   allowInlineProgress = false,
@@ -18,7 +17,7 @@ export function TodoList({
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
-  onUpdateActivity,
+  onUpdateTags,
   onAddProgress,
   onUpdateProgress,
   onDeleteProgress,
@@ -27,10 +26,10 @@ export function TodoList({
   onError,
   onEmptyClick,
   onOpenInternalReference,
+  onOpenContactMention,
+  availableTags = [],
 }: {
   todos: TodoRecord[];
-  activityNameById: ReadonlyMap<number, string>;
-  activityOptions: Array<{ id: number; title: string }>;
   compact?: boolean;
   allowInlineEdit?: boolean;
   allowInlineProgress?: boolean;
@@ -40,14 +39,14 @@ export function TodoList({
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
-  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
+  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
@@ -55,6 +54,8 @@ export function TodoList({
   onError?: (message: string) => void;
   onEmptyClick?: () => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+  onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
+  availableTags?: FileTagRecord[];
 }) {
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;
@@ -84,21 +85,21 @@ export function TodoList({
               compact={compact}
               allowInlineEdit={allowInlineEdit}
               allowInlineProgress={allowInlineProgress}
-              activityOptions={activityOptions}
               expanded={expandedTodoIds.has(todo.id)}
-              activityNameById={activityNameById}
               onError={onError}
               onToggleExpanded={onToggleExpanded}
               onToggleStatus={onToggleStatus}
               onUpdatePriority={onUpdatePriority}
               onUpdateContent={onUpdateContent}
-              onUpdateActivity={onUpdateActivity}
+              onUpdateTags={onUpdateTags}
               onAddProgress={onAddProgress}
               onUpdateProgress={onUpdateProgress}
               onDeleteProgress={onDeleteProgress}
               onOpenContextMenu={(todoId, x, y) => setContextMenu({ todoId, x, y })}
               onOpenTodoSource={onOpenTodoSource}
               onOpenInternalReference={onOpenInternalReference}
+              onOpenContactMention={onOpenContactMention}
+              availableTags={availableTags}
             />
           ))}
         </div>

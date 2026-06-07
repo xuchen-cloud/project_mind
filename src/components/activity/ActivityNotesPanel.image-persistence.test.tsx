@@ -1,7 +1,9 @@
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
-  render,
+  render as baseRender,
   screen,
   waitFor,
   within,
@@ -24,6 +26,12 @@ import type {
 } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
 import { ActivityNotesPanel } from "./ActivityNotesPanel";
+
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 const { mockPushToast } = vi.hoisted(() => ({
   mockPushToast: vi.fn(),

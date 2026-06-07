@@ -32,18 +32,6 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
     },
   });
 
-  const todoActivityMutation = useMutation({
-    mutationFn: projectMindApi.todoUpdateActivity,
-    onSuccess: async (todo) => {
-      setStatus({ tone: "success", label: "Moved", message: "待办归属已更新" });
-      await refreshAll(queryClient, todo.projectId);
-    },
-    onError: (error) => {
-      setStatus({ tone: "error", label: "Error", message: "更新待办归属失败" });
-      pushToast({ tone: "error", title: "更新待办归属失败", detail: String(error) });
-    },
-  });
-
   const todoStatusMutation = useMutation({
     mutationFn: projectMindApi.todoUpdateStatus,
     onSuccess: async (todo) => {
@@ -133,7 +121,6 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
   return {
     todoMutation,
     todoContentMutation,
-    todoActivityMutation,
     todoStatusMutation,
     todoPriorityMutation,
     todoProgressMutation,

@@ -46,7 +46,6 @@ export function defaultAiFeatureSettings(): AiFeatureSettings {
       editor_rewrite: true,
     },
     features: {
-      "summary.activity_summary": true,
       "summary.project_brief": true,
       "summary.daily_brief": true,
       "suggestion_generation.conclusion": true,

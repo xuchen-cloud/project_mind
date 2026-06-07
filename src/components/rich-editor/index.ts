@@ -2,6 +2,10 @@ export {
   RichEditor,
   RICH_EDITOR_FOCUS_REQUEST_EVENT,
 } from "./RichEditor";
+export type {
+  RichEditorSelectionAction,
+  RichEditorSelectionPayload,
+} from "./RichEditor";
 export {
   EMPTY_RICH_EDITOR_HTML,
   getRenderableRichTextHtml,
@@ -11,6 +15,7 @@ export { normalizeRichEditorHtml, normalizeRichEditorValue } from "./normalize";
 export type {
   RichEditorAsset,
   RichEditorAssetHandlers,
+  RichEditorContactMentionOptions,
   RichEditorInternalReferenceOptions,
   RichEditorPersistState,
   RichEditorValue,

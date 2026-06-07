@@ -461,6 +461,53 @@ describe("projectMindApi", () => {
     );
   });
 
+  it("maps contact search to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
+
+    await projectMindApi.contactSearch({ query: "zs", limit: 8 });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("contact_search", {
+      input: { query: "zs", limit: 8 },
+    });
+  });
+
+  it("maps contact upsert to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      id: 7,
+      name: "张三",
+      pinyinFull: "zhangsan",
+      pinyinAbbr: "zs",
+      email: "zhangsan@example.com",
+      employeeId: "E007",
+      role: "PM",
+      department: "Product",
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await projectMindApi.contactUpsert({
+      name: "张三",
+      pinyinFull: "zhangsan",
+      pinyinAbbr: "zs",
+      email: "zhangsan@example.com",
+      employeeId: "E007",
+      role: "PM",
+      department: "Product",
+    });
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("contact_upsert", {
+      input: {
+        name: "张三",
+        pinyinFull: "zhangsan",
+        pinyinAbbr: "zs",
+        email: "zhangsan@example.com",
+        employeeId: "E007",
+        role: "PM",
+        department: "Product",
+      },
+    });
+  });
+
   it("maps file tag save to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 4,

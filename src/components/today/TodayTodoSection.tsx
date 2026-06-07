@@ -7,16 +7,16 @@ import {
   findInternalReferenceTextTrigger,
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
-import { resolveActivityTitle } from "../../lib/constants";
-import type { ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
 import {
-  Button,
-  EmptyState,
-  IconButton,
-  SectionHeader,
-  SurfaceCard,
-  TextField,
-} from "../../ui/components";
+  buildContactMentionTarget,
+  buildContactMentionToken,
+  findContactMentionTextTrigger,
+  type ContactMentionTarget,
+} from "../../lib/contactMentions";
+import type { ContactRecord, ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { Button, EmptyState, IconButton, SectionHeader, SurfaceCard } from "../../ui/components";
+import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
 import { TodoList } from "../todo/TodoList";
 import { TodoSortSwitch } from "../todo/TodoSortSwitch";
@@ -26,47 +26,49 @@ import {
   TODO_PRIORITY_OPTIONS,
   type TodoSortMode,
 } from "../todo/todo-utils";
+import {
+  clearTodoComposerDraft,
+  readTodoComposerDraft,
+  writeTodoComposerDraft,
+  type TodoComposerDraftSnapshot,
+} from "../todo/todo-draft-storage";
 
 interface TodayTodoSectionProps {
   projects: ProjectListItem[];
-  activityOptionsByProject: ReadonlyMap<number, Array<{ id: number; title: string }>>;
   todos: TodoRecord[];
   onOpenProject: (projectId: number) => void;
   onCreateTodo: (payload: {
     projectId: number;
-    activityId?: number;
     content: string;
     priority: TodoPriority;
   }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
-  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+  onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }
 
 export function TodayTodoSection({
   projects,
-  activityOptionsByProject,
   todos,
   onOpenProject,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
-  onUpdateActivity,
   onAddProgress,
   onUpdateProgress,
   onDeleteProgress,
@@ -74,18 +76,36 @@ export function TodayTodoSection({
   onOpenTodoSource,
   onError,
   onOpenInternalReference,
+  onOpenContactMention,
 }: TodayTodoSectionProps) {
+  const initialComposerDraft = readTodoComposerDraft(TODAY_TODO_DRAFT_STORAGE_KEY);
+  const initialProjectId =
+    initialComposerDraft?.projectId &&
+    projects.some((project) => project.id === initialComposerDraft.projectId)
+      ? initialComposerDraft.projectId
+      : null;
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
-  const [composeProjectId, setComposeProjectId] = useState<number | null>(null);
-  const [draftContent, setDraftContent] = useState("");
-  const [draftPriority, setDraftPriority] = useState<TodoPriority>("not_urgent_important");
+  const [composeProjectId, setComposeProjectId] = useState<number | null>(
+    () => initialProjectId,
+  );
+  const [draftContent, setDraftContent] = useState(
+    () => initialComposerDraft?.content ?? "",
+  );
+  const [draftPriority, setDraftPriority] = useState<TodoPriority>(
+    () => initialComposerDraft?.priority ?? "not_urgent_important",
+  );
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
   const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
-  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerDraftRef = useRef<TodoComposerDraftSnapshot>({
+    content: initialComposerDraft?.content ?? "",
+    priority: initialComposerDraft?.priority ?? "not_urgent_important",
+    projectId: initialProjectId,
+  });
   const referenceTrigger =
     composeProjectId !== null ? findInternalReferenceTextTrigger(draftContent, selectionStart) : null;
   const referenceTriggerKey = referenceTrigger
@@ -103,24 +123,27 @@ export function TodayTodoSection({
     limit: 8,
   });
 
-  const activityNameById = useMemo(
-    () =>
-      new Map(
-        todos.flatMap((todo) =>
-          todo.activityId &&
-          todo.sourceActivityTitle !== undefined &&
-          todo.sourceActivityTitle !== null
-            ? ([
-                [
-                  todo.activityId,
-                  resolveActivityTitle(todo.sourceActivityTitle, todo.activityId),
-                ],
-              ] as const)
-            : [],
-        ),
-      ),
-    [todos],
-  );
+  const contactMentionOptions = useContactMentionOptions();
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
+  const mentionTrigger =
+    composeProjectId !== null
+      ? findContactMentionTextTrigger(draftContent, selectionStart)
+      : null;
+  const mentionTriggerKey = mentionTrigger
+    ? `${mentionTrigger.start}:${mentionTrigger.end}:${mentionTrigger.query}`
+    : null;
+  const mentionPickerOpen =
+    Boolean(mentionTrigger) && dismissedMentionKey !== mentionTriggerKey;
+  const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
+    open: mentionPickerOpen,
+    query: mentionTrigger?.query ?? "",
+    limit: 8,
+  });
+  const mentionCreateName = mentionTrigger?.query.trim() ?? "";
+  const mentionCreatable = mentionPickerOpen && mentionCreateName.length > 0;
+  const mentionOptionCount = mentionResults.length + (mentionCreatable ? 1 : 0);
+
   const unfinishedCount = useMemo(
     () => todos.filter((todo) => todo.status === "unfinished").length,
     [todos],
@@ -181,6 +204,76 @@ export function TodayTodoSection({
 
     setReferenceActiveIndex(0);
   }, [referencePickerOpen, referenceTrigger?.query]);
+
+  useEffect(() => {
+    if (!mentionPickerOpen) {
+      setMentionActiveIndex(0);
+      return;
+    }
+
+    setMentionActiveIndex((current) => {
+      if (mentionOptionCount === 0) {
+        return 0;
+      }
+
+      return Math.min(current, mentionOptionCount - 1);
+    });
+  }, [mentionPickerOpen, mentionOptionCount]);
+
+  useEffect(() => {
+    if (!mentionPickerOpen) {
+      return;
+    }
+
+    setMentionActiveIndex(0);
+  }, [mentionPickerOpen, mentionTrigger?.query]);
+
+  useEffect(() => {
+    if (
+      composeProjectId !== null &&
+      !projects.some((project) => project.id === composeProjectId)
+    ) {
+      setComposeProjectId(null);
+      setDraftContent("");
+      setDraftPriority("not_urgent_important");
+      clearTodoComposerDraft(TODAY_TODO_DRAFT_STORAGE_KEY);
+    }
+  }, [composeProjectId, projects]);
+
+  useEffect(() => {
+    const snapshot = {
+      content: draftContent,
+      priority: draftPriority,
+      projectId: composeProjectId,
+    };
+    composerDraftRef.current = snapshot;
+    writeTodoComposerDraft(TODAY_TODO_DRAFT_STORAGE_KEY, snapshot);
+  }, [composeProjectId, draftContent, draftPriority]);
+
+  useEffect(() => {
+    const flushDraft = () => {
+      writeTodoComposerDraft(
+        TODAY_TODO_DRAFT_STORAGE_KEY,
+        composerDraftRef.current,
+      );
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushDraft();
+      }
+    };
+
+    window.addEventListener("blur", flushDraft);
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("blur", flushDraft);
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
     setExpandedTodoIds((current) => {
       const next = new Set(current);
@@ -205,6 +298,7 @@ export function TodayTodoSection({
         setDraftPriority("not_urgent_important");
         setSelectionStart(null);
         setDismissedTriggerKey(null);
+        clearTodoComposerDraft(TODAY_TODO_DRAFT_STORAGE_KEY);
       } else if (current !== projectId) {
         setDraftContent("");
         setDraftPriority("not_urgent_important");
@@ -227,6 +321,7 @@ export function TodayTodoSection({
       content,
       priority: draftPriority,
     });
+    clearTodoComposerDraft(TODAY_TODO_DRAFT_STORAGE_KEY);
     setDraftContent("");
     setComposeProjectId(null);
     setDraftPriority("not_urgent_important");
@@ -259,6 +354,47 @@ export function TodayTodoSection({
       composerInputRef.current?.focus();
       composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
     });
+  }
+
+  function insertMentionToken(token: string, trigger: { start: number; end: number }) {
+    const insertText = `${token} `;
+    const nextContent =
+      draftContent.slice(0, trigger.start) + insertText + draftContent.slice(trigger.end);
+    const nextSelection = trigger.start + insertText.length;
+
+    setDraftContent(nextContent);
+    setSelectionStart(nextSelection);
+    setDismissedMentionKey(null);
+
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
+  }
+
+  function handleMentionInsert(contact: ContactRecord) {
+    if (!mentionTrigger) {
+      return;
+    }
+
+    insertMentionToken(
+      buildContactMentionToken(buildContactMentionTarget(contact)),
+      mentionTrigger,
+    );
+  }
+
+  function handleMentionCreate(name: string) {
+    if (!mentionTrigger || !contactMentionOptions.onCreateContact || !name.trim()) {
+      return;
+    }
+
+    const trigger = mentionTrigger;
+    void Promise.resolve(contactMentionOptions.onCreateContact(name.trim())).then((target) => {
+      if (target) {
+        insertMentionToken(buildContactMentionToken(target), trigger);
+      }
+    });
+    setDismissedMentionKey(mentionTriggerKey);
   }
 
   return (
@@ -345,9 +481,10 @@ export function TodayTodoSection({
                   <div className="grid gap-3 rounded-[var(--radius-8)] border border-border bg-bg px-3 py-3">
                     <div className="flex items-center gap-2">
                       <div className="relative min-w-0 flex-1">
-                        <TextField
+                        <textarea
                           ref={composerInputRef}
-                          className="min-w-0 flex-1"
+                          rows={3}
+                          className="min-h-[5.5rem] w-full resize-y rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
                           value={draftContent}
                           onChange={(event) => {
                             setDraftContent(event.target.value);
@@ -357,6 +494,48 @@ export function TodayTodoSection({
                           onKeyUp={(event) => setSelectionStart(event.currentTarget.selectionStart)}
                           onSelect={(event) => setSelectionStart(event.currentTarget.selectionStart)}
                           onKeyDown={(event) => {
+                            if (
+                              mentionPickerOpen &&
+                              composeProjectId === group.project.id
+                            ) {
+                              if (event.key === "ArrowDown" && mentionOptionCount > 0) {
+                                event.preventDefault();
+                                setMentionActiveIndex(
+                                  (current) => (current + 1) % mentionOptionCount,
+                                );
+                                return;
+                              }
+
+                              if (event.key === "ArrowUp" && mentionOptionCount > 0) {
+                                event.preventDefault();
+                                setMentionActiveIndex((current) =>
+                                  current === 0 ? mentionOptionCount - 1 : current - 1,
+                                );
+                                return;
+                              }
+
+                              if (event.key === "Enter" && mentionOptionCount > 0) {
+                                event.preventDefault();
+                                if (
+                                  mentionCreatable &&
+                                  mentionActiveIndex === mentionResults.length
+                                ) {
+                                  handleMentionCreate(mentionCreateName);
+                                } else {
+                                  handleMentionInsert(
+                                    mentionResults[mentionActiveIndex] ?? mentionResults[0],
+                                  );
+                                }
+                                return;
+                              }
+
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                setDismissedMentionKey(mentionTriggerKey);
+                                return;
+                              }
+                            }
+
                             if (referencePickerOpen && composeProjectId === group.project.id) {
                               if (event.key === "ArrowDown") {
                                 event.preventDefault();
@@ -397,7 +576,7 @@ export function TodayTodoSection({
                               }
                             }
 
-                            if (event.key === "Enter") {
+                            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                               event.preventDefault();
                               submitCreate(group.project.id);
                             }
@@ -412,6 +591,18 @@ export function TodayTodoSection({
                           className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
                           onHoverIndex={setReferenceActiveIndex}
                           onSelect={handleReferenceInsert}
+                        />
+                        <ContactMentionPicker
+                          open={mentionPickerOpen && composeProjectId === group.project.id}
+                          loading={mentionLoading}
+                          results={mentionResults}
+                          activeIndex={mentionActiveIndex}
+                          query={mentionTrigger?.query ?? ""}
+                          canCreate={mentionCreatable}
+                          className="absolute left-0 top-[calc(100%+6px)] z-20"
+                          onHoverIndex={setMentionActiveIndex}
+                          onSelect={handleMentionInsert}
+                          onCreate={handleMentionCreate}
                         />
                       </div>
                       <Button
@@ -454,8 +645,6 @@ export function TodayTodoSection({
                 {group.todos.length > 0 || composeProjectId !== group.project.id ? (
                   <TodoList
                     todos={group.todos}
-                    activityNameById={activityNameById}
-                    activityOptions={activityOptionsByProject.get(group.project.id) ?? []}
                     compact
                     allowInlineEdit={tab === "unfinished"}
                     allowInlineProgress={tab === "unfinished"}
@@ -465,7 +654,6 @@ export function TodayTodoSection({
                     onToggleStatus={onToggleStatus}
                     onUpdatePriority={onUpdatePriority}
                     onUpdateContent={onUpdateContent}
-                    onUpdateActivity={onUpdateActivity}
                     onAddProgress={onAddProgress}
                     onUpdateProgress={onUpdateProgress}
                     onDeleteProgress={onDeleteProgress}
@@ -473,6 +661,7 @@ export function TodayTodoSection({
                     onOpenTodoSource={onOpenTodoSource}
                     onError={onError}
                     onOpenInternalReference={onOpenInternalReference}
+                    onOpenContactMention={onOpenContactMention}
                     onEmptyClick={
                       tab === "unfinished"
                         ? () => {
@@ -500,6 +689,8 @@ export function TodayTodoSection({
     </section>
   );
 }
+
+const TODAY_TODO_DRAFT_STORAGE_KEY = "project-mind:today-todo-draft";
 
 function TodayTabButton({
   active,

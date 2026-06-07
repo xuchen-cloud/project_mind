@@ -508,7 +508,7 @@ function RecordTypeRow({
               <RichEditor
                 key={`record-type-template:${recordType.id}`}
                 html={recordType.templateHtml}
-                variant="toolbar"
+                variant="bare"
                 autosave={{ delay: 600 }}
                 onChange={(value) => {
                   templateHtmlRef.current = value.html;

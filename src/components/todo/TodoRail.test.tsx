@@ -1,10 +1,19 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 
 import { useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
 import { TodoRail } from "./TodoRail";
+
+// TodoRail now uses useContactMentionOptions(), which needs a QueryClient.
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 const todoWithHistory: TodoRecord = {
   id: 1,
@@ -22,6 +31,9 @@ const todoWithHistory: TodoRecord = {
       content: "已同步法务",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T10:00:00.000Z",
+      status: "unfinished",
+      completedAt: null,
+      orderIndex: 0,
     },
     {
       id: 102,
@@ -29,6 +41,9 @@ const todoWithHistory: TodoRecord = {
       content: "等待财务确认",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T09:00:00.000Z",
+      status: "finished",
+      completedAt: "2026-04-05T09:30:00.000Z",
+      orderIndex: 1,
     },
   ],
 };
@@ -45,6 +60,9 @@ const anotherTodoWithHistory: TodoRecord = {
       content: "已和税务对齐方案",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T11:00:00.000Z",
+      status: "unfinished",
+      completedAt: null,
+      orderIndex: 0,
     },
     {
       id: 105,
@@ -52,6 +70,9 @@ const anotherTodoWithHistory: TodoRecord = {
       content: "已收集财务问题",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T10:00:00.000Z",
+      status: "finished",
+      completedAt: "2026-04-05T10:30:00.000Z",
+      orderIndex: 1,
     },
   ],
 };
@@ -83,12 +104,56 @@ const finishedTodo: TodoRecord = {
 
 describe("TodoRail", () => {
   beforeEach(() => {
+    installMemoryLocalStorage();
     useUiStore.setState({
       createProjectOpen: false,
       createActivityOpen: false,
       projectComposer: null,
       projectSidebarCollapsed: false,
       todoRailCollapsed: false,
+    });
+  });
+
+  it("persists the new todo draft on window blur", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TodoRail
+        projectId={1}
+        title="项目待办"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithoutHistory]}
+        finishedTodos={[]}
+        activityNameById={new Map([[11, "Kickoff"]])}
+        activityOptions={[{ id: 11, title: "Kickoff" }]}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo"),
+      "锁屏前未提交的 Todo",
+    );
+    window.dispatchEvent(new Event("blur"));
+
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("project-mind:todo-rail-draft:1") ?? "{}",
+      ),
+    ).toMatchObject({
+      content: "锁屏前未提交的 Todo",
+      priority: "not_urgent_important",
     });
   });
 
@@ -129,14 +194,14 @@ describe("TodoRail", () => {
     const firstTodoRow = screen.getByText("Prepare demo notes").closest("article");
     const secondTodoRow = screen.getByText("Sync with finance").closest("article");
 
-    await user.click(within(firstTodoRow!).getByRole("button", { name: "展开历史进展" }));
-    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(1);
+    await user.click(within(firstTodoRow!).getByRole("button", { name: "展开已完成子项" }));
+    expect(screen.getAllByRole("button", { name: "收起已完成子项" })).toHaveLength(1);
 
     fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("button", { name: "收起历史进展" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "收起已完成子项" })).not.toBeInTheDocument();
 
-    await user.click(within(secondTodoRow!).getByRole("button", { name: "展开历史进展" }));
-    expect(screen.getAllByRole("button", { name: "收起历史进展" })).toHaveLength(1);
+    await user.click(within(secondTodoRow!).getByRole("button", { name: "展开已完成子项" }));
+    expect(screen.getAllByRole("button", { name: "收起已完成子项" })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
     expect(useUiStore.getState().todoRailCollapsed).toBe(true);
@@ -169,11 +234,11 @@ describe("TodoRail", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "展开历史进展" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "已完成" }));
     expect(screen.getByText("Done item")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "展开历史进展" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "标记为未完成" }));
     expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");
@@ -297,7 +362,7 @@ describe("TodoRail", () => {
     expect(screen.queryByText("Prepare board memo")).not.toBeInTheDocument();
   });
 
-  it("updates a historical progress from its context menu", async () => {
+  it("updates a completed sub item from its context menu", async () => {
     const user = userEvent.setup();
     const onUpdateProgress = vi.fn();
 
@@ -323,9 +388,9 @@ describe("TodoRail", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "展开历史进展" }));
+    await user.click(screen.getByRole("button", { name: "展开已完成子项" }));
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
-    await user.click(screen.getByRole("menuitem", { name: "编辑进展" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
 
     const textbox = screen.getByRole("textbox");
     await user.clear(textbox);
@@ -335,10 +400,11 @@ describe("TodoRail", () => {
     expect(onUpdateProgress).toHaveBeenCalledWith(102, {
       content: "已完成财务确认",
       progressDate: "2026-04-05",
+      status: "finished",
     });
   });
 
-  it("deletes a historical progress from its context menu", async () => {
+  it("deletes a completed sub item from its context menu", async () => {
     const user = userEvent.setup();
     const onDeleteProgress = vi.fn();
 
@@ -364,10 +430,24 @@ describe("TodoRail", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "展开历史进展" }));
+    await user.click(screen.getByRole("button", { name: "展开已完成子项" }));
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
-    await user.click(screen.getByRole("menuitem", { name: "删除进展" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除子项" }));
 
     expect(onDeleteProgress).toHaveBeenCalledWith(102);
   });
 });
+
+function installMemoryLocalStorage() {
+  const entries = new Map<string, string>();
+
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+      clear: () => entries.clear(),
+    },
+  });
+}

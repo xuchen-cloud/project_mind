@@ -92,6 +92,7 @@ describe("TodayPage", () => {
       {
         id: 1,
         name: "Alpha",
+        kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
         summary: "",

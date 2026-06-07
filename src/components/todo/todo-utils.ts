@@ -7,7 +7,6 @@ import {
   todoPriorityOrder,
   todoPriorityTone,
 } from "../../lib/todo-priority";
-import { resolveActivityTitle } from "../../lib/constants";
 import type { TodoPriority, TodoProgressRecord, TodoRecord } from "../../lib/types";
 
 export type TodoSortMode = "time" | "priority";
@@ -41,11 +40,20 @@ export function priorityColorValue(priority: TodoPriority) {
 }
 
 export function latestTodoProgress(todo: TodoRecord): TodoProgressRecord | null {
-  return todo.progresses[0] ?? null;
+  return sortTodoProgresses(todo.progresses).find((progress) => progress.status !== "finished") ?? null;
 }
 
 export function sortTodoProgresses(progresses: TodoProgressRecord[]) {
   return [...progresses].sort((left, right) => {
+    const leftFinished = left.status === "finished";
+    const rightFinished = right.status === "finished";
+    if (leftFinished !== rightFinished) {
+      return leftFinished ? 1 : -1;
+    }
+    const orderDelta = (left.orderIndex ?? 0) - (right.orderIndex ?? 0);
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
     const dateDelta =
       new Date(right.progressDate).getTime() - new Date(left.progressDate).getTime();
     if (dateDelta !== 0) {
@@ -63,29 +71,12 @@ export function sortTodos(todos: TodoRecord[], mode: TodoSortMode) {
         return priorityDelta;
       }
     }
-    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    const createdDelta = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    if (createdDelta !== 0) {
+      return createdDelta;
+    }
+    return right.id - left.id;
   });
-}
-
-export function resolveTodoSourceMeta(
-  activityId: number | null | undefined,
-  activityNameById: ReadonlyMap<number, string>,
-) {
-  if (!activityId) {
-    return { label: "项目级", kind: "project" as const };
-  }
-  const activityName = activityNameById.get(activityId);
-  if (activityName === undefined) {
-    return { label: "关联 Activity 已删除", kind: "deleted" as const };
-  }
-  return { label: resolveActivityTitle(activityName, activityId), kind: "activity" as const };
-}
-
-export function resolveTodoSource(
-  activityId: number | null | undefined,
-  activityNameById: ReadonlyMap<number, string>,
-) {
-  return resolveTodoSourceMeta(activityId, activityNameById).label;
 }
 
 export function formatMonthDay(value: string) {

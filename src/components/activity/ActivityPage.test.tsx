@@ -101,7 +101,11 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../hooks/useActivityMutations", () => ({
   useActivityMutations: () => ({
-    activityMetaMutation: { isPending: false, mutate: mockActivityMetaMutate },
+    activityMetaMutation: {
+      isPending: false,
+      mutate: mockActivityMetaMutate,
+      mutateAsync: mockActivityMetaMutate,
+    },
     deleteActivityMutation: {
       isPending: false,
       mutateAsync: mockActivityDeleteMutateAsync,
@@ -276,8 +280,8 @@ vi.mock("../rich-editor", () => ({
     }
 
     const ariaLabel =
-      placeholder === "填写当前 Activity 的背景、目标、范围和关键约束。"
-        ? "Activity 简介"
+      placeholder === "记录当前 Activity 的背景、过程、约束和后续动作。"
+        ? "Activity 默认笔记"
         : "结论编辑器";
 
     return (
@@ -758,14 +762,35 @@ describe("ActivityPage", () => {
     expect(
       screen.queryByLabelText("文本格式工具栏"),
     ).not.toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Activity 简介"));
-    await user.type(screen.getByLabelText("Activity 简介"), "更新后的活动简介");
+    await user.clear(screen.getByLabelText("Activity 默认笔记"));
+    await user.type(screen.getByLabelText("Activity 默认笔记"), "更新后的活动简介");
     await user.tab();
 
     expect(mockActivityMetaMutate).toHaveBeenCalledWith({
       activityId: 11,
       briefMarkdown: "更新后的活动简介",
       briefHtml: "<p>更新后的活动简介</p>",
+    });
+  });
+
+  it("maximizes the activity default note and saves from the dialog", async () => {
+    const user = userEvent.setup();
+
+    renderActivityPage();
+
+    expect(await screen.findByText("当前范围与预期结果")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "最大化 Activity 默认笔记" }));
+
+    expect(screen.getByRole("dialog", { name: "预算讨论" })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Activity 默认笔记"));
+    await user.type(screen.getByLabelText("Activity 默认笔记"), "全屏编辑后的活动记录");
+    await user.click(screen.getByRole("button", { name: "完成" }));
+
+    expect(mockActivityMetaMutate).toHaveBeenCalledWith({
+      activityId: 11,
+      briefMarkdown: "全屏编辑后的活动记录",
+      briefHtml: "<p>全屏编辑后的活动记录</p>",
     });
   });
 
@@ -1480,6 +1505,7 @@ function buildProject(): ProjectListItem {
   return {
     id: 9,
     name: "Project Atlas",
+    kind: "normal",
     status: "active",
     rootPath: "/tmp/project-atlas",
     summary: "",

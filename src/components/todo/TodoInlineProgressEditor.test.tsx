@@ -6,7 +6,7 @@ import { projectMindApi } from "../../services/projectMindApi";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 
 describe("TodoInlineProgressEditor", () => {
-  it("shows an inline placeholder and saves a new progress when empty", async () => {
+  it("shows an inline placeholder and saves a new sub item when empty", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
 
@@ -16,7 +16,7 @@ describe("TodoInlineProgressEditor", () => {
 
     expect(screen.queryByText(/\+\s*进展/u)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
     expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "true");
 
     await user.type(screen.getByRole("textbox"), "@0315 已确认方案");
@@ -50,7 +50,7 @@ describe("TodoInlineProgressEditor", () => {
 
     render(<TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} />);
 
-    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
 
     const textbox = screen.getByRole("textbox");
     textbox.textContent = "@0315 已确认\n方案";
@@ -66,7 +66,7 @@ describe("TodoInlineProgressEditor", () => {
     });
   });
 
-  it("closes without saving when the new progress content is empty", async () => {
+  it("closes without saving when the new sub item content is empty", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     const onError = vi.fn();
@@ -75,7 +75,7 @@ describe("TodoInlineProgressEditor", () => {
       <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={onError} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
     await user.type(screen.getByRole("textbox"), "   ");
     await user.keyboard("{Enter}");
 
@@ -93,7 +93,7 @@ describe("TodoInlineProgressEditor", () => {
       <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={onError} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
     await user.type(screen.getByRole("textbox"), "@0315");
     await user.keyboard("{Enter}");
 
@@ -102,7 +102,7 @@ describe("TodoInlineProgressEditor", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("edits the latest progress from the context menu and preserves its date by default", async () => {
+  it("edits the latest sub item from the context menu and preserves its date by default", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     const onUpdateLatestProgress = vi.fn();
@@ -117,7 +117,7 @@ describe("TodoInlineProgressEditor", () => {
     );
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
-    await user.click(screen.getByRole("menuitem", { name: "编辑进展" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
 
     const textbox = screen.getByRole("textbox");
     await user.clear(textbox);
@@ -131,7 +131,7 @@ describe("TodoInlineProgressEditor", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("deletes the latest progress from the context menu", async () => {
+  it("deletes the latest sub item from the context menu", async () => {
     const user = userEvent.setup();
     const onDeleteLatestProgress = vi.fn();
 
@@ -145,7 +145,7 @@ describe("TodoInlineProgressEditor", () => {
     );
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
-    await user.click(screen.getByRole("menuitem", { name: "删除进展" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除子项" }));
 
     expect(onDeleteLatestProgress).toHaveBeenCalledWith(23);
   });
@@ -179,7 +179,7 @@ describe("TodoInlineProgressEditor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加进展..." }));
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
     await user.keyboard("[[[[");
     expect(await screen.findByRole("option", { name: /文件.*project-brief\.pdf/u })).toBeInTheDocument();
 

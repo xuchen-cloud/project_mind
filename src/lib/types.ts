@@ -1,6 +1,7 @@
 export interface ProjectRecord {
   id: number;
   name: string;
+  kind: "normal" | "reference";
   status: string;
   rootPath: string;
   summary: string;
@@ -23,11 +24,11 @@ export type NoteTemplateKey = RecordTypeKey;
 export interface NoteRecord {
   id: number;
   projectId: number;
-  activityId: number;
   noteType: NoteTemplateKey;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
+  tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -35,13 +36,11 @@ export interface NoteRecord {
 export interface ConclusionRecord {
   id: number;
   projectId: number;
-  activityId?: number | null;
   noteId?: number | null;
   contentMarkdown: string;
   contentHtml: string;
   promotedToProject: boolean;
   isPinned?: boolean;
-  sourceActivityTitle?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,17 +57,19 @@ export interface TodoProgressRecord {
   todoId: number;
   content: string;
   progressDate: string;
+  status?: TodoStatus;
+  completedAt?: string | null;
+  orderIndex?: number;
   createdAt: string;
 }
 
 export interface TodoRecord {
   id: number;
   projectId: number;
-  activityId?: number | null;
-  sourceActivityTitle?: string | null;
   content: string;
   status: TodoStatus;
   priority: TodoPriority;
+  tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
   progresses: TodoProgressRecord[];
@@ -86,7 +87,6 @@ export interface WorkspaceNoteRecord {
 export interface DocumentRecord {
   id: number;
   projectId: number;
-  activityId?: number | null;
   name: string;
   baseName: string;
   originalPath: string;
@@ -97,7 +97,6 @@ export interface DocumentRecord {
   isStarred: boolean;
   currentVersionNumber: number;
   versionCount: number;
-  sourceActivityTitle?: string | null;
   health: "normal" | "missing";
   tags: DocumentTagRecord[];
   createdAt: string;
@@ -165,6 +164,12 @@ export interface FileTagSettingsSnapshot {
   tags: FileTagRecord[];
 }
 
+export interface ProjectRecordGroup {
+  groupKey: string;
+  groupTitle: string;
+  notes: NoteRecord[];
+}
+
 export interface RecordTypeRecord {
   id: number;
   key: RecordTypeKey;
@@ -179,6 +184,19 @@ export interface RecordTypeRecord {
 
 export interface RecordTypeSettingsSnapshot {
   recordTypes: RecordTypeRecord[];
+}
+
+export interface ContactRecord {
+  id: number;
+  name: string;
+  pinyinFull: string;
+  pinyinAbbr: string;
+  email: string;
+  employeeId: string;
+  role: string;
+  department: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ActivityDigest {
@@ -205,9 +223,8 @@ export interface ActivityDigest {
 export interface AiSuggestionRecord {
   id: number;
   projectId: number;
-  activityId?: number | null;
   noteId?: number | null;
-  suggestionType: "activity_title" | "conclusion" | "todo";
+  suggestionType: "conclusion" | "todo";
   title: string;
   preview: string;
   payload: Record<string, unknown>;
@@ -216,10 +233,7 @@ export interface AiSuggestionRecord {
   acceptedAt?: string | null;
 }
 
-export type AiArtifactKind =
-  | "activity_summary"
-  | "project_brief"
-  | "daily_brief";
+export type AiArtifactKind = "project_brief" | "daily_brief";
 
 export interface AiArtifactSection {
   title: string;
@@ -236,14 +250,12 @@ export interface AiArtifactCitationRecord {
   artifactId: number;
   sourceKind:
     | "project"
-    | "activity"
     | "note"
     | "conclusion"
     | "todo"
     | "document";
   sourceId: number;
   projectId?: number | null;
-  activityId?: number | null;
   label: string;
   excerpt: string;
   orderIndex: number;
@@ -255,7 +267,6 @@ export interface AiArtifactRecord {
   skillKey: string;
   skillVersion: string;
   projectId?: number | null;
-  activityId?: number | null;
   artifactDate?: string | null;
   status: "fresh" | "stale" | "error";
   markdown: string;
@@ -268,13 +279,12 @@ export interface AiArtifactRecord {
   updatedAt: string;
 }
 
-export type AiAnswerScope = "workspace" | "project" | "activity";
+export type AiAnswerScope = "workspace" | "project";
 
 export interface AiAnswerQuestionInput {
   scope: AiAnswerScope;
   question: string;
   projectId?: number;
-  activityId?: number;
 }
 
 export type AiJobKind =
@@ -406,14 +416,12 @@ export interface AiAnswerCitationRecord {
   refCode: string;
   sourceKind:
     | "project"
-    | "activity"
     | "note"
     | "conclusion"
     | "todo"
     | "document";
   sourceId: number;
   projectId?: number | null;
-  activityId?: number | null;
   label: string;
   excerpt: string;
 }
@@ -472,6 +480,8 @@ export interface ProjectOverviewData {
   activityFeed: ActivityDigest[];
   projectDocuments: DocumentRecord[];
   conclusionGroups: ConclusionGroup[];
+  recordGroups?: ProjectRecordGroup[];
+  records?: NoteRecord[];
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
 }
@@ -496,7 +506,6 @@ export interface InternalReferenceSearchResult {
   id: number;
   label: string;
   projectId: number;
-  activityId?: number | null;
   subtitle: string;
   updatedAt: string;
 }
@@ -511,16 +520,14 @@ export interface InternalReferenceResolveResult {
   id: number;
   label: string;
   projectId: number;
-  activityId?: number | null;
   route: string;
   focusId?: string | null;
 }
 
 export interface WorkspaceSearchResult {
-  kind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+  kind: "project" | "note" | "conclusion" | "todo" | "document";
   id: number;
   projectId: number;
-  activityId?: number | null;
   title: string;
   subtitle: string;
   matchedText: string;
@@ -600,6 +607,7 @@ export interface ActivityOptionDeleteInput {
 }
 
 export interface FileTagOptionUpsertInput {
+  projectId?: number;
   id?: number;
   label: string;
   colorKey: FileTagColorKey;
@@ -621,14 +629,34 @@ export interface RecordTypeOptionDeleteInput {
   typeId: number;
 }
 
+export interface ContactUpsertInput {
+  id?: number;
+  name: string;
+  pinyinFull?: string;
+  pinyinAbbr?: string;
+  email?: string;
+  employeeId?: string;
+  role?: string;
+  department?: string;
+}
+
+export interface ContactSearchInput {
+  query: string;
+  limit?: number;
+}
+
+export interface ContactDeleteInput {
+  contactId: number;
+}
+
 export interface NoteUpsertInput {
   projectId: number;
-  activityId: number;
   noteId?: number;
   noteType: NoteTemplateKey;
   title?: string;
   markdown: string;
   html: string;
+  tagIds?: number[];
 }
 
 export interface NoteDeleteInput {
@@ -653,7 +681,6 @@ export interface WorkspaceNoteDeleteInput {
 
 export interface ConclusionCreateInput {
   projectId: number;
-  activityId?: number;
   noteId?: number;
   markdown: string;
   html: string;
@@ -663,7 +690,6 @@ export interface ConclusionCreateInput {
 
 export interface ConclusionListInput {
   projectId: number;
-  activityId?: number;
 }
 
 export interface ConclusionUpdateInput {
@@ -680,19 +706,20 @@ export interface ConclusionDeleteInput {
 
 export interface TodoCreateInput {
   projectId: number;
-  activityId?: number;
   content: string;
   priority: TodoPriority;
+  tagIds?: number[];
 }
 
 export interface TodoUpdateContentInput {
   todoId: number;
   content: string;
+  tagIds?: number[];
 }
 
-export interface TodoUpdateActivityInput {
+export interface TodoUpdateTagsInput {
   todoId: number;
-  activityId: number | null;
+  tagIds?: number[];
 }
 
 export interface TodoUpdateStatusInput {
@@ -715,6 +742,7 @@ export interface TodoUpdateProgressInput {
   progressId: number;
   content: string;
   progressDate: string;
+  status?: TodoStatus;
 }
 
 export interface TodoDeleteProgressInput {
@@ -727,7 +755,6 @@ export interface TodoDeleteInput {
 
 export interface DocumentImportInput {
   projectId: number;
-  activityId?: number;
   sourcePath: string;
   isStarred: boolean;
   tagIds?: number[];
@@ -735,7 +762,6 @@ export interface DocumentImportInput {
 
 export interface DocumentImportClipboardImageInput {
   projectId: number;
-  activityId?: number;
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -745,13 +771,11 @@ export interface DocumentImportClipboardImageInput {
 
 export interface DocumentImportNoteImageInput {
   projectId: number;
-  activityId?: number;
   sourcePath: string;
 }
 
 export interface DocumentImportClipboardNoteImageInput {
   projectId: number;
-  activityId?: number;
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -759,7 +783,6 @@ export interface DocumentImportClipboardNoteImageInput {
 
 export interface DocumentUpdateMetaInput {
   documentId: number;
-  activityId?: number | null;
   baseName?: string;
   isStarred?: boolean;
   tagIds?: number[];
@@ -797,7 +820,6 @@ export interface AiAcceptSuggestionInput {
 export interface AiArtifactGetInput {
   kind: AiArtifactKind;
   projectId?: number;
-  activityId?: number;
   artifactDate?: string;
 }
 
@@ -831,7 +853,6 @@ export type AiCapability =
 export type AiManagedCapability = Exclude<AiCapability, "default">;
 
 export type AiFeatureKey =
-  | "summary.activity_summary"
   | "summary.project_brief"
   | "summary.daily_brief"
   | "suggestion_generation.conclusion"

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ListTodo, Plus } from "lucide-react";
 
 import {
@@ -7,14 +8,24 @@ import {
   findInternalReferenceTextTrigger,
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
+import {
+  buildContactMentionTarget,
+  buildContactMentionToken,
+  findContactMentionTextTrigger,
+  type ContactMentionTarget,
+} from "../../lib/contactMentions";
 import type {
+  ContactRecord,
   InternalReferenceSearchResult,
   TodoPriority,
   TodoRecord,
 } from "../../lib/types";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton, SurfaceCard, TextField } from "../../ui/components";
+import { Button, IconButton, SurfaceCard } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { projectMindApi } from "../../services/projectMindApi";
+import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
@@ -24,6 +35,12 @@ import {
   TODO_PRIORITY_OPTIONS,
   type TodoSortMode,
 } from "./todo-utils";
+import {
+  clearTodoComposerDraft,
+  readTodoComposerDraft,
+  writeTodoComposerDraft,
+  type TodoComposerDraftSnapshot,
+} from "./todo-draft-storage";
 
 interface TodoRailProps {
   projectId?: number;
@@ -31,27 +48,26 @@ interface TodoRailProps {
   scopeLabel: string;
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
-  activityNameById: ReadonlyMap<number, string>;
-  activityOptions: Array<{ id: number; title: string }>;
   createPlaceholder: string;
   onCreateTodo: (payload: { content: string; priority: TodoPriority }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
-  onUpdateActivity: (todoId: number, activityId: number | null) => Promise<unknown> | void;
+  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+  onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }
 
 function RailTabButton({
@@ -83,14 +99,12 @@ export function TodoRail({
   scopeLabel,
   unfinishedTodos,
   finishedTodos,
-  activityNameById,
-  activityOptions,
   createPlaceholder,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
-  onUpdateActivity,
+  onUpdateTags,
   onAddProgress,
   onUpdateProgress,
   onDeleteProgress,
@@ -98,19 +112,45 @@ export function TodoRail({
   onOpenTodoSource,
   onError,
   onOpenInternalReference,
+  onOpenContactMention,
 }: TodoRailProps) {
-  const { todoRailCollapsed, setTodoRailCollapsed, toggleTodoRailCollapsed } = useUiStore();
+  const {
+    todoRailCollapsed,
+    todoRailWidthPx,
+    setTodoRailCollapsed,
+    setTodoRailWidthPx,
+    toggleTodoRailCollapsed,
+  } = useUiStore();
+  const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
+  const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
-  const [isComposing, setIsComposing] = useState(false);
-  const [content, setContent] = useState("");
-  const [priority, setPriority] = useState<TodoPriority>("not_urgent_important");
+  const [tagFilterId, setTagFilterId] = useState<number | null>(null);
+  const [isComposing, setIsComposing] = useState(
+    () => Boolean(initialComposerDraft?.content.trim()),
+  );
+  const [content, setContent] = useState(
+    () => initialComposerDraft?.content ?? "",
+  );
+  const [priority, setPriority] = useState<TodoPriority>(
+    () => initialComposerDraft?.priority ?? "not_urgent_important",
+  );
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
   const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
-  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerDraftRef = useRef<{
+    key: string;
+    snapshot: TodoComposerDraftSnapshot;
+  }>({
+    key: draftStorageKey,
+    snapshot: {
+      content: initialComposerDraft?.content ?? "",
+      priority: initialComposerDraft?.priority ?? "not_urgent_important",
+    },
+  });
   const referenceTrigger = isComposing ? findInternalReferenceTextTrigger(content, selectionStart) : null;
   const referenceTriggerKey = referenceTrigger
     ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
@@ -127,14 +167,57 @@ export function TodoRail({
     limit: 8,
   });
 
+  const contactMentionOptions = useContactMentionOptions();
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
+  const mentionTrigger = isComposing
+    ? findContactMentionTextTrigger(content, selectionStart)
+    : null;
+  const mentionTriggerKey = mentionTrigger
+    ? `${mentionTrigger.start}:${mentionTrigger.end}:${mentionTrigger.query}`
+    : null;
+  const mentionPickerOpen =
+    Boolean(mentionTrigger) && dismissedMentionKey !== mentionTriggerKey;
+  const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
+    open: mentionPickerOpen,
+    query: mentionTrigger?.query ?? "",
+    limit: 8,
+  });
+  const mentionCreateName = mentionTrigger?.query.trim() ?? "";
+  const mentionCreatable = mentionPickerOpen && mentionCreateName.length > 0;
+  const mentionOptionCount = mentionResults.length + (mentionCreatable ? 1 : 0);
+  const tagSettingsQuery = useQuery({
+    queryKey: ["file-tag-settings", projectId],
+    queryFn: projectMindApi.fileTagSettingsGet,
+    enabled: projectId !== undefined,
+  });
+  const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const todoTagOptions = useMemo(() => {
+    const countById = new Map<number, number>();
+    const metaById = new Map<number, NonNullable<TodoRecord["tags"]>[number]>();
+    for (const todo of [...unfinishedTodos, ...finishedTodos]) {
+      for (const tag of todo.tags ?? []) {
+        metaById.set(tag.id, tag);
+        countById.set(tag.id, (countById.get(tag.id) ?? 0) + 1);
+      }
+    }
+    return Array.from(metaById.values())
+      .map((tag) => ({ ...tag, count: countById.get(tag.id) ?? 0 }))
+      .sort((left, right) => left.label.localeCompare(right.label, "zh-Hans-CN"));
+  }, [finishedTodos, unfinishedTodos]);
+
   const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
   const todos = useMemo(() => {
     const filteredTodos =
       priorityFilter === null
         ? tabTodos
         : tabTodos.filter((todo) => todo.priority === priorityFilter);
-    return sortTodos(filteredTodos, sortMode);
-  }, [priorityFilter, sortMode, tabTodos]);
+    const tagFilteredTodos =
+      tagFilterId === null
+        ? filteredTodos
+        : filteredTodos.filter((todo) => (todo.tags ?? []).some((tag) => tag.id === tagFilterId));
+    return sortTodos(tagFilteredTodos, sortMode);
+  }, [priorityFilter, sortMode, tabTodos, tagFilterId]);
   const showSortSwitch = todos.length > 1;
   const summaryText = useMemo(
     () => `${unfinishedTodos.length} 未完成 · ${finishedTodos.length} 已完成`,
@@ -165,19 +248,98 @@ export function TodoRail({
   }, [referencePickerOpen, referenceTrigger?.query]);
 
   useEffect(() => {
+    if (!mentionPickerOpen) {
+      setMentionActiveIndex(0);
+      return;
+    }
+
+    setMentionActiveIndex((current) => {
+      if (mentionOptionCount === 0) {
+        return 0;
+      }
+
+      return Math.min(current, mentionOptionCount - 1);
+    });
+  }, [mentionPickerOpen, mentionOptionCount]);
+
+  useEffect(() => {
+    if (!mentionPickerOpen) {
+      return;
+    }
+
+    setMentionActiveIndex(0);
+  }, [mentionPickerOpen, mentionTrigger?.query]);
+
+  useEffect(() => {
     if (isComposing) {
       return;
     }
 
     setSelectionStart(null);
     setDismissedTriggerKey(null);
+    setDismissedMentionKey(null);
   }, [isComposing]);
+
+  useEffect(() => {
+    const snapshot = readTodoComposerDraft(draftStorageKey);
+    setContent(snapshot?.content ?? "");
+    setPriority(snapshot?.priority ?? "not_urgent_important");
+    setIsComposing(Boolean(snapshot?.content.trim()));
+    setSelectionStart(null);
+    setDismissedTriggerKey(null);
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    const snapshot = { content, priority };
+    composerDraftRef.current = { key: draftStorageKey, snapshot };
+    writeTodoComposerDraft(draftStorageKey, snapshot);
+  }, [content, draftStorageKey, priority]);
+
+  useEffect(() => {
+    const flushDraft = () => {
+      const { key, snapshot } = composerDraftRef.current;
+      writeTodoComposerDraft(key, snapshot);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushDraft();
+      }
+    };
+
+    window.addEventListener("blur", flushDraft);
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("blur", flushDraft);
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      const nextWidth = window.innerWidth - event.clientX;
+      setTodoRailWidthPx(nextWidth);
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [setTodoRailWidthPx]);
 
   function submitCreate() {
     if (!content.trim()) {
       return;
     }
     onCreateTodo({ content: content.trim(), priority });
+    clearTodoComposerDraft(draftStorageKey);
     setContent("");
     setPriority("not_urgent_important");
     setIsComposing(false);
@@ -206,6 +368,45 @@ export function TodoRail({
     });
   }
 
+  function insertMentionToken(token: string, trigger: { start: number; end: number }) {
+    const insertText = `${token} `;
+    const nextContent =
+      content.slice(0, trigger.start) + insertText + content.slice(trigger.end);
+    const nextSelection = trigger.start + insertText.length;
+
+    setContent(nextContent);
+    setSelectionStart(nextSelection);
+    setDismissedMentionKey(null);
+
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
+  }
+
+  function handleMentionInsert(contact: ContactRecord) {
+    if (!mentionTrigger) {
+      return;
+    }
+
+    const token = buildContactMentionToken(buildContactMentionTarget(contact));
+    insertMentionToken(token, mentionTrigger);
+  }
+
+  function handleMentionCreate(name: string) {
+    if (!mentionTrigger || !contactMentionOptions.onCreateContact || !name.trim()) {
+      return;
+    }
+
+    const trigger = mentionTrigger;
+    void Promise.resolve(contactMentionOptions.onCreateContact(name.trim())).then((target) => {
+      if (target) {
+        insertMentionToken(buildContactMentionToken(target), trigger);
+      }
+    });
+    setDismissedMentionKey(mentionTriggerKey);
+  }
+
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
     setExpandedTodoIds((current) => {
       const next = new Set(current);
@@ -223,7 +424,7 @@ export function TodoRail({
   if (todoRailCollapsed) {
     return (
       <aside
-        className="flex w-14 shrink-0 flex-col items-center gap-3 border-l border-border bg-bg-subtle px-2 py-3 transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+        className="flex w-12 shrink-0 flex-col items-center gap-3 border-l border-border bg-bg-subtle px-1.5 py-3 transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
         aria-label={`${title} 侧边栏`}
       >
         <IconButton
@@ -276,9 +477,27 @@ export function TodoRail({
 
   return (
     <aside
-      className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-bg-subtle transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+      className="relative flex shrink-0 flex-col border-l border-border bg-bg-subtle transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+      style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
     >
+      <div
+        className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize"
+        aria-hidden="true"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          const handlePointerMove = (moveEvent: PointerEvent) => {
+            const nextWidth = window.innerWidth - moveEvent.clientX;
+            setTodoRailWidthPx(nextWidth);
+          };
+          const handlePointerUp = () => {
+            window.removeEventListener("pointermove", handlePointerMove);
+            window.removeEventListener("pointerup", handlePointerUp);
+          };
+          window.addEventListener("pointermove", handlePointerMove);
+          window.addEventListener("pointerup", handlePointerUp);
+        }}
+      />
       <div className="flex items-start justify-between gap-3 px-4 pb-2 pt-4">
         <div className="min-w-0 flex-1">
           <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
@@ -339,11 +558,45 @@ export function TodoRail({
           {showSortSwitch ? <TodoSortSwitch value={sortMode} onChange={setSortMode} /> : null}
         </div>
 
+        {todoTagOptions.length > 0 ? (
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={cn(
+                "rounded-[var(--radius-6)] border px-2 py-1 text-caption transition-colors",
+                tagFilterId === null
+                  ? "border-border-strong bg-bg text-text"
+                  : "border-transparent text-text-soft hover:border-border hover:bg-bg-hover hover:text-text",
+              )}
+              onClick={() => setTagFilterId(null)}
+            >
+              全部标签
+            </button>
+            {todoTagOptions.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                className={cn(
+                  "rounded-[var(--radius-6)] border px-2 py-1 text-caption transition-colors",
+                  tagFilterId === tag.id
+                    ? "border-border-strong bg-bg text-text"
+                    : "border-transparent text-text-soft hover:border-border hover:bg-bg-hover hover:text-text",
+                )}
+                onClick={() => setTagFilterId((current) => (current === tag.id ? null : tag.id))}
+              >
+                {tag.label} {tag.count}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {isComposing ? (
           <SurfaceCard className="mb-3 grid gap-2 p-3">
             <div className="relative">
-              <TextField
+              <textarea
                 ref={composerInputRef}
+                rows={3}
+                className="min-h-[5.5rem] w-full resize-y rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
                 value={content}
                 onChange={(event) => {
                   setContent(event.target.value);
@@ -353,6 +606,40 @@ export function TodoRail({
                 onKeyUp={(event) => setSelectionStart(event.currentTarget.selectionStart)}
                 onSelect={(event) => setSelectionStart(event.currentTarget.selectionStart)}
                 onKeyDown={(event) => {
+                  if (mentionPickerOpen) {
+                    if (event.key === "ArrowDown" && mentionOptionCount > 0) {
+                      event.preventDefault();
+                      setMentionActiveIndex((current) => (current + 1) % mentionOptionCount);
+                      return;
+                    }
+
+                    if (event.key === "ArrowUp" && mentionOptionCount > 0) {
+                      event.preventDefault();
+                      setMentionActiveIndex((current) =>
+                        current === 0 ? mentionOptionCount - 1 : current - 1,
+                      );
+                      return;
+                    }
+
+                    if (event.key === "Enter" && mentionOptionCount > 0) {
+                      event.preventDefault();
+                      if (mentionCreatable && mentionActiveIndex === mentionResults.length) {
+                        handleMentionCreate(mentionCreateName);
+                      } else {
+                        handleMentionInsert(
+                          mentionResults[mentionActiveIndex] ?? mentionResults[0],
+                        );
+                      }
+                      return;
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setDismissedMentionKey(mentionTriggerKey);
+                      return;
+                    }
+                  }
+
                   if (referencePickerOpen) {
                     if (event.key === "ArrowDown") {
                       event.preventDefault();
@@ -391,7 +678,7 @@ export function TodoRail({
                     }
                   }
 
-                  if (event.key === "Enter") {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                     event.preventDefault();
                     submitCreate();
                   }
@@ -406,6 +693,18 @@ export function TodoRail({
                 className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
                 onHoverIndex={setReferenceActiveIndex}
                 onSelect={handleReferenceInsert}
+              />
+              <ContactMentionPicker
+                open={mentionPickerOpen}
+                loading={mentionLoading}
+                results={mentionResults}
+                activeIndex={mentionActiveIndex}
+                query={mentionTrigger?.query ?? ""}
+                canCreate={mentionCreatable}
+                className="absolute left-0 top-[calc(100%+6px)] z-20"
+                onHoverIndex={setMentionActiveIndex}
+                onSelect={handleMentionInsert}
+                onCreate={handleMentionCreate}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -432,8 +731,6 @@ export function TodoRail({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TodoList
             todos={todos}
-            activityNameById={activityNameById}
-            activityOptions={activityOptions}
             compact
             allowInlineEdit={tab === "unfinished"}
             allowInlineProgress={tab === "unfinished"}
@@ -443,7 +740,7 @@ export function TodoRail({
             onToggleStatus={onToggleStatus}
             onUpdatePriority={onUpdatePriority}
             onUpdateContent={onUpdateContent}
-            onUpdateActivity={onUpdateActivity}
+            onUpdateTags={onUpdateTags}
             onAddProgress={onAddProgress}
             onUpdateProgress={onUpdateProgress}
             onDeleteProgress={onDeleteProgress}
@@ -451,6 +748,8 @@ export function TodoRail({
             onOpenTodoSource={onOpenTodoSource}
             onError={onError}
             onOpenInternalReference={onOpenInternalReference}
+            onOpenContactMention={onOpenContactMention}
+            availableTags={availableTags}
             onEmptyClick={
               tab === "unfinished"
                 ? () => {
@@ -463,6 +762,10 @@ export function TodoRail({
       </div>
     </aside>
   );
+}
+
+function buildTodoRailDraftStorageKey(projectId: number | undefined) {
+  return `project-mind:todo-rail-draft:${projectId ?? "workspace"}`;
 }
 
 function PriorityPillButton({

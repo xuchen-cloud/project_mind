@@ -17,9 +17,10 @@
         "title": "Project Mind Alpha",
         "width": 1540,
         "height": 980,
-        "minWidth": 1180,
+        "minWidth": 736,
         "minHeight": 760,
-        "resizable": true
+        "resizable": true,
+        "dragDropEnabled": true
       }
     ],
     "security": {

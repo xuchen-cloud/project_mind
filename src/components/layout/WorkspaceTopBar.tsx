@@ -1,6 +1,7 @@
 import {
   Archive,
   CalendarDays,
+  CircleX,
   CircleHelp,
   CircleUser,
   FolderOpen,
@@ -44,6 +45,7 @@ interface WorkspaceTopBarProps {
   onToggleArchive: () => void;
   onCloseArchive: () => void;
   onOpenProject: (projectId: number) => void;
+  onCloseProject?: (projectId: number) => void;
   onRestoreProject: (projectId: number) => void;
   workspaceMenuOpen: boolean;
   onToggleWorkspaceMenu: () => void;
@@ -77,6 +79,7 @@ export function WorkspaceTopBar({
   onToggleArchive,
   onCloseArchive,
   onOpenProject,
+  onCloseProject,
   onRestoreProject,
   workspaceMenuOpen,
   onToggleWorkspaceMenu,
@@ -106,23 +109,41 @@ export function WorkspaceTopBar({
               onClick={onOpenToday}
             >
               <CalendarDays size={14} />
-              <span>Today</span>
+              <span>总览</span>
             </button>
           ) : null}
           {projects.map((project) => (
-            <button
+            <div
               key={project.id}
-              type="button"
               className={[
-                "shrink-0 h-8 rounded-[var(--radius-6)] border px-2.5 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
+                "group shrink-0 inline-flex h-8 items-center rounded-[var(--radius-6)] border pr-1 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
                 project.id === activeProjectId
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
                   : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
               ].join(" ")}
-              onClick={() => onOpenProject(project.id)}
+              role="presentation"
             >
-              {project.name}
-            </button>
+              <button
+                type="button"
+                className="h-full min-w-0 rounded-[var(--radius-6)] px-2.5"
+                onClick={() => onOpenProject(project.id)}
+              >
+                <span className="truncate">{project.name}</span>
+              </button>
+              {onCloseProject ? (
+                <button
+                  type="button"
+                  aria-label={`关闭 ${project.name}`}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-6)] text-current opacity-55 transition-[background-color,opacity] hover:bg-bg/80 hover:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseProject(project.id);
+                  }}
+                >
+                  <CircleX size={12} />
+                </button>
+              ) : null}
+            </div>
           ))}
           <Button
             type="button"

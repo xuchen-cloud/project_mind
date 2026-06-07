@@ -8,7 +8,6 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
     queryClient.invalidateQueries({ queryKey: ["overview", projectId] }),
-    queryClient.invalidateQueries({ queryKey: ["activities", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["workspace-todos"] }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),

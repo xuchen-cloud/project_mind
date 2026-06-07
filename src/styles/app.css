@@ -299,18 +299,19 @@
 
 .rich-editor__table-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
-  border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-muted) 70%, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-6);
+  background: var(--color-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .rich-editor__table-toolbar--bare {
-  padding: 0 0 0.5rem;
-  border-bottom: 0;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 
 .rich-editor__table-toolbar-group {
@@ -1323,6 +1324,57 @@
   color: var(--color-danger);
 }
 
+.contact-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  max-width: 100%;
+  margin-inline: 0.08rem;
+  padding: 0.04em 0.45em 0.07em;
+  border: 1px solid color-mix(in srgb, #2563eb 26%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #2563eb 10%, var(--color-bg));
+  color: color-mix(in srgb, #1d4ed8 85%, var(--color-text));
+  font-size: 0.94em;
+  line-height: 1.3;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition:
+    border-color 160ms var(--ease-soft),
+    background-color 160ms var(--ease-soft),
+    color 160ms var(--ease-soft),
+    box-shadow 160ms var(--ease-soft);
+  cursor: pointer;
+}
+
+.contact-mention-chip:hover {
+  border-color: color-mix(in srgb, #2563eb 42%, var(--color-border));
+  background: color-mix(in srgb, #2563eb 16%, var(--color-bg));
+}
+
+.contact-mention-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-ring);
+}
+
+.contact-mention-chip__sigil {
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.contact-mention-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-mention-chip.is-broken {
+  border-color: color-mix(in srgb, var(--color-danger) 32%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-bg));
+  color: var(--color-danger);
+}
+
 .rich-editor__attachment {
   margin-block-start: var(--rich-text-body-paragraph-spacing-before);
   margin-block-end: var(--rich-text-body-paragraph-spacing-after);
@@ -1561,6 +1613,289 @@
 .activity-note-focus .rich-editor--page .ProseMirror:focus,
 .activity-note-focus .rich-editor--page [contenteditable="true"]:focus,
 .activity-note-focus .rich-editor--page [contenteditable="true"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.project-overview-focus {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--color-accent) 6%, transparent) 0%, transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 98%, white) 0%, var(--color-bg) 100%);
+}
+
+.project-overview-focus__chrome {
+  position: relative;
+  z-index: 6;
+  flex: 0 0 auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg) 97%, white) 0%,
+      color-mix(in srgb, var(--color-bg) 92%, transparent) 100%
+    );
+  backdrop-filter: blur(16px);
+}
+
+.project-overview-focus__chrome-inner {
+  width: min(100%, 78rem);
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  padding: 1rem 1.5rem 0.95rem;
+}
+
+.project-overview-focus__meta {
+  min-width: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.project-overview-focus__eyebrow {
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-soft);
+}
+
+.project-overview-focus__title {
+  width: min(100%, 34rem);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--rich-text-heading-font-family);
+  font-size: clamp(1.5rem, 2.7vw, 2.1rem);
+  font-weight: 650;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  outline: none;
+}
+
+.project-overview-focus__title:focus,
+.project-overview-focus__title:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.project-overview-focus__path {
+  max-width: min(100%, 48rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--color-text-soft);
+  font-size: var(--text-ui);
+  transition: color 160ms var(--ease-soft);
+}
+
+.project-overview-focus__path:hover {
+  color: var(--color-text);
+}
+
+.project-overview-focus__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.project-overview-focus__view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 52%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg) 94%, white) 0%,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 100%
+    );
+  box-shadow:
+    0 10px 30px color-mix(in srgb, var(--color-text) 8%, transparent),
+    0 2px 10px color-mix(in srgb, var(--color-text) 6%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.project-overview-focus__view-switch-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
+  background: transparent;
+  color: var(--color-text-soft);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  transition: background-color 160ms var(--ease-soft), color 160ms var(--ease-soft);
+}
+
+.project-overview-focus__view-switch-button:hover {
+  color: var(--color-text);
+}
+
+.project-overview-focus__view-switch-button--active {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+.project-overview-focus__status {
+  color: var(--color-text-soft);
+  font-size: var(--text-ui);
+}
+
+.project-overview-focus__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.project-overview-focus__page {
+  width: min(100%, 47.5rem);
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.project-overview-focus__page--history {
+  width: min(100%, 56rem);
+}
+
+.project-overview-focus__history-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.project-overview-focus__history-title {
+  margin-top: 0.2rem;
+  color: var(--color-text);
+  font-size: var(--text-title);
+  font-weight: 650;
+}
+
+.project-overview-focus__history-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.project-overview-focus__tag-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.project-overview-focus__tag-filter {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-soft);
+  font-size: var(--text-caption);
+  transition: background-color 160ms var(--ease-soft), color 160ms var(--ease-soft);
+}
+
+.project-overview-focus__tag-filter:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.project-overview-focus__tag-filter--active {
+  background: var(--color-accent);
+  color: white;
+}
+
+.project-overview-focus .rich-editor--page {
+  gap: 1rem;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__toolbar,
+.project-overview-focus .rich-editor--page .rich-editor__table-toolbar {
+  position: sticky;
+  top: 0.85rem;
+  z-index: 4;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 62%, transparent);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg) 94%, white) 0%,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 100%
+    );
+  box-shadow:
+    0 10px 30px color-mix(in srgb, var(--color-text) 8%, transparent),
+    0 2px 10px color-mix(in srgb, var(--color-text) 6%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__table-toolbar {
+  top: 4.25rem;
+  margin-top: -0.4rem;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__toolbar-main,
+.project-overview-focus .rich-editor--page .rich-editor__toolbar-extras,
+.project-overview-focus .rich-editor--page .rich-editor__table-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__toolbar-main::-webkit-scrollbar,
+.project-overview-focus .rich-editor--page .rich-editor__toolbar-extras::-webkit-scrollbar,
+.project-overview-focus .rich-editor--page .rich-editor__table-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__frame {
+  overflow: visible;
+  background: transparent;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__surface {
+  min-height: 18rem;
+  padding: 0 0 10rem;
+  background: transparent;
+}
+
+.project-overview-focus .rich-editor--page.rich-editor--toolbar:focus-within,
+.project-overview-focus .rich-editor--page.rich-editor--toolbar.is-focused {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.project-overview-focus .rich-editor--page .rich-editor__surface:focus-within,
+.project-overview-focus .rich-editor--page .ProseMirror,
+.project-overview-focus .rich-editor--page .ProseMirror:focus,
+.project-overview-focus .rich-editor--page [contenteditable="true"]:focus,
+.project-overview-focus .rich-editor--page [contenteditable="true"]:focus-visible {
   outline: none;
   box-shadow: none;
 }
@@ -2290,7 +2625,17 @@
     align-items: flex-start;
   }
 
+  .project-overview-focus__chrome-inner {
+    padding: 0.85rem 1rem 0.8rem;
+    align-items: flex-start;
+  }
+
   .activity-note-focus__page {
+    width: 100%;
+    padding: 1.35rem 1rem 3rem;
+  }
+
+  .project-overview-focus__page {
     width: 100%;
     padding: 1.35rem 1rem 3rem;
   }
@@ -2302,7 +2647,18 @@
     margin-inline: 0;
   }
 
+  .project-overview-focus .rich-editor--page .rich-editor__toolbar,
+  .project-overview-focus .rich-editor--page .rich-editor__table-toolbar {
+    width: 100%;
+    top: 0.65rem;
+    margin-inline: 0;
+  }
+
   .activity-note-focus .rich-editor--page .rich-editor__table-toolbar {
+    top: 3.9rem;
+  }
+
+  .project-overview-focus .rich-editor--page .rich-editor__table-toolbar {
     top: 3.9rem;
   }
 

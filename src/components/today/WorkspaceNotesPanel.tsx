@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import {
   findInternalReferenceElement,
   readInternalReferenceElement,
@@ -82,6 +83,7 @@ export function WorkspaceNotesPanel({
   onOpenInternalReference,
 }: WorkspaceNotesPanelProps) {
   const { pushToast } = useFeedbackStore();
+  const contactMentionOptions = useContactMentionOptions();
   const [optimisticNotes, setOptimisticNotes] = useState<Record<number, WorkspaceNoteRecord>>({});
   const mergedNotes = useMemo(() => {
     const noteMap = new Map<number, WorkspaceNoteRecord>();
@@ -582,7 +584,7 @@ export function WorkspaceNotesPanel({
                         <RichEditor
                           key={composer.key}
                           html={composer.contentHtml}
-                          variant="toolbar"
+                          variant="bare"
                           autoFocus
                           autosave={{
                             onChange: false,
@@ -601,6 +603,7 @@ export function WorkspaceNotesPanel({
                             context: { scope: "workspace" },
                             onOpenReference: onOpenInternalReference,
                           }}
+                          contactMentions={contactMentionOptions}
                           aiSettings={aiSettings}
                           aiRewriteContext={{
                             scope: "workspace_note",

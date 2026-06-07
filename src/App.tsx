@@ -10,8 +10,9 @@ import {
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import type {
-  ActivityCardData,
   AiAnswerScope,
+  DocumentRecord,
+  NoteRecord,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
   WorkspaceSummary,
@@ -20,12 +21,12 @@ import { isAiCapabilityVisible } from "./lib/ai";
 import { deriveAskScopeContext } from "./lib/aiAsk";
 import { ensureAiJobSync, resetAiJobSync } from "./lib/aiJobs";
 import {
-  activityNotePath,
-  activityPath,
   parseRouteId,
   projectPath,
+  recordPath,
   todayPath,
 } from "./lib/formatters";
+import { noteTemplateLabel } from "./lib/note-templates";
 import {
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
   applyRichTextStyleVariables,
@@ -35,13 +36,13 @@ import { desktopApi } from "./services/desktopApi";
 import { useFeedbackStore } from "./state/feedback-store";
 import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
-import { useActivityMutations } from "./hooks/useActivityMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
+import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
 import { AskPanel } from "./components/ai/AskPanel";
-import { ActivityDeleteDialog } from "./components/activity/ActivityDeleteDialog";
 import {
   ProjectSidebar,
-  type ProjectSidebarActivityItem,
+  type ProjectSidebarDocumentItem,
+  type ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
@@ -61,34 +62,48 @@ function workspaceScopedQueryKeys() {
     ["projects"],
     ["overview"],
     ["dashboard"],
-    ["activities"],
     ["search"],
     ["workspace-todos"],
     ["workspace-notes"],
     ["ai-settings"],
     ["ai-artifact"],
     ["rich-text-style"],
-    ["activity-settings"],
     ["file-tag-settings"],
     ["record-type-settings"],
   ] as const;
 }
 
-function toProjectSidebarActivities(
-  activities: ActivityCardData[],
-): ProjectSidebarActivityItem[] {
-  return activities.map((activity) => ({
-    id: activity.id,
-    title: activity.title,
-    activityTime: activity.activityTime,
-    attributeLabel: activity.attributeLabel,
-    attributeColorKey: activity.attributeColorKey,
-    conclusionCount: activity.digest.conclusionCount,
-    documentCount: activity.digest.documentCount,
-    completedTodoCount: activity.digest.completedTodoCount,
-    totalTodoCount: activity.digest.totalTodoCount,
-    statusLabel: activity.digest.statusLabel,
-    statusColorKey: activity.digest.statusColorKey,
+function toProjectSidebarRecords(
+  records: NoteRecord[],
+  recordTypeSettings: Awaited<ReturnType<typeof projectMindApi.recordTypeSettingsGet>> | undefined,
+): ProjectSidebarRecordItem[] {
+  return records.map((record) => ({
+    id: record.id,
+    title: record.title,
+    typeLabel: noteTemplateLabel(record.noteType, recordTypeSettings),
+    contentMarkdown: record.contentMarkdown,
+    tags: record.tags ?? [],
+    updatedAt: record.updatedAt,
+  }));
+}
+
+function toProjectSidebarDocuments(
+  documents: DocumentRecord[],
+): ProjectSidebarDocumentItem[] {
+  return documents.map((document) => ({
+    id: document.id,
+    projectId: document.projectId,
+    name: document.name,
+    baseName: document.baseName,
+    mimeType: document.mimeType,
+    managedPath: document.managedPath,
+    originalPath: document.originalPath,
+    historyDirPath: document.historyDirPath,
+    isStarred: document.isStarred,
+    currentVersionNumber: document.currentVersionNumber,
+    versionCount: document.versionCount,
+    health: document.health,
+    tags: document.tags ?? [],
   }));
 }
 
@@ -377,7 +392,7 @@ export function WorkspaceLayout() {
   const params = useParams();
   const queryClient = useQueryClient();
   const activeProjectId = parseRouteId(params.projectId);
-  const activeActivityId = parseRouteId(params.activityId);
+  const activeRecordId = parseRouteId(params.noteId);
   const todayActive = location.pathname === todayPath();
 
   const {
@@ -387,10 +402,15 @@ export function WorkspaceLayout() {
     settingsSection,
     openSettings,
     closeSettings,
+    openProjectIds,
+    openProjectTab,
+    closeProjectTab,
     setSettingsSection,
     projectRecentPaths,
+    projectSidebarCollapsed,
     rememberProjectRoute,
     clearProjectRecentPaths,
+    todoRailCollapsed,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
 
@@ -425,6 +445,16 @@ export function WorkspaceLayout() {
     () => (projectsQuery.data ?? []).filter((project) => project.isArchived),
     [projectsQuery.data],
   );
+  const openedProjects = useMemo(
+    () =>
+      openProjectIds
+        .map((projectId) =>
+          (projectsQuery.data ?? []).find((project) => project.id === projectId) ??
+          null,
+        )
+        .filter((project): project is NonNullable<typeof project> => project !== null),
+    [openProjectIds, projectsQuery.data],
+  );
   const activeProject = useMemo(
     () =>
       (projectsQuery.data ?? []).find(
@@ -432,18 +462,45 @@ export function WorkspaceLayout() {
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
-  const projectSidebarQuery = useQuery({
-    queryKey: ["activities", activeProjectId],
+  const projectSidebarOverviewQuery = useQuery({
+    queryKey: ["overview", activeProjectId],
     queryFn: () =>
-      projectMindApi.activityList({ projectId: activeProjectId as number }),
+      projectMindApi.projectGetOverview({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
   });
-  const projectSidebarActivities = useMemo(
-    () => toProjectSidebarActivities(projectSidebarQuery.data ?? []),
-    [projectSidebarQuery.data],
+  const recordTypeSettingsQuery = useQuery({
+    queryKey: ["record-type-settings"],
+    queryFn: projectMindApi.recordTypeSettingsGet,
+    enabled: hasWorkspace,
+  });
+  const projectSidebarRecords = useMemo(
+    () =>
+      toProjectSidebarRecords(
+        projectSidebarOverviewQuery.data?.records ?? [],
+        recordTypeSettingsQuery.data,
+      ),
+    [projectSidebarOverviewQuery.data?.records, recordTypeSettingsQuery.data],
+  );
+  const projectSidebarDocuments = useMemo(
+    () =>
+      toProjectSidebarDocuments(
+        projectSidebarOverviewQuery.data?.projectDocuments ?? [],
+      ),
+    [projectSidebarOverviewQuery.data?.projectDocuments],
   );
   const showProjectSidebarShell =
     hasWorkspace && activeProjectId !== null && activeProject !== null;
+  const showTodoRailShell =
+    showProjectSidebarShell &&
+    !location.pathname.endsWith("/summary") &&
+    !/\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+
+  useWorkspaceWindowSizeConstraints({
+    showProjectSidebar: showProjectSidebarShell,
+    projectSidebarCollapsed,
+    showTodoRail: showTodoRailShell,
+    todoRailCollapsed,
+  });
 
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 260);
@@ -470,13 +527,8 @@ export function WorkspaceLayout() {
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const askScopeContext = useMemo(
-    () =>
-      deriveAskScopeContext(
-        location.pathname,
-        activeProjectId,
-        activeActivityId,
-      ),
-    [activeActivityId, activeProjectId, location.pathname],
+    () => deriveAskScopeContext(location.pathname, activeProjectId),
+    [activeProjectId, location.pathname],
   );
   const [askScope, setAskScope] = useState<AiAnswerScope>(
     askScopeContext.defaultScope,
@@ -488,33 +540,6 @@ export function WorkspaceLayout() {
     visibleProjects,
     (path, options) => navigate(path, options),
   );
-  const [sidebarDeleteActivityId, setSidebarDeleteActivityId] = useState<
-    number | null
-  >(null);
-  const sidebarDeleteActivity = useMemo(
-    () =>
-      (projectSidebarQuery.data ?? []).find(
-        (activity) => activity.id === sidebarDeleteActivityId,
-      ) ?? null,
-    [projectSidebarQuery.data, sidebarDeleteActivityId],
-  );
-
-  const { createActivityMutation, deleteActivityMutation } =
-    useActivityMutations({
-      onCreateActivitySuccess: (activity) => {
-        navigate(
-          activityPath(activity.projectId, activity.id, "activity-title"),
-        );
-      },
-      onDeleteActivitySuccess: (activity) => {
-        setSidebarDeleteActivityId((current) =>
-          current === activity.id ? null : current,
-        );
-        if (activity.id === activeActivityId) {
-          navigate(projectPath(activity.projectId));
-        }
-      },
-    });
 
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
@@ -603,7 +628,7 @@ export function WorkspaceLayout() {
       setCreateProjectOpen(false);
       setArchiveOpen(false);
       setAskOpen(false);
-      navigate("/projects", { replace: true });
+      navigate(todayPath(), { replace: true });
       return snapshot;
     },
     [applyWorkspaceStatus, navigate, setCreateProjectOpen],
@@ -666,7 +691,7 @@ export function WorkspaceLayout() {
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
       setCreateWorkspacePassword("");
-      navigate("/projects", { replace: true });
+      navigate(todayPath(), { replace: true });
       setStatus({
         tone: "success",
         label: "Created",
@@ -713,68 +738,53 @@ export function WorkspaceLayout() {
     }
   }, [applyWorkspaceStatus, pushToast, setStatus]);
 
+  const resolveProjectNavigationPath = useCallback(
+    (projectId: number) =>
+      projectRecentPaths[projectId] ?? projectPath(projectId),
+    [projectRecentPaths],
+  );
+
+  const openProjectInTab = useCallback(
+    (projectId: number) => {
+      openProjectTab(projectId);
+      navigate(resolveProjectNavigationPath(projectId));
+    },
+    [navigate, openProjectTab, resolveProjectNavigationPath],
+  );
+
+  const closeProjectTabAndMaybeNavigate = useCallback(
+    (projectId: number) => {
+      closeProjectTab(projectId);
+      if (activeProjectId === projectId) {
+        navigate(todayPath());
+      }
+    },
+    [activeProjectId, closeProjectTab, navigate],
+  );
+
   const handleSearchSelect = useCallback(
     (result: WorkspaceSearchResult) => {
       setSearchInput("");
       if (result.kind === "project") {
-        navigate(projectPath(result.projectId));
-      } else if (result.kind === "activity") {
-        navigate(activityPath(result.projectId, result.id));
+        openProjectInTab(result.projectId);
       } else if (result.kind === "note") {
-        if (result.activityId) {
-          navigate(activityNotePath(result.projectId, result.activityId, result.id));
-        }
+        openProjectTab(result.projectId);
+        navigate(recordPath(result.projectId, result.id));
       } else if (result.kind === "todo") {
-        if (result.activityId) {
-          navigate(
-            activityPath(
-              result.projectId,
-              result.activityId,
-              `todo-${result.id}`,
-            ),
-          );
-        } else {
-          navigate(projectPath(result.projectId, `todo-${result.id}`));
-        }
-      } else if (result.kind === "conclusion") {
-        if (result.activityId) {
-          navigate(
-            activityPath(
-              result.projectId,
-              result.activityId,
-              `conclusion-${result.id}`,
-            ),
-          );
-        } else {
-          navigate(projectPath(result.projectId, `conclusion-${result.id}`));
-        }
+        openProjectTab(result.projectId);
+        navigate(projectPath(result.projectId, `todo-${result.id}`));
       } else if (result.kind === "document") {
-        if (result.activityId) {
-          navigate(
-            activityPath(
-              result.projectId,
-              result.activityId,
-              `document-${result.id}`,
-            ),
-          );
-        } else {
-          navigate(projectPath(result.projectId, `document-${result.id}`));
-        }
+        openProjectTab(result.projectId);
+        navigate(projectPath(result.projectId, `document-${result.id}`));
       }
     },
-    [navigate],
+    [navigate, openProjectInTab, openProjectTab],
   );
 
   const shouldShowEmpty =
     hasWorkspace &&
     !projectsQuery.isLoading &&
     visibleProjects.length === 0 &&
-    !activeProjectId &&
-    !todayActive;
-  const shouldAutoNavigate =
-    hasWorkspace &&
-    !projectsQuery.isLoading &&
-    visibleProjects.length > 0 &&
     !activeProjectId &&
     !todayActive;
 
@@ -806,11 +816,10 @@ export function WorkspaceLayout() {
   ]);
 
   useEffect(() => {
-    if (shouldAutoNavigate) {
-      const firstProject = visibleProjects[0];
-      navigate(projectPath(firstProject.id), { replace: true });
+    if (activeProjectId !== null) {
+      openProjectTab(activeProjectId);
     }
-  }, [navigate, shouldAutoNavigate, visibleProjects]);
+  }, [activeProjectId, openProjectTab]);
 
   useEffect(() => {
     if (
@@ -857,12 +866,6 @@ export function WorkspaceLayout() {
   }, [askOpen, askVisible]);
 
   useEffect(() => {
-    if (sidebarDeleteActivityId !== null && !sidebarDeleteActivity) {
-      setSidebarDeleteActivityId(null);
-    }
-  }, [sidebarDeleteActivity, sidebarDeleteActivityId]);
-
-  useEffect(() => {
     if (!hasWorkspace) {
       setArchiveOpen(false);
       setWorkspaceMenuOpen(false);
@@ -879,45 +882,6 @@ export function WorkspaceLayout() {
       unlockResolverRef.current = null;
     };
   }, []);
-
-  const handleCreateActivityFromSidebar = useCallback(() => {
-    if (!activeProject || createActivityMutation.isPending) {
-      return;
-    }
-
-    createActivityMutation.mutate({
-      projectId: activeProject.id,
-      title: "",
-      activityTime: new Date().toISOString(),
-    });
-  }, [activeProject, createActivityMutation]);
-
-  const handleOpenSidebarDeleteDialog = useCallback(
-    (activityId: number) => {
-      if (deleteActivityMutation.isPending) {
-        return;
-      }
-
-      setSidebarDeleteActivityId(activityId);
-    },
-    [deleteActivityMutation.isPending],
-  );
-
-  const handleConfirmSidebarDelete = useCallback(() => {
-    if (!sidebarDeleteActivity || deleteActivityMutation.isPending) {
-      return;
-    }
-
-    void deleteActivityMutation.mutateAsync({
-      activityId: sidebarDeleteActivity.id,
-    });
-  }, [deleteActivityMutation, sidebarDeleteActivity]);
-
-  const resolveProjectNavigationPath = useCallback(
-    (projectId: number) =>
-      projectRecentPaths[projectId] ?? projectPath(projectId),
-    [projectRecentPaths],
-  );
 
   if (!currentWorkspace) {
     return (
@@ -963,7 +927,7 @@ export function WorkspaceLayout() {
 
   const workspaceTopBar = (
     <WorkspaceTopBar
-      projects={visibleProjects}
+      projects={openedProjects}
       currentWorkspace={currentWorkspace}
       aiSecretsUnlocked={workspaceStatusQuery.data?.aiSecretsUnlocked ?? false}
       activeProjectId={activeProjectId}
@@ -980,7 +944,8 @@ export function WorkspaceLayout() {
       archiveOpen={archiveOpen}
       onToggleArchive={() => setArchiveOpen((current) => !current)}
       onCloseArchive={() => setArchiveOpen(false)}
-      onOpenProject={(id) => navigate(resolveProjectNavigationPath(id))}
+      onOpenProject={openProjectInTab}
+      onCloseProject={closeProjectTabAndMaybeNavigate}
       onRestoreProject={(id) =>
         archiveMutation.mutate({ projectId: id, isArchived: false })
       }
@@ -995,7 +960,7 @@ export function WorkspaceLayout() {
       onCreateProject={() => setCreateProjectOpen(true)}
       onOpenToday={() => navigate(todayPath())}
       onOpenAsk={() => setAskOpen(true)}
-      onOpenSettings={() => openSettings("activity")}
+      onOpenSettings={() => openSettings("file-tags")}
       onSearchSelect={handleSearchSelect}
     />
   );
@@ -1026,18 +991,26 @@ export function WorkspaceLayout() {
       {showProjectSidebarShell ? (
         <ProjectSidebar
           project={{
+            id: activeProject.id,
             name: activeProject.name,
+            kind: activeProject.kind,
             rootPath: activeProject.rootPath,
             isArchived: activeProject.isArchived,
           }}
-          activities={projectSidebarActivities}
-          activeActivityId={activeActivityId}
+          records={projectSidebarRecords}
+          documents={projectSidebarDocuments}
+          activeRecordId={activeRecordId}
           onOpenProject={() => navigate(projectPath(activeProject.id))}
-          onOpenActivity={(nextActivityId) =>
-            navigate(activityPath(activeProject.id, nextActivityId))
-          }
-          onCreateActivity={handleCreateActivityFromSidebar}
-          onDeleteActivity={handleOpenSidebarDeleteDialog}
+          onOpenRecord={(recordId) => navigate(recordPath(activeProject.id, recordId))}
+          onOpenDocument={(document) => {
+            void desktopApi.openFile(document.managedPath).catch((error) => {
+              pushToast({
+                tone: "error",
+                title: "打开文件失败",
+                detail: String(error),
+              });
+            });
+          }}
         />
       ) : null}
 
@@ -1049,7 +1022,7 @@ export function WorkspaceLayout() {
         <StatusBar
           context={
             todayActive
-              ? "Today"
+              ? "总览"
               : activeProjectId !== null
                 ? (activeProject?.name ?? null)
                 : currentWorkspace.displayName
@@ -1098,26 +1071,11 @@ export function WorkspaceLayout() {
         onClose={closeSettings}
       />
 
-      {sidebarDeleteActivity ? (
-        <ActivityDeleteDialog
-          open
-          activity={sidebarDeleteActivity}
-          busy={deleteActivityMutation.isPending}
-          onClose={() => {
-            if (!deleteActivityMutation.isPending) {
-              setSidebarDeleteActivityId(null);
-            }
-          }}
-          onConfirm={handleConfirmSidebarDelete}
-        />
-      ) : null}
-
       <AskPanel
         open={askVisible && askOpen}
         scope={askScope}
         allowedScopes={askScopeContext.allowedScopes}
         projectId={activeProjectId}
-        activityId={activeActivityId}
         aiSettings={aiSettingsQuery.data}
         aiSettingsLoading={aiSettingsQuery.isLoading}
         onUnlockAiSecrets={requestUnlockAiSecrets}

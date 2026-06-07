@@ -8,6 +8,7 @@ use serde_json::Value;
 pub struct ProjectRecord {
     pub id: i64,
     pub name: String,
+    pub kind: String,
     pub status: String,
     pub root_path: String,
     pub summary: String,
@@ -23,6 +24,7 @@ pub struct ProjectRecord {
 pub struct ProjectListItem {
     pub id: i64,
     pub name: String,
+    pub kind: String,
     pub status: String,
     pub root_path: String,
     pub summary: String,
@@ -41,11 +43,12 @@ pub struct ProjectListItem {
 pub struct NoteRecord {
     pub id: i64,
     pub project_id: i64,
-    pub activity_id: i64,
+    pub activity_id: Option<i64>,
     pub note_type: String,
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
+    pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -73,6 +76,9 @@ pub struct TodoProgressRecord {
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
+    pub status: String,
+    pub completed_at: Option<String>,
+    pub order_index: i64,
     pub created_at: String,
 }
 
@@ -86,6 +92,7 @@ pub struct TodoRecord {
     pub content: String,
     pub status: String,
     pub priority: String,
+    pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
     pub progresses: Vec<TodoProgressRecord>,
@@ -207,8 +214,31 @@ pub struct FileTagSettingsSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectRecordGroup {
+    pub group_key: String,
+    pub group_title: String,
+    pub notes: Vec<NoteRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordTypeSettingsSnapshot {
     pub record_types: Vec<RecordTypeRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactRecord {
+    pub id: i64,
+    pub name: String,
+    pub pinyin_full: String,
+    pub pinyin_abbr: String,
+    pub email: String,
+    pub employee_id: String,
+    pub role: String,
+    pub department: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -605,6 +635,8 @@ pub struct ProjectOverviewData {
     pub activity_feed: Vec<ActivityDigest>,
     pub project_documents: Vec<DocumentRecord>,
     pub conclusion_groups: Vec<ConclusionGroup>,
+    pub record_groups: Vec<ProjectRecordGroup>,
+    pub records: Vec<NoteRecord>,
     pub unfinished_todos: Vec<TodoRecord>,
     pub finished_todos: Vec<TodoRecord>,
 }
@@ -788,6 +820,7 @@ pub struct ActivityOptionDeleteInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTagOptionUpsertInput {
+    pub project_id: Option<i64>,
     pub id: Option<i64>,
     pub label: String,
     pub color_key: String,
@@ -817,14 +850,42 @@ pub struct RecordTypeOptionDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContactUpsertInput {
+    pub id: Option<i64>,
+    pub name: String,
+    pub pinyin_full: Option<String>,
+    pub pinyin_abbr: Option<String>,
+    pub email: Option<String>,
+    pub employee_id: Option<String>,
+    pub role: Option<String>,
+    pub department: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactSearchInput {
+    pub query: String,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactDeleteInput {
+    pub contact_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NoteUpsertInput {
     pub project_id: i64,
-    pub activity_id: i64,
+    pub activity_id: Option<i64>,
     pub note_id: Option<i64>,
     pub note_type: String,
     pub title: Option<String>,
     pub markdown: String,
     pub html: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -897,6 +958,8 @@ pub struct TodoCreateInput {
     pub activity_id: Option<i64>,
     pub content: String,
     pub priority: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -904,6 +967,16 @@ pub struct TodoCreateInput {
 pub struct TodoUpdateContentInput {
     pub todo_id: i64,
     pub content: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoUpdateTagsInput {
+    pub todo_id: i64,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -941,6 +1014,7 @@ pub struct TodoUpdateProgressInput {
     pub progress_id: i64,
     pub content: String,
     pub progress_date: String,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

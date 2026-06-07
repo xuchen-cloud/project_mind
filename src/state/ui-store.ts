@@ -5,12 +5,26 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 
-export type SettingsSection = "activity" | "file-tags" | "record-types" | "ai" | "rich-text";
+export type SettingsSection = "file-tags" | "record-types" | "contacts" | "ai" | "rich-text";
 
 export const UI_STORE_STORAGE_KEY = "project-mind-ui";
 export const ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX = 880;
 export const ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX = 720;
 export const ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX = 1080;
+export const PROJECT_SIDEBAR_WIDTH_DEFAULT_PX = 288;
+export const PROJECT_SIDEBAR_WIDTH_MIN_PX = 260;
+export const PROJECT_SIDEBAR_WIDTH_MAX_PX = 480;
+export const PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX = 48;
+export const TODO_RAIL_WIDTH_DEFAULT_PX = 352;
+export const TODO_RAIL_WIDTH_MIN_PX = 280;
+export const TODO_RAIL_WIDTH_MAX_PX = 560;
+export const TODO_RAIL_COLLAPSED_WIDTH_PX = 48;
+export const WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX = 640;
+export const WORKSPACE_WINDOW_MIN_WIDTH_DEFAULT_PX =
+  PROJECT_SIDEBAR_WIDTH_MIN_PX +
+  WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX +
+  TODO_RAIL_WIDTH_MIN_PX;
+export const WORKSPACE_WINDOW_MIN_HEIGHT_PX = 760;
 const fallbackUiStoreStorage = new Map<string, string>();
 
 export function clampActivityNoteEditorWidthPx(width: number) {
@@ -28,8 +42,12 @@ interface UiStoreState {
   projectComposer: "conclusion" | "todo" | null;
   projectSidebarCollapsed: boolean;
   todoRailCollapsed: boolean;
+  openProjectIds: number[];
   projectRecentPaths: Record<number, string>;
   activityNoteEditorWidthPx: number;
+  overviewPageWidth: "auto" | "wide" | "full";
+  todoRailWidthPx: number;
+  projectSidebarWidthPx: number;
 }
 
 interface UiStore extends UiStoreState {
@@ -42,12 +60,26 @@ interface UiStore extends UiStoreState {
   setProjectComposer: (value: "conclusion" | "todo" | null) => void;
   setProjectSidebarCollapsed: (collapsed: boolean) => void;
   setTodoRailCollapsed: (collapsed: boolean) => void;
+  setOverviewPageWidth: (width: "auto" | "wide" | "full") => void;
+  setTodoRailWidthPx: (width: number) => void;
+  setProjectSidebarWidthPx: (width: number) => void;
   setActivityNoteEditorWidthPx: (width: number) => void;
   resetActivityNoteEditorWidthPx: () => void;
+  openProjectTab: (projectId: number) => void;
+  closeProjectTab: (projectId: number) => void;
   rememberProjectRoute: (projectId: number, path: string) => void;
   clearProjectRecentPaths: () => void;
   toggleProjectSidebarCollapsed: () => void;
   toggleTodoRailCollapsed: () => void;
+}
+
+function sanitizeProjectRoute(path: string) {
+  const match = path.match(/^\/projects\/(\d+)(?:\/activities\/\d+)?(?:\?.*)?$/);
+  if (!match) {
+    return path;
+  }
+
+  return `/projects/${match[1]}`;
 }
 
 export function createUiStoreState(): UiStoreState {
@@ -55,12 +87,16 @@ export function createUiStoreState(): UiStoreState {
     createProjectOpen: false,
     createActivityOpen: false,
     settingsOpen: false,
-    settingsSection: "activity",
+    settingsSection: "file-tags",
     projectComposer: null,
     projectSidebarCollapsed: false,
     todoRailCollapsed: false,
+    openProjectIds: [],
     projectRecentPaths: {},
     activityNoteEditorWidthPx: ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
+    overviewPageWidth: "auto",
+    todoRailWidthPx: TODO_RAIL_WIDTH_DEFAULT_PX,
+    projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
   };
 }
 
@@ -91,6 +127,9 @@ function createUiStorePersistStorage(): StateStorage {
 
 export const uiStorePersistStorage = createJSONStorage<{
   activityNoteEditorWidthPx: number;
+  overviewPageWidth: "auto" | "wide" | "full";
+  todoRailWidthPx: number;
+  projectSidebarWidthPx: number;
 }>(createUiStorePersistStorage);
 
 export const createUiStore = () =>
@@ -102,11 +141,23 @@ export const createUiStore = () =>
         setCreateActivityOpen: (createActivityOpen) => set({ createActivityOpen }),
         setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
         setSettingsSection: (settingsSection) => set({ settingsSection }),
-        openSettings: (settingsSection = "activity") => set({ settingsOpen: true, settingsSection }),
+        openSettings: (settingsSection = "file-tags") => set({ settingsOpen: true, settingsSection }),
         closeSettings: () => set({ settingsOpen: false }),
         setProjectComposer: (projectComposer) => set({ projectComposer }),
         setProjectSidebarCollapsed: (projectSidebarCollapsed) => set({ projectSidebarCollapsed }),
         setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
+        setOverviewPageWidth: (overviewPageWidth) => set({ overviewPageWidth }),
+        setTodoRailWidthPx: (todoRailWidthPx) =>
+          set({
+            todoRailWidthPx: Math.max(
+              TODO_RAIL_WIDTH_MIN_PX,
+              Math.min(TODO_RAIL_WIDTH_MAX_PX, Math.round(todoRailWidthPx)),
+            ),
+          }),
+        setProjectSidebarWidthPx: (projectSidebarWidthPx) =>
+          set({
+            projectSidebarWidthPx: Math.max(PROJECT_SIDEBAR_WIDTH_MIN_PX, Math.min(PROJECT_SIDEBAR_WIDTH_MAX_PX, Math.round(projectSidebarWidthPx))),
+          }),
         setActivityNoteEditorWidthPx: (width) =>
           set({
             activityNoteEditorWidthPx: clampActivityNoteEditorWidthPx(width),
@@ -115,14 +166,24 @@ export const createUiStore = () =>
           set({
             activityNoteEditorWidthPx: ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
           }),
+        openProjectTab: (projectId) =>
+          set((state) => ({
+            openProjectIds: state.openProjectIds.includes(projectId)
+              ? state.openProjectIds
+              : [...state.openProjectIds, projectId],
+          })),
+        closeProjectTab: (projectId) =>
+          set((state) => ({
+            openProjectIds: state.openProjectIds.filter((id) => id !== projectId),
+          })),
         rememberProjectRoute: (projectId, path) =>
           set((state) => ({
             projectRecentPaths:
-              state.projectRecentPaths[projectId] === path
+              state.projectRecentPaths[projectId] === sanitizeProjectRoute(path)
                 ? state.projectRecentPaths
                 : {
                     ...state.projectRecentPaths,
-                    [projectId]: path,
+                    [projectId]: sanitizeProjectRoute(path),
                   },
           })),
         clearProjectRecentPaths: () => set({ projectRecentPaths: {} }),
@@ -136,6 +197,9 @@ export const createUiStore = () =>
         storage: uiStorePersistStorage,
         partialize: (state) => ({
           activityNoteEditorWidthPx: state.activityNoteEditorWidthPx,
+          overviewPageWidth: state.overviewPageWidth,
+          todoRailWidthPx: state.todoRailWidthPx,
+          projectSidebarWidthPx: state.projectSidebarWidthPx,
         }),
       },
     ),

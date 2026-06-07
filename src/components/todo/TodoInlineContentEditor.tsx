@@ -6,6 +6,7 @@ import {
   findInternalReferenceTextTrigger,
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
+import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
   InternalReferenceContext,
   InternalReferenceSearchResult,
@@ -24,12 +25,14 @@ export function TodoInlineContentEditor({
   onSave,
   internalReferenceContext,
   onOpenInternalReference,
+  onOpenContactMention,
 }: {
   value: string;
   editable: boolean;
   onSave: (content: string) => Promise<unknown> | void;
   internalReferenceContext?: InternalReferenceContext | null;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+  onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
@@ -260,6 +263,7 @@ export function TodoInlineContentEditor({
         value={value}
         variant="todo-inline"
         onOpenInternalReference={onOpenInternalReference}
+        onOpenContactMention={onOpenContactMention}
       />
     </div>
   );

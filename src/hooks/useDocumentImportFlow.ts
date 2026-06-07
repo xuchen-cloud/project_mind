@@ -9,13 +9,11 @@ import { refreshAll } from "./shared";
 
 interface UseDocumentImportFlowOptions {
   projectId: number | null;
-  activityId?: number | null;
   onDocumentsImported?: (documents: DocumentRecord[]) => void;
 }
 
 export function useDocumentImportFlow({
   projectId,
-  activityId = null,
   onDocumentsImported,
 }: UseDocumentImportFlowOptions) {
   const queryClient = useQueryClient();
@@ -41,14 +39,12 @@ export function useDocumentImportFlow({
       }
 
       try {
-        const defaultIsStarred = activityId !== null;
         const documents = await Promise.all(
           paths.map((sourcePath) =>
             projectMindApi.documentImport({
               projectId,
-              ...(activityId !== null ? { activityId } : {}),
               sourcePath,
-              isStarred: defaultIsStarred,
+              isStarred: false,
               ...(tagIds.length > 0 ? { tagIds } : {}),
             }),
           ),
@@ -76,7 +72,7 @@ export function useDocumentImportFlow({
         return [];
       }
     },
-    [activityId, onDocumentsImported, projectId, pushToast, queryClient, setStatus],
+    [onDocumentsImported, projectId, pushToast, queryClient, setStatus],
   );
 
   const requestImportPaths = useCallback(

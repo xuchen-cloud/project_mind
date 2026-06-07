@@ -21,32 +21,31 @@ use models::{
     AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
     ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityOptionDeleteInput,
     ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
-    ActivityUpdateMetaInput,
-    AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult, AiArtifactGetInput,
-    AiArtifactRecord, AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
-    AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
+    ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult,
+    AiArtifactGetInput, AiArtifactRecord, AiCapabilityBindingRecord,
+    AiCapabilityBindingUpsertInput, AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
     AiEditorRewriteActionUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
     AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput,
-    ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, DocumentAddVersionInput,
-    DocumentDeleteInput, DocumentImportClipboardImageInput,
-    DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
-    DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
-    DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
-    FileTagSettingsSnapshot, InternalReferenceResolveInput, InternalReferenceResolveResult,
-    InternalReferenceSearchInput, InternalReferenceSearchResult, NoteDeleteInput, NoteRecord,
-    NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
-    ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
-    ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
-    RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextStyleSettings,
-    RichTextStyleUpsertInput, TodayQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput,
-    TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
-    TodoUpdateActivityInput, TodoUpdateContentInput, TodoUpdatePriorityInput,
-    TodoUpdateProgressInput, TodoUpdateStatusInput, WorkspaceCreateInput,
-    WorkspaceNoteDeleteInput, WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput,
-    WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
-    WorkspaceUnlockInput,
+    ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
+    ContactRecord, ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput,
+    DocumentDeleteInput, DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
+    DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput, DocumentRecord,
+    DocumentRelocateInput, DocumentUpdateMetaInput, DocumentVersionRecord,
+    FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot,
+    InternalReferenceResolveInput, InternalReferenceResolveResult, InternalReferenceSearchInput,
+    InternalReferenceSearchResult, NoteDeleteInput, NoteRecord, NoteUpsertInput,
+    ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
+    ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
+    RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput, RecordTypeRecord,
+    RecordTypeSettingsSnapshot, RichTextStyleSettings, RichTextStyleUpsertInput,
+    TodayQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateActivityInput,
+    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
+    TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceCreateInput, WorkspaceNoteDeleteInput,
+    WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
+    WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
@@ -609,6 +608,35 @@ fn record_type_option_delete(
 }
 
 #[tauri::command]
+fn contact_list(state: State<'_, AppState>) -> CommandResult<Vec<ContactRecord>> {
+    with_db(state, |db| db.contact_list())
+}
+
+#[tauri::command]
+fn contact_search(
+    state: State<'_, AppState>,
+    input: ContactSearchInput,
+) -> CommandResult<Vec<ContactRecord>> {
+    with_db(state, |db| db.contact_search(input))
+}
+
+#[tauri::command]
+fn contact_upsert(
+    state: State<'_, AppState>,
+    input: ContactUpsertInput,
+) -> CommandResult<ContactRecord> {
+    with_db(state, |db| db.contact_upsert(input))
+}
+
+#[tauri::command]
+fn contact_delete(
+    state: State<'_, AppState>,
+    input: ContactDeleteInput,
+) -> CommandResult<ContactRecord> {
+    with_db(state, |db| db.contact_delete(input))
+}
+
+#[tauri::command]
 fn note_upsert(state: State<'_, AppState>, input: NoteUpsertInput) -> CommandResult<NoteRecord> {
     with_db(state, |db| db.note_upsert(input))
 }
@@ -688,6 +716,14 @@ fn todo_update_content(
 }
 
 #[tauri::command]
+fn todo_update_tags(
+    state: State<'_, AppState>,
+    input: TodoUpdateTagsInput,
+) -> CommandResult<TodoRecord> {
+    with_db(state, |db| db.todo_update_tags(input))
+}
+
+#[tauri::command]
 fn todo_add_progress(
     state: State<'_, AppState>,
     input: TodoAddProgressInput,
@@ -735,9 +771,7 @@ fn workspace_note_list(state: State<'_, AppState>) -> CommandResult<Vec<Workspac
 }
 
 #[tauri::command]
-fn today_quick_note_get(
-    state: State<'_, AppState>,
-) -> CommandResult<Option<WorkspaceNoteRecord>> {
+fn today_quick_note_get(state: State<'_, AppState>) -> CommandResult<Option<WorkspaceNoteRecord>> {
     with_db(state, |db| db.today_quick_note_get())
 }
 
@@ -1070,6 +1104,10 @@ pub fn run() {
             record_type_settings_get,
             record_type_option_upsert,
             record_type_option_delete,
+            contact_list,
+            contact_search,
+            contact_upsert,
+            contact_delete,
             note_upsert,
             note_delete,
             conclusion_create,
@@ -1081,6 +1119,7 @@ pub fn run() {
             todo_update_status,
             todo_update_priority,
             todo_update_content,
+            todo_update_tags,
             todo_add_progress,
             todo_update_progress,
             todo_delete_progress,

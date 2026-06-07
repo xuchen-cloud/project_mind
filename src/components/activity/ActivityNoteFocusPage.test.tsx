@@ -323,6 +323,7 @@ function buildProject(): ProjectListItem {
   return {
     id: 9,
     name: "Project Atlas",
+    kind: "normal",
     status: "active",
     rootPath: "/tmp/project-atlas",
     summary: "",

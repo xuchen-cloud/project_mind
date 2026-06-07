@@ -45,10 +45,18 @@ import {
   TextSelect,
   Trash2,
   WandSparkles,
+  type LucideIcon,
 } from "lucide-react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import { isAiCapabilityConfigured, isAiCapabilityVisible } from "../../lib/ai";
+import {
+  buildContactMentionTarget,
+  findContactMentionElement,
+  findContactMentionTextTrigger,
+  readContactMentionElement,
+  setContactMentionElementBroken,
+} from "../../lib/contactMentions";
 import {
   aiEditorRewriteJobTargetKey,
   editorRewriteJobInput,
@@ -65,10 +73,11 @@ import {
   setInternalReferenceElementBroken,
 } from "../../lib/internalReferences";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
-import { richTextHtmlToPlainText } from "../../lib/richTextContent";
+import { renderMarkdownToHtml, richTextHtmlToPlainText } from "../../lib/richTextContent";
 import type {
   AiEditorRewriteContext,
   AiSettingsSnapshot,
+  ContactRecord,
   InternalReferenceSearchResult,
 } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
@@ -80,6 +89,10 @@ import {
   PopoverPanel,
   ToolbarButton,
 } from "../../ui/components";
+import {
+  ContactMentionPicker,
+  useContactMentionSearch,
+} from "../contact";
 import {
   InternalReferencePicker,
   useInternalReferenceSearch,
@@ -100,6 +113,7 @@ import { normalizeRichEditorValue } from "./normalize";
 import type {
   RichEditorAsset,
   RichEditorAssetHandlers,
+  RichEditorContactMentionOptions,
   RichEditorInternalReferenceOptions,
   RichEditorPersistState,
   RichEditorValue,
@@ -249,13 +263,29 @@ interface RichEditorProps {
   onModEnter?: () => Promise<unknown> | unknown;
   onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
   internalReferences?: RichEditorInternalReferenceOptions;
+  contactMentions?: RichEditorContactMentionOptions;
   aiSettings?: AiSettingsSnapshot;
   aiRewriteContext?: AiEditorRewriteContext;
   onOpenAiSettings?: () => void;
+  selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
     persistState: RichEditorPersistState;
     save: (options?: { force?: boolean }) => Promise<unknown>;
   }) => ReactNode;
+}
+
+export interface RichEditorSelectionPayload {
+  text: string;
+  markdown: string;
+  html: string;
+}
+
+export interface RichEditorSelectionAction {
+  key: string;
+  label: string;
+  icon?: LucideIcon;
+  disabled?: boolean;
+  onSelect: (payload: RichEditorSelectionPayload) => Promise<unknown> | unknown;
 }
 
 export function RichEditor({
@@ -276,9 +306,11 @@ export function RichEditor({
   onModEnter,
   onOpenAsset,
   internalReferences,
+  contactMentions,
   aiSettings,
   aiRewriteContext,
   onOpenAiSettings,
+  selectionActions,
   renderToolbarExtras,
 }: RichEditorProps) {
   const { pushToast } = useFeedbackStore();
@@ -297,6 +329,13 @@ export function RichEditor({
     position: { left: number; top: number };
   }>(null);
   const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
+  const [mentionPicker, setMentionPicker] = useState<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
   const autosaveConfig = useMemo<AutosaveConfig>(() => {
     if (typeof autosave === "object") {
@@ -339,6 +378,14 @@ export function RichEditor({
   }>(null);
   const referenceActiveIndexRef = useRef(0);
   const referenceResultsRef = useRef<InternalReferenceSearchResult[]>([]);
+  const mentionPickerRef = useRef<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const mentionActiveIndexRef = useRef(0);
+  const mentionResultsRef = useRef<ContactRecord[]>([]);
   const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
@@ -443,9 +490,26 @@ export function RichEditor({
     limit: 8,
   });
 
+  const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
+    open: Boolean(mentionPicker),
+    query: mentionPicker?.query ?? "",
+    limit: 8,
+  });
+
   referencePickerRef.current = referencePicker;
   referenceActiveIndexRef.current = referenceActiveIndex;
   referenceResultsRef.current = referenceResults;
+  mentionPickerRef.current = mentionPicker;
+  mentionActiveIndexRef.current = mentionActiveIndex;
+  mentionResultsRef.current = mentionResults;
+
+  const mentionsEnabled = Boolean(contactMentions);
+  const mentionCreatable =
+    mentionsEnabled &&
+    Boolean(contactMentions?.onCreateContact) &&
+    (mentionPicker?.query.trim().length ?? 0) > 0;
+  // The create row, when present, sits just past the search hits.
+  const mentionOptionCount = mentionResults.length + (mentionCreatable ? 1 : 0);
 
   const closeInternalReferencePicker = useCallback(() => {
     setReferencePicker(null);
@@ -512,6 +576,130 @@ export function RichEditor({
     [closeInternalReferencePicker],
   );
 
+  const closeContactMentionPicker = useCallback(() => {
+    setMentionPicker(null);
+    setMentionActiveIndex(0);
+  }, []);
+
+  const syncContactMentionPicker = useCallback(
+    (nextEditor: Editor | null) => {
+      if (!nextEditor || effectiveReadOnly || !contactMentions) {
+        closeContactMentionPicker();
+        return;
+      }
+
+      const nextTrigger = resolveEditorContactMentionTrigger(nextEditor, frameRef.current);
+
+      setMentionPicker((current) => {
+        if (!nextTrigger) {
+          return null;
+        }
+
+        if (
+          current &&
+          current.start === nextTrigger.start &&
+          current.end === nextTrigger.end &&
+          current.query === nextTrigger.query &&
+          current.position.left === nextTrigger.position.left &&
+          current.position.top === nextTrigger.position.top
+        ) {
+          return current;
+        }
+
+        return nextTrigger;
+      });
+    },
+    [closeContactMentionPicker, effectiveReadOnly, contactMentions],
+  );
+
+  const insertContactMentionNode = useCallback(
+    (
+      view: EditorView,
+      trigger: { start: number; end: number },
+      mention: { contactId: number; label: string },
+    ) => {
+      const nodeType = view.state.schema.nodes.contactMention;
+
+      if (!nodeType) {
+        return false;
+      }
+
+      const mentionNode = nodeType.create({
+        contactId: mention.contactId,
+        label: mention.label,
+      });
+      const tr = view.state.tr.delete(trigger.start, trigger.end);
+
+      tr.insert(trigger.start, mentionNode);
+
+      const nextSelectionPos = trigger.start + mentionNode.nodeSize;
+      tr.insertText(" ", nextSelectionPos);
+      tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
+      view.dispatch(tr.scrollIntoView());
+      closeContactMentionPicker();
+      return true;
+    },
+    [closeContactMentionPicker],
+  );
+
+  const handleSelectContactMention = useCallback(
+    (view: EditorView, contact: ContactRecord) => {
+      const trigger = mentionPickerRef.current;
+
+      if (!trigger) {
+        return false;
+      }
+
+      const target = buildContactMentionTarget(contact);
+      return insertContactMentionNode(view, trigger, target);
+    },
+    [insertContactMentionNode],
+  );
+
+  const handleCreateContactMention = useCallback(
+    (view: EditorView, name: string) => {
+      const trigger = mentionPickerRef.current;
+      const createContact = contactMentions?.onCreateContact;
+
+      if (!trigger || !createContact || !name.trim()) {
+        return false;
+      }
+
+      void Promise.resolve(createContact(name.trim())).then((target) => {
+        if (target) {
+          insertContactMentionNode(view, trigger, buildContactMentionTarget(target));
+        }
+      });
+      // Optimistically close so the editor regains a clean state while the
+      // contact is being created.
+      closeContactMentionPicker();
+      return true;
+    },
+    [closeContactMentionPicker, contactMentions?.onCreateContact, insertContactMentionNode],
+  );
+
+  useEffect(() => {
+    if (!mentionPicker) {
+      return;
+    }
+
+    setMentionActiveIndex((current) => {
+      if (mentionOptionCount === 0) {
+        return 0;
+      }
+
+      return Math.min(current, mentionOptionCount - 1);
+    });
+  }, [mentionOptionCount, mentionPicker]);
+
+  useEffect(() => {
+    if (!mentionPicker) {
+      return;
+    }
+
+    setMentionActiveIndex(0);
+  }, [mentionPicker?.query]);
+
   useEffect(() => {
     if (!referencePicker) {
       return;
@@ -575,6 +763,14 @@ export function RichEditor({
         }
 
         const rawHtml = event.clipboardData?.getData("text/html") ?? "";
+        const rawText = event.clipboardData?.getData("text/plain") ?? "";
+
+        if (!rawHtml && shouldHandlePastedMarkdown(rawText)) {
+          event.preventDefault();
+          syntheticPasteRef.current = true;
+          view.pasteHTML(renderMarkdownToHtml(rawText), createSyntheticPasteEvent());
+          return true;
+        }
 
         if (!shouldHandlePastedHtml(rawHtml, { allowTables: enableTables })) {
           return false;
@@ -646,6 +842,53 @@ export function RichEditor({
           }
         }
 
+        const activeMentionPicker = mentionPickerRef.current;
+
+        if (!effectiveReadOnly && activeMentionPicker) {
+          const mentionCount = mentionResultsRef.current.length;
+          const createName = activeMentionPicker.query.trim();
+          const hasCreateRow =
+            Boolean(contactMentions?.onCreateContact) && createName.length > 0;
+          const optionCount = mentionCount + (hasCreateRow ? 1 : 0);
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeContactMentionPicker();
+            return true;
+          }
+
+          if (event.key === "ArrowDown" && optionCount > 0) {
+            event.preventDefault();
+            setMentionActiveIndex((current) => (current + 1) % optionCount);
+            return true;
+          }
+
+          if (event.key === "ArrowUp" && optionCount > 0) {
+            event.preventDefault();
+            setMentionActiveIndex((current) =>
+              current === 0 ? optionCount - 1 : current - 1,
+            );
+            return true;
+          }
+
+          if (event.key === "Enter" && optionCount > 0) {
+            event.preventDefault();
+            const activeIndex = Math.max(
+              0,
+              Math.min(mentionActiveIndexRef.current, optionCount - 1),
+            );
+
+            if (hasCreateRow && activeIndex === mentionCount) {
+              return handleCreateContactMention(_view, createName);
+            }
+
+            return handleSelectContactMention(
+              _view,
+              mentionResultsRef.current[activeIndex],
+            );
+          }
+        }
+
         if (
           onModEnter &&
           !effectiveReadOnly &&
@@ -660,6 +903,24 @@ export function RichEditor({
           return true;
         }
 
+        if (
+          !effectiveReadOnly &&
+          event.key === "Tab" &&
+          !event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey
+        ) {
+          const chain = editor?.chain().focus();
+          const handled = event.shiftKey
+            ? Boolean(chain?.liftListItem("taskItem").run() || chain?.liftListItem("listItem").run())
+            : Boolean(chain?.sinkListItem("taskItem").run() || chain?.sinkListItem("listItem").run());
+
+          if (handled) {
+            event.preventDefault();
+            return true;
+          }
+        }
+
         return false;
       },
     },
@@ -671,16 +932,19 @@ export function RichEditor({
       setUiTick((tick) => tick + 1);
       rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
+      syncContactMentionPicker(nextEditor);
     },
     onBlur: () => {
       setIsFocused(false);
       setUiTick((tick) => tick + 1);
       closeInternalReferencePicker();
+      closeContactMentionPicker();
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
       setUiTick((tick) => tick + 1);
       rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
+      syncContactMentionPicker(nextEditor);
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (taskShortcutTransformRef.current) {
@@ -695,6 +959,7 @@ export function RichEditor({
       onChange?.(snapshot);
       setUiTick((tick) => tick + 1);
       syncInternalReferencePicker(nextEditor);
+      syncContactMentionPicker(nextEditor);
 
       if (snapshot.html !== lastPersistedHtmlRef.current) {
         updatePersistState("dirty");
@@ -882,7 +1147,8 @@ export function RichEditor({
 
   useEffect(() => {
     syncInternalReferencePicker(editor ?? null);
-  }, [editor, syncInternalReferencePicker]);
+    syncContactMentionPicker(editor ?? null);
+  }, [editor, syncInternalReferencePicker, syncContactMentionPicker]);
 
   useEffect(() => {
     if (!editor) {
@@ -890,8 +1156,9 @@ export function RichEditor({
     }
 
     const editorDom = editor.view.dom;
-    const handleFocusRequest = () => {
-      editor.commands.focus("end");
+    const handleFocusRequest = (event: Event) => {
+      const customEvent = event as CustomEvent<{ position?: "start" | "end" }>;
+      editor.commands.focus(customEvent.detail?.position ?? "end");
     };
 
     editorDom.addEventListener(
@@ -994,11 +1261,21 @@ export function RichEditor({
       persistForLifecycleChange("visibility-hidden");
     };
 
+    // `pagehide` is the most reliable "the page is going away" signal — it
+    // fires on app/window close and webview teardown when `blur` /
+    // `visibilitychange` may not. Treat it like a visibility-hidden flush so
+    // unsaved edits survive lock / sleep / quit.
+    const handlePageHide = () => {
+      persistForLifecycleChange("visibility-hidden");
+    };
+
     window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [
@@ -1174,6 +1451,23 @@ export function RichEditor({
         return;
       }
 
+      const contactMentionElement = findContactMentionElement(event.target);
+
+      if (contactMentionElement) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const mention = readContactMentionElement(contactMentionElement);
+
+        if (mention && contactMentions?.onOpenContact) {
+          void Promise.resolve(contactMentions.onOpenContact(mention)).then((opened) => {
+            setContactMentionElementBroken(contactMentionElement, !opened);
+          });
+        }
+
+        return;
+      }
+
       if (!onOpenAsset) {
         return;
       }
@@ -1211,7 +1505,11 @@ export function RichEditor({
         // The caller owns error presentation.
       });
     },
-    [internalReferences?.onOpenReference, onOpenAsset],
+    [
+      internalReferences?.onOpenReference,
+      contactMentions?.onOpenContact,
+      onOpenAsset,
+    ],
   );
 
   const openImageAnnotationDialog = useCallback(
@@ -1526,6 +1824,28 @@ export function RichEditor({
       const proseMirrorTarget = target?.closest(".ProseMirror");
       if (proseMirrorTarget) {
         event.preventDefault();
+        const selectionPayload =
+          hasTextSelection && selectionActions && selectionActions.length > 0
+            ? buildRichEditorSelectionPayload(editor)
+            : null;
+
+        if (selectionPayload && selectionActions && selectionActions.length > 0) {
+          setAiMenu(null);
+          setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            ariaLabel: "选区操作",
+            actions: buildSelectionContextMenuActions({
+              editor,
+              readOnly: effectiveReadOnly,
+              selectionActions,
+              selectionPayload,
+            }),
+            autoFocus: false,
+          });
+          return;
+        }
+
         if (hasTextSelection && editorRewriteVisible && !effectiveReadOnly) {
           setContextMenu(null);
           setAiMenu({
@@ -1540,7 +1860,7 @@ export function RichEditor({
           x: event.clientX,
           y: event.clientY,
           ariaLabel: "文本操作",
-          actions: buildTextContextMenuActions(editor, effectiveReadOnly),
+          actions: buildTextContextMenuActions(editor, effectiveReadOnly, enableTables ? insertTable : undefined),
           autoFocus: false,
         });
         return;
@@ -1558,6 +1878,7 @@ export function RichEditor({
       onOpenAiSettings,
       openImageAnnotationDialog,
       runEditorRewriteAction,
+      selectionActions,
     ],
   );
 
@@ -2006,6 +2327,7 @@ export function RichEditor({
         </div>
       ) : null}
 
+      {/* Table toolbar - only shows when table is active, positioned above editor */}
       {tableToolbarGroups.length > 0 ? (
         <div
           className={[
@@ -2041,7 +2363,8 @@ export function RichEditor({
         </div>
       ) : null}
 
-      {variant === "bare" && enableTables && !effectiveReadOnly && isFocused ? (
+      {/* Remove table insert button from bare variant - now in context menu */}
+      {false && variant === "bare" && enableTables && !effectiveReadOnly && isFocused ? (
         <div className="rich-editor__bare-actions">
           <TableInsertButton compact onInsert={insertTable} />
         </div>
@@ -2057,6 +2380,7 @@ export function RichEditor({
         onContextMenu={handleEditorContextMenu}
       >
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
+
         {referencePicker && internalReferences?.context && !effectiveReadOnly ? (
           <InternalReferencePicker
             open
@@ -2071,6 +2395,28 @@ export function RichEditor({
             onHoverIndex={setReferenceActiveIndex}
             onSelect={(reference) => {
               void handleSelectInternalReference(editor.view, reference);
+            }}
+          />
+        ) : null}
+        {mentionPicker && contactMentions && !effectiveReadOnly ? (
+          <ContactMentionPicker
+            open
+            loading={mentionLoading}
+            results={mentionResults}
+            activeIndex={mentionActiveIndex}
+            query={mentionPicker.query}
+            canCreate={mentionCreatable}
+            className="absolute z-20"
+            style={{
+              left: `${mentionPicker.position.left}px`,
+              top: `${mentionPicker.position.top}px`,
+            }}
+            onHoverIndex={setMentionActiveIndex}
+            onSelect={(contact) => {
+              void handleSelectContactMention(editor.view, contact);
+            }}
+            onCreate={(name) => {
+              void handleCreateContactMention(editor.view, name);
             }}
           />
         ) : null}
@@ -2323,6 +2669,45 @@ function resolveEditorInternalReferenceTrigger(
   }
 
   const absoluteStart = selection.from - trigger.query.length - 2;
+  const frameRect = frameElement.getBoundingClientRect();
+  const caretRect = editor.view.coordsAtPos(selection.from);
+
+  return {
+    start: absoluteStart,
+    end: selection.from,
+    query: trigger.query,
+    position: {
+      left: Math.max(8, caretRect.left - frameRect.left),
+      top: Math.max(8, caretRect.bottom - frameRect.top + 8),
+    },
+  };
+}
+
+function resolveEditorContactMentionTrigger(
+  editor: Editor,
+  frameElement: HTMLDivElement | null,
+) {
+  if (!frameElement || !editor.isEditable) {
+    return null;
+  }
+
+  const { selection } = editor.state;
+
+  if (!(selection instanceof TextSelection) || !selection.empty || editor.isActive("codeBlock")) {
+    return null;
+  }
+
+  const trigger = findContactMentionTextTrigger(
+    editor.state.doc.textBetween(selection.$from.start(), selection.from, "\n", "\0"),
+    selection.$from.parentOffset,
+  );
+
+  if (!trigger) {
+    return null;
+  }
+
+  // The `@` trigger token is a single character.
+  const absoluteStart = selection.from - trigger.query.length - 1;
   const frameRect = frameElement.getBoundingClientRect();
   const caretRect = editor.view.coordsAtPos(selection.from);
 
@@ -2590,9 +2975,52 @@ function buildTableContextMenuActions(groups: ToolbarItem[][]) {
   });
 }
 
+function buildRichEditorSelectionPayload(editor: Editor): RichEditorSelectionPayload | null {
+  const selection = buildEditorRewriteSelection(editor);
+
+  if (!selection || !selection.expandedMarkdown.trim()) {
+    return null;
+  }
+
+  return {
+    text: selection.selectedText.trim(),
+    markdown: selection.expandedMarkdown.trim(),
+    html: renderMarkdownToHtml(selection.expandedMarkdown),
+  };
+}
+
+function buildSelectionContextMenuActions({
+  editor,
+  readOnly,
+  selectionActions,
+  selectionPayload,
+}: {
+  editor: Editor;
+  readOnly: boolean;
+  selectionActions: RichEditorSelectionAction[];
+  selectionPayload: RichEditorSelectionPayload;
+}) {
+  const customActions: ContextMenuAction[] = selectionActions.map((action) => ({
+    key: action.key,
+    label: action.label,
+    icon: action.icon,
+    disabled: action.disabled,
+    onSelect: () => {
+      void Promise.resolve(action.onSelect(selectionPayload));
+    },
+  }));
+
+  return [
+    ...customActions,
+    { type: "separator", key: "selection-actions-separator" } satisfies ContextMenuAction,
+    ...buildTextContextMenuActions(editor, readOnly),
+  ];
+}
+
 function buildTextContextMenuActions(
   editor: Editor,
   readOnly: boolean,
+  insertTable?: (rows?: number, cols?: number) => void,
 ) {
   const canRun = (callback: (chain: any) => { run: () => boolean }) =>
     !readOnly && editor.isEditable && callback(editor.can().chain().focus()).run();
@@ -2740,6 +3168,17 @@ function buildTextContextMenuActions(
       disabled: blockActions.every((action) => action.type !== "separator" && action.disabled),
     },
   ];
+
+  // Add insert table option if insertTable is provided
+  if (insertTable && !readOnly) {
+    groupedActions.push({
+      key: "insert-table",
+      label: "插入表格",
+      icon: Table2,
+      disabled: false,
+      onSelect: () => insertTable(),
+    });
+  }
 
   groupedActions.push({
     type: "submenu",
@@ -3570,6 +4009,23 @@ function shouldHandlePastedHtml(rawHtml: string, options: { allowTables: boolean
   }
 
   return options.allowTables && normalized.includes("<table");
+}
+
+function shouldHandlePastedMarkdown(rawText: string) {
+  const normalized = rawText.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /(^|\n)\s{0,3}#{1,6}\s+\S/u.test(normalized) ||
+    /(^|\n)\s*[-*+]\s+\S/u.test(normalized) ||
+    /(^|\n)\s*\d+\.\s+\S/u.test(normalized) ||
+    /(^|\n)>\s+\S/u.test(normalized) ||
+    /(^|\n)\|.+\|\s*\n\|[\s:|-]+\|/u.test(normalized) ||
+    /```[\s\S]*```/u.test(normalized)
+  );
 }
 
 async function buildPastedHtml(

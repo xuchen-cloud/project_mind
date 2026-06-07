@@ -23,7 +23,7 @@ import {
   Upload,
 } from "lucide-react";
 
-import { fileTagColorValue, resolveActivityTitle } from "../../lib/constants";
+import { fileTagColorValue } from "../../lib/constants";
 import type {
   DocumentRecord,
   DocumentTagRecord,
@@ -56,7 +56,6 @@ interface ManagedDocumentSectionProps {
   documents: DocumentRecord[];
   layout?: LayoutMode;
   chrome?: "card" | "embedded";
-  activityId?: number | null;
   importButtonLabel?: string;
   showImportButton?: boolean;
   emptyText?: string;
@@ -82,7 +81,6 @@ export function ManagedDocumentSection({
   documents,
   layout = "grid",
   chrome = "card",
-  activityId = null,
   importButtonLabel = "导入文件",
   showImportButton = true,
   emptyText = "还没有关联文件。",
@@ -118,7 +116,6 @@ export function ManagedDocumentSection({
     manageImportTags,
   } = useDocumentImportFlow({
     projectId,
-    activityId,
   });
   const fileTagLookup = useMemo(
     () =>
@@ -890,9 +887,7 @@ export function ManagedDocumentSection({
 }
 
 function buildDocumentLocationLabel(document: DocumentRecord) {
-  return document.activityId
-    ? resolveActivityTitle(document.sourceActivityTitle, document.activityId)
-    : "项目根目录";
+  return "项目根目录";
 }
 
 function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {

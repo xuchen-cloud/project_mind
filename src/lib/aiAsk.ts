@@ -7,8 +7,6 @@ export interface AskScopeContext {
 
 export function askScopeLabel(scope: AiAnswerScope) {
   switch (scope) {
-    case "activity":
-      return "当前活动";
     case "project":
       return "当前项目";
     case "workspace":
@@ -20,15 +18,7 @@ export function askScopeLabel(scope: AiAnswerScope) {
 export function deriveAskScopeContext(
   pathname: string,
   projectId: number | null,
-  activityId: number | null,
 ): AskScopeContext {
-  if (activityId !== null && projectId !== null) {
-    return {
-      defaultScope: "activity",
-      allowedScopes: ["activity", "project", "workspace"],
-    };
-  }
-
   if (projectId !== null && pathname.startsWith("/projects/")) {
     return {
       defaultScope: "project",

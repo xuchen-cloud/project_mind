@@ -1,3 +1,4 @@
+import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { InternalReferenceContext } from "../../lib/types";
 
@@ -31,4 +32,13 @@ export interface RichEditorAssetHandlers {
 export interface RichEditorInternalReferenceOptions {
   context: InternalReferenceContext;
   onOpenReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+}
+
+export interface RichEditorContactMentionOptions {
+  /**
+   * Resolve a contact id created in-place from a typed name. Returning the new
+   * contact id lets the editor insert the mention chip immediately.
+   */
+  onCreateContact?: (name: string) => Promise<ContactMentionTarget | null>;
+  onOpenContact?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
@@ -1199,25 +1200,27 @@ function renderPanel({
   onOpenNoteFocus?: (target: { kind: "saved"; noteId: number } | { kind: "draft"; localId: string }) => void;
 }) {
   return render(
-    <ActivityNotesPanel
-      projectId={projectId}
-      activityId={activityId}
-      notes={notes}
-      fullPageActive={fullPageActive}
-      onFullPageChange={onFullPageChange}
-      recordTypeSettings={recordTypeSettings}
-      saving={false}
-      onUpsertNote={onUpsertNote}
-      onDeleteNote={onDeleteNote}
-      onImportImage={vi.fn()}
-      onImportDocument={vi.fn()}
-      showAiRefine={showAiRefine}
-      aiReady={aiReady}
-      enabledSuggestionTypes={enabledSuggestionTypes}
-      onGenerateAiSuggestions={onGenerateAiSuggestions}
-      onAcceptAiSuggestion={onAcceptAiSuggestion}
-      onOpenNoteFocus={onOpenNoteFocus}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <ActivityNotesPanel
+        projectId={projectId}
+        activityId={activityId}
+        notes={notes}
+        fullPageActive={fullPageActive}
+        onFullPageChange={onFullPageChange}
+        recordTypeSettings={recordTypeSettings}
+        saving={false}
+        onUpsertNote={onUpsertNote}
+        onDeleteNote={onDeleteNote}
+        onImportImage={vi.fn()}
+        onImportDocument={vi.fn()}
+        showAiRefine={showAiRefine}
+        aiReady={aiReady}
+        enabledSuggestionTypes={enabledSuggestionTypes}
+        onGenerateAiSuggestions={onGenerateAiSuggestions}
+        onAcceptAiSuggestion={onAcceptAiSuggestion}
+        onOpenNoteFocus={onOpenNoteFocus}
+      />
+    </QueryClientProvider>,
   );
 }
 

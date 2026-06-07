@@ -1,16 +1,6 @@
 import { desktopApi } from "./desktopApi";
 import type {
   AcceptedSuggestionResult,
-  ActivityAttributeOption,
-  ActivityAttributeOptionUpsertInput,
-  ActivityCardData,
-  ActivityCreateInput,
-  ActivityDeleteInput,
-  ActivityOptionDeleteInput,
-  ActivitySettingsSnapshot,
-  ActivityStatusOption,
-  ActivityStatusOptionUpsertInput,
-  ActivityUpdateMetaInput,
   AiAcceptSuggestionInput,
   AiAnswerQuestionInput,
   AiAnswerResult,
@@ -39,6 +29,10 @@ import type {
   ConclusionListInput,
   ConclusionRecord,
   ConclusionUpdateInput,
+  ContactDeleteInput,
+  ContactRecord,
+  ContactSearchInput,
+  ContactUpsertInput,
   DocumentAddVersionInput,
   DocumentDeleteInput,
   DocumentImportClipboardImageInput,
@@ -82,11 +76,11 @@ import type {
   TodoDeleteProgressInput,
   TodoProgressRecord,
   TodoRecord,
-  TodoUpdateActivityInput,
   TodoUpdateContentInput,
   TodoUpdateProgressInput,
   TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
+  TodoUpdateTagsInput,
   TodayQuickNoteUpsertInput,
   WorkspaceNoteDeleteInput,
   WorkspaceNoteRecord,
@@ -122,35 +116,6 @@ export const projectMindApi = {
     desktopApi.command<ProjectRecord>("project_update_summary", { input }),
   projectSetArchive: (input: ProjectArchiveInput) =>
     desktopApi.command<ProjectRecord>("project_set_archive", { input }),
-  activityCreate: (input: ActivityCreateInput) =>
-    desktopApi.command<ActivityCardData>("activity_create", { input }),
-  activityList: (input: ProjectIdInput) =>
-    desktopApi.command<ActivityCardData[]>("activity_list", { input }),
-  activityUpdateMeta: (input: ActivityUpdateMetaInput) =>
-    desktopApi.command<ActivityCardData>("activity_update_meta", { input }),
-  activityDelete: (input: ActivityDeleteInput) =>
-    desktopApi.command<ActivityCardData>("activity_delete", { input }),
-  activitySettingsGet: () =>
-    desktopApi.command<ActivitySettingsSnapshot>("activity_settings_get"),
-  activityAttributeOptionUpsert: (input: ActivityAttributeOptionUpsertInput) =>
-    desktopApi.command<ActivityAttributeOption>(
-      "activity_attribute_option_upsert",
-      { input },
-    ),
-  activityAttributeOptionDelete: (input: ActivityOptionDeleteInput) =>
-    desktopApi.command<ActivitySettingsSnapshot>(
-      "activity_attribute_option_delete",
-      { input },
-    ),
-  activityStatusOptionUpsert: (input: ActivityStatusOptionUpsertInput) =>
-    desktopApi.command<ActivityStatusOption>("activity_status_option_upsert", {
-      input,
-    }),
-  activityStatusOptionDelete: (input: ActivityOptionDeleteInput) =>
-    desktopApi.command<ActivitySettingsSnapshot>(
-      "activity_status_option_delete",
-      { input },
-    ),
   fileTagSettingsGet: () =>
     desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get"),
   fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>
@@ -170,6 +135,13 @@ export const projectMindApi = {
       "record_type_option_delete",
       { input },
     ),
+  contactList: () => desktopApi.command<ContactRecord[]>("contact_list"),
+  contactSearch: (input: ContactSearchInput) =>
+    desktopApi.command<ContactRecord[]>("contact_search", { input }),
+  contactUpsert: (input: ContactUpsertInput) =>
+    desktopApi.command<ContactRecord>("contact_upsert", { input }),
+  contactDelete: (input: ContactDeleteInput) =>
+    desktopApi.command<ContactRecord>("contact_delete", { input }),
   noteUpsert: (input: NoteUpsertInput) =>
     desktopApi.command<NoteRecord>("note_upsert", { input }),
   noteDelete: (input: NoteDeleteInput) =>
@@ -184,10 +156,10 @@ export const projectMindApi = {
     desktopApi.command<ConclusionRecord>("conclusion_delete", { input }),
   todoCreate: (input: TodoCreateInput) =>
     desktopApi.command<TodoRecord>("todo_create", { input }),
-  todoUpdateActivity: (input: TodoUpdateActivityInput) =>
-    desktopApi.command<TodoRecord>("todo_update_activity", { input }),
   todoUpdateContent: (input: TodoUpdateContentInput) =>
     desktopApi.command<TodoRecord>("todo_update_content", { input }),
+  todoUpdateTags: (input: TodoUpdateTagsInput) =>
+    desktopApi.command<TodoRecord>("todo_update_tags", { input }),
   todoUpdatePriority: (input: TodoUpdatePriorityInput) =>
     desktopApi.command<TodoRecord>("todo_update_priority", { input }),
   todoUpdateStatus: (input: TodoUpdateStatusInput) =>

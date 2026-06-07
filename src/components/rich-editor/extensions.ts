@@ -9,6 +9,7 @@ import TableRow from "@tiptap/extension-table-row";
 import { getSchema } from "@tiptap/core";
 
 import { Attachment } from "./extensions/Attachment";
+import { ContactMention } from "./extensions/ContactMention";
 import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
 import { ManagedTable } from "./extensions/ManagedTable";
@@ -49,6 +50,7 @@ export function buildRichEditorExtensions(placeholder: string) {
       },
     }),
     InternalReference,
+    ContactMention,
     Attachment,
   ];
 }

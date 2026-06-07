@@ -1619,6 +1619,33 @@ describe("RichEditor focus and blur persistence", () => {
     expect(onBlurPersisted).not.toHaveBeenCalled();
   });
 
+  it("flushes unsaved edits on pagehide for lock/sleep/quit lifecycles", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        autoFocus
+        autosave={{ onChange: false, onBlur: true, onVisibilityChange: true }}
+        onSave={onSave}
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.type(surface, "Pagehide saves this");
+    fireEvent(window, new Event("pagehide"));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("runs the mod-enter callback when pressing Ctrl/Cmd + Enter", async () => {
     const user = userEvent.setup();
     const onModEnter = vi.fn();

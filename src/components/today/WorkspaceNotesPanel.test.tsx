@@ -1,10 +1,23 @@
-import { useEffect, useRef, useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render as baseRender,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceNoteRecord } from "../../lib/types";
 import { WorkspaceNotesPanel } from "./WorkspaceNotesPanel";
+
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 const { mockPushToast } = vi.hoisted(() => ({
   mockPushToast: vi.fn(),

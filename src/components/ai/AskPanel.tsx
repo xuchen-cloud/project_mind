@@ -31,7 +31,6 @@ interface AskPanelProps {
   scope: AiAnswerScope;
   allowedScopes: AiAnswerScope[];
   projectId: number | null;
-  activityId: number | null;
   aiSettings?: AiSettingsSnapshot;
   aiSettingsLoading?: boolean;
   onUnlockAiSecrets?: () => Promise<boolean>;
@@ -44,7 +43,6 @@ export function AskPanel({
   scope,
   allowedScopes,
   projectId,
-  activityId,
   aiSettings,
   aiSettingsLoading = false,
   onUnlockAiSecrets = async () => false,
@@ -56,10 +54,7 @@ export function AskPanel({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<AiAnswerResult | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const targetKey = useMemo(
-    () => aiAskJobTargetKey(scope, projectId, activityId),
-    [activityId, projectId, scope],
-  );
+  const targetKey = useMemo(() => aiAskJobTargetKey(scope, projectId), [projectId, scope]);
 
   const answerJob = useAiJobTarget(targetKey);
   const answerJobActive = isAiJobActive(answerJob);
@@ -70,7 +65,7 @@ export function AskPanel({
   useEffect(() => {
     setAnswer(null);
     setRequestError(null);
-  }, [scope, projectId, activityId]);
+  }, [scope, projectId]);
 
   const answerHtml = useMemo(
     () => renderMarkdownToHtml(answer?.answerMarkdown),
@@ -99,10 +94,8 @@ export function AskPanel({
           scope,
           question: trimmed,
           projectId: scope === "workspace" ? undefined : projectId ?? undefined,
-          activityId: scope === "activity" ? activityId ?? undefined : undefined,
         },
         projectId,
-        activityId,
       ),
     )
       .then((job) => {

@@ -7,6 +7,7 @@ import {
   findInternalReferenceTextTrigger,
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
+import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
   InternalReferenceContext,
   InternalReferenceSearchResult,
@@ -34,18 +35,20 @@ export function TodoInlineProgressEditor({
   onError,
   internalReferenceContext,
   onOpenInternalReference,
+  onOpenContactMention,
 }: {
   latestProgress: { id: number; content: string; progressDate: string } | null;
   editable: boolean;
   onSave: (payload: { content: string; progressDate: string }) => Promise<unknown> | void;
   onUpdateLatestProgress?: (
     progressId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; status?: "unfinished" | "finished" },
   ) => Promise<unknown> | void;
   onDeleteLatestProgress?: (progressId: number) => Promise<unknown> | void;
   onError?: (message: string) => void;
   internalReferenceContext?: InternalReferenceContext | null;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
+  onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<"add" | "edit" | null>(null);
@@ -275,13 +278,14 @@ export function TodoInlineProgressEditor({
         className="break-words"
         variant="todo-inline"
         onOpenInternalReference={onOpenInternalReference}
+        onOpenContactMention={onOpenContactMention}
       />
       <span className="ml-2 text-caption text-text-soft" title={latestProgress.progressDate}>
         {formatMonthDay(latestProgress.progressDate)}
       </span>
     </p>
   ) : (
-    <p className="text-ui text-text-soft">点击添加进展...</p>
+    <p className="text-ui text-text-soft">点击添加子项...</p>
   );
 
   if (!editable) {
@@ -319,19 +323,19 @@ export function TodoInlineProgressEditor({
         <ActionContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          ariaLabel="进展操作"
+          ariaLabel="子项操作"
           onClose={() => setContextMenu(null)}
           actions={[
             {
               icon: Pencil,
-              label: "编辑进展",
+              label: "编辑子项",
               onSelect: () => {
                 setMode("edit");
               },
             },
             {
               icon: Trash2,
-              label: "删除进展",
+              label: "删除子项",
               tone: "danger",
               onSelect: () => {
                 void onDeleteLatestProgress?.(latestProgress.id);

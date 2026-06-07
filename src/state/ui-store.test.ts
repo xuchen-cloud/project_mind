@@ -4,6 +4,8 @@ import {
   ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
   ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX,
   ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX,
+  PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
+  TODO_RAIL_WIDTH_DEFAULT_PX,
   createUiStore,
   createUiStoreState,
   UI_STORE_STORAGE_KEY,
@@ -78,6 +80,9 @@ describe("useUiStore", () => {
     expect(uiStorePersistStorage?.getItem(UI_STORE_STORAGE_KEY)).toEqual({
       state: {
         activityNoteEditorWidthPx: 960,
+        overviewPageWidth: "auto",
+        todoRailWidthPx: TODO_RAIL_WIDTH_DEFAULT_PX,
+        projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
       },
       version: 0,
     });

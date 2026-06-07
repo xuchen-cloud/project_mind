@@ -124,12 +124,13 @@ pub fn rewrite_selection(
         context,
     );
     let response =
-        request_text_streaming(profile, rewrite_system_prompt(), &prompt, &mut on_stream)
-            .or_else(|_| {
+        request_text_streaming(profile, rewrite_system_prompt(), &prompt, &mut on_stream).or_else(
+            |_| {
                 let response = request_text(profile, rewrite_system_prompt(), &prompt)?;
                 on_stream(response.text.clone());
                 Ok::<ProviderTextResponse, anyhow::Error>(response)
-            })?;
+            },
+        )?;
 
     Ok(EditorRewritePayload {
         rewritten_markdown: response.text,
@@ -188,11 +189,15 @@ fn request_text_streaming(
         .context("failed to initialize AI HTTP client")?;
 
     match profile.provider_family.as_str() {
-        "openai_compatible" => openai_request_stream(&client, profile, system_prompt, user_prompt, on_stream),
+        "openai_compatible" => {
+            openai_request_stream(&client, profile, system_prompt, user_prompt, on_stream)
+        }
         "anthropic_compatible" => {
             anthropic_request_stream(&client, profile, system_prompt, user_prompt, on_stream)
         }
-        "gemini_compatible" => gemini_request_stream(&client, profile, system_prompt, user_prompt, on_stream),
+        "gemini_compatible" => {
+            gemini_request_stream(&client, profile, system_prompt, user_prompt, on_stream)
+        }
         other => Err(anyhow!("unsupported AI provider family: {other}")),
     }
 }
@@ -1604,7 +1609,10 @@ fn mock_provider_text(user_prompt: &str) -> String {
                         String::new()
                     } else if line.contains("PM_TOKEN_") {
                         line.to_string()
-                    } else if line.starts_with('#') || line.starts_with('-') || line.starts_with('*') {
+                    } else if line.starts_with('#')
+                        || line.starts_with('-')
+                        || line.starts_with('*')
+                    {
                         format!("{line}（已按要求优化表达）")
                     } else {
                         format!("{line}（已按要求优化表达）")

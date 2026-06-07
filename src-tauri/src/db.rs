@@ -18,17 +18,18 @@ use crate::{
         ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityDigest,
         ActivityOptionDeleteInput, ActivitySettingsSnapshot, ActivityStatusOption,
         ActivityStatusOptionUpsertInput, ActivityUpdateMetaInput, AiAcceptSuggestionInput,
-        AiAnswerCitationRecord, AiEditorRewriteActionDeleteInput,
-        AiEditorRewriteActionRecord, AiEditorRewriteActionUpsertInput,
-        AiEditorRewriteInput, AiEditorRewriteResult,
-        AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope, AiArtifactCitationRecord,
-        AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord, AiCapabilityBindingRecord,
-        AiCapabilityBindingUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
-        AiJobEnqueueInput, AiJobResult, AiProfileTestInput, AiProfileTestResult,
-        AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
-        AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput,
-        ConclusionGroup, ConclusionListInput, ConclusionRecord, ConclusionUpdateInput,
-        DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+        AiAnswerCitationRecord, AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
+        AiArtifactCitationRecord, AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord,
+        AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
+        AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
+        AiEditorRewriteActionUpsertInput, AiEditorRewriteInput, AiEditorRewriteResult,
+        AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobResult,
+        AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
+        AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot,
+        AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput, ConclusionGroup,
+        ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
+        ContactRecord, ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput,
+        DocumentDeleteInput, DocumentImportClipboardImageInput,
         DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
         DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
         DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
@@ -36,15 +37,16 @@ use crate::{
         InternalReferenceResolveInput, InternalReferenceResolveResult,
         InternalReferenceSearchInput, InternalReferenceSearchResult, NoteDeleteInput, NoteRecord,
         NoteUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
-        ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput,
-        ProjectsListInput, RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput,
-        RecordTypeRecord, RecordTypeSettingsSnapshot, RichTextFontSelection,
-        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
-        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
-        TodoProgressRecord, TodoRecord, TodoUpdateActivityInput, TodoUpdateContentInput,
-        TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
-        TodayQuickNoteUpsertInput, WorkspaceNoteDeleteInput, WorkspaceNoteRecord,
-        WorkspaceNoteUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
+        ProjectListItem, ProjectOverviewData, ProjectRecord, ProjectRecordGroup,
+        ProjectUpdateSummaryInput, ProjectsListInput, RecordTypeOptionDeleteInput,
+        RecordTypeOptionUpsertInput, RecordTypeRecord, RecordTypeSettingsSnapshot,
+        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
+        RichTextStyleUpsertInput, TodayQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput,
+        TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
+        TodoUpdateActivityInput, TodoUpdateContentInput, TodoUpdatePriorityInput,
+        TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
+        WorkspaceNoteDeleteInput, WorkspaceNoteRecord, WorkspaceNoteUpsertInput,
+        WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -58,6 +60,12 @@ const FILE_TAG_SCHEMA_VERSION: i64 = 6;
 const ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION: i64 = 7;
 const ACTIVITY_STATUS_COLOR_SCHEMA_VERSION: i64 = 8;
 const RECORD_TYPE_SCHEMA_VERSION: i64 = 8;
+const TODO_SUBITEM_SCHEMA_VERSION: i64 = 9;
+const PROJECT_KIND_SCHEMA_VERSION: i64 = 10;
+const PROJECT_ENTITY_TAG_SCHEMA_VERSION: i64 = 12;
+const PROJECT_KIND_NORMAL: &str = "normal";
+const PROJECT_KIND_REFERENCE: &str = "reference";
+const REFERENCE_PROJECT_NAME: &str = "资料";
 const AI_CAPABILITIES: [&str; 5] = [
     "default",
     "assistant",
@@ -460,6 +468,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS projects (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'normal',
               status TEXT NOT NULL DEFAULT 'active',
               root_path TEXT NOT NULL,
               summary TEXT NOT NULL DEFAULT '',
@@ -472,7 +481,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS activity_attribute_options (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
-              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              label TEXT NOT NULL COLLATE NOCASE,
               color_key TEXT NOT NULL DEFAULT 'slate',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
@@ -512,7 +521,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS notes (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
-              activity_id INTEGER NOT NULL,
+              activity_id INTEGER,
               note_type TEXT NOT NULL,
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
@@ -520,7 +529,7 @@ impl Database {
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS workspace_notes (
@@ -568,6 +577,9 @@ impl Database {
               todo_id INTEGER NOT NULL,
               content TEXT NOT NULL,
               progress_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'unfinished',
+              completed_at TEXT,
+              order_index INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
             );
@@ -607,10 +619,12 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS file_tag_options (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER,
               label TEXT NOT NULL UNIQUE COLLATE NOCASE,
               color_key TEXT NOT NULL,
               created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS record_type_options (
@@ -624,12 +638,43 @@ impl Database {
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS contacts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              pinyin_full TEXT NOT NULL DEFAULT '',
+              pinyin_abbr TEXT NOT NULL DEFAULT '',
+              email TEXT NOT NULL DEFAULT '',
+              employee_id TEXT NOT NULL DEFAULT '',
+              role TEXT NOT NULL DEFAULT '',
+              department TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS document_tag_links (
               document_id INTEGER NOT NULL,
               tag_id INTEGER NOT NULL,
               created_at TEXT NOT NULL,
               PRIMARY KEY(document_id, tag_id),
               FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+              FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS note_tag_links (
+              note_id INTEGER NOT NULL,
+              tag_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(note_id, tag_id),
+              FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE,
+              FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS todo_tag_links (
+              todo_id INTEGER NOT NULL,
+              tag_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(todo_id, tag_id),
+              FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
               FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
             );
 
@@ -724,6 +769,11 @@ impl Database {
         )?;
         self.ensure_column(
             "projects",
+            "kind",
+            "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'",
+        )?;
+        self.ensure_column(
+            "projects",
             "summary_markdown",
             "ALTER TABLE projects ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''",
         )?;
@@ -807,6 +857,26 @@ impl Database {
             "status_option_id",
             "ALTER TABLE activities ADD COLUMN status_option_id INTEGER REFERENCES activity_status_options(id) ON DELETE SET NULL",
         )?;
+        self.ensure_column(
+            "todo_progresses",
+            "status",
+            "ALTER TABLE todo_progresses ADD COLUMN status TEXT NOT NULL DEFAULT 'unfinished'",
+        )?;
+        self.ensure_column(
+            "todo_progresses",
+            "completed_at",
+            "ALTER TABLE todo_progresses ADD COLUMN completed_at TEXT",
+        )?;
+        self.ensure_column(
+            "todo_progresses",
+            "order_index",
+            "ALTER TABLE todo_progresses ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.ensure_column(
+            "file_tag_options",
+            "project_id",
+            "ALTER TABLE file_tag_options ADD COLUMN project_id INTEGER",
+        )?;
         self.conn.execute(
             "UPDATE activities SET organize_status = 'needs_review' WHERE organize_status = 'unorganized'",
             [],
@@ -864,6 +934,20 @@ impl Database {
         } else {
             self.ensure_record_type_settings_seeded()?;
         }
+        if self.schema_version()? < TODO_SUBITEM_SCHEMA_VERSION {
+            self.migrate_todo_subitem_schema()?;
+            self.set_schema_version(TODO_SUBITEM_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < PROJECT_KIND_SCHEMA_VERSION {
+            self.migrate_project_kind_schema()?;
+            self.set_schema_version(PROJECT_KIND_SCHEMA_VERSION)?;
+        } else {
+            self.ensure_reference_project()?;
+        }
+        if self.schema_version()? < PROJECT_ENTITY_TAG_SCHEMA_VERSION {
+            self.migrate_project_entity_tags_schema()?;
+            self.set_schema_version(PROJECT_ENTITY_TAG_SCHEMA_VERSION)?;
+        }
         self.conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_projects_archived_updated ON projects(is_archived, updated_at DESC);
@@ -881,9 +965,18 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_documents_project_starred ON documents(project_id, is_starred, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_document_versions_document_version ON document_versions(document_id, version_number DESC);
             CREATE INDEX IF NOT EXISTS idx_file_tag_options_created ON file_tag_options(created_at ASC, id ASC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_file_tag_options_project_label ON file_tag_options(project_id, label COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_record_type_options_default_created ON record_type_options(is_default DESC, created_at ASC, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name COLLATE NOCASE, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_contacts_pinyin_full ON contacts(pinyin_full COLLATE NOCASE, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_contacts_pinyin_abbr ON contacts(pinyin_abbr COLLATE NOCASE, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email COLLATE NOCASE, id ASC);
             CREATE INDEX IF NOT EXISTS idx_document_tag_links_tag ON document_tag_links(tag_id, document_id);
             CREATE INDEX IF NOT EXISTS idx_document_tag_links_document ON document_tag_links(document_id, tag_id);
+            CREATE INDEX IF NOT EXISTS idx_note_tag_links_tag ON note_tag_links(tag_id, note_id);
+            CREATE INDEX IF NOT EXISTS idx_note_tag_links_note ON note_tag_links(note_id, tag_id);
+            CREATE INDEX IF NOT EXISTS idx_todo_tag_links_tag ON todo_tag_links(tag_id, todo_id);
+            CREATE INDEX IF NOT EXISTS idx_todo_tag_links_todo ON todo_tag_links(todo_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_ai_suggestions_activity ON ai_suggestions(activity_id, status, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_artifacts_kind_scope ON ai_artifacts(kind, project_id, activity_id, artifact_date);
@@ -971,7 +1064,7 @@ impl Database {
         let sql = format!(
             r#"
             SELECT
-              p.id, p.name, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
+              p.id, p.name, p.kind, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
               p.is_archived, p.created_at, p.updated_at,
               (SELECT COUNT(*) FROM activities a WHERE a.project_id = p.id) AS activity_count,
               (
@@ -986,7 +1079,7 @@ impl Database {
               (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
-            ORDER BY p.updated_at DESC
+            ORDER BY p.created_at DESC, p.id DESC
             "#,
             if include_archived {
                 ""
@@ -997,21 +1090,22 @@ impl Database {
         let mut stmt = self.conn.prepare(&sql)?;
 
         let rows = stmt.query_map([], |row| {
-            let root_path_ref = row.get::<_, String>(3)?;
+            let root_path_ref = row.get::<_, String>(4)?;
             Ok(ProjectListItem {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                status: row.get(2)?,
+                kind: row.get(2)?,
+                status: row.get(3)?,
                 root_path: self.decode_path_ref_to_string(&root_path_ref),
-                summary: row.get(4)?,
-                summary_markdown: row.get(5)?,
-                summary_html: row.get(6)?,
-                is_archived: int_to_bool(row.get::<_, i64>(7)?),
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                activity_count: row.get(10)?,
-                unorganized_count: row.get(11)?,
-                open_todo_count: row.get(12)?,
+                summary: row.get(5)?,
+                summary_markdown: row.get(6)?,
+                summary_html: row.get(7)?,
+                is_archived: int_to_bool(row.get::<_, i64>(8)?),
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                activity_count: row.get(11)?,
+                unorganized_count: row.get(12)?,
+                open_todo_count: row.get(13)?,
             })
         })?;
 
@@ -1049,12 +1143,13 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO projects (
-              name, status, root_path, summary, summary_markdown, summary_html, is_archived, created_at, updated_at
+              name, kind, status, root_path, summary, summary_markdown, summary_html, is_archived, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
             "#,
             params![
                 project_name,
+                PROJECT_KIND_NORMAL,
                 input.status.unwrap_or_else(|| "active".to_string()),
                 self.encode_path_ref(&project_dir),
                 summary,
@@ -1076,6 +1171,8 @@ impl Database {
         let activity_feed = self.activity_digests(input.project_id, None)?;
         let project_documents = self.fetch_project_documents_for_project(input.project_id)?;
         let conclusion_groups = self.fetch_conclusion_groups(input.project_id)?;
+        let records = self.fetch_project_notes(input.project_id)?;
+        let record_groups = Vec::new(); // deprecated, kept for compatibility
         let unfinished_todos = self.fetch_project_todos(input.project_id, false)?;
         let finished_todos = self.fetch_project_todos(input.project_id, true)?;
 
@@ -1084,6 +1181,8 @@ impl Database {
             activity_feed,
             project_documents,
             conclusion_groups,
+            record_groups,
+            records,
             unfinished_todos,
             finished_todos,
         })
@@ -1287,6 +1386,9 @@ impl Database {
             }
             None => current.name.clone(),
         };
+        if current.kind == PROJECT_KIND_REFERENCE && project_name != current.name {
+            return Err(anyhow!("资料项目名称不可修改"));
+        }
         if project_name != current.name {
             self.rename_project_root(&current, &project_name)?;
         }
@@ -1333,6 +1435,10 @@ impl Database {
     }
 
     pub fn project_set_archive(&mut self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
+        let current = self.project_record(input.project_id)?;
+        if current.kind == PROJECT_KIND_REFERENCE {
+            return Err(anyhow!("资料项目不可归档"));
+        }
         self.conn.execute(
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
@@ -1343,6 +1449,10 @@ impl Database {
     }
 
     pub fn activity_create(&mut self, input: ActivityCreateInput) -> Result<ActivityCardData> {
+        let project = self.project_record(input.project_id)?;
+        if project.kind == PROJECT_KIND_REFERENCE {
+            return Err(anyhow!("资料项目不支持创建 Activity"));
+        }
         self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
         let requested_title = input.title.unwrap_or_default();
@@ -1391,7 +1501,7 @@ impl Database {
         self.ensure_project_file_layout(input.project_id)?;
         self.refresh_document_health(input.project_id)?;
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM activities WHERE project_id = ?1 ORDER BY activity_time DESC, updated_at DESC",
+            "SELECT id FROM activities WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map([input.project_id], |row| row.get::<_, i64>(0))?
@@ -1630,7 +1740,7 @@ impl Database {
 
     pub fn file_tag_settings_get(&mut self) -> Result<FileTagSettingsSnapshot> {
         Ok(FileTagSettingsSnapshot {
-            tags: self.fetch_file_tag_records()?,
+            tags: self.fetch_file_tag_records(None)?,
         })
     }
 
@@ -1655,10 +1765,15 @@ impl Database {
             return self.file_tag_record(tag_id);
         }
 
+        if let Some(project_id) = input.project_id {
+            let tag_id = self.upsert_project_tag_by_label(project_id, &label, &color_key, &now)?;
+            return self.file_tag_record(tag_id);
+        }
+
         self.conn.execute(
             r#"
-            INSERT INTO file_tag_options (label, color_key, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO file_tag_options (project_id, label, color_key, created_at, updated_at)
+            VALUES (NULL, ?1, ?2, ?3, ?4)
             "#,
             params![label, color_key, now, now],
         )?;
@@ -1792,6 +1907,156 @@ impl Database {
         self.record_type_settings_get()
     }
 
+    pub fn contact_list(&self) -> Result<Vec<ContactRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id
+            FROM contacts
+            ORDER BY created_at DESC, id DESC
+            "#,
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        ids.into_iter()
+            .map(|contact_id| self.contact_record(contact_id))
+            .collect()
+    }
+
+    pub fn contact_search(&self, input: ContactSearchInput) -> Result<Vec<ContactRecord>> {
+        let query = input.query.trim();
+        let limit = input.limit.unwrap_or(20).clamp(1, 100);
+
+        if query.is_empty() {
+            let mut stmt = self.conn.prepare(
+                r#"
+                SELECT id
+                FROM contacts
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?1
+                "#,
+            )?;
+            let ids = stmt
+                .query_map([limit], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            return ids
+                .into_iter()
+                .map(|contact_id| self.contact_record(contact_id))
+                .collect();
+        }
+
+        let pattern = format!("%{}%", query.to_lowercase());
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id
+            FROM contacts
+            WHERE LOWER(name) LIKE ?1
+               OR LOWER(pinyin_full) LIKE ?1
+               OR LOWER(pinyin_abbr) LIKE ?1
+               OR LOWER(email) LIKE ?1
+               OR LOWER(employee_id) LIKE ?1
+               OR LOWER(role) LIKE ?1
+               OR LOWER(department) LIKE ?1
+            ORDER BY
+              CASE
+                WHEN LOWER(name) = LOWER(?2) THEN 0
+                WHEN LOWER(pinyin_full) = LOWER(?2) THEN 1
+                WHEN LOWER(pinyin_abbr) = LOWER(?2) THEN 2
+                ELSE 3
+              END,
+              created_at DESC,
+              id DESC
+            LIMIT ?3
+            "#,
+        )?;
+        let ids = stmt
+            .query_map(params![pattern, query, limit], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        ids.into_iter()
+            .map(|contact_id| self.contact_record(contact_id))
+            .collect()
+    }
+
+    pub fn contact_upsert(&mut self, input: ContactUpsertInput) -> Result<ContactRecord> {
+        let name = validate_contact_name(&input.name)?;
+        let email = normalize_contact_field(input.email.as_deref(), "email", 128)?;
+        let employee_id = normalize_contact_field(input.employee_id.as_deref(), "employee id", 64)?;
+        let role = normalize_contact_field(input.role.as_deref(), "role", 64)?;
+        let department = normalize_contact_field(input.department.as_deref(), "department", 64)?;
+        let pinyin_full = normalize_contact_pinyin(
+            input.pinyin_full.as_deref(),
+            &derive_contact_search_text(&name),
+            "pinyin full",
+        )?;
+        let pinyin_abbr = normalize_contact_pinyin(
+            input.pinyin_abbr.as_deref(),
+            &derive_contact_search_abbr(&pinyin_full),
+            "pinyin abbreviation",
+        )?;
+        let now = now_iso();
+
+        if let Some(contact_id) = input.id {
+            self.contact_record(contact_id)?;
+            self.conn.execute(
+                r#"
+                UPDATE contacts
+                SET name = ?1,
+                    pinyin_full = ?2,
+                    pinyin_abbr = ?3,
+                    email = ?4,
+                    employee_id = ?5,
+                    role = ?6,
+                    department = ?7,
+                    updated_at = ?8
+                WHERE id = ?9
+                "#,
+                params![
+                    name,
+                    pinyin_full,
+                    pinyin_abbr,
+                    email,
+                    employee_id,
+                    role,
+                    department,
+                    now,
+                    contact_id
+                ],
+            )?;
+            return self.contact_record(contact_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO contacts (
+              name, pinyin_full, pinyin_abbr, email, employee_id, role, department, created_at, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            params![
+                name,
+                pinyin_full,
+                pinyin_abbr,
+                email,
+                employee_id,
+                role,
+                department,
+                now,
+                now
+            ],
+        )?;
+
+        self.contact_record(self.conn.last_insert_rowid())
+    }
+
+    pub fn contact_delete(&mut self, input: ContactDeleteInput) -> Result<ContactRecord> {
+        let current = self.contact_record(input.contact_id)?;
+        self.conn
+            .execute("DELETE FROM contacts WHERE id = ?1", [input.contact_id])?;
+        Ok(current)
+    }
+
     pub fn note_upsert(&mut self, input: NoteUpsertInput) -> Result<NoteRecord> {
         self.ensure_record_type_settings_seeded()?;
         let timestamp = now_iso();
@@ -1822,7 +2087,11 @@ impl Database {
                         note_id
                     ],
                 )?;
-                self.touch_activity(input.activity_id)?;
+                self.replace_note_tags(note_id, &input.tag_ids, &timestamp)?;
+                self.touch_project(current.project_id)?;
+                if let Some(activity_id) = input.activity_id {
+                    self.touch_activity(activity_id)?;
+                }
                 self.note_record(note_id)
             }
             None => {
@@ -1846,7 +2115,11 @@ impl Database {
                     ],
                 )?;
                 let note_id = self.conn.last_insert_rowid();
-                self.touch_activity(input.activity_id)?;
+                self.replace_note_tags(note_id, &input.tag_ids, &timestamp)?;
+                self.touch_project(input.project_id)?;
+                if let Some(activity_id) = input.activity_id {
+                    self.touch_activity(activity_id)?;
+                }
                 self.note_record(note_id)
             }
         }
@@ -1856,7 +2129,10 @@ impl Database {
         let current = self.note_record(input.note_id)?;
         self.conn
             .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
-        self.touch_activity(current.activity_id)?;
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
         Ok(current)
     }
 
@@ -1866,7 +2142,7 @@ impl Database {
             SELECT id
             FROM workspace_notes
             WHERE note_kind = ?1
-            ORDER BY updated_at DESC, created_at DESC
+            ORDER BY created_at DESC, id DESC
             "#,
         )?;
         let ids = stmt
@@ -1929,7 +2205,7 @@ impl Database {
                 SELECT id
                 FROM workspace_notes
                 WHERE note_kind = ?1
-                ORDER BY updated_at DESC, created_at DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 "#,
                 [WORKSPACE_NOTE_KIND_TODAY_QUICK],
@@ -2113,6 +2389,7 @@ impl Database {
             ],
         )?;
         let id = self.conn.last_insert_rowid();
+        self.replace_todo_tags(id, &input.tag_ids, &timestamp)?;
         if let Some(activity_id) = input.activity_id {
             self.touch_activity(activity_id)?;
         }
@@ -2121,16 +2398,33 @@ impl Database {
     }
 
     pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+        let timestamp = now_iso();
         self.conn.execute(
             "UPDATE todos SET content = ?1, updated_at = ?2 WHERE id = ?3",
-            params![input.content, now_iso(), input.todo_id],
+            params![input.content, timestamp, input.todo_id],
         )?;
+        self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
         let record = self.todo_record(input.todo_id)?;
         self.touch_project(record.project_id)?;
         if let Some(activity_id) = record.activity_id {
             self.touch_activity(activity_id)?;
         }
         Ok(record)
+    }
+
+    pub fn todo_update_tags(&mut self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
+        let timestamp = now_iso();
+        let current = self.todo_record(input.todo_id)?;
+        self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
+        self.conn.execute(
+            "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
+            params![timestamp, input.todo_id],
+        )?;
+        self.touch_project(current.project_id)?;
+        if let Some(activity_id) = current.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        self.todo_record(input.todo_id)
     }
 
     pub fn todo_update_activity(&mut self, input: TodoUpdateActivityInput) -> Result<TodoRecord> {
@@ -2200,12 +2494,19 @@ impl Database {
     pub fn todo_add_progress(&mut self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
+        let order_index = self.next_todo_subitem_order_index(input.todo_id)?;
         self.conn.execute(
             r#"
-            INSERT INTO todo_progresses (todo_id, content, progress_date, created_at)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO todo_progresses (todo_id, content, progress_date, status, completed_at, order_index, created_at)
+            VALUES (?1, ?2, ?3, 'unfinished', NULL, ?4, ?5)
             "#,
-            params![input.todo_id, input.content, input.progress_date, timestamp],
+            params![
+                input.todo_id,
+                input.content,
+                input.progress_date,
+                order_index,
+                timestamp
+            ],
         )?;
         self.conn.execute(
             "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
@@ -2226,10 +2527,28 @@ impl Database {
         let current = self.todo_progress_record(input.progress_id)?;
         let todo = self.todo_record(current.todo_id)?;
         let timestamp = now_iso();
+        let next_status = input.status.unwrap_or_else(|| current.status.clone());
+        if !matches!(next_status.as_str(), "unfinished" | "finished") {
+            return Err(anyhow!("Unsupported todo subitem status: {}", next_status));
+        }
+        let completed_at = if next_status == "finished" {
+            current
+                .completed_at
+                .clone()
+                .or_else(|| Some(timestamp.clone()))
+        } else {
+            None
+        };
 
         self.conn.execute(
-            "UPDATE todo_progresses SET content = ?1, progress_date = ?2 WHERE id = ?3",
-            params![input.content, input.progress_date, input.progress_id],
+            "UPDATE todo_progresses SET content = ?1, progress_date = ?2, status = ?3, completed_at = ?4 WHERE id = ?5",
+            params![
+                input.content,
+                input.progress_date,
+                next_status,
+                completed_at,
+                input.progress_id
+            ],
         )?;
         self.conn.execute(
             "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
@@ -2280,7 +2599,7 @@ impl Database {
             r#"
             SELECT id FROM todos
             WHERE project_id = ?1 AND status = 'unfinished'
-            ORDER BY updated_at DESC
+            ORDER BY created_at DESC, id DESC
             "#,
         )?;
         let ids = stmt
@@ -2298,7 +2617,8 @@ impl Database {
             WHERE p.is_archived = 0
             ORDER BY
               CASE WHEN t.status = 'unfinished' THEN 0 ELSE 1 END,
-              t.updated_at DESC
+              t.created_at DESC,
+              t.id DESC
             "#,
         )?;
         let ids = stmt
@@ -3848,7 +4168,8 @@ impl Database {
                 Ok(AiJobResult::ProfileTest { test_result })
             }
             AiJobEnqueueInput::EditorRewrite { input, .. } => {
-                let rewrite = self.ai_editor_rewrite(input, |stream_text| on_stream(stream_text))?;
+                let rewrite =
+                    self.ai_editor_rewrite(input, |stream_text| on_stream(stream_text))?;
                 Ok(AiJobResult::EditorRewrite { rewrite })
             }
         }
@@ -3992,8 +4313,14 @@ impl Database {
                     matched_text: query.to_string(),
                 },
                 fields: build_workspace_search_fields([
-                    (WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE, row.get::<_, String>(4)?),
-                    (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, row.get::<_, String>(5)?),
+                    (
+                        WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE,
+                        row.get::<_, String>(4)?,
+                    ),
+                    (
+                        WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT,
+                        row.get::<_, String>(5)?,
+                    ),
                     (WORKSPACE_SEARCH_PRIORITY_ACTIVITY_META, activity_title),
                 ]),
                 updated_at: row.get(8)?,
@@ -4116,17 +4443,21 @@ impl Database {
         let mut ranked = candidates
             .into_iter()
             .filter_map(|candidate| {
-                rank_workspace_search_candidate(&candidate, query).map(|rank| (candidate.result, candidate.updated_at, rank))
+                rank_workspace_search_candidate(&candidate, query)
+                    .map(|rank| (candidate.result, candidate.updated_at, rank))
             })
             .collect::<Vec<_>>();
 
-        ranked.sort_by(|(left_result, left_updated_at, left_rank), (right_result, right_updated_at, right_rank)| {
-            left_rank
-                .cmp(right_rank)
-                .then_with(|| right_updated_at.cmp(left_updated_at))
-                .then_with(|| left_result.kind.cmp(&right_result.kind))
-                .then_with(|| left_result.id.cmp(&right_result.id))
-        });
+        ranked.sort_by(
+            |(left_result, left_updated_at, left_rank),
+             (right_result, right_updated_at, right_rank)| {
+                left_rank
+                    .cmp(right_rank)
+                    .then_with(|| right_updated_at.cmp(left_updated_at))
+                    .then_with(|| left_result.kind.cmp(&right_result.kind))
+                    .then_with(|| left_result.id.cmp(&right_result.id))
+            },
+        );
 
         Ok(ranked
             .into_iter()
@@ -4687,6 +5018,7 @@ impl Database {
                 artifact_date: Some(current_workspace_date()),
             })?;
         }
+        self.ensure_reference_project()?;
 
         Ok(DemoSeedResult {
             workspace_root: workspace_root.to_string_lossy().to_string(),
@@ -4818,6 +5150,7 @@ impl Database {
             ("流程清单", "green"),
         ] {
             let tag = self.file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: label.to_string(),
                 color_key: color_key.to_string(),
@@ -4924,12 +5257,13 @@ impl Database {
     ) -> Result<NoteRecord> {
         self.note_upsert(NoteUpsertInput {
             project_id,
-            activity_id,
+            activity_id: Some(activity_id),
             note_id: None,
             note_type: note_type.to_string(),
             title: Some(title.to_string()),
             markdown: markdown.to_string(),
             html: rich_text_html_from_markdown(markdown),
+            tag_ids: vec![],
         })
     }
 
@@ -4966,6 +5300,7 @@ impl Database {
             activity_id,
             content: content.to_string(),
             priority: priority.to_string(),
+            tag_ids: vec![],
         })?;
 
         for (progress_date, progress_content) in progresses {
@@ -5909,7 +6244,7 @@ impl Database {
                 &mut sources,
                 &mut latest,
                 Some(note.project_id),
-                Some(note.activity_id),
+                note.activity_id,
                 "NOTE",
                 note.id,
                 "note",
@@ -6226,7 +6561,7 @@ impl Database {
             push_ask_source(
                 &mut sources,
                 Some(note.project_id),
-                Some(note.activity_id),
+                note.activity_id,
                 "NOTE",
                 note.id,
                 "note",
@@ -6467,7 +6802,7 @@ impl Database {
                 push_ask_source(
                     &mut sources,
                     Some(note.project_id),
-                    Some(note.activity_id),
+                    note.activity_id,
                     "NOTE",
                     note.id,
                     "note",
@@ -7130,24 +7465,25 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, name, status, root_path, summary, summary_markdown, summary_html,
+                SELECT id, name, kind, status, root_path, summary, summary_markdown, summary_html,
                   is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
                 [project_id],
                 |row| {
-                    let root_path_ref = row.get::<_, String>(3)?;
+                    let root_path_ref = row.get::<_, String>(4)?;
                     Ok(ProjectRecord {
                         id: row.get(0)?,
                         name: row.get(1)?,
-                        status: row.get(2)?,
+                        kind: row.get(2)?,
+                        status: row.get(3)?,
                         root_path: self.decode_path_ref_to_string(&root_path_ref),
-                        summary: row.get(4)?,
-                        summary_markdown: row.get(5)?,
-                        summary_html: row.get(6)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(7)?),
-                        created_at: row.get(8)?,
-                        updated_at: row.get(9)?,
+                        summary: row.get(5)?,
+                        summary_markdown: row.get(6)?,
+                        summary_html: row.get(7)?,
+                        is_archived: int_to_bool(row.get::<_, i64>(8)?),
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
                     })
                 },
             )
@@ -7183,6 +7519,7 @@ impl Database {
     }
 
     fn note_record(&self, note_id: i64) -> Result<NoteRecord> {
+        let tags = self.fetch_note_tags(note_id)?;
         self.conn
             .query_row(
                 r#"
@@ -7199,6 +7536,7 @@ impl Database {
                         title: row.get(4)?,
                         content_markdown: row.get(5)?,
                         content_html: row.get(6)?,
+                        tags: tags.clone(),
                         created_at: row.get(7)?,
                         updated_at: row.get(8)?,
                     })
@@ -7273,7 +7611,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, todo_id, content, progress_date, created_at
+                SELECT id, todo_id, content, progress_date, status, completed_at, order_index, created_at
                 FROM todo_progresses WHERE id = ?1
                 "#,
                 [progress_id],
@@ -7283,7 +7621,10 @@ impl Database {
                         todo_id: row.get(1)?,
                         content: row.get(2)?,
                         progress_date: row.get(3)?,
-                        created_at: row.get(4)?,
+                        status: row.get(4)?,
+                        completed_at: row.get(5)?,
+                        order_index: row.get(6)?,
+                        created_at: row.get(7)?,
                     })
                 },
             )
@@ -7315,6 +7656,7 @@ impl Database {
             },
         )?;
         let progresses = self.fetch_todo_progresses(todo_id)?;
+        let tags = self.fetch_todo_tags(todo_id)?;
         Ok(TodoRecord {
             id: base.0,
             project_id: base.1,
@@ -7323,6 +7665,7 @@ impl Database {
             content: base.4,
             status: base.5,
             priority: base.6,
+            tags,
             created_at: base.7,
             updated_at: base.8,
             progresses,
@@ -7615,12 +7958,47 @@ impl Database {
 
     fn fetch_notes(&self, activity_id: i64) -> Result<Vec<NoteRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE activity_id = ?1 ORDER BY updated_at DESC, created_at DESC",
+            "SELECT id FROM notes WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.note_record(id)).collect()
+    }
+
+    fn fetch_project_notes(&self, project_id: i64) -> Result<Vec<NoteRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
+        )?;
+        let ids = stmt
+            .query_map([project_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| self.note_record(id)).collect()
+    }
+
+    fn fetch_project_record_groups(&self, project_id: i64) -> Result<Vec<ProjectRecordGroup>> {
+        let notes = self.fetch_project_notes(project_id)?;
+        let mut groups: BTreeMap<String, ProjectRecordGroup> = BTreeMap::new();
+
+        for note in notes {
+            let (group_key, group_title) = note
+                .tags
+                .first()
+                .map(|tag| (format!("tag-{}", tag.id), tag.label.clone()))
+                .unwrap_or_else(|| ("untagged".to_string(), "未标记记录".to_string()));
+
+            groups
+                .entry(group_key.clone())
+                .or_insert_with(|| ProjectRecordGroup {
+                    group_key,
+                    group_title,
+                    notes: Vec::new(),
+                })
+                .notes
+                .push(note);
+        }
+
+        Ok(groups.into_values().collect())
     }
 
     fn fetch_conclusions(&self, activity_id: i64) -> Result<Vec<ConclusionRecord>> {
@@ -7636,9 +8014,9 @@ impl Database {
     }
 
     fn fetch_todos_for_activity(&self, activity_id: i64) -> Result<Vec<TodoRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM todos WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM todos WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
+        )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -7647,7 +8025,7 @@ impl Database {
 
     fn fetch_todo_progresses(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY progress_date DESC, created_at DESC",
+            "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY CASE status WHEN 'unfinished' THEN 0 ELSE 1 END ASC, order_index ASC, progress_date DESC, created_at DESC",
         )?;
         let ids = stmt
             .query_map([todo_id], |row| row.get::<_, i64>(0))?
@@ -7657,10 +8035,22 @@ impl Database {
             .collect()
     }
 
-    fn fetch_todo_ids_for_activity(&self, activity_id: i64) -> Result<Vec<i64>> {
-        let mut stmt = self
+    fn next_todo_subitem_order_index(&self, todo_id: i64) -> Result<i64> {
+        let current_max = self
             .conn
-            .prepare("SELECT id FROM todos WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+            .query_row(
+                "SELECT MAX(order_index) FROM todo_progresses WHERE todo_id = ?1",
+                [todo_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .unwrap_or(-1);
+        Ok(current_max + 1)
+    }
+
+    fn fetch_todo_ids_for_activity(&self, activity_id: i64) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM todos WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
+        )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -7669,7 +8059,7 @@ impl Database {
 
     fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY updated_at DESC",
+            "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map(
@@ -7681,9 +8071,9 @@ impl Database {
     }
 
     fn fetch_all_documents_for_activity(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM documents WHERE activity_id = ?1 ORDER BY updated_at DESC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM documents WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
+        )?;
         let ids = stmt
             .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -7691,9 +8081,9 @@ impl Database {
     }
 
     fn fetch_all_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM documents WHERE project_id = ?1 ORDER BY updated_at DESC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM documents WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
+        )?;
         let ids = stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -7721,15 +8111,57 @@ impl Database {
             .map_err(Into::into)
     }
 
+    fn fetch_note_tags(&self, note_id: i64) -> Result<Vec<DocumentTagRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT f.id, f.label, f.color_key
+            FROM note_tag_links l
+            INNER JOIN file_tag_options f ON f.id = l.tag_id
+            WHERE l.note_id = ?1
+            ORDER BY f.created_at ASC, f.id ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([note_id], |row| {
+            Ok(DocumentTagRecord {
+                id: row.get(0)?,
+                label: row.get(1)?,
+                color_key: row.get(2)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    fn fetch_todo_tags(&self, todo_id: i64) -> Result<Vec<DocumentTagRecord>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT f.id, f.label, f.color_key
+            FROM todo_tag_links l
+            INNER JOIN file_tag_options f ON f.id = l.tag_id
+            WHERE l.todo_id = ?1
+            ORDER BY f.created_at ASC, f.id ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([todo_id], |row| {
+            Ok(DocumentTagRecord {
+                id: row.get(0)?,
+                label: row.get(1)?,
+                color_key: row.get(2)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     fn fetch_documents_for_project(
         &self,
         project_id: i64,
         starred_only: bool,
     ) -> Result<Vec<DocumentRecord>> {
         let query = if starred_only {
-            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 AND is_starred = 1 ORDER BY updated_at DESC"
+            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 AND is_starred = 1 ORDER BY created_at DESC, id DESC"
         } else {
-            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 ORDER BY updated_at DESC"
+            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 ORDER BY created_at DESC, id DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -7748,9 +8180,7 @@ impl Database {
             FROM documents
             WHERE project_id = ?1
               AND storage_mode != ?2
-              AND (activity_id IS NULL OR is_starred = 1)
-            ORDER BY updated_at DESC
-            LIMIT 18
+            ORDER BY created_at DESC, id DESC
             "#,
         )?;
         let ids = stmt
@@ -7926,6 +8356,37 @@ impl Database {
             .collect()
     }
 
+    fn upsert_project_tag_by_label(
+        &mut self,
+        project_id: i64,
+        label: &str,
+        color_key: &str,
+        timestamp: &str,
+    ) -> Result<i64> {
+        let label = validate_file_tag_label(label)?;
+        let color_key = validate_file_tag_color_key(color_key)?;
+        if let Some(existing_id) = self
+            .conn
+            .query_row(
+                "SELECT id FROM file_tag_options WHERE project_id = ?1 AND label = ?2 COLLATE NOCASE",
+                params![project_id, label.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+        {
+            return Ok(existing_id);
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO file_tag_options (project_id, label, color_key, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![project_id, label, color_key, timestamp, timestamp],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
     fn file_tag_record(&self, tag_id: i64) -> Result<FileTagRecord> {
         self.conn
             .query_row(
@@ -7934,11 +8395,17 @@ impl Database {
                   f.id,
                   f.label,
                   f.color_key,
-                  COUNT(l.document_id) AS usage_count,
+                  (
+                    COUNT(DISTINCT l.document_id) +
+                    COUNT(DISTINCT nl.note_id) +
+                    COUNT(DISTINCT tl.todo_id)
+                  ) AS usage_count,
                   f.created_at,
                   f.updated_at
                 FROM file_tag_options f
                 LEFT JOIN document_tag_links l ON l.tag_id = f.id
+                LEFT JOIN note_tag_links nl ON nl.tag_id = f.id
+                LEFT JOIN todo_tag_links tl ON tl.tag_id = f.id
                 WHERE f.id = ?1
                 GROUP BY f.id, f.label, f.color_key, f.created_at, f.updated_at
                 "#,
@@ -7957,13 +8424,20 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn fetch_file_tag_records(&self) -> Result<Vec<FileTagRecord>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM file_tag_options ORDER BY created_at ASC, id ASC")?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+    fn fetch_file_tag_records(&self, project_id: Option<i64>) -> Result<Vec<FileTagRecord>> {
+        let query = if project_id.is_some() {
+            "SELECT id FROM file_tag_options WHERE project_id = ?1 ORDER BY created_at ASC, id ASC"
+        } else {
+            "SELECT id FROM file_tag_options ORDER BY created_at ASC, id ASC"
+        };
+        let mut stmt = self.conn.prepare(query)?;
+        let ids = if let Some(project_id) = project_id {
+            stmt.query_map(params![project_id], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            stmt.query_map([], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
         ids.into_iter()
             .map(|tag_id| self.file_tag_record(tag_id))
             .collect()
@@ -8031,6 +8505,43 @@ impl Database {
             .collect()
     }
 
+    fn contact_record(&self, contact_id: i64) -> Result<ContactRecord> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT
+                  id,
+                  name,
+                  pinyin_full,
+                  pinyin_abbr,
+                  email,
+                  employee_id,
+                  role,
+                  department,
+                  created_at,
+                  updated_at
+                FROM contacts
+                WHERE id = ?1
+                "#,
+                [contact_id],
+                |row| {
+                    Ok(ContactRecord {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        pinyin_full: row.get(2)?,
+                        pinyin_abbr: row.get(3)?,
+                        email: row.get(4)?,
+                        employee_id: row.get(5)?,
+                        role: row.get(6)?,
+                        department: row.get(7)?,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    })
+                },
+            )
+            .map_err(Into::into)
+    }
+
     fn record_type_count(&self) -> Result<i64> {
         self.conn
             .query_row("SELECT COUNT(*) FROM record_type_options", [], |row| {
@@ -8095,11 +8606,59 @@ impl Database {
         Ok(())
     }
 
+    fn replace_note_tags(&mut self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+        let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
+        for &tag_id in &normalized_tag_ids {
+            self.file_tag_record(tag_id)?;
+        }
+
+        self.conn.execute(
+            "DELETE FROM note_tag_links WHERE note_id = ?1",
+            params![note_id],
+        )?;
+
+        for tag_id in normalized_tag_ids {
+            self.conn.execute(
+                r#"
+                INSERT INTO note_tag_links (note_id, tag_id, created_at)
+                VALUES (?1, ?2, ?3)
+                "#,
+                params![note_id, tag_id, timestamp],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn replace_todo_tags(&mut self, todo_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+        let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
+        for &tag_id in &normalized_tag_ids {
+            self.file_tag_record(tag_id)?;
+        }
+
+        self.conn.execute(
+            "DELETE FROM todo_tag_links WHERE todo_id = ?1",
+            params![todo_id],
+        )?;
+
+        for tag_id in normalized_tag_ids {
+            self.conn.execute(
+                r#"
+                INSERT INTO todo_tag_links (todo_id, tag_id, created_at)
+                VALUES (?1, ?2, ?3)
+                "#,
+                params![todo_id, tag_id, timestamp],
+            )?;
+        }
+
+        Ok(())
+    }
+
     fn fetch_project_todos(&self, project_id: i64, finished: bool) -> Result<Vec<TodoRecord>> {
         let query = if finished {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'finished' ORDER BY updated_at DESC"
+            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'finished' ORDER BY created_at DESC, id DESC"
         } else {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY updated_at DESC"
+            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY created_at DESC, id DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -8792,7 +9351,7 @@ impl Database {
         }
 
         let mut stmt = self.conn.prepare(
-            "SELECT id, title FROM activities WHERE project_id = ?1 ORDER BY activity_time DESC, updated_at DESC",
+            "SELECT id, title FROM activities WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let activities = stmt
             .query_map([project_id], |row| {
@@ -9131,6 +9690,9 @@ impl Database {
               todo_id INTEGER NOT NULL,
               content TEXT NOT NULL,
               progress_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'unfinished',
+              completed_at TEXT,
+              order_index INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
             );
@@ -9300,6 +9862,363 @@ impl Database {
 
     fn migrate_record_type_schema(&mut self) -> Result<()> {
         self.ensure_record_type_settings_seeded()
+    }
+
+    fn migrate_todo_subitem_schema(&self) -> Result<()> {
+        self.ensure_column(
+            "todo_progresses",
+            "status",
+            "ALTER TABLE todo_progresses ADD COLUMN status TEXT NOT NULL DEFAULT 'unfinished'",
+        )?;
+        self.ensure_column(
+            "todo_progresses",
+            "completed_at",
+            "ALTER TABLE todo_progresses ADD COLUMN completed_at TEXT",
+        )?;
+        self.ensure_column(
+            "todo_progresses",
+            "order_index",
+            "ALTER TABLE todo_progresses ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.conn.execute_batch(
+            r#"
+            WITH ranked AS (
+              SELECT
+                id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY todo_id
+                  ORDER BY progress_date DESC, created_at DESC, id DESC
+                ) - 1 AS next_order_index
+              FROM todo_progresses
+            )
+            UPDATE todo_progresses
+            SET order_index = (
+              SELECT next_order_index FROM ranked WHERE ranked.id = todo_progresses.id
+            )
+            WHERE order_index = 0;
+            "#,
+        )?;
+        Ok(())
+    }
+
+    fn migrate_project_kind_schema(&mut self) -> Result<()> {
+        self.ensure_column(
+            "projects",
+            "kind",
+            "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'",
+        )?;
+        self.conn.execute(
+            "UPDATE projects SET kind = ?1 WHERE kind NOT IN (?1, ?2) OR TRIM(COALESCE(kind, '')) = ''",
+            params![PROJECT_KIND_NORMAL, PROJECT_KIND_REFERENCE],
+        )?;
+        self.ensure_reference_project()
+    }
+
+    fn migrate_project_entity_tags_schema(&mut self) -> Result<()> {
+        self.rebuild_notes_for_project_level_records()?;
+        self.rebuild_file_tags_for_project_scope()?;
+        self.conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS note_tag_links (
+              note_id INTEGER NOT NULL,
+              tag_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(note_id, tag_id),
+              FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE,
+              FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS todo_tag_links (
+              todo_id INTEGER NOT NULL,
+              tag_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(todo_id, tag_id),
+              FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+              FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
+            );
+            "#,
+        )?;
+
+        self.migrate_legacy_file_tags_to_project_scope()?;
+        self.migrate_activity_titles_to_project_tags()?;
+        self.conn.execute("DELETE FROM conclusions", [])?;
+        self.conn.execute(
+            "DELETE FROM ai_suggestions WHERE suggestion_type = 'conclusion'",
+            [],
+        )?;
+        Ok(())
+    }
+
+    fn rebuild_notes_for_project_level_records(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE IF NOT EXISTS notes_next (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              activity_id INTEGER,
+              note_type TEXT NOT NULL,
+              title TEXT,
+              content_markdown TEXT NOT NULL DEFAULT '',
+              content_html TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+            );
+            INSERT INTO notes_next (
+              id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+            )
+            SELECT id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+            FROM notes;
+            DROP TABLE notes;
+            ALTER TABLE notes_next RENAME TO notes;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )?;
+        Ok(())
+    }
+
+    fn rebuild_file_tags_for_project_scope(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE IF NOT EXISTS file_tag_options_next (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER,
+              label TEXT NOT NULL COLLATE NOCASE,
+              color_key TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+            INSERT INTO file_tag_options_next (id, project_id, label, color_key, created_at, updated_at)
+            SELECT id, project_id, label, color_key, created_at, updated_at
+            FROM file_tag_options;
+            DROP TABLE file_tag_options;
+            ALTER TABLE file_tag_options_next RENAME TO file_tag_options;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )?;
+        Ok(())
+    }
+
+    fn migrate_legacy_file_tags_to_project_scope(&mut self) -> Result<()> {
+        let unscoped_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM file_tag_options WHERE project_id IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        if unscoped_count == 0 {
+            return Ok(());
+        }
+
+        let timestamp = now_iso();
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT f.id, f.label, f.color_key, d.project_id
+            FROM file_tag_options f
+            LEFT JOIN document_tag_links l ON l.tag_id = f.id
+            LEFT JOIN documents d ON d.id = l.document_id
+            WHERE f.project_id IS NULL
+            "#,
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        for (old_tag_id, label, color_key, maybe_project_id) in rows {
+            let Some(project_id) = maybe_project_id else {
+                continue;
+            };
+            let new_tag_id =
+                self.upsert_project_tag_by_label(project_id, &label, &color_key, &timestamp)?;
+            self.conn.execute(
+                r#"
+                UPDATE OR IGNORE document_tag_links
+                SET tag_id = ?1
+                WHERE tag_id = ?2
+                  AND document_id IN (SELECT id FROM documents WHERE project_id = ?3)
+                "#,
+                params![new_tag_id, old_tag_id, project_id],
+            )?;
+        }
+
+        self.conn
+            .execute("DELETE FROM file_tag_options WHERE project_id IS NULL", [])?;
+        Ok(())
+    }
+
+    fn migrate_activity_titles_to_project_tags(&mut self) -> Result<()> {
+        let timestamp = now_iso();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, project_id, title FROM activities ORDER BY id ASC")?;
+        let activities = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        for (activity_id, project_id, title) in activities {
+            let label = title.trim();
+            let label = if label.is_empty() {
+                format!("{UNTITLED_ACTIVITY_PREFIX} {activity_id}")
+            } else {
+                label.to_string()
+            };
+            let tag_id = self.upsert_project_tag_by_label(
+                project_id,
+                &label,
+                DEFAULT_RECORD_TYPE_COLOR_KEY,
+                &timestamp,
+            )?;
+
+            self.conn.execute(
+                r#"
+                INSERT OR IGNORE INTO note_tag_links (note_id, tag_id, created_at)
+                SELECT id, ?1, ?2 FROM notes WHERE activity_id = ?3
+                "#,
+                params![tag_id, timestamp, activity_id],
+            )?;
+            self.conn.execute(
+                r#"
+                INSERT OR IGNORE INTO todo_tag_links (todo_id, tag_id, created_at)
+                SELECT id, ?1, ?2 FROM todos WHERE activity_id = ?3
+                "#,
+                params![tag_id, timestamp, activity_id],
+            )?;
+            self.conn.execute(
+                r#"
+                INSERT OR IGNORE INTO document_tag_links (document_id, tag_id, created_at)
+                SELECT id, ?1, ?2
+                FROM documents
+                WHERE activity_id = ?3 AND storage_mode != ?4
+                "#,
+                params![
+                    tag_id,
+                    timestamp,
+                    activity_id,
+                    MANAGED_NOTE_IMAGE_STORAGE_MODE
+                ],
+            )?;
+        }
+
+        self.conn
+            .execute("UPDATE notes SET activity_id = NULL", [])?;
+        self.conn
+            .execute("UPDATE todos SET activity_id = NULL", [])?;
+        self.conn
+            .execute("UPDATE documents SET activity_id = NULL", [])?;
+        Ok(())
+    }
+
+    fn ensure_reference_project(&mut self) -> Result<()> {
+        let timestamp = now_iso();
+        let existing_reference_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM projects WHERE kind = ?1 ORDER BY id ASC LIMIT 1",
+                [PROJECT_KIND_REFERENCE],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        if let Some(project_id) = existing_reference_id {
+            let reference_root = self.ensure_reference_project_root()?;
+            self.conn.execute(
+                r#"
+                UPDATE projects
+                SET name = ?1,
+                    root_path = ?2,
+                    status = 'active',
+                    is_archived = 0
+                WHERE id = ?3
+                "#,
+                params![
+                    REFERENCE_PROJECT_NAME,
+                    self.encode_path_ref(&reference_root),
+                    project_id
+                ],
+            )?;
+            self.conn.execute(
+                "UPDATE projects SET kind = ?1 WHERE kind = ?2 AND id <> ?3",
+                params![PROJECT_KIND_NORMAL, PROJECT_KIND_REFERENCE, project_id],
+            )?;
+            return Ok(());
+        }
+
+        let existing_named_id = self
+            .conn
+            .query_row(
+                "SELECT id FROM projects WHERE name = ?1 ORDER BY id ASC LIMIT 1",
+                [REFERENCE_PROJECT_NAME],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let reference_root = self.ensure_reference_project_root()?;
+
+        if let Some(project_id) = existing_named_id {
+            self.conn.execute(
+                r#"
+                UPDATE projects
+                SET kind = ?1,
+                    status = 'active',
+                    root_path = ?2,
+                    is_archived = 0,
+                    updated_at = ?3
+                WHERE id = ?4
+                "#,
+                params![
+                    PROJECT_KIND_REFERENCE,
+                    self.encode_path_ref(&reference_root),
+                    timestamp,
+                    project_id
+                ],
+            )?;
+            return Ok(());
+        }
+
+        self.conn.execute(
+            r#"
+            INSERT INTO projects (
+              name, kind, status, root_path, summary, summary_markdown, summary_html,
+              is_archived, created_at, updated_at
+            )
+            VALUES (?1, ?2, 'active', ?3, '', '', '', 0, ?4, ?5)
+            "#,
+            params![
+                REFERENCE_PROJECT_NAME,
+                PROJECT_KIND_REFERENCE,
+                self.encode_path_ref(&reference_root),
+                timestamp,
+                timestamp
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn ensure_reference_project_root(&self) -> Result<PathBuf> {
+        let reference_root = self.workspace_root.join(REFERENCE_PROJECT_NAME);
+        fs::create_dir_all(&reference_root).with_context(|| {
+            format!(
+                "failed to create reference project folder at {}",
+                reference_root.display()
+            )
+        })?;
+        Ok(reference_root)
     }
 
     fn ensure_record_type_settings_seeded(&mut self) -> Result<()> {
@@ -9769,9 +10688,8 @@ fn ai_artifact_scope_key(
 }
 
 fn normalize_internal_reference_label(kind: &str, value: &str) -> String {
-    let normalized = normalize_internal_reference_match_text(&strip_internal_reference_label_tokens(
-        value,
-    ));
+    let normalized =
+        normalize_internal_reference_match_text(&strip_internal_reference_label_tokens(value));
     let fallback = match kind {
         "note" => "记录",
         "conclusion" => "结论",
@@ -9891,7 +10809,8 @@ fn split_internal_reference_search_prefix(value: &str) -> Option<(&str, &str)> {
 fn build_internal_reference_search_fields<const N: usize>(
     items: [(u8, String); N],
 ) -> Vec<InternalReferenceSearchField> {
-    items.into_iter()
+    items
+        .into_iter()
         .filter_map(|(priority, text)| {
             let normalized = normalize_internal_reference_match_text(&text);
             if normalized.is_empty() {
@@ -10913,6 +11832,7 @@ mod tests {
                 activity_id,
                 content: content.to_string(),
                 priority: priority.to_string(),
+                tag_ids: vec![],
             })
             .unwrap()
     }
@@ -10927,12 +11847,13 @@ mod tests {
         database
             .note_upsert(NoteUpsertInput {
                 project_id,
-                activity_id,
+                activity_id: Some(activity_id),
                 note_id: None,
                 note_type: note_type.to_string(),
                 title: Some("记录".to_string()),
                 markdown: markdown.to_string(),
                 html: format!("<p>{markdown}</p>"),
+                tag_ids: vec![],
             })
             .unwrap()
     }
@@ -10948,12 +11869,13 @@ mod tests {
         database
             .note_upsert(NoteUpsertInput {
                 project_id,
-                activity_id,
+                activity_id: Some(activity_id),
                 note_id: None,
                 note_type: note_type.to_string(),
                 title: Some(title.to_string()),
                 markdown: markdown.to_string(),
                 html: format!("<p>{markdown}</p>"),
+                tag_ids: vec![],
             })
             .unwrap()
     }
@@ -11103,6 +12025,58 @@ mod tests {
     }
 
     #[test]
+    fn reference_project_is_singleton_and_disallows_activity_lifecycle() {
+        let (_harness, mut database) = setup_database();
+        let projects = database
+            .projects_list(ProjectsListInput {
+                include_archived: Some(true),
+            })
+            .unwrap();
+        let reference_projects = projects
+            .iter()
+            .filter(|project| project.kind == PROJECT_KIND_REFERENCE)
+            .collect::<Vec<_>>();
+
+        assert_eq!(reference_projects.len(), 1);
+        assert_eq!(reference_projects[0].name, REFERENCE_PROJECT_NAME);
+        assert_eq!(reference_projects[0].activity_count, 0);
+
+        let reference_project = database.project_record(reference_projects[0].id).unwrap();
+        assert_eq!(reference_project.kind, PROJECT_KIND_REFERENCE);
+        assert!(Path::new(&reference_project.root_path).exists());
+
+        let activity_error = database
+            .activity_create(ActivityCreateInput {
+                project_id: reference_project.id,
+                attribute_option_id: None,
+                title: Some("不应该创建".to_string()),
+                activity_time: "2026-04-06T08:00:00.000Z".to_string(),
+            })
+            .unwrap_err();
+        assert!(activity_error.to_string().contains("不支持创建 Activity"));
+
+        let archive_error = database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: reference_project.id,
+                is_archived: true,
+            })
+            .unwrap_err();
+        assert!(archive_error.to_string().contains("不可归档"));
+
+        let rename_error = database
+            .project_update_summary(ProjectUpdateSummaryInput {
+                project_id: reference_project.id,
+                name: Some("资料改名".to_string()),
+                summary: reference_project.summary,
+                summary_markdown: Some(reference_project.summary_markdown),
+                summary_html: Some(reference_project.summary_html),
+                status: Some(reference_project.status),
+            })
+            .unwrap_err();
+        assert!(rename_error.to_string().contains("名称不可修改"));
+    }
+
+    #[test]
     fn reset_and_seed_demo_data_replaces_existing_workspace_data_with_demo_fixture() {
         let (harness, mut database) = setup_database();
         let legacy_project = create_project(&mut database, &harness.workspace_root);
@@ -11113,7 +12087,7 @@ mod tests {
             .reset_and_seed_demo_data(&harness.workspace_root)
             .unwrap();
 
-        assert_eq!(summary.project_count, 3);
+        assert_eq!(summary.project_count, 4);
         assert!(summary.activity_count >= 9);
         assert!(summary.note_count >= 9);
         assert!(summary.conclusion_count >= 9);
@@ -11135,6 +12109,7 @@ mod tests {
         assert!(project_names.contains(&"智能客服知识库升级".to_string()));
         assert!(project_names.contains(&"海外销售线索评分 Copilot".to_string()));
         assert!(project_names.contains(&"合同审阅 AI 助手试点".to_string()));
+        assert!(project_names.contains(&REFERENCE_PROJECT_NAME.to_string()));
 
         let search_results = database
             .workspace_search(WorkspaceSearchInput {
@@ -11264,7 +12239,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(action.label, "润色");
-        assert_eq!(database.ai_settings_get().unwrap().editor_rewrite_actions.len(), 1);
+        assert_eq!(
+            database
+                .ai_settings_get()
+                .unwrap()
+                .editor_rewrite_actions
+                .len(),
+            1
+        );
 
         let updated = database
             .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
@@ -11348,9 +12330,11 @@ mod tests {
 
     #[test]
     fn ai_editor_rewrite_placeholder_validator_rejects_missing_tokens() {
-        let error =
-            validate_rewrite_placeholder_tokens("第一段\n\n第二段", &["PM_TOKEN_IMAGE_1".to_string()])
-                .unwrap_err();
+        let error = validate_rewrite_placeholder_tokens(
+            "第一段\n\n第二段",
+            &["PM_TOKEN_IMAGE_1".to_string()],
+        )
+        .unwrap_err();
         assert!(error
             .to_string()
             .contains("missing required placeholder token"));
@@ -11519,12 +12503,13 @@ mod tests {
         database
             .note_upsert(NoteUpsertInput {
                 project_id: project_a.id,
-                activity_id: activity_a.id,
+                activity_id: Some(activity_a.id),
                 note_id: Some(note_a.id),
                 note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("记录".to_string()),
                 markdown: "记录 A updated".to_string(),
                 html: "<p>记录 A updated</p>".to_string(),
+                tag_ids: vec![],
             })
             .unwrap();
 
@@ -11755,7 +12740,7 @@ mod tests {
         let suggestions = database
             .ai_generate_note_suggestions(AiGenerateInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: Some(note.id),
             })
             .unwrap();
@@ -11777,7 +12762,7 @@ mod tests {
         let suggestions = database
             .ai_generate_note_suggestions(AiGenerateInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: Some(note.id),
             })
             .unwrap();
@@ -11813,7 +12798,7 @@ mod tests {
         let error = database
             .ai_generate_note_suggestions(AiGenerateInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: Some(note.id),
             })
             .unwrap_err();
@@ -11860,7 +12845,7 @@ mod tests {
         let suggestions = database
             .ai_generate_note_suggestions(AiGenerateInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: Some(note.id),
             })
             .unwrap();
@@ -11976,7 +12961,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(rebound.activity_id, Some(activity_b.id));
-        assert_eq!(rebound.source_activity_title.as_deref(), Some("Project Retro"));
+        assert_eq!(
+            rebound.source_activity_title.as_deref(),
+            Some("Project Retro")
+        );
 
         let cleared = database
             .todo_update_activity(TodoUpdateActivityInput {
@@ -12041,7 +13029,10 @@ mod tests {
             .unwrap();
 
         let ids = conclusions.iter().map(|item| item.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![pinned_newest.id, pinned_older.id, unpinned_newer.id]);
+        assert_eq!(
+            ids,
+            vec![pinned_newest.id, pinned_older.id, unpinned_newer.id]
+        );
     }
 
     #[test]
@@ -12192,6 +13183,7 @@ mod tests {
                 progress_id: progress.id,
                 content: "已同步法务并补充截止时间".to_string(),
                 progress_date: "2026-04-07".to_string(),
+                status: None,
             })
             .unwrap();
 
@@ -12203,6 +13195,55 @@ mod tests {
         assert_eq!(refreshed.progresses[0].content, "已同步法务并补充截止时间");
         assert_eq!(refreshed.progresses[0].progress_date, "2026-04-07");
         assert_ne!(refreshed.updated_at, todo.updated_at);
+    }
+
+    #[test]
+    fn todo_progress_status_tracks_subitem_completion() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Budget Review");
+        let todo = create_todo(
+            &mut database,
+            project.id,
+            Some(activity.id),
+            "Prepare legal summary",
+            "not_urgent_important",
+        );
+        let progress = database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: todo.id,
+                content: "等待财务确认".to_string(),
+                progress_date: "2026-04-05".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(progress.status, "unfinished");
+        assert_eq!(progress.completed_at, None);
+        assert_eq!(progress.order_index, 0);
+
+        let finished = database
+            .todo_update_progress(TodoUpdateProgressInput {
+                progress_id: progress.id,
+                content: progress.content.clone(),
+                progress_date: progress.progress_date.clone(),
+                status: Some("finished".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(finished.status, "finished");
+        assert!(finished.completed_at.is_some());
+
+        let reopened = database
+            .todo_update_progress(TodoUpdateProgressInput {
+                progress_id: progress.id,
+                content: progress.content,
+                progress_date: progress.progress_date,
+                status: Some("unfinished".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(reopened.status, "unfinished");
+        assert_eq!(reopened.completed_at, None);
     }
 
     #[test]
@@ -12269,7 +13310,10 @@ mod tests {
         assert_eq!(updated.name, "Alpha Prime");
         assert_eq!(updated.summary, "最新项目简介");
         assert_eq!(updated.summary_markdown, "## 最新项目简介\n- 风险已同步");
-        assert_eq!(updated.summary_html, "<h2>最新项目简介</h2><ul><li>风险已同步</li></ul>");
+        assert_eq!(
+            updated.summary_html,
+            "<h2>最新项目简介</h2><ul><li>风险已同步</li></ul>"
+        );
         assert_ne!(updated.updated_at, project.updated_at);
         assert_eq!(
             updated.root_path,
@@ -12411,12 +13455,13 @@ mod tests {
         let note = database
             .note_upsert(NoteUpsertInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: None,
                 note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("路径联动记录".to_string()),
                 markdown: "[图片] 截图\n[附件] 项目附件\n[附件] 活动附件".to_string(),
                 html: rich_html.clone(),
+                tag_ids: vec![],
             })
             .unwrap();
         let conclusion = database
@@ -12720,7 +13765,7 @@ mod tests {
 
         database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: None,
                 brief_markdown: None,
                 brief_html: None,
@@ -12764,12 +13809,10 @@ mod tests {
 
         let updated = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: None,
                 brief_markdown: Some("## 当前背景\n- 已完成范围澄清".to_string()),
-                brief_html: Some(
-                    "<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>".to_string(),
-                ),
+                brief_html: Some("<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>".to_string()),
                 attribute_option_id: None,
                 clear_attribute_option: None,
                 activity_time: None,
@@ -12787,7 +13830,7 @@ mod tests {
 
         let renamed = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: Some("Kickoff Review".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -12830,7 +13873,7 @@ mod tests {
 
         let updated = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: Some("   ".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -12923,7 +13966,7 @@ mod tests {
 
         let deleted = database
             .activity_delete(ActivityDeleteInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
             })
             .unwrap();
 
@@ -12939,7 +13982,15 @@ mod tests {
         assert!(!Path::new(&activity_document.managed_path).exists());
         assert!(!activity_dir.exists());
         assert!(!note_asset_dir.exists());
-        assert_eq!(database.activity_list(ProjectIdInput { project_id: project.id }).unwrap().len(), 0);
+        assert_eq!(
+            database
+                .activity_list(ProjectIdInput {
+                    project_id: project.id
+                })
+                .unwrap()
+                .len(),
+            0
+        );
         assert_eq!(
             database
                 .fetch_documents_for_project(project.id, false)
@@ -13416,7 +14467,9 @@ mod tests {
         assert!(project_results
             .iter()
             .any(|result| result.kind == "document" && result.id == document.id));
-        assert!(!project_results.iter().any(|result| result.id == other_todo.id));
+        assert!(!project_results
+            .iter()
+            .any(|result| result.id == other_todo.id));
         assert!(workspace_results
             .iter()
             .any(|result| result.kind == "todo" && result.id == other_todo.id));
@@ -13425,13 +14478,18 @@ mod tests {
     #[test]
     fn workspace_search_prioritizes_fields_match_strength_and_notes() {
         let (harness, mut database) = setup_database();
-        let project_exact = create_project_named(&mut database, &harness.workspace_root, "预算", None);
+        let project_exact =
+            create_project_named(&mut database, &harness.workspace_root, "预算", None);
         let project_prefix =
             create_project_named(&mut database, &harness.workspace_root, "预算平台", None);
         let project_contains =
             create_project_named(&mut database, &harness.workspace_root, "推进预算系统", None);
-        let project_summary =
-            create_project_named(&mut database, &harness.workspace_root, "Alpha", Some("预算摘要"));
+        let project_summary = create_project_named(
+            &mut database,
+            &harness.workspace_root,
+            "Alpha",
+            Some("预算摘要"),
+        );
 
         let activity = create_activity(&mut database, project_exact.id, "预算");
         let note = create_note_with_title(
@@ -13748,7 +14806,9 @@ mod tests {
                 limit: 16,
             })
             .unwrap();
-        assert!(empty_todo_results.iter().all(|result| result.kind == "todo"));
+        assert!(empty_todo_results
+            .iter()
+            .all(|result| result.kind == "todo"));
         assert_eq!(empty_todo_results[0].id, todo_recent.id);
 
         let invalid_prefix_results = database
@@ -13782,8 +14842,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 note_id: Some(note.id),
                 markdown: "[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排".to_string(),
-                html: "<p>[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排</p>"
-                    .to_string(),
+                html: "<p>[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排</p>".to_string(),
                 promoted_to_project: false,
                 is_pinned: None,
             })
@@ -13833,7 +14892,10 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(resolved_conclusion.label, "预算审批需要补充材料并确认时间...");
+        assert_eq!(
+            resolved_conclusion.label,
+            "预算审批需要补充材料并确认时间..."
+        );
         assert!(!resolved_conclusion.label.contains("[["));
         assert_eq!(resolved_todo.label, "联系财务安排评审并确认后续计划...");
         assert!(!resolved_todo.label.contains("[["));
@@ -14002,7 +15064,10 @@ mod tests {
             .unwrap();
 
         assert!(Path::new(&document.managed_path).exists());
-        assert_eq!(fs::read(&document.managed_path).unwrap(), b"clipboard-note-image");
+        assert_eq!(
+            fs::read(&document.managed_path).unwrap(),
+            b"clipboard-note-image"
+        );
         assert!(document.name.ends_with(".heic"));
         assert!(document.managed_path.ends_with(".heic"));
     }
@@ -14036,12 +15101,13 @@ mod tests {
         let note = database
             .note_upsert(NoteUpsertInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: None,
                 note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("活动附件记录".to_string()),
                 markdown: "[附件] agenda".to_string(),
                 html: rich_html.clone(),
+                tag_ids: vec![],
             })
             .unwrap();
         let conclusion = database
@@ -14059,7 +15125,7 @@ mod tests {
         let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
         let updated_activity = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: Some("Review Final".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -14105,7 +15171,7 @@ mod tests {
 
         let error = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 title: Some("Review Final".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -14276,6 +15342,7 @@ mod tests {
         let project = create_project(&mut database, &harness.workspace_root);
         let tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "待归档".to_string(),
                 color_key: "amber".to_string(),
@@ -14488,12 +15555,80 @@ mod tests {
     }
 
     #[test]
+    fn contact_upsert_search_and_delete_round_trip() {
+        let (_harness, mut database) = setup_database();
+
+        let created = database
+            .contact_upsert(ContactUpsertInput {
+                id: None,
+                name: "张三".to_string(),
+                pinyin_full: Some("zhangsan".to_string()),
+                pinyin_abbr: Some("zs".to_string()),
+                email: Some("zhangsan@example.com".to_string()),
+                employee_id: Some("E007".to_string()),
+                role: Some("PM".to_string()),
+                department: Some("Product".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(created.name, "张三");
+        assert_eq!(created.pinyin_full, "zhangsan");
+        assert_eq!(created.pinyin_abbr, "zs");
+
+        let pinyin_matches = database
+            .contact_search(ContactSearchInput {
+                query: "zs".to_string(),
+                limit: Some(10),
+            })
+            .unwrap();
+        assert_eq!(pinyin_matches[0].id, created.id);
+
+        let email_matches = database
+            .contact_search(ContactSearchInput {
+                query: "example.com".to_string(),
+                limit: Some(10),
+            })
+            .unwrap();
+        assert_eq!(email_matches[0].id, created.id);
+
+        let updated = database
+            .contact_upsert(ContactUpsertInput {
+                id: Some(created.id),
+                name: "张三丰".to_string(),
+                pinyin_full: Some("zhangsanfeng".to_string()),
+                pinyin_abbr: Some("zsf".to_string()),
+                email: Some("zsf@example.com".to_string()),
+                employee_id: Some("E008".to_string()),
+                role: Some("Tech Lead".to_string()),
+                department: Some("Engineering".to_string()),
+            })
+            .unwrap();
+        assert_eq!(updated.name, "张三丰");
+        assert_eq!(updated.employee_id, "E008");
+
+        let deleted = database
+            .contact_delete(ContactDeleteInput {
+                contact_id: created.id,
+            })
+            .unwrap();
+        assert_eq!(deleted.id, created.id);
+        assert!(database
+            .contact_search(ContactSearchInput {
+                query: "zsf".to_string(),
+                limit: Some(10),
+            })
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn file_tag_settings_round_trip_usage_counts_and_document_payloads() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
 
         let legal_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "法务".to_string(),
                 color_key: "blue".to_string(),
@@ -14501,6 +15636,7 @@ mod tests {
             .unwrap();
         let urgent_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "紧急".to_string(),
                 color_key: "red".to_string(),
@@ -14562,6 +15698,7 @@ mod tests {
 
         let draft_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "草稿".to_string(),
                 color_key: "slate".to_string(),
@@ -14569,6 +15706,7 @@ mod tests {
             .unwrap();
         let review_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "待审核".to_string(),
                 color_key: "amber".to_string(),
@@ -14576,6 +15714,7 @@ mod tests {
             .unwrap();
         let final_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "定稿".to_string(),
                 color_key: "green".to_string(),
@@ -14644,6 +15783,7 @@ mod tests {
 
         let tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "合同".to_string(),
                 color_key: "teal".to_string(),
@@ -14678,6 +15818,7 @@ mod tests {
 
         let error = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
                 id: None,
                 label: "非法颜色".to_string(),
                 color_key: "purple".to_string(),
@@ -14827,12 +15968,13 @@ mod tests {
         let error = database
             .note_upsert(NoteUpsertInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: Some(note.id),
                 note_type: MEETING_RECORD_TYPE_KEY.to_string(),
                 title: Some("记录".to_string()),
                 markdown: "Updated detail".to_string(),
                 html: "<p>Updated detail</p>".to_string(),
+                tag_ids: vec![],
             })
             .unwrap_err();
 
@@ -15005,12 +16147,13 @@ mod tests {
         let saved = database
             .note_upsert(NoteUpsertInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: None,
                 note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("带图片记录".to_string()),
                 markdown: "[图片] 截图".to_string(),
                 html: html.clone(),
+                tag_ids: vec![],
             })
             .unwrap();
 
@@ -15030,12 +16173,13 @@ mod tests {
         let saved = database
             .note_upsert(NoteUpsertInput {
                 project_id: project.id,
-                activity_id: activity.id,
+                activity_id: Some(activity.id),
                 note_id: None,
                 note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("带图片元数据记录".to_string()),
                 markdown: "[图片] 截图".to_string(),
                 html: html.clone(),
+                tag_ids: vec![],
             })
             .unwrap();
 
@@ -15537,6 +16681,52 @@ fn validate_file_tag_label(value: &str) -> Result<String> {
     Ok(normalized.to_string())
 }
 
+fn validate_contact_name(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("contact name cannot be empty"));
+    }
+    if normalized.chars().count() > 64 {
+        return Err(anyhow!("contact name must be 64 characters or fewer"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn normalize_contact_field(value: Option<&str>, field: &str, max_len: usize) -> Result<String> {
+    let normalized = value.unwrap_or_default().trim();
+    if normalized.chars().count() > max_len {
+        return Err(anyhow!("{field} must be {max_len} characters or fewer"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn normalize_contact_pinyin(value: Option<&str>, fallback: &str, field: &str) -> Result<String> {
+    let normalized = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback);
+    if normalized.chars().count() > 128 {
+        return Err(anyhow!("{field} must be 128 characters or fewer"));
+    }
+    Ok(normalized.to_lowercase())
+}
+
+fn derive_contact_search_text(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn derive_contact_search_abbr(value: &str) -> String {
+    value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter_map(|part| part.chars().next())
+        .collect::<String>()
+        .to_lowercase()
+}
+
 fn validate_file_tag_color_key(value: &str) -> Result<String> {
     let normalized = value.trim();
     if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
@@ -15731,11 +16921,7 @@ fn normalize_ai_editor_rewrite_markdown(value: &str) -> String {
     let trimmed = value.trim();
 
     if let Some(stripped) = trimmed.strip_prefix("```") {
-        let without_language = stripped
-            .lines()
-            .skip(1)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let without_language = stripped.lines().skip(1).collect::<Vec<_>>().join("\n");
         if let Some(inner) = without_language.strip_suffix("```") {
             return inner.trim().to_string();
         }

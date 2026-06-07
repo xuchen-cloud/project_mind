@@ -66,11 +66,6 @@ export const AI_FEATURE_OPTIONS: Array<{
   label: string;
 }> = [
   {
-    value: "summary.activity_summary",
-    capability: "summary",
-    label: "Activity 总结",
-  },
-  {
     value: "summary.project_brief",
     capability: "summary",
     label: "项目概览",
@@ -136,8 +131,6 @@ export function priorityLabel(value: string) {
 
 export function suggestionLabel(type: string) {
   switch (type) {
-    case "activity_title":
-      return "标题建议";
     case "conclusion":
       return "结论建议";
     case "todo":

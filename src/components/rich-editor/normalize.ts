@@ -12,13 +12,13 @@ type BoundarySide = "start" | "end";
 export function normalizeRichEditorValue(value: RichEditorValue): RichEditorValue {
   return {
     html: normalizeRichEditorHtml(value.html),
-    text: value.text.trim(),
-    markdown: value.markdown.trim(),
+    text: value.text,
+    markdown: value.markdown,
   };
 }
 
 export function normalizeRichEditorHtml(html?: string | null) {
-  const normalized = html?.trim() ?? "";
+  const normalized = html ?? "";
 
   if (!normalized) {
     return EMPTY_RICH_EDITOR_HTML;
@@ -29,9 +29,10 @@ export function normalizeRichEditorHtml(html?: string | null) {
   }
 
   const doc = new DOMParser().parseFromString(normalized, "text/html");
-  trimDocumentBoundaryWhitespace(doc.body);
+  // Don't trim boundary whitespace - preserve user's formatting
+  // trimDocumentBoundaryWhitespace(doc.body);
 
-  const serialized = doc.body.innerHTML.trim();
+  const serialized = doc.body.innerHTML;
   return serialized.length > 0 ? serialized : EMPTY_RICH_EDITOR_HTML;
 }
 

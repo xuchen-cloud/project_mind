@@ -136,28 +136,8 @@ export function projectPath(projectId: number, focus?: string) {
     : `/projects/${projectId}`;
 }
 
-export function activityPath(projectId: number, activityId: number, focus?: string) {
-  return focus
-    ? `/projects/${projectId}/activities/${activityId}?focus=${encodeURIComponent(focus)}`
-    : `/projects/${projectId}/activities/${activityId}`;
-}
-
-export function activityNotePath(
-  projectId: number,
-  activityId: number,
-  noteId: number,
-) {
-  return `/projects/${projectId}/activities/${activityId}/notes/${noteId}`;
-}
-
-export function activityDraftNotePath(
-  projectId: number,
-  activityId: number,
-  draftLocalId: string,
-) {
-  return `/projects/${projectId}/activities/${activityId}/notes/draft/${encodeURIComponent(
-    draftLocalId,
-  )}`;
+export function recordPath(projectId: number, noteId: number) {
+  return `/projects/${projectId}/records/${noteId}`;
 }
 
 export function todayPath() {

@@ -1,14 +1,24 @@
-import { render, screen } from "@testing-library/react";
+import { render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 
 import type { ProjectListItem, TodoPriority, TodoRecord } from "../../lib/types";
 import { TodayTodoSection } from "./TodayTodoSection";
+
+// TodayTodoSection now uses useContactMentionOptions(), which needs a QueryClient.
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 const projects: ProjectListItem[] = [
   {
     id: 1,
     name: "Alpha",
+    kind: "normal",
     status: "active",
     rootPath: "/tmp/alpha",
     summary: "",
@@ -22,6 +32,7 @@ const projects: ProjectListItem[] = [
   {
     id: 2,
     name: "Beta",
+    kind: "normal",
     status: "active",
     rootPath: "/tmp/beta",
     summary: "",
@@ -99,7 +110,7 @@ function renderSection(
     onOpenProject?: (projectId: number) => void;
   } = {},
 ) {
-  render(
+  return render(
     <TodayTodoSection
       projects={projects}
       activityOptionsByProject={activityOptionsByProject}
@@ -120,6 +131,10 @@ function renderSection(
 }
 
 describe("TodayTodoSection", () => {
+  beforeEach(() => {
+    installMemoryLocalStorage();
+  });
+
   it("groups todos by project using project order", () => {
     renderSection();
 
@@ -182,6 +197,47 @@ describe("TodayTodoSection", () => {
     });
   });
 
+  it("restores an unfinished composer draft for the matching project", async () => {
+    window.localStorage.setItem(
+      "project-mind:today-todo-draft",
+      JSON.stringify({
+        projectId: 2,
+        content: "休眠前的总览 Todo",
+        priority: "urgent_important",
+      }),
+    );
+
+    renderSection(todos);
+
+    expect(screen.getByDisplayValue("休眠前的总览 Todo")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("在 Beta 里新增一条 Todo"),
+    ).toBeInTheDocument();
+  });
+
+  it("flushes the overview todo draft on window blur", async () => {
+    const user = userEvent.setup();
+
+    renderSection(todos);
+
+    await user.click(screen.getByRole("button", { name: "Alpha 新建 Todo" }));
+    await user.type(
+      screen.getByPlaceholderText("在 Alpha 里新增一条 Todo"),
+      "窗口失焦前的总览 Todo",
+    );
+    window.dispatchEvent(new Event("blur"));
+
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("project-mind:today-todo-draft") ?? "{}",
+      ),
+    ).toMatchObject({
+      projectId: 1,
+      content: "窗口失焦前的总览 Todo",
+      priority: "not_urgent_important",
+    });
+  });
+
   it("creates todos without showing an activity selector", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
@@ -240,3 +296,17 @@ describe("TodayTodoSection", () => {
     expect(onOpenProject).toHaveBeenCalledWith(1);
   });
 });
+
+function installMemoryLocalStorage() {
+  const entries = new Map<string, string>();
+
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+      clear: () => entries.clear(),
+    },
+  });
+}

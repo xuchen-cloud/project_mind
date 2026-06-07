@@ -143,4 +143,50 @@ describe("TodoListItem", () => {
 
     expect(onUpdateActivity).toHaveBeenCalledWith(7, null);
   });
+
+  it("marks an unfinished sub item as finished", async () => {
+    const user = userEvent.setup();
+    const onUpdateProgress = vi.fn(async () => undefined);
+
+    render(
+      <TodoListItem
+        todo={{
+          ...todo,
+          progresses: [
+            {
+              id: 31,
+              todoId: todo.id,
+              content: "等待财务确认",
+              progressDate: "2026-04-05",
+              createdAt: "2026-04-05T09:00:00.000Z",
+              status: "unfinished",
+              completedAt: null,
+              orderIndex: 0,
+            },
+          ],
+        }}
+        activityNameById={new Map([[11, "预算讨论"]])}
+        activityOptions={[{ id: 11, title: "预算讨论" }]}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onUpdateActivity={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={onUpdateProgress}
+        onDeleteProgress={vi.fn()}
+        onOpenTodoSource={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onOpenContextMenu={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("等待财务确认")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "标记子项完成" }));
+
+    expect(onUpdateProgress).toHaveBeenCalledWith(31, {
+      content: "等待财务确认",
+      progressDate: "2026-04-05",
+      status: "finished",
+    });
+  });
 });

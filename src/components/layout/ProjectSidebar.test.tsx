@@ -1,9 +1,21 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 describe("ProjectSidebar", () => {
   beforeEach(() => {
@@ -25,9 +37,10 @@ describe("ProjectSidebar", () => {
     const onCreateActivity = vi.fn();
     const onDeleteActivity = vi.fn();
 
-    render(
+    renderWithProviders(
       <ProjectSidebar
         project={{
+          id: 1,
           name: "Alpha Project",
           rootPath: "/tmp/alpha-project",
           isArchived: false,
@@ -69,7 +82,10 @@ describe("ProjectSidebar", () => {
     );
 
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
-    expect(screen.getByText("Activities")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Activities" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(screen.queryByText("2026/4/6")).not.toBeInTheDocument();
     expect(screen.queryByText("未设置属性")).not.toBeInTheDocument();
     expect(screen.getByLabelText("文件 3")).toBeInTheDocument();
@@ -120,13 +136,39 @@ describe("ProjectSidebar", () => {
     expect(onOpenActivity).toHaveBeenCalledWith(12);
   });
 
+  it("renders reference projects without activity and file tabs", () => {
+    renderWithProviders(
+      <ProjectSidebar
+        project={{
+          id: 1,
+          name: "资料",
+          kind: "reference",
+          rootPath: "/tmp/workspace/资料",
+          isArchived: false,
+        }}
+        activities={[]}
+        onOpenProject={vi.fn()}
+        onOpenActivity={vi.fn()}
+        onCreateActivity={vi.fn()}
+        onDeleteActivity={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("资料项目")).toBeInTheDocument();
+    expect(screen.getByText(/不创建 Activity/u)).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /记录/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /文件/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新建 Activity" })).not.toBeInTheDocument();
+  });
+
   it("shows delete inside the activity context menu on right click", async () => {
     const user = userEvent.setup();
     const onDeleteActivity = vi.fn();
 
-    render(
+    renderWithProviders(
       <ProjectSidebar
         project={{
+          id: 1,
           name: "Alpha Project",
           rootPath: "/tmp/alpha-project",
           isArchived: false,
@@ -178,5 +220,105 @@ describe("ProjectSidebar", () => {
 
     await user.click(screen.getByRole("menuitem", { name: "删除" }));
     expect(onDeleteActivity).toHaveBeenCalledWith(12);
+  });
+
+  it("switches to the Files tab and opens project files", async () => {
+    const user = userEvent.setup();
+    const onOpenDocument = vi.fn();
+    const onMoveDocument = vi.fn();
+
+    renderWithProviders(
+      <ProjectSidebar
+        project={{
+          id: 1,
+          name: "Alpha Project",
+          rootPath: "/tmp/alpha-project",
+          isArchived: false,
+        }}
+        activities={[
+          {
+            id: 11,
+            title: "Kickoff Review",
+            activityTime: "2026-04-06T08:00:00.000Z",
+            attributeLabel: "产品评审",
+            attributeColorKey: "blue",
+            conclusionCount: 2,
+            documentCount: 3,
+            completedTodoCount: 1,
+            totalTodoCount: 2,
+            statusLabel: "已整理",
+            statusColorKey: "green",
+          },
+        ]}
+        documents={[
+          {
+            id: 21,
+            projectId: 1,
+            activityId: 11,
+            name: "budget.xlsx",
+            baseName: "budget",
+            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            managedPath: "/tmp/alpha-project/budget.xlsx",
+            originalPath: "/original/budget.xlsx",
+            historyDirPath: "/history/budget",
+            sourceActivityTitle: "Kickoff Review",
+            isStarred: false,
+            currentVersionNumber: 1,
+            versionCount: 1,
+            health: "normal" as const,
+            tags: [{ id: 3, label: "预算", colorKey: "amber" as const }],
+          },
+          {
+            id: 22,
+            projectId: 1,
+            activityId: null,
+            name: "diagram.png",
+            baseName: "diagram",
+            mimeType: "image/png",
+            managedPath: "/tmp/alpha-project/diagram.png",
+            originalPath: "/original/diagram.png",
+            historyDirPath: "/history/diagram",
+            sourceActivityTitle: null,
+            isStarred: false,
+            currentVersionNumber: 1,
+            versionCount: 1,
+            health: "normal" as const,
+            tags: [],
+          },
+        ]}
+        activeActivityId={11}
+        onOpenProject={vi.fn()}
+        onOpenActivity={vi.fn()}
+        onOpenDocument={onOpenDocument}
+        onMoveDocument={onMoveDocument}
+        onCreateActivity={vi.fn()}
+        onDeleteActivity={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /记录/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await user.click(screen.getByRole("tab", { name: /文件/ }));
+
+    expect(screen.getByRole("tab", { name: /文件/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("budget.xlsx")).toBeInTheDocument();
+    // sourceActivityTitle is displayed in the file list
+    expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
+    expect(screen.getByText("diagram.png")).toBeInTheDocument();
+
+    // Click on a file to open it
+    await user.click(screen.getByText("budget.xlsx"));
+    expect(onOpenDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 21,
+        managedPath: "/tmp/alpha-project/budget.xlsx",
+      }),
+    );
   });
 });
