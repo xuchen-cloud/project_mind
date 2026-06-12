@@ -1,24 +1,24 @@
-import { Circle } from "lucide-react";
-
-import { fileTagColorValue } from "../../lib/constants";
 import type { FileTagRecord } from "../../lib/types";
 import { Button, Dialog } from "../../ui/components";
+import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
 
 interface DocumentImportTagDialogProps {
+  projectId: number;
   paths: string[];
   tags: FileTagRecord[];
   selectedTagIds: number[];
-  onToggleTag: (tagId: number) => void;
+  onChangeSelectedTagIds: (tagIds: number[]) => void;
   onClose: () => void;
   onConfirm: () => void;
   onManageTags: () => void;
 }
 
 export function DocumentImportTagDialog({
+  projectId,
   paths,
   tags,
   selectedTagIds,
-  onToggleTag,
+  onChangeSelectedTagIds,
   onClose,
   onConfirm,
   onManageTags,
@@ -54,27 +54,13 @@ export function DocumentImportTagDialog({
           </div>
         </div>
 
-        <div className="grid gap-1">
-          {tags.map((tag) => (
-            <label
-              key={tag.id}
-              className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-6)] border border-border px-3 py-2 text-ui text-text-muted transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text"
-            >
-              <input
-                type="checkbox"
-                checked={selectedTagIds.includes(tag.id)}
-                onChange={() => onToggleTag(tag.id)}
-              />
-              <Circle
-                size={10}
-                className="fill-current"
-                style={{ color: fileTagColorValue(tag.colorKey) }}
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate">{tag.label}</span>
-            </label>
-          ))}
-        </div>
+        <TagAutocompletePicker
+          projectId={projectId}
+          availableTags={tags}
+          selectedTagIds={selectedTagIds}
+          placeholder="#输入或选择标签"
+          onChange={onChangeSelectedTagIds}
+        />
 
         <div className="flex items-center justify-between gap-2">
           <span className="text-ui text-text-soft">

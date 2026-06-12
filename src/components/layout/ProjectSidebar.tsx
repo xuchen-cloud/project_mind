@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,12 +37,14 @@ import { fileTagColorValue } from "../../lib/constants";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
+import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton, PopoverPanel, SearchField, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
+import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
 import {
   DocumentContextMenuAction,
   DocumentVersionDropdown,
@@ -71,7 +83,7 @@ interface ProjectSidebarProps {
   project: {
     id: number;
     name: string;
-    kind?: "normal" | "reference";
+    kind?: "normal";
     rootPath: string;
     isArchived?: boolean;
   };
@@ -80,6 +92,7 @@ interface ProjectSidebarProps {
   activeRecordId?: number | null;
   onOpenProject: () => void;
   onOpenRecord?: (recordId: number) => void;
+  onCreateRecord?: () => void;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
 }
 
@@ -94,6 +107,7 @@ interface ContextMenuState {
 const CONTEXT_MENU_WIDTH = 280;
 const CONTEXT_MENU_HEIGHT = 464;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
+const DRAG_DEACTIVATE_DELAY_MS = 80;
 
 export function ProjectSidebar({
   project,
@@ -102,6 +116,7 @@ export function ProjectSidebar({
   activeRecordId,
   onOpenProject,
   onOpenRecord,
+  onCreateRecord,
   onOpenDocument,
 }: ProjectSidebarProps) {
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
@@ -117,7 +132,7 @@ export function ProjectSidebar({
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
-    togglePendingImportTag,
+    setPendingImportTagIds,
     closeImportTagDialog,
     confirmImportTagDialog,
     manageImportTags,
@@ -143,7 +158,9 @@ export function ProjectSidebar({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const openTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const dragDeactivateTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const dragActiveRef = useRef(false);
 
   const fileTagLookup = useMemo(
     () =>
@@ -228,36 +245,14 @@ export function ProjectSidebar({
     ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? null
     : null;
 
-  // Debug: Global drag listeners
-  useEffect(() => {
-    const handleGlobalDragEnter = (e: globalThis.DragEvent) => {
-      console.log('🌍 Global dragenter detected', e.target);
-    };
-    const handleGlobalDragOver = (e: globalThis.DragEvent) => {
-      console.log('🌍 Global dragover detected', e.target);
-    };
-    const handleGlobalDrop = (e: globalThis.DragEvent) => {
-      console.log('🌍 Global drop detected', e.target);
-    };
-
-    window.addEventListener('dragenter', handleGlobalDragEnter);
-    window.addEventListener('dragover', handleGlobalDragOver);
-    window.addEventListener('drop', handleGlobalDrop);
-
-    console.log('✅ Global drag listeners attached to ProjectSidebar');
-
-    return () => {
-      window.removeEventListener('dragenter', handleGlobalDragEnter);
-      window.removeEventListener('dragover', handleGlobalDragOver);
-      window.removeEventListener('drop', handleGlobalDrop);
-    };
-  }, []);
-
   // Cleanup timer on unmount
   useEffect(
     () => () => {
       if (openTimerRef.current !== null) {
         window.clearTimeout(openTimerRef.current);
+      }
+      if (dragDeactivateTimerRef.current !== null) {
+        window.clearTimeout(dragDeactivateTimerRef.current);
       }
     },
     [],
@@ -341,29 +336,49 @@ export function ProjectSidebar({
     }
   };
 
-  const handleImportPaths = async (paths: string[]) => {
-    console.log('handleImportPaths called with:', paths);
+  const setDragActiveStable = useCallback((nextActive: boolean) => {
+    if (dragActiveRef.current === nextActive) {
+      return;
+    }
+
+    dragActiveRef.current = nextActive;
+    setDragActive(nextActive);
+  }, []);
+
+  const clearPendingDragDeactivate = useCallback(() => {
+    if (dragDeactivateTimerRef.current !== null) {
+      window.clearTimeout(dragDeactivateTimerRef.current);
+      dragDeactivateTimerRef.current = null;
+    }
+  }, []);
+
+  const activateFileDropTarget = useCallback(() => {
+    clearPendingDragDeactivate();
+    setActiveTab((current) => (current === "files" ? current : "files"));
+    setDragActiveStable(true);
+  }, [clearPendingDragDeactivate, setDragActiveStable]);
+
+  const deactivateFileDropTarget = useCallback(() => {
+    if (dragDeactivateTimerRef.current !== null) {
+      return;
+    }
+
+    dragDeactivateTimerRef.current = window.setTimeout(() => {
+      dragDeactivateTimerRef.current = null;
+      setDragActiveStable(false);
+    }, DRAG_DEACTIVATE_DELAY_MS);
+  }, [setDragActiveStable]);
+
+  const handleImportPaths = useCallback(async (paths: string[]) => {
     await requestImportPaths(paths);
-    console.log('requestImportPaths completed');
-  };
+  }, [requestImportPaths]);
 
-  const handleDrop = (event: DragEvent<HTMLElement>) => {
-    console.log('handleDrop triggered', event); // Debug
-
-    try {
-      event.preventDefault();
-      event.stopPropagation();
-      setDragActive(false);
-
-      console.log('DataTransfer object:', event.dataTransfer); // Debug
-      console.log('DataTransfer.files:', event.dataTransfer.files); // Debug
-      console.log('DataTransfer.items:', event.dataTransfer.items); // Debug
-
-      const paths = extractDroppedFilePaths(event.dataTransfer);
-      console.log('Dropped files:', paths); // Debug log
+  const handleDroppedPaths = useCallback(
+    async (paths: string[]) => {
+      clearPendingDragDeactivate();
+      setDragActiveStable(false);
 
       if (paths.length === 0) {
-        console.log('No paths extracted, showing error toast'); // Debug
         pushToast({
           tone: "error",
           title: "无法读取拖拽文件",
@@ -372,11 +387,46 @@ export function ProjectSidebar({
         return;
       }
 
-      console.log('Calling handleImportPaths with paths:', paths); // Debug
-      void handleImportPaths(paths);
-    } catch (error) {
-      console.error('Error in handleDrop:', error); // Debug
+      await handleImportPaths(paths);
+    },
+    [clearPendingDragDeactivate, handleImportPaths, pushToast, setDragActiveStable],
+  );
+
+  const isSidebarPointWithin = useCallback((x: number, y: number) => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return false;
     }
+
+    return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
+  }, []);
+
+  const { nativeWindowFileDrop } = useWindowFileDrop({
+    enabled: true,
+    isPositionActive: ({ x, y }) => isSidebarPointWithin(x, y),
+    onHoverChange: (active) => {
+      if (active) {
+        activateFileDropTarget();
+        return;
+      }
+
+      deactivateFileDropTarget();
+    },
+    onDrop: handleDroppedPaths,
+  });
+
+  const acceptsDraggedFiles = (dataTransfer: DataTransfer) =>
+    Array.from(dataTransfer.types).some((type) => type === "Files" || type === "text/uri-list") ||
+    dataTransfer.files.length > 0;
+
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    if (nativeWindowFileDrop) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void handleDroppedPaths(extractDroppedFilePaths(event.dataTransfer));
   };
 
   const openDocument = (document: ProjectSidebarDocumentItem) => {
@@ -533,12 +583,8 @@ export function ProjectSidebar({
     }
   };
 
-  const toggleDocumentTag = (document: ProjectSidebarDocumentItem, tagId: number) => {
+  const updateDocumentTags = (document: ProjectSidebarDocumentItem, nextTagIds: number[]) => {
     const currentTagIds = (effectiveDocumentTagsById.get(document.id) ?? document.tags).map((tag) => tag.id);
-    const nextTagIds = currentTagIds.includes(tagId)
-      ? currentTagIds.filter((value) => value !== tagId)
-      : [...currentTagIds, tagId];
-
     setPendingTagIdsByDocumentId((current) => ({
       ...current,
       [document.id]: nextTagIds,
@@ -601,12 +647,43 @@ export function ProjectSidebar({
       ref={rootRef}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
+        dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
         projectSidebarCollapsed ? "" : "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{
         width: projectSidebarCollapsed ? "48px" : `${projectSidebarWidthPx}px`,
       }}
       aria-label="项目导航侧边栏"
+      onDragOver={(event) => {
+        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        activateFileDropTarget();
+      }}
+      onDragEnter={(event) => {
+        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        activateFileDropTarget();
+      }}
+      onDragLeave={(event) => {
+        if (nativeWindowFileDrop) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (!isSidebarPointWithin(event.clientX, event.clientY)) {
+          deactivateFileDropTarget();
+        }
+      }}
+      onDrop={handleDrop}
     >
       {!projectSidebarCollapsed && (
         <div
@@ -653,44 +730,7 @@ export function ProjectSidebar({
         </IconButton>
       </div>
 
-      <div
-        className={cn("flex min-h-0 flex-1 flex-col px-3 py-3", projectSidebarCollapsed && "px-2")}
-        onDragOver={(event) => {
-          if (activeTab === "files" && !projectSidebarCollapsed) {
-            console.log('Container onDragOver triggered'); // Debug
-            event.preventDefault();
-            event.stopPropagation();
-            setDragActive(true);
-          }
-        }}
-        onDragEnter={(event) => {
-          if (activeTab === "files" && !projectSidebarCollapsed) {
-            console.log('Container onDragEnter triggered'); // Debug
-            event.preventDefault();
-            event.stopPropagation();
-            setDragActive(true);
-          }
-        }}
-        onDragLeave={(event) => {
-          if (activeTab === "files" && !projectSidebarCollapsed) {
-            console.log('Container onDragLeave triggered'); // Debug
-            event.preventDefault();
-            event.stopPropagation();
-            const rect = event.currentTarget.getBoundingClientRect();
-            const x = event.clientX;
-            const y = event.clientY;
-            // Check if we're still inside the container
-            if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-              setDragActive(false);
-            }
-          }
-        }}
-        onDrop={(event) => {
-          if (activeTab === "files" && !projectSidebarCollapsed) {
-            handleDrop(event);
-          }
-        }}
-      >
+      <div className={cn("flex min-h-0 flex-1 flex-col px-3 py-3", projectSidebarCollapsed && "px-2")}>
         {projectSidebarCollapsed ? (
           <div className="flex flex-col items-center gap-2">
             {records.slice(0, 12).map((record) => (
@@ -715,10 +755,10 @@ export function ProjectSidebar({
             <div className="grid shrink-0 gap-3">
               <div className="grid grid-cols-2 rounded-[var(--radius-8)] bg-bg p-1" role="tablist" aria-label="项目侧边栏视图">
                 <TabButton active={activeTab === "records"} onClick={() => setActiveTab("records")}>
-                  记录 {records.length}
+                  记录
                 </TabButton>
                 <TabButton active={activeTab === "files"} onClick={() => setActiveTab("files")}>
-                  文件 {documents.length}
+                  文件
                 </TabButton>
               </div>
               <div className="flex items-center gap-2">
@@ -729,6 +769,17 @@ export function ProjectSidebar({
                   onChange={(event) => setQuery(event.target.value)}
                   className="flex-1"
                 />
+                {activeTab === "records" ? (
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label="新增记录"
+                    onClick={() => onCreateRecord?.()}
+                  >
+                    <NotebookText size={14} />
+                  </IconButton>
+                ) : null}
                 {activeTab === "files" ? (
                   <IconButton
                     type="button"
@@ -804,7 +855,7 @@ export function ProjectSidebar({
                 )}
               >
                 {dragActive ? (
-                  <div className="flex items-center gap-2 rounded-[var(--radius-8)] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] px-3 py-2 text-ui text-text">
+                  <div className="flex items-center gap-2 rounded-[var(--radius-8)] border border-[color-mix(in_srgb,var(--color-accent)_20%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] px-3 py-2 text-ui text-text shadow-[var(--shadow-sm)]">
                     <Upload size={13} />
                     <span>松手即可导入文件</span>
                   </div>
@@ -989,7 +1040,19 @@ export function ProjectSidebar({
                         type="checkbox"
                         checked={checked}
                         data-document-interactive="true"
-                        onChange={() => toggleDocumentTag(contextMenuDocument, tag.id)}
+                        onChange={() => updateDocumentTags(
+                          contextMenuDocument,
+                          checked
+                            ? (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags)
+                                .filter((item) => item.id !== tag.id)
+                                .map((item) => item.id)
+                            : [
+                                ...(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
+                                  (item) => item.id,
+                                ),
+                                tag.id,
+                              ],
+                        )}
                       />
                       <Circle
                         size={10}
@@ -1004,16 +1067,31 @@ export function ProjectSidebar({
               ) : null}
             </div>
           ) : null}
+          {!fileTagSettingsQuery.isLoading ? (
+            <div className="mt-2 border-t border-border pt-2">
+              <TagAutocompletePicker
+                projectId={project.id}
+                availableTags={fileTags}
+                selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
+                  (tag) => tag.id,
+                )}
+                compact
+                placeholder="#输入标签"
+                onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
+              />
+            </div>
+          ) : null}
         </PopoverPanel>
       ) : null}
 
       {/* Import Dialog */}
       {pendingImportPaths ? (
         <DocumentImportTagDialog
+          projectId={project.id}
           paths={pendingImportPaths}
           tags={fileTags}
           selectedTagIds={pendingImportTagIds}
-          onToggleTag={togglePendingImportTag}
+          onChangeSelectedTagIds={setPendingImportTagIds}
           onClose={closeImportTagDialog}
           onConfirm={() => {
             void confirmImportTagDialog();

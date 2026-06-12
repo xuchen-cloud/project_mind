@@ -13,6 +13,7 @@ interface EntityTagEditorProps {
   tags: DocumentTagRecord[];
   busy?: boolean;
   compact?: boolean;
+  mode?: "full" | "edit" | "display";
   onChange: (tagIds: number[]) => Promise<unknown> | void;
   onCreated?: (tag: FileTagRecord) => void;
 }
@@ -23,6 +24,7 @@ export function EntityTagEditor({
   tags,
   busy = false,
   compact = false,
+  mode = "full",
   onChange,
   onCreated,
 }: EntityTagEditorProps) {
@@ -30,14 +32,12 @@ export function EntityTagEditor({
   const [creating, setCreating] = useState(false);
   const selectedIds = useMemo(() => new Set(tags.map((tag) => tag.id)), [tags]);
   const query = input.trim().replace(/^#/, "");
-  const suggestions = useMemo(() => {
-    if (!query) return [];
-    const normalized = query.toLocaleLowerCase("zh-Hans-CN");
-    return availableTags
-      .filter((tag) => !selectedIds.has(tag.id))
-      .filter((tag) => tag.label.toLocaleLowerCase("zh-Hans-CN").includes(normalized))
-      .slice(0, 5);
-  }, [availableTags, query, selectedIds]);
+  const canRemove = mode !== "display";
+  const canCreate = mode === "full";
+  const suggestions = useMemo(
+    () => buildTagSuggestions(availableTags, selectedIds, query),
+    [availableTags, query, selectedIds],
+  );
 
   const commitLabel = async (rawLabel: string) => {
     const label = rawLabel.trim().replace(/^#/, "");
@@ -81,58 +81,86 @@ export function EntityTagEditor({
   };
 
   return (
-    <div className="relative flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="relative entity-tag-list min-w-0 items-center">
       {tags.map((tag) => (
-        <button
-          key={tag.id}
-          type="button"
-          className="inline-flex max-w-[12rem] items-center gap-1 rounded-[var(--radius-6)] bg-bg-subtle px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-bg-hover hover:text-text"
-          disabled={busy}
-          onClick={() => onChange(tags.filter((item) => item.id !== tag.id).map((item) => item.id))}
-        >
-          <Circle
-            size={8}
-            className="shrink-0 fill-current"
-            style={{ color: fileTagColorValue(tag.colorKey) }}
-            aria-hidden="true"
-          />
-          <span className="truncate">{tag.label}</span>
-          <X size={10} aria-hidden="true" />
-        </button>
+        canRemove ? (
+          <button
+            key={tag.id}
+            type="button"
+            aria-label={`移除标签 ${tag.label}`}
+            className="entity-tag-chip entity-tag-chip--interactive max-w-[12rem]"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
+              color: fileTagColorValue(tag.colorKey),
+            }}
+            disabled={busy}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onChange(tags.filter((item) => item.id !== tag.id).map((item) => item.id))}
+          >
+            <Circle
+              size={8}
+              className="entity-tag-chip__dot shrink-0 fill-current"
+              aria-hidden="true"
+            />
+            <span className="truncate">{tag.label}</span>
+            <X size={10} aria-hidden="true" />
+          </button>
+        ) : (
+          <span
+            key={tag.id}
+            className="entity-tag-chip max-w-[12rem]"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
+              color: fileTagColorValue(tag.colorKey),
+            }}
+          >
+            <Circle
+              size={8}
+              className="entity-tag-chip__dot shrink-0 fill-current"
+              aria-hidden="true"
+            />
+            <span className="truncate">{tag.label}</span>
+          </span>
+        )
       ))}
-      <label
-        className={cn(
-          "inline-flex min-w-[7rem] items-center gap-1 rounded-[var(--radius-6)] border border-transparent bg-transparent px-1.5 py-0.5 text-caption text-text-soft transition-colors focus-within:border-border focus-within:bg-bg",
-          compact ? "max-w-[10rem]" : "max-w-[16rem]",
-        )}
-      >
-        <Plus size={11} aria-hidden="true" />
-        <input
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-soft"
-          value={input}
-          disabled={busy || creating}
-          placeholder="#标签"
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => {
-            if (query) void commitLabel(query);
-          }}
-        />
-      </label>
-      {suggestions.length > 0 && input.trim().startsWith("#") ? (
+      {canCreate ? (
+        <label
+          className={cn(
+            "entity-tag-chip entity-tag-chip--input",
+            compact ? "max-w-[10rem]" : "max-w-[16rem]",
+          )}
+        >
+          <Plus size={11} aria-hidden="true" />
+          <input
+            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-soft"
+            value={input}
+            disabled={busy || creating}
+            placeholder="#标签"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              if (query) void commitLabel(query);
+            }}
+          />
+        </label>
+      ) : null}
+      {canCreate && suggestions.length > 0 && input.trim().length > 0 ? (
         <div className="absolute left-0 top-[calc(100%+4px)] z-30 grid min-w-40 gap-1 rounded-[var(--radius-8)] border border-border bg-bg p-1 shadow-[var(--shadow-md)]">
           {suggestions.map((tag) => (
             <button
               key={tag.id}
               type="button"
-              className="flex items-center gap-2 rounded-[var(--radius-6)] px-2 py-1 text-left text-ui text-text-muted hover:bg-bg-hover hover:text-text"
+              className="entity-tag-chip entity-tag-chip--interactive w-full justify-start text-left"
+              style={{
+                backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
+                color: fileTagColorValue(tag.colorKey),
+              }}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => void commitLabel(tag.label)}
             >
               <Circle
                 size={8}
-                className="fill-current"
-                style={{ color: fileTagColorValue(tag.colorKey) }}
+                className="entity-tag-chip__dot fill-current"
               />
               <span className="truncate">{tag.label}</span>
             </button>
@@ -141,4 +169,19 @@ export function EntityTagEditor({
       ) : null}
     </div>
   );
+}
+
+export function buildTagSuggestions(
+  availableTags: FileTagRecord[],
+  selectedIds: Set<number>,
+  query: string,
+) {
+  if (!query) {
+    return availableTags.filter((tag) => !selectedIds.has(tag.id)).slice(0, 5);
+  }
+  const normalized = query.toLocaleLowerCase("zh-Hans-CN");
+  return availableTags
+    .filter((tag) => !selectedIds.has(tag.id))
+    .filter((tag) => tag.label.toLocaleLowerCase("zh-Hans-CN").includes(normalized))
+    .slice(0, 5);
 }

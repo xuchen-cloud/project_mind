@@ -1,18 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-react";
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import {
-  buildInternalReferenceTarget,
-  buildInternalReferenceToken,
-  findInternalReferenceTextTrigger,
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
   FileTagRecord,
-  InternalReferenceSearchResult,
   TodoPriority,
   TodoProgressRecord,
   TodoRecord,
@@ -21,20 +17,20 @@ import { ActionContextMenu, IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   InternalReferenceInlineText,
-  InternalReferencePicker,
-  useInternalReferenceSearch,
 } from "../internal-reference";
 import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
-import { TodoPriorityDropdown } from "./TodoPriorityDropdown";
-import { TodoReferenceEditor } from "./TodoReferenceEditor";
+import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import {
-  formatFullDate,
-  formatMonthDay,
   parseProgressInput,
+  priorityColorValue,
   sortTodoProgresses,
 } from "./todo-utils";
+
+const PROGRESS_STATUS_TRANSITION_MS = 420;
+
+type ProgressVisualState = "completing" | "restoring" | null;
 
 export function TodoListItem({
   todo,
@@ -43,6 +39,7 @@ export function TodoListItem({
   allowInlineEdit = false,
   allowInlineProgress = false,
   expanded = false,
+  statusTransition = null,
   onToggleStatus,
   onUpdatePriority,
   onUpdateContent,
@@ -50,7 +47,6 @@ export function TodoListItem({
   onAddProgress,
   onUpdateProgress,
   onDeleteProgress,
-  onOpenTodoSource,
   onToggleExpanded,
   onOpenContextMenu,
   onError,
@@ -64,6 +60,7 @@ export function TodoListItem({
   allowInlineEdit?: boolean;
   allowInlineProgress?: boolean;
   expanded?: boolean;
+  statusTransition?: "completing" | "restoring" | null;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
@@ -77,7 +74,6 @@ export function TodoListItem({
     payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
-  onOpenTodoSource: (todo: TodoRecord) => void;
   onToggleExpanded: (todoId: number, nextExpanded?: boolean) => void;
   onOpenContextMenu: (todoId: number, x: number, y: number) => void;
   onError?: (message: string) => void;
@@ -86,8 +82,29 @@ export function TodoListItem({
   availableTags?: FileTagRecord[];
 }) {
   const [toggling, setToggling] = useState(false);
+  const [contentEditing, setContentEditing] = useState(false);
+  const [progressEditing, setProgressEditing] = useState(false);
+  const [progressTransitions, setProgressTransitions] = useState<
+    Record<number, { progress: TodoProgressRecord; phase: ProgressVisualState }>
+  >({});
   const expandButtonRef = useRef<HTMLButtonElement | null>(null);
-  const sortedProgresses = sortTodoProgresses(todo.progresses);
+  const progressTimersRef = useRef(new Map<number, number>());
+  const todoState = [
+    todo.status === "finished" ? "finished" : "unfinished",
+    expanded ? "expanded" : "",
+    contentEditing ? "editing" : "",
+    progressEditing ? "progress-editing" : "",
+    statusTransition ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const mergedProgresses = sortTodoProgresses([
+    ...todo.progresses.map((progress) => progressTransitions[progress.id]?.progress ?? progress),
+    ...Object.entries(progressTransitions)
+      .filter(([progressId]) => !todo.progresses.some((progress) => progress.id === Number(progressId)))
+      .map(([, transition]) => transition.progress),
+  ]);
+  const sortedProgresses = mergedProgresses;
   const unfinishedSubItems = sortedProgresses.filter(
     (progress) => progress.status !== "finished",
   );
@@ -110,6 +127,31 @@ export function TodoListItem({
     onToggleExpanded(todo.id, false);
   }, [canExpand, expanded, onToggleExpanded, todo.id]);
 
+  useEffect(() => {
+    return () => {
+      progressTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      progressTimersRef.current.clear();
+    };
+  }, []);
+
+  function clearProgressTransition(progressId: number) {
+    const timerId = progressTimersRef.current.get(progressId);
+    if (timerId) {
+      window.clearTimeout(timerId);
+      progressTimersRef.current.delete(progressId);
+    }
+
+    setProgressTransitions((current) => {
+      if (!current[progressId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[progressId];
+      return next;
+    });
+  }
+
   async function handleToggle() {
     setToggling(true);
     try {
@@ -119,16 +161,77 @@ export function TodoListItem({
     }
   }
 
+  async function handleProgressStatusToggle(
+    progressId: number,
+    progress: TodoProgressRecord,
+    nextStatus: TodoRecord["status"],
+  ) {
+    const currentProgress =
+      mergedProgresses.find((candidate) => candidate.id === progressId) ?? progress;
+    const phase = nextStatus === "finished" ? "completing" : "restoring";
+    const nextProgress = {
+      ...currentProgress,
+      status: nextStatus,
+      completedAt:
+        nextStatus === "finished"
+          ? currentProgress.completedAt ?? new Date().toISOString()
+          : null,
+    };
+
+    setProgressTransitions((current) => ({
+      ...current,
+      [progressId]: { progress: nextProgress, phase },
+    }));
+
+    const existingTimer = progressTimersRef.current.get(progressId);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+    progressTimersRef.current.set(
+      progressId,
+      window.setTimeout(() => clearProgressTransition(progressId), PROGRESS_STATUS_TRANSITION_MS),
+    );
+
+    try {
+      await onUpdateProgress(progressId, {
+        content: currentProgress.content,
+        progressDate: currentProgress.progressDate,
+        status: nextStatus,
+      });
+    } catch (error) {
+      clearProgressTransition(progressId);
+      throw error;
+    }
+  }
+
+  function renderProgressItem(progress: TodoProgressRecord, bordered: boolean) {
+    return (
+      <TodoHistoryProgressItem
+        key={progress.id}
+        progress={progress}
+        projectId={todo.projectId}
+        editable={allowInlineProgress}
+        bordered={bordered}
+        showCheckbox
+        visualState={progressTransitions[progress.id]?.phase ?? null}
+        onUpdateProgress={onUpdateProgress}
+        onDeleteProgress={onDeleteProgress}
+        onToggleStatus={(progressId, nextStatus) =>
+          handleProgressStatusToggle(progressId, progress, nextStatus)
+        }
+        onError={onError}
+        onOpenInternalReference={onOpenInternalReference}
+        onOpenContactMention={onOpenContactMention}
+      />
+    );
+  }
+
   return (
     <article
       id={`todo-${todo.id}`}
       ref={expanded ? expandedItemRef : undefined}
-      className={cn(
-        "group grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-3 py-3 transition-[background-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
-        !isFirst && "border-t border-border",
-        compact && "py-2.5",
-        todo.status === "finished" ? "opacity-72" : "hover:bg-bg-hover",
-      )}
+      className="todo-card group"
+      data-state={todoState}
       onContextMenu={(event) => {
         if (shouldIgnoreContextMenuTarget(event.target)) {
           return;
@@ -137,122 +240,98 @@ export function TodoListItem({
         onOpenContextMenu(todo.id, event.clientX, event.clientY);
       }}
     >
-      <div className="grid min-w-0 gap-2">
-        <TodoInlineContentEditor
-          value={todo.content}
-          editable={allowInlineEdit}
-          internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
-          onOpenInternalReference={onOpenInternalReference}
-          onOpenContactMention={onOpenContactMention}
-          onSave={(content) => onUpdateContent(todo.id, content)}
-        />
-
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-caption leading-4">
-          <TodoPriorityDropdown
-            priority={todo.priority}
-            onSelect={(priority) => onUpdatePriority(todo.id, priority)}
-          />
-          <span className="text-text-soft">·</span>
-          <button
-            type="button"
-            className="max-w-full truncate bg-transparent text-text-soft transition-colors hover:text-text"
-            onClick={() => onOpenTodoSource(todo)}
-          >
-            项目级
-          </button>
-        </div>
-
-        {(todo.tags ?? []).length > 0 || onUpdateTags ? (
-          <EntityTagEditor
-            projectId={todo.projectId}
-            availableTags={availableTags}
-            tags={todo.tags ?? []}
-            compact
-            onChange={(tagIds) => onUpdateTags?.(todo.id, tagIds)}
-          />
-        ) : null}
-
-        {unfinishedSubItems.length > 0 ? (
-          <div className="grid gap-1.5">
-            {unfinishedSubItems.map((progress) => (
-              <TodoHistoryProgressItem
-                key={progress.id}
-                progress={progress}
-                projectId={todo.projectId}
-                editable={allowInlineProgress}
-                bordered={false}
-                showCheckbox
-                onUpdateProgress={onUpdateProgress}
-                onDeleteProgress={onDeleteProgress}
-                onError={onError}
+      <div
+        className={cn("todo-card__row", compact && "todo-card__row--compact")}
+        style={
+          {
+            "--todo-priority-color": priorityColorValue(todo.priority),
+          } as CSSProperties
+        }
+      >
+        <div className="todo-card__main">
+          <div className="todo-card__headline">
+            <div className="todo-card__content">
+              <TodoInlineContentEditor
+                value={todo.content}
+                editable={allowInlineEdit}
+                internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
                 onOpenInternalReference={onOpenInternalReference}
                 onOpenContactMention={onOpenContactMention}
+                onEditingChange={setContentEditing}
+                onSave={(content) => onUpdateContent(todo.id, content)}
               />
-            ))}
-          </div>
-        ) : null}
-
-        <TodoInlineProgressEditor
-          latestProgress={null}
-          editable={allowInlineProgress}
-          onError={onError}
-          internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
-          onOpenInternalReference={onOpenInternalReference}
-          onOpenContactMention={onOpenContactMention}
-          onSave={(payload) => onAddProgress(todo.id, payload)}
-          onUpdateLatestProgress={onUpdateProgress}
-          onDeleteLatestProgress={onDeleteProgress}
-        />
-
-        {expanded && canExpand ? (
-          <div className="mt-1 border-t border-border">
-            <div className="grid">
-              {finishedSubItems.map((progress, index) => (
-                <TodoHistoryProgressItem
-                  key={progress.id}
-                  progress={progress}
-                  projectId={todo.projectId}
-                  editable={allowInlineProgress}
-                  bordered={index > 0}
-                  showCheckbox
-                  onUpdateProgress={onUpdateProgress}
-                  onDeleteProgress={onDeleteProgress}
-                  onError={onError}
-                  onOpenInternalReference={onOpenInternalReference}
-                  onOpenContactMention={onOpenContactMention}
-                />
-              ))}
             </div>
+            <button
+              type="button"
+              className={cn("todo-card__check", contentEditing && "todo-card__check--hidden")}
+              aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
+              aria-pressed={todo.status === "finished"}
+              disabled={toggling}
+              onClick={() => {
+                void handleToggle();
+              }}
+            >
+              <span className="todo-card__check-ring">
+                {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
+              </span>
+            </button>
           </div>
-        ) : null}
-      </div>
 
-      <div className="mt-0.5 flex self-stretch flex-col items-center gap-1">
-        <IconButton
-          type="button"
-          variant={todo.status === "finished" ? "subtle" : "secondary"}
-          size="sm"
-          className="rounded-full opacity-70 group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
-          disabled={toggling}
-          onClick={() => {
-            void handleToggle();
-          }}
-        >
-          {todo.status === "finished" ? <Check size={13} /> : <Circle size={13} />}
-        </IconButton>
-        <IconButton
-          ref={expandButtonRef}
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="mt-auto opacity-60 group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
-          disabled={!canExpand}
-          onClick={() => onToggleExpanded(todo.id)}
-        >
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </IconButton>
+          {(todo.tags ?? []).length > 0 ? (
+            <EntityTagEditor
+              projectId={todo.projectId}
+              availableTags={availableTags}
+              tags={todo.tags ?? []}
+              compact
+              mode={contentEditing && onUpdateTags ? "edit" : "display"}
+              onChange={(tagIds) => onUpdateTags?.(todo.id, tagIds)}
+            />
+          ) : null}
+
+          {unfinishedSubItems.length > 0 ? (
+            <div className="todo-card__progress-stack">
+              {unfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
+            </div>
+          ) : null}
+
+          <div className="todo-card__subitem-row">
+            <TodoInlineProgressEditor
+              latestProgress={null}
+              editable={allowInlineProgress}
+              onError={onError}
+              internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+              onOpenInternalReference={onOpenInternalReference}
+              onOpenContactMention={onOpenContactMention}
+              onEditingChange={setProgressEditing}
+              onSave={(payload) => onAddProgress(todo.id, payload)}
+              onUpdateLatestProgress={onUpdateProgress}
+              onDeleteLatestProgress={onDeleteProgress}
+            />
+            <IconButton
+              ref={expandButtonRef}
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "todo-card__expand opacity-60 group-hover:opacity-100 group-focus-within:opacity-100",
+                progressEditing && "todo-card__expand--hidden",
+              )}
+              aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
+              disabled={!canExpand}
+              onClick={() => onToggleExpanded(todo.id)}
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </IconButton>
+          </div>
+
+          {expanded && canExpand ? (
+            <div className="todo-card__finished-panel">
+              <div className="grid">
+                {finishedSubItems.map((progress, index) => renderProgressItem(progress, index > 0))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </article>
   );
@@ -264,7 +343,9 @@ function TodoHistoryProgressItem({
   editable,
   bordered,
   showCheckbox = false,
+  visualState = null,
   onUpdateProgress,
+  onToggleStatus,
   onDeleteProgress,
   onError,
   onOpenInternalReference,
@@ -275,9 +356,14 @@ function TodoHistoryProgressItem({
   editable: boolean;
   bordered: boolean;
   showCheckbox?: boolean;
+  visualState?: ProgressVisualState;
   onUpdateProgress: (
     progressId: number,
     payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
+  ) => Promise<unknown> | void;
+  onToggleStatus?: (
+    progressId: number,
+    nextStatus: TodoRecord["status"],
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onError?: (message: string) => void;
@@ -289,57 +375,13 @@ function TodoHistoryProgressItem({
   const [saving, setSaving] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
-  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
-  const editorRef = useRef<HTMLDivElement | null>(null);
   const saveInFlightRef = useRef(false);
-  const skipBlurSaveRef = useRef(false);
-  const referenceTrigger = editing
-    ? findInternalReferenceTextTrigger(draft, selectionStart)
-    : null;
-  const referenceTriggerKey = referenceTrigger
-    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
-    : null;
-  const referencePickerOpen =
-    Boolean(referenceTrigger) && dismissedTriggerKey !== referenceTriggerKey;
-  const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
-    open: referencePickerOpen,
-    query: referenceTrigger?.query ?? "",
-    context: { scope: "project", projectId },
-    limit: 8,
-  });
 
   useEffect(() => {
     if (!editing) {
       setDraft(progress.content);
-      setSelectionStart(null);
-      setDismissedTriggerKey(null);
     }
   }, [editing, progress.content]);
-
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      setReferenceActiveIndex(0);
-      return;
-    }
-
-    setReferenceActiveIndex((current) => {
-      if (referenceResults.length === 0) {
-        return 0;
-      }
-
-      return Math.min(current, referenceResults.length - 1);
-    });
-  }, [referencePickerOpen, referenceResults.length]);
-
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      return;
-    }
-
-    setReferenceActiveIndex(0);
-  }, [referencePickerOpen, referenceTrigger?.query]);
 
   async function handleSave() {
     if (saveInFlightRef.current) {
@@ -376,119 +418,41 @@ function TodoHistoryProgressItem({
   async function handleToggleSubItem() {
     setStatusSaving(true);
     try {
-      await onUpdateProgress(progress.id, {
-        content: progress.content,
-        progressDate: progress.progressDate,
-        status: progress.status === "finished" ? "unfinished" : "finished",
-      });
+      const nextStatus = progress.status === "finished" ? "unfinished" : "finished";
+      if (onToggleStatus) {
+        await onToggleStatus(progress.id, nextStatus);
+      } else {
+        await onUpdateProgress(progress.id, {
+          content: progress.content,
+          progressDate: progress.progressDate,
+          status: nextStatus,
+        });
+      }
     } finally {
       setStatusSaving(false);
     }
   }
 
-  function handleReferenceInsert(reference: InternalReferenceSearchResult) {
-    if (!referenceTrigger) {
-      return;
-    }
-
-    const target = buildInternalReferenceTarget(reference);
-    const token = `${buildInternalReferenceToken(target)} `;
-    const nextDraft =
-      draft.slice(0, referenceTrigger.start) + token + draft.slice(referenceTrigger.end);
-    const nextSelection = referenceTrigger.start + token.length;
-
-    setDraft(nextDraft);
-    setSelectionStart(nextSelection);
-    setDismissedTriggerKey(null);
-
-    window.requestAnimationFrame(() => {
-      editorRef.current?.focus();
-    });
-  }
-
   if (editing) {
     return (
-      <div className={cn("grid gap-2 py-2", bordered && "border-t border-border")}>
-        <div className="relative">
-          <TodoReferenceEditor
-            editorRef={editorRef}
+      <div
+        className={cn(
+          "todo-progress-item todo-progress-item--editing",
+          bordered && "todo-progress-item--bordered",
+        )}
+      >
+        <div className="relative todo-progress-item__editor-shell">
+          <TodoProgressTextEditor
             value={draft}
-            selectionOffset={selectionStart}
             autoFocus
             disabled={saving}
             placeholder="@0315 已与财务确认方案"
-            textClassName="text-ui leading-5"
-            onChange={(nextValue, nextSelection) => {
-              setDraft(normalizeProgressDraft(nextValue));
-              setSelectionStart(nextSelection);
-            }}
-            onSelectionChange={setSelectionStart}
-            onBlur={() => {
-              if (skipBlurSaveRef.current) {
-                skipBlurSaveRef.current = false;
-                return;
-              }
+            internalReferenceContext={{ scope: "project", projectId }}
+            onChange={setDraft}
+            onCommit={() => {
               void handleSave();
             }}
-            onKeyDown={(event) => {
-              if (referencePickerOpen) {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setReferenceActiveIndex((current) => {
-                    if (referenceResults.length === 0) {
-                      return 0;
-                    }
-
-                    return (current + 1) % referenceResults.length;
-                  });
-                  return;
-                }
-
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setReferenceActiveIndex((current) => {
-                    if (referenceResults.length === 0) {
-                      return 0;
-                    }
-
-                    return current === 0 ? referenceResults.length - 1 : current - 1;
-                  });
-                  return;
-                }
-
-                if (event.key === "Enter" && referenceResults.length > 0) {
-                  event.preventDefault();
-                  handleReferenceInsert(referenceResults[referenceActiveIndex] ?? referenceResults[0]);
-                  return;
-                }
-
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDismissedTriggerKey(referenceTriggerKey);
-                  return;
-                }
-              }
-
-              if (event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                skipBlurSaveRef.current = true;
-                setEditing(false);
-                event.currentTarget.blur();
-              }
-            }}
-          />
-          <InternalReferencePicker
-            open={referencePickerOpen}
-            loading={referenceLoading}
-            results={referenceResults}
-            activeIndex={referenceActiveIndex}
-            className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
-            onHoverIndex={setReferenceActiveIndex}
-            onSelect={handleReferenceInsert}
+            onCancel={() => setEditing(false)}
           />
         </div>
       </div>
@@ -497,7 +461,11 @@ function TodoHistoryProgressItem({
 
   return (
     <article
-      className={cn("py-2", bordered && "border-t border-border")}
+      className={cn(
+        "todo-progress-item",
+        bordered && "todo-progress-item--bordered",
+        visualState && `todo-progress-item--${visualState}`,
+      )}
       onContextMenu={(event) => {
         if (!editable || shouldIgnoreContextMenuTarget(event.target)) {
           return;
@@ -508,41 +476,57 @@ function TodoHistoryProgressItem({
       }}
     >
       <div className="flex min-w-0 items-start gap-2">
+        <p
+          role={editable ? "button" : undefined}
+          tabIndex={editable ? 0 : undefined}
+          className={cn(
+            "todo-progress-item__text min-w-0 flex-1",
+            progress.status === "finished" && "text-text-soft line-through",
+          )}
+          onClick={() => {
+            if (editable) {
+              setEditing(true);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (!editable) {
+              return;
+            }
+
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setEditing(true);
+            }
+          }}
+        >
+          <span className="todo-progress-item__text-inner">
+            <InternalReferenceInlineText
+              value={progress.content}
+              className="break-words"
+              variant="todo-inline"
+              onOpenInternalReference={onOpenInternalReference}
+              onOpenContactMention={onOpenContactMention}
+            />
+          </span>
+        </p>
         {showCheckbox ? (
           <button
             type="button"
-            className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border bg-bg text-text-soft transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:text-text"
+            className="todo-progress-item__check mt-0.5"
             aria-label={
               progress.status === "finished" ? "标记子项未完成" : "标记子项完成"
             }
+            aria-pressed={progress.status === "finished"}
             disabled={statusSaving}
             onClick={() => {
               void handleToggleSubItem();
             }}
           >
-            {progress.status === "finished" ? <Check size={11} /> : null}
+            <span className="todo-progress-item__check-ring">
+              {progress.status === "finished" ? <Check size={11} /> : null}
+            </span>
           </button>
         ) : null}
-        <p
-          className={cn(
-            "min-w-0 flex-1 text-ui leading-5 text-text-muted",
-            progress.status === "finished" && "text-text-soft line-through",
-          )}
-        >
-          <InternalReferenceInlineText
-            value={progress.content}
-            className="break-words"
-            variant="todo-inline"
-            onOpenInternalReference={onOpenInternalReference}
-            onOpenContactMention={onOpenContactMention}
-          />
-          <span
-            className="ml-2 text-caption text-text-soft"
-            title={formatFullDate(progress.progressDate)}
-          >
-            {formatMonthDay(progress.progressDate)}
-          </span>
-        </p>
       </div>
       {contextMenu ? (
         <ActionContextMenu

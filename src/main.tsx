@@ -12,19 +12,17 @@ import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { ProjectNoteFocusPage } from "./components/project/ProjectNoteFocusPage";
-import { ProjectSummaryRedirectPage } from "./components/project/ProjectSummaryFocusPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
-import { TodayPage } from "./components/today/TodayPage";
+import { WorkspacePage } from "./components/today/WorkspacePage";
 
 const router = createHashRouter([
   {
     element: <WorkspaceLayout />,
     children: [
-      { index: true, element: <Navigate to="/today" replace /> },
-      { path: "projects", element: <Navigate to="/today" replace /> },
-      { path: "today", element: <TodayPage /> },
+      { index: true, element: <Navigate to="/workspace" replace /> },
+      { path: "projects", element: <Navigate to="/workspace" replace /> },
+      { path: "workspace", element: <WorkspacePage /> },
       { path: "projects/:projectId", element: <ProjectOverviewPage /> },
-      { path: "projects/:projectId/summary", element: <ProjectSummaryRedirectPage /> },
       { path: "projects/:projectId/records/:noteId", element: <ProjectNoteFocusPage /> },
       {
         path: "settings/:section",

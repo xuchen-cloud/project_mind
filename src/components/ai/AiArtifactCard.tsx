@@ -176,7 +176,7 @@ export function AiArtifactCard({
         {!aiEnabled ? (
           <EmptyState
             title="Summary 能力未配置"
-            text="先在设置里绑定可用的 Summary 模型，AI 才能生成活动总结、项目概览和 Today。"
+            text="先在设置里绑定可用的 Summary 模型，AI 才能生成活动总结、项目概览和 Workspace 摘要。"
             icon={<Sparkles size={16} />}
             action={
               <Button type="button" variant="primary" onClick={() => openSettings("ai")}>

@@ -1,6 +1,19 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { webviewWindow } from "@tauri-apps/api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getErrorMessage } from "../lib/errors";
+import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
+import {
+  focusProjectWindow,
+  getCurrentWindowLabel,
+  isProjectWindow,
+  projectWindowLabel,
+} from "../lib/project-window";
+import {
+  WORKSPACE_WINDOW_MIN_HEIGHT_PX,
+} from "../state/ui-store";
 
 interface PickFilter {
   name: string;
@@ -10,6 +23,20 @@ interface PickFilter {
 interface PickFileOptions {
   title?: string;
   filters?: PickFilter[];
+}
+
+function projectWindowUrl(route: string) {
+  if (typeof window === "undefined") {
+    return `index.html#${route}`;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.hash = `#${route}`;
+  return nextUrl.toString();
+}
+
+function projectWindowShowsTodoRail(route: string) {
+  return !route.endsWith("/summary") && !/\/projects\/\d+\/records\/\d+(?:\?.*)?$/u.test(route);
 }
 
 export const desktopApi = {
@@ -82,4 +109,73 @@ export const desktopApi = {
   toFileUrl(path: string) {
     return convertFileSrc(path);
   },
+
+  async openProjectWindow(input: {
+    projectId: number;
+    projectName: string;
+    route: string;
+  }) {
+    const focused = await focusProjectWindow(input.projectId);
+    if (focused) {
+      const existingWindow = await webviewWindow.WebviewWindow.getByLabel(
+        projectWindowLabel(input.projectId),
+      );
+      if (existingWindow) {
+        await existingWindow.emit("project-window:navigate", {
+          route: input.route,
+        });
+      }
+      return;
+    }
+
+    const currentWindowHandle = getCurrentWindow();
+    const [currentWindowSize, currentWindowScaleFactor] = await Promise.all([
+      currentWindowHandle.innerSize().catch(() => null),
+      currentWindowHandle.scaleFactor().catch(() => null),
+    ]);
+    const currentWindowLogicalSize =
+      currentWindowSize && currentWindowScaleFactor
+        ? currentWindowSize.toLogical(currentWindowScaleFactor)
+        : null;
+    const minWidth = getWorkspaceWindowMinWidth({
+      showProjectSidebar: true,
+      projectSidebarCollapsed: true,
+      showTodoRail: projectWindowShowsTodoRail(input.route),
+      todoRailCollapsed: true,
+    });
+    const projectWindow = new webviewWindow.WebviewWindow(projectWindowLabel(input.projectId), {
+      title: input.projectName,
+      url: projectWindowUrl(input.route),
+      width: currentWindowLogicalSize?.width,
+      height: currentWindowLogicalSize?.height,
+      minWidth,
+      minHeight: WORKSPACE_WINDOW_MIN_HEIGHT_PX,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      void projectWindow.once("tauri://created", async () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      });
+
+      void projectWindow.once("tauri://error", (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error);
+      });
+    });
+  },
+
+  focusProjectWindow,
+
+  isProjectWindow,
+
+  getCurrentWindowLabel,
 };

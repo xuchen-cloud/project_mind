@@ -140,8 +140,17 @@ export function recordPath(projectId: number, noteId: number) {
   return `/projects/${projectId}/records/${noteId}`;
 }
 
-export function todayPath() {
-  return "/today";
+export function recordFocusId(noteId: number) {
+  return `record-${noteId}`;
+}
+
+export function parseFocusRecordId(focus: string | null) {
+  const match = focus?.match(/^record-(\d+)$/u);
+  return match ? Number(match[1]) : null;
+}
+
+export function workspacePath() {
+  return "/workspace";
 }
 
 export function parseRouteId(value?: string) {

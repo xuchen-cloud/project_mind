@@ -47,6 +47,7 @@ import {
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "./DocumentImportTagDialog";
+import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
 
 type LayoutMode = "grid" | "list";
 
@@ -110,7 +111,7 @@ export function ManagedDocumentSection({
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
-    togglePendingImportTag,
+    setPendingImportTagIds,
     closeImportTagDialog,
     confirmImportTagDialog,
     manageImportTags,
@@ -454,12 +455,8 @@ export function ManagedDocumentSection({
     }
   };
 
-  const toggleDocumentTag = (document: DocumentRecord, tagId: number) => {
+  const updateDocumentTags = (document: DocumentRecord, nextTagIds: number[]) => {
     const currentTagIds = (effectiveDocumentTagsById.get(document.id) ?? document.tags).map((tag) => tag.id);
-    const nextTagIds = currentTagIds.includes(tagId)
-      ? currentTagIds.filter((value) => value !== tagId)
-      : [...currentTagIds, tagId];
-
     setPendingTagIdsByDocumentId((current) => ({
       ...current,
       [document.id]: nextTagIds,
@@ -851,19 +848,25 @@ export function ManagedDocumentSection({
                       type="checkbox"
                       checked={checked}
                       data-document-interactive="true"
-                      onChange={() => toggleDocumentTag(contextMenuDocument, tag.id)}
                     />
-                    <Circle
-                      size={10}
-                      className="fill-current"
-                      style={{ color: fileTagColorValue(tag.colorKey) }}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{tag.label}</span>
                   </label>
                 );
               })
             ) : null}
+            </div>
+          ) : null}
+          {!fileTagSettingsQuery.isLoading ? (
+            <div className="mt-2 border-t border-border pt-2">
+              <TagAutocompletePicker
+                projectId={projectId}
+                availableTags={fileTags}
+                selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
+                  (tag) => tag.id,
+                )}
+                compact
+                placeholder="#输入标签"
+                onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
+              />
             </div>
           ) : null}
         </PopoverPanel>
@@ -871,10 +874,11 @@ export function ManagedDocumentSection({
 
       {pendingImportPaths ? (
         <DocumentImportTagDialog
+          projectId={projectId}
           paths={pendingImportPaths}
           tags={fileTags}
           selectedTagIds={pendingImportTagIds}
-          onToggleTag={togglePendingImportTag}
+          onChangeSelectedTagIds={setPendingImportTagIds}
           onClose={closeImportTagDialog}
           onConfirm={() => {
             void confirmImportTagDialog();

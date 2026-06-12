@@ -45,6 +45,7 @@ import type {
   DocumentUpdateMetaInput,
   DocumentVersionRecord,
   FileTagOptionDeleteInput,
+  FileTagSettingsGetInput,
   FileTagOptionUpsertInput,
   FileTagRecord,
   FileTagSettingsSnapshot,
@@ -52,22 +53,17 @@ import type {
   InternalReferenceResolveResult,
   InternalReferenceSearchInput,
   InternalReferenceSearchResult,
-  NoteDeleteInput,
+  ProjectRecordDeleteInput,
   NoteRecord,
-  NoteUpsertInput,
+  ProjectRecordUpsertInput,
   ProjectArchiveInput,
   ProjectCreateInput,
-  ProjectDashboard,
   ProjectIdInput,
   ProjectListItem,
-  ProjectOverviewData,
+  ProjectPageData,
   ProjectRecord,
-  ProjectUpdateSummaryInput,
+  ProjectUpdateInput,
   ProjectsListInput,
-  RecordTypeOptionDeleteInput,
-  RecordTypeOptionUpsertInput,
-  RecordTypeRecord,
-  RecordTypeSettingsSnapshot,
   RichTextStyleSettings,
   RichTextStyleUpsertInput,
   TodoAddProgressInput,
@@ -81,10 +77,11 @@ import type {
   TodoUpdatePriorityInput,
   TodoUpdateStatusInput,
   TodoUpdateTagsInput,
-  TodayQuickNoteUpsertInput,
-  WorkspaceNoteDeleteInput,
-  WorkspaceNoteRecord,
-  WorkspaceNoteUpsertInput,
+  WorkspaceQuickNoteUpsertInput,
+  WorkspacePageData,
+  WorkspaceRecordDeleteInput,
+  WorkspaceRecord,
+  WorkspaceRecordUpsertInput,
   WorkspaceCreateInput,
   WorkspaceOpenInput,
   WorkspaceSearchInput,
@@ -108,33 +105,22 @@ export const projectMindApi = {
     desktopApi.command<ProjectListItem[]>("projects_list", { input }),
   projectCreate: (input: ProjectCreateInput) =>
     desktopApi.command<ProjectRecord>("project_create", { input }),
-  projectGetDashboard: (input: ProjectIdInput) =>
-    desktopApi.command<ProjectDashboard>("project_get_dashboard", { input }),
-  projectGetOverview: (input: ProjectIdInput) =>
-    desktopApi.command<ProjectOverviewData>("project_get_overview", { input }),
-  projectUpdateSummary: (input: ProjectUpdateSummaryInput) =>
-    desktopApi.command<ProjectRecord>("project_update_summary", { input }),
+  projectPageGet: (input: ProjectIdInput) =>
+    desktopApi.command<ProjectPageData>("project_page_get", { input }),
+  workspacePageGet: () =>
+    desktopApi.command<WorkspacePageData>("workspace_page_get"),
+  projectUpdate: (input: ProjectUpdateInput) =>
+    desktopApi.command<ProjectRecord>("project_update", { input }),
   projectSetArchive: (input: ProjectArchiveInput) =>
     desktopApi.command<ProjectRecord>("project_set_archive", { input }),
-  fileTagSettingsGet: () =>
-    desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get"),
+  fileTagSettingsGet: (input: FileTagSettingsGetInput) =>
+    desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get", { input }),
   fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>
     desktopApi.command<FileTagRecord>("file_tag_option_upsert", { input }),
   fileTagOptionDelete: (input: FileTagOptionDeleteInput) =>
     desktopApi.command<FileTagSettingsSnapshot>("file_tag_option_delete", {
       input,
     }),
-  recordTypeSettingsGet: () =>
-    desktopApi.command<RecordTypeSettingsSnapshot>("record_type_settings_get"),
-  recordTypeOptionUpsert: (input: RecordTypeOptionUpsertInput) =>
-    desktopApi.command<RecordTypeRecord>("record_type_option_upsert", {
-      input,
-    }),
-  recordTypeOptionDelete: (input: RecordTypeOptionDeleteInput) =>
-    desktopApi.command<RecordTypeSettingsSnapshot>(
-      "record_type_option_delete",
-      { input },
-    ),
   contactList: () => desktopApi.command<ContactRecord[]>("contact_list"),
   contactSearch: (input: ContactSearchInput) =>
     desktopApi.command<ContactRecord[]>("contact_search", { input }),
@@ -142,10 +128,10 @@ export const projectMindApi = {
     desktopApi.command<ContactRecord>("contact_upsert", { input }),
   contactDelete: (input: ContactDeleteInput) =>
     desktopApi.command<ContactRecord>("contact_delete", { input }),
-  noteUpsert: (input: NoteUpsertInput) =>
-    desktopApi.command<NoteRecord>("note_upsert", { input }),
-  noteDelete: (input: NoteDeleteInput) =>
-    desktopApi.command<NoteRecord>("note_delete", { input }),
+  projectRecordUpsert: (input: ProjectRecordUpsertInput) =>
+    desktopApi.command<NoteRecord>("project_record_upsert", { input }),
+  projectRecordDelete: (input: ProjectRecordDeleteInput) =>
+    desktopApi.command<NoteRecord>("project_record_delete", { input }),
   conclusionCreate: (input: ConclusionCreateInput) =>
     desktopApi.command<ConclusionRecord>("conclusion_create", { input }),
   conclusionList: (input: ConclusionListInput) =>
@@ -176,16 +162,16 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
   workspaceTodoList: () =>
     desktopApi.command<TodoRecord[]>("workspace_todo_list"),
-  todayQuickNoteGet: () =>
-    desktopApi.command<WorkspaceNoteRecord | null>("today_quick_note_get"),
-  todayQuickNoteUpsert: (input: TodayQuickNoteUpsertInput) =>
-    desktopApi.command<WorkspaceNoteRecord>("today_quick_note_upsert", { input }),
-  workspaceNoteList: () =>
-    desktopApi.command<WorkspaceNoteRecord[]>("workspace_note_list"),
-  workspaceNoteUpsert: (input: WorkspaceNoteUpsertInput) =>
-    desktopApi.command<WorkspaceNoteRecord>("workspace_note_upsert", { input }),
-  workspaceNoteDelete: (input: WorkspaceNoteDeleteInput) =>
-    desktopApi.command<WorkspaceNoteRecord>("workspace_note_delete", { input }),
+  workspaceQuickNoteGet: () =>
+    desktopApi.command<WorkspaceRecord | null>("workspace_quick_note_get"),
+  workspaceQuickNoteUpsert: (input: WorkspaceQuickNoteUpsertInput) =>
+    desktopApi.command<WorkspaceRecord>("workspace_quick_note_upsert", { input }),
+  workspaceRecordList: () =>
+    desktopApi.command<WorkspaceRecord[]>("workspace_record_list"),
+  workspaceRecordUpsert: (input: WorkspaceRecordUpsertInput) =>
+    desktopApi.command<WorkspaceRecord>("workspace_record_upsert", { input }),
+  workspaceRecordDelete: (input: WorkspaceRecordDeleteInput) =>
+    desktopApi.command<WorkspaceRecord>("workspace_record_delete", { input }),
   documentImport: (input: DocumentImportInput) =>
     desktopApi.command<DocumentRecord>("document_import", { input }),
   documentImportClipboardImage: (input: DocumentImportClipboardImageInput) =>

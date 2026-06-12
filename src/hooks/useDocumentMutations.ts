@@ -13,7 +13,7 @@ export function useDocumentMutations() {
       setStatus({ tone: "success", label: "Imported", message: `文件 ${document.name} 已导入` });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
       ]);
     },
     onError: (error) => {
@@ -32,7 +32,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
       ]);
     },
     onError: (error) => {
@@ -51,7 +51,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
       ]);
     },
     onError: (error) => {
@@ -70,7 +70,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
         queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
       ]);
     },
@@ -90,7 +90,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
         queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
       ]);
     },

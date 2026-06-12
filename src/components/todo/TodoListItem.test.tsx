@@ -1,9 +1,17 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 
 import type { TodoRecord } from "../../lib/types";
 import { TodoListItem } from "./TodoListItem";
+
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 const todo: TodoRecord = {
   id: 7,
@@ -18,61 +26,45 @@ const todo: TodoRecord = {
 };
 
 describe("TodoListItem", () => {
-  it("updates priority from the dropdown and opens the source activity", async () => {
-    const user = userEvent.setup();
-    const onUpdatePriority = vi.fn(async () => undefined);
-    const onOpenTodoSource = vi.fn();
-
-    render(
+  function renderItem(partialTodo: Partial<TodoRecord> = {}, extraProps: Record<string, unknown> = {}) {
+    return render(
       <TodoListItem
-        todo={todo}
-        activityNameById={new Map([[11, "预算讨论"]])}
-        activityOptions={[
-          { id: 11, title: "预算讨论" },
-          { id: 12, title: "项目复盘" },
-        ]}
+        todo={{ ...todo, ...partialTodo }}
         onToggleStatus={vi.fn()}
-        onUpdatePriority={onUpdatePriority}
+        onUpdatePriority={vi.fn()}
         onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
         onAddProgress={vi.fn()}
         onUpdateProgress={vi.fn()}
         onDeleteProgress={vi.fn()}
-        onOpenTodoSource={onOpenTodoSource}
         onToggleExpanded={vi.fn()}
         onOpenContextMenu={vi.fn()}
+        {...extraProps}
       />,
     );
+  }
 
-    await user.click(screen.getByRole("button", { name: "修改优先级：P3 · 不紧急但重要" }));
-    await user.click(screen.getByRole("menuitemradio", { name: "P1 紧急且重要" }));
+  it("does not render the old priority dot button", () => {
+    renderItem();
 
-    expect(onUpdatePriority).toHaveBeenCalledWith(7, "urgent_important");
+    expect(
+      screen.queryByRole("button", { name: "修改优先级：P3 · 不紧急但重要" }),
+    ).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "预算讨论" }));
-    expect(onOpenTodoSource).toHaveBeenCalledWith(todo);
+  it("keeps the main completion button on the headline row", async () => {
+    const user = userEvent.setup();
+    const onToggleStatus = vi.fn(async () => undefined);
+
+    renderItem({}, { onToggleStatus });
+    await user.click(screen.getByRole("button", { name: "标记为已完成" }));
+
+    expect(onToggleStatus).toHaveBeenCalledWith(7, "finished");
   });
 
   it("opens a context menu on right click", () => {
     const onOpenContextMenu = vi.fn();
 
-    render(
-      <TodoListItem
-        todo={todo}
-        activityNameById={new Map([[11, "预算讨论"]])}
-        activityOptions={[{ id: 11, title: "预算讨论" }]}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-        onToggleExpanded={vi.fn()}
-        onOpenContextMenu={onOpenContextMenu}
-      />,
-    );
+    renderItem({}, { onOpenContextMenu });
 
     fireEvent.contextMenu(document.getElementById("todo-7") as HTMLElement, {
       clientX: 120,
@@ -82,102 +74,54 @@ describe("TodoListItem", () => {
     expect(onOpenContextMenu).toHaveBeenCalledWith(7, 120, 48);
   });
 
-  it("rebinds the todo to another activity from the inline source selector", async () => {
-    const user = userEvent.setup();
-    const onUpdateActivity = vi.fn(async () => undefined);
+  it("does not render an empty tag editor by default", () => {
+    renderItem();
 
-    render(
-      <TodoListItem
-        todo={todo}
-        activityNameById={new Map([[11, "预算讨论"]])}
-        activityOptions={[
-          { id: 11, title: "预算讨论" },
-          { id: 12, title: "项目复盘" },
-        ]}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={onUpdateActivity}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-        onToggleExpanded={vi.fn()}
-        onOpenContextMenu={vi.fn()}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
-    await user.click(screen.getByRole("menuitemradio", { name: "项目复盘" }));
-
-    expect(onUpdateActivity).toHaveBeenCalledWith(7, 12);
+    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
   });
 
-  it("clears the todo back to project level from the inline source selector", async () => {
-    const user = userEvent.setup();
-    const onUpdateActivity = vi.fn(async () => undefined);
+  it("shows tags as read-only in display mode", () => {
+    renderItem({
+      tags: [{ id: 12, label: "法务", colorKey: "red" }],
+    });
 
-    render(
-      <TodoListItem
-        todo={todo}
-        activityNameById={new Map([[11, "预算讨论"]])}
-        activityOptions={[
-          { id: 11, title: "预算讨论" },
-          { id: 12, title: "项目复盘" },
-        ]}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={onUpdateActivity}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-        onToggleExpanded={vi.fn()}
-        onOpenContextMenu={vi.fn()}
-      />,
+    expect(screen.getByText("法务")).toBeInTheDocument();
+    expect(screen.queryByLabelText("移除标签 法务")).not.toBeInTheDocument();
+  });
+
+  it("shows removable tags while inline content is editing", async () => {
+    const user = userEvent.setup();
+    renderItem(
+      {
+        tags: [{ id: 12, label: "法务", colorKey: "red" }],
+      },
+      { allowInlineEdit: true, onUpdateTags: vi.fn(), availableTags: [] },
     );
 
-    await user.click(screen.getByRole("button", { name: "修改归属 Activity" }));
-    await user.click(screen.getByRole("menuitemradio", { name: "项目级 Todo" }));
-
-    expect(onUpdateActivity).toHaveBeenCalledWith(7, null);
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+    expect(screen.getByLabelText("移除标签 法务")).toBeInTheDocument();
   });
 
   it("marks an unfinished sub item as finished", async () => {
     const user = userEvent.setup();
     const onUpdateProgress = vi.fn(async () => undefined);
 
-    render(
-      <TodoListItem
-        todo={{
-          ...todo,
-          progresses: [
-            {
-              id: 31,
-              todoId: todo.id,
-              content: "等待财务确认",
-              progressDate: "2026-04-05",
-              createdAt: "2026-04-05T09:00:00.000Z",
-              status: "unfinished",
-              completedAt: null,
-              orderIndex: 0,
-            },
-          ],
-        }}
-        activityNameById={new Map([[11, "预算讨论"]])}
-        activityOptions={[{ id: 11, title: "预算讨论" }]}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={onUpdateProgress}
-        onDeleteProgress={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-        onToggleExpanded={vi.fn()}
-        onOpenContextMenu={vi.fn()}
-      />,
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "等待财务确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "unfinished",
+            completedAt: null,
+            orderIndex: 0,
+          },
+        ],
+      },
+      { onUpdateProgress },
     );
 
     expect(screen.getByText("等待财务确认")).toBeInTheDocument();
@@ -188,5 +132,114 @@ describe("TodoListItem", () => {
       progressDate: "2026-04-05",
       status: "finished",
     });
+  });
+
+  it("allows clicking an unfinished subitem body to edit it", async () => {
+    const user = userEvent.setup();
+
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "等待财务确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "unfinished",
+            completedAt: null,
+            orderIndex: 0,
+          },
+        ],
+      },
+      { allowInlineProgress: true },
+    );
+
+    await user.click(screen.getByRole("button", { name: "等待财务确认" }));
+
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
+  it("applies a visual transition state while a sub item is completing", () => {
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "等待财务确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "finished",
+            completedAt: "2026-04-05T09:10:00.000Z",
+            orderIndex: 0,
+          },
+        ],
+      },
+      {
+        expanded: true,
+        onToggleExpanded: vi.fn(),
+      },
+    );
+
+    expect(screen.getByText("等待财务确认").closest("article")?.className).toContain(
+      "todo-progress-item",
+    );
+  });
+
+  it("does not render the sub item date text", () => {
+    renderItem({
+      progresses: [
+        {
+          id: 31,
+          todoId: todo.id,
+          content: "等待财务确认",
+          progressDate: "2026-04-05",
+          createdAt: "2026-04-05T09:00:00.000Z",
+          status: "unfinished",
+          completedAt: null,
+          orderIndex: 0,
+        },
+      ],
+    });
+
+    expect(screen.queryByText("4月5日")).not.toBeInTheDocument();
+  });
+
+  it("renders the expand control alongside the add-subitem row", () => {
+    renderItem();
+
+    const expandButton = screen.getByRole("button", { name: "展开已完成子项" });
+    const subitemRow = expandButton.closest(".todo-card__subitem-row");
+
+    expect(subitemRow).toBeTruthy();
+  });
+
+  it("hides the completion button while editing todo content", async () => {
+    const user = userEvent.setup();
+
+    renderItem({}, { allowInlineEdit: true });
+
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+
+    expect(screen.getByRole("button", { name: "标记为已完成" }).className).toContain(
+      "todo-card__check--hidden",
+    );
+    expect(document.getElementById("todo-7")?.getAttribute("data-state")).toContain("editing");
+  });
+
+  it("hides the expand button while editing a subitem", async () => {
+    const user = userEvent.setup();
+
+    renderItem({}, { allowInlineProgress: true });
+
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+
+    expect(screen.getByRole("button", { name: "展开已完成子项" }).className).toContain(
+      "todo-card__expand--hidden",
+    );
+    expect(document.getElementById("todo-7")?.getAttribute("data-state")).toContain(
+      "progress-editing",
+    );
   });
 });

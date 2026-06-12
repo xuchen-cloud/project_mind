@@ -19,6 +19,10 @@ import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
     listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
+    focusProjectWindow: vi.fn(async () => false),
+    openProjectWindow: vi.fn(async () => undefined),
+    isProjectWindow: vi.fn(() => false),
+    getCurrentWindowLabel: vi.fn(() => "main"),
   },
 }));
 
@@ -121,9 +125,9 @@ vi.mock("./services/projectMindApi", () => ({
       aiSuggestions: [],
     })),
     workspaceTodoList: vi.fn(async () => []),
-    workspaceNoteList: vi.fn(async () => []),
-    workspaceNoteUpsert: vi.fn(),
-    workspaceNoteDelete: vi.fn(),
+    workspaceRecordList: vi.fn(async () => []),
+    workspaceRecordUpsert: vi.fn(),
+    workspaceRecordDelete: vi.fn(),
     richTextStyleGet: vi.fn(async () => ({
       body: {
         fontFamily: { source: "preset", value: "workspace_sans" },
@@ -209,7 +213,7 @@ vi.mock("./services/projectMindApi", () => ({
       },
       editorRewriteActions: [],
     })),
-    projectGetOverview: vi.fn(async () => ({
+    projectPageGet: vi.fn(async () => ({
       project: null,
       activityFeed: [],
       projectDocuments: [],
@@ -222,6 +226,7 @@ vi.mock("./services/projectMindApi", () => ({
 
 import { WorkspaceLayout } from "./App";
 import type { ActivityCardData } from "./lib/types";
+import { desktopApi } from "./services/desktopApi";
 import { projectMindApi } from "./services/projectMindApi";
 import { useUiStore } from "./state/ui-store";
 
@@ -913,35 +918,7 @@ describe("WorkspaceLayout", () => {
     );
   });
 
-  it("keeps Today visible while hiding Ask when assistant is off", async () => {
-    vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
-      profiles: [],
-      bindings: [],
-      hasUsableDefault: false,
-      securityMode: "workspace_password_encrypted",
-      aiSecretsUnlocked: true,
-      execution: {
-        maxConcurrency: 1,
-      },
-      featureSettings: {
-        masterEnabled: true,
-        capabilities: {
-          assistant: false,
-          summary: true,
-          suggestion_generation: true,
-          editor_rewrite: true,
-        },
-        features: {
-          "summary.activity_summary": true,
-          "summary.project_brief": true,
-          "summary.daily_brief": false,
-          "suggestion_generation.conclusion": true,
-          "suggestion_generation.todo": true,
-        },
-      },
-      editorRewriteActions: [],
-    });
-
+  it("keeps Today visible without an Ask entry", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -969,35 +946,7 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
   });
 
-  it("keeps /today accessible even when the daily brief feature is off", async () => {
-    vi.mocked(projectMindApi.aiSettingsGet).mockResolvedValueOnce({
-      profiles: [],
-      bindings: [],
-      hasUsableDefault: false,
-      securityMode: "workspace_password_encrypted",
-      aiSecretsUnlocked: true,
-      execution: {
-        maxConcurrency: 1,
-      },
-      featureSettings: {
-        masterEnabled: true,
-        capabilities: {
-          assistant: true,
-          summary: true,
-          suggestion_generation: true,
-          editor_rewrite: true,
-        },
-        features: {
-          "summary.activity_summary": true,
-          "summary.project_brief": true,
-          "summary.daily_brief": false,
-          "suggestion_generation.conclusion": true,
-          "suggestion_generation.todo": true,
-        },
-      },
-      editorRewriteActions: [],
-    });
-
+  it("keeps /today accessible after AI entry removal", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -1021,5 +970,133 @@ describe("WorkspaceLayout", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/today"));
     expect(await screen.findByText("today route")).toBeInTheDocument();
+  });
+
+  it("focuses an existing detached project window instead of navigating in the main window", async () => {
+    useUiStore.setState({ openProjectIds: [1, 2] });
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      {
+        id: 2,
+        name: "Beta Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/beta",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 0,
+        unorganizedCount: 0,
+        openTodoCount: 0,
+      },
+    ]);
+    vi.mocked(desktopApi.focusProjectWindow).mockResolvedValueOnce(true);
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId",
+              element: <div>project route body</div>,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("project route body");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Beta Project" }));
+
+    expect(desktopApi.focusProjectWindow).toHaveBeenCalledWith(2);
+    expect(router.state.location.pathname).toBe("/projects/1");
+  });
+
+  it("hides the top bar inside a detached project window", async () => {
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({
+      project: {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        summaryMarkdown: "",
+        summaryHtml: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      activityFeed: [],
+      records: [],
+      projectDocuments: [],
+      conclusionGroups: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    vi.mocked(desktopApi.isProjectWindow).mockReturnValueOnce(true);
+    vi.mocked(desktopApi.getCurrentWindowLabel).mockReturnValueOnce("project-1");
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [{ path: "projects/:projectId", element: <div>project route body</div> }],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("project route body")).toBeInTheDocument();
+    expect(screen.queryByRole("tablist", { name: "Projects" })).not.toBeInTheDocument();
   });
 });

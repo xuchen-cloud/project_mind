@@ -10,23 +10,27 @@ import {
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import type {
-  AiAnswerScope,
   DocumentRecord,
   NoteRecord,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
   WorkspaceSummary,
 } from "./lib/types";
-import { isAiCapabilityVisible } from "./lib/ai";
-import { deriveAskScopeContext } from "./lib/aiAsk";
 import { ensureAiJobSync, resetAiJobSync } from "./lib/aiJobs";
 import {
   parseRouteId,
+  parseFocusRecordId,
   projectPath,
   recordPath,
-  todayPath,
+  recordFocusId,
+  workspacePath,
 } from "./lib/formatters";
-import { noteTemplateLabel } from "./lib/note-templates";
+import {
+  getCurrentWindowLabel,
+  isProjectWindow,
+  parseProjectWindowProjectId,
+  PROJECT_WINDOW_NAVIGATE_EVENT,
+} from "./lib/project-window";
 import {
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
   applyRichTextStyleVariables,
@@ -38,7 +42,6 @@ import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
-import { AskPanel } from "./components/ai/AskPanel";
 import {
   ProjectSidebar,
   type ProjectSidebarDocumentItem,
@@ -60,27 +63,25 @@ import {
 function workspaceScopedQueryKeys() {
   return [
     ["projects"],
-    ["overview"],
+    ["project-page"],
     ["dashboard"],
     ["search"],
     ["workspace-todos"],
-    ["workspace-notes"],
+    ["workspace-page"],
     ["ai-settings"],
     ["ai-artifact"],
     ["rich-text-style"],
     ["file-tag-settings"],
-    ["record-type-settings"],
   ] as const;
 }
 
 function toProjectSidebarRecords(
   records: NoteRecord[],
-  recordTypeSettings: Awaited<ReturnType<typeof projectMindApi.recordTypeSettingsGet>> | undefined,
 ): ProjectSidebarRecordItem[] {
   return records.map((record) => ({
     id: record.id,
     title: record.title,
-    typeLabel: noteTemplateLabel(record.noteType, recordTypeSettings),
+    typeLabel: "记录",
     contentMarkdown: record.contentMarkdown,
     tags: record.tags ?? [],
     updatedAt: record.updatedAt,
@@ -391,15 +392,21 @@ export function WorkspaceLayout() {
   const location = useLocation();
   const params = useParams();
   const queryClient = useQueryClient();
+  const projectWindow = isProjectWindow();
+  const currentWindowLabel = getCurrentWindowLabel();
+  const currentProjectWindowId = parseProjectWindowProjectId(currentWindowLabel);
   const activeProjectId = parseRouteId(params.projectId);
-  const activeRecordId = parseRouteId(params.noteId);
-  const todayActive = location.pathname === todayPath();
+  const activeRecordId =
+    parseRouteId(params.noteId) ??
+    parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
+  const workspaceActive = location.pathname === workspacePath();
 
   const {
     createProjectOpen,
     setCreateProjectOpen,
     settingsOpen,
     settingsSection,
+    settingsProjectId,
     openSettings,
     closeSettings,
     openProjectIds,
@@ -431,11 +438,6 @@ export function WorkspaceLayout() {
     queryFn: projectMindApi.richTextStyleGet,
     enabled: hasWorkspace,
   });
-  const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
-    queryFn: projectMindApi.aiSettingsGet,
-    enabled: hasWorkspace,
-  });
 
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
@@ -463,23 +465,14 @@ export function WorkspaceLayout() {
     [activeProjectId, projectsQuery.data],
   );
   const projectSidebarOverviewQuery = useQuery({
-    queryKey: ["overview", activeProjectId],
+    queryKey: ["project-page", activeProjectId],
     queryFn: () =>
-      projectMindApi.projectGetOverview({ projectId: activeProjectId as number }),
+      projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
   });
-  const recordTypeSettingsQuery = useQuery({
-    queryKey: ["record-type-settings"],
-    queryFn: projectMindApi.recordTypeSettingsGet,
-    enabled: hasWorkspace,
-  });
   const projectSidebarRecords = useMemo(
-    () =>
-      toProjectSidebarRecords(
-        projectSidebarOverviewQuery.data?.records ?? [],
-        recordTypeSettingsQuery.data,
-      ),
-    [projectSidebarOverviewQuery.data?.records, recordTypeSettingsQuery.data],
+    () => toProjectSidebarRecords(projectSidebarOverviewQuery.data?.records ?? []),
+    [projectSidebarOverviewQuery.data?.records],
   );
   const projectSidebarDocuments = useMemo(
     () =>
@@ -511,7 +504,6 @@ export function WorkspaceLayout() {
   });
 
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceRoot, setCreateWorkspaceRoot] = useState("");
@@ -526,14 +518,6 @@ export function WorkspaceLayout() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
 
-  const askScopeContext = useMemo(
-    () => deriveAskScopeContext(location.pathname, activeProjectId),
-    [activeProjectId, location.pathname],
-  );
-  const [askScope, setAskScope] = useState<AiAnswerScope>(
-    askScopeContext.defaultScope,
-  );
-  const askVisible = isAiCapabilityVisible(aiSettingsQuery.data, "assistant");
   const todayVisible = hasWorkspace;
 
   const { createProjectMutation, archiveMutation } = useProjectMutations(
@@ -627,8 +611,7 @@ export function WorkspaceLayout() {
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
       setArchiveOpen(false);
-      setAskOpen(false);
-      navigate(todayPath(), { replace: true });
+      navigate(workspacePath(), { replace: true });
       return snapshot;
     },
     [applyWorkspaceStatus, navigate, setCreateProjectOpen],
@@ -691,7 +674,7 @@ export function WorkspaceLayout() {
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
       setCreateWorkspacePassword("");
-      navigate(todayPath(), { replace: true });
+      navigate(workspacePath(), { replace: true });
       setStatus({
         tone: "success",
         label: "Created",
@@ -745,18 +728,92 @@ export function WorkspaceLayout() {
   );
 
   const openProjectInTab = useCallback(
-    (projectId: number) => {
+    async (projectId: number) => {
+      if (!projectWindow) {
+        const focused = await desktopApi.focusProjectWindow(projectId);
+        if (focused) {
+          return;
+        }
+      }
+
       openProjectTab(projectId);
       navigate(resolveProjectNavigationPath(projectId));
     },
-    [navigate, openProjectTab, resolveProjectNavigationPath],
+    [navigate, openProjectTab, projectWindow, resolveProjectNavigationPath],
+  );
+
+  const openProjectInNewWindow = useCallback(
+    async (projectId: number, routeOverride?: string) => {
+      const project = visibleProjects.find((item) => item.id === projectId);
+      if (!project) {
+        return;
+      }
+
+      const route =
+        routeOverride ??
+        (activeProjectId === projectId
+          ? `${location.pathname}${location.search}`
+          : resolveProjectNavigationPath(projectId));
+
+      try {
+        await desktopApi.openProjectWindow({
+          projectId,
+          projectName: project.name,
+          route,
+        });
+      } catch (error) {
+        pushToast({
+          tone: "error",
+          title: "打开项目新窗口失败",
+          detail: String(error),
+        });
+        throw error;
+      }
+    },
+    [
+      activeProjectId,
+      location.pathname,
+      location.search,
+      pushToast,
+      resolveProjectNavigationPath,
+      visibleProjects,
+    ],
+  );
+
+  const detachProjectToNewWindow = useCallback(
+    async (projectId: number) => {
+      const route =
+        activeProjectId === projectId
+          ? `${location.pathname}${location.search}`
+          : resolveProjectNavigationPath(projectId);
+
+      try {
+        await openProjectInNewWindow(projectId, route);
+      } catch {
+        return;
+      }
+      closeProjectTab(projectId);
+
+      if (activeProjectId === projectId) {
+        navigate(workspacePath());
+      }
+    },
+    [
+      activeProjectId,
+      closeProjectTab,
+      location.pathname,
+      location.search,
+      navigate,
+      openProjectInNewWindow,
+      resolveProjectNavigationPath,
+    ],
   );
 
   const closeProjectTabAndMaybeNavigate = useCallback(
     (projectId: number) => {
       closeProjectTab(projectId);
       if (activeProjectId === projectId) {
-        navigate(todayPath());
+        navigate(workspacePath());
       }
     },
     [activeProjectId, closeProjectTab, navigate],
@@ -769,7 +826,7 @@ export function WorkspaceLayout() {
         openProjectInTab(result.projectId);
       } else if (result.kind === "note") {
         openProjectTab(result.projectId);
-        navigate(recordPath(result.projectId, result.id));
+        navigate(projectPath(result.projectId, recordFocusId(result.id)));
       } else if (result.kind === "todo") {
         openProjectTab(result.projectId);
         navigate(projectPath(result.projectId, `todo-${result.id}`));
@@ -786,7 +843,7 @@ export function WorkspaceLayout() {
     !projectsQuery.isLoading &&
     visibleProjects.length === 0 &&
     !activeProjectId &&
-    !todayActive;
+    !workspaceActive;
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -841,6 +898,55 @@ export function WorkspaceLayout() {
   ]);
 
   useEffect(() => {
+    if (!projectWindow || currentProjectWindowId === null) {
+      return;
+    }
+
+    if (activeProjectId === currentProjectWindowId) {
+      return;
+    }
+
+    navigate(projectPath(currentProjectWindowId), { replace: true });
+  }, [activeProjectId, currentProjectWindowId, navigate, projectWindow]);
+
+  useEffect(() => {
+    if (!projectWindow || typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void import("@tauri-apps/api")
+      .then((api) =>
+        api.webviewWindow.getCurrentWebviewWindow().listen<{ route: string }>(
+          PROJECT_WINDOW_NAVIGATE_EVENT,
+          ({ payload }: { payload: { route: string } }) => {
+            if (disposed || !payload?.route) {
+              return;
+            }
+
+            navigate(payload.route);
+          },
+        ),
+      )
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [navigate, projectWindow]);
+
+  useEffect(() => {
     if (typeof document === "undefined" || !hasWorkspace) {
       return;
     }
@@ -852,24 +958,9 @@ export function WorkspaceLayout() {
   }, [hasWorkspace, richTextStyleQuery.data]);
 
   useEffect(() => {
-    setAskScope((current) =>
-      askScopeContext.allowedScopes.includes(current)
-        ? current
-        : askScopeContext.defaultScope,
-    );
-  }, [askScopeContext]);
-
-  useEffect(() => {
-    if (askOpen && !askVisible) {
-      setAskOpen(false);
-    }
-  }, [askOpen, askVisible]);
-
-  useEffect(() => {
     if (!hasWorkspace) {
       setArchiveOpen(false);
       setWorkspaceMenuOpen(false);
-      setAskOpen(false);
       return;
     }
 
@@ -931,10 +1022,8 @@ export function WorkspaceLayout() {
       currentWorkspace={currentWorkspace}
       aiSecretsUnlocked={workspaceStatusQuery.data?.aiSecretsUnlocked ?? false}
       activeProjectId={activeProjectId}
-      todayActive={todayActive}
+      todayActive={workspaceActive}
       showToday={todayVisible}
-      askOpen={askOpen}
-      showAsk={askVisible}
       settingsActive={settingsOpen}
       archivedProjects={archivedProjects}
       searchInput={searchInput}
@@ -944,7 +1033,9 @@ export function WorkspaceLayout() {
       archiveOpen={archiveOpen}
       onToggleArchive={() => setArchiveOpen((current) => !current)}
       onCloseArchive={() => setArchiveOpen(false)}
-      onOpenProject={openProjectInTab}
+      onOpenProject={(projectId) => {
+        void openProjectInTab(projectId);
+      }}
       onCloseProject={closeProjectTabAndMaybeNavigate}
       onRestoreProject={(id) =>
         archiveMutation.mutate({ projectId: id, isArchived: false })
@@ -958,10 +1049,12 @@ export function WorkspaceLayout() {
       onSwitchWorkspace={() => void handleOpenExistingWorkspace()}
       onLockAiSecrets={() => void handleLockAiSecrets()}
       onCreateProject={() => setCreateProjectOpen(true)}
-      onOpenToday={() => navigate(todayPath())}
-      onOpenAsk={() => setAskOpen(true)}
-      onOpenSettings={() => openSettings("file-tags")}
+      onOpenToday={() => navigate(workspacePath())}
+      onOpenSettings={() => openSettings("file-tags", activeProjectId)}
       onSearchSelect={handleSearchSelect}
+      onDetachProject={(projectId) => {
+        void detachProjectToNewWindow(projectId);
+      }}
     />
   );
   const mainContent = shouldShowEmpty ? (
@@ -987,48 +1080,53 @@ export function WorkspaceLayout() {
   );
 
   return (
-    <div className="flex h-dvh min-h-0 min-w-0 overflow-hidden bg-bg-subtle">
-      {showProjectSidebarShell ? (
-        <ProjectSidebar
-          project={{
-            id: activeProject.id,
-            name: activeProject.name,
-            kind: activeProject.kind,
-            rootPath: activeProject.rootPath,
-            isArchived: activeProject.isArchived,
-          }}
-          records={projectSidebarRecords}
-          documents={projectSidebarDocuments}
-          activeRecordId={activeRecordId}
-          onOpenProject={() => navigate(projectPath(activeProject.id))}
-          onOpenRecord={(recordId) => navigate(recordPath(activeProject.id, recordId))}
-          onOpenDocument={(document) => {
-            void desktopApi.openFile(document.managedPath).catch((error) => {
-              pushToast({
-                tone: "error",
-                title: "打开文件失败",
-                detail: String(error),
+    <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
+      {projectWindow ? null : workspaceTopBar}
+
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {showProjectSidebarShell ? (
+          <ProjectSidebar
+            project={{
+              id: activeProject.id,
+              name: activeProject.name,
+              kind: activeProject.kind,
+              rootPath: activeProject.rootPath,
+              isArchived: activeProject.isArchived,
+            }}
+            records={projectSidebarRecords}
+            documents={projectSidebarDocuments}
+            activeRecordId={activeRecordId}
+            onOpenProject={() => navigate(projectPath(activeProject.id))}
+            onCreateRecord={() => navigate(`/projects/${activeProject.id}?view=history&compose=record`)}
+            onOpenRecord={(recordId) =>
+              navigate(projectPath(activeProject.id, recordFocusId(recordId)))
+            }
+            onOpenDocument={(document) => {
+              void desktopApi.openFile(document.managedPath).catch((error) => {
+                pushToast({
+                  tone: "error",
+                  title: "打开文件失败",
+                  detail: String(error),
+                });
               });
-            });
-          }}
-        />
-      ) : null}
+            }}
+          />
+        ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {workspaceTopBar}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <main className="min-h-0 flex-1 overflow-hidden">{mainContent}</main>
 
-        <main className="min-h-0 flex-1 overflow-hidden">{mainContent}</main>
-
-        <StatusBar
-          context={
-            todayActive
-              ? "总览"
-              : activeProjectId !== null
-                ? (activeProject?.name ?? null)
-                : currentWorkspace.displayName
-          }
-          detail={`${visibleProjects.length} projects`}
-        />
+          <StatusBar
+            context={
+              workspaceActive
+                ? "Workspace"
+                : activeProjectId !== null
+                  ? (activeProject?.name ?? null)
+                  : currentWorkspace.displayName
+            }
+            detail={`${visibleProjects.length} projects`}
+          />
+        </div>
       </div>
 
       {createProjectOpen ? (
@@ -1066,21 +1164,10 @@ export function WorkspaceLayout() {
       <SettingsDialog
         open={settingsOpen}
         activeSection={settingsSection}
+        projectId={settingsProjectId}
         onSectionChange={setSettingsSection}
         onUnlockAiSecrets={requestUnlockAiSecrets}
         onClose={closeSettings}
-      />
-
-      <AskPanel
-        open={askVisible && askOpen}
-        scope={askScope}
-        allowedScopes={askScopeContext.allowedScopes}
-        projectId={activeProjectId}
-        aiSettings={aiSettingsQuery.data}
-        aiSettingsLoading={aiSettingsQuery.isLoading}
-        onUnlockAiSecrets={requestUnlockAiSecrets}
-        onClose={() => setAskOpen(false)}
-        onScopeChange={setAskScope}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

@@ -1,21 +1,27 @@
 # Project Mind Alpha
 
-本仓库实现了 Project Mind Alpha 的 `workspace-first`、本地优先桌面应用原型，技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。应用围绕 `Workspace -> Project -> Activity` 组织资料、记录、结论、Todo 与 AI 辅助流程。
+Project Mind Alpha 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并在本地工作区内提供 AI 总结与 Ask 问答。
 
-## 当前能力
-- 打开或新建 Workspace，并把数据库、配置、AI 缓存、日志和临时文件统一收纳在 Workspace 下的 `.project-mind/`
-- 记录最近使用的 Workspace，支持切换 Workspace、打开 Workspace 根目录，以及锁定 / 解锁 AI secrets
-- 在当前 Workspace 内创建项目，并在根目录下生成同名项目文件夹
-- 在项目页维护项目状态、富文本简介、项目级文件、结论时间线、Todo Rail 和 `Project Brief` AI 概览，并支持归档 / 恢复项目
-- 在项目内创建 Activity，维护活动属性、活动状态、富文本简介，并自动为 Activity 生成独立目录
-- 在 Activity 中编写记录，支持自定义记录类型与模板、富文本正文、图片 / 附件 / 表格、截图粘贴、空白编辑器直接粘贴图片、文件插入、内部引用 `[[...]]`、单条记录置顶，以及独立记录专注页
-- 在 Activity 中沉淀结论，支持提升到项目首页展示、统一置顶排序，并可从引用或焦点锚点回跳
-- 在项目级与 Activity 级创建 Todo，切换状态、调整优先级、修改所属 Activity / 清空为项目级、维护最新进展与历史进展，并在 Todo 正文 / 进展中使用内部引用 `[[...]]`
-- 管理项目 / Activity 文件，支持拖拽导入、导入前批量打标签、标签筛选、打开 / 定位 / 重命名 / 标星 / 删除、版本浏览与新增版本、失效检测，以及在 Activity 页面按需展开“项目文件”折叠区
-- 在顶部工作台搜索项目、活动、结论、Todo 和文件，并通过现有项目路由、`focus` 锚点和记录专注页进行跳转
-- 提供始终可访问的 `Today` 工作台（固定快记、Today Todo、workspace notes、AI 今日概览）、`Ask`、`Activity Summary`、`Project Brief` 等入口
-- 配置 AI provider profile、能力绑定、能力开关、执行并发，并用 Workspace 密码加密保存 API Key
-- 配置富文本正文、标题和列表的全局排版样式
+## 当前产品基线
+
+- 通过 `Workspace Gate` 打开或创建工作区，并把数据库、配置、AI 缓存、日志与临时文件统一保存在工作区根目录下的 `.project-mind/`
+- 提供始终可访问的 `Workspace / 工作区` 页面，作为工作区级入口
+- 在工作区页维护一份固定单例的 `Workspace QuickNote`
+- 在工作区页维护工作区级Record列表，并支持新建、编辑、删除记录
+- 在工作区页维护跨项目 Todo 视图，支持创建、状态切换、优先级、进展、引用、联系人提及与标签
+- 在项目页维护项目名称、QuickNote与项目级Record
+- 在项目Record中支持富文本正文、标题、`#标签` 自动同步、内部引用 `[[...]]`、联系人提及 `@...`
+- 在项目侧边栏浏览记录与文件，支持搜索、标签筛选、文件导入、重命名、标星、版本切换、删除与拖拽导入
+- 提供顶栏全局搜索、项目页签、归档项目入口、Ask 入口、设置入口与工作区菜单
+- 提供 `Project Brief` 与 `Daily Brief` 两类 AI artifact，以及基于当前范围的单轮 Ask
+- 提供项目标签、联系人、AI 设置、富文本样式、页面宽度等设置能力
+
+## 当前主路由
+
+- `/workspace`：工作区
+- `/projects/:projectId`：项目Workspace与项目Record
+- `/projects/:projectId/records/:noteId`：记录焦点页
+- `/settings/:section`：设置路由桥接
 
 ## 运行方式
 
@@ -23,28 +29,34 @@
 
 ```bash
 npm install
-npm run tauri dev
+npm run dev:tauri
 ```
 
-仅构建前端：
+仅启动前端：
+
+```bash
+npm run dev
+```
+
+构建：
 
 ```bash
 npm run build
 ```
 
-运行前端单元测试：
+前端单元测试：
 
 ```bash
 npm run test:unit
 ```
 
-检查 UI 约束：
+UI 约束检查：
 
 ```bash
 npm run check:ui-standards
 ```
 
-仅检查 Rust/Tauri 后端：
+后端检查：
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -62,17 +74,15 @@ cargo check --manifest-path src-tauri/Cargo.toml
     tmp/
   <Project A>/
     .project-mind/embedded-note-assets/
-    <Activity A>/
-    <Activity B>/
   <Project B>/
 ```
 
 说明：
 
-- Workspace 级元数据与数据库存放在 `<workspace-root>/.project-mind/`
-- 项目实体对应 Workspace 根目录下的真实项目文件夹
-- Activity 级文件默认落在对应项目目录 / Activity 目录下
-- 记录里插入的托管图片资源落在 `<project-root>/.project-mind/embedded-note-assets/`
+- `workspace.sqlite3` 是当前业务主库
+- 项目实体对应工作区根目录下的真实项目文件夹
+- 项目导入文件默认落到对应项目目录
+- 记录中托管的图片资源落在 `<project-root>/.project-mind/embedded-note-assets/`
 
 ## 生成演示 Workspace
 
@@ -80,25 +90,25 @@ cargo check --manifest-path src-tauri/Cargo.toml
 npm run seed:demo -- --password "demo-password"
 ```
 
-默认会在 `~/Documents/Project Mind Alpha Demo Workspace` 下生成完整的 demo workspace。也可以直接传参自定义：
+默认会在 `~/Documents/Project Mind Alpha Demo Workspace` 下生成演示数据。也可以直接调用 Rust bin：
 
 ```bash
 cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --password "demo-password" --force
 ```
 
 ## 目录结构
-- `src/`：React 前端、页面布局、编辑器组件、状态管理、Tauri API 封装
-- `src-tauri/`：Tauri 宿主、Workspace 运行时、SQLite 数据层、文件系统能力、AI 作业与命令接口
-- `docs/product-prd.md`：基于当前实现整理的产品基线 PRD
-- `docs/record-today-reference-requirements.md`：记录 / Today / Todo / 引用相关增量需求与完成状态
-- `docs/system-design.md`：当前 workspace-first 架构、模块边界与数据流
-- `docs/design-system.md`：当前视觉基础、组件约束、状态语义与交互规则
-- `docs/alpha-ux.md`：当前信息架构、页面职责、核心用户流与状态清单
-- `.impeccable.md`：项目设计上下文
+
+- `src/`：React 前端、页面、编辑器、状态管理、Tauri API 封装
+- `src-tauri/`：Tauri 宿主、SQLite 数据层、工作区运行时、文件与 AI 命令
+- `docs/product-prd.md`：当前产品基线
+- `docs/system-design.md`：当前系统架构与模块边界
+- `docs/alpha-ux.md`：当前信息架构与主用户流
+- `docs/design-system.md`：当前设计与交互约束
+- `.impeccable.md`：设计上下文与产品气质
 
 ## 当前限制
-- 文件失效后的“重新定位”流程后端已具备，但前台仍以提示重新导入为主
-- 文件角色 UI、项目级 Conclusion 直接创建入口尚未完整开放
-- 不包含显式导出向导；当前导入 / 导出方式是直接复制整个 Workspace 目录
-- `Ask` 默认只保留最新一轮问答，不提供多轮会话历史
-- 当前只验证了 macOS 构建；Windows 兼容按代码层和路径层预留，但未做真机打包验收
+
+- 当前正式主路由以工作区和项目Workspace为主，仓库中仍有部分旧 Activity 代码与测试遗留，尚未作为当前主产品面暴露
+- Ask 当前只保留最新一条回答，不提供多轮历史
+- AI artifact 当前只保留 `project_brief` 与 `daily_brief`
+- 当前只明确验证了 macOS 桌面工作流，其他平台仍需补完整验收

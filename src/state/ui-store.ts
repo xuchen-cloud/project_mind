@@ -5,12 +5,18 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 
-export type SettingsSection = "file-tags" | "record-types" | "contacts" | "ai" | "rich-text";
+export type SettingsSection =
+  | "page-width"
+  | "file-tags"
+  | "contacts"
+  | "ai"
+  | "rich-text";
+export type PageWidthMode = "adaptive" | "narrow" | "wide" | "full";
 
 export const UI_STORE_STORAGE_KEY = "project-mind-ui";
-export const ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX = 880;
-export const ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX = 720;
-export const ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX = 1080;
+export const NOTE_EDITOR_WIDTH_DEFAULT_PX = 880;
+export const NOTE_EDITOR_WIDTH_MIN_PX = 720;
+export const NOTE_EDITOR_WIDTH_MAX_PX = 1080;
 export const PROJECT_SIDEBAR_WIDTH_DEFAULT_PX = 288;
 export const PROJECT_SIDEBAR_WIDTH_MIN_PX = 260;
 export const PROJECT_SIDEBAR_WIDTH_MAX_PX = 480;
@@ -27,44 +33,44 @@ export const WORKSPACE_WINDOW_MIN_WIDTH_DEFAULT_PX =
 export const WORKSPACE_WINDOW_MIN_HEIGHT_PX = 760;
 const fallbackUiStoreStorage = new Map<string, string>();
 
-export function clampActivityNoteEditorWidthPx(width: number) {
+export function clampNoteEditorWidthPx(width: number) {
   return Math.min(
-    ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX,
-    Math.max(ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX, Math.round(width)),
+    NOTE_EDITOR_WIDTH_MAX_PX,
+    Math.max(NOTE_EDITOR_WIDTH_MIN_PX, Math.round(width)),
   );
 }
 
 interface UiStoreState {
   createProjectOpen: boolean;
-  createActivityOpen: boolean;
   settingsOpen: boolean;
   settingsSection: SettingsSection;
+  settingsProjectId: number | null;
   projectComposer: "conclusion" | "todo" | null;
   projectSidebarCollapsed: boolean;
   todoRailCollapsed: boolean;
   openProjectIds: number[];
   projectRecentPaths: Record<number, string>;
-  activityNoteEditorWidthPx: number;
-  overviewPageWidth: "auto" | "wide" | "full";
+  noteEditorWidthPx: number;
+  pageWidthMode: PageWidthMode;
   todoRailWidthPx: number;
   projectSidebarWidthPx: number;
 }
 
 interface UiStore extends UiStoreState {
   setCreateProjectOpen: (open: boolean) => void;
-  setCreateActivityOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setSettingsSection: (section: SettingsSection) => void;
-  openSettings: (section?: SettingsSection) => void;
+  setSettingsProjectId: (projectId: number | null) => void;
+  openSettings: (section?: SettingsSection, projectId?: number | null) => void;
   closeSettings: () => void;
   setProjectComposer: (value: "conclusion" | "todo" | null) => void;
   setProjectSidebarCollapsed: (collapsed: boolean) => void;
   setTodoRailCollapsed: (collapsed: boolean) => void;
-  setOverviewPageWidth: (width: "auto" | "wide" | "full") => void;
+  setPageWidthMode: (width: PageWidthMode) => void;
   setTodoRailWidthPx: (width: number) => void;
   setProjectSidebarWidthPx: (width: number) => void;
-  setActivityNoteEditorWidthPx: (width: number) => void;
-  resetActivityNoteEditorWidthPx: () => void;
+  setNoteEditorWidthPx: (width: number) => void;
+  resetNoteEditorWidthPx: () => void;
   openProjectTab: (projectId: number) => void;
   closeProjectTab: (projectId: number) => void;
   rememberProjectRoute: (projectId: number, path: string) => void;
@@ -85,16 +91,16 @@ function sanitizeProjectRoute(path: string) {
 export function createUiStoreState(): UiStoreState {
   return {
     createProjectOpen: false,
-    createActivityOpen: false,
     settingsOpen: false,
-    settingsSection: "file-tags",
+    settingsSection: "page-width",
+    settingsProjectId: null,
     projectComposer: null,
     projectSidebarCollapsed: false,
     todoRailCollapsed: false,
     openProjectIds: [],
     projectRecentPaths: {},
-    activityNoteEditorWidthPx: ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
-    overviewPageWidth: "auto",
+    noteEditorWidthPx: NOTE_EDITOR_WIDTH_DEFAULT_PX,
+    pageWidthMode: "adaptive",
     todoRailWidthPx: TODO_RAIL_WIDTH_DEFAULT_PX,
     projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
   };
@@ -126,10 +132,13 @@ function createUiStorePersistStorage(): StateStorage {
 }
 
 export const uiStorePersistStorage = createJSONStorage<{
-  activityNoteEditorWidthPx: number;
-  overviewPageWidth: "auto" | "wide" | "full";
+  noteEditorWidthPx: number;
+  pageWidthMode?: PageWidthMode;
+  overviewPageWidth?: "auto" | "wide" | "full";
   todoRailWidthPx: number;
   projectSidebarWidthPx: number;
+  projectSidebarCollapsed?: boolean;
+  todoRailCollapsed?: boolean;
 }>(createUiStorePersistStorage);
 
 export const createUiStore = () =>
@@ -138,15 +147,16 @@ export const createUiStore = () =>
       (set) => ({
         ...createUiStoreState(),
         setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
-        setCreateActivityOpen: (createActivityOpen) => set({ createActivityOpen }),
         setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
         setSettingsSection: (settingsSection) => set({ settingsSection }),
-        openSettings: (settingsSection = "file-tags") => set({ settingsOpen: true, settingsSection }),
-        closeSettings: () => set({ settingsOpen: false }),
+        setSettingsProjectId: (settingsProjectId) => set({ settingsProjectId }),
+        openSettings: (settingsSection = "page-width", settingsProjectId = null) =>
+          set({ settingsOpen: true, settingsSection, settingsProjectId }),
+        closeSettings: () => set({ settingsOpen: false, settingsProjectId: null }),
         setProjectComposer: (projectComposer) => set({ projectComposer }),
         setProjectSidebarCollapsed: (projectSidebarCollapsed) => set({ projectSidebarCollapsed }),
         setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
-        setOverviewPageWidth: (overviewPageWidth) => set({ overviewPageWidth }),
+        setPageWidthMode: (pageWidthMode) => set({ pageWidthMode }),
         setTodoRailWidthPx: (todoRailWidthPx) =>
           set({
             todoRailWidthPx: Math.max(
@@ -158,13 +168,13 @@ export const createUiStore = () =>
           set({
             projectSidebarWidthPx: Math.max(PROJECT_SIDEBAR_WIDTH_MIN_PX, Math.min(PROJECT_SIDEBAR_WIDTH_MAX_PX, Math.round(projectSidebarWidthPx))),
           }),
-        setActivityNoteEditorWidthPx: (width) =>
+        setNoteEditorWidthPx: (width) =>
           set({
-            activityNoteEditorWidthPx: clampActivityNoteEditorWidthPx(width),
+            noteEditorWidthPx: clampNoteEditorWidthPx(width),
           }),
-        resetActivityNoteEditorWidthPx: () =>
+        resetNoteEditorWidthPx: () =>
           set({
-            activityNoteEditorWidthPx: ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
+            noteEditorWidthPx: NOTE_EDITOR_WIDTH_DEFAULT_PX,
           }),
         openProjectTab: (projectId) =>
           set((state) => ({
@@ -194,12 +204,47 @@ export const createUiStore = () =>
       }),
       {
         name: UI_STORE_STORAGE_KEY,
+        version: 1,
         storage: uiStorePersistStorage,
+        migrate: (persistedState) => {
+          const state = persistedState as
+            | {
+                noteEditorWidthPx?: number;
+                pageWidthMode?: PageWidthMode;
+                overviewPageWidth?: "auto" | "wide" | "full";
+                todoRailWidthPx?: number;
+                projectSidebarWidthPx?: number;
+                projectSidebarCollapsed?: boolean;
+                todoRailCollapsed?: boolean;
+              }
+            | undefined;
+
+          const legacyWidth = state?.overviewPageWidth;
+          const pageWidthMode =
+            state?.pageWidthMode ??
+            (legacyWidth === "full"
+              ? "full"
+              : legacyWidth === "wide"
+                ? "wide"
+                : "adaptive");
+
+          return {
+            noteEditorWidthPx: state?.noteEditorWidthPx ?? NOTE_EDITOR_WIDTH_DEFAULT_PX,
+            pageWidthMode,
+            todoRailWidthPx: state?.todoRailWidthPx ?? TODO_RAIL_WIDTH_DEFAULT_PX,
+            projectSidebarWidthPx:
+              state?.projectSidebarWidthPx ?? PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
+            projectSidebarCollapsed: state?.projectSidebarCollapsed ?? false,
+            todoRailCollapsed: state?.todoRailCollapsed ?? false,
+          };
+        },
         partialize: (state) => ({
-          activityNoteEditorWidthPx: state.activityNoteEditorWidthPx,
-          overviewPageWidth: state.overviewPageWidth,
+          noteEditorWidthPx: state.noteEditorWidthPx,
+          pageWidthMode: state.pageWidthMode,
           todoRailWidthPx: state.todoRailWidthPx,
           projectSidebarWidthPx: state.projectSidebarWidthPx,
+          projectSidebarCollapsed: state.projectSidebarCollapsed,
+          todoRailCollapsed: state.todoRailCollapsed,
         }),
       },
     ),

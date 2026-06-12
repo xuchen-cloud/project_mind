@@ -11,6 +11,7 @@ import {
   renderMarkdownToHtml,
 } from "../../lib/richTextContent";
 import { buildInternalReferenceToken } from "../../lib/internalReferences";
+import { buildTagMentionToken } from "../../lib/tagMentions";
 
 export const EMPTY_RICH_EDITOR_HTML = EMPTY_RICH_TEXT_HTML;
 export { getRenderableRichTextHtml, renderMarkdownToHtml };
@@ -147,6 +148,21 @@ const markdownSerializer = new MarkdownSerializer(
             typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
               ? node.attrs.label
               : "未命名引用",
+        }),
+      );
+    },
+    tagMention(state, node) {
+      state.write(
+        buildTagMentionToken({
+          tagId: Number(node.attrs.tagId) || 0,
+          label:
+            typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
+              ? node.attrs.label
+              : "未命名标签",
+          colorKey:
+            typeof node.attrs.colorKey === "string" && node.attrs.colorKey.trim().length > 0
+              ? node.attrs.colorKey
+              : "slate",
         }),
       );
     },

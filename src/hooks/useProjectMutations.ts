@@ -7,7 +7,7 @@ import type { ProjectListItem } from "../lib/types";
 function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, projectId: number) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
-    queryClient.invalidateQueries({ queryKey: ["overview", projectId] }),
+    queryClient.invalidateQueries({ queryKey: ["project-page", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", projectId] }),
     queryClient.invalidateQueries({ queryKey: ["workspace-todos"] }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
@@ -38,8 +38,8 @@ export function useProjectMutations(
     },
   });
 
-  const summaryMutation = useMutation({
-    mutationFn: projectMindApi.projectUpdateSummary,
+  const projectUpdateMutation = useMutation({
+    mutationFn: projectMindApi.projectUpdate,
     onSuccess: async (_, input) => {
       setStatus({ tone: "success", label: "Synced", message: "项目信息已同步" });
       await refreshProjectScope(queryClient, input.projectId);
@@ -64,7 +64,7 @@ export function useProjectMutations(
         detail: project.name,
       });
       await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
-      await queryClient.invalidateQueries({ queryKey: ["overview", project.id] });
+      await queryClient.invalidateQueries({ queryKey: ["project-page", project.id] });
       await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
       await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       if (project.isArchived) {
@@ -80,5 +80,5 @@ export function useProjectMutations(
     },
   });
 
-  return { createProjectMutation, summaryMutation, archiveMutation, refreshProjectScope };
+  return { createProjectMutation, projectUpdateMutation, archiveMutation, refreshProjectScope };
 }

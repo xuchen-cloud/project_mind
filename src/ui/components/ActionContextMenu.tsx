@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { Check, ChevronRight, type LucideIcon } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import { PopoverPanel } from "./PopoverPanel";
 
 const MENU_WIDTH = 224;
 const MENU_ITEM_HEIGHT = 38;
+const MENU_INLINE_ACTIONS_HEIGHT = 52;
 const MENU_SEPARATOR_HEIGHT = 9;
 const MENU_VERTICAL_PADDING = 8;
 const VIEWPORT_PADDING = 12;
 const SUBMENU_GAP = 6;
+
+export interface ContextMenuInlineAction {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  active?: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}
 
 export type ContextMenuAction =
   | {
@@ -22,6 +32,8 @@ export type ContextMenuAction =
       tone?: "default" | "danger";
       shortcut?: string;
       group?: string;
+      selected?: boolean;
+      featured?: boolean;
     }
   | {
       type: "submenu";
@@ -30,11 +42,31 @@ export type ContextMenuAction =
       icon?: LucideIcon;
       actions: ContextMenuAction[];
       disabled?: boolean;
+      selected?: boolean;
+      featured?: boolean;
     }
   | {
       type: "separator";
       key?: string;
+    }
+  | {
+      type: "inline-actions";
+      key?: string;
+      actions: ContextMenuInlineAction[];
+      ariaLabel?: string;
     };
+
+function isActionButton(
+  action: ContextMenuAction,
+): action is Extract<ContextMenuAction, { type?: "action" } | { type: "submenu" }> {
+  return action.type !== "separator" && action.type !== "inline-actions";
+}
+
+function isActionWithTone(
+  action: ContextMenuAction,
+): action is Extract<ContextMenuAction, { type?: "action" }> {
+  return action.type === undefined || action.type === "action";
+}
 
 export function ActionContextMenu({
   x,
@@ -77,8 +109,7 @@ export function ActionContextMenu({
   const position = useMemo(() => {
     const menuHeight =
       actions.reduce(
-        (total, action) =>
-          total + (action.type === "separator" ? MENU_SEPARATOR_HEIGHT : MENU_ITEM_HEIGHT),
+        (total, action) => total + getActionHeight(action),
         MENU_VERTICAL_PADDING,
       ) + MENU_VERTICAL_PADDING;
 
@@ -101,7 +132,7 @@ export function ActionContextMenu({
   return (
     <PopoverPanel
       ref={menuRef}
-      className="context-menu__panel fixed z-[80] min-w-[15rem] p-1.5 outline-none"
+      className="context-menu__panel fixed z-[80] min-w-[15rem] rounded-[14px] border-[color-mix(in_srgb,var(--color-border)_84%,transparent)] bg-[color-mix(in_srgb,var(--color-bg)_96%,var(--color-bg-subtle))] p-2 shadow-[0_18px_40px_rgba(15,15,15,0.14),0_6px_16px_rgba(15,15,15,0.08)] outline-none backdrop-blur-[18px]"
       style={position}
     >
       <ActionContextMenuLevel
@@ -210,14 +241,60 @@ function ActionContextMenuLevel({
         }
       }}
     >
-      {actions.map((action, index) =>
-        action.type === "separator" ? (
-          <div
-            key={action.key ?? `separator-${index}`}
-            role="separator"
-            className="my-1 h-px bg-[color-mix(in_srgb,var(--color-border)_84%,transparent)]"
-          />
-        ) : (
+      {actions.map((action, index) => {
+        if (action.type === "separator") {
+          return (
+            <div
+              key={action.key ?? `separator-${index}`}
+              role="separator"
+              className="my-2 h-px bg-[color-mix(in_srgb,var(--color-border)_88%,transparent)]"
+            />
+          );
+        }
+
+        if (action.type === "inline-actions") {
+          return (
+            <div
+              key={action.key ?? `inline-actions-${index}`}
+              role="group"
+              aria-label={action.ariaLabel ?? "格式操作"}
+              className="context-menu__inline-actions grid grid-cols-3 gap-2 px-0.5"
+              onMouseEnter={() => setOpenSubmenuIndex(null)}
+            >
+              {action.actions.map((inlineAction) => (
+                <button
+                  key={inlineAction.key}
+                  type="button"
+                  aria-label={inlineAction.label}
+                  title={inlineAction.label}
+                  disabled={inlineAction.disabled}
+                  className={cn(
+                    "context-menu__inline-action flex h-10 items-center justify-center rounded-[var(--radius-6)] border border-transparent bg-transparent text-text-muted transition-colors outline-none",
+                    inlineAction.disabled
+                      ? "cursor-not-allowed text-text-soft"
+                      : "hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
+                    inlineAction.active
+                      ? "border-border bg-bg-muted text-text"
+                      : "",
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (inlineAction.disabled) {
+                      return;
+                    }
+
+                    onClose();
+                    inlineAction.onSelect();
+                  }}
+                >
+                  <inlineAction.icon size={18} />
+                </button>
+              ))}
+            </div>
+          );
+        }
+
+        return (
           <button
             key={action.key ?? action.label}
             ref={(node) => {
@@ -227,19 +304,22 @@ function ActionContextMenuLevel({
             role="menuitem"
             aria-haspopup={action.type === "submenu" ? "menu" : undefined}
             aria-expanded={action.type === "submenu" ? openSubmenuIndex === index : undefined}
+            data-featured={action.featured ? "true" : undefined}
+            data-selected={action.selected ? "true" : undefined}
             className={cn(
-              "context-menu__item flex w-full items-center justify-between gap-3 rounded-[var(--radius-6)] px-2.5 py-2 text-left text-ui transition-colors outline-none",
-              action.disabled
+              "context-menu__item flex min-h-[2.5rem] w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-ui transition-colors outline-none",
+              action.featured ? "bg-bg-muted text-text" : "bg-transparent",
+              isActionButton(action) && action.disabled
                 ? "cursor-not-allowed text-text-soft"
-                : "bg-transparent text-text-muted hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
+                : "text-text-muted hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
               action.type === "submenu" && openSubmenuIndex === index
                 ? "bg-bg-hover text-text"
                 : "",
-              action.type !== "submenu" && action.tone === "danger"
+              isActionWithTone(action) && action.tone === "danger"
                 ? "text-danger hover:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)] focus-visible:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)]"
                 : "",
             )}
-            disabled={action.disabled}
+            disabled={isActionButton(action) ? action.disabled : undefined}
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => {
               if (action.type === "submenu" && !action.disabled) {
@@ -269,24 +349,29 @@ function ActionContextMenuLevel({
               action.onSelect();
             }}
           >
-            {action.icon ? (
-              <span className="shrink-0">
-                <action.icon size={14} />
-              </span>
-            ) : null}
+            <span className="flex w-5 shrink-0 items-center justify-center">
+              {action.icon ? <action.icon size={16} /> : null}
+            </span>
             <span className="min-w-0 flex-1 truncate">{action.label}</span>
-            {action.type === "submenu" ? (
-              <span className="shrink-0 text-text-soft">
-                <ChevronRight size={14} />
-              </span>
-            ) : action.shortcut ? (
-              <span className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-text-soft">
-                {action.shortcut}
-              </span>
-            ) : null}
+            <span className="flex shrink-0 items-center gap-2">
+              {action.selected ? (
+                <span className="text-text">
+                  <Check size={16} />
+                </span>
+              ) : null}
+              {action.type === "submenu" ? (
+                <span className="text-text-soft">
+                  <ChevronRight size={16} />
+                </span>
+              ) : action.shortcut ? (
+                <span className="text-[11px] uppercase tracking-[0.08em] text-text-soft">
+                  {action.shortcut}
+                </span>
+              ) : null}
+            </span>
           </button>
-        ),
-      )}
+        );
+      })}
       {activeSubmenu ? (
         <div
           className="absolute z-[81]"
@@ -295,7 +380,7 @@ function ActionContextMenuLevel({
             top: openSubmenuTop,
           }}
         >
-          <PopoverPanel className="context-menu__submenu-panel min-w-[15rem] p-1.5">
+          <PopoverPanel className="context-menu__submenu-panel min-w-[15rem] rounded-[14px] border-[color-mix(in_srgb,var(--color-border)_84%,transparent)] bg-[color-mix(in_srgb,var(--color-bg)_96%,var(--color-bg-subtle))] p-2 shadow-[0_18px_40px_rgba(15,15,15,0.14),0_6px_16px_rgba(15,15,15,0.08)] backdrop-blur-[18px]">
             <ActionContextMenuLevel
               actions={activeSubmenu.actions}
               ariaLabel={`${activeSubmenu.label} 子菜单`}
@@ -306,4 +391,16 @@ function ActionContextMenuLevel({
       ) : null}
     </div>
   );
+}
+
+function getActionHeight(action: ContextMenuAction) {
+  if (action.type === "separator") {
+    return MENU_SEPARATOR_HEIGHT;
+  }
+
+  if (action.type === "inline-actions") {
+    return MENU_INLINE_ACTIONS_HEIGHT;
+  }
+
+  return MENU_ITEM_HEIGHT;
 }

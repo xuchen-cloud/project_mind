@@ -73,7 +73,7 @@ export const AI_FEATURE_OPTIONS: Array<{
   {
     value: "summary.daily_brief",
     capability: "summary",
-    label: "Today",
+    label: "Workspace",
   },
   {
     value: "suggestion_generation.conclusion",

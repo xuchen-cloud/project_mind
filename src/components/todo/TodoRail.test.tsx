@@ -103,6 +103,29 @@ const finishedTodo: TodoRecord = {
 };
 
 describe("TodoRail", () => {
+  function renderRail(
+    partialProps: Partial<React.ComponentProps<typeof TodoRail>> = {},
+  ) {
+    return render(
+      <TodoRail
+        title="Todo List"
+        scopeLabel="Alpha"
+        unfinishedTodos={[todoWithoutHistory]}
+        finishedTodos={[finishedTodo]}
+        createPlaceholder="写下一条需要推进的 Todo"
+        onCreateTodo={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onUpdatePriority={vi.fn()}
+        onUpdateContent={vi.fn()}
+        onAddProgress={vi.fn()}
+        onUpdateProgress={vi.fn()}
+        onDeleteProgress={vi.fn()}
+        onDeleteTodo={vi.fn()}
+        {...partialProps}
+      />,
+    );
+  }
+
   beforeEach(() => {
     installMemoryLocalStorage();
     useUiStore.setState({
@@ -117,28 +140,7 @@ describe("TodoRail", () => {
   it("persists the new todo draft on window blur", async () => {
     const user = userEvent.setup();
 
-    render(
-      <TodoRail
-        projectId={1}
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithoutHistory]}
-        finishedTodos={[]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({ projectId: 1, finishedTodos: [] });
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(
@@ -161,27 +163,10 @@ describe("TodoRail", () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithHistory, anotherTodoWithHistory]}
-        finishedTodos={[finishedTodo]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={onCreateTodo}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({
+      unfinishedTodos: [todoWithHistory, anotherTodoWithHistory],
+      onCreateTodo,
+    });
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "Ship checklist");
@@ -212,27 +197,7 @@ describe("TodoRail", () => {
     const user = userEvent.setup();
     const onToggleStatus = vi.fn();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithoutHistory]}
-        finishedTodos={[finishedTodo]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={onToggleStatus}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({ onToggleStatus });
 
     expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeDisabled();
 
@@ -244,31 +209,29 @@ describe("TodoRail", () => {
     expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");
   });
 
+  it("keeps a transitioning todo rendered immediately after completion click", async () => {
+    const user = userEvent.setup();
+    const onToggleStatus = vi.fn(
+      () => new Promise<void>((resolve) => window.setTimeout(resolve, 20)),
+    );
+
+    renderRail({
+      unfinishedTodos: [todoWithHistory],
+      finishedTodos: [],
+      onToggleStatus,
+    });
+
+    await user.click(screen.getByRole("button", { name: "标记为已完成" }));
+
+    expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
+    expect(onToggleStatus).toHaveBeenCalledWith(1, "finished");
+  });
+
   it("deletes a todo from the context menu", async () => {
     const user = userEvent.setup();
     const onDeleteTodo = vi.fn();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithoutHistory]}
-        finishedTodos={[]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={onDeleteTodo}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({ finishedTodos: [], onDeleteTodo });
 
     fireEvent.contextMenu(document.getElementById("todo-4") as HTMLElement, {
       clientX: 140,
@@ -280,113 +243,64 @@ describe("TodoRail", () => {
     expect(onDeleteTodo).toHaveBeenCalledWith(4);
   });
 
-  it("filters by priority and keeps the selection across tabs", async () => {
+  it("updates todo priority from the context menu submenu", async () => {
+    const user = userEvent.setup();
+    const onUpdatePriority = vi.fn(async () => undefined);
+
+    renderRail({ finishedTodos: [], onUpdatePriority });
+
+    fireEvent.contextMenu(document.getElementById("todo-4") as HTMLElement, {
+      clientX: 140,
+      clientY: 72,
+    });
+
+    await user.hover(screen.getByRole("menuitem", { name: "优先级" }));
+    await user.click(await screen.findByRole("menuitem", { name: "紧急且重要" }));
+
+    expect(onUpdatePriority).toHaveBeenCalledWith(4, "urgent_important");
+  });
+
+  it("renders a simplified header and keeps unfinished/finished tab switching", async () => {
     const user = userEvent.setup();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[
-          {
-            ...todoWithHistory,
-            id: 11,
-            content: "Critical legal review",
-            priority: "urgent_important",
-            updatedAt: "2026-04-06T12:00:00.000Z",
-          },
-          {
-            ...todoWithHistory,
-            id: 12,
-            content: "Prepare board memo",
-            priority: "not_urgent_important",
-            updatedAt: "2026-04-06T11:00:00.000Z",
-          },
-          {
-            ...todoWithHistory,
-            id: 13,
-            content: "Capture follow-up notes",
-            priority: "not_urgent_important",
-            updatedAt: "2026-04-06T09:00:00.000Z",
-          },
-        ]}
-        finishedTodos={[
-          {
-            ...finishedTodo,
-            id: 14,
-            content: "Finished critical item",
-            priority: "urgent_important",
-          },
-          {
-            ...finishedTodo,
-            id: 15,
-            content: "Finished low item",
-            priority: "not_urgent_not_important",
-          },
-        ]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({
+      unfinishedTodos: [todoWithHistory],
+      finishedTodos: [finishedTodo],
+    });
 
-    await user.click(screen.getByRole("button", { name: "P3" }));
-    expect(screen.getByText("Prepare board memo")).toBeInTheDocument();
-    expect(screen.getByText("Capture follow-up notes")).toBeInTheDocument();
-    expect(screen.queryByText("Critical legal review")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "P3" }));
-    expect(screen.getByText("Critical legal review")).toBeInTheDocument();
-    expect(screen.getByText("Prepare board memo")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Todo List" })).toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.queryByText(/未完成 · .*已完成/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "P1" })).not.toBeInTheDocument();
+    expect(screen.queryByText("全部标签")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "已完成" }));
-    expect(screen.getByText("Finished critical item")).toBeInTheDocument();
-    expect(screen.getByText("Finished low item")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "P1" }));
-    expect(screen.getByText("Finished critical item")).toBeInTheDocument();
-    expect(screen.queryByText("Finished low item")).not.toBeInTheDocument();
+    expect(screen.getByText("Done item")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "未完成" }));
-    expect(screen.getByText("Critical legal review")).toBeInTheDocument();
-    expect(screen.queryByText("Prepare board memo")).not.toBeInTheDocument();
+    expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
+  });
+
+  it("renders the composer with shortcut hint and save action", async () => {
+    const user = userEvent.setup();
+
+    renderRail({ finishedTodos: [] });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+
+    expect(screen.getByText("Cmd/Ctrl + Enter 保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 
   it("updates a completed sub item from its context menu", async () => {
     const user = userEvent.setup();
     const onUpdateProgress = vi.fn();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithHistory]}
-        finishedTodos={[]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={onUpdateProgress}
-        onDeleteProgress={vi.fn()}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({
+      unfinishedTodos: [todoWithHistory],
+      finishedTodos: [],
+      onUpdateProgress,
+    });
 
     await user.click(screen.getByRole("button", { name: "展开已完成子项" }));
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
@@ -404,31 +318,16 @@ describe("TodoRail", () => {
     });
   });
 
+
   it("deletes a completed sub item from its context menu", async () => {
     const user = userEvent.setup();
     const onDeleteProgress = vi.fn();
 
-    render(
-      <TodoRail
-        title="项目待办"
-        scopeLabel="Alpha"
-        unfinishedTodos={[todoWithHistory]}
-        finishedTodos={[]}
-        activityNameById={new Map([[11, "Kickoff"]])}
-        activityOptions={[{ id: 11, title: "Kickoff" }]}
-        createPlaceholder="写下一条需要推进的 Todo"
-        onCreateTodo={vi.fn()}
-        onToggleStatus={vi.fn()}
-        onUpdatePriority={vi.fn()}
-        onUpdateContent={vi.fn()}
-        onUpdateActivity={vi.fn()}
-        onAddProgress={vi.fn()}
-        onUpdateProgress={vi.fn()}
-        onDeleteProgress={onDeleteProgress}
-        onDeleteTodo={vi.fn()}
-        onOpenTodoSource={vi.fn()}
-      />,
-    );
+    renderRail({
+      unfinishedTodos: [todoWithHistory],
+      finishedTodos: [],
+      onDeleteProgress,
+    });
 
     await user.click(screen.getByRole("button", { name: "展开已完成子项" }));
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);

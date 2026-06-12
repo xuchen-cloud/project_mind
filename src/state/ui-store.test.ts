@@ -28,7 +28,7 @@ describe("useUiStore", () => {
 
     useUiStore.getState().setCreateProjectOpen(false);
     useUiStore.getState().setCreateActivityOpen(true);
-    useUiStore.getState().openSettings("record-types");
+    useUiStore.getState().openSettings("contacts");
     useUiStore.getState().rememberProjectRoute(9, "/projects/9/activities/11?focus=todo-3");
     useUiStore.getState().toggleProjectSidebarCollapsed();
     useUiStore.getState().toggleTodoRailCollapsed();
@@ -39,7 +39,7 @@ describe("useUiStore", () => {
     expect(state.createProjectOpen).toBe(false);
     expect(state.createActivityOpen).toBe(true);
     expect(state.settingsOpen).toBe(true);
-    expect(state.settingsSection).toBe("record-types");
+    expect(state.settingsSection).toBe("contacts");
     expect(state.projectSidebarCollapsed).toBe(true);
     expect(state.todoRailCollapsed).toBe(true);
     expect(state.projectRecentPaths[9]).toBe("/projects/9/activities/11?focus=todo-3");

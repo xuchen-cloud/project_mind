@@ -4,6 +4,7 @@ import {
   splitInternalReferenceText,
 } from "./internalReferences";
 import { repairRichTextAssetHtml } from "./richTextAssets";
+import { buildTagMentionHtml, splitTagMentionText } from "./tagMentions";
 
 export const EMPTY_RICH_TEXT_HTML = "<p></p>";
 
@@ -130,9 +131,17 @@ export function richTextHtmlToPlainText(
 
 function replaceInternalReferenceTokensWithHtml(markdown: string) {
   return splitInternalReferenceText(markdown)
-    .map((segment) =>
-      segment.type === "text" ? segment.text : buildInternalReferenceHtml(segment.reference),
-    )
+    .map((segment) => {
+      if (segment.type !== "text") {
+        return buildInternalReferenceHtml(segment.reference);
+      }
+
+      return splitTagMentionText(segment.text)
+        .map((tagSegment) =>
+          tagSegment.type === "text" ? tagSegment.text : buildTagMentionHtml(tagSegment.tag),
+        )
+        .join("");
+    })
     .join("");
 }
 

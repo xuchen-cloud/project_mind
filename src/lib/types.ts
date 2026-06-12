@@ -1,30 +1,25 @@
 export interface ProjectRecord {
   id: number;
   name: string;
-  kind: "normal" | "reference";
+  kind: "normal";
   status: string;
   rootPath: string;
-  summary: string;
-  summaryMarkdown?: string;
-  summaryHtml?: string;
+  quickNote: string;
+  quickNoteMarkdown?: string;
+  quickNoteHtml?: string;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ProjectListItem extends ProjectRecord {
-  activityCount: number;
   unorganizedCount: number;
   openTodoCount: number;
 }
 
-export type RecordTypeKey = string;
-export type NoteTemplateKey = RecordTypeKey;
-
 export interface NoteRecord {
   id: number;
   projectId: number;
-  noteType: NoteTemplateKey;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
@@ -75,11 +70,12 @@ export interface TodoRecord {
   progresses: TodoProgressRecord[];
 }
 
-export interface WorkspaceNoteRecord {
+export interface WorkspaceRecord {
   id: number;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
+  tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -168,22 +164,6 @@ export interface ProjectRecordGroup {
   groupKey: string;
   groupTitle: string;
   notes: NoteRecord[];
-}
-
-export interface RecordTypeRecord {
-  id: number;
-  key: RecordTypeKey;
-  label: string;
-  colorKey: FileTagColorKey;
-  templateHtml: string;
-  isDefault: boolean;
-  usageCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RecordTypeSettingsSnapshot {
-  recordTypes: RecordTypeRecord[];
 }
 
 export interface ContactRecord {
@@ -379,12 +359,11 @@ export interface AiProfileTestJobInput {
   input: AiProfileTestInput;
 }
 
-export type AiEditorRewriteScope = "activity_note" | "workspace_note";
+export type AiEditorRewriteScope = "project_note" | "workspace_note";
 
 export interface AiEditorRewriteContext {
   scope: AiEditorRewriteScope;
   projectId?: number | null;
-  activityId?: number | null;
   noteId?: number | null;
   workspaceNoteId?: number | null;
   sourceLabel?: string | null;
@@ -435,53 +414,24 @@ export interface AiAnswerResult {
   skillVersion: string;
 }
 
-export interface ActivityCardData {
-  id: number;
-  projectId: number;
-  attributeOptionId?: number | null;
-  attributeLabel?: string | null;
-  attributeColorKey?: FileTagColorKey | null;
-  title: string;
-  briefMarkdown?: string;
-  briefHtml?: string;
-  activityTime: string;
-  statusOptionId: number;
-  statusLabel: string;
-  statusColorKey: FileTagColorKey;
-  isPinned: boolean;
-  isExpanded: boolean;
-  createdAt: string;
-  updatedAt: string;
-  digest: ActivityDigest;
-  notes: NoteRecord[];
-  conclusions: ConclusionRecord[];
-  todos: TodoRecord[];
-  documents: DocumentRecord[];
-  aiSuggestions: AiSuggestionRecord[];
-}
-
-export interface ProjectDashboard {
-  project: ProjectRecord;
-  keyConclusions: ConclusionRecord[];
-  openTodos: TodoRecord[];
-  starredDocuments: DocumentRecord[];
-  recentActivities: ActivityDigest[];
-  unorganizedCount: number;
-}
-
 export interface ConclusionGroup {
-  activityId?: number | null;
   activityTitle: string;
   conclusions: ConclusionRecord[];
 }
 
-export interface ProjectOverviewData {
+export interface ProjectPageData {
   project: ProjectRecord;
-  activityFeed: ActivityDigest[];
   projectDocuments: DocumentRecord[];
   conclusionGroups: ConclusionGroup[];
   recordGroups?: ProjectRecordGroup[];
   records?: NoteRecord[];
+  unfinishedTodos: TodoRecord[];
+  finishedTodos: TodoRecord[];
+}
+
+export interface WorkspacePageData {
+  quickNote: WorkspaceRecord | null;
+  records: WorkspaceRecord[];
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
 }
@@ -535,16 +485,16 @@ export interface WorkspaceSearchResult {
 
 export interface ProjectCreateInput {
   name: string;
-  summary?: string;
+  quickNote?: string;
   status?: string;
 }
 
-export interface ProjectUpdateSummaryInput {
+export interface ProjectUpdateInput {
   projectId: number;
   name?: string;
-  summary: string;
-  summaryMarkdown?: string;
-  summaryHtml?: string;
+  quickNote: string;
+  quickNoteMarkdown?: string;
+  quickNoteHtml?: string;
   status?: string;
 }
 
@@ -566,67 +516,20 @@ export interface ProjectArchiveInput {
   isArchived: boolean;
 }
 
-export interface ActivityCreateInput {
-  projectId: number;
-  attributeOptionId?: number | null;
-  title?: string;
-  activityTime: string;
-}
-
-export interface ActivityUpdateMetaInput {
-  activityId: number;
-  title?: string;
-  briefMarkdown?: string;
-  briefHtml?: string;
-  attributeOptionId?: number | null;
-  clearAttributeOption?: boolean;
-  activityTime?: string;
-  isPinned?: boolean;
-  isExpanded?: boolean;
-  statusOptionId?: number;
-}
-
-export interface ActivityDeleteInput {
-  activityId: number;
-}
-
-export interface ActivityAttributeOptionUpsertInput {
-  id?: number;
-  label: string;
-  colorKey: FileTagColorKey;
-}
-
-export interface ActivityStatusOptionUpsertInput {
-  id?: number;
-  label: string;
-  colorKey: FileTagColorKey;
-}
-
-export interface ActivityOptionDeleteInput {
-  optionId: number;
-}
-
 export interface FileTagOptionUpsertInput {
-  projectId?: number;
+  projectId?: number | null;
   id?: number;
   label: string;
   colorKey: FileTagColorKey;
+}
+
+export interface FileTagSettingsGetInput {
+  projectId?: number | null;
 }
 
 export interface FileTagOptionDeleteInput {
+  projectId?: number | null;
   tagId: number;
-}
-
-export interface RecordTypeOptionUpsertInput {
-  id?: number;
-  label: string;
-  colorKey: FileTagColorKey;
-  templateHtml: string;
-  isDefault: boolean;
-}
-
-export interface RecordTypeOptionDeleteInput {
-  typeId: number;
 }
 
 export interface ContactUpsertInput {
@@ -649,33 +552,34 @@ export interface ContactDeleteInput {
   contactId: number;
 }
 
-export interface NoteUpsertInput {
+export interface ProjectRecordUpsertInput {
   projectId: number;
   noteId?: number;
-  noteType: NoteTemplateKey;
   title?: string;
   markdown: string;
   html: string;
   tagIds?: number[];
 }
 
-export interface NoteDeleteInput {
+export interface ProjectRecordDeleteInput {
   noteId: number;
 }
 
-export interface WorkspaceNoteUpsertInput {
+export interface WorkspaceRecordUpsertInput {
   noteId?: number;
   title?: string;
   markdown: string;
   html: string;
+  tagIds?: number[];
 }
 
-export interface TodayQuickNoteUpsertInput {
+export interface WorkspaceQuickNoteUpsertInput {
   markdown: string;
   html: string;
+  tagIds?: number[];
 }
 
-export interface WorkspaceNoteDeleteInput {
+export interface WorkspaceRecordDeleteInput {
   noteId: number;
 }
 
@@ -808,7 +712,6 @@ export interface DocumentDeleteInput {
 
 export interface AiGenerateInput {
   projectId: number;
-  activityId: number;
   noteId?: number;
 }
 

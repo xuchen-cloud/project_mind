@@ -10,8 +10,8 @@ import {
   Plus,
   RefreshCcw,
   Settings2,
-  Sparkles,
 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ProjectListItem,
@@ -31,8 +31,6 @@ interface WorkspaceTopBarProps {
   activeProjectId: number | null;
   todayActive?: boolean;
   showToday?: boolean;
-  askOpen?: boolean;
-  showAsk?: boolean;
   settingsActive?: boolean;
   currentWorkspace?: WorkspaceSummary | null;
   aiSecretsUnlocked: boolean;
@@ -55,9 +53,25 @@ interface WorkspaceTopBarProps {
   onLockAiSecrets: () => void;
   onCreateProject: () => void;
   onOpenToday: () => void;
-  onOpenAsk: () => void;
   onOpenSettings: () => void;
   onSearchSelect: (result: WorkspaceSearchResult) => void;
+  onDetachProject?: (projectId: number) => void;
+}
+
+export function shouldDetachProjectTabRelease(input: {
+  tabListRect: Pick<DOMRect, "left" | "right" | "top" | "bottom"> | null;
+  dragging: boolean;
+  clientX: number;
+  clientY: number;
+}) {
+  return (
+    input.dragging &&
+    input.tabListRect !== null &&
+    (input.clientX < input.tabListRect.left ||
+      input.clientX > input.tabListRect.right ||
+      input.clientY < input.tabListRect.top ||
+      input.clientY > input.tabListRect.bottom)
+  );
 }
 
 export function WorkspaceTopBar({
@@ -65,8 +79,6 @@ export function WorkspaceTopBar({
   activeProjectId,
   todayActive = false,
   showToday = true,
-  askOpen = false,
-  showAsk = true,
   settingsActive = false,
   currentWorkspace,
   aiSecretsUnlocked,
@@ -89,14 +101,100 @@ export function WorkspaceTopBar({
   onLockAiSecrets,
   onCreateProject,
   onOpenToday,
-  onOpenAsk,
   onOpenSettings,
   onSearchSelect,
+  onDetachProject,
 }: WorkspaceTopBarProps) {
+  const tabListRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{
+    projectId: number;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const [draggingProjectId, setDraggingProjectId] = useState<number | null>(null);
+  const dragEnabled = Boolean(onDetachProject);
+
+  useEffect(() => {
+    if (!dragEnabled) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+
+      const deltaX = event.clientX - state.startX;
+      const deltaY = event.clientY - state.startY;
+
+      if (!state.dragging && Math.hypot(deltaX, deltaY) >= 10) {
+        state.dragging = true;
+        setDraggingProjectId(state.projectId);
+      }
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+
+      const tabListRect = tabListRef.current?.getBoundingClientRect() ?? null;
+      const releasedOutsideTabList = shouldDetachProjectTabRelease({
+        tabListRect,
+        dragging: state.dragging,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+
+      const projectId = state.projectId;
+      dragStateRef.current = null;
+      setDraggingProjectId(null);
+
+      if (releasedOutsideTabList) {
+        onDetachProject?.(projectId);
+      }
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (dragStateRef.current?.pointerId !== event.pointerId) {
+        return;
+      }
+
+      dragStateRef.current = null;
+      setDraggingProjectId(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [dragEnabled, onDetachProject]);
+
+  const tabClassName = useMemo(
+    () =>
+      [
+        "group shrink-0 inline-flex h-8 items-center rounded-[var(--radius-6)] border pr-1 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
+      ].join(" "),
+    [],
+  );
+
   return (
     <header className="sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
       <div className="flex min-w-0 items-center gap-3 overflow-hidden">
-        <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Projects">
+        <div
+          ref={tabListRef}
+          className="flex items-center gap-1 overflow-x-auto"
+          role="tablist"
+          aria-label="Projects"
+        >
           {showToday ? (
             <button
               type="button"
@@ -109,17 +207,18 @@ export function WorkspaceTopBar({
               onClick={onOpenToday}
             >
               <CalendarDays size={14} />
-              <span>总览</span>
+              <span>Workspace</span>
             </button>
           ) : null}
           {projects.map((project) => (
             <div
               key={project.id}
               className={[
-                "group shrink-0 inline-flex h-8 items-center rounded-[var(--radius-6)] border pr-1 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
+                tabClassName,
                 project.id === activeProjectId
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
                   : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
+                draggingProjectId === project.id ? "opacity-60" : "",
               ].join(" ")}
               role="presentation"
             >
@@ -127,6 +226,19 @@ export function WorkspaceTopBar({
                 type="button"
                 className="h-full min-w-0 rounded-[var(--radius-6)] px-2.5"
                 onClick={() => onOpenProject(project.id)}
+                onPointerDown={(event) => {
+                  if (!dragEnabled || event.button !== 0) {
+                    return;
+                  }
+
+                  dragStateRef.current = {
+                    projectId: project.id,
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    dragging: false,
+                  };
+                }}
               >
                 <span className="truncate">{project.name}</span>
               </button>
@@ -158,18 +270,6 @@ export function WorkspaceTopBar({
       </div>
 
       <div className="flex items-center gap-2">
-        {showAsk ? (
-          <Button
-            type="button"
-            size="sm"
-            variant={askOpen ? "secondary" : "ghost"}
-            leadingIcon={<Sparkles size={14} />}
-            onClick={onOpenAsk}
-          >
-            Ask
-          </Button>
-        ) : null}
-
         <div className="relative">
           <SearchField
             value={searchInput}

@@ -1,9 +1,17 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 
 import { projectMindApi } from "../../services/projectMindApi";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
+
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 describe("TodoInlineProgressEditor", () => {
   it("shows an inline placeholder and saves a new sub item when empty", async () => {
@@ -39,7 +47,7 @@ describe("TodoInlineProgressEditor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
+    await user.click(screen.getByRole("button", { name: "完成问题答复" }));
 
     expect(screen.getByText("@0315 已与财务确认方案")).toBeInTheDocument();
   });
@@ -116,7 +124,7 @@ describe("TodoInlineProgressEditor", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "完成问题答复" }));
     await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
 
     const textbox = screen.getByRole("textbox");
@@ -144,7 +152,7 @@ describe("TodoInlineProgressEditor", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByRole("button", { name: /完成问题答复\s*4月6日/u }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "完成问题答复" }));
     await user.click(screen.getByRole("menuitem", { name: "删除子项" }));
 
     expect(onDeleteLatestProgress).toHaveBeenCalledWith(23);
@@ -193,6 +201,42 @@ describe("TodoInlineProgressEditor", () => {
       progressDate: expect.any(String),
     });
 
+    searchSpy.mockRestore();
+  });
+
+  it("supports contact mention insertion for progress content", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const searchSpy = vi.spyOn(projectMindApi, "contactSearch").mockResolvedValue([
+      {
+        id: 15,
+        name: "李四",
+        pinyinFull: "li si",
+        pinyinAbbr: "ls",
+        email: "",
+        employeeId: "",
+        role: "",
+        department: "",
+        createdAt: "2026-04-06T10:00:00.000Z",
+        updatedAt: "2026-04-06T10:00:00.000Z",
+      },
+    ]);
+
+    render(
+      <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.type(screen.getByRole("textbox"), "@li");
+    expect(await screen.findByRole("option", { name: /李四/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Enter}");
+
+    expect(onSave).toHaveBeenCalledWith({
+      content: "@[contact:15|李四]",
+      progressDate: expect.any(String),
+    });
     searchSpy.mockRestore();
   });
 });

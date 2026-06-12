@@ -1,46 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, ListTodo, Plus } from "lucide-react";
 
-import {
-  buildInternalReferenceTarget,
-  buildInternalReferenceToken,
-  findInternalReferenceTextTrigger,
-  type InternalReferenceTarget,
-} from "../../lib/internalReferences";
-import {
-  buildContactMentionTarget,
-  buildContactMentionToken,
-  findContactMentionTextTrigger,
-  type ContactMentionTarget,
-} from "../../lib/contactMentions";
-import type {
-  ContactRecord,
-  InternalReferenceSearchResult,
-  TodoPriority,
-  TodoRecord,
-} from "../../lib/types";
+import { type InternalReferenceTarget } from "../../lib/internalReferences";
+import { type ContactMentionTarget } from "../../lib/contactMentions";
+import type { TodoPriority, TodoRecord } from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton, SurfaceCard } from "../../ui/components";
+import { Button, IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
-import { projectMindApi } from "../../services/projectMindApi";
 import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
+import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
-import {
-  priorityColorValue,
-  sortTodos,
-  TODO_PRIORITY_OPTIONS,
-  type TodoSortMode,
-} from "./todo-utils";
+import { priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS, type TodoSortMode } from "./todo-utils";
 import {
   clearTodoComposerDraft,
   readTodoComposerDraft,
   writeTodoComposerDraft,
   type TodoComposerDraftSnapshot,
 } from "./todo-draft-storage";
+import {
+  focusTodoEditorInput,
+  getTodoEditorPickerPosition,
+  handleTodoEditorMentionKeyDown,
+  handleTodoEditorReferenceKeyDown,
+  handleTodoEditorTagKeyDown,
+  insertInternalReferenceToken,
+  insertMentionToken,
+  insertTagToken,
+  resetTodoEditorControllerState,
+  useSyncTodoEditorPickerState,
+  useTodoEditorController,
+} from "./todo-editor-controller";
 
 interface TodoRailProps {
   projectId?: number;
@@ -64,39 +56,15 @@ interface TodoRailProps {
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
-  onOpenTodoSource: (todo: TodoRecord) => void;
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }
 
-function RailTabButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex-1 rounded-full px-3 py-1.5 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
-        active ? "bg-bg-subtle text-text" : "text-text-soft hover:text-text",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function TodoRail({
   projectId,
   title,
-  scopeLabel,
+  scopeLabel: _scopeLabel,
   unfinishedTodos,
   finishedTodos,
   createPlaceholder,
@@ -109,7 +77,6 @@ export function TodoRail({
   onUpdateProgress,
   onDeleteProgress,
   onDeleteTodo,
-  onOpenTodoSource,
   onError,
   onOpenInternalReference,
   onOpenContactMention,
@@ -125,8 +92,6 @@ export function TodoRail({
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
   const [sortMode, setSortMode] = useState<TodoSortMode>("time");
-  const [priorityFilter, setPriorityFilter] = useState<TodoPriority | null>(null);
-  const [tagFilterId, setTagFilterId] = useState<number | null>(null);
   const [isComposing, setIsComposing] = useState(
     () => Boolean(initialComposerDraft?.content.trim()),
   );
@@ -137,9 +102,6 @@ export function TodoRail({
     () => initialComposerDraft?.priority ?? "not_urgent_important",
   );
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
-  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDraftRef = useRef<{
     key: string;
@@ -151,143 +113,75 @@ export function TodoRail({
       priority: initialComposerDraft?.priority ?? "not_urgent_important",
     },
   });
-  const referenceTrigger = isComposing ? findInternalReferenceTextTrigger(content, selectionStart) : null;
-  const referenceTriggerKey = referenceTrigger
-    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
-    : null;
-  const referencePickerOpen =
-    Boolean(referenceTrigger) && dismissedTriggerKey !== referenceTriggerKey;
+  const contactMentionOptions = useContactMentionOptions();
+  const controller = useTodoEditorController({
+    draft: content,
+    editing: isComposing,
+    internalReferenceContext:
+      projectId === undefined ? null : { scope: "project", projectId },
+    canCreateMentions: Boolean(contactMentionOptions.onCreateContact),
+  });
   const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
-    open: referencePickerOpen,
-    query: referenceTrigger?.query ?? "",
+    open: controller.referencePickerOpen,
+    query: controller.referenceTrigger?.query ?? "",
     context:
       projectId === undefined
         ? null
         : { scope: "project", projectId },
     limit: 8,
   });
-
-  const contactMentionOptions = useContactMentionOptions();
-  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
-  const mentionTrigger = isComposing
-    ? findContactMentionTextTrigger(content, selectionStart)
-    : null;
-  const mentionTriggerKey = mentionTrigger
-    ? `${mentionTrigger.start}:${mentionTrigger.end}:${mentionTrigger.query}`
-    : null;
-  const mentionPickerOpen =
-    Boolean(mentionTrigger) && dismissedMentionKey !== mentionTriggerKey;
   const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
-    open: mentionPickerOpen,
-    query: mentionTrigger?.query ?? "",
+    open: controller.mentionPickerOpen,
+    query: controller.mentionTrigger?.query ?? "",
     limit: 8,
   });
-  const mentionCreateName = mentionTrigger?.query.trim() ?? "";
-  const mentionCreatable = mentionPickerOpen && mentionCreateName.length > 0;
-  const mentionOptionCount = mentionResults.length + (mentionCreatable ? 1 : 0);
-  const tagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", projectId],
-    queryFn: projectMindApi.fileTagSettingsGet,
-    enabled: projectId !== undefined,
+  const mentionOptionCount = mentionResults.length + (controller.mentionCreatable ? 1 : 0);
+  const { results: tagResults, loading: tagLoading } = useTagMentionSearch({
+    open: controller.tagPickerOpen,
+    query: controller.tagTrigger?.query ?? "",
+    projectId: projectId,
+    limit: 8,
   });
-  const availableTags = tagSettingsQuery.data?.tags ?? [];
-  const todoTagOptions = useMemo(() => {
-    const countById = new Map<number, number>();
-    const metaById = new Map<number, NonNullable<TodoRecord["tags"]>[number]>();
-    for (const todo of [...unfinishedTodos, ...finishedTodos]) {
-      for (const tag of todo.tags ?? []) {
-        metaById.set(tag.id, tag);
-        countById.set(tag.id, (countById.get(tag.id) ?? 0) + 1);
-      }
-    }
-    return Array.from(metaById.values())
-      .map((tag) => ({ ...tag, count: countById.get(tag.id) ?? 0 }))
-      .sort((left, right) => left.label.localeCompare(right.label, "zh-Hans-CN"));
-  }, [finishedTodos, unfinishedTodos]);
-
   const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
   const todos = useMemo(() => {
-    const filteredTodos =
-      priorityFilter === null
-        ? tabTodos
-        : tabTodos.filter((todo) => todo.priority === priorityFilter);
-    const tagFilteredTodos =
-      tagFilterId === null
-        ? filteredTodos
-        : filteredTodos.filter((todo) => (todo.tags ?? []).some((tag) => tag.id === tagFilterId));
-    return sortTodos(tagFilteredTodos, sortMode);
-  }, [priorityFilter, sortMode, tabTodos, tagFilterId]);
+    return sortTodos(tabTodos, sortMode);
+  }, [sortMode, tabTodos]);
   const showSortSwitch = todos.length > 1;
-  const summaryText = useMemo(
-    () => `${unfinishedTodos.length} 未完成 · ${finishedTodos.length} 已完成`,
-    [finishedTodos.length, unfinishedTodos.length],
-  );
 
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      setReferenceActiveIndex(0);
-      return;
-    }
-
-    setReferenceActiveIndex((current) => {
-      if (referenceResults.length === 0) {
-        return 0;
-      }
-
-      return Math.min(current, referenceResults.length - 1);
-    });
-  }, [referencePickerOpen, referenceResults.length]);
-
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      return;
-    }
-
-    setReferenceActiveIndex(0);
-  }, [referencePickerOpen, referenceTrigger?.query]);
-
-  useEffect(() => {
-    if (!mentionPickerOpen) {
-      setMentionActiveIndex(0);
-      return;
-    }
-
-    setMentionActiveIndex((current) => {
-      if (mentionOptionCount === 0) {
-        return 0;
-      }
-
-      return Math.min(current, mentionOptionCount - 1);
-    });
-  }, [mentionPickerOpen, mentionOptionCount]);
-
-  useEffect(() => {
-    if (!mentionPickerOpen) {
-      return;
-    }
-
-    setMentionActiveIndex(0);
-  }, [mentionPickerOpen, mentionTrigger?.query]);
+  useSyncTodoEditorPickerState({
+    referencePickerOpen: controller.referencePickerOpen,
+    referenceQuery: controller.referenceTrigger?.query,
+    referenceResultCount: referenceResults.length,
+    mentionPickerOpen: controller.mentionPickerOpen,
+    mentionQuery: controller.mentionTrigger?.query,
+    mentionOptionCount,
+    tagPickerOpen: controller.tagPickerOpen,
+    tagQuery: controller.tagTrigger?.query,
+    tagResultCount: tagResults.length,
+    setControllerState: controller.setControllerState,
+  });
 
   useEffect(() => {
     if (isComposing) {
       return;
     }
 
-    setSelectionStart(null);
-    setDismissedTriggerKey(null);
-    setDismissedMentionKey(null);
-  }, [isComposing]);
+    controller.setControllerState((current) => ({
+      ...current,
+      ...resetTodoEditorControllerState(),
+    }));
+  }, [controller.setControllerState, isComposing]);
 
   useEffect(() => {
     const snapshot = readTodoComposerDraft(draftStorageKey);
     setContent(snapshot?.content ?? "");
     setPriority(snapshot?.priority ?? "not_urgent_important");
     setIsComposing(Boolean(snapshot?.content.trim()));
-    setSelectionStart(null);
-    setDismissedTriggerKey(null);
-  }, [draftStorageKey]);
+    controller.setControllerState((current) => ({
+      ...current,
+      ...resetTodoEditorControllerState(),
+    }));
+  }, [controller.setControllerState, draftStorageKey]);
 
   useEffect(() => {
     const snapshot = { content, priority };
@@ -343,68 +237,85 @@ export function TodoRail({
     setContent("");
     setPriority("not_urgent_important");
     setIsComposing(false);
-    setSelectionStart(null);
-    setDismissedTriggerKey(null);
+    controller.setControllerState((current) => ({
+      ...current,
+      ...resetTodoEditorControllerState(),
+    }));
   }
 
-  function handleReferenceInsert(reference: InternalReferenceSearchResult) {
-    if (!referenceTrigger) {
+  function handleReferenceInsert(reference: Parameters<typeof insertInternalReferenceToken>[2]) {
+    if (!controller.referenceTrigger) {
       return;
     }
 
-    const target = buildInternalReferenceTarget(reference);
-    const token = `${buildInternalReferenceToken(target)} `;
-    const nextContent =
-      content.slice(0, referenceTrigger.start) + token + content.slice(referenceTrigger.end);
-    const nextSelection = referenceTrigger.start + token.length;
-
-    setContent(nextContent);
-    setSelectionStart(nextSelection);
-    setDismissedTriggerKey(null);
-
-    window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
-    });
+    const { nextValue, nextSelection } = insertInternalReferenceToken(
+      content,
+      controller.referenceTrigger,
+      reference,
+    );
+    setContent(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedTriggerKey: null,
+    }));
+    focusTodoEditorInput(composerInputRef.current, nextSelection);
   }
 
-  function insertMentionToken(token: string, trigger: { start: number; end: number }) {
-    const insertText = `${token} `;
-    const nextContent =
-      content.slice(0, trigger.start) + insertText + content.slice(trigger.end);
-    const nextSelection = trigger.start + insertText.length;
-
-    setContent(nextContent);
-    setSelectionStart(nextSelection);
-    setDismissedMentionKey(null);
-
-    window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-      composerInputRef.current?.setSelectionRange(nextSelection, nextSelection);
-    });
-  }
-
-  function handleMentionInsert(contact: ContactRecord) {
-    if (!mentionTrigger) {
+  function handleMentionInsert(contact: Parameters<typeof insertMentionToken>[2]) {
+    if (!controller.mentionTrigger) {
       return;
     }
 
-    const token = buildContactMentionToken(buildContactMentionTarget(contact));
-    insertMentionToken(token, mentionTrigger);
+    const { nextValue, nextSelection } = insertMentionToken(
+      content,
+      controller.mentionTrigger,
+      contact,
+    );
+    setContent(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedMentionKey: controller.mentionTriggerKey,
+    }));
+    focusTodoEditorInput(composerInputRef.current, nextSelection);
   }
 
   function handleMentionCreate(name: string) {
-    if (!mentionTrigger || !contactMentionOptions.onCreateContact || !name.trim()) {
+    if (!controller.mentionTrigger || !contactMentionOptions.onCreateContact || !name.trim()) {
       return;
     }
 
-    const trigger = mentionTrigger;
+    const trigger = controller.mentionTrigger;
     void Promise.resolve(contactMentionOptions.onCreateContact(name.trim())).then((target) => {
-      if (target) {
-        insertMentionToken(buildContactMentionToken(target), trigger);
+      if (!target) {
+        return;
       }
+
+      const { nextValue, nextSelection } = insertMentionToken(content, trigger, target);
+      setContent(nextValue);
+      controller.setControllerState((current) => ({
+        ...current,
+        selectionStart: nextSelection,
+        dismissedMentionKey: controller.mentionTriggerKey,
+      }));
+      focusTodoEditorInput(composerInputRef.current, nextSelection);
     });
-    setDismissedMentionKey(mentionTriggerKey);
+  }
+
+  function handleTagInsert(tag: Parameters<typeof insertTagToken>[2]) {
+    if (!controller.tagTrigger) {
+      return;
+    }
+
+    const { nextValue, nextSelection } = insertTagToken(content, controller.tagTrigger, tag);
+    setContent(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedTagKey: controller.tagTriggerKey,
+    }));
+    focusTodoEditorInput(composerInputRef.current, nextSelection);
   }
 
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
@@ -424,7 +335,7 @@ export function TodoRail({
   if (todoRailCollapsed) {
     return (
       <aside
-        className="flex w-12 shrink-0 flex-col items-center gap-3 border-l border-border bg-bg-subtle px-1.5 py-3 transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+        className="todo-rail__collapsed flex w-12 shrink-0 flex-col items-center gap-3 px-1.5 py-3 transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
         aria-label={`${title} 侧边栏`}
       >
         <IconButton
@@ -439,26 +350,11 @@ export function TodoRail({
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border border-border bg-bg text-text-muted transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg-hover hover:text-text"
-          title={`${title} · ${summaryText}`}
+          title={title}
           onClick={() => setTodoRailCollapsed(false)}
         >
           <ListTodo size={16} />
         </button>
-
-        <div className="grid gap-2 text-center">
-          <div className="rounded-[var(--radius-8)] bg-bg px-2 py-2">
-            <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-              未完成
-            </p>
-            <p className="mt-1 text-ui font-medium text-text">{unfinishedTodos.length}</p>
-          </div>
-          <div className="rounded-[var(--radius-8)] bg-bg px-2 py-2">
-            <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-              已完成
-            </p>
-            <p className="mt-1 text-ui font-medium text-text">{finishedTodos.length}</p>
-          </div>
-        </div>
 
         <IconButton
           type="button"
@@ -477,12 +373,12 @@ export function TodoRail({
 
   return (
     <aside
-      className="relative flex shrink-0 flex-col border-l border-border bg-bg-subtle transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+      className="todo-rail relative flex shrink-0 flex-col transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
       style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
     >
       <div
-        className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize"
+        className="todo-rail__handle absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize"
         aria-hidden="true"
         onPointerDown={(event) => {
           event.preventDefault();
@@ -498,14 +394,9 @@ export function TodoRail({
           window.addEventListener("pointerup", handlePointerUp);
         }}
       />
-      <div className="flex items-start justify-between gap-3 px-4 pb-2 pt-4">
+      <div className="todo-rail__header flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-            Todo List
-          </p>
-          <h2 className="mt-1 text-title font-medium text-text">{title}</h2>
-          <p className="mt-1 text-body font-medium leading-6 text-text">{scopeLabel}</p>
-          <p className="text-ui text-text-soft">{summaryText}</p>
+          <h2 className="text-title font-medium text-text">{title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <IconButton
@@ -529,153 +420,130 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center rounded-full border border-border bg-bg p-1">
-            <RailTabButton active={tab === "unfinished"} onClick={() => setTab("unfinished")}>
+        <div className="todo-rail__toolbar mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div
+            className="project-overview-focus__view-switch"
+            data-testid="todo-rail-view-switch"
+          >
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                tab === "unfinished" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={tab === "unfinished"}
+              onClick={() => setTab("unfinished")}
+            >
               未完成
-            </RailTabButton>
-            <RailTabButton active={tab === "finished"} onClick={() => setTab("finished")}>
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                tab === "finished" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={tab === "finished"}
+              onClick={() => setTab("finished")}
+            >
               已完成
-            </RailTabButton>
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            <div className="flex items-center gap-1">
-              {TODO_PRIORITY_OPTIONS.map((option) => (
-                <PriorityPillButton
-                  key={option.value}
-                  priority={option.value}
-                  active={priorityFilter === option.value}
-                  title={option.optionLabel}
-                  onClick={() =>
-                    setPriorityFilter((current) => (current === option.value ? null : option.value))
-                  }
-                >
-                  {option.code}
-                </PriorityPillButton>
-              ))}
-            </div>
+            </button>
           </div>
 
           {showSortSwitch ? <TodoSortSwitch value={sortMode} onChange={setSortMode} /> : null}
         </div>
 
-        {todoTagOptions.length > 0 ? (
-          <div className="mb-3 flex flex-wrap gap-1">
-            <button
-              type="button"
-              className={cn(
-                "rounded-[var(--radius-6)] border px-2 py-1 text-caption transition-colors",
-                tagFilterId === null
-                  ? "border-border-strong bg-bg text-text"
-                  : "border-transparent text-text-soft hover:border-border hover:bg-bg-hover hover:text-text",
-              )}
-              onClick={() => setTagFilterId(null)}
-            >
-              全部标签
-            </button>
-            {todoTagOptions.map((tag) => (
-              <button
-                key={tag.id}
-                type="button"
-                className={cn(
-                  "rounded-[var(--radius-6)] border px-2 py-1 text-caption transition-colors",
-                  tagFilterId === tag.id
-                    ? "border-border-strong bg-bg text-text"
-                    : "border-transparent text-text-soft hover:border-border hover:bg-bg-hover hover:text-text",
-                )}
-                onClick={() => setTagFilterId((current) => (current === tag.id ? null : tag.id))}
-              >
-                {tag.label} {tag.count}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
         {isComposing ? (
-          <SurfaceCard className="mb-3 grid gap-2 p-3">
+          <div className="todo-rail__composer mb-3">
             <div className="relative">
               <textarea
                 ref={composerInputRef}
                 rows={3}
-                className="min-h-[5.5rem] w-full resize-y rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
+                className="todo-rail__composer-input w-full resize-y text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft"
                 value={content}
                 onChange={(event) => {
+                  const nextSelectionStart = event.target.selectionStart;
                   setContent(event.target.value);
-                  setSelectionStart(event.target.selectionStart);
+                  controller.setControllerState((current) => ({
+                    ...current,
+                    selectionStart: nextSelectionStart,
+                  }));
                 }}
-                onClick={(event) => setSelectionStart(event.currentTarget.selectionStart)}
-                onKeyUp={(event) => setSelectionStart(event.currentTarget.selectionStart)}
-                onSelect={(event) => setSelectionStart(event.currentTarget.selectionStart)}
+                onClick={(event) => {
+                  const nextSelectionStart = event.currentTarget.selectionStart;
+                  controller.setControllerState((current) => ({
+                    ...current,
+                    selectionStart: nextSelectionStart,
+                  }));
+                }}
+                onKeyUp={(event) => {
+                  const nextSelectionStart = event.currentTarget.selectionStart;
+                  controller.setControllerState((current) => ({
+                    ...current,
+                    selectionStart: nextSelectionStart,
+                  }));
+                }}
+                onSelect={(event) => {
+                  const nextSelectionStart = event.currentTarget.selectionStart;
+                  controller.setControllerState((current) => ({
+                    ...current,
+                    selectionStart: nextSelectionStart,
+                  }));
+                }}
                 onKeyDown={(event) => {
-                  if (mentionPickerOpen) {
-                    if (event.key === "ArrowDown" && mentionOptionCount > 0) {
-                      event.preventDefault();
-                      setMentionActiveIndex((current) => (current + 1) % mentionOptionCount);
-                      return;
-                    }
-
-                    if (event.key === "ArrowUp" && mentionOptionCount > 0) {
-                      event.preventDefault();
-                      setMentionActiveIndex((current) =>
-                        current === 0 ? mentionOptionCount - 1 : current - 1,
-                      );
-                      return;
-                    }
-
-                    if (event.key === "Enter" && mentionOptionCount > 0) {
-                      event.preventDefault();
-                      if (mentionCreatable && mentionActiveIndex === mentionResults.length) {
-                        handleMentionCreate(mentionCreateName);
-                      } else {
+                  if (
+                    handleTodoEditorMentionKeyDown({
+                      event,
+                      open: controller.mentionPickerOpen,
+                      optionCount: mentionOptionCount,
+                      creatable: controller.mentionCreatable,
+                      createIndex: mentionResults.length,
+                      activeIndex: controller.controllerState.mentionActiveIndex,
+                      triggerKey: controller.mentionTriggerKey,
+                      setControllerState: controller.setControllerState,
+                      onSelect: () =>
                         handleMentionInsert(
-                          mentionResults[mentionActiveIndex] ?? mentionResults[0],
-                        );
-                      }
-                      return;
-                    }
-
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setDismissedMentionKey(mentionTriggerKey);
-                      return;
-                    }
+                          mentionResults[controller.controllerState.mentionActiveIndex] ??
+                            mentionResults[0],
+                        ),
+                      onCreate: () => handleMentionCreate(controller.mentionCreateName),
+                    })
+                  ) {
+                    return;
                   }
 
-                  if (referencePickerOpen) {
-                    if (event.key === "ArrowDown") {
-                      event.preventDefault();
-                      setReferenceActiveIndex((current) => {
-                        if (referenceResults.length === 0) {
-                          return 0;
-                        }
+                  if (
+                    handleTodoEditorReferenceKeyDown({
+                      event,
+                      open: controller.referencePickerOpen,
+                      resultCount: referenceResults.length,
+                      triggerKey: controller.referenceTriggerKey,
+                      setControllerState: controller.setControllerState,
+                      onSelect: () =>
+                        handleReferenceInsert(
+                          referenceResults[controller.controllerState.referenceActiveIndex] ??
+                            referenceResults[0],
+                        ),
+                    })
+                  ) {
+                    return;
+                  }
 
-                        return (current + 1) % referenceResults.length;
-                      });
-                      return;
-                    }
-
-                    if (event.key === "ArrowUp") {
-                      event.preventDefault();
-                      setReferenceActiveIndex((current) => {
-                        if (referenceResults.length === 0) {
-                          return 0;
-                        }
-
-                        return current === 0 ? referenceResults.length - 1 : current - 1;
-                      });
-                      return;
-                    }
-
-                    if (event.key === "Enter" && referenceResults.length > 0) {
-                      event.preventDefault();
-                      handleReferenceInsert(referenceResults[referenceActiveIndex] ?? referenceResults[0]);
-                      return;
-                    }
-
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setDismissedTriggerKey(referenceTriggerKey);
-                      return;
-                    }
+                  if (
+                    handleTodoEditorTagKeyDown({
+                      event,
+                      open: controller.tagPickerOpen,
+                      resultCount: tagResults.length,
+                      triggerKey: controller.tagTriggerKey,
+                      setControllerState: controller.setControllerState,
+                      onSelect: () =>
+                        handleTagInsert(
+                          tagResults[controller.controllerState.tagActiveIndex] ?? tagResults[0],
+                        ),
+                    })
+                  ) {
+                    return;
                   }
 
                   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -686,28 +554,49 @@ export function TodoRail({
                 placeholder={createPlaceholder}
               />
               <InternalReferencePicker
-                open={referencePickerOpen}
+                open={controller.referencePickerOpen}
                 loading={referenceLoading}
                 results={referenceResults}
-                activeIndex={referenceActiveIndex}
+                activeIndex={controller.controllerState.referenceActiveIndex}
                 className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
-                onHoverIndex={setReferenceActiveIndex}
+                onHoverIndex={(referenceActiveIndex) =>
+                  controller.setControllerState((current) => ({ ...current, referenceActiveIndex }))
+                }
                 onSelect={handleReferenceInsert}
               />
               <ContactMentionPicker
-                open={mentionPickerOpen}
+                open={controller.mentionPickerOpen}
                 loading={mentionLoading}
                 results={mentionResults}
-                activeIndex={mentionActiveIndex}
-                query={mentionTrigger?.query ?? ""}
-                canCreate={mentionCreatable}
-                className="absolute left-0 top-[calc(100%+6px)] z-20"
-                onHoverIndex={setMentionActiveIndex}
+                activeIndex={controller.controllerState.mentionActiveIndex}
+                query={controller.mentionTrigger?.query ?? ""}
+                canCreate={controller.mentionCreatable}
+                portal
+                className="fixed z-[120]"
+                style={getTodoEditorPickerPosition(composerInputRef.current)}
+                onHoverIndex={(mentionActiveIndex) =>
+                  controller.setControllerState((current) => ({ ...current, mentionActiveIndex }))
+                }
                 onSelect={handleMentionInsert}
                 onCreate={handleMentionCreate}
               />
+              <TagMentionPicker
+                open={controller.tagPickerOpen}
+                loading={tagLoading}
+                results={tagResults}
+                activeIndex={controller.controllerState.tagActiveIndex}
+                query={controller.tagTrigger?.query ?? ""}
+                canCreate={false}
+                portal
+                className="fixed z-[120]"
+                style={getTodoEditorPickerPosition(composerInputRef.current)}
+                onHoverIndex={(tagActiveIndex) =>
+                  controller.setControllerState((current) => ({ ...current, tagActiveIndex }))
+                }
+                onSelect={handleTagInsert}
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="todo-rail__composer-meta">
               <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
                   <PriorityPillButton
@@ -721,11 +610,14 @@ export function TodoRail({
                   </PriorityPillButton>
                 ))}
               </div>
+              <div className="todo-rail__composer-hint">Cmd/Ctrl + Enter 保存</div>
+            </div>
+            <div className="todo-rail__composer-footer">
               <Button type="button" size="sm" variant="primary" onClick={submitCreate}>
                 保存
               </Button>
             </div>
-          </SurfaceCard>
+          </div>
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -745,11 +637,9 @@ export function TodoRail({
             onUpdateProgress={onUpdateProgress}
             onDeleteProgress={onDeleteProgress}
             onDeleteTodo={onDeleteTodo}
-            onOpenTodoSource={onOpenTodoSource}
             onError={onError}
             onOpenInternalReference={onOpenInternalReference}
             onOpenContactMention={onOpenContactMention}
-            availableTags={availableTags}
             onEmptyClick={
               tab === "unfinished"
                 ? () => {
@@ -794,7 +684,7 @@ function PriorityPillButton({
         backgroundColor: active
           ? `color-mix(in srgb, ${colorValue} 16%, var(--color-bg))`
           : `color-mix(in srgb, ${colorValue} 6%, var(--color-bg))`,
-        color: colorValue,
+        color: priority === "urgent_not_important" ? "var(--color-text)" : colorValue,
         opacity: active ? 1 : 0.82,
       }}
       onClick={onClick}

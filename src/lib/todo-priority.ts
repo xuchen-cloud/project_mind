@@ -17,7 +17,7 @@ export const TODO_PRIORITY_META: TodoPriorityMeta[] = [
     code: "P1",
     label: "紧急且重要",
     tone: "danger",
-    colorValue: "var(--color-danger)",
+    colorValue: "var(--color-todo-p1)",
     order: 0,
   },
   {
@@ -25,7 +25,7 @@ export const TODO_PRIORITY_META: TodoPriorityMeta[] = [
     code: "P2",
     label: "紧急但不重要",
     tone: "warning",
-    colorValue: "var(--color-warning)",
+    colorValue: "var(--color-todo-p2)",
     order: 1,
   },
   {
@@ -33,7 +33,7 @@ export const TODO_PRIORITY_META: TodoPriorityMeta[] = [
     code: "P3",
     label: "不紧急但重要",
     tone: "accent",
-    colorValue: "var(--color-accent)",
+    colorValue: "var(--color-todo-p3)",
     order: 2,
   },
   {
@@ -41,7 +41,7 @@ export const TODO_PRIORITY_META: TodoPriorityMeta[] = [
     code: "P4",
     label: "不紧急且不重要",
     tone: "neutral",
-    colorValue: "var(--color-text-muted)",
+    colorValue: "var(--color-todo-p4)",
     order: 3,
   },
 ] as const;

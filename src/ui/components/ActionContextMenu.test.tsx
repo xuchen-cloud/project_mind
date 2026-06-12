@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Copy, Trash2 } from "lucide-react";
+import { Bold, Copy, Trash2 } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ActionContextMenu } from "./ActionContextMenu";
@@ -131,6 +131,67 @@ describe("ActionContextMenu", () => {
     await user.click(await screen.findByRole("menuitem", { name: "加粗" }));
 
     expect(onNestedSelect).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders featured rows, selected state, and inline action groups", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onBold = vi.fn();
+
+    render(
+      <ActionContextMenu
+        x={24}
+        y={32}
+        ariaLabel="测试菜单"
+        onClose={onClose}
+        actions={[
+          {
+            type: "submenu",
+            key: "block",
+            label: "正文",
+            icon: Copy,
+            featured: true,
+            selected: true,
+            actions: [
+              {
+                key: "paragraph",
+                label: "正文",
+                icon: Copy,
+                selected: true,
+                onSelect: vi.fn(),
+              },
+            ],
+          },
+          { type: "separator", key: "separator-1" },
+          {
+            type: "inline-actions",
+            key: "inline-format",
+            ariaLabel: "文本格式",
+            actions: [
+              {
+                key: "bold",
+                label: "加粗",
+                icon: Bold,
+                active: true,
+                onSelect: onBold,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const featuredItem = screen.getByRole("menuitem", { name: "正文" });
+    expect(featuredItem.dataset.featured).toBe("true");
+    expect(featuredItem.dataset.selected).toBe("true");
+    expect(screen.getByRole("group", { name: "文本格式" })).toBeInTheDocument();
+
+    const boldButton = screen.getByRole("button", { name: "加粗" });
+    expect(boldButton.className).toContain("context-menu__inline-action");
+
+    await user.click(boldButton);
+    expect(onBold).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

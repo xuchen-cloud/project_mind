@@ -1450,11 +1450,11 @@ function capabilityDescription(capability: AiManagedCapability) {
     case "assistant":
       return "控制顶栏 Ask 入口与问答面板。";
     case "summary":
-      return "控制 Activity / 项目 / Today 的 AI 总结类模块。";
+      return "控制 Activity / 项目页 / Workspace 的 AI 总结类模块。";
     case "suggestion_generation":
       return "控制记录区的 AI 提炼按钮和候选写入流程。";
     case "editor_rewrite":
-      return "控制记录编辑器和 Workspace Notes 的选区级 AI 改写入口。";
+      return "控制记录编辑器和 Workspace Record 的选区级 AI 改写入口。";
     default:
       return capability;
   }

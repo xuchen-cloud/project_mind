@@ -18,10 +18,7 @@ use base64::Engine as _;
 use db::Database;
 pub use db::DemoSeedResult;
 use models::{
-    AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
-    ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityOptionDeleteInput,
-    ActivitySettingsSnapshot, ActivityStatusOption, ActivityStatusOptionUpsertInput,
-    ActivityUpdateMetaInput, AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult,
+    AcceptedSuggestionResult, AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult,
     AiArtifactGetInput, AiArtifactRecord, AiCapabilityBindingRecord,
     AiCapabilityBindingUpsertInput, AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
     AiEditorRewriteActionUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
@@ -33,18 +30,19 @@ use models::{
     DocumentDeleteInput, DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
     DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput, DocumentRecord,
     DocumentRelocateInput, DocumentUpdateMetaInput, DocumentVersionRecord,
-    FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsSnapshot,
+    FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput,
+    FileTagSettingsSnapshot,
     InternalReferenceResolveInput, InternalReferenceResolveResult, InternalReferenceSearchInput,
-    InternalReferenceSearchResult, NoteDeleteInput, NoteRecord, NoteUpsertInput,
-    ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput, ProjectListItem,
-    ProjectOverviewData, ProjectRecord, ProjectUpdateSummaryInput, ProjectsListInput,
-    RecordTypeOptionDeleteInput, RecordTypeOptionUpsertInput, RecordTypeRecord,
-    RecordTypeSettingsSnapshot, RichTextStyleSettings, RichTextStyleUpsertInput,
-    TodayQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateActivityInput,
-    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
-    TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceCreateInput, WorkspaceNoteDeleteInput,
-    WorkspaceNoteRecord, WorkspaceNoteUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
+    InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord, ProjectRecordUpsertInput,
+    ProjectArchiveInput, ProjectCreateInput, ProjectIdInput, ProjectListItem,
+    ProjectPageData, ProjectRecord, ProjectUpdateInput, ProjectsListInput,
+    RichTextStyleSettings, RichTextStyleUpsertInput,
+    WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
+    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
+    WorkspacePageData,
+    WorkspaceCreateInput, WorkspaceRecordDeleteInput,
+    WorkspaceRecord, WorkspaceRecordUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
     WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
@@ -463,27 +461,24 @@ fn project_create(
 }
 
 #[tauri::command]
-fn project_get_dashboard(
+fn project_page_get(
     state: State<'_, AppState>,
     input: ProjectIdInput,
-) -> CommandResult<ProjectDashboard> {
-    with_db(state, |db| db.project_get_dashboard(input))
+) -> CommandResult<ProjectPageData> {
+    with_db(state, |db| db.project_page_get(input))
 }
 
 #[tauri::command]
-fn project_get_overview(
-    state: State<'_, AppState>,
-    input: ProjectIdInput,
-) -> CommandResult<ProjectOverviewData> {
-    with_db(state, |db| db.project_get_overview(input))
+fn workspace_page_get(state: State<'_, AppState>) -> CommandResult<WorkspacePageData> {
+    with_db(state, |db| db.workspace_page_get())
 }
 
 #[tauri::command]
-fn project_update_summary(
+fn project_update(
     state: State<'_, AppState>,
-    input: ProjectUpdateSummaryInput,
+    input: ProjectUpdateInput,
 ) -> CommandResult<ProjectRecord> {
-    with_db(state, |db| db.project_update_summary(input))
+    with_db(state, |db| db.project_update(input))
 }
 
 #[tauri::command]
@@ -495,77 +490,11 @@ fn project_set_archive(
 }
 
 #[tauri::command]
-fn activity_create(
+fn file_tag_settings_get(
     state: State<'_, AppState>,
-    input: ActivityCreateInput,
-) -> CommandResult<ActivityCardData> {
-    with_db(state, |db| db.activity_create(input))
-}
-
-#[tauri::command]
-fn activity_list(
-    state: State<'_, AppState>,
-    input: ProjectIdInput,
-) -> CommandResult<Vec<ActivityCardData>> {
-    with_db(state, |db| db.activity_list(input))
-}
-
-#[tauri::command]
-fn activity_update_meta(
-    state: State<'_, AppState>,
-    input: ActivityUpdateMetaInput,
-) -> CommandResult<ActivityCardData> {
-    with_db(state, |db| db.activity_update_meta(input))
-}
-
-#[tauri::command]
-fn activity_delete(
-    state: State<'_, AppState>,
-    input: ActivityDeleteInput,
-) -> CommandResult<ActivityCardData> {
-    with_db(state, |db| db.activity_delete(input))
-}
-
-#[tauri::command]
-fn activity_settings_get(state: State<'_, AppState>) -> CommandResult<ActivitySettingsSnapshot> {
-    with_db(state, |db| db.activity_settings_get())
-}
-
-#[tauri::command]
-fn activity_attribute_option_upsert(
-    state: State<'_, AppState>,
-    input: ActivityAttributeOptionUpsertInput,
-) -> CommandResult<ActivityAttributeOption> {
-    with_db(state, |db| db.activity_attribute_option_upsert(input))
-}
-
-#[tauri::command]
-fn activity_attribute_option_delete(
-    state: State<'_, AppState>,
-    input: ActivityOptionDeleteInput,
-) -> CommandResult<ActivitySettingsSnapshot> {
-    with_db(state, |db| db.activity_attribute_option_delete(input))
-}
-
-#[tauri::command]
-fn activity_status_option_upsert(
-    state: State<'_, AppState>,
-    input: ActivityStatusOptionUpsertInput,
-) -> CommandResult<ActivityStatusOption> {
-    with_db(state, |db| db.activity_status_option_upsert(input))
-}
-
-#[tauri::command]
-fn activity_status_option_delete(
-    state: State<'_, AppState>,
-    input: ActivityOptionDeleteInput,
-) -> CommandResult<ActivitySettingsSnapshot> {
-    with_db(state, |db| db.activity_status_option_delete(input))
-}
-
-#[tauri::command]
-fn file_tag_settings_get(state: State<'_, AppState>) -> CommandResult<FileTagSettingsSnapshot> {
-    with_db(state, |db| db.file_tag_settings_get())
+    input: FileTagSettingsGetInput,
+) -> CommandResult<FileTagSettingsSnapshot> {
+    with_db(state, |db| db.file_tag_settings_get(input))
 }
 
 #[tauri::command]
@@ -582,29 +511,6 @@ fn file_tag_option_delete(
     input: FileTagOptionDeleteInput,
 ) -> CommandResult<FileTagSettingsSnapshot> {
     with_db(state, |db| db.file_tag_option_delete(input))
-}
-
-#[tauri::command]
-fn record_type_settings_get(
-    state: State<'_, AppState>,
-) -> CommandResult<RecordTypeSettingsSnapshot> {
-    with_db(state, |db| db.record_type_settings_get())
-}
-
-#[tauri::command]
-fn record_type_option_upsert(
-    state: State<'_, AppState>,
-    input: RecordTypeOptionUpsertInput,
-) -> CommandResult<RecordTypeRecord> {
-    with_db(state, |db| db.record_type_option_upsert(input))
-}
-
-#[tauri::command]
-fn record_type_option_delete(
-    state: State<'_, AppState>,
-    input: RecordTypeOptionDeleteInput,
-) -> CommandResult<RecordTypeSettingsSnapshot> {
-    with_db(state, |db| db.record_type_option_delete(input))
 }
 
 #[tauri::command]
@@ -637,13 +543,13 @@ fn contact_delete(
 }
 
 #[tauri::command]
-fn note_upsert(state: State<'_, AppState>, input: NoteUpsertInput) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.note_upsert(input))
+fn project_record_upsert(state: State<'_, AppState>, input: ProjectRecordUpsertInput) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.project_record_upsert(input))
 }
 
 #[tauri::command]
-fn note_delete(state: State<'_, AppState>, input: NoteDeleteInput) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.note_delete(input))
+fn project_record_delete(state: State<'_, AppState>, input: ProjectRecordDeleteInput) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.project_record_delete(input))
 }
 
 #[tauri::command]
@@ -681,14 +587,6 @@ fn conclusion_delete(
 #[tauri::command]
 fn todo_create(state: State<'_, AppState>, input: TodoCreateInput) -> CommandResult<TodoRecord> {
     with_db(state, |db| db.todo_create(input))
-}
-
-#[tauri::command]
-fn todo_update_activity(
-    state: State<'_, AppState>,
-    input: TodoUpdateActivityInput,
-) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_update_activity(input))
 }
 
 #[tauri::command]
@@ -766,37 +664,37 @@ fn workspace_todo_list(state: State<'_, AppState>) -> CommandResult<Vec<TodoReco
 }
 
 #[tauri::command]
-fn workspace_note_list(state: State<'_, AppState>) -> CommandResult<Vec<WorkspaceNoteRecord>> {
-    with_db(state, |db| db.workspace_note_list())
+fn workspace_record_list(state: State<'_, AppState>) -> CommandResult<Vec<WorkspaceRecord>> {
+    with_db(state, |db| db.workspace_record_list())
 }
 
 #[tauri::command]
-fn today_quick_note_get(state: State<'_, AppState>) -> CommandResult<Option<WorkspaceNoteRecord>> {
-    with_db(state, |db| db.today_quick_note_get())
+fn workspace_quick_note_get(state: State<'_, AppState>) -> CommandResult<Option<WorkspaceRecord>> {
+    with_db(state, |db| db.workspace_quick_note_get())
 }
 
 #[tauri::command]
-fn today_quick_note_upsert(
+fn workspace_quick_note_upsert(
     state: State<'_, AppState>,
-    input: TodayQuickNoteUpsertInput,
-) -> CommandResult<WorkspaceNoteRecord> {
-    with_db(state, |db| db.today_quick_note_upsert(input))
+    input: WorkspaceQuickNoteUpsertInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_quick_note_upsert(input))
 }
 
 #[tauri::command]
-fn workspace_note_upsert(
+fn workspace_record_upsert(
     state: State<'_, AppState>,
-    input: WorkspaceNoteUpsertInput,
-) -> CommandResult<WorkspaceNoteRecord> {
-    with_db(state, |db| db.workspace_note_upsert(input))
+    input: WorkspaceRecordUpsertInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_record_upsert(input))
 }
 
 #[tauri::command]
-fn workspace_note_delete(
+fn workspace_record_delete(
     state: State<'_, AppState>,
-    input: WorkspaceNoteDeleteInput,
-) -> CommandResult<WorkspaceNoteRecord> {
-    with_db(state, |db| db.workspace_note_delete(input))
+    input: WorkspaceRecordDeleteInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_record_delete(input))
 }
 
 #[tauri::command]
@@ -1085,37 +983,24 @@ pub fn run() {
             workspace_lock,
             projects_list,
             project_create,
-            project_get_dashboard,
-            project_get_overview,
-            project_update_summary,
+            project_page_get,
+            workspace_page_get,
+            project_update,
             project_set_archive,
-            activity_create,
-            activity_list,
-            activity_update_meta,
-            activity_delete,
-            activity_settings_get,
-            activity_attribute_option_upsert,
-            activity_attribute_option_delete,
-            activity_status_option_upsert,
-            activity_status_option_delete,
             file_tag_settings_get,
             file_tag_option_upsert,
             file_tag_option_delete,
-            record_type_settings_get,
-            record_type_option_upsert,
-            record_type_option_delete,
             contact_list,
             contact_search,
             contact_upsert,
             contact_delete,
-            note_upsert,
-            note_delete,
+            project_record_upsert,
+            project_record_delete,
             conclusion_create,
             conclusion_list,
             conclusion_update,
             conclusion_delete,
             todo_create,
-            todo_update_activity,
             todo_update_status,
             todo_update_priority,
             todo_update_content,
@@ -1126,11 +1011,11 @@ pub fn run() {
             todo_delete,
             todo_list_open,
             workspace_todo_list,
-            today_quick_note_get,
-            today_quick_note_upsert,
-            workspace_note_list,
-            workspace_note_upsert,
-            workspace_note_delete,
+            workspace_quick_note_get,
+            workspace_quick_note_upsert,
+            workspace_record_list,
+            workspace_record_upsert,
+            workspace_record_delete,
             document_import,
             document_import_clipboard_image,
             document_import_note_image,

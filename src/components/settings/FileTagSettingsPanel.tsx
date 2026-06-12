@@ -18,15 +18,16 @@ import { ColorKeyDropdown } from "./ColorKeyDropdown";
 
 interface FileTagSettingsPanelProps {
   open: boolean;
+  projectId: number | null;
 }
 
-export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
+export function FileTagSettingsPanel({ open, projectId }: FileTagSettingsPanelProps) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
   const fileTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings"],
-    queryFn: projectMindApi.fileTagSettingsGet,
-    enabled: open,
+    queryKey: ["file-tag-settings", projectId],
+    queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
+    enabled: open && projectId !== null,
   });
 
   const snapshot = fileTagSettingsQuery.data;
@@ -37,8 +38,9 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
   const refreshViews = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+      queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-page"] }),
       queryClient.invalidateQueries({ queryKey: ["activities"] }),
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
     ]);
@@ -87,6 +89,18 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
     [snapshot],
   );
 
+  if (projectId === null) {
+    return (
+      <div className="flex min-h-[32rem] items-center justify-center">
+        <EmptyState
+          title="请先进入一个项目"
+          text="项目标签现在按项目独立管理。进入任意项目后，再打开这里配置该项目自己的标签字典。"
+          className="w-full max-w-lg"
+        />
+      </div>
+    );
+  }
+
   if (fileTagSettingsQuery.isLoading && !snapshot) {
     return (
       <div className="flex min-h-[32rem] items-center justify-center gap-2 text-body text-text-soft">
@@ -121,7 +135,7 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
             <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
               File Tags
             </p>
-            <p className="mt-1 text-body text-text-muted">管理 workspace 级文件标签。</p>
+            <p className="mt-1 text-body text-text-muted">管理当前项目的文件标签。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusBadge tone="neutral">{summary.tagCount} 个标签</StatusBadge>
@@ -173,6 +187,7 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
             }}
             onSubmit={() =>
               upsertMutation.mutateAsync({
+                projectId,
                 label: newTagLabel.trim(),
                 colorKey: newTagColorKey,
               })
@@ -185,6 +200,7 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
             snapshot.tags.map((tag) => (
               <FileTagRow
                 key={tag.id}
+                projectId={projectId}
                 tag={tag}
                 busy={upsertMutation.isPending || deleteMutation.isPending}
                 onSave={saveTag}
@@ -198,7 +214,7 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
                   if (!confirmed) {
                     return;
                   }
-                  deleteMutation.mutate({ tagId: tag.id });
+                  deleteMutation.mutate({ projectId, tagId: tag.id });
                 }}
               />
             ))
@@ -214,11 +230,13 @@ export function FileTagSettingsPanel({ open }: FileTagSettingsPanelProps) {
 }
 
 function FileTagRow({
+  projectId,
   tag,
   busy,
   onSave,
   onDelete,
 }: {
+  projectId: number;
   tag: FileTagRecord;
   busy: boolean;
   onSave: (input: FileTagOptionUpsertInput) => Promise<unknown>;
@@ -251,6 +269,7 @@ function FileTagRow({
 
       lastSubmittedSignatureRef.current = signature;
       void onSave({
+        projectId,
         id: tag.id,
         label: normalizedLabel,
         colorKey: nextColorKey,

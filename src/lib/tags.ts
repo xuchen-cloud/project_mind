@@ -1,6 +1,7 @@
 import type { FileTagColorKey, FileTagRecord } from "./types";
 
-const HASH_TAG_PATTERN = /(^|\s)#([^\s#]+)/gu;
+const HASH_TAG_PATTERN = /(^|\s)[#＃]([^\s#＃]+)/gu;
+const HASH_TAG_TRIGGER_TOKENS = ["#", "＃"] as const;
 const DEFAULT_TAG_COLOR_KEYS: FileTagColorKey[] = [
   "blue",
   "teal",
@@ -26,6 +27,68 @@ export function extractHashTagLabels(value: string) {
   }
 
   return labels;
+}
+
+export function stripHashTagText(value: string) {
+  if (!value) {
+    return value;
+  }
+
+  return value
+    .replace(HASH_TAG_PATTERN, (_match, leadingWhitespace: string) => leadingWhitespace || "")
+    .replace(/\s{2,}/gu, " ")
+    .trim();
+}
+
+export interface HashTagTextTrigger {
+  start: number;
+  end: number;
+  query: string;
+}
+
+export function findHashTagTextTrigger(
+  source: string,
+  caretPosition: number | null | undefined,
+): HashTagTextTrigger | null {
+  if (
+    typeof caretPosition !== "number" ||
+    caretPosition < 0 ||
+    caretPosition > source.length
+  ) {
+    return null;
+  }
+
+  const beforeCaret = source.slice(0, caretPosition);
+  let start = -1;
+  let triggerToken: (typeof HASH_TAG_TRIGGER_TOKENS)[number] | null = null;
+
+  for (const token of HASH_TAG_TRIGGER_TOKENS) {
+    const candidateStart = beforeCaret.lastIndexOf(token);
+
+    if (candidateStart > start) {
+      start = candidateStart;
+      triggerToken = token;
+    }
+  }
+
+  if (start < 0 || !triggerToken) {
+    return null;
+  }
+
+  if (start > 0) {
+    const charBefore = beforeCaret[start - 1];
+    if (!/\s/u.test(charBefore)) {
+      return null;
+    }
+  }
+
+  const query = beforeCaret.slice(start + triggerToken.length);
+
+  if (/[\s\r\n#＃\]]/u.test(query)) {
+    return null;
+  }
+
+  return { start, end: caretPosition, query };
 }
 
 export function mergeUniqueTagIds(...groups: Array<Array<number | undefined | null>>) {

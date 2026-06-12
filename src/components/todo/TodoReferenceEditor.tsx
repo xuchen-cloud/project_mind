@@ -23,6 +23,7 @@ interface TodoReferenceEditorProps
   value: string;
   editorRef: MutableRefObject<HTMLDivElement | null>;
   selectionOffset?: number | null;
+  containerClassName?: string;
   textClassName: string;
   placeholder?: string;
   disabled?: boolean;
@@ -35,6 +36,7 @@ export function TodoReferenceEditor({
   value,
   editorRef,
   selectionOffset,
+  containerClassName,
   textClassName,
   placeholder,
   disabled = false,
@@ -173,6 +175,7 @@ export function TodoReferenceEditor({
       className={cn(
         "relative rounded-[var(--radius-6)] border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] transition-[border-color,box-shadow,background-color] duration-[160ms] ease-[var(--ease-soft)] focus-within:border-[color-mix(in_srgb,var(--color-accent)_36%,var(--color-border))] focus-within:shadow-[0_0_0_3px_var(--color-accent-ring)]",
         disabled && "opacity-75",
+        containerClassName,
       )}
     >
       {placeholder && value.length === 0 ? (

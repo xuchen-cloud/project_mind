@@ -14,9 +14,11 @@ export {
 export { normalizeRichEditorHtml, normalizeRichEditorValue } from "./normalize";
 export type {
   RichEditorAsset,
+  RichEditorAutoFocusPoint,
   RichEditorAssetHandlers,
   RichEditorContactMentionOptions,
   RichEditorInternalReferenceOptions,
+  RichEditorTagMentionOptions,
   RichEditorPersistState,
   RichEditorValue,
   RichEditorVariant,

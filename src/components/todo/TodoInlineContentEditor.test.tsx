@@ -1,9 +1,17 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 
 import { projectMindApi } from "../../services/projectMindApi";
 import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
+
+function render(ui: ReactElement) {
+  return baseRender(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
 
 describe("TodoInlineContentEditor", () => {
   it("uses a wrapping textarea and saves without manual line breaks", async () => {
@@ -76,13 +84,15 @@ describe("TodoInlineContentEditor", () => {
     expect(onSave).toHaveBeenCalledWith("[[todo:18|推进预算审批]] 很重要");
 
     rerender(
-      <TodoInlineContentEditor
-        value="处理 [[todo:18|推进预算审批]] 很重要"
-        editable
-        onSave={onSave}
-        internalReferenceContext={{ scope: "project", projectId: 1 }}
-        onOpenInternalReference={onOpenInternalReference}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <TodoInlineContentEditor
+          value="处理 [[todo:18|推进预算审批]] 很重要"
+          editable
+          onSave={onSave}
+          internalReferenceContext={{ scope: "project", projectId: 1 }}
+          onOpenInternalReference={onOpenInternalReference}
+        />
+      </QueryClientProvider>,
     );
 
     await user.click(screen.getByRole("link", { name: /Todo.*推进预算审批/u }));
@@ -92,6 +102,43 @@ describe("TodoInlineContentEditor", () => {
       refId: 18,
       label: "推进预算审批",
     });
+    searchSpy.mockRestore();
+  });
+
+  it("supports contact mention insertion while editing", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const searchSpy = vi.spyOn(projectMindApi, "contactSearch").mockResolvedValue([
+      {
+        id: 7,
+        name: "张三",
+        pinyinFull: "zhang san",
+        pinyinAbbr: "zs",
+        email: "",
+        employeeId: "",
+        role: "",
+        department: "",
+        createdAt: "2026-04-06T10:00:00.000Z",
+        updatedAt: "2026-04-06T10:00:00.000Z",
+      },
+    ]);
+
+    render(
+      <TodoInlineContentEditor
+        value="联系"
+        editable
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "联系" }));
+    await user.type(screen.getByRole("textbox"), " @zh");
+    expect(await screen.findByRole("option", { name: /张三/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Enter}");
+
+    expect(onSave).toHaveBeenCalledWith("联系 @[contact:7|张三]");
     searchSpy.mockRestore();
   });
 });

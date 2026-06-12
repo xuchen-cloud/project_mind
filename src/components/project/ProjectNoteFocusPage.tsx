@@ -4,11 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { parseRouteId, projectPath } from "../../lib/formatters";
-import { noteTemplateLabel } from "../../lib/note-templates";
+import { withPageWidthClass } from "../../lib/pageWidth";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
+import { colorKeyForTagLabel } from "../../lib/tags";
+import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
+import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
@@ -28,6 +31,7 @@ export function ProjectNoteFocusPage() {
   const projectId = parseRouteId(params.projectId);
   const noteId = parseRouteId(params.noteId);
   const { pushToast } = useFeedbackStore();
+  const { openSettings, pageWidthMode } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
@@ -43,21 +47,16 @@ export function ProjectNoteFocusPage() {
     enabled: projectId !== null,
   });
 
-  const overviewQuery = useQuery({
-    queryKey: ["overview", projectId],
-    queryFn: () => projectMindApi.projectGetOverview({ projectId: projectId as number }),
+  const projectPageQuery = useQuery({
+    queryKey: ["project-page", projectId],
+    queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: projectId !== null && noteId !== null,
   });
 
   const tagSettingsQuery = useQuery({
     queryKey: ["file-tag-settings", projectId],
-    queryFn: projectMindApi.fileTagSettingsGet,
+    queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
-  });
-
-  const recordTypeSettingsQuery = useQuery({
-    queryKey: ["record-type-settings"],
-    queryFn: projectMindApi.recordTypeSettingsGet,
   });
 
   const project =
@@ -66,11 +65,29 @@ export function ProjectNoteFocusPage() {
       : (projectQuery.data ?? []).find((item) => item.id === projectId) ?? null;
 
   const note = useMemo(() => {
-    if (!overviewQuery.data || noteId === null) return null;
-    return (overviewQuery.data.records ?? []).find((record) => record.id === noteId) ?? null;
-  }, [overviewQuery.data, noteId]);
+    if (!projectPageQuery.data || noteId === null) return null;
+    return (projectPageQuery.data.records ?? []).find((record) => record.id === noteId) ?? null;
+  }, [projectPageQuery.data, noteId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+
+  function syncProjectTagCache(tag: FileTagRecord) {
+    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
+      ["file-tag-settings", projectId],
+      (current) => {
+        const tags = current?.tags ?? [];
+        if (tags.some((item) => item.id === tag.id)) {
+          return current ?? { tags };
+        }
+
+        return {
+          tags: [...tags, tag].sort((left, right) =>
+            left.label.localeCompare(right.label, "zh-Hans-CN"),
+          ),
+        };
+      },
+    );
+  }
 
   // Initialize state from note
   useEffect(() => {
@@ -91,18 +108,17 @@ export function ProjectNoteFocusPage() {
     setIsSaving(true);
     try {
       const normalized = normalizeRichEditorValue(value);
-      await projectMindApi.noteUpsert({
+      const mentionedTagIds = extractTagMentionIds(normalized.markdown);
+      await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
         noteId: note.id,
-        noteType: note.noteType,
         title: title.trim() || undefined,
         markdown: normalized.markdown,
         html: normalized.html,
-        tagIds,
+        tagIds: Array.from(new Set([...tagIds, ...mentionedTagIds])),
       });
-      await overviewQuery.refetch();
-      // Invalidate the overview query in other components
-      await queryClient.invalidateQueries({ queryKey: ["overview", projectId] });
+      await projectPageQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["project-page", projectId] });
     } catch (error) {
       pushToast({ tone: "error", title: "保存失败", detail: String(error) });
       throw error;
@@ -123,15 +139,14 @@ export function ProjectNoteFocusPage() {
     if (!note) return;
     setTagIds(newTagIds);
     try {
-      await projectMindApi.noteUpsert({
+      await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
         noteId: note.id,
-        noteType: note.noteType,
         markdown: content.markdown,
         html: content.html,
         tagIds: newTagIds,
       });
-      await overviewQuery.refetch();
+      await projectPageQuery.refetch();
     } catch (error) {
       pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
     }
@@ -145,7 +160,7 @@ export function ProjectNoteFocusPage() {
     );
   }
 
-  if (projectQuery.isLoading || overviewQuery.isLoading) {
+  if (projectQuery.isLoading || projectPageQuery.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <LoaderCircle className="animate-spin text-text-soft" size={24} />
@@ -160,8 +175,6 @@ export function ProjectNoteFocusPage() {
       </div>
     );
   }
-
-  const recordTypeLabel = noteTemplateLabel(note.noteType, recordTypeSettingsQuery.data);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
@@ -179,10 +192,13 @@ export function ProjectNoteFocusPage() {
           </IconButton>
           <div>
             <p className="text-caption text-text-soft">{project.name}</p>
-            <p className="text-ui font-medium text-text">{recordTypeLabel}</p>
+            <p className="text-ui font-medium text-text">记录</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
+            页面宽度
+          </Button>
           <span
             className={cn(
               "text-caption",
@@ -208,7 +224,13 @@ export function ProjectNoteFocusPage() {
 
       {/* Content */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[min(56rem,calc(100vw-4rem))] px-6 py-6">
+        <div
+          className={withPageWidthClass(
+            "mx-auto w-full px-6 py-6",
+            pageWidthMode,
+            "focus",
+          )}
+        >
           <div className="grid gap-4">
             <TextField
               value={title}
@@ -234,6 +256,19 @@ export function ProjectNoteFocusPage() {
               variant="bare"
               autoFocus
               placeholder="写记录，正文里的 #标签 会自动同步。"
+              tagMentions={{
+                projectId: project.id,
+                availableTags,
+                onCreateTag: async (label) => {
+                  const tag = await projectMindApi.fileTagOptionUpsert({
+                    projectId: project.id,
+                    label,
+                    colorKey: colorKeyForTagLabel(label),
+                  });
+                  syncProjectTagCache(tag);
+                  return tag;
+                },
+              }}
               internalReferences={{
                 context: { scope: "project", projectId: project.id },
                 onOpenReference: openInternalReference,

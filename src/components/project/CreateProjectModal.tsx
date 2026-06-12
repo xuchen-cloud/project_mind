@@ -18,7 +18,7 @@ export function CreateProjectModal({
   isPending,
 }: CreateProjectModalProps) {
   const [name, setName] = useState("");
-  const [summary, setSummary] = useState("");
+  const [quickNote, setQuickNote] = useState("");
   const [status, setStatus] = useState("active");
 
   return (
@@ -59,7 +59,7 @@ export function CreateProjectModal({
         onSubmit={(e) => {
           e.preventDefault();
           if (!name.trim()) return;
-          onSubmit({ name, summary, status });
+          onSubmit({ name, quickNote, status });
         }}
       >
         <label className="block space-y-1.5">
@@ -72,13 +72,13 @@ export function CreateProjectModal({
           />
         </label>
         <label className="block space-y-1.5">
-          <span className="text-ui font-medium text-text-muted">项目简介</span>
+          <span className="text-ui font-medium text-text-muted">QuickNote</span>
           <textarea
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
+            value={quickNote}
+            onChange={(e) => setQuickNote(e.target.value)}
             rows={4}
             className="w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
-            placeholder="说明当前阶段、目标、关键约束和判断依据。"
+            placeholder="写下当前阶段、目标、关键约束和判断依据。"
           />
         </label>
         <div className="grid gap-4 md:grid-cols-[13rem_minmax(0,1fr)]">

@@ -1,10 +1,49 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import type { DocumentRecord, FileTagRecord } from "../../lib/types";
 import { useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
+
+const documentMutationMocks = vi.hoisted(() => ({
+  documentMetaMutation: { mutate: vi.fn(), isPending: false },
+  documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
+  documentDeleteMutation: { mutate: vi.fn(), isPending: false },
+}));
+
+const desktopApiMocks = vi.hoisted(() => ({
+  pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
+  openFile: vi.fn(async () => undefined),
+  revealInExplorer: vi.fn(async () => undefined),
+}));
+
+const projectMindApiMocks = vi.hoisted(() => ({
+  fileTagSettingsGet: vi.fn(async () => ({ tags: [] as FileTagRecord[] })),
+  documentImport: vi.fn(async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
+    buildDocument({ projectId, name: sourcePath.split("/").pop() ?? "brief.pdf", baseName: sourcePath.split("/").pop() ?? "brief.pdf" }),
+  ),
+}));
+
+vi.mock("../../hooks/useDocumentMutations", () => ({
+  useDocumentMutations: () => documentMutationMocks,
+}));
+
+vi.mock("../../services/desktopApi", () => ({
+  desktopApi: {
+    pickFiles: desktopApiMocks.pickFiles,
+    openFile: desktopApiMocks.openFile,
+    revealInExplorer: desktopApiMocks.revealInExplorer,
+  },
+}));
+
+vi.mock("../../services/projectMindApi", () => ({
+  projectMindApi: {
+    fileTagSettingsGet: projectMindApiMocks.fileTagSettingsGet,
+    documentImport: projectMindApiMocks.documentImport,
+  },
+}));
 
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -19,23 +58,57 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe("ProjectSidebar", () => {
   beforeEach(() => {
+    documentMutationMocks.documentMetaMutation.mutate.mockReset();
+    documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
+    documentMutationMocks.documentDeleteMutation.mutate.mockReset();
+    desktopApiMocks.pickFiles.mockReset();
+    desktopApiMocks.openFile.mockReset();
+    desktopApiMocks.revealInExplorer.mockReset();
+    projectMindApiMocks.fileTagSettingsGet.mockReset();
+    projectMindApiMocks.documentImport.mockReset();
+
+    desktopApiMocks.pickFiles.mockResolvedValue([]);
+    desktopApiMocks.openFile.mockResolvedValue(undefined);
+    desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
+    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    projectMindApiMocks.documentImport.mockImplementation(
+      async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
+        buildDocument({
+          projectId,
+          name: sourcePath.split("/").pop() ?? "brief.pdf",
+          baseName: sourcePath.split("/").pop() ?? "brief.pdf",
+          managedPath: sourcePath,
+          originalPath: sourcePath,
+        }),
+    );
+
     useUiStore.setState({
       createProjectOpen: false,
-      createActivityOpen: false,
       settingsOpen: false,
-      settingsSection: "activity",
+      settingsSection: "page-width",
+      settingsProjectId: null,
       projectComposer: null,
       projectSidebarCollapsed: false,
       todoRailCollapsed: false,
+      openProjectIds: [],
+      projectRecentPaths: {},
+      noteEditorWidthPx: 880,
+      pageWidthMode: "adaptive",
+      todoRailWidthPx: 352,
+      projectSidebarWidthPx: 288,
     });
   });
 
-  it("opens the project overview, navigates activities, and toggles collapse", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("opens the project overview, navigates records, and toggles collapse", async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
-    const onOpenActivity = vi.fn();
-    const onCreateActivity = vi.fn();
-    const onDeleteActivity = vi.fn();
+    const onOpenRecord = vi.fn();
+    const onCreateRecord = vi.fn();
 
     renderWithProviders(
       <ProjectSidebar
@@ -45,82 +118,47 @@ describe("ProjectSidebar", () => {
           rootPath: "/tmp/alpha-project",
           isArchived: false,
         }}
-        activities={[
+        records={[
           {
             id: 11,
             title: "Kickoff Review",
-            activityTime: "2026-04-06T08:00:00.000Z",
-            attributeLabel: "产品评审",
-            attributeColorKey: "blue",
-            conclusionCount: 2,
-            documentCount: 3,
-            completedTodoCount: 1,
-            totalTodoCount: 2,
-            statusLabel: "已整理",
-            statusColorKey: "green",
+            typeLabel: "会议记录",
+            contentMarkdown: "记录内容",
+            tags: [{ id: 1, label: "产品评审", colorKey: "blue" as const }],
+            updatedAt: "2026-04-06T08:00:00.000Z",
           },
           {
             id: 12,
             title: "Budget Sync",
-            activityTime: "2026-04-06T09:00:00.000Z",
-            attributeLabel: null,
-            attributeColorKey: null,
-            conclusionCount: 0,
-            documentCount: 1,
-            completedTodoCount: 0,
-            totalTodoCount: 1,
-            statusLabel: "待复核",
-            statusColorKey: "amber",
+            typeLabel: "同步记录",
+            contentMarkdown: "预算同步",
+            tags: [],
+            updatedAt: "2026-04-06T09:00:00.000Z",
           },
         ]}
-        activeActivityId={11}
+        activeRecordId={11}
         onOpenProject={onOpenProject}
-        onOpenActivity={onOpenActivity}
-        onCreateActivity={onCreateActivity}
-        onDeleteActivity={onDeleteActivity}
+        onOpenRecord={onOpenRecord}
+        onCreateRecord={onCreateRecord}
       />,
     );
 
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Activities" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "记录" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.queryByText("2026/4/6")).not.toBeInTheDocument();
-    expect(screen.queryByText("未设置属性")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("文件 3")).toBeInTheDocument();
-    expect(screen.getByLabelText("结论 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Todo 1/2")).toBeInTheDocument();
-    expect(screen.getByText("已整理")).toBeInTheDocument();
-
-    const kickoffButton = screen.getByText("Kickoff Review").closest("button");
-    expect(kickoffButton).not.toBeNull();
-    const kickoffAttribute = within(kickoffButton as HTMLElement).getByText(
-      "产品评审",
-    );
-    const kickoffTitle = within(kickoffButton as HTMLElement).getByText(
-      "Kickoff Review",
-    );
-    expect(
-      kickoffAttribute.compareDocumentPosition(kickoffTitle) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    const kickoffStatus = within(kickoffButton as HTMLElement).getByText(
-      "已整理",
-    );
-    expect(
-      kickoffTitle.compareDocumentPosition(kickoffStatus) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
+    expect(screen.getAllByText("产品评审")).toHaveLength(2);
 
     await user.click(screen.getByText("Alpha Project").closest("button")!);
     expect(onOpenProject).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
-    expect(onCreateActivity).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "新增记录" }));
+    expect(onCreateRecord).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByText("Budget Sync").closest("button")!);
-    expect(onOpenActivity).toHaveBeenCalledWith(12);
+    expect(onOpenRecord).toHaveBeenCalledWith(12);
 
     await user.click(screen.getByRole("button", { name: "收起项目侧边栏" }));
     expect(useUiStore.getState().projectSidebarCollapsed).toBe(true);
@@ -129,41 +167,12 @@ describe("ProjectSidebar", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Budget Sync")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
-    expect(onCreateActivity).toHaveBeenCalledTimes(2);
-
-    await user.click(screen.getByRole("button", { name: "B" }));
-    expect(onOpenActivity).toHaveBeenCalledWith(12);
+    expect(screen.getByRole("button", { name: "展开项目侧边栏" })).toBeInTheDocument();
   });
 
-  it("renders reference projects without activity and file tabs", () => {
-    renderWithProviders(
-      <ProjectSidebar
-        project={{
-          id: 1,
-          name: "资料",
-          kind: "reference",
-          rootPath: "/tmp/workspace/资料",
-          isArchived: false,
-        }}
-        activities={[]}
-        onOpenProject={vi.fn()}
-        onOpenActivity={vi.fn()}
-        onCreateActivity={vi.fn()}
-        onDeleteActivity={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("资料项目")).toBeInTheDocument();
-    expect(screen.getByText(/不创建 Activity/u)).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /记录/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /文件/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "新建 Activity" })).not.toBeInTheDocument();
-  });
-
-  it("shows delete inside the activity context menu on right click", async () => {
+  it("imports files from the picker in the files tab", async () => {
     const user = userEvent.setup();
-    const onDeleteActivity = vi.fn();
+    desktopApiMocks.pickFiles.mockResolvedValueOnce(["/tmp/alpha-project/brief.pdf"]);
 
     renderWithProviders(
       <ProjectSidebar
@@ -173,59 +182,76 @@ describe("ProjectSidebar", () => {
           rootPath: "/tmp/alpha-project",
           isArchived: false,
         }}
-        activities={[
+        records={[]}
+        documents={[]}
+        onOpenProject={vi.fn()}
+        onOpenRecord={vi.fn()}
+        onCreateRecord={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+    await user.click(screen.getByRole("button", { name: "导入文件" }));
+
+    await waitFor(() => {
+      expect(projectMindApiMocks.documentImport).toHaveBeenCalledWith({
+        projectId: 1,
+        sourcePath: "/tmp/alpha-project/brief.pdf",
+        isStarred: false,
+      });
+    });
+  });
+
+  it("imports dropped files from the sidebar and switches to the files tab", async () => {
+    const dataTransfer = createFileDrop("/tmp/alpha-project/brief.pdf");
+
+    renderWithProviders(
+      <ProjectSidebar
+        project={{
+          id: 1,
+          name: "Alpha Project",
+          rootPath: "/tmp/alpha-project",
+          isArchived: false,
+        }}
+        records={[
           {
             id: 11,
             title: "Kickoff Review",
-            activityTime: "2026-04-06T08:00:00.000Z",
-            attributeLabel: "产品评审",
-            attributeColorKey: "blue",
-            conclusionCount: 2,
-            documentCount: 3,
-            completedTodoCount: 1,
-            totalTodoCount: 2,
-            statusLabel: "已整理",
-            statusColorKey: "green",
-          },
-          {
-            id: 12,
-            title: "Budget Sync",
-            activityTime: "2026-04-06T09:00:00.000Z",
-            attributeLabel: null,
-            attributeColorKey: null,
-            conclusionCount: 0,
-            documentCount: 1,
-            completedTodoCount: 0,
-            totalTodoCount: 1,
-            statusLabel: "待复核",
-            statusColorKey: "amber",
+            typeLabel: "会议记录",
+            contentMarkdown: "记录内容",
+            tags: [],
+            updatedAt: "2026-04-06T08:00:00.000Z",
           },
         ]}
-        activeActivityId={11}
+        documents={[]}
         onOpenProject={vi.fn()}
-        onOpenActivity={vi.fn()}
-        onCreateActivity={vi.fn()}
-        onDeleteActivity={onDeleteActivity}
+        onOpenRecord={vi.fn()}
+        onCreateRecord={vi.fn()}
+        onOpenDocument={vi.fn()}
       />,
     );
 
-    fireEvent.contextMenu(screen.getByText("Budget Sync").closest("button")!, {
-      clientX: 160,
-      clientY: 120,
+    const sidebar = screen.getByLabelText("项目导航侧边栏");
+    fireEvent.dragEnter(sidebar, { dataTransfer });
+
+    expect(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+
+    fireEvent.drop(sidebar, { dataTransfer });
+
+    await waitFor(() => {
+      expect(projectMindApiMocks.documentImport).toHaveBeenCalledWith({
+        projectId: 1,
+        sourcePath: "/tmp/alpha-project/brief.pdf",
+        isStarred: false,
+      });
     });
-
-    expect(
-      screen.getByRole("menu", { name: "Activity 操作" }),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("menuitem", { name: "删除" }));
-    expect(onDeleteActivity).toHaveBeenCalledWith(12);
   });
 
-  it("switches to the Files tab and opens project files", async () => {
-    const user = userEvent.setup();
-    const onOpenDocument = vi.fn();
-    const onMoveDocument = vi.fn();
+  it("does not hide the drag prompt on a transient drag leave", () => {
+    vi.useFakeTimers();
+    const dataTransfer = createFileDrop("/tmp/alpha-project/brief.pdf");
 
     renderWithProviders(
       <ProjectSidebar
@@ -235,90 +261,111 @@ describe("ProjectSidebar", () => {
           rootPath: "/tmp/alpha-project",
           isArchived: false,
         }}
-        activities={[
+        records={[]}
+        documents={[]}
+        onOpenProject={vi.fn()}
+        onOpenRecord={vi.fn()}
+        onCreateRecord={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const sidebar = screen.getByLabelText("项目导航侧边栏");
+    fireEvent.dragEnter(sidebar, { dataTransfer });
+    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+
+    fireEvent.dragLeave(sidebar, {
+      clientX: -1,
+      clientY: -1,
+      dataTransfer,
+    });
+    fireEvent.dragEnter(sidebar, { dataTransfer });
+    vi.advanceTimersByTime(100);
+
+    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+  });
+
+  it("shows add actions beside search and hides tab counts", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <ProjectSidebar
+        project={{
+          id: 1,
+          name: "Alpha Project",
+          rootPath: "/tmp/alpha-project",
+          isArchived: false,
+        }}
+        records={[
           {
             id: 11,
             title: "Kickoff Review",
-            activityTime: "2026-04-06T08:00:00.000Z",
-            attributeLabel: "产品评审",
-            attributeColorKey: "blue",
-            conclusionCount: 2,
-            documentCount: 3,
-            completedTodoCount: 1,
-            totalTodoCount: 2,
-            statusLabel: "已整理",
-            statusColorKey: "green",
+            typeLabel: "会议记录",
+            contentMarkdown: "记录内容",
+            tags: [],
+            updatedAt: "2026-04-06T08:00:00.000Z",
           },
         ]}
         documents={[
           {
             id: 21,
             projectId: 1,
-            activityId: 11,
             name: "budget.xlsx",
             baseName: "budget",
             mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             managedPath: "/tmp/alpha-project/budget.xlsx",
             originalPath: "/original/budget.xlsx",
             historyDirPath: "/history/budget",
-            sourceActivityTitle: "Kickoff Review",
             isStarred: false,
             currentVersionNumber: 1,
             versionCount: 1,
-            health: "normal" as const,
-            tags: [{ id: 3, label: "预算", colorKey: "amber" as const }],
-          },
-          {
-            id: 22,
-            projectId: 1,
-            activityId: null,
-            name: "diagram.png",
-            baseName: "diagram",
-            mimeType: "image/png",
-            managedPath: "/tmp/alpha-project/diagram.png",
-            originalPath: "/original/diagram.png",
-            historyDirPath: "/history/diagram",
-            sourceActivityTitle: null,
-            isStarred: false,
-            currentVersionNumber: 1,
-            versionCount: 1,
-            health: "normal" as const,
+            health: "normal",
             tags: [],
           },
         ]}
-        activeActivityId={11}
         onOpenProject={vi.fn()}
-        onOpenActivity={vi.fn()}
-        onOpenDocument={onOpenDocument}
-        onMoveDocument={onMoveDocument}
-        onCreateActivity={vi.fn()}
-        onDeleteActivity={vi.fn()}
+        onOpenRecord={vi.fn()}
+        onCreateRecord={vi.fn()}
+        onOpenDocument={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("tab", { name: /记录/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "记录" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "文件" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /记录 1/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /文件 1/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增记录" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: /文件/ }));
-
-    expect(screen.getByRole("tab", { name: /文件/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.getByText("budget.xlsx")).toBeInTheDocument();
-    // sourceActivityTitle is displayed in the file list
-    expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
-    expect(screen.getByText("diagram.png")).toBeInTheDocument();
-
-    // Click on a file to open it
-    await user.click(screen.getByText("budget.xlsx"));
-    expect(onOpenDocument).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 21,
-        managedPath: "/tmp/alpha-project/budget.xlsx",
-      }),
-    );
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+    expect(screen.getByRole("button", { name: "导入文件" })).toBeInTheDocument();
   });
 });
+
+function buildDocument(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
+  return {
+    id: overrides.id ?? 21,
+    projectId: overrides.projectId ?? 1,
+    name: overrides.name ?? "brief.pdf",
+    baseName: overrides.baseName ?? "brief.pdf",
+    mimeType: overrides.mimeType ?? "application/pdf",
+    managedPath: overrides.managedPath ?? "/tmp/alpha-project/brief.pdf",
+    originalPath: overrides.originalPath ?? "/tmp/alpha-project/brief.pdf",
+    historyDirPath: overrides.historyDirPath ?? "/tmp/alpha-project/.history/brief",
+    isStarred: overrides.isStarred ?? false,
+    currentVersionNumber: overrides.currentVersionNumber ?? 1,
+    versionCount: overrides.versionCount ?? 1,
+    health: overrides.health ?? "normal",
+    tags: overrides.tags ?? [],
+    createdAt: overrides.createdAt ?? "2026-04-06T08:00:00.000Z",
+    updatedAt: overrides.updatedAt ?? "2026-04-06T08:00:00.000Z",
+  };
+}
+
+function createFileDrop(path: string): DataTransfer {
+  return {
+    files: [{ path }] as unknown as FileList,
+    items: [] as unknown as DataTransferItemList,
+    types: ["Files"],
+    getData: vi.fn(() => ""),
+  } as unknown as DataTransfer;
+}

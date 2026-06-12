@@ -104,6 +104,7 @@ describe("FileTagSettingsPanel", () => {
 
     await waitFor(() =>
       expect(mockFileTagOptionUpsert.mock.calls[0]?.[0]).toEqual({
+        projectId: 7,
         label: "待审核",
         colorKey: "rose",
       }),
@@ -133,6 +134,7 @@ describe("FileTagSettingsPanel", () => {
     await waitFor(
       () =>
         expect(mockFileTagOptionUpsert.mock.calls[0]?.[0]).toEqual({
+          projectId: 7,
           id: 1,
           label: "待审核",
           colorKey: "blue",
@@ -151,6 +153,7 @@ describe("FileTagSettingsPanel", () => {
         expect(
           mockFileTagOptionUpsert.mock.calls[mockFileTagOptionUpsert.mock.calls.length - 1]?.[0],
         ).toEqual({
+          projectId: 7,
           id: 1,
           label: "待审核",
           colorKey: "teal",
@@ -171,7 +174,7 @@ function renderPanel() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <FileTagSettingsPanel open />
+      <FileTagSettingsPanel open projectId={7} />
     </QueryClientProvider>,
   );
 }

@@ -1,3 +1,4 @@
+import type { FileTagRecord } from "../../lib/types";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { InternalReferenceContext } from "../../lib/types";
@@ -41,4 +42,16 @@ export interface RichEditorContactMentionOptions {
    */
   onCreateContact?: (name: string) => Promise<ContactMentionTarget | null>;
   onOpenContact?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
+}
+
+export interface RichEditorTagMentionOptions {
+  projectId?: number | null;
+  availableTags?: FileTagRecord[];
+  onCreateTag?: (label: string) => Promise<FileTagRecord | null>;
+}
+
+export interface RichEditorAutoFocusPoint {
+  x: number;
+  y: number;
+  mode?: "viewport" | "content-relative";
 }

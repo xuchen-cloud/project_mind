@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Copy } from "lucide-react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as aiJobs from "../../lib/aiJobs";
@@ -267,11 +268,12 @@ describe("RichEditor tables", () => {
     });
 
     fireEvent.focus(surface);
-    await user.click(await screen.findByRole("button", { name: "插入表格" }));
-    await user.click(screen.getByLabelText("插入 1 行 2 列表格"));
+    fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: "插入表格" }));
 
     await waitFor(() => {
-      expect(container.querySelectorAll("table tr")).toHaveLength(1);
+      expect(container.querySelectorAll("table tr")).toHaveLength(3);
     });
   });
 
@@ -1026,8 +1028,82 @@ describe("RichEditor internal references", () => {
   });
 });
 
+describe("RichEditor tag mentions", () => {
+  it("opens the picker on # and inserts a tag mention chip token", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        tagMentions={{
+          projectId: null,
+          availableTags: [{ id: 11, label: "预算", colorKey: "amber", usageCount: 0, createdAt: "", updatedAt: "" }],
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    await user.keyboard("#预");
+
+    expect(await screen.findByRole("listbox", { name: "标签选择器" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /预算/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.html).toContain('data-type="tag-mention"');
+      expect(latestValue?.markdown).toContain("#[tag:11|预算|amber]");
+    });
+  });
+
+  it("creates a new tag from # input and inserts it as a chip", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onCreateTag = vi.fn(async (label: string) => ({
+      id: 12,
+      label,
+      colorKey: "green" as const,
+      usageCount: 0,
+      createdAt: "",
+      updatedAt: "",
+    }));
+
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        onChange={onChange}
+        tagMentions={{
+          projectId: null,
+          availableTags: [{ id: 11, label: "预算", colorKey: "amber", usageCount: 0, createdAt: "", updatedAt: "" }],
+          onCreateTag,
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    await user.keyboard("#新标签");
+
+    expect(await screen.findByRole("listbox", { name: "标签选择器" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /新建标签 “新标签”/u })).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(onCreateTag).toHaveBeenCalledWith("新标签");
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.html).toContain('data-type="tag-mention"');
+      expect(latestValue?.markdown).toContain("#[tag:12|新标签|green]");
+    });
+  });
+});
+
 describe("RichEditor context menus", () => {
-  it("shows the format-first text menu for a non-collapsed text selection", async () => {
+  it("shows the redesigned text menu for a non-collapsed text selection", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const { container } = render(
@@ -1050,11 +1126,11 @@ describe("RichEditor context menus", () => {
       .getAllByRole("menuitem")
       .map((item) => item.textContent ?? "");
 
-    expect(labels).toEqual(["格式", "块", "剪贴板"]);
-    expect(within(menu).queryAllByRole("separator")).toHaveLength(0);
+    expect(labels).toEqual(["正文", "插入表格", "剪贴板"]);
+    expect(within(menu).queryAllByRole("separator")).toHaveLength(2);
+    expect(within(menu).getByRole("group", { name: "文本格式" })).toBeInTheDocument();
 
-    await user.hover(within(menu).getByRole("menuitem", { name: "格式" }));
-    await user.click(await screen.findByRole("menuitem", { name: /加粗/i }));
+    await user.click(within(menu).getByRole("button", { name: "加粗" }));
 
     await waitFor(() => {
       expect(getLatestHtml(onChange)).toContain("<strong>hello</strong>");
@@ -1074,11 +1150,67 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(paragraph, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    expect(
-      within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? ""),
-    ).toEqual(["格式", "块", "剪贴板"]);
+    expect(within(menu).getByRole("menuitem", { name: "正文" })).toBeInTheDocument();
+    expect(within(menu).getByRole("group", { name: "文本格式" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "剪贴板" })).toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "图片操作" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "表格操作" })).not.toBeInTheDocument();
+  });
+
+  it("shows the active block selection in the featured submenu", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<h2>hello world</h2>" />);
+
+    const heading = await waitFor(() => {
+      const nextHeading = container.querySelector(".ProseMirror h2");
+      expect(nextHeading).toBeTruthy();
+      return nextHeading as HTMLHeadingElement;
+    });
+
+    fireEvent.contextMenu(heading, { clientX: 20, clientY: 20 });
+
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    const featured = within(menu).getByRole("menuitem", { name: "H2" });
+    expect(featured.dataset.featured).toBe("true");
+
+    await user.hover(featured);
+    const submenu = await screen.findByRole("menu", { name: "H2 子菜单" });
+    const selectedItem = within(submenu).getByRole("menuitem", { name: "H2" });
+    expect(selectedItem.dataset.selected).toBe("true");
+  });
+
+  it("keeps selection actions ahead of the standard text menu", async () => {
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        selectionActions={[
+          {
+            key: "custom-selection-action",
+            label: "追加到项目默认笔记",
+            icon: Copy,
+            onSelect: vi.fn(),
+          },
+        ]}
+      />,
+    );
+
+    const paragraphText = await waitFor(() => {
+      const textNode = container.querySelector(".ProseMirror p")?.firstChild;
+      expect(textNode?.nodeType).toBe(Node.TEXT_NODE);
+      return textNode as Text;
+    });
+
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextContent(paragraphText, 0, 5);
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+
+    const menu = await screen.findByRole("menu", { name: "选区操作" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? "")).toEqual([
+      "追加到项目默认笔记",
+      "正文",
+      "剪贴板",
+    ]);
   });
 
   it("restores the remembered text selection when the browser clears it before right click", async () => {

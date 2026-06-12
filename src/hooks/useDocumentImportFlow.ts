@@ -23,8 +23,9 @@ export function useDocumentImportFlow({
   const [pendingImportTagIds, setPendingImportTagIds] = useState<number[]>([]);
 
   const fileTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings"],
-    queryFn: projectMindApi.fileTagSettingsGet,
+    queryKey: ["file-tag-settings", projectId],
+    queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
+    enabled: projectId !== null,
   });
 
   const importFiles = useCallback(
@@ -61,7 +62,7 @@ export function useDocumentImportFlow({
 
         await Promise.all([
           refreshAll(queryClient, projectId),
-          queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
+          queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
         ]);
 
         onDocumentsImported?.(documents);
@@ -103,12 +104,8 @@ export function useDocumentImportFlow({
     [fileTagSettingsQuery, importFiles, pushToast],
   );
 
-  const togglePendingImportTag = useCallback((tagId: number) => {
-    setPendingImportTagIds((current) =>
-      current.includes(tagId)
-        ? current.filter((value) => value !== tagId)
-        : [...current, tagId],
-    );
+  const setPendingImportTagIdsDirectly = useCallback((tagIds: number[]) => {
+    setPendingImportTagIds(tagIds);
   }, []);
 
   const closeImportTagDialog = useCallback(() => {
@@ -130,8 +127,8 @@ export function useDocumentImportFlow({
 
   const manageImportTags = useCallback(() => {
     closeImportTagDialog();
-    openSettings("file-tags");
-  }, [closeImportTagDialog, openSettings]);
+    openSettings("file-tags", projectId);
+  }, [closeImportTagDialog, openSettings, projectId]);
 
   return {
     fileTags: fileTagSettingsQuery.data?.tags ?? [],
@@ -139,7 +136,8 @@ export function useDocumentImportFlow({
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
-    togglePendingImportTag,
+    togglePendingImportTag: setPendingImportTagIdsDirectly,
+    setPendingImportTagIds: setPendingImportTagIdsDirectly,
     closeImportTagDialog,
     confirmImportTagDialog,
     manageImportTags,

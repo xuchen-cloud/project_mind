@@ -1356,14 +1356,11 @@ fn render_editor_rewrite_context(context: &AiEditorRewriteContext) -> String {
     if let Some(project_id) = context.project_id {
         parts.push(format!("project_id={project_id}"));
     }
-    if let Some(activity_id) = context.activity_id {
-        parts.push(format!("activity_id={activity_id}"));
-    }
     if let Some(note_id) = context.note_id {
         parts.push(format!("note_id={note_id}"));
     }
-    if let Some(workspace_note_id) = context.workspace_note_id {
-        parts.push(format!("workspace_note_id={workspace_note_id}"));
+    if let Some(workspace_record_id) = context.workspace_record_id {
+        parts.push(format!("workspace_record_id={workspace_record_id}"));
     }
     if let Some(source_label) = context
         .source_label

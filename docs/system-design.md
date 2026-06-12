@@ -1,11 +1,11 @@
 # Project Mind System Design
 
 状态：当前正式基线  
-更新时间：2026-04-12
+更新时间：2026-06-08
 
 ## 1. 架构摘要
 
-Project Mind 当前是一个 `workspace-first` 的本地桌面应用，采用如下主技术栈：
+Project Mind 当前是一个 `workspace-first` 的本地桌面应用，采用以下主技术栈：
 
 - `Tauri 2`
 - `React 19`
@@ -15,15 +15,13 @@ Project Mind 当前是一个 `workspace-first` 的本地桌面应用，采用如
 - `Tailwind CSS v4`
 - `SQLite`
 
-系统当前由五个核心运行单元组成：
+当前系统可以概括为五个核心运行单元：
 
 1. `React Workspace Shell`
-2. `Tauri Command Host`
-3. `Workspace Runtime`
-4. `SQLite + Managed Filesystem`
-5. `AI Job Manager`
-
-高层关系如下：
+2. `Typed Service Layer`
+3. `Tauri Command Host`
+4. `Workspace Runtime + SQLite + Managed Filesystem`
+5. `AI Job / Artifact Layer`
 
 ```mermaid
 flowchart LR
@@ -31,16 +29,15 @@ flowchart LR
   B --> C["Tauri Commands"]
   C --> D["Workspace Runtime"]
   D --> E[("workspace.sqlite3")]
-  D --> F["Workspace + Project Files"]
-  D --> G["AI Job Manager"]
-  G --> H["AI Providers"]
+  D --> F["Workspace Filesystem"]
+  D --> G["AI Jobs / Providers"]
 ```
 
-## 2. Workspace 与存储模型
+## 2. Workspace 与存储边界
 
 ### 2.1 Workspace 文件结构
 
-当前每个 Workspace 都是一个真实目录，关键内部结构如下：
+每个 workspace 都是一个真实目录：
 
 ```text
 <workspace-root>/
@@ -56,348 +53,269 @@ flowchart LR
 
 约束：
 
-- `workspace.json` 保存 Workspace 元数据与密码校验信息
-- `workspace.sqlite3` 保存主业务数据
-- `cache/ai`、`logs`、`tmp` 只服务当前 Workspace
-- 项目目录直接落在 Workspace 根目录下，不单独挂到系统 app data
+- `workspace.json` 保存工作区元信息与安全模式相关数据
+- `workspace.sqlite3` 是主业务数据库
+- AI 缓存、日志、临时文件都跟随 workspace
+- 项目目录直接落在 workspace 根目录，而不是系统 app data
 
-### 2.2 项目目录与附件落位
+### 2.2 文件落位
 
-当前文件系统落位采用“项目目录可见、系统元数据隐藏”的方式：
+当前文件系统策略是“用户能看到项目文件，系统元数据尽量隐藏”：
 
-- 项目级导入文件默认进入 `<project-root>/`
-- Activity 级导入文件默认进入 `<project-root>/<activity-folder>/`
-- 记录内嵌图片进入 `<project-root>/.project-mind/embedded-note-assets/`
-- 文档历史版本进入文档对应的 `history_dir_path`
+- 项目导入文件默认进入对应项目目录
+- 记录中托管图片进入 `<project-root>/.project-mind/embedded-note-assets/`
+- 文件历史版本进入该文件对应的 `history_dir_path`
 
-含义：
+### 2.3 会话与 secrets
 
-- 用户可以直接在 Finder / Explorer 中看到项目文件和 Activity 目录
-- 记录内部生成的托管图片不会污染主目录结构
-- 复制整个 Workspace 可以把数据库、配置和文件一起迁移
-
-### 2.3 本地会话与安全
-
-安全与本地会话分成两层：
+本地状态分成两层：
 
 - `Workspace Metadata`
-  - 保存在 Workspace 内
-  - 当前固定安全模式是 `workspace_password_encrypted`
-  - 使用密码哈希校验打开后的解锁行为
+  - 跟随 workspace 存储
+  - 管理工作区本身的安全模式
 - `Local Session`
-  - 保存在系统 app data 下的 `workspace-session.json`
-  - 只保存最近使用的 Workspace 路径和最后打开记录
-  - 不保存业务数据库
+  - 保存在本机
+  - 用于记录最近工作区和部分 UI 持久偏好
 
 当前 AI 密钥策略：
 
-- 打开 Workspace 时不会自动解锁已保存密钥
-- 用户需要显式输入 Workspace 密码执行 `workspace_unlock`
-- `secret_crypto.rs` 使用 Workspace 密码派生密钥，对 API Key 做加密存储
+- 已保存的 API Key 默认锁定
+- 需要用户输入 workspace 密码执行解锁
+- 解锁状态通过 `workspace_status_get` 与 `ai_settings_get` 反映
 
-## 3. 前端分层
+## 3. 当前前端结构
 
-### 3.1 App Shell
+### 3.1 路由层
 
-入口在：
+当前主路由定义在 [src/main.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/main.tsx)：
 
-- `src/main.tsx`
-- `src/App.tsx`
+- `/workspace`
+- `/projects/:projectId`
+- `/projects/:projectId/summary`
+- `/projects/:projectId/records/:noteId`
+- `/settings/:section`
+
+说明：
+
+- 默认入口会重定向到 `/workspace`
+- `summary` 路由当前主要承担兼容跳转职责
+
+### 3.2 Workspace Shell
+
+入口位于 [src/App.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/App.tsx)。
 
 职责：
 
-- QueryClient 注入
-- Workspace Gate 与 Workspace Layout 切换
-- 顶部工作台、项目侧栏、状态栏、toast、设置、Ask 的全局挂载
-- 依据当前路由决定 `Project`、`Activity`、`Today` 三类主页面
+- Workspace Gate 与已进入工作区后的主 shell 切换
+- 顶栏、项目侧边栏、状态栏、Toast、Ask、设置对话框的全局挂载
+- 工作区切换后清理 scoped query 和 AI job 同步
+- 根据当前路由决定主页面内容
 
-当前关键查询包括：
+当前 shell 级关键查询包括：
 
 - `["workspace-status"]`
 - `["projects", "all"]`
 - `["ai-settings"]`
 - `["rich-text-style"]`
+- `["overview", projectId]`
+- `["workspace-overview"]`
 
-### 3.2 Screen / Feature Layer
+### 3.3 页面层
 
-当前主要包括：
+当前正式主页面包括：
 
-- `src/components/project/*`
-- `src/components/activity/*`
-- `src/components/document/*`
-- `src/components/todo/*`
-- `src/components/ai/*`
+- [src/components/workspace/WorkspacePage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/workspace/WorkspacePage.tsx)
+- [src/components/project/ProjectQuickNotePage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/project/ProjectQuickNotePage.tsx)
+- [src/components/project/ProjectNoteFocusPage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/project/ProjectNoteFocusPage.tsx)
+
+职责：
+
+- 组织页面级查询、变更与布局
+- 决定 overview / history 模式
+- 组合富文本、Todo、文件、AI 等模块
+
+### 3.4 组件与交互胶水层
+
+当前 feature 组件主要分布在：
+
 - `src/components/layout/*`
+- `src/components/workspace/*`
+- `src/components/project/*`
+- `src/components/todo/*`
+- `src/components/document/*`
+- `src/components/rich-editor/*`
+- `src/components/ai/*`
 - `src/components/settings/*`
-- `src/components/today/*`
+
+常见职责：
+
+- 页面内局部布局
+- 富文本编辑器扩展
+- 文件导入流程
+- 标签与联系人补全
+- Todo 进展交互
+
+### 3.5 状态层
+
+当前状态划分如下：
+
+- `React Query`
+  - 持久业务实体
+  - 远近端命令结果缓存
+- `Zustand`
+  - UI 临时态与持久偏好
+- `AI job sync`
+  - 运行中 AI 作业状态
+
+主要 store：
+
+- [src/state/ui-store.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/state/ui-store.ts)
+- `feedback-store`
+- `ai-job-store`
+
+`ui-store` 当前持久化的关键偏好包括：
+
+- 记录编辑宽度
+- 页面宽度模式
+- Todo Rail 宽度
+- 项目侧边栏宽度
+
+## 4. Service Layer
+
+### 4.1 desktopApi
+
+位于 [src/services/desktopApi.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/services/desktopApi.ts)。
 
 职责：
 
-- 页面内容编排
-- 局部工作流组合
-- Query / mutation / store / service 的组织
+- 封装 Tauri `invoke`
+- 打开文件与目录
+- 选择目录与文件
+- Reveal 到系统文件管理器
 
-当前典型 feature：
+### 4.2 projectMindApi
 
-- `ProjectOverviewPage`
-- `ActivityPage`
-- `ActivityNotesPanel`
-- `ManagedDocumentSection`
-- `TodoRail`
-- `AiArtifactCard`
-- `AskPanel`
-
-### 3.3 Hooks / Orchestration Layer
-
-当前 hooks 层承担“把命令、缓存、交互胶水收敛到页面外”的职责，典型文件包括：
-
-- `src/hooks/useActivityMutations.ts`
-- `src/hooks/useDocumentMutations.ts`
-- `src/hooks/useDocumentImportFlow.ts`
-- `src/hooks/useTodoMutations.ts`
-- `src/hooks/useWindowFileDrop.ts`
-- `src/hooks/useDismissOnOutside.ts`
-- `src/hooks/useExclusiveActivation.ts`
+位于 [src/services/projectMindApi.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/services/projectMindApi.ts)。
 
 职责：
 
-- 封装 mutation 成功后的缓存刷新
-- 封装文件导入、拖拽、标签选择等跨组件流程
-- 封装短驻留弹层、唯一激活对象等交互状态
+- 作为前端唯一 typed command wrapper
+- 统一把 TS 输入映射到 Tauri command
+- 收敛业务命令命名
 
-### 3.4 Service Layer
+当前主要命令分组：
 
-位于：
+- workspace 生命周期
+- projects / overview
+- notes / workspace notes
+- todos
+- documents / file tags
+- contacts
+- AI artifacts / Ask / jobs / settings
+- rich text style
 
-- `src/services/desktopApi.ts`
-- `src/services/projectMindApi.ts`
+## 5. 当前数据模型摘要
 
-职责：
+核心类型定义位于 [src/lib/types.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/lib/types.ts)。
 
-- `desktopApi`
-  - 封装 `invoke`
-  - 目录 / 文件选择
-  - 打开文件、打开目录、Reveal、读取 Data URL
-- `projectMindApi`
-  - 作为唯一 typed command wrapper
-  - 负责把前端输入映射到 Tauri command 名称
+当前正式主模型包括：
 
-### 3.5 UI / State Layer
+- `ProjectRecord`
+- `NoteRecord`
+- `WorkspaceNoteRecord`
+- `TodoRecord`
+- `TodoProgressRecord`
+- `DocumentRecord`
+- `FileTagRecord`
+- `ContactRecord`
+- `AiArtifactRecord`
+- `AiSettingsSnapshot`
 
-UI primitives 位于：
+当前 overview 聚合结果有两类：
 
-- `src/ui/components/*`
-- `src/ui/lib/cn.ts`
-- `src/styles/app.css`
+- `ProjectQuickNoteData`
+- `WorkspaceQuickNoteData`
 
-状态层位于：
+说明：
 
-- `src/state/ui-store.ts`
-- `src/state/feedback-store.ts`
-- `src/state/ai-job-store.ts`
+- 当前 `ProjectQuickNoteData` 仍保留一些历史兼容字段
+- 正式页面当前主要消费项目记录、项目文件与 Todo 聚合
 
-边界：
+## 6. 富文本与引用体系
 
-- 持久实体列表交给 React Query
-- UI 临时态交给 Zustand
-- AI 作业状态通过事件同步进 `ai-job-store`
+当前富文本由 `RichEditor` 承担，支持以下关键能力：
 
-## 4. 后端分层
+- Markdown / HTML 双表示
+- 内部引用 `[[...]]`
+- 联系人提及 `@...`
+- 标签触发与补全
+- 图片与附件相关扩展
+- 选区级 AI 改写动作
 
-### 4.1 Tauri Command Host
+当前使用范围：
 
-入口位于：
+- Workspace QuickNote
+- Workspace Record
+- Project 默认笔记
+- Project Record
 
-- `src-tauri/src/lib.rs`
+## 7. 文件管理链路
 
-职责：
+文件相关能力主要由以下部分组成：
 
-- 注册全部 `#[tauri::command]`
-- 初始化 `AppState`
-- 自动尝试恢复上次打开的 Workspace
-- 暴露桌面能力、Workspace 生命周期、业务 CRUD、AI 能力、搜索能力
+- `useDocumentImportFlow`
+- `useDocumentMutations`
+- `ProjectSidebar`
+- `DocumentImportTagDialog`
 
-当前命令大致分为六组：
+典型流程：
 
-- Desktop：打开文件 / 打开目录 / Reveal / Data URL
-- Workspace：状态、创建、打开、解锁、锁定
-- Domain CRUD：Project / Activity / Note / Conclusion / Todo / Document
-- Settings：活动标签、文件标签、记录类型、富文本样式、AI 设置
-- AI Runtime：生成建议、刷新 Artifact、Ask、测试 Profile、绑定能力
-- Infra：AI Job enqueue / get / list active、workspace search
+1. 选择或拖拽文件
+2. 打开导入前标签对话框
+3. 调用 `document_import`
+4. 刷新项目 overview 与标签设置
+5. 在侧边栏文件标签页中继续操作
 
-### 4.2 Workspace Runtime
+## 8. AI 架构
 
-`AppState` 当前只维护一个活动中的 `WorkspaceRuntime`。
+### 8.1 当前 AI 能力
 
-`WorkspaceRuntime` 内部包含：
+当前正式暴露的 AI 能力包括：
 
-- `summary`
-- `metadata`
-- `paths`
-- `secret_state`
-- `db: Mutex<Database>`
-- `ai_jobs: AiJobManager`
+- `Ask`
+- `project_brief`
+- `daily_brief`
+- `editor_rewrite`
 
-设计含义：
+### 8.2 Artifact 模式
 
-- 当前应用同一时刻只有一个活动 Workspace
-- 数据库连接和 AI 作业都与当前 Workspace 绑定
-- 锁定 / 解锁 AI secrets 会重建数据库实例，使后端重新获得或失去解密能力
+AI artifact 当前采用“缓存型派生结果”模式：
 
-### 4.3 Database Layer
+- 按 `kind + scope` 定位
+- 带 `fresh / stale / error` 状态
+- 带 citations
+- 通过专门命令读取与刷新
 
-位于：
+### 8.3 Job 模式
 
-- `src-tauri/src/db.rs`
+Ask 与 editor rewrite 通过 job 机制执行，特点：
 
-当前 `Database` 仍是“repository + domain service + file service”混合体，主要负责：
+- 前端 enqueue
+- 轮询或同步 job target
+- 读取 job result
+- 同步到 UI
 
-- schema 初始化与迁移
-- Project / Activity / Note / Conclusion / Todo / Document CRUD
-- 文件复制、版本归档、路径重命名、回收站删除
-- 文件标签与记录类型字典
-- AI 配置、绑定、开关、并发设置
-- AI Suggestion / Artifact / Ask 的数据准备与落库
-- Workspace search
-- demo workspace seed
+## 9. 当前系统边界
 
-当前核心表包括：
+### 9.1 已成立边界
 
-- `projects`
-- `activities`
-- `notes`
-- `conclusions`
-- `todos`
-- `todo_progresses`
-- `documents`
-- `document_versions`
-- `file_tag_options`
-- `record_type_options`
-- `document_tag_links`
-- `ai_suggestions`
-- `ai_provider_profiles`
-- `ai_capability_bindings`
-- `ai_artifacts`
-- `ai_artifact_citations`
-- `app_settings`
+- 工作区是唯一持久上下文边界
+- 前端只通过 typed service 访问后端
+- SQLite 是当前唯一业务真相源
+- 文件与数据库共同构成可迁移工作区
 
-### 4.4 AI Job Manager
+### 9.2 暂不保证的边界
 
-位于：
-
-- `src-tauri/src/ai_jobs.rs`
-
-职责：
-
-- 维护作业状态：`queued / running / succeeded / failed`
-- 控制并发 `1..4`
-- 为 Artifact Refresh、Ask、Note Suggestions、Profile Test 提供统一异步执行模型
-- 通过 `ai-job-updated` 事件向前端推送状态
-
-前端配套位于：
-
-- `src/lib/aiJobs.ts`
-- `src/state/ai-job-store.ts`
-
-当前特征：
-
-- 作业快照存于内存，不跨应用重启持久化
-- Artifact refresh 会按 `targetKey` 做去重，避免同一目标重复排队
-
-## 5. 核心数据流
-
-### 5.1 打开 Workspace
-
-1. 前端调用 `workspace_status_get` 判断是否已有活动 Workspace。
-2. 用户选择打开或新建 Workspace。
-3. `workspace.rs` 负责读取 / 创建 `workspace.json` 和目录结构。
-4. `AppState` 创建新的 `WorkspaceRuntime`。
-5. React Query 刷新 Workspace 级查询，前端进入正常页面壳。
-
-### 5.2 常规 CRUD 流
-
-1. Feature 组件发起 query 或 mutation。
-2. 调用进入 `projectMindApi`。
-3. `projectMindApi` 通过 `desktopApi.command` 调用 Tauri command。
-4. `lib.rs` 把请求路由给 `Database`。
-5. `Database` 完成 SQLite 写入、文件系统操作和必要的级联触达。
-6. 前端通过 React Query 失效或直接 patch cache 刷新视图。
-
-### 5.3 文件导入与记录资源流
-
-1. 页面或原生窗口拖拽进入 `useDocumentImportFlow`。
-2. 如果已有文件标签字典，先弹出 `DocumentImportTagDialog`。
-3. 前端调用 `document_import` 或剪贴板图片导入命令。
-4. `Database` 决定目标目录、复制文件、写入 `documents` 和 `document_versions`。
-5. 前端刷新项目 / Activity / 文件标签缓存。
-
-### 5.4 AI 作业流
-
-1. 前端通过 `enqueueAndWait` 提交 `AiJobEnqueueInput`。
-2. `AiJobManager` 创建作业快照并进入队列。
-3. 后台线程重新打开 `Database`，执行对应 AI 任务。
-4. 作业状态通过 `ai-job-updated` 推送到前端。
-5. `ai-job-store` 更新后，页面读取最新作业结果并回填 React Query cache。
-
-## 6. 边界约束
-
-### 6.1 React Query 与 Zustand 的分工
-
-- React Query 负责 Workspace 持久实体和查询缓存
-- Zustand 负责：
-  - modal / rail / settings 等 UI 态
-  - feedback / toast
-  - AI 作业快照
-
-禁止把实体列表长期复制到 Zustand 作为第二事实源。
-
-### 6.2 Tauri 依赖边界
-
-理想边界仍然是“业务 feature 不直接接触 Tauri”，但当前代码已有两个基础设施例外：
-
-- `src/lib/aiJobs.ts`
-- `src/hooks/useWindowFileDrop.ts`
-
-因此当前真实约束应理解为：
-
-- 页面业务组件不直接调用 Tauri API
-- 原生事件监听只允许收敛在基础设施 helper / service 中
-
-### 6.3 样式边界
-
-- `src/styles/app.css` 是唯一全局 token 入口
-- 页面样式通过 Tailwind utility 组合
-- UI primitives 是正式视觉 API
-- 业务页面不应自建第二套按钮 / 卡片体系
-
-## 7. 质量门槛
-
-当前常用验证命令为：
-
-- `npm run build`
-- `npm run test:unit`
-- `npm run check:ui-standards`
-- `cargo check --manifest-path src-tauri/Cargo.toml`
-
-其中 `check:ui-standards` 当前目标是拦截：
-
-- 旧 token 命名回流
-- 非 Lucide 图标库
-- 硬编码颜色
-- 设计系统旧命名残留
-
-注意：
-
-- 当前分支上的 Tauri 调用边界与 `check-ui-standards` 脚本仍有漂移，脚本规则需要后续继续和真实架构对齐
-
-## 8. 当前技术债
-
-当前最明显的结构性技术债包括：
-
-- `src-tauri/src/db.rs` 体量过大，承担了过多混合职责
-- 前端缓存失效策略仍偏手工，页面内存在较多 `invalidateQueries`
-- Tauri 边界虽然大体收敛，但事件和窗口能力仍有少量 infra 级例外
-- AI 作业当前只保存内存态，没有独立的持久化作业历史
-
-后续若继续演进，应优先在现有边界基础上拆分，而不是重建另一套运行时模型。
+- 旧 Activity 代码与新项目Workspace流之间尚未完全完成架构清理
+- 并非所有历史类型都已经从主数据模型中剥离
+- 跨平台桌面兼容性尚未做完备验收

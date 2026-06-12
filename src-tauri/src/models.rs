@@ -11,8 +11,11 @@ pub struct ProjectRecord {
     pub kind: String,
     pub status: String,
     pub root_path: String,
+    #[serde(rename = "quickNote")]
     pub summary: String,
+    #[serde(rename = "quickNoteMarkdown")]
     pub summary_markdown: String,
+    #[serde(rename = "quickNoteHtml")]
     pub summary_html: String,
     pub is_archived: bool,
     pub created_at: String,
@@ -27,8 +30,11 @@ pub struct ProjectListItem {
     pub kind: String,
     pub status: String,
     pub root_path: String,
+    #[serde(rename = "quickNote")]
     pub summary: String,
+    #[serde(rename = "quickNoteMarkdown")]
     pub summary_markdown: String,
+    #[serde(rename = "quickNoteHtml")]
     pub summary_html: String,
     pub is_archived: bool,
     pub created_at: String,
@@ -44,7 +50,6 @@ pub struct NoteRecord {
     pub id: i64,
     pub project_id: i64,
     pub activity_id: Option<i64>,
-    pub note_type: String,
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
@@ -100,11 +105,12 @@ pub struct TodoRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceNoteRecord {
+pub struct WorkspaceRecord {
     pub id: i64,
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
+    pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -165,14 +171,35 @@ pub struct FileTagRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RecordTypeRecord {
+pub struct FileTagSettingsSnapshot {
+    pub tags: Vec<FileTagRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTagSettingsGetInput {
+    pub project_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRecordGroup {
+    pub group_key: String,
+    pub group_title: String,
+    pub notes: Vec<NoteRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactRecord {
     pub id: i64,
-    pub key: String,
-    pub label: String,
-    pub color_key: String,
-    pub template_html: String,
-    pub is_default: bool,
-    pub usage_count: i64,
+    pub name: String,
+    pub pinyin_full: String,
+    pub pinyin_abbr: String,
+    pub email: String,
+    pub employee_id: String,
+    pub role: String,
+    pub department: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -204,41 +231,6 @@ pub struct ActivityStatusOption {
 pub struct ActivitySettingsSnapshot {
     pub activity_attribute_options: Vec<ActivityAttributeOption>,
     pub activity_status_options: Vec<ActivityStatusOption>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileTagSettingsSnapshot {
-    pub tags: Vec<FileTagRecord>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectRecordGroup {
-    pub group_key: String,
-    pub group_title: String,
-    pub notes: Vec<NoteRecord>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordTypeSettingsSnapshot {
-    pub record_types: Vec<RecordTypeRecord>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContactRecord {
-    pub id: i64,
-    pub name: String,
-    pub pinyin_full: String,
-    pub pinyin_abbr: String,
-    pub email: String,
-    pub employee_id: String,
-    pub role: String,
-    pub department: String,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -448,7 +440,7 @@ pub struct AiEditorRewriteContext {
     pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub note_id: Option<i64>,
-    pub workspace_note_id: Option<i64>,
+    pub workspace_record_id: Option<i64>,
     pub source_label: Option<String>,
 }
 
@@ -630,13 +622,22 @@ pub struct ConclusionGroup {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectOverviewData {
+pub struct ProjectPageData {
     pub project: ProjectRecord,
     pub activity_feed: Vec<ActivityDigest>,
     pub project_documents: Vec<DocumentRecord>,
     pub conclusion_groups: Vec<ConclusionGroup>,
     pub record_groups: Vec<ProjectRecordGroup>,
     pub records: Vec<NoteRecord>,
+    pub unfinished_todos: Vec<TodoRecord>,
+    pub finished_todos: Vec<TodoRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePageData {
+    pub quick_note: Option<WorkspaceRecord>,
+    pub records: Vec<WorkspaceRecord>,
     pub unfinished_todos: Vec<TodoRecord>,
     pub finished_todos: Vec<TodoRecord>,
 }
@@ -689,6 +690,7 @@ pub struct AcceptedSuggestionResult {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCreateInput {
     pub name: String,
+    #[serde(rename = "quickNote", alias = "summary")]
     pub summary: Option<String>,
     pub status: Option<String>,
 }
@@ -714,11 +716,14 @@ pub struct WorkspaceUnlockInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectUpdateSummaryInput {
+pub struct ProjectUpdateInput {
     pub project_id: i64,
     pub name: Option<String>,
+    #[serde(rename = "quickNote", alias = "summary")]
     pub summary: String,
+    #[serde(rename = "quickNoteMarkdown", alias = "summaryMarkdown")]
     pub summary_markdown: Option<String>,
+    #[serde(rename = "quickNoteHtml", alias = "summaryHtml")]
     pub summary_html: Option<String>,
     pub status: Option<String>,
 }
@@ -829,23 +834,8 @@ pub struct FileTagOptionUpsertInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTagOptionDeleteInput {
+    pub project_id: Option<i64>,
     pub tag_id: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordTypeOptionUpsertInput {
-    pub id: Option<i64>,
-    pub label: String,
-    pub color_key: String,
-    pub template_html: String,
-    pub is_default: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordTypeOptionDeleteInput {
-    pub type_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -876,11 +866,10 @@ pub struct ContactDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NoteUpsertInput {
+pub struct ProjectRecordUpsertInput {
     pub project_id: i64,
     pub activity_id: Option<i64>,
     pub note_id: Option<i64>,
-    pub note_type: String,
     pub title: Option<String>,
     pub markdown: String,
     pub html: String,
@@ -890,29 +879,33 @@ pub struct NoteUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NoteDeleteInput {
+pub struct ProjectRecordDeleteInput {
     pub note_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceNoteUpsertInput {
+pub struct WorkspaceRecordUpsertInput {
     pub note_id: Option<i64>,
     pub title: Option<String>,
     pub markdown: String,
     pub html: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TodayQuickNoteUpsertInput {
+pub struct WorkspaceQuickNoteUpsertInput {
     pub markdown: String,
     pub html: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceNoteDeleteInput {
+pub struct WorkspaceRecordDeleteInput {
     pub note_id: i64,
 }
 

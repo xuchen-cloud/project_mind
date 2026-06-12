@@ -1,23 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  buildInternalReferenceTarget,
-  buildInternalReferenceToken,
-  findInternalReferenceTextTrigger,
-  type InternalReferenceTarget,
-} from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
-import type {
-  InternalReferenceContext,
-  InternalReferenceSearchResult,
-} from "../../lib/types";
+import type { InternalReferenceTarget } from "../../lib/internalReferences";
+import type { ContactRecord, InternalReferenceContext } from "../../lib/types";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import {
   InternalReferenceInlineText,
   InternalReferencePicker,
   useInternalReferenceSearch,
 } from "../internal-reference";
+import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import { TodoReferenceEditor } from "./TodoReferenceEditor";
 import { cn } from "../../ui/lib/cn";
+import {
+  focusTodoEditorInput,
+  getTodoEditorPickerPosition,
+  handleTodoEditorMentionKeyDown,
+  handleTodoEditorReferenceKeyDown,
+  handleTodoEditorTagKeyDown,
+  insertInternalReferenceToken,
+  insertMentionToken,
+  insertTagToken,
+  resetTodoEditorControllerState,
+  useSyncTodoEditorPickerState,
+  useTodoEditorController,
+} from "./todo-editor-controller";
 
 export function TodoInlineContentEditor({
   value,
@@ -26,6 +34,7 @@ export function TodoInlineContentEditor({
   internalReferenceContext,
   onOpenInternalReference,
   onOpenContactMention,
+  onEditingChange,
 }: {
   value: string;
   editable: boolean;
@@ -33,41 +42,68 @@ export function TodoInlineContentEditor({
   internalReferenceContext?: InternalReferenceContext | null;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [referenceActiveIndex, setReferenceActiveIndex] = useState(0);
-  const [dismissedTriggerKey, setDismissedTriggerKey] = useState<string | null>(null);
+  const contactMentionOptions = useContactMentionOptions();
   const saveInFlightRef = useRef(false);
   const skipBlurSaveRef = useRef(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const referenceTrigger = editing
-    ? findInternalReferenceTextTrigger(draft, selectionStart)
-    : null;
-  const referenceTriggerKey = referenceTrigger
-    ? `${referenceTrigger.start}:${referenceTrigger.end}:${referenceTrigger.query}`
-    : null;
-  const referencePickerOpen =
-    Boolean(referenceTrigger) &&
-    Boolean(internalReferenceContext) &&
-    dismissedTriggerKey !== referenceTriggerKey;
+  const controller = useTodoEditorController({
+    draft,
+    editing,
+    internalReferenceContext,
+    canCreateMentions: Boolean(contactMentionOptions.onCreateContact),
+  });
   const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
-    open: referencePickerOpen,
-    query: referenceTrigger?.query ?? "",
+    open: controller.referencePickerOpen,
+    query: controller.referenceTrigger?.query ?? "",
     context: internalReferenceContext,
     limit: 8,
+  });
+  const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
+    open: controller.mentionPickerOpen,
+    query: controller.mentionTrigger?.query ?? "",
+    limit: 8,
+  });
+  const mentionOptionCount =
+    mentionResults.length + (controller.mentionCreatable ? 1 : 0);
+  const { results: tagResults, loading: tagLoading } = useTagMentionSearch({
+    open: controller.tagPickerOpen,
+    query: controller.tagTrigger?.query ?? "",
+    projectId: internalReferenceContext?.projectId,
+    limit: 8,
+  });
+
+  useSyncTodoEditorPickerState({
+    referencePickerOpen: controller.referencePickerOpen,
+    referenceQuery: controller.referenceTrigger?.query,
+    referenceResultCount: referenceResults.length,
+    mentionPickerOpen: controller.mentionPickerOpen,
+    mentionQuery: controller.mentionTrigger?.query,
+    mentionOptionCount,
+    tagPickerOpen: controller.tagPickerOpen,
+    tagQuery: controller.tagTrigger?.query,
+    tagResultCount: tagResults.length,
+    setControllerState: controller.setControllerState,
   });
 
   useEffect(() => {
     if (!editing) {
       setDraft(value);
-      setSelectionStart(null);
-      setDismissedTriggerKey(null);
+      controller.setControllerState((current) => ({
+        ...current,
+        ...resetTodoEditorControllerState(),
+      }));
     }
-  }, [editing, value]);
+  }, [controller, editing, value]);
+
+  useEffect(() => {
+    onEditingChange?.(editing);
+  }, [editing, onEditingChange]);
 
   useEffect(() => {
     if (!savedPulse) {
@@ -76,29 +112,6 @@ export function TodoInlineContentEditor({
     const timer = window.setTimeout(() => setSavedPulse(false), 160);
     return () => window.clearTimeout(timer);
   }, [savedPulse]);
-
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      setReferenceActiveIndex(0);
-      return;
-    }
-
-    setReferenceActiveIndex((current) => {
-      if (referenceResults.length === 0) {
-        return 0;
-      }
-
-      return Math.min(current, referenceResults.length - 1);
-    });
-  }, [referencePickerOpen, referenceResults.length]);
-
-  useEffect(() => {
-    if (!referencePickerOpen) {
-      return;
-    }
-
-    setReferenceActiveIndex(0);
-  }, [referenceTrigger?.query, referencePickerOpen]);
 
   async function handleSave() {
     if (saveInFlightRef.current) {
@@ -126,23 +139,78 @@ export function TodoInlineContentEditor({
     }
   }
 
-  function handleReferenceInsert(reference: InternalReferenceSearchResult) {
-    if (!referenceTrigger) {
+  function handleReferenceSelect(reference: Parameters<typeof insertInternalReferenceToken>[2]) {
+    if (!controller.referenceTrigger) {
       return;
     }
 
-    const target = buildInternalReferenceTarget(reference);
-    const token = `${buildInternalReferenceToken(target)} `;
-    const nextDraft =
-      draft.slice(0, referenceTrigger.start) + token + draft.slice(referenceTrigger.end);
-    const nextSelection = referenceTrigger.start + token.length;
+    const { nextValue, nextSelection } = insertInternalReferenceToken(
+      draft,
+      controller.referenceTrigger,
+      reference,
+    );
+    setDraft(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedTriggerKey: null,
+    }));
+    focusTodoEditorInput(editorRef.current);
+  }
 
-    setDraft(nextDraft);
-    setSelectionStart(nextSelection);
-    setDismissedTriggerKey(null);
+  function handleTagSelect(tag: Parameters<typeof insertTagToken>[2]) {
+    if (!controller.tagTrigger) {
+      return;
+    }
 
-    window.requestAnimationFrame(() => {
-      editorRef.current?.focus();
+    const { nextValue, nextSelection } = insertTagToken(draft, controller.tagTrigger, tag);
+    setDraft(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedTagKey: controller.tagTriggerKey,
+    }));
+    focusTodoEditorInput(editorRef.current);
+  }
+
+  function handleMentionSelect(contact: ContactRecord) {
+    if (!controller.mentionTrigger) {
+      return;
+    }
+
+    const { nextValue, nextSelection } = insertMentionToken(
+      draft,
+      controller.mentionTrigger,
+      contact,
+    );
+    setDraft(nextValue);
+    controller.setControllerState((current) => ({
+      ...current,
+      selectionStart: nextSelection,
+      dismissedMentionKey: controller.mentionTriggerKey,
+    }));
+    focusTodoEditorInput(editorRef.current);
+  }
+
+  function handleMentionCreate(name: string) {
+    if (!controller.mentionTrigger || !contactMentionOptions.onCreateContact || !name.trim()) {
+      return;
+    }
+
+    const trigger = controller.mentionTrigger;
+    void Promise.resolve(contactMentionOptions.onCreateContact(name.trim())).then((target) => {
+      if (!target) {
+        return;
+      }
+
+      const { nextValue, nextSelection } = insertMentionToken(draft, trigger, target);
+      setDraft(nextValue);
+      controller.setControllerState((current) => ({
+        ...current,
+        selectionStart: nextSelection,
+        dismissedMentionKey: controller.mentionTriggerKey,
+      }));
+      focusTodoEditorInput(editorRef.current);
     });
   }
 
@@ -152,15 +220,21 @@ export function TodoInlineContentEditor({
         <TodoReferenceEditor
           editorRef={editorRef}
           value={draft}
-          selectionOffset={selectionStart}
+          selectionOffset={controller.controllerState.selectionStart}
+          containerClassName="todo-inline-editor"
           autoFocus
           disabled={saving}
           textClassName="text-body leading-6 font-medium"
           onChange={(nextValue, nextSelection) => {
             setDraft(nextValue);
-            setSelectionStart(nextSelection);
+            controller.setControllerState((current) => ({
+              ...current,
+              selectionStart: nextSelection,
+            }));
           }}
-          onSelectionChange={setSelectionStart}
+          onSelectionChange={(selectionStart) =>
+            controller.setControllerState((current) => ({ ...current, selectionStart }))
+          }
           onBlur={() => {
             if (skipBlurSaveRef.current) {
               skipBlurSaveRef.current = false;
@@ -169,42 +243,58 @@ export function TodoInlineContentEditor({
             void handleSave();
           }}
           onKeyDown={(event) => {
-            if (referencePickerOpen) {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setReferenceActiveIndex((current) => {
-                  if (referenceResults.length === 0) {
-                    return 0;
-                  }
+            if (
+              handleTodoEditorMentionKeyDown({
+                event,
+                open: controller.mentionPickerOpen,
+                optionCount: mentionOptionCount,
+                creatable: controller.mentionCreatable,
+                createIndex: mentionResults.length,
+                activeIndex: controller.controllerState.mentionActiveIndex,
+                triggerKey: controller.mentionTriggerKey,
+                setControllerState: controller.setControllerState,
+                onSelect: () =>
+                  handleMentionSelect(
+                    mentionResults[controller.controllerState.mentionActiveIndex] ??
+                      mentionResults[0],
+                  ),
+                onCreate: () => handleMentionCreate(controller.mentionCreateName),
+              })
+            ) {
+              return;
+            }
 
-                  return (current + 1) % referenceResults.length;
-                });
-                return;
-              }
+            if (
+              handleTodoEditorReferenceKeyDown({
+                event,
+                open: controller.referencePickerOpen,
+                resultCount: referenceResults.length,
+                triggerKey: controller.referenceTriggerKey,
+                setControllerState: controller.setControllerState,
+                onSelect: () =>
+                  handleReferenceSelect(
+                    referenceResults[controller.controllerState.referenceActiveIndex] ??
+                      referenceResults[0],
+                  ),
+              })
+            ) {
+              return;
+            }
 
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setReferenceActiveIndex((current) => {
-                  if (referenceResults.length === 0) {
-                    return 0;
-                  }
-
-                  return current === 0 ? referenceResults.length - 1 : current - 1;
-                });
-                return;
-              }
-
-              if (event.key === "Enter" && referenceResults.length > 0) {
-                event.preventDefault();
-                handleReferenceInsert(referenceResults[referenceActiveIndex] ?? referenceResults[0]);
-                return;
-              }
-
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setDismissedTriggerKey(referenceTriggerKey);
-                return;
-              }
+            if (
+              handleTodoEditorTagKeyDown({
+                event,
+                open: controller.tagPickerOpen,
+                resultCount: tagResults.length,
+                triggerKey: controller.tagTriggerKey,
+                setControllerState: controller.setControllerState,
+                onSelect: () =>
+                  handleTagSelect(
+                    tagResults[controller.controllerState.tagActiveIndex] ?? tagResults[0],
+                  ),
+              })
+            ) {
+              return;
             }
 
             if (event.key === "Enter") {
@@ -221,13 +311,46 @@ export function TodoInlineContentEditor({
           }}
         />
         <InternalReferencePicker
-          open={referencePickerOpen}
+          open={controller.referencePickerOpen}
           loading={referenceLoading}
           results={referenceResults}
-          activeIndex={referenceActiveIndex}
+          activeIndex={controller.controllerState.referenceActiveIndex}
           className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
-          onHoverIndex={setReferenceActiveIndex}
-          onSelect={handleReferenceInsert}
+          onHoverIndex={(referenceActiveIndex) =>
+            controller.setControllerState((current) => ({ ...current, referenceActiveIndex }))
+          }
+          onSelect={handleReferenceSelect}
+        />
+        <ContactMentionPicker
+          open={controller.mentionPickerOpen}
+          loading={mentionLoading}
+          results={mentionResults}
+          activeIndex={controller.controllerState.mentionActiveIndex}
+          query={controller.mentionTrigger?.query ?? ""}
+          canCreate={controller.mentionCreatable}
+          portal
+          className="fixed z-[120]"
+          style={getTodoEditorPickerPosition(editorRef.current)}
+          onHoverIndex={(mentionActiveIndex) =>
+            controller.setControllerState((current) => ({ ...current, mentionActiveIndex }))
+          }
+          onSelect={handleMentionSelect}
+          onCreate={handleMentionCreate}
+        />
+        <TagMentionPicker
+          open={controller.tagPickerOpen}
+          loading={tagLoading}
+          results={tagResults}
+          activeIndex={controller.controllerState.tagActiveIndex}
+          query={controller.tagTrigger?.query ?? ""}
+          canCreate={false}
+          portal
+          className="fixed z-[120]"
+          style={getTodoEditorPickerPosition(editorRef.current)}
+          onHoverIndex={(tagActiveIndex) =>
+            controller.setControllerState((current) => ({ ...current, tagActiveIndex }))
+          }
+          onSelect={handleTagSelect}
         />
       </div>
     );
@@ -237,11 +360,10 @@ export function TodoInlineContentEditor({
     <div
       role={editable ? "button" : undefined}
       tabIndex={editable ? 0 : undefined}
+      aria-label={editable ? value : undefined}
       className={cn(
-        "w-full rounded-[var(--radius-6)] bg-transparent px-0 py-0 text-left text-body font-medium leading-6 text-text transition-[background-color,color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] whitespace-pre-wrap break-words",
-        editable &&
-          "hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-[color-mix(in_srgb,var(--color-text)_92%,var(--color-accent))]",
-        savedPulse && "shadow-[0_0_0_4px_var(--color-accent-ring)]",
+        "todo-inline-content w-full bg-transparent text-body font-medium leading-6 text-text whitespace-pre-wrap break-words",
+        savedPulse && "todo-inline-content--saved",
       )}
       onClick={() => {
         if (editable) {
@@ -263,7 +385,7 @@ export function TodoInlineContentEditor({
         value={value}
         variant="todo-inline"
         onOpenInternalReference={onOpenInternalReference}
-        onOpenContactMention={onOpenContactMention}
+        onOpenContactMention={onOpenContactMention ?? contactMentionOptions.onOpenContact}
       />
     </div>
   );

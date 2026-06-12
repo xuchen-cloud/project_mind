@@ -13,6 +13,7 @@ import { ContactMention } from "./extensions/ContactMention";
 import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
 import { ManagedTable } from "./extensions/ManagedTable";
+import { TagMention } from "./extensions/TagMention";
 
 export function buildRichEditorExtensions(placeholder: string) {
   return [
@@ -51,6 +52,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     }),
     InternalReference,
     ContactMention,
+    TagMention,
     Attachment,
   ];
 }

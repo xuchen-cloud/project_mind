@@ -1,4 +1,4 @@
-import { Contact, FileText, Files, Settings2, Sparkles } from "lucide-react";
+import { Contact, Files, Settings2, Sparkles, StretchHorizontal } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -9,12 +9,13 @@ import { cn } from "../../ui/lib/cn";
 import { AiSettingsPanel } from "./AiSettingsPanel";
 import { ContactSettingsPanel } from "./ContactSettingsPanel";
 import { FileTagSettingsPanel } from "./FileTagSettingsPanel";
-import { RecordTypeSettingsPanel } from "./RecordTypeSettingsPanel";
+import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
 import { RichTextStylePanel } from "./RichTextStylePanel";
 
 interface SettingsDialogProps {
   open: boolean;
   activeSection: SettingsSection;
+  projectId: number | null;
   onSectionChange: (section: SettingsSection) => void;
   onUnlockAiSecrets: () => Promise<boolean>;
   onClose: () => void;
@@ -26,14 +27,14 @@ const SETTINGS_SECTIONS: Array<{
   icon: typeof Settings2;
 }> = [
   {
+    value: "page-width",
+    label: "页面宽度",
+    icon: StretchHorizontal,
+  },
+  {
     value: "file-tags",
     label: "项目标签",
     icon: Files,
-  },
-  {
-    value: "record-types",
-    label: "记录类型",
-    icon: FileText,
   },
   {
     value: "contacts",
@@ -55,6 +56,7 @@ const SETTINGS_SECTIONS: Array<{
 export function SettingsDialog({
   open,
   activeSection,
+  projectId,
   onSectionChange,
   onUnlockAiSecrets,
   onClose,
@@ -64,7 +66,13 @@ export function SettingsDialog({
       open={open}
       onClose={onClose}
       title="设置"
-      description="当前更改只作用于本地 workspace。"
+      description={
+        activeSection === "file-tags"
+          ? projectId === null
+            ? "标签字典需要在具体项目里管理。"
+            : "当前更改只作用于这个项目。"
+          : "当前更改只作用于本地 workspace。"
+      }
       widthClassName="max-w-6xl"
       bodyClassName="px-0 py-0"
     >
@@ -98,11 +106,11 @@ export function SettingsDialog({
         </aside>
 
         <div className="min-w-0 p-3.5 sm:p-4">
-          <section hidden={activeSection !== "file-tags"} aria-label="项目标签">
-            <FileTagSettingsPanel open={open} />
+          <section hidden={activeSection !== "page-width"} aria-label="页面宽度">
+            <PageWidthSettingsPanel />
           </section>
-          <section hidden={activeSection !== "record-types"} aria-label="记录类型">
-            <RecordTypeSettingsPanel open={open} />
+          <section hidden={activeSection !== "file-tags"} aria-label="项目标签">
+            <FileTagSettingsPanel open={open} projectId={projectId} />
           </section>
           <section hidden={activeSection !== "contacts"} aria-label="联系人">
             <ContactSettingsPanel open={open} />
@@ -125,7 +133,7 @@ export function SettingsRouteBridge() {
   const openSettings = useUiStore((state) => state.openSettings);
 
   useEffect(() => {
-    openSettings(normalizeSettingsSection(params.section));
+    openSettings(normalizeSettingsSection(params.section), null);
     navigate("/projects", { replace: true });
   }, [navigate, openSettings, params.section]);
 
@@ -133,14 +141,14 @@ export function SettingsRouteBridge() {
 }
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
+  if (section === "page-width") {
+    return "page-width";
+  }
   if (section === "rich-text") {
     return "rich-text";
   }
   if (section === "file-tags") {
     return "file-tags";
-  }
-  if (section === "record-types") {
-    return "record-types";
   }
   if (section === "contacts") {
     return "contacts";
@@ -148,5 +156,5 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   if (section === "ai") {
     return "ai";
   }
-  return "file-tags";
+  return "page-width";
 }

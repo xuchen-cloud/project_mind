@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { UserPlus, UserRound } from "lucide-react";
 
 import type { ContactRecord } from "../../lib/types";
@@ -64,6 +65,7 @@ export function ContactMentionPicker({
   canCreate,
   className,
   style,
+  portal = false,
   onHoverIndex,
   onSelect,
   onCreate,
@@ -76,6 +78,7 @@ export function ContactMentionPicker({
   canCreate: boolean;
   className?: string;
   style?: CSSProperties;
+  portal?: boolean;
   onHoverIndex?: (index: number) => void;
   onSelect: (contact: ContactRecord) => void;
   onCreate?: (name: string) => void;
@@ -89,7 +92,7 @@ export function ContactMentionPicker({
   const createIndex = results.length;
   const showCreateRow = canCreate && Boolean(onCreate);
 
-  return (
+  const content = (
     <PopoverPanel
       className={cn(
         "contact-mention-picker w-[min(26rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-1",
@@ -180,6 +183,12 @@ export function ContactMentionPicker({
       </div>
     </PopoverPanel>
   );
+
+  if (portal && typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }
 
 function buildContactSubtitle(contact: ContactRecord) {

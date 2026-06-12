@@ -72,12 +72,14 @@ import {
   readInternalReferenceElement,
   setInternalReferenceElementBroken,
 } from "../../lib/internalReferences";
+import { findHashTagTextTrigger } from "../../lib/tags";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
 import { renderMarkdownToHtml, richTextHtmlToPlainText } from "../../lib/richTextContent";
 import type {
   AiEditorRewriteContext,
   AiSettingsSnapshot,
   ContactRecord,
+  FileTagRecord,
   InternalReferenceSearchResult,
 } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
@@ -97,6 +99,7 @@ import {
   InternalReferencePicker,
   useInternalReferenceSearch,
 } from "../internal-reference";
+import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import {
   buildEditorRewritePreviewHtml,
   type EditorRewriteBlockRange,
@@ -113,9 +116,11 @@ import { normalizeRichEditorValue } from "./normalize";
 import type {
   RichEditorAsset,
   RichEditorAssetHandlers,
+  RichEditorAutoFocusPoint,
   RichEditorContactMentionOptions,
   RichEditorInternalReferenceOptions,
   RichEditorPersistState,
+  RichEditorTagMentionOptions,
   RichEditorValue,
   RichEditorVariant,
 } from "./types";
@@ -204,12 +209,6 @@ interface ImageAnnotationDialogState {
   };
 }
 
-interface RichEditorAutoFocusPoint {
-  x: number;
-  y: number;
-  mode?: "viewport" | "content-relative";
-}
-
 interface StoredTextSelection {
   from: number;
   to: number;
@@ -241,6 +240,7 @@ interface RichEditorProps {
   html?: string;
   defaultHtml?: string;
   variant?: RichEditorVariant;
+  showToolbar?: boolean;
   placeholder?: string;
   readOnly?: boolean;
   autoFocus?: boolean | RichEditorAutoFocusPoint;
@@ -264,6 +264,7 @@ interface RichEditorProps {
   onOpenAsset?: (asset: RichEditorAsset) => void | Promise<void>;
   internalReferences?: RichEditorInternalReferenceOptions;
   contactMentions?: RichEditorContactMentionOptions;
+  tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot;
   aiRewriteContext?: AiEditorRewriteContext;
   onOpenAiSettings?: () => void;
@@ -292,6 +293,7 @@ export function RichEditor({
   html,
   defaultHtml,
   variant = "toolbar",
+  showToolbar = true,
   placeholder = "输入内容，Markdown 会即时渲染为富文本。",
   readOnly = false,
   autoFocus = false,
@@ -307,6 +309,7 @@ export function RichEditor({
   onOpenAsset,
   internalReferences,
   contactMentions,
+  tagMentions,
   aiSettings,
   aiRewriteContext,
   onOpenAiSettings,
@@ -336,6 +339,13 @@ export function RichEditor({
     position: { left: number; top: number };
   }>(null);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [tagPicker, setTagPicker] = useState<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const [tagActiveIndex, setTagActiveIndex] = useState(0);
 
   const autosaveConfig = useMemo<AutosaveConfig>(() => {
     if (typeof autosave === "object") {
@@ -386,6 +396,14 @@ export function RichEditor({
   }>(null);
   const mentionActiveIndexRef = useRef(0);
   const mentionResultsRef = useRef<ContactRecord[]>([]);
+  const tagPickerRef = useRef<null | {
+    start: number;
+    end: number;
+    query: string;
+    position: { left: number; top: number };
+  }>(null);
+  const tagActiveIndexRef = useRef(0);
+  const tagResultsRef = useRef<FileTagRecord[]>([]);
   const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
@@ -495,6 +513,13 @@ export function RichEditor({
     query: mentionPicker?.query ?? "",
     limit: 8,
   });
+  const { results: tagResults, loading: tagLoading } = useTagMentionSearch({
+    open: Boolean(tagPicker),
+    query: tagPicker?.query ?? "",
+    projectId: tagMentions?.projectId,
+    availableTags: tagMentions?.availableTags,
+    limit: 8,
+  });
 
   referencePickerRef.current = referencePicker;
   referenceActiveIndexRef.current = referenceActiveIndex;
@@ -502,8 +527,19 @@ export function RichEditor({
   mentionPickerRef.current = mentionPicker;
   mentionActiveIndexRef.current = mentionActiveIndex;
   mentionResultsRef.current = mentionResults;
+  tagPickerRef.current = tagPicker;
+  tagActiveIndexRef.current = tagActiveIndex;
+  tagResultsRef.current = tagResults;
 
   const mentionsEnabled = Boolean(contactMentions);
+  const tagMentionsEnabled = typeof tagMentions !== "undefined";
+  const tagCreateLabel = tagPicker?.query.trim() ?? "";
+  const tagCreatable =
+    tagMentionsEnabled &&
+    Boolean(tagMentions?.onCreateTag) &&
+    tagCreateLabel.length > 0 &&
+    !tagResults.some((tag) => tag.label.toLocaleLowerCase("zh-Hans-CN") === tagCreateLabel.toLocaleLowerCase("zh-Hans-CN"));
+  const tagOptionCount = tagResults.length + (tagCreatable ? 1 : 0);
   const mentionCreatable =
     mentionsEnabled &&
     Boolean(contactMentions?.onCreateContact) &&
@@ -581,6 +617,11 @@ export function RichEditor({
     setMentionActiveIndex(0);
   }, []);
 
+  const closeTagPicker = useCallback(() => {
+    setTagPicker(null);
+    setTagActiveIndex(0);
+  }, []);
+
   const syncContactMentionPicker = useCallback(
     (nextEditor: Editor | null) => {
       if (!nextEditor || effectiveReadOnly || !contactMentions) {
@@ -610,6 +651,37 @@ export function RichEditor({
       });
     },
     [closeContactMentionPicker, effectiveReadOnly, contactMentions],
+  );
+
+  const syncTagPicker = useCallback(
+    (nextEditor: Editor | null) => {
+      if (!nextEditor || effectiveReadOnly || !tagMentionsEnabled) {
+        closeTagPicker();
+        return;
+      }
+
+      const nextTrigger = resolveEditorTagTrigger(nextEditor, frameRef.current);
+
+      setTagPicker((current) => {
+        if (!nextTrigger) {
+          return null;
+        }
+
+        if (
+          current &&
+          current.start === nextTrigger.start &&
+          current.end === nextTrigger.end &&
+          current.query === nextTrigger.query &&
+          current.position.left === nextTrigger.position.left &&
+          current.position.top === nextTrigger.position.top
+        ) {
+          return current;
+        }
+
+        return nextTrigger;
+      });
+    },
+    [closeTagPicker, effectiveReadOnly, tagMentionsEnabled],
   );
 
   const insertContactMentionNode = useCallback(
@@ -678,6 +750,40 @@ export function RichEditor({
     [closeContactMentionPicker, contactMentions?.onCreateContact, insertContactMentionNode],
   );
 
+  const handleSelectTagMention = useCallback(
+    (view: EditorView, tag: FileTagRecord) => {
+      const trigger = tagPickerRef.current;
+      if (!trigger) {
+        return false;
+      }
+
+      insertTagMentionNode(view, trigger, tag);
+      closeTagPicker();
+      return true;
+    },
+    [closeTagPicker],
+  );
+
+  const handleCreateTagMention = useCallback(
+    (view: EditorView, label: string) => {
+      const trigger = tagPickerRef.current;
+      const createTag = tagMentions?.onCreateTag;
+
+      if (!trigger || !createTag || !label.trim()) {
+        return false;
+      }
+
+      void Promise.resolve(createTag(label.trim())).then((createdTag) => {
+        if (createdTag) {
+          insertTagMentionNode(view, trigger, createdTag);
+        }
+      });
+      closeTagPicker();
+      return true;
+    },
+    [closeTagPicker, tagMentions?.onCreateTag],
+  );
+
   useEffect(() => {
     if (!mentionPicker) {
       return;
@@ -699,6 +805,29 @@ export function RichEditor({
 
     setMentionActiveIndex(0);
   }, [mentionPicker?.query]);
+
+  useEffect(() => {
+    if (!tagPicker) {
+      setTagActiveIndex(0);
+      return;
+    }
+
+    setTagActiveIndex((current) => {
+      if (tagResults.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, tagResults.length - 1);
+    });
+  }, [tagPicker, tagResults.length]);
+
+  useEffect(() => {
+    if (!tagPicker) {
+      return;
+    }
+
+    setTagActiveIndex(0);
+  }, [tagPicker?.query]);
 
   useEffect(() => {
     if (!referencePicker) {
@@ -889,6 +1018,49 @@ export function RichEditor({
           }
         }
 
+        const activeTagPicker = tagPickerRef.current;
+
+        if (!effectiveReadOnly && activeTagPicker) {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeTagPicker();
+            return true;
+          }
+
+          if (event.key === "ArrowDown" && tagOptionCount > 0) {
+            event.preventDefault();
+            setTagActiveIndex((current) => (current + 1) % tagOptionCount);
+            return true;
+          }
+
+          if (event.key === "ArrowUp" && tagOptionCount > 0) {
+            event.preventDefault();
+            setTagActiveIndex((current) =>
+              current === 0 ? tagOptionCount - 1 : current - 1,
+            );
+            return true;
+          }
+
+          if (event.key === "Enter" && tagOptionCount > 0) {
+            event.preventDefault();
+            const activeIndex = Math.max(
+              0,
+              Math.min(tagActiveIndexRef.current, tagOptionCount - 1),
+            );
+
+            if (tagCreatable && activeIndex === tagResultsRef.current.length) {
+              return handleCreateTagMention(_view, tagCreateLabel);
+            }
+
+            return handleSelectTagMention(
+              _view,
+              tagResultsRef.current[
+                Math.max(0, Math.min(activeIndex, tagResultsRef.current.length - 1))
+              ],
+            );
+          }
+        }
+
         if (
           onModEnter &&
           !effectiveReadOnly &&
@@ -933,18 +1105,21 @@ export function RichEditor({
       rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
       syncContactMentionPicker(nextEditor);
+      syncTagPicker(nextEditor);
     },
     onBlur: () => {
       setIsFocused(false);
       setUiTick((tick) => tick + 1);
       closeInternalReferencePicker();
       closeContactMentionPicker();
+      closeTagPicker();
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
       setUiTick((tick) => tick + 1);
       rememberCurrentTextSelection(nextEditor);
       syncInternalReferencePicker(nextEditor);
       syncContactMentionPicker(nextEditor);
+      syncTagPicker(nextEditor);
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (taskShortcutTransformRef.current) {
@@ -960,6 +1135,7 @@ export function RichEditor({
       setUiTick((tick) => tick + 1);
       syncInternalReferencePicker(nextEditor);
       syncContactMentionPicker(nextEditor);
+      syncTagPicker(nextEditor);
 
       if (snapshot.html !== lastPersistedHtmlRef.current) {
         updatePersistState("dirty");
@@ -1148,7 +1324,8 @@ export function RichEditor({
   useEffect(() => {
     syncInternalReferencePicker(editor ?? null);
     syncContactMentionPicker(editor ?? null);
-  }, [editor, syncInternalReferencePicker, syncContactMentionPicker]);
+    syncTagPicker(editor ?? null);
+  }, [editor, syncContactMentionPicker, syncInternalReferencePicker, syncTagPicker]);
 
   useEffect(() => {
     if (!editor) {
@@ -1157,8 +1334,17 @@ export function RichEditor({
 
     const editorDom = editor.view.dom;
     const handleFocusRequest = (event: Event) => {
-      const customEvent = event as CustomEvent<{ position?: "start" | "end" }>;
-      editor.commands.focus(customEvent.detail?.position ?? "end");
+      const customEvent = event as CustomEvent<{
+        position?: "start" | "end" | number | RichEditorAutoFocusPoint;
+      }>;
+      const position = customEvent.detail?.position;
+
+      if (typeof position === "object" && position) {
+        focusEditorForAutoFocus(editor, position);
+        return;
+      }
+
+      editor.commands.focus(position ?? "end", { scrollIntoView: false });
     };
 
     editorDom.addEventListener(
@@ -2277,7 +2463,7 @@ export function RichEditor({
         .filter(Boolean)
         .join(" ")}
     >
-      {variant === "toolbar" || variant === "page" ? (
+      {(variant === "toolbar" || variant === "page") && showToolbar ? (
         <div className="rich-editor__toolbar" aria-label="文本格式工具栏">
           <div className="rich-editor__toolbar-main">
             {toolbarGroups.map((group, index) => (
@@ -2406,7 +2592,8 @@ export function RichEditor({
             activeIndex={mentionActiveIndex}
             query={mentionPicker.query}
             canCreate={mentionCreatable}
-            className="absolute z-20"
+            portal
+            className="fixed z-[120]"
             style={{
               left: `${mentionPicker.position.left}px`,
               top: `${mentionPicker.position.top}px`,
@@ -2417,6 +2604,29 @@ export function RichEditor({
             }}
             onCreate={(name) => {
               void handleCreateContactMention(editor.view, name);
+            }}
+          />
+        ) : null}
+        {tagPicker && tagMentionsEnabled && !effectiveReadOnly ? (
+          <TagMentionPicker
+            open
+            loading={tagLoading}
+            results={tagResults}
+            activeIndex={tagActiveIndex}
+            query={tagPicker.query}
+            canCreate={tagCreatable}
+            portal
+            className="fixed z-[120]"
+            style={{
+              left: `${tagPicker.position.left}px`,
+              top: `${tagPicker.position.top}px`,
+            }}
+            onHoverIndex={setTagActiveIndex}
+            onSelect={(tag) => {
+              void handleSelectTagMention(editor.view, tag);
+            }}
+            onCreate={(label) => {
+              void handleCreateTagMention(editor.view, label);
             }}
           />
         ) : null}
@@ -2628,12 +2838,16 @@ function focusEditorForAutoFocus(
     });
 
     if (focusPosition) {
-      editor.commands.focus(focusPosition.pos);
+      editor.commands.focus(focusPosition.pos, { scrollIntoView: false });
       return;
     }
+
+    // Keep the current selection when a viewport hit-test misses on a retry.
+    editor.commands.focus(undefined, { scrollIntoView: false });
+    return;
   }
 
-  editor.commands.focus("end");
+  editor.commands.focus("end", { scrollIntoView: false });
 }
 
 function resolveRelativeAutoFocusPoint(editor: Editor, autoFocus: RichEditorAutoFocusPoint) {
@@ -2643,6 +2857,31 @@ function resolveRelativeAutoFocusPoint(editor: Editor, autoFocus: RichEditorAuto
     left: rect.left + autoFocus.x,
     top: rect.top + autoFocus.y,
   };
+}
+
+function insertTagMentionNode(
+  view: EditorView,
+  trigger: { start: number; end: number },
+  tag: FileTagRecord,
+) {
+  const nodeType = view.state.schema.nodes.tagMention;
+
+  if (!nodeType) {
+    return false;
+  }
+
+  const tr = view.state.tr.delete(trigger.start, trigger.end);
+  const tagNode = nodeType.create({
+    tagId: tag.id,
+    label: tag.label,
+    colorKey: tag.colorKey,
+  });
+  tr.insert(trigger.start, tagNode);
+  const nextSelectionPos = trigger.start + tagNode.nodeSize;
+  tr.insertText(" ", nextSelectionPos);
+  tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
+  view.dispatch(tr.scrollIntoView());
+  return true;
 }
 
 function resolveEditorInternalReferenceTrigger(
@@ -2708,7 +2947,6 @@ function resolveEditorContactMentionTrigger(
 
   // The `@` trigger token is a single character.
   const absoluteStart = selection.from - trigger.query.length - 1;
-  const frameRect = frameElement.getBoundingClientRect();
   const caretRect = editor.view.coordsAtPos(selection.from);
 
   return {
@@ -2716,8 +2954,45 @@ function resolveEditorContactMentionTrigger(
     end: selection.from,
     query: trigger.query,
     position: {
-      left: Math.max(8, caretRect.left - frameRect.left),
-      top: Math.max(8, caretRect.bottom - frameRect.top + 8),
+      left: Math.max(8, caretRect.left),
+      top: Math.max(8, caretRect.bottom + 8),
+    },
+  };
+}
+
+function resolveEditorTagTrigger(
+  editor: Editor,
+  frameElement: HTMLDivElement | null,
+) {
+  if (!frameElement || !editor.isEditable) {
+    return null;
+  }
+
+  const { selection } = editor.state;
+
+  if (!(selection instanceof TextSelection) || !selection.empty || editor.isActive("codeBlock")) {
+    return null;
+  }
+
+  const trigger = findHashTagTextTrigger(
+    editor.state.doc.textBetween(selection.$from.start(), selection.from, "\n", "\0"),
+    selection.$from.parentOffset,
+  );
+
+  if (!trigger) {
+    return null;
+  }
+
+  const absoluteStart = selection.from - trigger.query.length - 1;
+  const caretRect = editor.view.coordsAtPos(selection.from);
+
+  return {
+    start: absoluteStart,
+    end: selection.from,
+    query: trigger.query,
+    position: {
+      left: Math.max(8, caretRect.left),
+      top: Math.max(8, caretRect.bottom + 8),
     },
   };
 }
@@ -3027,12 +3302,12 @@ function buildTextContextMenuActions(
   const runCommand = (callback: (chain: any) => { run: () => boolean }) => () => {
     callback(editor.chain().focus()).run();
   };
-  const formatActions: ContextMenuAction[] = [
+  const formatActions = [
     {
       key: "text-bold",
       label: "加粗",
       icon: Bold,
-      shortcut: "Mod+B",
+      active: editor.isActive("bold"),
       disabled: !canRun((chain) => chain.toggleBold()),
       onSelect: runCommand((chain) => chain.toggleBold()),
     },
@@ -3040,7 +3315,7 @@ function buildTextContextMenuActions(
       key: "text-italic",
       label: "斜体",
       icon: Italic,
-      shortcut: "Mod+I",
+      active: editor.isActive("italic"),
       disabled: !canRun((chain) => chain.toggleItalic()),
       onSelect: runCommand((chain) => chain.toggleItalic()),
     },
@@ -3048,23 +3323,58 @@ function buildTextContextMenuActions(
       key: "text-highlight",
       label: "着重色",
       icon: Highlighter,
+      active: editor.isActive("highlight"),
       disabled: !canRun((chain) => chain.toggleHighlight()),
       onSelect: runCommand((chain) => chain.toggleHighlight()),
     },
   ];
 
-  const blockActions: ContextMenuAction[] = [
+  const blockOptions = [
     {
-      key: "text-paragraph",
-      label: "正文",
-      icon: Pilcrow,
-      disabled: !canRun((chain) => chain.setParagraph()),
-      onSelect: runCommand((chain) => chain.setParagraph()),
+      key: "text-code-block",
+      label: "代码段",
+      icon: Code2,
+      active: () => editor.isActive("codeBlock"),
+      disabled: !canRun((chain) => chain.toggleCodeBlock()),
+      onSelect: runCommand((chain) => chain.toggleCodeBlock()),
+    },
+    {
+      key: "text-blockquote",
+      label: "引用",
+      icon: Quote,
+      active: () => editor.isActive("blockquote"),
+      disabled: !canRun((chain) => chain.toggleBlockquote()),
+      onSelect: runCommand((chain) => chain.toggleBlockquote()),
+    },
+    {
+      key: "text-task-list",
+      label: "Todo List",
+      icon: ListTodo,
+      active: () => editor.isActive("taskList"),
+      disabled: !canRun((chain) => chain.toggleTaskList()),
+      onSelect: runCommand((chain) => chain.toggleTaskList()),
+    },
+    {
+      key: "text-ordered-list",
+      label: "有序列表",
+      icon: ListOrdered,
+      active: () => editor.isActive("orderedList"),
+      disabled: !canRun((chain) => chain.toggleOrderedList()),
+      onSelect: runCommand((chain) => chain.toggleOrderedList()),
+    },
+    {
+      key: "text-bullet-list",
+      label: "无序列表",
+      icon: List,
+      active: () => editor.isActive("bulletList"),
+      disabled: !canRun((chain) => chain.toggleBulletList()),
+      onSelect: runCommand((chain) => chain.toggleBulletList()),
     },
     {
       key: "text-h1",
       label: "H1",
       icon: Heading1,
+      active: () => editor.isActive("heading", { level: 1 }),
       disabled: !canRun((chain) => chain.toggleHeading({ level: 1 })),
       onSelect: runCommand((chain) => chain.toggleHeading({ level: 1 })),
     },
@@ -3072,6 +3382,7 @@ function buildTextContextMenuActions(
       key: "text-h2",
       label: "H2",
       icon: Heading2,
+      active: () => editor.isActive("heading", { level: 2 }),
       disabled: !canRun((chain) => chain.toggleHeading({ level: 2 })),
       onSelect: runCommand((chain) => chain.toggleHeading({ level: 2 })),
     },
@@ -3079,45 +3390,51 @@ function buildTextContextMenuActions(
       key: "text-h3",
       label: "H3",
       icon: Heading3,
+      active: () => editor.isActive("heading", { level: 3 }),
       disabled: !canRun((chain) => chain.toggleHeading({ level: 3 })),
       onSelect: runCommand((chain) => chain.toggleHeading({ level: 3 })),
     },
     {
-      key: "text-bullet-list",
-      label: "无序列表",
-      icon: List,
-      disabled: !canRun((chain) => chain.toggleBulletList()),
-      onSelect: runCommand((chain) => chain.toggleBulletList()),
-    },
-    {
-      key: "text-ordered-list",
-      label: "有序列表",
-      icon: ListOrdered,
-      disabled: !canRun((chain) => chain.toggleOrderedList()),
-      onSelect: runCommand((chain) => chain.toggleOrderedList()),
-    },
-    {
-      key: "text-task-list",
-      label: "Todo List",
-      icon: ListTodo,
-      disabled: !canRun((chain) => chain.toggleTaskList()),
-      onSelect: runCommand((chain) => chain.toggleTaskList()),
-    },
-    {
-      key: "text-blockquote",
-      label: "引用",
-      icon: Quote,
-      disabled: !canRun((chain) => chain.toggleBlockquote()),
-      onSelect: runCommand((chain) => chain.toggleBlockquote()),
-    },
-    {
-      key: "text-code-block",
-      label: "代码段",
-      icon: Code2,
-      disabled: !canRun((chain) => chain.toggleCodeBlock()),
-      onSelect: runCommand((chain) => chain.toggleCodeBlock()),
+      key: "text-paragraph",
+      label: "正文",
+      icon: Pilcrow,
+      active: () =>
+        editor.isActive("paragraph") &&
+        !editor.isActive("blockquote") &&
+        !editor.isActive("heading") &&
+        !editor.isActive("bulletList") &&
+        !editor.isActive("orderedList") &&
+        !editor.isActive("taskList") &&
+        !editor.isActive("codeBlock"),
+      disabled: !canRun((chain) => chain.setParagraph()),
+      onSelect: runCommand((chain) => chain.setParagraph()),
     },
   ];
+  const currentBlock = blockOptions.find((option) => option.active()) ?? blockOptions[blockOptions.length - 1];
+  const blockMenuOrder = [
+    "text-paragraph",
+    "text-h1",
+    "text-h2",
+    "text-h3",
+    "text-bullet-list",
+    "text-ordered-list",
+    "text-task-list",
+    "text-blockquote",
+    "text-code-block",
+  ];
+  const blockActions: ContextMenuAction[] = blockMenuOrder
+    .map((key) => blockOptions.find((option) => option.key === key))
+    .filter((option): option is (typeof blockOptions)[number] => Boolean(option))
+    .map((option) => ({
+      key: option.key,
+      label: option.label,
+      icon: option.icon,
+      selected: option.active(),
+      disabled: option.disabled,
+      onSelect: option.onSelect,
+    }));
+  const isDisabledContextAction = (action: ContextMenuAction) =>
+    action.type !== "separator" && action.type !== "inline-actions" && Boolean(action.disabled);
 
   const clipboardActions: ContextMenuAction[] = [
     {
@@ -3153,23 +3470,24 @@ function buildTextContextMenuActions(
   const groupedActions: ContextMenuAction[] = [
     {
       type: "submenu",
-      key: "text-group-format",
-      label: "格式",
-      icon: Bold,
-      actions: formatActions,
-      disabled: formatActions.every((action) => action.type !== "separator" && action.disabled),
-    },
-    {
-      type: "submenu",
       key: "text-group-block",
-      label: "块",
-      icon: Pilcrow,
+      label: currentBlock.label,
+      icon: currentBlock.icon,
       actions: blockActions,
-      disabled: blockActions.every((action) => action.type !== "separator" && action.disabled),
+      disabled: blockActions.every(isDisabledContextAction),
+      selected: true,
+      featured: true,
     },
+    { type: "separator", key: "text-featured-separator" },
+    {
+      type: "inline-actions",
+      key: "text-inline-format-actions",
+      ariaLabel: "文本格式",
+      actions: formatActions,
+    },
+    { type: "separator", key: "text-inline-actions-separator" },
   ];
 
-  // Add insert table option if insertTable is provided
   if (insertTable && !readOnly) {
     groupedActions.push({
       key: "insert-table",
@@ -3186,7 +3504,7 @@ function buildTextContextMenuActions(
     label: "剪贴板",
     icon: Copy,
     actions: clipboardActions,
-    disabled: clipboardActions.every((action) => action.type !== "separator" && action.disabled),
+    disabled: clipboardActions.every(isDisabledContextAction),
   });
 
   return groupedActions;

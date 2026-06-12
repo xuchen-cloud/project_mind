@@ -33,7 +33,7 @@ describe("projectMindApi", () => {
       name: "Project Prime",
     });
 
-    await projectMindApi.projectUpdateSummary({
+    await projectMindApi.projectUpdate({
       projectId: 1,
       name: "Project Prime",
       summary: "最新项目简介",
@@ -43,7 +43,7 @@ describe("projectMindApi", () => {
     });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "project_update_summary",
+      "project_update",
       {
         input: {
           projectId: 1,
@@ -105,17 +105,30 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_todo_list");
   });
 
+  it("maps workspace overview to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      overviewNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+
+    await projectMindApi.workspacePageGet();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_page_get");
+  });
+
   it("maps today quick note commands to the correct command names", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce(null);
-    await projectMindApi.todayQuickNoteGet();
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("today_quick_note_get");
+    await projectMindApi.workspaceQuickNoteGet();
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_quick_note_get");
 
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 9 });
-    await projectMindApi.todayQuickNoteUpsert({
+    await projectMindApi.workspaceQuickNoteUpsert({
       markdown: "今日快记",
       html: "<p>今日快记</p>",
     });
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("today_quick_note_upsert", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_quick_note_upsert", {
       input: {
         markdown: "今日快记",
         html: "<p>今日快记</p>",
@@ -126,13 +139,13 @@ describe("projectMindApi", () => {
   it("maps workspace note upsert to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 3 });
 
-    await projectMindApi.workspaceNoteUpsert({
+    await projectMindApi.workspaceRecordUpsert({
       title: "工作区记录",
       markdown: "整理一下今天的判断",
       html: "<p>整理一下今天的判断</p>",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_note_upsert", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_record_upsert", {
       input: {
         title: "工作区记录",
         markdown: "整理一下今天的判断",
@@ -144,9 +157,9 @@ describe("projectMindApi", () => {
   it("maps workspace note delete to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 3 });
 
-    await projectMindApi.workspaceNoteDelete({ noteId: 3 });
+    await projectMindApi.workspaceRecordDelete({ noteId: 3 });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_note_delete", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_record_delete", {
       input: {
         noteId: 3,
       },
@@ -168,7 +181,7 @@ describe("projectMindApi", () => {
       html: "<p>Captured detail</p>",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("note_upsert", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_record_upsert", {
       input: {
         projectId: 1,
         activityId: 2,
@@ -187,7 +200,7 @@ describe("projectMindApi", () => {
       noteId: 7,
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("note_delete", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_record_delete", {
       input: {
         noteId: 7,
       },
@@ -437,15 +450,16 @@ describe("projectMindApi", () => {
     );
   });
 
-  it("maps file tag settings fetch without payload", async () => {
+  it("maps file tag settings fetch with project payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       tags: [],
     });
 
-    await projectMindApi.fileTagSettingsGet();
+    await projectMindApi.fileTagSettingsGet({ projectId: 7 });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
       "file_tag_settings_get",
+      { input: { projectId: 7 } },
     );
   });
 
@@ -519,6 +533,7 @@ describe("projectMindApi", () => {
     });
 
     await projectMindApi.fileTagOptionUpsert({
+      projectId: 7,
       id: 4,
       label: "法务",
       colorKey: "blue",
@@ -528,6 +543,7 @@ describe("projectMindApi", () => {
       "file_tag_option_upsert",
       {
         input: {
+          projectId: 7,
           id: 4,
           label: "法务",
           colorKey: "blue",
