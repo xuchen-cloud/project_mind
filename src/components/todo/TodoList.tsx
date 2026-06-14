@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Flag } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
@@ -8,11 +8,12 @@ import { ActionContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
 
-const TODO_STATUS_TRANSITION_MS = 520;
+const TODO_STATUS_TRANSITION_MS = 620;
 
 type TodoStatusTransition = {
   todo: TodoRecord;
   phase: "completing" | "restoring";
+  anchorIndex: number;
 };
 
 export function TodoList({
@@ -80,9 +81,16 @@ export function TodoList({
     const replacedTodos = todos.map((todo) => todoTransitions[todo.id]?.todo ?? todo);
     const missingTransitionTodos = Object.entries(todoTransitions)
       .filter(([todoId]) => !existingIds.has(Number(todoId)))
-      .map(([, transition]) => transition.todo);
+      .map(([, transition]) => transition)
+      .sort((left, right) => left.anchorIndex - right.anchorIndex);
 
-    return [...replacedTodos, ...missingTransitionTodos];
+    const mergedTodos = [...replacedTodos];
+    missingTransitionTodos.forEach((transition) => {
+      const insertIndex = Math.max(0, Math.min(transition.anchorIndex, mergedTodos.length));
+      mergedTodos.splice(insertIndex, 0, transition.todo);
+    });
+
+    return mergedTodos;
   }, [todoTransitions, todos]);
 
   useEffect(() => {
@@ -118,12 +126,14 @@ export function TodoList({
   async function handleToggleStatus(todo: TodoRecord) {
     const nextStatus = todo.status === "finished" ? "unfinished" : "finished";
     const phase = nextStatus === "finished" ? "completing" : "restoring";
+    const anchorIndex = visibleTodos.findIndex((candidate) => candidate.id === todo.id);
 
     setTodoTransitions((current) => ({
       ...current,
       [todo.id]: {
         todo: { ...todo, status: nextStatus },
         phase,
+        anchorIndex: anchorIndex >= 0 ? anchorIndex : todos.findIndex((candidate) => candidate.id === todo.id),
       },
     }));
 
@@ -196,14 +206,17 @@ export function TodoList({
           onClose={() => setContextMenu(null)}
           actions={[
             {
-              type: "submenu",
+              type: "inline-actions",
               key: "priority",
-              label: "优先级",
-              icon: Flag,
+              ariaLabel: "优先级",
               actions: TODO_PRIORITY_OPTIONS.map((option) => ({
                 key: option.value,
-                label: option.label,
-                selected: contextMenuTodo.priority === option.value,
+                label: option.optionLabel,
+                active: contextMenuTodo.priority === option.value,
+                swatch: {
+                  color: option.colorValue,
+                  shape: "dot",
+                },
                 onSelect: () => {
                   void handleUpdatePriority(contextMenuTodo.id, option.value);
                 },
@@ -213,6 +226,7 @@ export function TodoList({
             {
               key: "delete",
               label: "删除",
+              icon: Trash2,
               tone: "danger",
               onSelect: () => {
                 setContextMenu(null);

@@ -9,6 +9,13 @@ import { resolveRichTextImageSrc } from "../../../lib/richTextAssets";
 import { desktopApi } from "../../../services/desktopApi";
 import { buildImageAnnotationPreviewMarkup } from "../image-annotations";
 
+const MIN_IMAGE_WIDTH = 120;
+const MIN_IMAGE_HEIGHT = 60;
+const LAZY_IMAGE_ROOT_MARGIN = "240px 0px";
+const DEFAULT_PLACEHOLDER_ASPECT_RATIO = 3 / 2;
+const TRANSPARENT_IMAGE_DATA_URL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
 export const ManagedImage = Image.extend({
   addAttributes() {
     return {
@@ -74,29 +81,59 @@ export const ManagedImage = Image.extend({
 
       let currentNode = node;
       let recoveringSrc = false;
+      let hasActivatedSource = typeof IntersectionObserver === "undefined";
+      let hasResolvedImageSource = false;
+      let knownAspectRatio: number | null = null;
+      let observer: IntersectionObserver | null = null;
+      let resizeObserver: ResizeObserver | null = null;
+      let cleanupViewportResize: (() => void) | null = null;
+      let scheduledSyncFrame: number | null = null;
+
+      image.decoding = "async";
+      image.loading = "eager";
+
+      const scheduleSyncImage = () => {
+        if (scheduledSyncFrame !== null) {
+          return;
+        }
+
+        scheduledSyncFrame = window.requestAnimationFrame(() => {
+          scheduledSyncFrame = null;
+          syncImage();
+        });
+      };
 
       const syncImage = (nextNode = currentNode) => {
-        setAttribute(
+        const resolvedSrc = resolveRichTextImageSrc(
+          asOptionalString(nextNode.attrs.path),
+          asOptionalString(nextNode.attrs.src),
+        );
+        const nextPath = asOptionalString(nextNode.attrs.path);
+
+        hasResolvedImageSource = Boolean(resolvedSrc);
+        syncManagedImageSource(
           image,
-          "src",
-          resolveRichTextImageSrc(
-            asOptionalString(nextNode.attrs.path),
-            asOptionalString(nextNode.attrs.src),
-          ),
+          hasActivatedSource || !resolvedSrc ? resolvedSrc : TRANSPARENT_IMAGE_DATA_URL,
+          resolvedSrc,
+          nextPath,
         );
         setAttribute(image, "alt", nextNode.attrs.alt);
         setAttribute(image, "title", nextNode.attrs.title);
-        setAttribute(image, "data-path", nextNode.attrs.path);
+        setAttribute(image, "data-path", nextPath);
         setAttribute(image, "data-mime-type", nextNode.attrs.mimeType);
         setAttribute(image, "data-document-id", nextNode.attrs.documentId);
         setAttribute(image, "data-annotation-state", nextNode.attrs.annotationState);
         image.className = [this.options.HTMLAttributes?.class, HTMLAttributes.class]
           .filter(Boolean)
           .join(" ");
+        const clampedWidth = clampImageWidthToContainer(nextNode, image);
         image.style.width =
-          typeof nextNode.attrs.width === "number" ? `${nextNode.attrs.width}px` : "";
+          typeof clampedWidth === "number" && clampedWidth > 0 ? `${clampedWidth}px` : "";
         image.style.maxWidth = "100%";
         image.style.height = "auto";
+        image.dataset.lazyMounted = String(hasActivatedSource || !resolvedSrc);
+        applyPlaceholderSizing(nextNode);
+
       };
 
       const syncAnnotation = (nextNode = currentNode) => {
@@ -134,22 +171,6 @@ export const ManagedImage = Image.extend({
           );
 
           image.setAttribute("src", dataUrl);
-
-          const pos = typeof getPos === "function" ? safeGetPos(getPos) : undefined;
-
-          if (typeof pos !== "number" || !editor.isEditable) {
-            return;
-          }
-
-          const nextAttrs = {
-            ...currentNode.attrs,
-            src: dataUrl,
-          };
-          const tr = editor.state.tr;
-
-          tr.setSelection(NodeSelection.create(tr.doc, pos));
-          tr.setNodeMarkup(pos, undefined, nextAttrs);
-          editor.view.dispatch(tr);
         } catch {
           // Leave the existing broken-image state if recovery also fails.
         } finally {
@@ -157,11 +178,27 @@ export const ManagedImage = Image.extend({
         }
       };
 
+      const handleImageLoad = () => {
+        if (image.currentSrc === TRANSPARENT_IMAGE_DATA_URL || image.getAttribute("src") === TRANSPARENT_IMAGE_DATA_URL) {
+          return;
+        }
+
+        const naturalWidth = image.naturalWidth || image.width;
+        const naturalHeight = image.naturalHeight || image.height;
+
+        if (naturalWidth > 0 && naturalHeight > 0) {
+          knownAspectRatio = naturalWidth / naturalHeight;
+        }
+
+        applyPlaceholderSizing();
+      };
+
       syncImage(node);
       const handleImageError = () => {
         void recoverImageSource();
       };
       image.addEventListener("error", handleImageError);
+      image.addEventListener("load", handleImageLoad);
 
       const view = new ResizableNodeView({
         element: image,
@@ -222,15 +259,33 @@ export const ManagedImage = Image.extend({
       });
 
       const wrapper = view.dom.querySelector<HTMLElement>(".rich-editor__image-wrapper") ?? view.dom;
+      observer = createLazyImageObserver(wrapper, (visible) => {
+        if (!visible || hasActivatedSource) {
+          return;
+        }
+
+        hasActivatedSource = true;
+        syncImage();
+      });
+      resizeObserver = createImageResizeObserver(wrapper, scheduleSyncImage);
+      cleanupViewportResize = createViewportResizeSubscription(scheduleSyncImage);
 
       wrapper.append(annotationOverlay);
       syncAnnotation(node);
+      scheduleSyncImage();
 
       return {
         dom: view.dom,
         update: view.update.bind(view),
         destroy: () => {
+          if (scheduledSyncFrame !== null) {
+            window.cancelAnimationFrame(scheduledSyncFrame);
+          }
           image.removeEventListener("error", handleImageError);
+          image.removeEventListener("load", handleImageLoad);
+          observer?.disconnect();
+          resizeObserver?.disconnect();
+          cleanupViewportResize?.();
           view.destroy();
         },
         stopEvent: (event: Event) =>
@@ -243,6 +298,23 @@ export const ManagedImage = Image.extend({
           view.dom.classList.remove("ProseMirror-selectednode");
         },
       };
+
+      function applyPlaceholderSizing(nextNode = currentNode) {
+        if (hasActivatedSource || !hasResolvedImageSource) {
+          image.style.minHeight = "";
+          image.style.aspectRatio = "";
+          return;
+        }
+
+        const width =
+          clampImageWidthToContainer(nextNode, image) ?? null;
+        const aspectRatio = knownAspectRatio ?? DEFAULT_PLACEHOLDER_ASPECT_RATIO;
+
+        image.style.aspectRatio = String(aspectRatio);
+        image.style.minHeight = width
+          ? `${Math.max(MIN_IMAGE_HEIGHT, Math.round(width / aspectRatio))}px`
+          : `${MIN_IMAGE_HEIGHT}px`;
+      }
     };
   },
 
@@ -259,9 +331,6 @@ export const ManagedImage = Image.extend({
     return `[图片] ${label}`;
   },
 });
-
-const MIN_IMAGE_WIDTH = 120;
-const MIN_IMAGE_HEIGHT = 60;
 
 function parsePixelWidth(value: string | null | undefined) {
   if (!value) {
@@ -301,4 +370,133 @@ function setAttribute(element: HTMLElement, name: string, value: unknown) {
   }
 
   element.removeAttribute(name);
+}
+
+function createLazyImageObserver(
+  target: Element,
+  onVisibilityChange: (visible: boolean) => void,
+) {
+  if (typeof IntersectionObserver === "undefined") {
+    onVisibilityChange(true);
+    return null;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0];
+
+      if (!entry) {
+        return;
+      }
+
+      onVisibilityChange(entry.isIntersecting || entry.intersectionRatio > 0);
+    },
+    {
+      root: null,
+      rootMargin: LAZY_IMAGE_ROOT_MARGIN,
+      threshold: 0.01,
+    },
+  );
+
+  observer.observe(target);
+  return observer;
+}
+
+function createImageResizeObserver(
+  target: HTMLElement,
+  onResize: () => void,
+) {
+  if (typeof ResizeObserver === "undefined") {
+    return null;
+  }
+
+  const observer = new ResizeObserver(() => {
+    onResize();
+  });
+  const editorSurface = target.closest(".rich-editor__surface");
+
+  if (editorSurface instanceof HTMLElement) {
+    observer.observe(editorSurface);
+    return observer;
+  }
+
+  observer.observe(target);
+  return observer;
+}
+
+function createViewportResizeSubscription(onResize: () => void) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const visualViewport = window.visualViewport;
+
+  window.addEventListener("resize", onResize);
+  visualViewport?.addEventListener("resize", onResize);
+
+  return () => {
+    window.removeEventListener("resize", onResize);
+    visualViewport?.removeEventListener("resize", onResize);
+  };
+}
+
+function clampImageWidthToContainer(
+  node: { attrs: { width?: unknown } },
+  image: HTMLImageElement,
+) {
+  const desiredWidth =
+    typeof node.attrs.width === "number" && node.attrs.width > 0
+      ? node.attrs.width
+      : null;
+
+  if (desiredWidth === null) {
+    return null;
+  }
+
+  const editorSurface = image.closest(".rich-editor__surface");
+  const availableWidth = editorSurface instanceof HTMLElement
+    ? Math.floor(
+      editorSurface.clientWidth
+        - readComputedPixelValue(editorSurface, "padding-left")
+        - readComputedPixelValue(editorSurface, "padding-right"),
+    )
+    : 0;
+
+  if (availableWidth <= 0) {
+    return desiredWidth;
+  }
+
+  return Math.max(1, Math.min(desiredWidth, availableWidth));
+}
+
+function readComputedPixelValue(element: HTMLElement, property: string) {
+  const value = window.getComputedStyle(element).getPropertyValue(property);
+  const numeric = Number.parseFloat(value);
+
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function syncManagedImageSource(
+  image: HTMLImageElement,
+  nextSrc: string | null,
+  resolvedSrc: string | null,
+  nextPath: string | null,
+) {
+  const currentSrc = image.getAttribute("src")?.trim() ?? "";
+  const currentPath = image.getAttribute("data-path")?.trim() ?? "";
+  const normalizedNextSrc = nextSrc?.trim() ?? "";
+  const normalizedNextPath = nextPath?.trim() ?? "";
+  const shouldPreserveRecoveredDataUrl =
+    currentSrc.startsWith("data:")
+    && currentSrc !== TRANSPARENT_IMAGE_DATA_URL
+    && Boolean(resolvedSrc)
+    && currentPath.length > 0
+    && currentPath === normalizedNextPath
+    && normalizedNextSrc === resolvedSrc;
+
+  if (shouldPreserveRecoveredDataUrl || currentSrc === normalizedNextSrc) {
+    return;
+  }
+
+  setAttribute(image, "src", nextSrc);
 }

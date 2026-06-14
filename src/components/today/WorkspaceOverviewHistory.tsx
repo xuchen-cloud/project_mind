@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Save, Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Save, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { fileTagColorValue } from "../../lib/constants";
@@ -9,13 +9,15 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import type { DocumentTagRecord, FileTagRecord, WorkspaceRecord } from "../../lib/types";
 import type { PageWidthMode } from "../../state/ui-store";
-import { Button, EmptyState, IconButton, TextField } from "../../ui/components";
+import { ActionContextMenu, Button, EmptyState, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   getRenderableRichTextHtml,
   normalizeRichEditorValue,
   RichEditor,
+  RichTextViewer,
   type RichEditorAutoFocusPoint,
+  type RichEditorController,
   type RichEditorContactMentionOptions,
   type RichEditorPersistState,
   type RichEditorValue,
@@ -26,6 +28,7 @@ const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
 interface WorkspaceOverviewHistoryProps {
   notes: WorkspaceRecord[];
+  hasAnyNotes: boolean;
   focusId: string | null;
   composeRecord: boolean;
   pageWidthMode: PageWidthMode;
@@ -49,6 +52,7 @@ interface WorkspaceOverviewHistoryProps {
 
 export function WorkspaceOverviewHistory({
   notes,
+  hasAnyNotes,
   focusId,
   composeRecord,
   pageWidthMode,
@@ -62,28 +66,11 @@ export function WorkspaceOverviewHistory({
   onOpenInternalReference,
 }: WorkspaceOverviewHistoryProps) {
   const queryClient = useQueryClient();
-  const [recordSearchQuery, setRecordSearchQuery] = useState("");
-  const [recordFilterTagId, setRecordFilterTagId] = useState<number | null>(null);
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
-
-  const recordTagOptions = useMemo(() => {
-    const tagMap = new Map<number, FileTagRecord>();
-    for (const note of notes) {
-      for (const tag of note.tags ?? []) {
-        if (!tagMap.has(tag.id)) {
-          const full = availableTags.find((candidate) => candidate.id === tag.id);
-          tagMap.set(tag.id, full ?? { ...tag, usageCount: 0, createdAt: "", updatedAt: "" });
-        }
-      }
-    }
-
-    return Array.from(tagMap.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, "zh-Hans-CN"),
-    );
-  }, [availableTags, notes]);
+  const recordDraftEditorRef = useRef<RichEditorController | null>(null);
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
@@ -103,25 +90,10 @@ export function WorkspaceOverviewHistory({
     );
   }
 
-  const filteredNotes = useMemo(() => {
-    const normalizedQuery = recordSearchQuery.trim().toLowerCase();
-
-    return notes.filter((note) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        (note.title ?? "").toLowerCase().includes(normalizedQuery) ||
-        note.contentMarkdown.toLowerCase().includes(normalizedQuery) ||
-        (note.tags ?? []).some((tag) => tag.label.toLowerCase().includes(normalizedQuery));
-      const matchesTag =
-        recordFilterTagId === null ||
-        (note.tags ?? []).some((tag) => tag.id === recordFilterTagId);
-
-      return matchesQuery && matchesTag;
-    });
-  }, [notes, recordFilterTagId, recordSearchQuery]);
-
   async function createRecord() {
-    const normalized = normalizeRichEditorValue(recordDraftValue);
+    const normalized = normalizeRichEditorValue(
+      recordDraftEditorRef.current?.getValue() ?? recordDraftValue,
+    );
     if (!normalized.markdown.trim()) {
       return;
     }
@@ -147,63 +119,6 @@ export function WorkspaceOverviewHistory({
       )}
       data-testid="workspace-page-body-record"
     >
-      <div className="project-overview-focus__history-tools">
-        <div className="relative flex-1 min-w-[16rem]">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-soft"
-            size={16}
-          />
-          <TextField
-            aria-label="搜索记录"
-            value={recordSearchQuery}
-            placeholder="搜索记录标题、正文或标签..."
-            className="pl-10 pr-10"
-            onChange={(event) => setRecordSearchQuery(event.target.value)}
-          />
-          {recordSearchQuery ? (
-            <IconButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label="清除搜索"
-              className="absolute right-1 top-1/2 -translate-y-1/2"
-              onClick={() => setRecordSearchQuery("")}
-            >
-              <X size={14} />
-            </IconButton>
-          ) : null}
-        </div>
-
-        {recordTagOptions.length > 0 ? (
-          <div className="project-overview-focus__tag-filters">
-            <span className="text-caption text-text-soft">标签</span>
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__tag-filter",
-                recordFilterTagId === null && "project-overview-focus__tag-filter--active",
-              )}
-              onClick={() => setRecordFilterTagId(null)}
-            >
-              全部
-            </button>
-            {recordTagOptions.map((tag) => (
-              <button
-                key={tag.id}
-                type="button"
-                className={cn(
-                  "project-overview-focus__tag-filter",
-                  recordFilterTagId === tag.id && "project-overview-focus__tag-filter--active",
-                )}
-                onClick={() => setRecordFilterTagId(recordFilterTagId === tag.id ? null : tag.id)}
-              >
-                {tag.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
       {composeRecord ? (
         <article className="project-history-record project-history-record--draft project-history-record--editing">
           <div className="project-history-record__editor">
@@ -252,7 +167,7 @@ export function WorkspaceOverviewHistory({
                 onOpenReference: onOpenInternalReference as never,
               }}
               contactMentions={contactMentionOptions}
-              onChange={setRecordDraftValue}
+              controllerRef={recordDraftEditorRef}
             />
             <div className="project-history-record__composer-actions">
               <Button type="button" size="sm" variant="ghost" onClick={onCloseCompose}>
@@ -272,9 +187,9 @@ export function WorkspaceOverviewHistory({
         </article>
       ) : null}
 
-      {filteredNotes.length > 0 ? (
+      {notes.length > 0 ? (
         <div className="grid gap-2.5">
-          {filteredNotes.map((note) => (
+          {notes.map((note) => (
             <WorkspaceHistoryRecordRow
               key={note.id}
               note={note}
@@ -301,7 +216,7 @@ export function WorkspaceOverviewHistory({
             />
           ))}
         </div>
-      ) : notes.length === 0 ? (
+      ) : !hasAnyNotes ? (
         <EmptyState text="还没有记录。" compact />
       ) : (
         <EmptyState text="没有匹配的记录。" compact />
@@ -340,8 +255,10 @@ function WorkspaceHistoryRecordRow({
   const [value, setValue] = useState<RichEditorValue>(() => buildWorkspaceDraft(note));
   const [tagIds, setTagIds] = useState<number[]>((note.tags ?? []).map((tag) => tag.id));
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLElement | null>(null);
+  const editorControllerRef = useRef<RichEditorController | null>(null);
   const scrollParentRef = useRef<HTMLElement | null>(null);
   const exitScrollTopRef = useRef<number | null>(null);
   const pendingAnchorTopRef = useRef<number | null>(null);
@@ -397,7 +314,8 @@ function WorkspaceHistoryRecordRow({
       const switchingToAnotherRecord =
         target instanceof Element &&
         Boolean(target.closest(".project-history-record__surface"));
-      void persistRecord(value, title, tagIds)
+      const nextValue = editorControllerRef.current?.getValue() ?? value;
+      void persistRecord(nextValue, title, tagIds)
         .catch(() => undefined)
         .finally(() => {
           exitEditing({ preserveScroll: !switchingToAnotherRecord });
@@ -452,12 +370,12 @@ function WorkspaceHistoryRecordRow({
   }
 
   async function handleTitleBlur() {
-    await persistRecord(value, title, tagIds);
+    await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
   }
 
   async function handleTagChange(nextTagIds: number[]) {
     setTagIds(nextTagIds);
-    await persistRecord(value, title, nextTagIds);
+    await persistRecord(editorControllerRef.current?.getValue() ?? value, title, nextTagIds);
   }
 
   function enterEditing(point?: RichEditorAutoFocusPoint) {
@@ -560,7 +478,7 @@ function WorkspaceHistoryRecordRow({
               onWindowBlur: true,
               onVisibilityChange: true,
             }}
-            onChange={setValue}
+            controllerRef={editorControllerRef}
             onPersistStateChange={setPersistState}
             onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
           />
@@ -569,6 +487,10 @@ function WorkspaceHistoryRecordRow({
         <button
           type="button"
           className="project-history-record__surface"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setContextMenu({ x: event.clientX, y: event.clientY });
+          }}
           onMouseDown={(event) => {
             if (event.button !== 0) {
               return;
@@ -630,18 +552,12 @@ function WorkspaceHistoryRecordRow({
             ) : null}
           </div>
           <div className="project-history-record__content">
-            <RichEditor
+            <RichTextViewer
               html={getRenderableRichTextHtml({
                 html: note.contentHtml,
                 markdown: note.contentMarkdown,
               })}
-              variant="bare"
-              readOnly
-              internalReferences={{
-                context: { scope: "workspace" },
-                onOpenReference: onOpenInternalReference as never,
-              }}
-              contactMentions={contactMentionOptions}
+              deferUntilVisible
             />
           </div>
           <div className="mt-3 flex justify-end">
@@ -660,6 +576,25 @@ function WorkspaceHistoryRecordRow({
           </div>
         </button>
       )}
+      {contextMenu ? (
+        <ActionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          ariaLabel="记录操作"
+          actions={[
+            {
+              label: "删除",
+              icon: Trash2,
+              tone: "danger",
+              onSelect: () => {
+                setContextMenu(null);
+                void onDelete(note.id);
+              },
+            },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
     </article>
   );
 }

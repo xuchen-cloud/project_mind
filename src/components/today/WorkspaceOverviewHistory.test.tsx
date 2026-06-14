@@ -22,6 +22,7 @@ vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
+  RichTextViewer: ({ html }: { html?: string }) => <div>{toPlainText(html ?? "")}</div>,
   RichEditor: ({
     html,
     autoFocus,
@@ -135,6 +136,31 @@ describe("WorkspaceOverviewHistory", () => {
     const editor = screen.getByLabelText("工作区记录编辑器");
     expect(editor).toBeInTheDocument();
     expect(document.getElementById("record-7")).toHaveClass("project-history-record--editing");
+  });
+
+  it("deletes a record from the context menu", async () => {
+    const onDeleteRecord = vi.fn();
+
+    render(
+      <WorkspaceOverviewHistory
+        notes={[baseNote]}
+        focusId={null}
+        composeRecord={false}
+        pageWidthMode="adaptive"
+        availableTags={[]}
+        onCreateRecord={vi.fn()}
+        onUpdateRecord={vi.fn()}
+        onDeleteRecord={onDeleteRecord}
+        onCloseCompose={vi.fn()}
+        contactMentionOptions={{}}
+        onOpenInternalReference={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /已有记录/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /删除/ }));
+
+    expect(onDeleteRecord).toHaveBeenCalledWith(7);
   });
 });
 

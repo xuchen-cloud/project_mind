@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { useState } from "react";
 
 import { useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
@@ -227,6 +228,70 @@ describe("TodoRail", () => {
     expect(onToggleStatus).toHaveBeenCalledWith(1, "finished");
   });
 
+  it("keeps a completing todo in its original position while it fades out", async () => {
+    const user = userEvent.setup();
+
+    function TransitionHarness() {
+      const [unfinishedTodos, setUnfinishedTodos] = useState([
+        todoWithHistory,
+        anotherTodoWithHistory,
+      ]);
+      const [finishedTodos, setFinishedTodos] = useState<TodoRecord[]>([]);
+
+      return (
+        <TodoRail
+          title="Todo List"
+          scopeLabel="Alpha"
+          unfinishedTodos={unfinishedTodos}
+          finishedTodos={finishedTodos}
+          createPlaceholder="写下一条需要推进的 Todo"
+          onCreateTodo={vi.fn()}
+          onToggleStatus={async (todoId, status) => {
+            const target = unfinishedTodos.find((todo) => todo.id === todoId);
+            if (!target) {
+              return;
+            }
+
+            if (status === "finished") {
+              setUnfinishedTodos((current) => current.filter((todo) => todo.id !== todoId));
+              setFinishedTodos((current) => [{ ...target, status: "finished" }, ...current]);
+            } else {
+              setFinishedTodos((current) => current.filter((todo) => todo.id !== todoId));
+              setUnfinishedTodos((current) => [...current, { ...target, status: "unfinished" }]);
+            }
+
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 20));
+          }}
+          onUpdatePriority={vi.fn()}
+          onUpdateContent={vi.fn()}
+          onAddProgress={vi.fn()}
+          onUpdateProgress={vi.fn()}
+          onDeleteProgress={vi.fn()}
+          onDeleteTodo={vi.fn()}
+        />
+      );
+    }
+
+    render(<TransitionHarness />);
+
+    const getVisibleTitles = () =>
+      Array.from(document.querySelectorAll(".todo-list__collection > article")).map((article) =>
+        article.querySelector(".todo-inline-content")?.textContent?.trim() ?? "",
+      );
+
+    const initialTitles = getVisibleTitles();
+    const originalIndex = initialTitles.indexOf("Prepare demo notes");
+
+    expect(originalIndex).toBeGreaterThanOrEqual(0);
+
+    const targetCard = screen.getByText("Prepare demo notes").closest("article");
+    await user.click(within(targetCard!).getByRole("button", { name: "标记为已完成" }));
+
+    const transitionedTitles = getVisibleTitles();
+
+    expect(transitionedTitles[originalIndex]).toBe("Prepare demo notes");
+  });
+
   it("deletes a todo from the context menu", async () => {
     const user = userEvent.setup();
     const onDeleteTodo = vi.fn();
@@ -243,7 +308,7 @@ describe("TodoRail", () => {
     expect(onDeleteTodo).toHaveBeenCalledWith(4);
   });
 
-  it("updates todo priority from the context menu submenu", async () => {
+  it("updates todo priority from the context menu inline buttons", async () => {
     const user = userEvent.setup();
     const onUpdatePriority = vi.fn(async () => undefined);
 
@@ -254,8 +319,7 @@ describe("TodoRail", () => {
       clientY: 72,
     });
 
-    await user.hover(screen.getByRole("menuitem", { name: "优先级" }));
-    await user.click(await screen.findByRole("menuitem", { name: "紧急且重要" }));
+    await user.click(screen.getByRole("button", { name: "P1 · 紧急且重要" }));
 
     expect(onUpdatePriority).toHaveBeenCalledWith(4, "urgent_important");
   });
@@ -334,6 +398,25 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("menuitem", { name: "删除子项" }));
 
     expect(onDeleteProgress).toHaveBeenCalledWith(102);
+  });
+
+  it("deletes a sub item from the finished tab context menu even when inline editing is disabled", async () => {
+    const user = userEvent.setup();
+    const onDeleteProgress = vi.fn();
+
+    renderRail({
+      unfinishedTodos: [],
+      finishedTodos: [{ ...todoWithHistory, id: 9, status: "finished" }],
+      onDeleteProgress,
+    });
+
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+    fireEvent.contextMenu(screen.getByText("已同步法务").closest("article") as HTMLElement);
+
+    expect(screen.queryByRole("menuitem", { name: "编辑子项" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "删除子项" }));
+
+    expect(onDeleteProgress).toHaveBeenCalledWith(101);
   });
 });
 

@@ -128,6 +128,19 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceRecordList: vi.fn(async () => []),
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
+    projectCreate: vi.fn(async ({ name }: { name: string }) => ({
+      id: 1,
+      name,
+      kind: "normal",
+      status: "active",
+      rootPath: `/tmp/${name}`,
+      quickNote: "",
+      quickNoteMarkdown: "",
+      quickNoteHtml: "",
+      isArchived: false,
+      createdAt: "",
+      updatedAt: "",
+    })),
     richTextStyleGet: vi.fn(async () => ({
       body: {
         fontFamily: { source: "preset", value: "workspace_sans" },
@@ -246,8 +259,13 @@ describe("WorkspaceLayout", () => {
     });
   });
 
-  it("shows the empty state and opens create project dialog", async () => {
+  it("creates a project immediately from the empty state", async () => {
     const user = userEvent.setup();
+    const LocationDisplay = () => {
+      const location = useLocation();
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+    };
+
     const router = createMemoryRouter(
       [
         {
@@ -256,6 +274,15 @@ describe("WorkspaceLayout", () => {
           children: [
             { index: true, element: <div>workspace outlet</div> },
             { path: "today", element: <div>today route</div> },
+            {
+              path: "projects/:projectId",
+              element: (
+                <>
+                  <div>project route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
           ],
         },
       ],
@@ -273,10 +300,15 @@ describe("WorkspaceLayout", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "创建项目" }));
-    expect(
-      await screen.findByText("Project Mind Workspace"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Project Mind Workspace")).toBeInTheDocument();
+    expect(await screen.findByText("project route body")).toBeInTheDocument();
+    expect(vi.mocked(projectMindApi.projectCreate).mock.calls[0]?.[0]).toEqual({
+      name: "未命名项目",
+      quickNote: "",
+      status: "active",
+    });
+    expect(screen.getByTestId("location-display")).toHaveTextContent(
+      "/projects/1?renameProject=1",
+    );
   });
 
   it("opens settings as a dialog even when there are no projects", async () => {

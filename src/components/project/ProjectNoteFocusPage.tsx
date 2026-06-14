@@ -1,5 +1,5 @@
 import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -18,9 +18,12 @@ import {
   getRenderableRichTextHtml,
   normalizeRichEditorValue,
   RichEditor,
+  type RichEditorAssetHandlers,
+  type RichEditorController,
   type RichEditorPersistState,
   type RichEditorValue,
 } from "../rich-editor";
+import { buildProjectNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import type { FileTagRecord, NoteRecord } from "../../lib/types";
 
@@ -31,7 +34,7 @@ export function ProjectNoteFocusPage() {
   const projectId = parseRouteId(params.projectId);
   const noteId = parseRouteId(params.noteId);
   const { pushToast } = useFeedbackStore();
-  const { openSettings, pageWidthMode } = useUiStore();
+  const { openSettings, pageWidthMode, projectSidebarCollapsed } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
@@ -40,6 +43,7 @@ export function ProjectNoteFocusPage() {
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
+  const editorControllerRef = useRef<RichEditorController | null>(null);
 
   const projectQuery = useQuery({
     queryKey: ["projects", "all"],
@@ -70,6 +74,13 @@ export function ProjectNoteFocusPage() {
   }, [projectPageQuery.data, noteId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
+    if (!projectId || !note) {
+      return undefined;
+    }
+
+    return buildProjectNoteImageAssetHandlers(projectId, note.activityId ?? null);
+  }, [note, projectId]);
 
   function syncProjectTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
@@ -111,6 +122,7 @@ export function ProjectNoteFocusPage() {
       const mentionedTagIds = extractTagMentionIds(normalized.markdown);
       await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
+        activityId: note.activityId ?? undefined,
         noteId: note.id,
         title: title.trim() || undefined,
         markdown: normalized.markdown,
@@ -130,7 +142,7 @@ export function ProjectNoteFocusPage() {
   const handleBack = async () => {
     if (projectId !== null) {
       // Save before navigating back
-      await handleSave(content);
+      await handleSave(editorControllerRef.current?.getValue() ?? content);
       navigate(projectPath(projectId, `record-${noteId}`));
     }
   };
@@ -139,11 +151,13 @@ export function ProjectNoteFocusPage() {
     if (!note) return;
     setTagIds(newTagIds);
     try {
+      const nextValue = editorControllerRef.current?.getValue() ?? content;
       await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
+        activityId: note.activityId ?? undefined,
         noteId: note.id,
-        markdown: content.markdown,
-        html: content.html,
+        markdown: nextValue.markdown,
+        html: nextValue.html,
         tagIds: newTagIds,
       });
       await projectPageQuery.refetch();
@@ -179,46 +193,56 @@ export function ProjectNoteFocusPage() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border bg-bg px-6 py-3">
-        <div className="flex items-center gap-3">
-          <IconButton
-            type="button"
-            size="sm"
-            variant="ghost"
-            aria-label="返回项目"
-            onClick={handleBack}
-          >
-            <ArrowLeft size={16} />
-          </IconButton>
-          <div>
-            <p className="text-caption text-text-soft">{project.name}</p>
-            <p className="text-ui font-medium text-text">记录</p>
+      <header className="project-overview-focus__chrome">
+        <div
+          className={cn(
+            "project-overview-focus__chrome-inner",
+            projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
+          )}
+        >
+          <div className="project-overview-focus__meta">
+            <div className="flex items-center gap-3">
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="返回项目"
+                onClick={handleBack}
+              >
+                <ArrowLeft size={16} />
+              </IconButton>
+              <div>
+                <p className="text-caption text-text-soft">{project.name}</p>
+                <p className="text-ui font-medium text-text">记录</p>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
-            页面宽度
-          </Button>
-          <span
-            className={cn(
-              "text-caption",
-              persistState === "saving"
-                ? "text-text-soft"
+
+          <div className="project-overview-focus__header-actions">
+            <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
+              页面宽度
+            </Button>
+            <span
+              className={cn(
+                "text-caption",
+                persistState === "saving"
+                  ? "text-text-soft"
+                  : persistState === "saved"
+                    ? "text-green-600"
+                    : persistState === "error"
+                      ? "text-red-600"
+                      : "text-text-soft"
+              )}
+            >
+              {persistState === "saving"
+                ? "保存中..."
                 : persistState === "saved"
-                  ? "text-green-600"
+                  ? "已保存"
                   : persistState === "error"
-                    ? "text-red-600"
-                    : "text-text-soft"
-            )}
-          >
-            {persistState === "saving"
-              ? "保存中..."
-              : persistState === "saved"
-                ? "已保存"
-                : persistState === "error"
-                  ? "保存失败"
-                  : ""}
-          </span>
+                    ? "保存失败"
+                    : ""}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -239,7 +263,7 @@ export function ProjectNoteFocusPage() {
               onBlur={() => {
                 // Save title changes
                 if (note && title !== (note.title ?? "")) {
-                  handleSave(content);
+                  handleSave(editorControllerRef.current?.getValue() ?? content);
                 }
               }}
               className="text-lg font-medium"
@@ -256,6 +280,7 @@ export function ProjectNoteFocusPage() {
               variant="bare"
               autoFocus
               placeholder="写记录，正文里的 #标签 会自动同步。"
+              assetHandlers={assetHandlers}
               tagMentions={{
                 projectId: project.id,
                 availableTags,
@@ -280,7 +305,7 @@ export function ProjectNoteFocusPage() {
                 onWindowBlur: true,
                 onVisibilityChange: true,
               }}
-              onChange={setContent}
+              controllerRef={editorControllerRef}
               onSave={handleSave}
               onPersistStateChange={setPersistState}
             />

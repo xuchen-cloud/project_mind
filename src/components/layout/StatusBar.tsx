@@ -12,7 +12,7 @@ export function StatusBar({ context, detail }: StatusBarProps) {
   const status = useFeedbackStore((state) => state.status);
 
   return (
-    <footer className="flex h-10 items-center justify-between gap-4 border-t border-border px-4 text-ui text-text-muted">
+    <footer className="flex h-8 items-center justify-between gap-3 border-t border-border px-3 text-ui text-text-muted">
       <div className="flex min-w-0 items-center gap-3">
         <StatusBadge
           tone={

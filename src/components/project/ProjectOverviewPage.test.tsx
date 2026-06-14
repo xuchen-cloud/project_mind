@@ -108,6 +108,7 @@ vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
+  RichTextViewer: ({ html }: { html?: string }) => <div>{html}</div>,
   RichEditor: ({
     html,
     readOnly,
@@ -158,7 +159,7 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
-  it("switches to history, clears filters, and focuses the matching record from focus query", async () => {
+  it("switches to history and focuses the matching record from focus query", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -181,9 +182,6 @@ describe("ProjectOverviewPage", () => {
       "true",
     );
 
-    const searchField = screen.getByLabelText("搜索记录") as HTMLInputElement;
-    expect(searchField.value).toBe("");
-
     await waitFor(() => {
       expect(scrollIntoViewMock).toHaveBeenCalled();
     });
@@ -193,5 +191,31 @@ describe("ProjectOverviewPage", () => {
     expect(record).toHaveClass("scroll-mt-6");
     expect(record).toHaveClass("is-focused");
     expect(screen.getByText("目标记录")).toBeInTheDocument();
+  });
+
+  it("focuses and selects the project name when opened in rename mode", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?renameProject=1"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const nameInput = await screen.findByRole("textbox", { name: "项目名称" });
+
+    await waitFor(() => {
+      expect(nameInput).toHaveFocus();
+    });
+    expect(nameInput).toHaveValue("Alpha Project");
   });
 });

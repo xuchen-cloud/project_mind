@@ -108,8 +108,13 @@ export function TodoListItem({
   const unfinishedSubItems = sortedProgresses.filter(
     (progress) => progress.status !== "finished",
   );
+  const visibleUnfinishedSubItems = sortedProgresses.filter((progress) => {
+    const phase = progressTransitions[progress.id]?.phase;
+    return progress.status !== "finished" || phase === "completing";
+  });
   const finishedSubItems = sortedProgresses.filter(
-    (progress) => progress.status === "finished",
+    (progress) =>
+      progress.status === "finished" && progressTransitions[progress.id]?.phase !== "completing",
   );
   const canExpand = finishedSubItems.length > 0;
   const expandedItemRef = useDismissOnOutside<HTMLElement>({
@@ -232,6 +237,11 @@ export function TodoListItem({
       ref={expanded ? expandedItemRef : undefined}
       className="todo-card group"
       data-state={todoState}
+      style={
+        {
+          "--todo-priority-color": priorityColorValue(todo.priority),
+        } as CSSProperties
+      }
       onContextMenu={(event) => {
         if (shouldIgnoreContextMenuTarget(event.target)) {
           return;
@@ -240,14 +250,7 @@ export function TodoListItem({
         onOpenContextMenu(todo.id, event.clientX, event.clientY);
       }}
     >
-      <div
-        className={cn("todo-card__row", compact && "todo-card__row--compact")}
-        style={
-          {
-            "--todo-priority-color": priorityColorValue(todo.priority),
-          } as CSSProperties
-        }
-      >
+      <div className={cn("todo-card__row", compact && "todo-card__row--compact")}>
         <div className="todo-card__main">
           <div className="todo-card__headline">
             <div className="todo-card__content">
@@ -272,7 +275,9 @@ export function TodoListItem({
               }}
             >
               <span className="todo-card__check-ring">
-                {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
+                <span className="todo-card__check-glyph" aria-hidden="true">
+                  {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
+                </span>
               </span>
             </button>
           </div>
@@ -288,9 +293,9 @@ export function TodoListItem({
             />
           ) : null}
 
-          {unfinishedSubItems.length > 0 ? (
+          {visibleUnfinishedSubItems.length > 0 ? (
             <div className="todo-card__progress-stack">
-              {unfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
+              {visibleUnfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
             </div>
           ) : null}
 
@@ -373,15 +378,52 @@ function TodoHistoryProgressItem({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(progress.content);
   const [saving, setSaving] = useState(false);
+  const [optimisticProgress, setOptimisticProgress] = useState<TodoProgressRecord | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const saveInFlightRef = useRef(false);
+  const displayProgress = optimisticProgress ?? progress;
+  const progressContextActions = [
+    editable
+      ? {
+          icon: Pencil,
+          label: "编辑子项",
+          onSelect: () => {
+            if (!saving) {
+              setEditing(true);
+            }
+          },
+        }
+      : null,
+    {
+      icon: Trash2,
+      label: "删除子项",
+      tone: "danger" as const,
+      onSelect: () => {
+        void onDeleteProgress(progress.id);
+      },
+    },
+  ].filter(Boolean);
 
   useEffect(() => {
     if (!editing) {
-      setDraft(progress.content);
+      setDraft(displayProgress.content);
     }
-  }, [editing, progress.content]);
+  }, [displayProgress.content, editing]);
+
+  useEffect(() => {
+    if (!optimisticProgress) {
+      return;
+    }
+
+    if (
+      progress.content === optimisticProgress.content &&
+      progress.progressDate === optimisticProgress.progressDate &&
+      progress.status === optimisticProgress.status
+    ) {
+      setOptimisticProgress(null);
+    }
+  }, [optimisticProgress, progress]);
 
   async function handleSave() {
     if (saveInFlightRef.current) {
@@ -389,26 +431,45 @@ function TodoHistoryProgressItem({
     }
 
     const normalizedDraft = normalizeProgressDraft(draft).trim();
+    const currentContent = displayProgress.content.trim();
     if (!normalizedDraft || /^@\d{4}$/u.test(normalizedDraft)) {
       setEditing(false);
       return;
     }
 
-    const parsed = parseProgressInput(normalizedDraft, new Date(), progress.progressDate);
+    const parsed = parseProgressInput(normalizedDraft, new Date(), displayProgress.progressDate);
     if (!parsed.ok) {
       onError?.(parsed.error);
       return;
     }
 
+    if (
+      parsed.content === currentContent &&
+      parsed.progressDate === displayProgress.progressDate
+    ) {
+      setEditing(false);
+      return;
+    }
+
     saveInFlightRef.current = true;
     setSaving(true);
+    setOptimisticProgress({
+      ...displayProgress,
+      content: parsed.content,
+      progressDate: parsed.progressDate,
+      status: progress.status ?? "unfinished",
+    });
+    setEditing(false);
     try {
       await onUpdateProgress(progress.id, {
         content: parsed.content,
         progressDate: parsed.progressDate,
         status: progress.status ?? "unfinished",
       });
-      setEditing(false);
+    } catch (error) {
+      setOptimisticProgress(null);
+      setEditing(true);
+      throw error;
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -466,8 +527,14 @@ function TodoHistoryProgressItem({
         bordered && "todo-progress-item--bordered",
         visualState && `todo-progress-item--${visualState}`,
       )}
+      data-state={[
+        displayProgress.status === "finished" ? "finished" : "unfinished",
+        visualState ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onContextMenu={(event) => {
-        if (!editable || shouldIgnoreContextMenuTarget(event.target)) {
+        if (progressContextActions.length === 0 || shouldIgnoreContextMenuTarget(event.target)) {
           return;
         }
         event.preventDefault();
@@ -481,15 +548,15 @@ function TodoHistoryProgressItem({
           tabIndex={editable ? 0 : undefined}
           className={cn(
             "todo-progress-item__text min-w-0 flex-1",
-            progress.status === "finished" && "text-text-soft line-through",
+            displayProgress.status === "finished" && "text-text-soft line-through",
           )}
           onClick={() => {
-            if (editable) {
+            if (editable && !saving) {
               setEditing(true);
             }
           }}
           onKeyDown={(event) => {
-            if (!editable) {
+            if (!editable || saving) {
               return;
             }
 
@@ -501,7 +568,7 @@ function TodoHistoryProgressItem({
         >
           <span className="todo-progress-item__text-inner">
             <InternalReferenceInlineText
-              value={progress.content}
+              value={displayProgress.content}
               className="break-words"
               variant="todo-inline"
               onOpenInternalReference={onOpenInternalReference}
@@ -514,16 +581,18 @@ function TodoHistoryProgressItem({
             type="button"
             className="todo-progress-item__check mt-0.5"
             aria-label={
-              progress.status === "finished" ? "标记子项未完成" : "标记子项完成"
+              displayProgress.status === "finished" ? "标记子项未完成" : "标记子项完成"
             }
-            aria-pressed={progress.status === "finished"}
-            disabled={statusSaving}
+            aria-pressed={displayProgress.status === "finished"}
+            disabled={statusSaving || saving}
             onClick={() => {
               void handleToggleSubItem();
             }}
           >
             <span className="todo-progress-item__check-ring">
-              {progress.status === "finished" ? <Check size={11} /> : null}
+              <span className="todo-progress-item__check-glyph" aria-hidden="true">
+                {displayProgress.status === "finished" ? <Check size={11} /> : <Circle size={10} />}
+              </span>
             </span>
           </button>
         ) : null}
@@ -534,23 +603,7 @@ function TodoHistoryProgressItem({
           y={contextMenu.y}
           ariaLabel="Todo 子项操作"
           onClose={() => setContextMenu(null)}
-          actions={[
-            {
-              icon: Pencil,
-              label: "编辑子项",
-              onSelect: () => {
-                setEditing(true);
-              },
-            },
-            {
-              icon: Trash2,
-              label: "删除子项",
-              tone: "danger",
-              onSelect: () => {
-                void onDeleteProgress(progress.id);
-              },
-            },
-          ]}
+          actions={progressContextActions}
         />
       ) : null}
     </article>

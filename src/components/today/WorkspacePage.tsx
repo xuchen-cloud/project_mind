@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, Settings2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { parseRouteId, projectPath, workspacePath } from "../../lib/formatters";
@@ -10,6 +10,7 @@ import {
   type RichEditorValue,
 } from "../rich-editor";
 import { renderMarkdownToHtml, richTextHtmlToPlainText } from "../../lib/richTextContent";
+import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { resolveTodoContentTagSync, todoTagIds } from "../../lib/todo-tag-sync";
 import { colorKeyForTagLabel, extractHashTagLabels, findTagByLabel, mergeUniqueTagIds } from "../../lib/tags";
@@ -20,12 +21,14 @@ import { useInternalReferenceNavigation } from "../../hooks/useInternalReference
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
+import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { refreshAll } from "../../hooks/shared";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { desktopApi } from "../../services/desktopApi";
 import { cn } from "../../ui/lib/cn";
+import { IconButton } from "../../ui/components";
 import { RichEditor } from "../rich-editor";
 import { TodoRail } from "../todo";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
@@ -46,6 +49,8 @@ export function WorkspacePage() {
     projectRecentPaths,
     openProjectIds,
     closeProjectTab,
+    projectSidebarCollapsed,
+    todoRailCollapsed,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
@@ -79,10 +84,16 @@ export function WorkspacePage() {
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
     [projectsQuery.data],
   );
+  const archivedProjects = useMemo(
+    () => (projectsQuery.data ?? []).filter((project) => project.isArchived),
+    [projectsQuery.data],
+  );
   const workspacePage = workspacePageQuery.data;
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [recordSearchQuery, setRecordSearchQuery] = useState("");
+  const [recordFilterTagId, setRecordFilterTagId] = useState<number | null>(null);
   const allTodos = useMemo(
     () => [
       ...(workspacePage?.unfinishedTodos ?? []),
@@ -92,6 +103,10 @@ export function WorkspacePage() {
   );
   const { workspaceQuickNoteMutation } = useWorkspaceQuickNoteMutations();
   const { workspaceRecordMutation, workspaceRecordDeleteMutation } = useWorkspaceRecordMutations();
+  const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
+    visibleProjects,
+    (path, options) => navigate(path, options),
+  );
   const {
     todoMutation,
     todoContentMutation,
@@ -115,6 +130,24 @@ export function WorkspacePage() {
       markdown: quickNote?.contentMarkdown ?? "",
     });
   }, [workspacePage?.quickNote?.contentHtml, workspacePage?.quickNote?.contentMarkdown]);
+
+  const workspaceRecords = useMemo(() => workspacePage?.records ?? [], [workspacePage?.records]);
+  const filteredWorkspaceRecords = useMemo(() => {
+    const normalizedQuery = recordSearchQuery.trim().toLowerCase();
+
+    return workspaceRecords.filter((record) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        (record.title ?? "").toLowerCase().includes(normalizedQuery) ||
+        record.contentMarkdown.toLowerCase().includes(normalizedQuery) ||
+        (record.tags ?? []).some((tag) => tag.label.toLowerCase().includes(normalizedQuery));
+      const matchesTag =
+        recordFilterTagId === null ||
+        (record.tags ?? []).some((tag) => tag.id === recordFilterTagId);
+
+      return matchesQuery && matchesTag;
+    });
+  }, [recordFilterTagId, recordSearchQuery, workspaceRecords]);
 
   const appendSelectionToProjectNoteMutation = useMutation({
     mutationFn: async (input: {
@@ -298,6 +331,48 @@ export function WorkspacePage() {
     navigate(projectPath(projectId));
   }
 
+  async function createProjectQuickly() {
+    if (createProjectMutation.isPending) {
+      return;
+    }
+
+    const nextName = generateDefaultProjectName(
+      (projectsQuery.data ?? []).map((project) => project.name),
+    );
+
+    await createProjectMutation.mutateAsync({
+      name: nextName,
+      quickNote: "",
+      status: "active",
+    });
+  }
+
+  async function renameProject(projectId: number, name: string) {
+    const project = visibleProjects.find((item) => item.id === projectId);
+    if (!project) {
+      return;
+    }
+
+    await projectMindApi.projectUpdate({
+      projectId,
+      name,
+      quickNote: project.quickNote,
+      quickNoteMarkdown: project.quickNoteMarkdown,
+      quickNoteHtml: project.quickNoteHtml,
+      status: project.status,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
+    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+  }
+
+  function deleteProject(projectId: number, name: string) {
+    if (!window.confirm(`确定删除项目「${name}」？项目目录会移到废纸篓。`)) {
+      return;
+    }
+
+    deleteProjectMutation.mutate({ projectId });
+  }
+
   if (!workspacePage || !currentWorkspace) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-body text-text-soft">
@@ -308,17 +383,23 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="relative flex h-full min-h-0 overflow-hidden">
       <WorkspaceOverviewSidebar
         workspaceRootPath={currentWorkspace.rootPath}
         projects={visibleProjects}
+        archivedProjects={archivedProjects}
         records={(workspacePage.records ?? []).map((record) => ({
           id: record.id,
           title: record.title,
           contentMarkdown: record.contentMarkdown,
+          tags: record.tags ?? [],
           updatedAt: record.updatedAt,
         }))}
         activeRecordId={focusedRecordId}
+        recordQuery={recordSearchQuery}
+        onRecordQueryChange={setRecordSearchQuery}
+        activeRecordTagId={recordFilterTagId}
+        onActiveRecordTagIdChange={setRecordFilterTagId}
         onOpenOverview={() => navigate(workspacePath())}
         onOpenProject={(projectId) => {
           void openProject(projectId);
@@ -326,13 +407,32 @@ export function WorkspacePage() {
         onOpenProjectInNewWindow={(projectId) => {
           void openProjectInNewWindow(projectId);
         }}
+        onCreateProject={() => {
+          void createProjectQuickly();
+        }}
+        createProjectPending={createProjectMutation.isPending}
+        onOpenArchivedProject={(projectId) => {
+          void openProject(projectId);
+        }}
+        onRestoreArchivedProject={(projectId) => {
+          archiveMutation.mutate({ projectId, isArchived: false });
+        }}
+        onRenameProject={(project, name) => renameProject(project.id, name)}
+        onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
+        onDeleteProject={(project) => deleteProject(project.id, project.name)}
         onOpenRecord={openRecord}
         onCreateRecord={openComposeRecord}
       />
 
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">
         <header className="project-overview-focus__chrome">
-          <div className="project-overview-focus__chrome-inner">
+          <div
+            className={cn(
+              "project-overview-focus__chrome-inner",
+              projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
+              todoRailCollapsed && "project-overview-focus__chrome-inner--dock-right",
+            )}
+          >
             <div className="project-overview-focus__meta">
               <div className="min-w-0">
                 <h1 className="project-overview-focus__title">Workspace</h1>
@@ -349,13 +449,16 @@ export function WorkspacePage() {
             </div>
 
             <div className="project-overview-focus__header-actions">
-              <button
+              <IconButton
                 type="button"
-                className="project-overview-focus__view-switch-button"
+                size="sm"
+                variant="secondary"
+                aria-label="打开页面设置"
+                title="页面设置"
                 onClick={() => openSettings("page-width")}
               >
-                页面宽度
-              </button>
+                <Settings2 size={14} />
+              </IconButton>
               <div
                 className="project-overview-focus__view-switch"
                 data-testid="workspace-overview-view-switch"
@@ -446,13 +549,12 @@ export function WorkspacePage() {
                     onOpenReference: openInternalReference,
                   }}
                   contactMentions={contactMentionOptions}
-                  autosave={{
-                    delay: 120000,
-                    onBlur: true,
-                    onWindowBlur: true,
-                    onVisibilityChange: true,
-                  }}
-                  onChange={setQuickNoteDraft}
+                autosave={{
+                  delay: 120000,
+                  onBlur: true,
+                  onWindowBlur: true,
+                  onVisibilityChange: true,
+                }}
                   onSave={async (value) => {
                     const tagIds = await ensureWorkspaceTagIds(value.markdown, []);
                     await workspaceQuickNoteMutation.mutateAsync({
@@ -467,7 +569,8 @@ export function WorkspacePage() {
               </section>
             ) : (
               <WorkspaceOverviewHistory
-                notes={workspacePage.records}
+                notes={filteredWorkspaceRecords}
+                hasAnyNotes={workspaceRecords.length > 0}
                 focusId={focusId}
                 composeRecord={composeRecord}
                 pageWidthMode={pageWidthMode}

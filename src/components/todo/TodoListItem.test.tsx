@@ -51,6 +51,14 @@ describe("TodoListItem", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("stores the priority color on the todo card so the left rail can render it", () => {
+    renderItem({ priority: "urgent_important" });
+
+    expect(document.getElementById("todo-7")).toHaveStyle({
+      "--todo-priority-color": "var(--color-todo-p1)",
+    });
+  });
+
   it("keeps the main completion button on the headline row", async () => {
     const user = userEvent.setup();
     const onToggleStatus = vi.fn(async () => undefined);
@@ -132,6 +140,9 @@ describe("TodoListItem", () => {
       progressDate: "2026-04-05",
       status: "finished",
     });
+    expect(screen.getByText("等待财务确认").closest(".todo-progress-item")?.className).toContain(
+      "todo-progress-item--completing",
+    );
   });
 
   it("allows clicking an unfinished subitem body to edit it", async () => {
@@ -158,6 +169,46 @@ describe("TodoListItem", () => {
     await user.click(screen.getByRole("button", { name: "等待财务确认" }));
 
     expect(screen.getByRole("textbox")).toBeInTheDocument();
+  });
+
+  it("returns a subitem to display mode immediately while its edit save is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSave: (() => void) | null = null;
+    const onUpdateProgress = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "等待财务确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "unfinished",
+            completedAt: null,
+            orderIndex: 0,
+          },
+        ],
+      },
+      { allowInlineProgress: true, onUpdateProgress },
+    );
+
+    await user.click(screen.getByRole("button", { name: "等待财务确认" }));
+    const textbox = screen.getByRole("textbox");
+    await user.clear(textbox);
+    await user.type(textbox, "等待财务最终盖章");
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "等待财务最终盖章" })).toBeInTheDocument();
+
+    resolveSave?.();
   });
 
   it("applies a visual transition state while a sub item is completing", () => {

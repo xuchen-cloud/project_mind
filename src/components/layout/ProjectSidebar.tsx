@@ -41,7 +41,7 @@ import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton, PopoverPanel, SearchField, StatusBadge } from "../../ui/components";
+import { ActionContextMenu, Button, IconButton, PopoverPanel, SearchField, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
 import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
@@ -56,9 +56,12 @@ import {
 
 export interface ProjectSidebarRecordItem {
   id: number;
+  projectId?: number;
+  activityId?: number | null;
   title?: string | null;
   typeLabel: string;
   contentMarkdown: string;
+  contentHtml?: string;
   tags: Array<{ id: number; label: string; colorKey: FileTagColorKey }>;
   updatedAt: string;
 }
@@ -90,9 +93,15 @@ interface ProjectSidebarProps {
   records?: ProjectSidebarRecordItem[];
   documents?: ProjectSidebarDocumentItem[];
   activeRecordId?: number | null;
+  recordQuery?: string;
+  onRecordQueryChange?: (value: string) => void;
+  activeRecordTagId?: number | null;
+  onActiveRecordTagIdChange?: (tagId: number | null) => void;
   onOpenProject: () => void;
   onOpenRecord?: (recordId: number) => void;
   onCreateRecord?: () => void;
+  onRenameRecord?: (record: ProjectSidebarRecordItem, title: string) => Promise<unknown> | unknown;
+  onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
 }
 
@@ -100,6 +109,12 @@ type ProjectSidebarTab = "records" | "files";
 
 interface ContextMenuState {
   documentId: number;
+  x: number;
+  y: number;
+}
+
+interface RecordContextMenuState {
+  recordId: number;
   x: number;
   y: number;
 }
@@ -114,9 +129,15 @@ export function ProjectSidebar({
   records: explicitRecords,
   documents = [],
   activeRecordId,
+  recordQuery: recordQueryProp,
+  onRecordQueryChange,
+  activeRecordTagId: activeRecordTagIdProp,
+  onActiveRecordTagIdChange,
   onOpenProject,
   onOpenRecord,
   onCreateRecord,
+  onRenameRecord,
+  onDeleteRecord,
   onOpenDocument,
 }: ProjectSidebarProps) {
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
@@ -146,8 +167,10 @@ export function ProjectSidebar({
 
   // UI State
   const [activeTab, setActiveTab] = useState<ProjectSidebarTab>("records");
-  const [query, setQuery] = useState("");
-  const [activeTagId, setActiveTagId] = useState<number | null>(null);
+  const [localRecordQuery, setLocalRecordQuery] = useState("");
+  const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
+  const [fileQuery, setFileQuery] = useState("");
+  const [fileTagId, setFileTagId] = useState<number | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -156,6 +179,15 @@ export function ProjectSidebar({
   const [nameDraft, setNameDraft] = useState("");
   const [pendingTagIdsByDocumentId, setPendingTagIdsByDocumentId] = useState<Record<number, number[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [recordContextMenu, setRecordContextMenu] = useState<RecordContextMenuState | null>(null);
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [recordTitleDraft, setRecordTitleDraft] = useState("");
+
+  const recordQuery = recordQueryProp ?? localRecordQuery;
+  const setRecordQuery = onRecordQueryChange ?? setLocalRecordQuery;
+  const selectedRecordTagId = activeRecordTagIdProp ?? localActiveRecordTagId;
+  const setSelectedRecordTagId =
+    onActiveRecordTagIdChange ?? setLocalActiveRecordTagId;
 
   const openTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const dragDeactivateTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -177,20 +209,35 @@ export function ProjectSidebar({
     [fileTags],
   );
 
-  const tagOptions = useMemo(() => {
+  const recordTagOptions = useMemo(() => {
     const map = new Map<number, { id: number; label: string; colorKey: FileTagColorKey; count: number }>();
-    const items = activeTab === "records" ? records : documents;
 
-    for (const item of items) {
-      for (const tag of item.tags) {
+    for (const record of records) {
+      for (const tag of record.tags) {
         const current = map.get(tag.id);
         map.set(tag.id, { ...tag, count: (current?.count ?? 0) + 1 });
       }
     }
+
     return Array.from(map.values()).sort((left, right) =>
       left.label.localeCompare(right.label, "zh-Hans-CN"),
     );
-  }, [activeTab, documents, records]);
+  }, [records]);
+
+  const fileTagOptions = useMemo(() => {
+    const map = new Map<number, { id: number; label: string; colorKey: FileTagColorKey; count: number }>();
+
+    for (const document of documents) {
+      for (const tag of document.tags) {
+        const current = map.get(tag.id);
+        map.set(tag.id, { ...tag, count: (current?.count ?? 0) + 1 });
+      }
+    }
+
+    return Array.from(map.values()).sort((left, right) =>
+      left.label.localeCompare(right.label, "zh-Hans-CN"),
+    );
+  }, [documents]);
 
   // Sort documents: starred first, then by updated date
   const sortedDocuments = useMemo(
@@ -216,33 +263,38 @@ export function ProjectSidebar({
     [sortedDocuments, fileTagLookup, pendingTagIdsByDocumentId],
   );
 
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedRecordQuery = recordQuery.trim().toLowerCase();
   const filteredRecords = records.filter((record) => {
     const matchesQuery =
-      !normalizedQuery ||
-      (record.title ?? "").toLowerCase().includes(normalizedQuery) ||
-      record.typeLabel.toLowerCase().includes(normalizedQuery) ||
-      record.contentMarkdown.toLowerCase().includes(normalizedQuery) ||
-      record.tags.some((tag) => tag.label.toLowerCase().includes(normalizedQuery));
-    const matchesTag = activeTagId === null || record.tags.some((tag) => tag.id === activeTagId);
+      !normalizedRecordQuery ||
+      (record.title ?? "").toLowerCase().includes(normalizedRecordQuery) ||
+      record.typeLabel.toLowerCase().includes(normalizedRecordQuery) ||
+      record.contentMarkdown.toLowerCase().includes(normalizedRecordQuery) ||
+      record.tags.some((tag) => tag.label.toLowerCase().includes(normalizedRecordQuery));
+    const matchesTag =
+      selectedRecordTagId === null || record.tags.some((tag) => tag.id === selectedRecordTagId);
     return matchesQuery && matchesTag;
   });
 
+  const normalizedFileQuery = fileQuery.trim().toLowerCase();
   const filteredDocuments = sortedDocuments.filter((document) => {
     const matchesQuery =
-      !normalizedQuery ||
-      document.name.toLowerCase().includes(normalizedQuery) ||
+      !normalizedFileQuery ||
+      document.name.toLowerCase().includes(normalizedFileQuery) ||
       (effectiveDocumentTagsById.get(document.id) ?? document.tags).some((tag) =>
-        tag.label.toLowerCase().includes(normalizedQuery),
+        tag.label.toLowerCase().includes(normalizedFileQuery),
       );
     const matchesTag =
-      activeTagId === null ||
-      (effectiveDocumentTagsById.get(document.id) ?? document.tags).some((tag) => tag.id === activeTagId);
+      fileTagId === null ||
+      (effectiveDocumentTagsById.get(document.id) ?? document.tags).some((tag) => tag.id === fileTagId);
     return matchesQuery && matchesTag;
   });
 
   const contextMenuDocument = contextMenu
     ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? null
+    : null;
+  const contextMenuRecord = recordContextMenu
+    ? records.find((record) => record.id === recordContextMenu.recordId) ?? null
     : null;
 
   // Cleanup timer on unmount
@@ -473,6 +525,26 @@ export function ProjectSidebar({
     documentDeleteMutation.mutate({ documentId: document.id });
   };
 
+  const beginRenameRecord = (record: ProjectSidebarRecordItem) => {
+    setRecordContextMenu(null);
+    setEditingRecordId(record.id);
+    setRecordTitleDraft(record.title ?? "");
+  };
+
+  const cancelRenameRecord = () => {
+    setEditingRecordId(null);
+    setRecordTitleDraft("");
+  };
+
+  const commitRenameRecord = (record: ProjectSidebarRecordItem) => {
+    const nextTitle = recordTitleDraft.trim();
+    cancelRenameRecord();
+    if (nextTitle === (record.title ?? "")) {
+      return;
+    }
+    void onRenameRecord?.(record, nextTitle);
+  };
+
   const beginRename = (document: ProjectSidebarDocumentItem) => {
     if (!canRenameDocument(document as DocumentRecord)) {
       return;
@@ -642,16 +714,34 @@ export function ProjectSidebar({
     };
   }, [isResizing, setProjectSidebarWidthPx]);
 
+  if (projectSidebarCollapsed) {
+    return (
+      <aside className="sidebar-dock sidebar-dock--left" aria-label="项目导航侧边栏">
+        <button
+          type="button"
+          title={`展开项目侧边栏\n${project.name}\n${project.rootPath}`}
+          aria-label="展开项目侧边栏"
+          className="sidebar-dock__surface sidebar-dock__surface--icon-only"
+          onClick={toggleProjectSidebarCollapsed}
+        >
+          <span className="sidebar-dock__icon">
+            <FolderKanban size={16} />
+          </span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside
       ref={rootRef}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
         dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
-        projectSidebarCollapsed ? "" : "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
+        "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{
-        width: projectSidebarCollapsed ? "48px" : `${projectSidebarWidthPx}px`,
+        width: `${projectSidebarWidthPx}px`,
       }}
       aria-label="项目导航侧边栏"
       onDragOver={(event) => {
@@ -685,73 +775,47 @@ export function ProjectSidebar({
       }}
       onDrop={handleDrop}
     >
-      {!projectSidebarCollapsed && (
-        <div
-          className={cn(
-            "absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20",
-            isResizing && "bg-accent/30",
-          )}
-          onMouseDown={handleResizeStart}
-        />
-      )}
-      <div className={cn("relative border-b border-border px-3 py-3", projectSidebarCollapsed && "px-2")}>
+      <div
+        className={cn(
+          "absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20",
+          isResizing && "bg-accent/30",
+        )}
+        onMouseDown={handleResizeStart}
+      />
+      <div className="relative border-b border-border px-3 py-3">
         <button
           type="button"
           title={`${project.name}\n${project.rootPath}`}
           className={cn(
             "rounded-[var(--radius-8)] border border-transparent text-text transition-colors hover:border-border hover:bg-bg",
-            projectSidebarCollapsed
-              ? "flex h-9 w-9 items-center justify-center"
-              : "flex w-full items-center gap-3 px-3 py-2.5 pr-12 text-left",
+            "flex w-full items-center gap-3 px-3 py-2.5 pr-12 text-left",
           )}
           onClick={onOpenProject}
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-8)] bg-bg text-text-muted">
             <FolderKanban size={16} />
           </span>
-          {!projectSidebarCollapsed ? (
-            <span className="min-w-0">
-              <span className="block truncate text-title font-medium">{project.name}</span>
-              <span className="mt-1 flex items-center gap-2">
-                <StatusBadge tone="neutral">{project.isArchived ? "archived" : "overview"}</StatusBadge>
-              </span>
+          <span className="min-w-0">
+            <span className="block truncate text-title font-medium">{project.name}</span>
+            <span className="mt-1 flex items-center gap-2">
+              <StatusBadge tone="neutral">{project.isArchived ? "archived" : "overview"}</StatusBadge>
             </span>
-          ) : null}
+          </span>
         </button>
         <IconButton
           type="button"
           size="sm"
-          variant={projectSidebarCollapsed ? "ghost" : "secondary"}
-          className={projectSidebarCollapsed ? undefined : "absolute right-3 top-3"}
-          aria-label={projectSidebarCollapsed ? "展开项目侧边栏" : "收起项目侧边栏"}
+          variant="secondary"
+          className="absolute right-3 top-3"
+          aria-label="收起项目侧边栏"
           onClick={toggleProjectSidebarCollapsed}
         >
-          {projectSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          <ChevronLeft size={14} />
         </IconButton>
       </div>
 
-      <div className={cn("flex min-h-0 flex-1 flex-col px-3 py-3", projectSidebarCollapsed && "px-2")}>
-        {projectSidebarCollapsed ? (
-          <div className="flex flex-col items-center gap-2">
-            {records.slice(0, 12).map((record) => (
-              <button
-                key={record.id}
-                type="button"
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border text-ui font-medium",
-                  record.id === currentRecordId
-                    ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                    : "border-transparent text-text-muted hover:border-border hover:bg-bg-hover hover:text-text",
-                )}
-                title={record.title ?? record.typeLabel}
-                onClick={() => openRecord(record.id)}
-              >
-                <NotebookText size={15} />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="grid shrink-0 gap-3">
               <div className="grid grid-cols-2 rounded-[var(--radius-8)] bg-bg p-1" role="tablist" aria-label="项目侧边栏视图">
                 <TabButton active={activeTab === "records"} onClick={() => setActiveTab("records")}>
@@ -765,8 +829,12 @@ export function ProjectSidebar({
                 <SearchField
                   aria-label={activeTab === "records" ? "搜索记录" : "搜索文件"}
                   placeholder={activeTab === "records" ? "搜索记录或标签" : "搜索文件或标签"}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  value={activeTab === "records" ? recordQuery : fileQuery}
+                  onChange={(event) =>
+                    activeTab === "records"
+                      ? setRecordQuery(event.target.value)
+                      : setFileQuery(event.target.value)
+                  }
                   className="flex-1"
                 />
                 {activeTab === "records" ? (
@@ -798,16 +866,27 @@ export function ProjectSidebar({
                   </IconButton>
                 ) : null}
               </div>
-              {tagOptions.length > 0 ? (
+              {(activeTab === "records" ? recordTagOptions : fileTagOptions).length > 0 ? (
                 <div className="flex flex-wrap gap-1">
-                  <FilterPill active={activeTagId === null} onClick={() => setActiveTagId(null)}>
+                  <FilterPill
+                    active={activeTab === "records" ? selectedRecordTagId === null : fileTagId === null}
+                    onClick={() =>
+                      activeTab === "records"
+                        ? setSelectedRecordTagId(null)
+                        : setFileTagId(null)
+                    }
+                  >
                     全部
                   </FilterPill>
-                  {tagOptions.map((tag) => (
+                  {(activeTab === "records" ? recordTagOptions : fileTagOptions).map((tag) => (
                     <FilterPill
                       key={tag.id}
-                      active={activeTagId === tag.id}
-                      onClick={() => setActiveTagId((current) => (current === tag.id ? null : tag.id))}
+                      active={activeTab === "records" ? selectedRecordTagId === tag.id : fileTagId === tag.id}
+                      onClick={() =>
+                        activeTab === "records"
+                          ? setSelectedRecordTagId(selectedRecordTagId === tag.id ? null : tag.id)
+                          : setFileTagId(fileTagId === tag.id ? null : tag.id)
+                      }
                     >
                       {tag.label}
                     </FilterPill>
@@ -820,27 +899,78 @@ export function ProjectSidebar({
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
-                  filteredRecords.map((record) => (
+                  filteredRecords.map((record) => {
+                    const isEditingRecord = editingRecordId === record.id;
+                    const isRecordContextOpen = recordContextMenu?.recordId === record.id;
+
+                    return (
                     <button
                       key={record.id}
                       type="button"
                       className={cn(
                         "flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
-                        record.id === currentRecordId
+                        isRecordContextOpen
+                          ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]"
+                          : record.id === currentRecordId
                           ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))]"
                           : "border-transparent hover:border-border hover:bg-bg",
                       )}
-                      onClick={() => openRecord(record.id)}
+                      onClick={() => {
+                        if (!isEditingRecord) {
+                          openRecord(record.id);
+                        }
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        if (isEditingRecord) {
+                          return;
+                        }
+                        setRecordContextMenu({
+                          recordId: record.id,
+                          x: event.clientX,
+                          y: event.clientY,
+                        });
+                      }}
                     >
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
                         <NotebookText size={15} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <p className="truncate text-body font-medium text-text">{record.title || "未命名记录"}</p>
+                        {isEditingRecord ? (
+                          <input
+                            autoFocus
+                            value={recordTitleDraft}
+                            placeholder="未命名记录"
+                            className="inline-object-input h-6 min-w-0 w-full px-1.5 text-body font-medium text-text outline-none"
+                            onChange={(event) => setRecordTitleDraft(event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                            onBlur={() => commitRenameRecord(record)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRenameRecord();
+                              } else if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitRenameRecord(record);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <p
+                            className="truncate text-body font-medium text-text"
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              beginRenameRecord(record);
+                            }}
+                          >
+                            {record.title || "未命名记录"}
+                          </p>
+                        )}
                         <TagPreview tags={record.tags} />
                       </span>
                     </button>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="rounded-[var(--radius-8)] border border-dashed border-border px-3 py-4 text-ui text-text-soft">
                     没有匹配的记录。
@@ -956,9 +1086,33 @@ export function ProjectSidebar({
               </div>
             )}
             </div>
-          </div>
-        )}
+        </div>
       </div>
+
+      {contextMenuRecord && recordContextMenu ? (
+        <ActionContextMenu
+          x={recordContextMenu.x}
+          y={recordContextMenu.y}
+          ariaLabel="记录操作"
+          actions={[
+            {
+              label: "重命名",
+              icon: Pencil,
+              onSelect: () => beginRenameRecord(contextMenuRecord),
+            },
+            {
+              label: "删除",
+              icon: Trash2,
+              tone: "danger",
+              onSelect: () => {
+                setRecordContextMenu(null);
+                void onDeleteRecord?.(contextMenuRecord);
+              },
+            },
+          ]}
+          onClose={() => setRecordContextMenu(null)}
+        />
+      ) : null}
 
       {/* Context Menu */}
       {contextMenuDocument && contextMenu ? (

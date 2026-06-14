@@ -8,16 +8,16 @@ const WINDOWS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 const UNC_PATH_PATTERN = /^[/\\]{2}[^/\\]/;
 
 export function resolveRichTextImageSrc(path?: string | null, src?: string | null) {
-  const normalizedSrc = normalizeString(src);
-
-  if (normalizedSrc && EMBEDDED_PROTOCOL_PATTERN.test(normalizedSrc)) {
-    return normalizedSrc;
-  }
-
   const normalizedPath = normalizePathValue(path);
 
   if (normalizedPath) {
     return desktopApi.toFileUrl(normalizedPath);
+  }
+
+  const normalizedSrc = normalizeString(src);
+
+  if (normalizedSrc && EMBEDDED_PROTOCOL_PATTERN.test(normalizedSrc)) {
+    return normalizedSrc;
   }
 
   if (!normalizedSrc) {

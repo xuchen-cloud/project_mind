@@ -48,10 +48,12 @@ export function TodoInlineContentEditor({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
+  const [optimisticValue, setOptimisticValue] = useState<string | null>(null);
   const contactMentionOptions = useContactMentionOptions();
   const saveInFlightRef = useRef(false);
   const skipBlurSaveRef = useRef(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const displayValue = optimisticValue ?? value;
   const controller = useTodoEditorController({
     draft,
     editing,
@@ -93,17 +95,27 @@ export function TodoInlineContentEditor({
 
   useEffect(() => {
     if (!editing) {
-      setDraft(value);
+      setDraft(displayValue);
       controller.setControllerState((current) => ({
         ...current,
         ...resetTodoEditorControllerState(),
       }));
     }
-  }, [controller, editing, value]);
+  }, [controller.setControllerState, displayValue, editing]);
 
   useEffect(() => {
     onEditingChange?.(editing);
   }, [editing, onEditingChange]);
+
+  useEffect(() => {
+    if (!optimisticValue) {
+      return;
+    }
+
+    if (value.trim() === optimisticValue.trim()) {
+      setOptimisticValue(null);
+    }
+  }, [optimisticValue, value]);
 
   useEffect(() => {
     if (!savedPulse) {
@@ -118,21 +130,27 @@ export function TodoInlineContentEditor({
       return;
     }
     const next = draft.replace(/\r?\n+/gu, " ").trim();
+    const currentValue = displayValue.trim();
     if (!next) {
-      setDraft(value);
+      setDraft(displayValue);
       setEditing(false);
       return;
     }
-    if (next === value.trim()) {
+    if (next === currentValue) {
       setEditing(false);
       return;
     }
     saveInFlightRef.current = true;
     setSaving(true);
+    setOptimisticValue(next);
+    setEditing(false);
     try {
       await onSave(next);
-      setEditing(false);
       setSavedPulse(true);
+    } catch (error) {
+      setOptimisticValue(null);
+      setEditing(true);
+      throw error;
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -304,7 +322,7 @@ export function TodoInlineContentEditor({
             if (event.key === "Escape") {
               event.preventDefault();
               skipBlurSaveRef.current = true;
-              setDraft(value);
+              setDraft(displayValue);
               setEditing(false);
               event.currentTarget.blur();
             }
@@ -360,18 +378,18 @@ export function TodoInlineContentEditor({
     <div
       role={editable ? "button" : undefined}
       tabIndex={editable ? 0 : undefined}
-      aria-label={editable ? value : undefined}
+      aria-label={editable ? displayValue : undefined}
       className={cn(
         "todo-inline-content w-full bg-transparent text-body font-medium leading-6 text-text whitespace-pre-wrap break-words",
         savedPulse && "todo-inline-content--saved",
       )}
       onClick={() => {
-        if (editable) {
+        if (editable && !saving) {
           setEditing(true);
         }
       }}
       onKeyDown={(event) => {
-        if (!editable) {
+        if (!editable || saving) {
           return;
         }
 
@@ -382,7 +400,7 @@ export function TodoInlineContentEditor({
       }}
     >
       <InternalReferenceInlineText
-        value={value}
+        value={displayValue}
         variant="todo-inline"
         onOpenInternalReference={onOpenInternalReference}
         onOpenContactMention={onOpenContactMention ?? contactMentionOptions.onOpenContact}

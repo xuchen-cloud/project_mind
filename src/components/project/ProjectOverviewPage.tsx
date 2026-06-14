@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Save, Search, X } from "lucide-react";
+import { LoaderCircle, Save, Settings2 } from "lucide-react";
 
 import {
   getRenderableRichTextHtml,
   normalizeRichEditorValue,
   RichEditor,
+  RichTextViewer,
+  type RichEditorAssetHandlers,
   type RichEditorAutoFocusPoint,
+  type RichEditorController,
   type RichEditorPersistState,
   type RichEditorValue,
 } from "../rich-editor";
-import type { FileTagRecord, NoteRecord, TodoPriority } from "../../lib/types";
+import { buildProjectNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
+import type { FileTagRecord, NoteRecord, ProjectPageData, TodoPriority } from "../../lib/types";
 import { fileTagColorValue } from "../../lib/constants";
 import {
   formatDateTime,
@@ -60,12 +64,13 @@ export function ProjectOverviewPage() {
   const projectId = parseRouteId(params.projectId);
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
+  const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const explicitView = parseProjectPageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
   const currentView =
     explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
   const { pushToast } = useFeedbackStore();
-  const { openSettings, pageWidthMode } = useUiStore();
+  const { openSettings, pageWidthMode, projectSidebarCollapsed, todoRailCollapsed } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
@@ -117,21 +122,23 @@ export function ProjectOverviewPage() {
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [pageDragActive, setPageDragActive] = useState(false);
-  const [recordSearchQuery, setRecordSearchQuery] = useState("");
-  const [recordFilterTagId, setRecordFilterTagId] = useState<number | null>(null);
-
+  const quickNoteEditorRef = useRef<RichEditorController | null>(null);
+  const recordDraftEditorRef = useRef<RichEditorController | null>(null);
+  const projectNameInputRef = useRef<HTMLInputElement | null>(null);
+  const autoFocusedProjectNameIdRef = useRef<number | null>(null);
   const projectPage = projectPageQuery.data;
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const allRecords = useMemo(() => projectPage?.records ?? [], [projectPage?.records]);
-
-  useEffect(() => {
-    if (focusedRecordId === null) {
-      return;
+  const recordSearchQuery = searchParams.get("recordQuery") ?? "";
+  const recordFilterTagId = useMemo(() => {
+    const value = searchParams.get("recordTag");
+    if (!value) {
+      return null;
     }
 
-    setRecordSearchQuery("");
-    setRecordFilterTagId(null);
-  }, [focusedRecordId]);
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [searchParams]);
 
   const records = useMemo(() => {
     const normalizedQuery = recordSearchQuery.trim().toLowerCase();
@@ -157,26 +164,6 @@ export function ProjectOverviewPage() {
     [currentView, records.length],
   );
 
-  const recordTagOptions = useMemo(() => {
-    const tagMap = new Map<number, { id: number; label: string; colorKey: string }>();
-
-    for (const record of allRecords) {
-      for (const tag of record.tags ?? []) {
-        if (!tagMap.has(tag.id)) {
-          tagMap.set(tag.id, {
-            id: tag.id,
-            label: tag.label,
-            colorKey: tag.colorKey,
-          });
-        }
-      }
-    }
-
-    return Array.from(tagMap.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, "zh-Hans-CN"),
-    );
-  }, [allRecords]);
-
   const {
     fileTags,
     pendingImportPaths,
@@ -199,6 +186,25 @@ export function ProjectOverviewPage() {
     setRecordDraftOpen(composeRecord);
   }, [composeRecord]);
 
+  useEffect(() => {
+    if (!activeProject || !shouldAutoFocusProjectName) {
+      return;
+    }
+
+    if (autoFocusedProjectNameIdRef.current === activeProject.id) {
+      return;
+    }
+
+    autoFocusedProjectNameIdRef.current = activeProject.id;
+
+    const timeoutId = window.setTimeout(() => {
+      projectNameInputRef.current?.focus();
+      projectNameInputRef.current?.select();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeProject, shouldAutoFocusProjectName]);
+
   async function refreshProject() {
     if (!projectId) return;
 
@@ -208,6 +214,45 @@ export function ProjectOverviewPage() {
       queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["search"] }),
     ]);
+  }
+
+  function upsertRecordInProjectCache(record: NoteRecord) {
+    queryClient.setQueryData<ProjectPageData | undefined>(
+      ["project-page", record.projectId],
+      (current) => {
+        if (!current) {
+          return current;
+        }
+
+        const currentRecords = current.records ?? [];
+        const existingIndex = currentRecords.findIndex((item) => item.id === record.id);
+        const nextRecords =
+          existingIndex >= 0
+            ? currentRecords.map((item) => (item.id === record.id ? record : item))
+            : [record, ...currentRecords];
+
+        return {
+          ...current,
+          records: nextRecords,
+        };
+      },
+    );
+  }
+
+  function removeRecordFromProjectCache(noteId: number) {
+    queryClient.setQueryData<ProjectPageData | undefined>(
+      ["project-page", projectId],
+      (current) => {
+        if (!current?.records) {
+          return current;
+        }
+
+        return {
+          ...current,
+          records: current.records.filter((item) => item.id !== noteId),
+        };
+      },
+    );
   }
 
   async function ensureTagIdsFromText(markdown: string, explicitTagIds: number[]) {
@@ -280,21 +325,23 @@ export function ProjectOverviewPage() {
   }
 
   async function createRecord() {
-    if (!projectId || !recordDraftValue.markdown.trim()) return;
+    const nextValue = recordDraftEditorRef.current?.getValue() ?? recordDraftValue;
 
-    const tagIds = await ensureTagIdsFromText(recordDraftValue.markdown, recordDraftTagIds);
-    await projectMindApi.projectRecordUpsert({
+    if (!projectId || !nextValue.markdown.trim()) return;
+
+    const tagIds = await ensureTagIdsFromText(nextValue.markdown, recordDraftTagIds);
+    const savedRecord = await projectMindApi.projectRecordUpsert({
       projectId,
       title: recordDraftTitle.trim() || undefined,
-      markdown: recordDraftValue.markdown,
-      html: recordDraftValue.html,
+      markdown: nextValue.markdown,
+      html: nextValue.html,
       tagIds,
     });
+    upsertRecordInProjectCache(savedRecord);
     closeRecordDraft();
     setRecordDraftTitle("");
     setRecordDraftValue(EMPTY_VALUE);
     setRecordDraftTagIds([]);
-    await refreshProject();
   }
 
   async function saveRecord(
@@ -308,15 +355,16 @@ export function ProjectOverviewPage() {
     try {
       const normalized = normalizeRichEditorValue(value);
       const nextTagIds = await ensureTagIdsFromText(normalized.markdown, tagIds);
-      await projectMindApi.projectRecordUpsert({
+      const savedRecord = await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
+        activityId: note.activityId ?? undefined,
         noteId: note.id,
         title: title.trim() || undefined,
         markdown: normalized.markdown,
         html: normalized.html,
         tagIds: nextTagIds,
       });
-      await refreshProject();
+      upsertRecordInProjectCache(savedRecord);
     } finally {
       setSavingRecordId(null);
     }
@@ -324,7 +372,7 @@ export function ProjectOverviewPage() {
 
   async function deleteRecord(note: NoteRecord) {
     await projectMindApi.projectRecordDelete({ noteId: note.id });
-    await refreshProject();
+    removeRecordFromProjectCache(note.id);
   }
 
   async function createTodo(payload: { content: string; priority: TodoPriority }) {
@@ -405,23 +453,36 @@ export function ProjectOverviewPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="relative flex h-full min-h-0 overflow-hidden">
       <div className="project-overview-focus flex-1" data-testid="project-overview-focus-page">
         <header className="project-overview-focus__chrome">
-          <div className="project-overview-focus__chrome-inner">
+          <div
+            className={cn(
+              "project-overview-focus__chrome-inner",
+              projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
+              todoRailCollapsed && "project-overview-focus__chrome-inner--dock-right",
+            )}
+          >
             <div className="project-overview-focus__meta">
                 <input
+                  ref={projectNameInputRef}
                   aria-label="项目名称"
-                className="project-overview-focus__title"
-                value={nameDraft}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onBlur={() => void saveProjectName()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
+                  autoFocus={shouldAutoFocusProjectName}
+                  className="project-overview-focus__title"
+                  value={nameDraft}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onFocus={(event) => {
+                    if (shouldAutoFocusProjectName) {
+                      event.currentTarget.select();
+                    }
+                  }}
+                  onBlur={() => void saveProjectName()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
               <button
                 type="button"
                 className="project-overview-focus__path"
@@ -432,13 +493,16 @@ export function ProjectOverviewPage() {
             </div>
 
             <div className="project-overview-focus__header-actions">
-              <button
+              <IconButton
                 type="button"
-                className="project-overview-focus__view-switch-button"
+                size="sm"
+                variant="secondary"
+                aria-label="打开页面设置"
+                title="页面设置"
                 onClick={() => openSettings("page-width")}
               >
-                页面宽度
-              </button>
+                <Settings2 size={14} />
+              </IconButton>
               <div
                 className="project-overview-focus__view-switch"
                 data-testid="project-overview-view-switch"
@@ -544,7 +608,7 @@ export function ProjectOverviewPage() {
                   onWindowBlur: true,
                   onVisibilityChange: true,
                 }}
-                onChange={setQuickNoteDraft}
+                controllerRef={quickNoteEditorRef}
                 onSave={saveProjectQuickNote}
               />
             </section>
@@ -557,69 +621,6 @@ export function ProjectOverviewPage() {
               )}
               data-testid="project-overview-body-history"
             >
-              <div className="project-overview-focus__history-tools">
-                <div className="relative flex-1 min-w-[16rem]">
-                  <Search
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-text-soft"
-                    size={16}
-                  />
-                  <TextField
-                    aria-label="搜索记录"
-                    value={recordSearchQuery}
-                    placeholder="搜索记录标题、正文或标签..."
-                    className="pl-10 pr-10"
-                    onChange={(event) => setRecordSearchQuery(event.target.value)}
-                  />
-                  {recordSearchQuery ? (
-                    <IconButton
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label="清除搜索"
-                      className="absolute right-1 top-1/2 -translate-y-1/2"
-                      onClick={() => setRecordSearchQuery("")}
-                    >
-                      <X size={14} />
-                    </IconButton>
-                  ) : null}
-                </div>
-
-                {recordTagOptions.length > 0 ? (
-                  <div className="project-overview-focus__tag-filters">
-                    <span className="text-caption text-text-soft">标签</span>
-                    <button
-                      type="button"
-                      className={cn(
-                        "project-overview-focus__tag-filter",
-                        recordFilterTagId === null &&
-                          "project-overview-focus__tag-filter--active",
-                      )}
-                      onClick={() => setRecordFilterTagId(null)}
-                    >
-                      全部
-                    </button>
-                    {recordTagOptions.map((tag) => (
-                      <button
-                        key={tag.id}
-                        type="button"
-                        className={cn(
-                          "project-overview-focus__tag-filter",
-                          recordFilterTagId === tag.id &&
-                            "project-overview-focus__tag-filter--active",
-                        )}
-                        onClick={() =>
-                          setRecordFilterTagId(
-                            recordFilterTagId === tag.id ? null : tag.id,
-                          )
-                        }
-                      >
-                        {tag.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
               {recordDraftOpen ? (
                 <article className="project-history-record project-history-record--draft project-history-record--editing">
                   <div className="project-history-record__editor">
@@ -669,7 +670,7 @@ export function ProjectOverviewPage() {
                         onOpenReference: openInternalReference,
                       }}
                       contactMentions={contactMentionOptions}
-                      onChange={setRecordDraftValue}
+                      controllerRef={recordDraftEditorRef}
                     />
                     <div className="project-history-record__composer-actions">
                       <Button
@@ -706,6 +707,7 @@ export function ProjectOverviewPage() {
                         onSave={saveRecord}
                         onCreatedTag={() => void refreshProject()}
                         onOpenInternalReference={openInternalReference}
+                        contactMentionOptions={contactMentionOptions}
                       />
                     </div>
                   ))}
@@ -766,6 +768,7 @@ function RecordRow({
   onSave,
   onCreatedTag,
   onOpenInternalReference,
+  contactMentionOptions,
 }: {
   note: NoteRecord;
   focused: boolean;
@@ -779,6 +782,7 @@ function RecordRow({
   ) => Promise<void>;
   onCreatedTag: () => void;
   onOpenInternalReference: ReturnType<typeof useInternalReferenceNavigation>;
+  contactMentionOptions: ReturnType<typeof useContactMentionOptions>;
 }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
@@ -787,9 +791,9 @@ function RecordRow({
   const [value, setValue] = useState<RichEditorValue>(() => buildNoteDraft(note));
   const [tagIds, setTagIds] = useState<number[]>((note.tags ?? []).map((tag) => tag.id));
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
-  const contactMentionOptions = useContactMentionOptions();
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const editorControllerRef = useRef<RichEditorController | null>(null);
   const scrollParentRef = useRef<HTMLElement | null>(null);
   const exitScrollTopRef = useRef<number | null>(null);
   const pendingAnchorTopRef = useRef<number | null>(null);
@@ -810,6 +814,10 @@ function RecordRow({
   const noteSnapshotKey = `${note.id}:${note.updatedAt}:${note.title ?? ""}:${noteTagIds.join(",")}`;
   const titleDisplay = note.title?.trim() || "未命名记录";
   const hasContent = note.contentMarkdown.trim().length > 0;
+  const assetHandlers = useMemo<RichEditorAssetHandlers>(
+    () => buildProjectNoteImageAssetHandlers(note.projectId, note.activityId ?? null),
+    [note.activityId, note.projectId],
+  );
 
   function syncProjectTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
@@ -854,7 +862,8 @@ function RecordRow({
       const switchingToAnotherRecord =
         target instanceof Element &&
         Boolean(target.closest(".project-history-record__surface"));
-      void persistRecord(value, title, tagIds)
+      const nextValue = editorControllerRef.current?.getValue() ?? value;
+      void persistRecord(nextValue, title, tagIds)
         .catch(() => {
           // Persist errors are surfaced by the save state.
         })
@@ -911,12 +920,12 @@ function RecordRow({
   }
 
   async function handleTitleBlur() {
-    await persistRecord(value, title, tagIds);
+    await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
   }
 
   async function handleTagChange(nextTagIds: number[]) {
     setTagIds(nextTagIds);
-    await persistRecord(value, title, nextTagIds);
+    await persistRecord(editorControllerRef.current?.getValue() ?? value, title, nextTagIds);
   }
 
   function enterEditing(point?: RichEditorAutoFocusPoint) {
@@ -984,7 +993,7 @@ function RecordRow({
                 size="sm"
                 variant="ghost"
                 onClick={async () => {
-                  await persistRecord(value, title, tagIds);
+                  await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
                   navigate(recordPath(note.projectId, note.id));
                 }}
               >
@@ -1007,6 +1016,7 @@ function RecordRow({
             variant="bare"
             autoFocus={autoFocusPoint ?? true}
             placeholder="写记录，正文里的 #标签 会自动同步。"
+            assetHandlers={assetHandlers}
             tagMentions={{
               projectId: note.projectId,
               availableTags,
@@ -1031,7 +1041,7 @@ function RecordRow({
               onWindowBlur: true,
               onVisibilityChange: true,
             }}
-            onChange={setValue}
+            controllerRef={editorControllerRef}
             onPersistStateChange={setPersistState}
             onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
           />
@@ -1101,15 +1111,9 @@ function RecordRow({
             ) : null}
           </div>
           <div className="project-history-record__content">
-            <RichEditor
+            <RichTextViewer
               html={renderableHtml}
-              variant="bare"
-              readOnly
-              internalReferences={{
-                context: { scope: "project", projectId: note.projectId },
-                onOpenReference: onOpenInternalReference,
-              }}
-              contactMentions={contactMentionOptions}
+              deferUntilVisible
             />
           </div>
         </button>

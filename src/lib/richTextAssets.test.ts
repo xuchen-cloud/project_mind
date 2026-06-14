@@ -13,9 +13,9 @@ import {
 } from "./richTextAssets";
 
 describe("resolveRichTextImageSrc", () => {
-  it("keeps embedded data urls even when a managed path exists", () => {
+  it("prefers the managed path even when an embedded data url exists", () => {
     expect(resolveRichTextImageSrc("/tmp/fixed.png", "data:image/png;base64,AA==")).toBe(
-      "data:image/png;base64,AA==",
+      "asset:///tmp/fixed.png",
     );
   });
 

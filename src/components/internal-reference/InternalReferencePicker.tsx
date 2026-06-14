@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { FileText, Lightbulb, ListTodo, NotebookPen } from "lucide-react";
 
 import type {
@@ -74,6 +75,7 @@ export function InternalReferencePicker({
   activeIndex,
   className,
   style,
+  portal = false,
   onHoverIndex,
   onSelect,
 }: {
@@ -83,6 +85,7 @@ export function InternalReferencePicker({
   activeIndex: number;
   className?: string;
   style?: CSSProperties;
+  portal?: boolean;
   onHoverIndex?: (index: number) => void;
   onSelect: (result: InternalReferenceSearchResult) => void;
 }) {
@@ -90,7 +93,7 @@ export function InternalReferencePicker({
     return null;
   }
 
-  return (
+  const content = (
     <PopoverPanel
       className={cn(
         "internal-reference-picker w-[min(30rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-1",
@@ -151,6 +154,12 @@ export function InternalReferencePicker({
       </div>
     </PopoverPanel>
   );
+
+  if (portal && typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }
 
 function renderKindIcon(kind: InternalReferenceSearchResult["kind"]) {

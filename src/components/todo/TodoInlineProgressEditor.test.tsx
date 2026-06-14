@@ -14,6 +14,39 @@ function render(ui: ReactElement) {
 }
 
 describe("TodoInlineProgressEditor", () => {
+  it("returns to display mode immediately while editing save is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSave: (() => void) | null = null;
+    const onUpdateLatestProgress = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(
+      <TodoInlineProgressEditor
+        latestProgress={{ id: 18, content: "完成问题答复", progressDate: "2026-04-06" }}
+        editable
+        onSave={vi.fn()}
+        onUpdateLatestProgress={onUpdateLatestProgress}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "完成问题答复" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
+
+    const textbox = screen.getByRole("textbox");
+    await user.clear(textbox);
+    await user.type(textbox, "补充最终答复");
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "补充最终答复" })).toBeInTheDocument();
+
+    resolveSave?.();
+  });
+
   it("shows an inline placeholder and saves a new sub item when empty", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
@@ -34,6 +67,7 @@ describe("TodoInlineProgressEditor", () => {
       content: "已确认方案",
       progressDate: expect.stringMatching(/^\d{4}-03-15$/u),
     });
+    expect(screen.getByRole("button", { name: "点击添加子项..." })).toBeInTheDocument();
   });
 
   it("uses the existing progress content as the trigger surface", async () => {

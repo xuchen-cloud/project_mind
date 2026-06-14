@@ -58,6 +58,7 @@ import type {
   ProjectRecordUpsertInput,
   ProjectArchiveInput,
   ProjectCreateInput,
+  ProjectDeleteInput,
   ProjectIdInput,
   ProjectListItem,
   ProjectPageData,
@@ -113,6 +114,8 @@ export const projectMindApi = {
     desktopApi.command<ProjectRecord>("project_update", { input }),
   projectSetArchive: (input: ProjectArchiveInput) =>
     desktopApi.command<ProjectRecord>("project_set_archive", { input }),
+  projectDelete: (input: ProjectDeleteInput) =>
+    desktopApi.command<ProjectRecord>("project_delete", { input }),
   fileTagSettingsGet: (input: FileTagSettingsGetInput) =>
     desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get", { input }),
   fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>

@@ -34,7 +34,7 @@ use models::{
     FileTagSettingsSnapshot,
     InternalReferenceResolveInput, InternalReferenceResolveResult, InternalReferenceSearchInput,
     InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord, ProjectRecordUpsertInput,
-    ProjectArchiveInput, ProjectCreateInput, ProjectIdInput, ProjectListItem,
+    ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput, ProjectListItem,
     ProjectPageData, ProjectRecord, ProjectUpdateInput, ProjectsListInput,
     RichTextStyleSettings, RichTextStyleUpsertInput,
     WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
@@ -487,6 +487,14 @@ fn project_set_archive(
     input: ProjectArchiveInput,
 ) -> CommandResult<ProjectRecord> {
     with_db(state, |db| db.project_set_archive(input))
+}
+
+#[tauri::command]
+fn project_delete(
+    state: State<'_, AppState>,
+    input: ProjectDeleteInput,
+) -> CommandResult<ProjectRecord> {
+    with_db(state, |db| db.project_delete(input))
 }
 
 #[tauri::command]
@@ -987,6 +995,7 @@ pub fn run() {
             workspace_page_get,
             project_update,
             project_set_archive,
+            project_delete,
             file_tag_settings_get,
             file_tag_option_upsert,
             file_tag_option_delete,

@@ -2,9 +2,7 @@ import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
-  PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX,
   PROJECT_SIDEBAR_WIDTH_MIN_PX,
-  TODO_RAIL_COLLAPSED_WIDTH_PX,
   TODO_RAIL_WIDTH_MIN_PX,
   WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX,
   WORKSPACE_WINDOW_MIN_HEIGHT_PX,
@@ -35,15 +33,11 @@ export function getWorkspaceWindowMinWidth({
   let minWidth = WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX;
 
   if (showProjectSidebar) {
-    minWidth += projectSidebarCollapsed
-      ? PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX
-      : PROJECT_SIDEBAR_WIDTH_MIN_PX;
+    minWidth += projectSidebarCollapsed ? 0 : PROJECT_SIDEBAR_WIDTH_MIN_PX;
   }
 
   if (showTodoRail) {
-    minWidth += todoRailCollapsed
-      ? TODO_RAIL_COLLAPSED_WIDTH_PX
-      : TODO_RAIL_WIDTH_MIN_PX;
+    minWidth += todoRailCollapsed ? 0 : TODO_RAIL_WIDTH_MIN_PX;
   }
 
   return minWidth;

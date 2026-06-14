@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Check, ChevronRight, type LucideIcon } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -15,9 +15,14 @@ const SUBMENU_GAP = 6;
 export interface ContextMenuInlineAction {
   key: string;
   label: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
   active?: boolean;
   disabled?: boolean;
+  style?: CSSProperties;
+  swatch?: {
+    color: string;
+    shape?: "dot" | "pill";
+  };
   onSelect: () => void;
 }
 
@@ -258,7 +263,8 @@ function ActionContextMenuLevel({
               key={action.key ?? `inline-actions-${index}`}
               role="group"
               aria-label={action.ariaLabel ?? "格式操作"}
-              className="context-menu__inline-actions grid grid-cols-3 gap-2 px-0.5"
+              className="context-menu__inline-actions grid gap-2 px-0.5"
+              style={{ gridTemplateColumns: `repeat(${Math.max(action.actions.length, 1)}, minmax(0, 1fr))` }}
               onMouseEnter={() => setOpenSubmenuIndex(null)}
             >
               {action.actions.map((inlineAction) => (
@@ -270,6 +276,7 @@ function ActionContextMenuLevel({
                   disabled={inlineAction.disabled}
                   className={cn(
                     "context-menu__inline-action flex h-10 items-center justify-center rounded-[var(--radius-6)] border border-transparent bg-transparent text-text-muted transition-colors outline-none",
+                    inlineAction.swatch ? "px-2" : "",
                     inlineAction.disabled
                       ? "cursor-not-allowed text-text-soft"
                       : "hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
@@ -277,6 +284,7 @@ function ActionContextMenuLevel({
                       ? "border-border bg-bg-muted text-text"
                       : "",
                   )}
+                  style={inlineAction.style}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     if (inlineAction.disabled) {
@@ -287,7 +295,26 @@ function ActionContextMenuLevel({
                     inlineAction.onSelect();
                   }}
                 >
-                  <inlineAction.icon size={18} />
+                  {inlineAction.swatch ? (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "block shrink-0 shadow-[inset_0_1px_0_color-mix(in_srgb,white_28%,transparent),0_0_0_1px_color-mix(in_srgb,var(--swatch-color)_18%,transparent)]",
+                        inlineAction.swatch.shape === "dot"
+                          ? "h-3.5 w-3.5 rounded-full"
+                          : "h-3.5 w-full rounded-full",
+                      )}
+                      style={
+                        {
+                          "--swatch-color": inlineAction.swatch.color,
+                          background:
+                            "linear-gradient(180deg, color-mix(in srgb, var(--swatch-color) 88%, white 12%) 0%, var(--swatch-color) 100%)",
+                        } as CSSProperties
+                      }
+                    />
+                  ) : inlineAction.icon ? (
+                    <inlineAction.icon size={18} />
+                  ) : null}
                 </button>
               ))}
             </div>

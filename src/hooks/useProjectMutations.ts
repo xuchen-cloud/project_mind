@@ -30,7 +30,7 @@ export function useProjectMutations(
       setCreateProjectOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
       await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
-      navigate(`/projects/${project.id}`);
+      navigate(`/projects/${project.id}?renameProject=1`);
     },
     onError: (error) => {
       setStatus({ tone: "error", label: "Error", message: "创建项目失败" });
@@ -80,5 +80,28 @@ export function useProjectMutations(
     },
   });
 
-  return { createProjectMutation, projectUpdateMutation, archiveMutation, refreshProjectScope };
+  const deleteProjectMutation = useMutation({
+    mutationFn: projectMindApi.projectDelete,
+    onSuccess: async (project) => {
+      setStatus({ tone: "success", label: "Deleted", message: "项目已删除" });
+      pushToast({ tone: "success", title: "项目已删除", detail: project.name });
+      await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
+      await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
+      navigate("/workspace");
+    },
+    onError: (error) => {
+      setStatus({ tone: "error", label: "Error", message: "删除项目失败" });
+      pushToast({ tone: "error", title: "删除项目失败", detail: String(error) });
+    },
+  });
+
+  return {
+    createProjectMutation,
+    projectUpdateMutation,
+    archiveMutation,
+    deleteProjectMutation,
+    refreshProjectScope,
+  };
 }

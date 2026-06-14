@@ -772,6 +772,12 @@ pub struct ProjectArchiveInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectDeleteInput {
+    pub project_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActivityCreateInput {
     pub project_id: i64,
     pub attribute_option_id: Option<i64>,

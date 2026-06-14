@@ -10,6 +10,12 @@ import { desktopApi } from "../../services/desktopApi";
 import { useAiJobStore } from "../../state/ai-job-store";
 import { RichEditor } from "./RichEditor";
 
+const intersectionObservers: Array<{
+  callback: IntersectionObserverCallback;
+  elements: Set<Element>;
+}> = [];
+let defaultIntersectionState = true;
+
 beforeAll(() => {
   const rect = {
     x: 0,
@@ -115,6 +121,48 @@ beforeAll(() => {
       disconnect() {}
     },
   });
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    value: class IntersectionObserver {
+      #callback: IntersectionObserverCallback;
+      #elements = new Set<Element>();
+
+      constructor(callback: IntersectionObserverCallback) {
+        this.#callback = callback;
+        intersectionObservers.push({
+          callback,
+          elements: this.#elements,
+        });
+      }
+
+      observe = (element: Element) => {
+        this.#elements.add(element);
+        this.#callback(
+          [
+            {
+              isIntersecting: defaultIntersectionState,
+              intersectionRatio: defaultIntersectionState ? 1 : 0,
+              target: element,
+            } as IntersectionObserverEntry,
+          ],
+          this as unknown as IntersectionObserver,
+        );
+      };
+
+      unobserve = (element: Element) => {
+        this.#elements.delete(element);
+      };
+
+      disconnect = () => {
+        this.#elements.clear();
+      };
+
+      takeRecords = () => [];
+      root = null;
+      rootMargin = "0px";
+      thresholds = [];
+    },
+  });
   Object.defineProperty(window, "Image", {
     configurable: true,
     writable: true,
@@ -180,6 +228,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   useAiJobStore.getState().reset();
+  defaultIntersectionState = true;
+  intersectionObservers.length = 0;
 });
 
 function getLatestHtml(onChange: ReturnType<typeof vi.fn>) {
@@ -193,6 +243,25 @@ async function getEditorSurface(container: HTMLElement) {
     expect(nextSurface).toBeTruthy();
     return nextSurface as HTMLElement;
   });
+}
+
+function triggerIntersection(isIntersecting: boolean) {
+  defaultIntersectionState = isIntersecting;
+
+  for (const observer of intersectionObservers) {
+    for (const element of observer.elements) {
+      observer.callback(
+        [
+          {
+            isIntersecting,
+            intersectionRatio: isIntersecting ? 1 : 0,
+            target: element,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+    }
+  }
 }
 
 function selectTextContent(node: Text, start: number, end: number) {
@@ -240,7 +309,9 @@ describe("RichEditor tables", () => {
     expect(await screen.findByLabelText("表格工具栏")).toBeInTheDocument();
     expect(screen.getByLabelText("下方插入行")).toBeInTheDocument();
     expect(screen.getByLabelText("删除表格")).toBeInTheDocument();
-    expect(onChange).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
   });
 
   it("adds rows from the contextual table toolbar", async () => {
@@ -254,6 +325,21 @@ describe("RichEditor tables", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("table tr")).toHaveLength(3);
     });
+  });
+
+  it("renders the table toolbar inside the editor frame above the active table", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<RichEditor variant="toolbar" />);
+
+    await user.click(await screen.findByLabelText("表格"));
+    await user.click(screen.getByLabelText("插入 2 行 2 列表格"));
+
+    const toolbar = await screen.findByLabelText("表格工具栏");
+    const frame = container.querySelector(".rich-editor__frame");
+
+    expect(frame).toBeTruthy();
+    expect(toolbar.closest(".rich-editor__frame")).toBe(frame);
+    expect(toolbar).toHaveClass("rich-editor__table-toolbar--floating");
   });
 
   it("shows a compact table action for focused bare editors", async () => {
@@ -336,7 +422,9 @@ describe("RichEditor tables", () => {
     });
 
     expect(container.querySelectorAll("table tr")).toHaveLength(2);
-    expect(getLatestHtml(onChange)).toContain("<table");
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain("<table");
+    });
   });
 });
 
@@ -380,11 +468,10 @@ describe("RichEditor images", () => {
     pickFileSpy.mockRestore();
   });
 
-  it("embeds inserted managed images as data urls while keeping the file path", async () => {
+  it("keeps inserted managed images as file-backed refs while preserving the file path", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockResolvedValue("/tmp/clip.png");
-    const readFileSpy = vi.spyOn(desktopApi, "readFileAsDataUrl");
     const { container } = render(
       <RichEditor
         variant="toolbar"
@@ -409,17 +496,245 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(readFileSpy).toHaveBeenCalledWith("/tmp/managed/clip.png", "image/png");
-    expect(image.getAttribute("src")).toBe(`data:image/png;base64,${btoa("/tmp/managed/clip.png")}`);
+    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png");
 
     await waitFor(() => {
       const html = getLatestHtml(onChange);
 
-      expect(html).toContain('src="data:image/png;base64,');
+      expect(html).toContain('src="asset:///tmp/managed/clip.png"');
       expect(html).toContain('data-path="/tmp/managed/clip.png"');
     });
 
     pickFileSpy.mockRestore();
+  });
+
+  it("clamps managed image display width to the editor surface during window resizing", async () => {
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback;
+      elements: Set<Element>;
+    }> = [];
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class ResizeObserver {
+        #callback: ResizeObserverCallback;
+        #elements = new Set<Element>();
+
+        constructor(callback: ResizeObserverCallback) {
+          this.#callback = callback;
+          resizeObservers.push({
+            callback,
+            elements: this.#elements,
+          });
+        }
+
+        observe = (element: Element) => {
+          this.#elements.add(element);
+        };
+
+        unobserve = (element: Element) => {
+          this.#elements.delete(element);
+        };
+
+        disconnect = () => {
+          this.#elements.clear();
+        };
+      },
+    });
+
+    try {
+      const { container } = render(
+        <RichEditor
+          variant="bare"
+          defaultHtml='<p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" width="360" alt="截图" /></p>'
+        />,
+      );
+
+      const surface = await waitFor(() => {
+        const nextSurface = container.querySelector(".rich-editor__surface");
+
+        expect(nextSurface).toBeTruthy();
+        return nextSurface as HTMLElement;
+      });
+
+      let mockSurfaceWidth = 220;
+      Object.defineProperty(surface, "clientWidth", {
+        configurable: true,
+        get: () => mockSurfaceWidth,
+      });
+
+      const image = await waitFor(() => {
+        const nextImage = container.querySelector("img.rich-editor__image");
+
+        expect(nextImage).toBeTruthy();
+        return nextImage as HTMLImageElement;
+      });
+
+      for (const observer of resizeObservers) {
+        observer.callback([], {} as ResizeObserver);
+      }
+
+      await waitFor(() => {
+        expect(image.style.width).toBe("220px");
+      });
+
+      mockSurfaceWidth = 480;
+      for (const observer of resizeObservers) {
+        observer.callback([], {} as ResizeObserver);
+      }
+
+      await waitFor(() => {
+        expect(image.style.width).toBe("360px");
+      });
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        value: OriginalResizeObserver,
+      });
+    }
+  });
+
+  it("does not rewrite the image source during resize-only width syncs", async () => {
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback;
+      elements: Set<Element>;
+    }> = [];
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class ResizeObserver {
+        #callback: ResizeObserverCallback;
+        #elements = new Set<Element>();
+
+        constructor(callback: ResizeObserverCallback) {
+          this.#callback = callback;
+          resizeObservers.push({
+            callback,
+            elements: this.#elements,
+          });
+        }
+
+        observe = (element: Element) => {
+          this.#elements.add(element);
+        };
+
+        unobserve = (element: Element) => {
+          this.#elements.delete(element);
+        };
+
+        disconnect = () => {
+          this.#elements.clear();
+        };
+      },
+    });
+
+    try {
+      const { container } = render(
+        <RichEditor
+          variant="bare"
+          defaultHtml='<p><img src="asset:///tmp/managed/stable.png" data-path="/tmp/managed/stable.png" data-mime-type="image/png" width="360" alt="稳定图片" /></p>'
+        />,
+      );
+
+      const surface = await waitFor(() => {
+        const nextSurface = container.querySelector(".rich-editor__surface");
+
+        expect(nextSurface).toBeTruthy();
+        return nextSurface as HTMLElement;
+      });
+
+      let mockSurfaceWidth = 240;
+      Object.defineProperty(surface, "clientWidth", {
+        configurable: true,
+        get: () => mockSurfaceWidth,
+      });
+
+      const image = await waitFor(() => {
+        const nextImage = container.querySelector("img.rich-editor__image");
+
+        expect(nextImage).toBeTruthy();
+        return nextImage as HTMLImageElement;
+      });
+
+      const setAttributeSpy = vi.spyOn(image, "setAttribute");
+
+      for (const observer of resizeObservers) {
+        observer.callback([], {} as ResizeObserver);
+      }
+
+      await waitFor(() => {
+        expect(image.style.width).toBe("240px");
+      });
+
+      expect(
+        setAttributeSpy.mock.calls.filter(([name]) => name === "src"),
+      ).toHaveLength(0);
+
+      setAttributeSpy.mockRestore();
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        value: OriginalResizeObserver,
+      });
+    }
+  });
+
+  it("keeps managed images responsive on window resize even without ResizeObserver support", async () => {
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const { container } = render(
+        <RichEditor
+          variant="bare"
+          defaultHtml='<p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" width="360" alt="截图" /></p>'
+        />,
+      );
+
+      const surface = await waitFor(() => {
+        const nextSurface = container.querySelector(".rich-editor__surface");
+
+        expect(nextSurface).toBeTruthy();
+        return nextSurface as HTMLElement;
+      });
+
+      let mockSurfaceWidth = 220;
+      Object.defineProperty(surface, "clientWidth", {
+        configurable: true,
+        get: () => mockSurfaceWidth,
+      });
+
+      const image = await waitFor(() => {
+        const nextImage = container.querySelector("img.rich-editor__image");
+
+        expect(nextImage).toBeTruthy();
+        return nextImage as HTMLImageElement;
+      });
+
+      fireEvent(window, new Event("resize"));
+
+      await waitFor(() => {
+        expect(image.style.width).toBe("220px");
+      });
+
+      mockSurfaceWidth = 480;
+      fireEvent(window, new Event("resize"));
+
+      await waitFor(() => {
+        expect(image.style.width).toBe("360px");
+      });
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        value: OriginalResizeObserver,
+      });
+    }
   });
 
   it("keeps embedded file-inserted images in the save payload and after reopening", async () => {
@@ -455,7 +770,7 @@ describe("RichEditor images", () => {
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalled();
-      expect(savedHtml).toContain('src="data:image/png;base64,');
+      expect(savedHtml).toContain('src="asset:///tmp/managed/clip.png"');
       expect(savedHtml).toContain('data-path="/tmp/managed/clip.png"');
     });
 
@@ -469,7 +784,7 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toContain("data:image/png;base64,");
+    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png");
     pickFileSpy.mockRestore();
   });
 
@@ -499,7 +814,7 @@ describe("RichEditor images", () => {
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalled();
-      expect(savedHtml).toContain('src="data:image/png;base64,AAAA"');
+      expect(savedHtml).toContain('src="asset:///tmp/managed/clipboard.png"');
       expect(savedHtml).toContain('data-path="/tmp/managed/clipboard.png"');
     });
 
@@ -513,7 +828,7 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toContain("data:image/png;base64,");
+    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clipboard.png");
   });
 
   it("opens an image context menu and updates width from a preset", async () => {
@@ -813,7 +1128,9 @@ describe("RichEditor images", () => {
     await waitFor(() => {
       expect(insertPastedImage).toHaveBeenCalledWith(pastedFile);
     });
-    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/empty-editor.png"');
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/empty-editor.png"');
+    });
   });
 
   it("imports pasted html data-url images through the clipboard handler", async () => {
@@ -856,7 +1173,9 @@ describe("RichEditor images", () => {
     const pastedFile = insertPastedImage.mock.calls[0]?.[0] as File;
 
     expect(pastedFile.type).toBe("image/png");
-    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.png"');
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.png"');
+    });
   });
 
   it("preserves heic format metadata for pasted html data-url images", async () => {
@@ -900,7 +1219,9 @@ describe("RichEditor images", () => {
 
     expect(pastedFile.type).toBe("image/heic");
     expect(pastedFile.name).toBe("clipboard-image-1.heic");
-    expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.heic"');
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.heic"');
+    });
   });
 });
 
@@ -1653,6 +1974,327 @@ describe("RichEditor context menus", () => {
       expect(writeText).toHaveBeenCalledWith(["1. 第一项", "2. 第二项"].join("\n"));
     });
   });
+
+  it("copies mixed text and images as html with inlined image data", async () => {
+    const user = userEvent.setup();
+    const setData = vi.fn();
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<p>前文</p><p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" alt="截图" /></p><p>后文</p>'
+        }
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.focus(surface);
+    fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
+    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+
+    fireEvent.copy(surface, {
+      clipboardData: {
+        setData,
+      },
+    });
+
+    expect(setData).toHaveBeenCalledWith("text/plain", expect.stringContaining("前文"));
+    expect(setData).toHaveBeenCalledWith("text/plain", expect.stringContaining("后文"));
+    expect(setData).toHaveBeenCalledWith(
+      "text/html",
+      expect.stringContaining('src="data:image/png;base64,AAAA"'),
+    );
+    expect(setData).toHaveBeenCalledWith(
+      "text/html",
+      expect.stringContaining('alt="截图"'),
+    );
+  });
+
+  it("upgrades native copy events to original image bytes when async clipboard is available", async () => {
+    const user = userEvent.setup();
+    const setData = vi.fn();
+    const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);
+    const clipboardItemSpy = vi.fn();
+    class ClipboardItemMock {
+      data: Record<string, Blob>;
+
+      constructor(data: Record<string, Blob>) {
+        this.data = data;
+        clipboardItemSpy(data);
+      }
+    }
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<p>前文</p><p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" alt="截图" /></p><p>后文</p>'
+        }
+      />,
+    );
+
+    Object.defineProperty(globalThis, "ClipboardItem", {
+      configurable: true,
+      value: ClipboardItemMock,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        write,
+      },
+    });
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.focus(surface);
+    fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
+    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+
+    fireEvent.copy(surface, {
+      clipboardData: {
+        setData,
+      },
+    });
+
+    expect(setData).toHaveBeenCalledWith(
+      "text/html",
+      expect.stringContaining('src="data:image/png;base64,AAAA"'),
+    );
+
+    await waitFor(() => {
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
+        "/tmp/managed/clip.png",
+        "image/png",
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+
+    const htmlBlob = clipboardItemSpy.mock.calls[0]?.[0]?.["text/html"] as Blob;
+    const html = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onerror = () => reject(reader.error ?? new Error("读取剪贴板 html 失败"));
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.readAsText(htmlBlob);
+    });
+
+    expect(html).toContain(`src="data:image/png;base64,${btoa("/tmp/managed/clip.png")}"`);
+  });
+
+  it("prefers original file bytes when copy falls back to async clipboard writes", async () => {
+    const user = userEvent.setup();
+    const execCommand = document.execCommand as unknown as ReturnType<typeof vi.fn>;
+    const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);
+    const clipboardItemSpy = vi.fn();
+    class ClipboardItemMock {
+      data: Record<string, Blob>;
+
+      constructor(data: Record<string, Blob>) {
+        this.data = data;
+        clipboardItemSpy(data);
+      }
+    }
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<p>前文</p><p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" alt="截图" /></p><p>后文</p>'
+        }
+      />,
+    );
+
+    Object.defineProperty(globalThis, "ClipboardItem", {
+      configurable: true,
+      value: ClipboardItemMock,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        write,
+      },
+    });
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.focus(surface);
+    fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
+    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+
+    execCommand.mockReturnValueOnce(false);
+    fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+    const reopenedMenu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(reopenedMenu).getByRole("menuitem", { name: "剪贴板" }));
+    const clipboardSubmenu = await screen.findByRole("menu", { name: "剪贴板 子菜单" });
+    await user.click(within(clipboardSubmenu).getByRole("menuitem", { name: /^复制/ }));
+
+    await waitFor(() => {
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
+        "/tmp/managed/clip.png",
+        "image/png",
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+
+    const htmlBlob = clipboardItemSpy.mock.calls[0]?.[0]?.["text/html"] as Blob;
+    const html = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onerror = () => reject(reader.error ?? new Error("读取剪贴板 html 失败"));
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.readAsText(htmlBlob);
+    });
+
+    expect(html).toContain(`src="data:image/png;base64,${btoa("/tmp/managed/clip.png")}"`);
+  });
+
+  it("lazy-mounts image sources until they enter the viewport", async () => {
+    defaultIntersectionState = false;
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml='<p><img src="asset:///tmp/managed/lazy.png" data-path="/tmp/managed/lazy.png" data-mime-type="image/png" alt="懒加载图片" /></p>'
+      />,
+    );
+
+    const image = await waitFor(() => {
+      const nextImage = container.querySelector("img.rich-editor__image");
+
+      expect(nextImage).toBeTruthy();
+      return nextImage as HTMLImageElement;
+    });
+
+    expect(image.getAttribute("src")).toContain("data:image/gif;base64");
+    expect(image.dataset.lazyMounted).toBe("false");
+
+    triggerIntersection(true);
+
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy.png");
+      expect(image.dataset.lazyMounted).toBe("true");
+    });
+  });
+
+  it("keeps the real image source mounted after it has entered the viewport", async () => {
+    defaultIntersectionState = false;
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml='<p><img src="asset:///tmp/managed/lazy-stable.png" data-path="/tmp/managed/lazy-stable.png" data-mime-type="image/png" alt="稳定图片" /></p>'
+      />,
+    );
+
+    const image = await waitFor(() => {
+      const nextImage = container.querySelector("img.rich-editor__image");
+
+      expect(nextImage).toBeTruthy();
+      return nextImage as HTMLImageElement;
+    });
+
+    expect(image.getAttribute("src")).toContain("data:image/gif;base64");
+
+    triggerIntersection(true);
+
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png");
+      expect(image.dataset.lazyMounted).toBe("true");
+    });
+
+    triggerIntersection(false);
+
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png");
+      expect(image.dataset.lazyMounted).toBe("true");
+    });
+  });
+
+  it("captures tab inside list items so focus stays in the editor", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<ul><li><p>第一项</p></li><li><p>第二项</p></li></ul>"
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    const secondParagraph = await waitFor(() => {
+      const nextParagraph = container.querySelectorAll(".ProseMirror li p")[1];
+
+      expect(nextParagraph).toBeTruthy();
+      return nextParagraph as HTMLParagraphElement;
+    });
+
+    await user.click(secondParagraph);
+    const tabEvent = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    surface.dispatchEvent(tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(surface).toHaveFocus();
+  });
+
+  it("does not let a stale controlled html echo overwrite newer typing", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container, rerender } = render(
+      <RichEditor variant="bare" html="<p></p>" onChange={onChange} />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.click(surface);
+    await user.type(surface, "a");
+
+    const firstSnapshot = await waitFor(() => {
+      const snapshot = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+
+      expect(snapshot?.html).toBe("<p>a</p>");
+      return snapshot;
+    });
+
+    await user.type(surface, "b");
+    rerender(<RichEditor variant="bare" html={firstSnapshot.html} onChange={onChange} />);
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror")?.textContent).toContain("ab");
+    });
+  });
 });
 
 describe("RichEditor focus and blur persistence", () => {
@@ -1749,6 +2391,48 @@ describe("RichEditor focus and blur persistence", () => {
       expect(onSave).toHaveBeenCalledTimes(1);
     });
     expect(onBlurPersisted).not.toHaveBeenCalled();
+  });
+
+  it("skips window-blur persistence while an image picker is in flight", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockImplementation(
+      () => new Promise<string | null>(() => undefined),
+    );
+    const { container } = render(
+      <RichEditor
+        variant="toolbar"
+        autoFocus
+        autosave={{ onChange: false, onBlur: true, onWindowBlur: true }}
+        onSave={onSave}
+        assetHandlers={{
+          insertImage: async () => ({
+            kind: "image",
+            title: "clip.png",
+            path: "/tmp/managed/clip.png",
+            mimeType: "image/png",
+          }),
+        }}
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.type(surface, "Window blur should not save while picking");
+    await user.click(await screen.findByLabelText("图片"));
+    fireEvent(window, new Event("blur"));
+
+    await waitFor(() => {
+      expect(pickFileSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(onSave).not.toHaveBeenCalled();
+
+    pickFileSpy.mockRestore();
   });
 
   it("flushes unsaved edits on pagehide for lock/sleep/quit lifecycles", async () => {

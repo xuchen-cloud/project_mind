@@ -36,7 +36,7 @@ use crate::{
         FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput, FileTagSettingsSnapshot,
         InternalReferenceResolveInput, InternalReferenceResolveResult,
         InternalReferenceSearchInput, InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord,
-        ProjectRecordUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectIdInput,
+        ProjectRecordUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectDeleteInput, ProjectIdInput,
         ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordGroup,
         ProjectUpdateInput, ProjectsListInput,
         RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
@@ -1414,7 +1414,6 @@ impl Database {
     }
 
     pub fn project_set_archive(&mut self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
-        let current = self.project_record(input.project_id)?;
         self.conn.execute(
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
@@ -1422,6 +1421,23 @@ impl Database {
         self.mark_project_artifacts_stale(input.project_id)?;
         self.mark_daily_artifacts_stale()?;
         self.project_record(input.project_id)
+    }
+
+    pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
+        let current = self.project_record(input.project_id)?;
+        let project_root = PathBuf::from(&current.root_path);
+        let cleanup_paths = if project_root.exists() {
+            vec![project_root]
+        } else {
+            Vec::new()
+        };
+
+        move_paths_to_trash(&cleanup_paths)?;
+        self.conn
+            .execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        self.mark_daily_artifacts_stale()?;
+
+        Ok(current)
     }
 
     pub fn activity_create(&mut self, input: ActivityCreateInput) -> Result<ActivityCardData> {
@@ -1939,22 +1955,14 @@ impl Database {
                 self.note_record(note_id)
             }
             None => {
-                self.conn.execute(
-                    r#"
-                    INSERT INTO notes (
-                      project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                    "#,
-                    params![
-                        input.project_id,
-                        input.activity_id,
-                        input.title,
-                        input.markdown,
-                        input.html,
-                        timestamp,
-                        timestamp
-                    ],
+                self.insert_project_note(
+                    input.project_id,
+                    input.activity_id,
+                    "note",
+                    input.title.as_deref(),
+                    input.markdown.as_str(),
+                    input.html.as_str(),
+                    &timestamp,
                 )?;
                 let note_id = self.conn.last_insert_rowid();
                 self.replace_note_tags(note_id, &input.tag_ids, &timestamp)?;
@@ -3566,6 +3574,57 @@ impl Database {
             "#,
             params![APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS, value_json, now],
         )?;
+        Ok(())
+    }
+
+    fn insert_project_note(
+        &self,
+        project_id: i64,
+        activity_id: Option<i64>,
+        note_type: &str,
+        title: Option<&str>,
+        markdown: &str,
+        html: &str,
+        timestamp: &str,
+    ) -> Result<()> {
+        if self.has_column("notes", "note_type")? {
+            self.conn.execute(
+                r#"
+                INSERT INTO notes (
+                  project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                params![
+                    project_id,
+                    activity_id,
+                    note_type,
+                    title,
+                    markdown,
+                    html,
+                    timestamp,
+                    timestamp
+                ],
+            )?;
+        } else {
+            self.conn.execute(
+                r#"
+                INSERT INTO notes (
+                  project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "#,
+                params![
+                    project_id,
+                    activity_id,
+                    title,
+                    markdown,
+                    html,
+                    timestamp,
+                    timestamp
+                ],
+            )?;
+        }
         Ok(())
     }
 
@@ -9996,21 +10055,18 @@ impl Database {
                 } else {
                     brief_html.clone()
                 };
-                self.conn.execute(
-                    r#"
-                    INSERT INTO notes (
-                      project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
-                    )
-                    VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6)
-                    "#,
-                    params![
-                        project_id,
-                        if title.trim().is_empty() { None::<String> } else { Some(title.clone()) },
-                        resolved_markdown,
-                        resolved_html,
-                        timestamp,
-                        timestamp
-                    ],
+                self.insert_project_note(
+                    project_id,
+                    None,
+                    "note",
+                    if title.trim().is_empty() {
+                        None
+                    } else {
+                        Some(title.as_str())
+                    },
+                    resolved_markdown.as_str(),
+                    resolved_html.as_str(),
+                    &timestamp,
                 )?;
                 let note_id = self.conn.last_insert_rowid();
                 self.conn.execute(
@@ -15927,6 +15983,68 @@ mod tests {
             .unwrap();
 
         assert_eq!(saved.content_html, html);
+    }
+
+    #[test]
+    fn reopening_pre_note_type_removal_workspace_runs_note_migrations() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let activity = create_activity(&mut database, project.id, "Kickoff");
+
+        database
+            .conn
+            .execute(
+                "UPDATE activities SET brief_markdown = ?1, brief_html = ?2 WHERE id = ?3",
+                params!["需要沉淀的简报", "<p>需要沉淀的简报</p>", activity.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE notes_legacy (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  project_id INTEGER NOT NULL,
+                  activity_id INTEGER,
+                  note_type TEXT NOT NULL,
+                  title TEXT,
+                  content_markdown TEXT NOT NULL DEFAULT '',
+                  content_html TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                  FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+                );
+                INSERT INTO notes_legacy (
+                  id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+                )
+                SELECT id, project_id, activity_id, 'note', title, content_markdown, content_html, created_at, updated_at
+                FROM notes;
+                DROP TABLE notes;
+                ALTER TABLE notes_legacy RENAME TO notes;
+                PRAGMA foreign_keys = ON;
+                "#,
+            )
+            .unwrap();
+        database
+            .set_schema_version(PROJECT_KIND_SCHEMA_VERSION)
+            .unwrap();
+
+        drop(database);
+        let reopened = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+
+        assert!(!reopened.has_column("notes", "note_type").unwrap());
+        let project_page = reopened.project_page(project.id).unwrap();
+        assert!(project_page
+            .project_records
+            .iter()
+            .any(|record| record.content_markdown.contains("需要沉淀的简报")));
     }
 
     #[test]

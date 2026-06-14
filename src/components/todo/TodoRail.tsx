@@ -334,39 +334,18 @@ export function TodoRail({
 
   if (todoRailCollapsed) {
     return (
-      <aside
-        className="todo-rail__collapsed flex w-12 shrink-0 flex-col items-center gap-3 px-1.5 py-3 transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
-        aria-label={`${title} 侧边栏`}
-      >
-        <IconButton
-          type="button"
-          size="sm"
-          aria-label="展开代办侧边栏"
-          onClick={toggleTodoRailCollapsed}
-        >
-          <ChevronLeft size={14} />
-        </IconButton>
-
+      <aside className="sidebar-dock sidebar-dock--right" aria-label={`${title} 侧边栏`}>
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-8)] border border-border bg-bg text-text-muted transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong hover:bg-bg-hover hover:text-text"
-          title={title}
+          className="sidebar-dock__surface sidebar-dock__surface--icon-only"
+          title={`展开${title}侧边栏`}
+          aria-label="展开代办侧边栏"
           onClick={() => setTodoRailCollapsed(false)}
         >
-          <ListTodo size={16} />
+          <span className="sidebar-dock__icon">
+            <ListTodo size={16} />
+          </span>
         </button>
-
-        <IconButton
-          type="button"
-          size="sm"
-          aria-label="新增代办"
-          onClick={() => {
-            setTodoRailCollapsed(false);
-            setIsComposing(true);
-          }}
-        >
-          <Plus size={14} />
-        </IconButton>
       </aside>
     );
   }

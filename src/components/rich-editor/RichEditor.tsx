@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { DOMSerializer, type Slice } from "@tiptap/pm/model";
@@ -139,6 +140,7 @@ const IMAGE_EXTENSIONS = [
 ];
 const TABLE_INSERT_GRID_SIZE = 6;
 const DEFAULT_TABLE_DIMENSIONS = { rows: 3, cols: 3 };
+const CHANGE_PUBLISH_DELAY_MS = 120;
 export const RICH_EDITOR_FOCUS_REQUEST_EVENT =
   "project-mind-rich-editor-focus-request";
 const RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY = new PluginKey(
@@ -182,6 +184,11 @@ interface EditorContextMenuState {
 interface EditorAiMenuState {
   x: number;
   y: number;
+}
+
+interface TableToolbarPosition {
+  left: number;
+  top: number;
 }
 
 interface ImageContextMenuTarget {
@@ -257,6 +264,9 @@ interface RichEditorProps {
   shouldPersistOnBlur?: (relatedTarget: EventTarget | null) => boolean;
   assetHandlers?: RichEditorAssetHandlers;
   onChange?: (value: RichEditorValue) => void;
+  onSnapshot?: (value: RichEditorValue) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  controllerRef?: MutableRefObject<RichEditorController | null>;
   onSave?: (value: RichEditorValue) => Promise<unknown> | unknown;
   onPersistStateChange?: (state: RichEditorPersistState) => void;
   onBlurPersisted?: (result: unknown) => void;
@@ -281,6 +291,12 @@ export interface RichEditorSelectionPayload {
   html: string;
 }
 
+export interface RichEditorController {
+  getValue: () => RichEditorValue;
+  focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
+  save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
+}
+
 export interface RichEditorSelectionAction {
   key: string;
   label: string;
@@ -302,6 +318,9 @@ export function RichEditor({
   shouldPersistOnBlur,
   assetHandlers,
   onChange,
+  onSnapshot,
+  onDirtyChange,
+  controllerRef,
   onSave,
   onPersistStateChange,
   onBlurPersisted,
@@ -325,6 +344,7 @@ export function RichEditor({
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
   const [rewriteSession, setRewriteSession] = useState<EditorRewriteSessionState | null>(null);
   const [uiTick, setUiTick] = useState(0);
+  const [tableToolbarPosition, setTableToolbarPosition] = useState<TableToolbarPosition | null>(null);
   const [referencePicker, setReferencePicker] = useState<null | {
     start: number;
     end: number;
@@ -370,15 +390,24 @@ export function RichEditor({
   }, [autosave]);
 
   const saveTimerRef = useRef<number | null>(null);
+  const changePublishTimerRef = useRef<number | null>(null);
+  const deferredUiFrameRef = useRef<number | null>(null);
+  const deferredUiEditorRef = useRef<Editor | null>(null);
+  const deferredUiNeedsChromeRefreshRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const saveQueuedRef = useRef(false);
+  const assetBusyRef = useRef<null | "image" | "file">(null);
   const taskShortcutTransformRef = useRef(false);
   const autoFocusAppliedRef = useRef(false);
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
+  const pendingChangeSnapshotRef = useRef<RichEditorValue | null>(null);
+  const isFocusedRef = useRef(false);
   const persistStateRef = useRef<RichEditorPersistState>("idle");
+  const dirtyStateRef = useRef(false);
   const syntheticPasteRef = useRef(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const tableToolbarRef = useRef<HTMLDivElement | null>(null);
   const storedTextSelectionRef = useRef<StoredTextSelection | null>(null);
   const referencePickerRef = useRef<null | {
     start: number;
@@ -546,6 +575,11 @@ export function RichEditor({
     (mentionPicker?.query.trim().length ?? 0) > 0;
   // The create row, when present, sits just past the search hits.
   const mentionOptionCount = mentionResults.length + (mentionCreatable ? 1 : 0);
+  const shouldRefreshEditorChrome =
+    showToolbar ||
+    enableTables ||
+    contextMenu !== null ||
+    aiMenu !== null;
 
   const closeInternalReferencePicker = useCallback(() => {
     setReferencePicker(null);
@@ -854,10 +888,119 @@ export function RichEditor({
   const updatePersistState = useCallback(
     (nextState: RichEditorPersistState) => {
       persistStateRef.current = nextState;
+      const nextDirty = nextState === "dirty" || nextState === "saving";
+
+      if (dirtyStateRef.current !== nextDirty) {
+        dirtyStateRef.current = nextDirty;
+        onDirtyChange?.(nextDirty);
+      }
+
       setPersistState(nextState);
       onPersistStateChange?.(nextState);
     },
-    [onPersistStateChange],
+    [onDirtyChange, onPersistStateChange],
+  );
+
+  const clearChangePublishTimer = useCallback(() => {
+    if (changePublishTimerRef.current !== null) {
+      window.clearTimeout(changePublishTimerRef.current);
+      changePublishTimerRef.current = null;
+    }
+  }, []);
+
+  const publishChangeSnapshot = useCallback(
+    (
+      snapshot: RichEditorValue,
+      options?: {
+        immediate?: boolean;
+        sync?: boolean;
+      },
+    ) => {
+      pendingChangeSnapshotRef.current = snapshot;
+
+      const commit = () => {
+        const nextSnapshot = pendingChangeSnapshotRef.current;
+
+        clearChangePublishTimer();
+
+        if (!nextSnapshot) {
+          return;
+        }
+
+        pendingChangeSnapshotRef.current = null;
+
+        const notify = () => {
+          onChange?.(nextSnapshot);
+          onSnapshot?.(nextSnapshot);
+        };
+
+        if (options?.sync) {
+          flushSync(notify);
+        } else {
+          startTransition(notify);
+        }
+      };
+
+      if (options?.immediate || options?.sync) {
+        commit();
+        return;
+      }
+
+      clearChangePublishTimer();
+      changePublishTimerRef.current = window.setTimeout(() => {
+        commit();
+      }, CHANGE_PUBLISH_DELAY_MS);
+    },
+    [clearChangePublishTimer, onChange, onSnapshot],
+  );
+
+  const clearDeferredUiFrame = useCallback(() => {
+    if (deferredUiFrameRef.current !== null) {
+      window.cancelAnimationFrame(deferredUiFrameRef.current);
+      deferredUiFrameRef.current = null;
+    }
+  }, []);
+
+  const flushDeferredEditorUi = useCallback(() => {
+    deferredUiFrameRef.current = null;
+    const nextEditor = deferredUiEditorRef.current;
+
+    if (!nextEditor) {
+      return;
+    }
+
+    if (deferredUiNeedsChromeRefreshRef.current && shouldRefreshEditorChrome) {
+      startTransition(() => {
+        setUiTick((tick) => tick + 1);
+      });
+    }
+
+    deferredUiNeedsChromeRefreshRef.current = false;
+    syncInternalReferencePicker(nextEditor);
+    syncContactMentionPicker(nextEditor);
+    syncTagPicker(nextEditor);
+  }, [
+    shouldRefreshEditorChrome,
+    syncContactMentionPicker,
+    syncInternalReferencePicker,
+    syncTagPicker,
+  ]);
+
+  const scheduleDeferredEditorUi = useCallback(
+    (nextEditor: Editor, options?: { refreshChrome?: boolean }) => {
+      deferredUiEditorRef.current = nextEditor;
+      deferredUiNeedsChromeRefreshRef.current =
+        deferredUiNeedsChromeRefreshRef.current || Boolean(options?.refreshChrome);
+
+      if (deferredUiFrameRef.current !== null) {
+        return;
+      }
+
+      deferredUiFrameRef.current = window.requestAnimationFrame(() => {
+        flushDeferredEditorUi();
+      });
+    },
+    [flushDeferredEditorUi],
   );
 
   const editor = useEditor({
@@ -871,6 +1014,10 @@ export function RichEditor({
       },
       clipboardTextSerializer: (content, view) => serializeRichTextClipboard(content, view),
       transformPastedHTML: (rawHtml) => sanitizePastedHtml(rawHtml),
+      handleDOMEvents: {
+        copy: (view, event) => handleEditorClipboardEvent(view, event, "copy", effectiveReadOnly),
+        cut: (view, event) => handleEditorClipboardEvent(view, event, "cut", effectiveReadOnly),
+      },
       handlePaste: (view, event) => {
         if (syntheticPasteRef.current) {
           syntheticPasteRef.current = false;
@@ -1082,13 +1229,11 @@ export function RichEditor({
           !event.metaKey &&
           !event.ctrlKey
         ) {
-          const chain = editor?.chain().focus();
-          const handled = event.shiftKey
-            ? Boolean(chain?.liftListItem("taskItem").run() || chain?.liftListItem("listItem").run())
-            : Boolean(chain?.sinkListItem("taskItem").run() || chain?.sinkListItem("listItem").run());
+          const currentEditor = editor;
 
-          if (handled) {
+          if (currentEditor && resolveActiveListItemType(currentEditor)) {
             event.preventDefault();
+            handleListIndentation(currentEditor, event.shiftKey);
             return true;
           }
         }
@@ -1100,26 +1245,35 @@ export function RichEditor({
       updatePersistState("idle");
     },
     onFocus: ({ editor: nextEditor }) => {
+      isFocusedRef.current = true;
       setIsFocused(true);
-      setUiTick((tick) => tick + 1);
       rememberCurrentTextSelection(nextEditor);
-      syncInternalReferencePicker(nextEditor);
-      syncContactMentionPicker(nextEditor);
-      syncTagPicker(nextEditor);
+      scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
     },
-    onBlur: () => {
+    onBlur: ({ editor: nextEditor }) => {
+      isFocusedRef.current = false;
       setIsFocused(false);
-      setUiTick((tick) => tick + 1);
+      clearChangePublishTimer();
+      if (onChange || onSnapshot) {
+        const snapshot = serializeEditor(nextEditor);
+        lastResolvedHtmlRef.current = snapshot.html;
+        publishChangeSnapshot(snapshot, { immediate: true, sync: true });
+      }
+      clearDeferredUiFrame();
+      deferredUiEditorRef.current = null;
+      deferredUiNeedsChromeRefreshRef.current = false;
+      if (shouldRefreshEditorChrome) {
+        startTransition(() => {
+          setUiTick((tick) => tick + 1);
+        });
+      }
       closeInternalReferencePicker();
       closeContactMentionPicker();
       closeTagPicker();
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
-      setUiTick((tick) => tick + 1);
       rememberCurrentTextSelection(nextEditor);
-      syncInternalReferencePicker(nextEditor);
-      syncContactMentionPicker(nextEditor);
-      syncTagPicker(nextEditor);
+      scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (taskShortcutTransformRef.current) {
@@ -1128,19 +1282,14 @@ export function RichEditor({
         taskShortcutTransformRef.current = true;
         return;
       }
-
-      const snapshot = serializeEditor(nextEditor);
-
-      onChange?.(snapshot);
-      setUiTick((tick) => tick + 1);
-      syncInternalReferencePicker(nextEditor);
-      syncContactMentionPicker(nextEditor);
-      syncTagPicker(nextEditor);
-
-      if (snapshot.html !== lastPersistedHtmlRef.current) {
+      if (onChange || onSnapshot) {
+        const snapshot = serializeEditor(nextEditor);
+        lastResolvedHtmlRef.current = snapshot.html;
+        publishChangeSnapshot(snapshot);
+      }
+      scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
+      if (persistStateRef.current !== "saving") {
         updatePersistState("dirty");
-      } else if (persistStateRef.current !== "saving") {
-        updatePersistState("saved");
       }
     },
   });
@@ -1197,14 +1346,14 @@ export function RichEditor({
   }, [editor]);
 
   useEffect(() => {
-    if (!editor) {
+    if (!editor || !rewriteWidgetState) {
       return;
     }
 
     editor.view.dispatch(
       editor.state.tr.setMeta(RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY, Date.now()),
     );
-  }, [editor, rewriteWidgetState, uiTick]);
+  }, [editor, rewriteWidgetState]);
 
   const clearPersistTimer = useCallback(() => {
     if (saveTimerRef.current) {
@@ -1219,9 +1368,11 @@ export function RichEditor({
         return undefined;
       }
 
+      clearChangePublishTimer();
       clearPersistTimer();
 
       const snapshot = normalizeRichEditorValue(serializeEditor(editor));
+      publishChangeSnapshot(snapshot, { immediate: true, sync: true });
 
       if (snapshot.html !== normalizeHtml(editor.getHTML())) {
         editor.commands.setContent(snapshot.html, {
@@ -1271,7 +1422,15 @@ export function RichEditor({
         }
       }
     },
-    [clearPersistTimer, editor, onSave, readOnly, updatePersistState],
+    [
+      clearChangePublishTimer,
+      clearPersistTimer,
+      editor,
+      onSave,
+      publishChangeSnapshot,
+      readOnly,
+      updatePersistState,
+    ],
   );
 
   const schedulePersist = useCallback(() => {
@@ -1291,20 +1450,55 @@ export function RichEditor({
   }, [autosaveConfig.delay, autosaveConfig.enabled, onSave, persistEditor, readOnly]);
 
   useEffect(() => {
+    return () => {
+      clearChangePublishTimer();
+      clearDeferredUiFrame();
+    };
+  }, [
+    clearChangePublishTimer,
+    clearDeferredUiFrame,
+  ]);
+
+  const getCurrentValue = useCallback(() => {
+    if (!editor) {
+      return normalizeRichEditorValue({
+        html: normalizeHtml(html ?? defaultHtml),
+        text: "",
+        markdown: "",
+      });
+    }
+
+    return normalizeRichEditorValue(serializeEditor(editor));
+  }, [defaultHtml, editor, html]);
+
+  useEffect(() => {
     if (!editor) {
       return;
     }
 
     const nextHtml = normalizeHtml(html ?? defaultHtml);
+    const currentHtml = normalizeHtml(editor.getHTML());
 
     if (nextHtml === lastResolvedHtmlRef.current) {
+      return;
+    }
+
+    if (nextHtml === currentHtml) {
+      lastResolvedHtmlRef.current = nextHtml;
+      return;
+    }
+
+    if (
+      isFocusedRef.current &&
+      (persistStateRef.current === "dirty" || persistStateRef.current === "saving")
+    ) {
       return;
     }
 
     lastResolvedHtmlRef.current = nextHtml;
     lastPersistedHtmlRef.current = nextHtml;
 
-    if (normalizeHtml(editor.getHTML()) !== nextHtml) {
+    if (currentHtml !== nextHtml) {
       editor.commands.setContent(nextHtml, {
         emitUpdate: false,
       });
@@ -1405,9 +1599,17 @@ export function RichEditor({
     schedulePersist,
   ]);
 
+  useEffect(() => {
+    assetBusyRef.current = assetBusy;
+  }, [assetBusy]);
+
   const persistForLifecycleChange = useCallback(
     (reason: "window-blur" | "visibility-hidden") => {
       if (!autosaveConfig.enabled || !onSave || readOnly) {
+        return;
+      }
+
+      if (assetBusyRef.current !== null) {
         return;
       }
 
@@ -1521,6 +1723,33 @@ export function RichEditor({
 
     return persistEditor("manual", options);
   }, [onSave, persistEditor, readOnly]);
+
+  useEffect(() => {
+    if (!controllerRef) {
+      return;
+    }
+
+    controllerRef.current = {
+      getValue: getCurrentValue,
+      focus: (position) => {
+        if (!editor) {
+          return;
+        }
+
+        if (typeof position === "object" && position) {
+          focusEditorForAutoFocus(editor, position);
+          return;
+        }
+
+        editor.commands.focus(position ?? "end", { scrollIntoView: false });
+      },
+      save: (options) => handleManualSave(options),
+    };
+
+    return () => {
+      controllerRef.current = null;
+    };
+  }, [controllerRef, editor, getCurrentValue, handleManualSave]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -1781,6 +2010,78 @@ export function RichEditor({
     }
     return buildTableToolbarGroups(editor, effectiveReadOnly);
   }, [editor, editorHasTableSelection, effectiveReadOnly, enableTables, uiTick]);
+
+  const updateTableToolbarPosition = useCallback(() => {
+    if (!editorHasTableSelection || !editor) {
+      setTableToolbarPosition(null);
+      return;
+    }
+
+    const frame = frameRef.current;
+    const toolbar = tableToolbarRef.current;
+    const tableElement = resolveActiveTableElement(editor);
+
+    if (!frame || !toolbar || !tableElement) {
+      setTableToolbarPosition(null);
+      return;
+    }
+
+    const frameRect = frame.getBoundingClientRect();
+    const tableRect = tableElement.getBoundingClientRect();
+    const toolbarWidth = toolbar.offsetWidth;
+    const toolbarHeight = toolbar.offsetHeight;
+    const margin = 8;
+
+    const tableLeft = tableRect.left - frameRect.left + frame.scrollLeft;
+    const tableTop = tableRect.top - frameRect.top + frame.scrollTop;
+    const minLeft = frame.scrollLeft + margin;
+    const maxLeft = Math.max(minLeft, frame.scrollLeft + frame.clientWidth - toolbarWidth - margin);
+    const nextLeft = clampNumber(tableLeft, minLeft, maxLeft);
+    const nextTop = Math.max(frame.scrollTop + margin, tableTop - toolbarHeight - margin);
+
+    setTableToolbarPosition((current) => {
+      if (current && current.left === nextLeft && current.top === nextTop) {
+        return current;
+      }
+
+      return { left: nextLeft, top: nextTop };
+    });
+  }, [editor, editorHasTableSelection]);
+
+  useLayoutEffect(() => {
+    if (tableToolbarGroups.length === 0) {
+      setTableToolbarPosition(null);
+      return;
+    }
+
+    updateTableToolbarPosition();
+  }, [tableToolbarGroups.length, uiTick, updateTableToolbarPosition]);
+
+  useEffect(() => {
+    if (tableToolbarGroups.length === 0) {
+      return;
+    }
+
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    const syncPosition = () => {
+      window.requestAnimationFrame(() => {
+        updateTableToolbarPosition();
+      });
+    };
+
+    frame.addEventListener("scroll", syncPosition, { passive: true });
+    window.addEventListener("resize", syncPosition);
+
+    return () => {
+      frame.removeEventListener("scroll", syncPosition);
+      window.removeEventListener("resize", syncPosition);
+    };
+  }, [tableToolbarGroups.length, updateTableToolbarPosition]);
 
   const closeRewriteSession = useCallback(() => {
     setRewriteSession(null);
@@ -2513,42 +2814,6 @@ export function RichEditor({
         </div>
       ) : null}
 
-      {/* Table toolbar - only shows when table is active, positioned above editor */}
-      {tableToolbarGroups.length > 0 ? (
-        <div
-          className={[
-            "rich-editor__table-toolbar",
-            variant === "bare" ? "rich-editor__table-toolbar--bare" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          aria-label="表格工具栏"
-        >
-          {tableToolbarGroups.map((group, index) => (
-            <div key={index} className="rich-editor__table-toolbar-group" role="group">
-              {group.map((item) => (
-                <ToolbarButton
-                  key={item.key}
-                  type="button"
-                  active={item.isActive()}
-                  aria-label={item.label}
-                  title={item.label}
-                  disabled={item.isDisabled?.()}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    void Promise.resolve(item.run()).catch(() => {
-                      // The caller owns error presentation.
-                    });
-                  }}
-                >
-                  <item.icon size={15} />
-                </ToolbarButton>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       {/* Remove table insert button from bare variant - now in context menu */}
       {false && variant === "bare" && enableTables && !effectiveReadOnly && isFocused ? (
         <div className="rich-editor__bare-actions">
@@ -2565,6 +2830,48 @@ export function RichEditor({
         onDoubleClick={handleEditorDoubleClick}
         onContextMenu={handleEditorContextMenu}
       >
+        {tableToolbarGroups.length > 0 ? (
+          <div
+            ref={tableToolbarRef}
+            className={[
+              "rich-editor__table-toolbar",
+              "rich-editor__table-toolbar--floating",
+              variant === "bare" ? "rich-editor__table-toolbar--bare" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            style={{
+              left: `${tableToolbarPosition?.left ?? 0}px`,
+              top: `${tableToolbarPosition?.top ?? 0}px`,
+              visibility: tableToolbarPosition ? "visible" : "hidden",
+            }}
+            aria-label="表格工具栏"
+          >
+            {tableToolbarGroups.map((group, index) => (
+              <div key={index} className="rich-editor__table-toolbar-group" role="group">
+                {group.map((item) => (
+                  <ToolbarButton
+                    key={item.key}
+                    type="button"
+                    active={item.isActive()}
+                    aria-label={item.label}
+                    title={item.label}
+                    disabled={item.isDisabled?.()}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      void Promise.resolve(item.run()).catch(() => {
+                        // The caller owns error presentation.
+                      });
+                    }}
+                  >
+                    <item.icon size={15} />
+                  </ToolbarButton>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
 
         {referencePicker && internalReferences?.context && !effectiveReadOnly ? (
@@ -2573,7 +2880,8 @@ export function RichEditor({
             loading={referenceLoading}
             results={referenceResults}
             activeIndex={referenceActiveIndex}
-            className="absolute z-20 w-[22rem]"
+            portal
+            className="fixed z-[120] w-[22rem]"
             style={{
               left: `${referencePicker.position.left}px`,
               top: `${referencePicker.position.top}px`,
@@ -2908,7 +3216,6 @@ function resolveEditorInternalReferenceTrigger(
   }
 
   const absoluteStart = selection.from - trigger.query.length - 2;
-  const frameRect = frameElement.getBoundingClientRect();
   const caretRect = editor.view.coordsAtPos(selection.from);
 
   return {
@@ -2916,8 +3223,8 @@ function resolveEditorInternalReferenceTrigger(
     end: selection.from,
     query: trigger.query,
     position: {
-      left: Math.max(8, caretRect.left - frameRect.left),
-      top: Math.max(8, caretRect.bottom - frameRect.top + 8),
+      left: Math.max(8, caretRect.left),
+      top: Math.max(8, caretRect.bottom + 8),
     },
   };
 }
@@ -3036,6 +3343,34 @@ function applyTaskListMarkdownShortcut(editor: Editor) {
     .run();
 
   return true;
+}
+
+function resolveActiveListItemType(editor: Editor): "listItem" | "taskItem" | null {
+  const { $from } = editor.state.selection;
+
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const nodeTypeName = $from.node(depth).type.name;
+
+    if (nodeTypeName === "listItem" || nodeTypeName === "taskItem") {
+      return nodeTypeName;
+    }
+  }
+
+  return null;
+}
+
+function handleListIndentation(editor: Editor, outdent: boolean) {
+  const listItemType = resolveActiveListItemType(editor);
+
+  if (!listItemType) {
+    return false;
+  }
+
+  const chain = editor.chain().focus();
+
+  return outdent
+    ? chain.liftListItem(listItemType).run()
+    : chain.sinkListItem(listItemType).run();
 }
 
 function ensureInsertionCursor({ tr }: { tr: Editor["state"]["tr"] }) {
@@ -3979,6 +4314,29 @@ function resolveTableFocusPos(editor: Editor, target: Element | null) {
   }
 }
 
+function resolveActiveTableElement(editor: Editor) {
+  if (!editor.isActive("table")) {
+    return null;
+  }
+
+  try {
+    const { node } = editor.view.domAtPos(editor.state.selection.from);
+    const origin = node instanceof Element ? node : node.parentElement;
+
+    if (!origin) {
+      return null;
+    }
+
+    return origin.closest<HTMLElement>(".tableWrapper, .rich-editor__table-node, table");
+  } catch {
+    return null;
+  }
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function shouldIgnoreRichEditorContextMenuTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
@@ -4072,37 +4430,328 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
     // Fall through to best-effort clipboard APIs.
   }
 
-  if (command === "copy") {
-    const selectedText = serializeRichTextClipboard(
-      editor.state.selection.content(),
-      editor.view,
-    );
+  const payload = await buildRichTextClipboardPayloadAsync(
+    editor.state.selection.content(),
+    editor.view,
+  );
 
-    if (!selectedText) {
-      return;
-    }
+  if (!payload) {
+    return;
+  }
 
-    try {
-      await navigator.clipboard?.writeText(selectedText);
-    } catch {
-      // Clipboard permissions vary by webview/browser; fail silently.
+  try {
+    if (
+      typeof ClipboardItem !== "undefined" &&
+      navigator.clipboard?.write
+    ) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([payload.text], { type: "text/plain" }),
+          "text/html": new Blob([payload.html], { type: "text/html" }),
+        }),
+      ]);
+    } else if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(payload.text);
     }
+  } catch {
+    // Clipboard permissions vary by webview/browser; fail silently.
+  }
+
+  if (command === "cut" && editor.isEditable) {
+    editor.view.dispatch(editor.state.tr.deleteSelection().scrollIntoView());
   }
 }
 
 function serializeRichTextClipboard(content: Slice, view: EditorView) {
+  const payload = buildRichTextClipboardPayload(content, view);
+  return payload?.text ?? content.content.textBetween(0, content.content.size, "\n");
+}
+
+async function writeRichTextClipboardPayloadAsync(payload: { html: string; text: string }) {
+  if (
+    typeof ClipboardItem === "undefined" ||
+    !navigator.clipboard?.write
+  ) {
+    return false;
+  }
+
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      "text/plain": new Blob([payload.text], { type: "text/plain" }),
+      "text/html": new Blob([payload.html], { type: "text/html" }),
+    }),
+  ]);
+  return true;
+}
+
+async function buildRichTextClipboardPayloadAsync(content: Slice, view: EditorView) {
   if (typeof document === "undefined") {
-    return content.content.textBetween(0, content.content.size, "\n");
+    const text = content.content.textBetween(0, content.content.size, "\n");
+    return text ? { html: text, text } : null;
   }
 
   const serializer = DOMSerializer.fromSchema(view.state.schema);
   const container = document.createElement("div");
 
   container.appendChild(serializer.serializeFragment(content.content, { document }));
+  await inlineClipboardImageSourcesAsync(container, view);
 
-  return richTextHtmlToPlainText(container.innerHTML, {
+  const html = container.innerHTML;
+  const text = richTextHtmlToPlainText(html, {
     preserveStructure: true,
   });
+
+  if (!html && !text) {
+    return null;
+  }
+
+  return { html, text };
+}
+
+function buildRichTextClipboardPayload(content: Slice, view: EditorView) {
+  if (typeof document === "undefined") {
+    const text = content.content.textBetween(0, content.content.size, "\n");
+    return text ? { html: text, text } : null;
+  }
+
+  const serializer = DOMSerializer.fromSchema(view.state.schema);
+  const container = document.createElement("div");
+
+  container.appendChild(serializer.serializeFragment(content.content, { document }));
+  inlineClipboardImageSources(container, view);
+
+  const html = container.innerHTML;
+  const text = richTextHtmlToPlainText(html, {
+    preserveStructure: true,
+  });
+
+  if (!html && !text) {
+    return null;
+  }
+
+  return { html, text };
+}
+
+function inlineClipboardImageSources(container: HTMLElement, view: EditorView) {
+  const liveImages = Array.from(
+    view.dom.querySelectorAll<HTMLImageElement>("img.rich-editor__image, img"),
+  );
+  const imageBuckets = new Map<string, HTMLImageElement[]>();
+
+  for (const image of liveImages) {
+    const key = buildClipboardImageLookupKey(
+      image.getAttribute("data-path"),
+      image.getAttribute("src"),
+    );
+
+    if (!key) {
+      continue;
+    }
+
+    const bucket = imageBuckets.get(key) ?? [];
+    bucket.push(image);
+    imageBuckets.set(key, bucket);
+  }
+
+  container.querySelectorAll("img").forEach((image) => {
+    const key = buildClipboardImageLookupKey(
+      image.getAttribute("data-path"),
+      image.getAttribute("src"),
+    );
+    const liveImage = key ? imageBuckets.get(key)?.shift() : undefined;
+    const nextSrc = resolveClipboardImageSrc(image, liveImage);
+
+    if (nextSrc) {
+      image.setAttribute("src", nextSrc);
+    }
+  });
+}
+
+async function inlineClipboardImageSourcesAsync(container: HTMLElement, view: EditorView) {
+  const liveImages = Array.from(
+    view.dom.querySelectorAll<HTMLImageElement>("img.rich-editor__image, img"),
+  );
+  const imageBuckets = new Map<string, HTMLImageElement[]>();
+
+  for (const image of liveImages) {
+    const key = buildClipboardImageLookupKey(
+      image.getAttribute("data-path"),
+      image.getAttribute("src"),
+    );
+
+    if (!key) {
+      continue;
+    }
+
+    const bucket = imageBuckets.get(key) ?? [];
+    bucket.push(image);
+    imageBuckets.set(key, bucket);
+  }
+
+  const images = Array.from(container.querySelectorAll("img"));
+
+  await Promise.all(images.map(async (image) => {
+    const key = buildClipboardImageLookupKey(
+      image.getAttribute("data-path"),
+      image.getAttribute("src"),
+    );
+    const liveImage = key ? imageBuckets.get(key)?.shift() : undefined;
+    const nextSrc = await resolveClipboardImageSrcAsync(image, liveImage);
+
+    if (nextSrc) {
+      image.setAttribute("src", nextSrc);
+    }
+  }));
+}
+
+function buildClipboardImageLookupKey(path?: string | null, src?: string | null) {
+  const normalizedPath = path?.trim();
+
+  if (normalizedPath) {
+    return `path:${normalizedPath}`;
+  }
+
+  const normalizedSrc = src?.trim();
+  return normalizedSrc ? `src:${normalizedSrc}` : null;
+}
+
+function resolveClipboardImageSrc(image: Element, liveImage?: HTMLImageElement) {
+  const currentSrc = image.getAttribute("src")?.trim() ?? "";
+
+  if (currentSrc.startsWith("data:")) {
+    return currentSrc;
+  }
+
+  const cachedSrc = liveImage?.dataset.clipboardSrc?.trim();
+
+  if (cachedSrc) {
+    return cachedSrc;
+  }
+
+  const inlinedSrc = liveImage ? renderImageElementAsDataUrl(liveImage) : null;
+
+  if (inlinedSrc) {
+    return inlinedSrc;
+  }
+
+  return currentSrc;
+}
+
+async function resolveClipboardImageSrcAsync(
+  image: Element,
+  liveImage?: HTMLImageElement,
+) {
+  const currentSrc = image.getAttribute("src")?.trim() ?? "";
+
+  if (currentSrc.startsWith("data:")) {
+    return currentSrc;
+  }
+
+  const cachedSrc = liveImage?.dataset.clipboardSrc?.trim();
+
+  if (cachedSrc) {
+    return cachedSrc;
+  }
+
+  const path = image.getAttribute("data-path")?.trim() ?? liveImage?.getAttribute("data-path")?.trim() ?? "";
+  const mimeType =
+    image.getAttribute("data-mime-type")?.trim() ??
+    liveImage?.getAttribute("data-mime-type")?.trim() ??
+    undefined;
+
+  if (path) {
+    try {
+      return await desktopApi.readFileAsDataUrl(path, mimeType);
+    } catch {
+      // Fall through to a best-effort inline export below.
+    }
+  }
+
+  const inlinedSrc = liveImage ? renderImageElementAsDataUrl(liveImage) : null;
+
+  if (inlinedSrc) {
+    return inlinedSrc;
+  }
+
+  return currentSrc;
+}
+
+function renderImageElementAsDataUrl(image: HTMLImageElement) {
+  const width = Math.max(1, Math.round(image.naturalWidth || image.width || image.clientWidth));
+  const height = Math.max(1, Math.round(image.naturalHeight || image.height || image.clientHeight));
+
+  if (!width || !height) {
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return null;
+  }
+
+  try {
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL(inferClipboardImageMimeType(image));
+  } catch {
+    return null;
+  }
+}
+
+function inferClipboardImageMimeType(image: HTMLImageElement) {
+  const mimeType = image.getAttribute("data-mime-type")?.trim().toLowerCase();
+
+  if (mimeType === "image/jpeg" || mimeType === "image/webp") {
+    return mimeType;
+  }
+
+  return "image/png";
+}
+
+function handleEditorClipboardEvent(
+  view: EditorView,
+  event: Event,
+  command: "copy" | "cut",
+  readOnly: boolean,
+) {
+  const clipboardEvent = event as ClipboardEvent;
+  const content = view.state.selection.content();
+  const payload = buildRichTextClipboardPayload(content, view);
+
+  if (!payload || !clipboardEvent.clipboardData) {
+    return false;
+  }
+
+  clipboardEvent.preventDefault();
+  clipboardEvent.clipboardData.setData("text/plain", payload.text);
+  clipboardEvent.clipboardData.setData("text/html", payload.html);
+
+  if (payload.html.includes("<img")) {
+    void buildRichTextClipboardPayloadAsync(content, view)
+      .then(async (upgradedPayload) => {
+        if (
+          !upgradedPayload ||
+          (upgradedPayload.html === payload.html && upgradedPayload.text === payload.text)
+        ) {
+          return;
+        }
+
+        await writeRichTextClipboardPayloadAsync(upgradedPayload);
+      })
+      .catch(() => {
+        // Async clipboard upgrades are best-effort only.
+      });
+  }
+
+  if (command === "cut" && !readOnly) {
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+  }
+
+  return true;
 }
 
 function findNodePos(editorView: EditorView, element: HTMLElement, nodeTypeName: string) {
@@ -4249,22 +4898,16 @@ async function readFileAsDataUrl(file: File) {
 }
 
 async function resolveStoredImageSrc(asset: RichEditorAsset, file?: File) {
+  const fallbackSrc = resolveRichTextImageSrc(asset.path, asset.src);
+
+  if (fallbackSrc) {
+    return fallbackSrc;
+  }
+
   const normalizedSrc = typeof asset.src === "string" ? asset.src.trim() : "";
 
   if (normalizedSrc.startsWith("data:") || normalizedSrc.startsWith("blob:")) {
     return normalizedSrc;
-  }
-
-  if (asset.path) {
-    try {
-      return await desktopApi.readFileAsDataUrl(asset.path, asset.mimeType);
-    } catch {
-      const fallbackSrc = resolveRichTextImageSrc(asset.path, asset.src);
-
-      if (fallbackSrc) {
-        return fallbackSrc;
-      }
-    }
   }
 
   if (file) {
@@ -4275,7 +4918,7 @@ async function resolveStoredImageSrc(asset: RichEditorAsset, file?: File) {
     }
   }
 
-  return resolveRichTextImageSrc(asset.path, asset.src);
+  return null;
 }
 
 function extractClipboardImageFiles(clipboardData?: DataTransfer | null) {

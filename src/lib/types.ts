@@ -20,6 +20,7 @@ export interface ProjectListItem extends ProjectRecord {
 export interface NoteRecord {
   id: number;
   projectId: number;
+  activityId?: number | null;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
@@ -516,6 +517,10 @@ export interface ProjectArchiveInput {
   isArchived: boolean;
 }
 
+export interface ProjectDeleteInput {
+  projectId: number;
+}
+
 export interface FileTagOptionUpsertInput {
   projectId?: number | null;
   id?: number;
@@ -554,6 +559,7 @@ export interface ContactDeleteInput {
 
 export interface ProjectRecordUpsertInput {
   projectId: number;
+  activityId?: number | null;
   noteId?: number;
   title?: string;
   markdown: string;
@@ -659,6 +665,7 @@ export interface TodoDeleteInput {
 
 export interface DocumentImportInput {
   projectId: number;
+  activityId?: number | null;
   sourcePath: string;
   isStarred: boolean;
   tagIds?: number[];
@@ -666,6 +673,7 @@ export interface DocumentImportInput {
 
 export interface DocumentImportClipboardImageInput {
   projectId: number;
+  activityId?: number | null;
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -675,11 +683,13 @@ export interface DocumentImportClipboardImageInput {
 
 export interface DocumentImportNoteImageInput {
   projectId: number;
+  activityId?: number | null;
   sourcePath: string;
 }
 
 export interface DocumentImportClipboardNoteImageInput {
   projectId: number;
+  activityId?: number | null;
   fileName: string;
   mimeType: string;
   dataBase64: string;

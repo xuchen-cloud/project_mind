@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX,
   PROJECT_SIDEBAR_WIDTH_MIN_PX,
-  TODO_RAIL_COLLAPSED_WIDTH_PX,
   TODO_RAIL_WIDTH_MIN_PX,
   WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX,
   WORKSPACE_WINDOW_MIN_WIDTH_DEFAULT_PX,
@@ -32,7 +30,6 @@ describe("getWorkspaceWindowMinWidth", () => {
       }),
     ).toBe(
       WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX +
-        PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX +
         TODO_RAIL_WIDTH_MIN_PX,
     );
   });
@@ -47,8 +44,7 @@ describe("getWorkspaceWindowMinWidth", () => {
       }),
     ).toBe(
       WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX +
-        PROJECT_SIDEBAR_WIDTH_MIN_PX +
-        TODO_RAIL_COLLAPSED_WIDTH_PX,
+        PROJECT_SIDEBAR_WIDTH_MIN_PX,
     );
   });
 
@@ -61,8 +57,18 @@ describe("getWorkspaceWindowMinWidth", () => {
         todoRailCollapsed: false,
       }),
     ).toBe(
-      WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX +
-        PROJECT_SIDEBAR_COLLAPSED_WIDTH_PX,
+      WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX,
     );
+  });
+
+  it("matches the workspace/project collapsed width when both side panels remain visible but collapsed", () => {
+    expect(
+      getWorkspaceWindowMinWidth({
+        showProjectSidebar: true,
+        projectSidebarCollapsed: true,
+        showTodoRail: true,
+        todoRailCollapsed: true,
+      }),
+    ).toBe(WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX);
   });
 });

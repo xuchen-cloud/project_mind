@@ -8,24 +8,15 @@ import {
 } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
-  it("handles search selection and archived restore actions", async () => {
+  it("handles search selection", async () => {
     const user = userEvent.setup();
     const onSearchSelect = vi.fn();
-    const onRestoreProject = vi.fn();
 
     render(
       <WorkspaceTopBar
         projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
-        currentWorkspace={{
-          rootPath: "/tmp/workspace",
-          metadataPath: "/tmp/workspace/.project-mind/workspace.json",
-          displayName: "Test Workspace",
-          createdAt: "",
-        }}
-        aiSecretsUnlocked
         activeProjectId={1}
         todayActive={false}
-        archivedProjects={[{ id: 2, name: "Beta", kind: "normal", status: "paused", rootPath: "/", quickNote: "", isArchived: true, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 }]}
         searchInput="bet"
         onSearchInput={vi.fn()}
         searchResults={[
@@ -39,19 +30,8 @@ describe("WorkspaceTopBar", () => {
           },
         ]}
         searching={false}
-        archiveOpen
-        onToggleArchive={vi.fn()}
-        onCloseArchive={vi.fn()}
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
-        onRestoreProject={onRestoreProject}
-        workspaceMenuOpen={false}
-        onToggleWorkspaceMenu={vi.fn()}
-        onCloseWorkspaceMenu={vi.fn()}
-        onOpenWorkspaceFolder={vi.fn()}
-        onSwitchWorkspace={vi.fn()}
-        onLockAiSecrets={vi.fn()}
-        onCreateProject={vi.fn()}
         onOpenToday={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
@@ -66,9 +46,6 @@ describe("WorkspaceTopBar", () => {
     expect(onSearchSelect).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "project", projectId: 2 }),
     );
-
-    await user.click(screen.getByRole("button", { name: "恢复" }));
-    expect(onRestoreProject).toHaveBeenCalledWith(2);
   });
 
   it("detects when a dragged tab is released outside the tab list", () => {
@@ -108,33 +85,14 @@ describe("WorkspaceTopBar", () => {
     render(
       <WorkspaceTopBar
         projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
-        currentWorkspace={{
-          rootPath: "/tmp/workspace",
-          metadataPath: "/tmp/workspace/.project-mind/workspace.json",
-          displayName: "Test Workspace",
-          createdAt: "",
-        }}
-        aiSecretsUnlocked
         activeProjectId={1}
         todayActive={false}
-        archivedProjects={[]}
         searchInput=""
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
-        archiveOpen={false}
-        onToggleArchive={vi.fn()}
-        onCloseArchive={vi.fn()}
         onOpenProject={onOpenProject}
         onCloseProject={vi.fn()}
-        onRestoreProject={vi.fn()}
-        workspaceMenuOpen={false}
-        onToggleWorkspaceMenu={vi.fn()}
-        onCloseWorkspaceMenu={vi.fn()}
-        onOpenWorkspaceFolder={vi.fn()}
-        onSwitchWorkspace={vi.fn()}
-        onLockAiSecrets={vi.fn()}
-        onCreateProject={vi.fn()}
         onOpenToday={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
@@ -146,5 +104,101 @@ describe("WorkspaceTopBar", () => {
 
     expect(onOpenProject).toHaveBeenCalledWith(1);
     expect(onDetachProject).not.toHaveBeenCalled();
+  });
+
+  it("opens the project tab context menu and detaches to a new window", async () => {
+    const onDetachProject = vi.fn();
+
+    render(
+      <WorkspaceTopBar
+        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        activeProjectId={1}
+        todayActive={false}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onCloseProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+        onDetachProject={onDetachProject}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" }), {
+      clientX: 120,
+      clientY: 88,
+    });
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: "在新窗口中打开" }));
+
+    expect(onDetachProject).toHaveBeenCalledWith(1);
+  });
+
+  it("keeps full titles while marking the active tab close button as persistent", () => {
+    render(
+      <WorkspaceTopBar
+        projects={[
+          {
+            id: 1,
+            name: "Alpha project with a very long title",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            activityCount: 1,
+            unorganizedCount: 0,
+            openTodoCount: 1,
+          },
+          {
+            id: 2,
+            name: "Beta project with another very long title",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            activityCount: 1,
+            unorganizedCount: 0,
+            openTodoCount: 1,
+          },
+        ]}
+        activeProjectId={1}
+        todayActive={false}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onCloseProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("title", "Workspace");
+    expect(screen.getByRole("button", { name: "Alpha project with a very long title" })).toHaveAttribute(
+      "title",
+      "Alpha project with a very long title",
+    );
+    expect(screen.getByRole("button", { name: "Beta project with another very long title" })).toHaveAttribute(
+      "title",
+      "Beta project with another very long title",
+    );
+
+    expect(
+      screen.getByRole("button", { name: "关闭 Alpha project with a very long title" }),
+    ).toHaveClass("workspace-topbar__tab-close--persistent");
+    expect(
+      screen.getByRole("button", { name: "关闭 Beta project with another very long title" }),
+    ).not.toHaveClass("workspace-topbar__tab-close--persistent");
   });
 });

@@ -1,25 +1,18 @@
 import {
-  Archive,
   CalendarDays,
   CircleX,
-  CircleHelp,
-  CircleUser,
-  FolderOpen,
-  Lock,
   LoaderCircle,
-  Plus,
-  RefreshCcw,
   Settings2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type {
   ProjectListItem,
   WorkspaceSearchResult,
-  WorkspaceSummary,
 } from "../../lib/types";
 import {
-  Button,
+  ActionContextMenu,
   IconButton,
   PopoverPanel,
   SearchField,
@@ -32,26 +25,12 @@ interface WorkspaceTopBarProps {
   todayActive?: boolean;
   showToday?: boolean;
   settingsActive?: boolean;
-  currentWorkspace?: WorkspaceSummary | null;
-  aiSecretsUnlocked: boolean;
-  archivedProjects: ProjectListItem[];
   searchInput: string;
   onSearchInput: (value: string) => void;
   searchResults: WorkspaceSearchResult[];
   searching: boolean;
-  archiveOpen: boolean;
-  onToggleArchive: () => void;
-  onCloseArchive: () => void;
   onOpenProject: (projectId: number) => void;
   onCloseProject?: (projectId: number) => void;
-  onRestoreProject: (projectId: number) => void;
-  workspaceMenuOpen: boolean;
-  onToggleWorkspaceMenu: () => void;
-  onCloseWorkspaceMenu: () => void;
-  onOpenWorkspaceFolder: () => void;
-  onSwitchWorkspace: () => void;
-  onLockAiSecrets: () => void;
-  onCreateProject: () => void;
   onOpenToday: () => void;
   onOpenSettings: () => void;
   onSearchSelect: (result: WorkspaceSearchResult) => void;
@@ -80,26 +59,12 @@ export function WorkspaceTopBar({
   todayActive = false,
   showToday = true,
   settingsActive = false,
-  currentWorkspace,
-  aiSecretsUnlocked,
-  archivedProjects,
   searchInput,
   onSearchInput,
   searchResults,
   searching,
-  archiveOpen,
-  onToggleArchive,
-  onCloseArchive,
   onOpenProject,
   onCloseProject,
-  onRestoreProject,
-  workspaceMenuOpen,
-  onToggleWorkspaceMenu,
-  onCloseWorkspaceMenu,
-  onOpenWorkspaceFolder,
-  onSwitchWorkspace,
-  onLockAiSecrets,
-  onCreateProject,
   onOpenToday,
   onOpenSettings,
   onSearchSelect,
@@ -112,6 +77,11 @@ export function WorkspaceTopBar({
     startX: number;
     startY: number;
     dragging: boolean;
+  } | null>(null);
+  const [projectTabContextMenu, setProjectTabContextMenu] = useState<{
+    projectId: number;
+    x: number;
+    y: number;
   } | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<number | null>(null);
   const dragEnabled = Boolean(onDetachProject);
@@ -181,17 +151,39 @@ export function WorkspaceTopBar({
   const tabClassName = useMemo(
     () =>
       [
-        "group shrink-0 inline-flex h-8 items-center rounded-[var(--radius-6)] border pr-1 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
+        "workspace-topbar__tab group inline-flex h-8 min-w-0 items-center rounded-[var(--radius-6)] border pr-0.5 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
       ].join(" "),
     [],
   );
 
+  const projectTabContextMenuPortal =
+    projectTabContextMenu && onDetachProject && typeof document !== "undefined"
+      ? createPortal(
+          <ActionContextMenu
+            x={projectTabContextMenu.x}
+            y={projectTabContextMenu.y}
+            ariaLabel="项目页签操作"
+            actions={[
+              {
+                label: "在新窗口中打开",
+                onSelect: () => {
+                  onDetachProject(projectTabContextMenu.projectId);
+                  setProjectTabContextMenu(null);
+                },
+              },
+            ]}
+            onClose={() => setProjectTabContextMenu(null)}
+          />,
+          document.body,
+        )
+      : null;
+
   return (
-    <header className="sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
-      <div className="flex min-w-0 items-center gap-3 overflow-hidden">
+    <header className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <div
           ref={tabListRef}
-          className="flex items-center gap-1 overflow-x-auto"
+          className="workspace-topbar__tablist flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden"
           role="tablist"
           aria-label="Projects"
         >
@@ -199,15 +191,17 @@ export function WorkspaceTopBar({
             <button
               type="button"
               className={[
-                "shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-6)] border px-2.5 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
+                "workspace-topbar__tab workspace-topbar__tab--workspace inline-flex h-8 min-w-0 items-center gap-1 rounded-[var(--radius-6)] border px-2 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
+                todayActive ? "workspace-topbar__tab--active" : "",
                 todayActive
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
                   : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
               ].join(" ")}
               onClick={onOpenToday}
+              title="Workspace"
             >
               <CalendarDays size={14} />
-              <span>Workspace</span>
+              <span className="workspace-topbar__tab-label min-w-0 flex-1">Workspace</span>
             </button>
           ) : null}
           {projects.map((project) => (
@@ -215,6 +209,7 @@ export function WorkspaceTopBar({
               key={project.id}
               className={[
                 tabClassName,
+                project.id === activeProjectId ? "workspace-topbar__tab--active" : "",
                 project.id === activeProjectId
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
                   : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
@@ -224,8 +219,20 @@ export function WorkspaceTopBar({
             >
               <button
                 type="button"
-                className="h-full min-w-0 rounded-[var(--radius-6)] px-2.5"
+                className="workspace-topbar__tab-trigger flex h-full min-w-0 flex-1 items-center overflow-hidden rounded-[var(--radius-6)] px-2"
                 onClick={() => onOpenProject(project.id)}
+                onContextMenu={(event) => {
+                  if (!onDetachProject) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setProjectTabContextMenu({
+                    projectId: project.id,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
                 onPointerDown={(event) => {
                   if (!dragEnabled || event.button !== 0) {
                     return;
@@ -239,14 +246,18 @@ export function WorkspaceTopBar({
                     dragging: false,
                   };
                 }}
+                title={project.name}
               >
-                <span className="truncate">{project.name}</span>
+                <span className="workspace-topbar__tab-label min-w-0 flex-1">{project.name}</span>
               </button>
               {onCloseProject ? (
                 <button
                   type="button"
                   aria-label={`关闭 ${project.name}`}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-6)] text-current opacity-55 transition-[background-color,opacity] hover:bg-bg/80 hover:opacity-100"
+                  className={[
+                    "workspace-topbar__tab-close inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-6)] text-current opacity-55 transition-[background-color,opacity] hover:bg-bg/80 hover:opacity-100",
+                    project.id === activeProjectId ? "workspace-topbar__tab-close--persistent" : "",
+                  ].join(" ")}
                   onClick={(event) => {
                     event.stopPropagation();
                     onCloseProject(project.id);
@@ -257,20 +268,11 @@ export function WorkspaceTopBar({
               ) : null}
             </div>
           ))}
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            leadingIcon={<Plus size={14} />}
-            onClick={onCreateProject}
-          >
-            新建
-          </Button>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="relative">
+      <div className="workspace-topbar__actions flex shrink-0 items-center gap-2">
+        <div className="workspace-topbar__search relative">
           <SearchField
             value={searchInput}
             onChange={(event) => onSearchInput(event.target.value)}
@@ -314,48 +316,6 @@ export function WorkspaceTopBar({
           ) : null}
         </div>
 
-        <div className="relative">
-          <IconButton type="button" size="md" onClick={onToggleArchive}>
-            <Archive size={13} />
-          </IconButton>
-          {archiveOpen ? (
-            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 w-64">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                  ARCHIVED
-                </span>
-                <Button type="button" size="sm" variant="ghost" onClick={onCloseArchive}>
-                  关闭
-                </Button>
-              </div>
-              {archivedProjects.length > 0 ? (
-                archivedProjects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="flex items-center justify-between gap-2 border-t border-border py-2 first:border-t-0"
-                  >
-                    <button
-                      type="button"
-                      className="min-w-0 truncate bg-transparent text-left text-body font-medium text-text"
-                      onClick={() => onOpenProject(project.id)}
-                    >
-                      {project.name}
-                    </button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => onRestoreProject(project.id)}>
-                      恢复
-                    </Button>
-                  </div>
-                ))
-              ) : (
-                <p className="py-1 text-ui text-text-soft">暂无归档项目</p>
-              )}
-            </PopoverPanel>
-          ) : null}
-        </div>
-
-        <IconButton type="button" size="md" aria-label="帮助">
-          <CircleHelp size={13} />
-        </IconButton>
         <IconButton
           type="button"
           size="md"
@@ -365,71 +325,9 @@ export function WorkspaceTopBar({
         >
           <Settings2 size={13} />
         </IconButton>
-        <div className="relative">
-          <button
-            type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg text-text-muted transition-colors hover:border-border-strong hover:text-text"
-            onClick={onToggleWorkspaceMenu}
-          >
-            <CircleUser size={14} />
-          </button>
-          {workspaceMenuOpen ? (
-            <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 w-72">
-              <div className="mb-3">
-                <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-                  Workspace
-                </p>
-                <p className="mt-2 text-body font-medium text-text">
-                  {currentWorkspace?.displayName ?? "Current Workspace"}
-                </p>
-                <p className="mt-1 break-all text-ui text-text-soft">
-                  {currentWorkspace?.rootPath ?? "未提供路径"}
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  leadingIcon={<FolderOpen size={14} />}
-                  onClick={() => {
-                    onCloseWorkspaceMenu();
-                    onOpenWorkspaceFolder();
-                  }}
-                >
-                  打开 Workspace
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  leadingIcon={<RefreshCcw size={14} />}
-                  onClick={() => {
-                    onCloseWorkspaceMenu();
-                    onSwitchWorkspace();
-                  }}
-                >
-                  切换 Workspace
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  leadingIcon={<Lock size={14} />}
-                  disabled={!aiSecretsUnlocked}
-                  onClick={() => {
-                    onCloseWorkspaceMenu();
-                    onLockAiSecrets();
-                  }}
-                >
-                  {aiSecretsUnlocked ? "锁定 AI Secrets" : "AI Secrets 已锁定"}
-                </Button>
-              </div>
-            </PopoverPanel>
-          ) : null}
-        </div>
       </div>
+
+      {projectTabContextMenuPortal}
     </header>
   );
 }

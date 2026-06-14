@@ -55,10 +55,17 @@ export function TodoInlineProgressEditor({
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<"add" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
+  const [optimisticLatestProgress, setOptimisticLatestProgress] = useState<{
+    id: number;
+    content: string;
+    progressDate: string;
+  } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contactMentionOptions = useContactMentionOptions();
   const saveInFlightRef = useRef(false);
   const editing = mode !== null;
+  const displayLatestProgress =
+    latestProgress === null ? null : (optimisticLatestProgress ?? latestProgress);
 
   useEffect(() => {
     onEditingChange?.(editing);
@@ -71,13 +78,26 @@ export function TodoInlineProgressEditor({
   }, [editing]);
 
   useEffect(() => {
-    if (mode === "edit" && latestProgress) {
-      setDraft(latestProgress.content);
+    if (mode === "edit" && displayLatestProgress) {
+      setDraft(displayLatestProgress.content);
     }
     if (mode === "add") {
       setDraft("");
     }
-  }, [latestProgress, mode]);
+  }, [displayLatestProgress, mode]);
+
+  useEffect(() => {
+    if (!optimisticLatestProgress || !latestProgress) {
+      return;
+    }
+
+    if (
+      latestProgress.content === optimisticLatestProgress.content &&
+      latestProgress.progressDate === optimisticLatestProgress.progressDate
+    ) {
+      setOptimisticLatestProgress(null);
+    }
+  }, [latestProgress, optimisticLatestProgress]);
 
   async function handleSave() {
     if (saveInFlightRef.current) {
@@ -100,9 +120,17 @@ export function TodoInlineProgressEditor({
     }
     saveInFlightRef.current = true;
     setSaving(true);
+    if (mode === "edit" && displayLatestProgress) {
+      setOptimisticLatestProgress({
+        id: displayLatestProgress.id,
+        content: parsed.content,
+        progressDate: parsed.progressDate,
+      });
+    }
+    setMode(null);
     try {
-      if (mode === "edit" && latestProgress && onUpdateLatestProgress) {
-        await onUpdateLatestProgress(latestProgress.id, {
+      if (mode === "edit" && displayLatestProgress && onUpdateLatestProgress) {
+        await onUpdateLatestProgress(displayLatestProgress.id, {
           content: parsed.content,
           progressDate: parsed.progressDate,
         });
@@ -112,7 +140,10 @@ export function TodoInlineProgressEditor({
           progressDate: parsed.progressDate,
         });
       }
-      setMode(null);
+    } catch (error) {
+      setOptimisticLatestProgress(null);
+      setMode(mode === "edit" ? "edit" : "add");
+      throw error;
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -139,10 +170,10 @@ export function TodoInlineProgressEditor({
     );
   }
 
-  const content = latestProgress ? (
+  const content = displayLatestProgress ? (
     <p className="text-ui leading-[1.2rem] text-text-muted">
       <InternalReferenceInlineText
-        value={latestProgress.content}
+        value={displayLatestProgress.content}
         className="break-words"
         variant="todo-inline"
         onOpenInternalReference={onOpenInternalReference}
@@ -164,17 +195,24 @@ export function TodoInlineProgressEditor({
         tabIndex={0}
         className={cn(
           "todo-inline-progress-trigger",
-          latestProgress ? "text-text" : "text-text-muted",
+          displayLatestProgress ? "text-text" : "text-text-muted",
         )}
-        onClick={() => setMode("add")}
+        onClick={() => {
+          if (!saving) {
+            setMode("add");
+          }
+        }}
         onKeyDown={(event) => {
+          if (saving) {
+            return;
+          }
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             setMode("add");
           }
         }}
         onContextMenu={(event) => {
-          if (!latestProgress) {
+          if (!displayLatestProgress || saving) {
             return;
           }
           event.preventDefault();
@@ -184,7 +222,7 @@ export function TodoInlineProgressEditor({
       >
         {content}
       </div>
-      {contextMenu && latestProgress ? (
+      {contextMenu && displayLatestProgress ? (
         <ActionContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
@@ -195,7 +233,9 @@ export function TodoInlineProgressEditor({
               icon: Pencil,
               label: "编辑子项",
               onSelect: () => {
-                setMode("edit");
+                if (!saving) {
+                  setMode("edit");
+                }
               },
             },
             {
@@ -203,7 +243,7 @@ export function TodoInlineProgressEditor({
               label: "删除子项",
               tone: "danger",
               onSelect: () => {
-                void onDeleteLatestProgress?.(latestProgress.id);
+                void onDeleteLatestProgress?.(displayLatestProgress.id);
               },
             },
           ]}

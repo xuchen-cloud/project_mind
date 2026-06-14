@@ -14,6 +14,38 @@ function render(ui: ReactElement) {
 }
 
 describe("TodoInlineContentEditor", () => {
+  it("returns to display mode immediately while a save is still pending", async () => {
+    const user = userEvent.setup();
+    let resolveSave: (() => void) | null = null;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(
+      <TodoInlineContentEditor
+        value="和税务对齐相关方案"
+        editable
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "和税务对齐相关方案" }));
+
+    const textbox = screen.getByRole("textbox");
+    textbox.textContent = "同步法务最终意见";
+    fireEvent.input(textbox);
+    await user.keyboard("{Enter}");
+
+    expect(onSave).toHaveBeenCalledWith("同步法务最终意见");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "同步法务最终意见" })).toBeInTheDocument();
+
+    resolveSave?.();
+  });
+
   it("uses a wrapping textarea and saves without manual line breaks", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();

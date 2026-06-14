@@ -2,7 +2,9 @@ export {
   RichEditor,
   RICH_EDITOR_FOCUS_REQUEST_EVENT,
 } from "./RichEditor";
+export { RichTextViewer } from "./RichTextViewer";
 export type {
+  RichEditorController,
   RichEditorSelectionAction,
   RichEditorSelectionPayload,
 } from "./RichEditor";

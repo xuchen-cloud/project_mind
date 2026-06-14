@@ -25,6 +25,7 @@ import {
   recordFocusId,
   workspacePath,
 } from "./lib/formatters";
+import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
@@ -50,7 +51,6 @@ import {
 import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
-import { CreateProjectModal } from "./components/project/CreateProjectModal";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
   Button,
@@ -80,9 +80,12 @@ function toProjectSidebarRecords(
 ): ProjectSidebarRecordItem[] {
   return records.map((record) => ({
     id: record.id,
+    projectId: record.projectId,
+    activityId: record.activityId,
     title: record.title,
     typeLabel: "记录",
     contentMarkdown: record.contentMarkdown,
+    contentHtml: record.contentHtml,
     tags: record.tags ?? [],
     updatedAt: record.updatedAt,
   }));
@@ -400,10 +403,21 @@ export function WorkspaceLayout() {
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
   const workspaceActive = location.pathname === workspacePath();
+  const projectRecordQuery = useMemo(
+    () => new URLSearchParams(location.search).get("recordQuery") ?? "",
+    [location.search],
+  );
+  const projectRecordTagId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("recordTag");
+    if (!value) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [location.search]);
 
   const {
-    createProjectOpen,
-    setCreateProjectOpen,
     settingsOpen,
     settingsSection,
     settingsProjectId,
@@ -415,6 +429,7 @@ export function WorkspaceLayout() {
     setSettingsSection,
     projectRecentPaths,
     projectSidebarCollapsed,
+    setCreateProjectOpen,
     rememberProjectRoute,
     clearProjectRecentPaths,
     todoRailCollapsed,
@@ -441,10 +456,6 @@ export function WorkspaceLayout() {
 
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
-    [projectsQuery.data],
-  );
-  const archivedProjects = useMemo(
-    () => (projectsQuery.data ?? []).filter((project) => project.isArchived),
     [projectsQuery.data],
   );
   const openedProjects = useMemo(
@@ -487,11 +498,13 @@ export function WorkspaceLayout() {
     showProjectSidebarShell &&
     !location.pathname.endsWith("/summary") &&
     !/\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+  const showLeftSidebarForWidthConstraint = workspaceActive || showProjectSidebarShell;
+  const showRightSidebarForWidthConstraint = workspaceActive || showTodoRailShell;
 
   useWorkspaceWindowSizeConstraints({
-    showProjectSidebar: showProjectSidebarShell,
+    showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
-    showTodoRail: showTodoRailShell,
+    showTodoRail: showRightSidebarForWidthConstraint,
     todoRailCollapsed,
   });
 
@@ -503,8 +516,6 @@ export function WorkspaceLayout() {
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
   });
 
-  const [archiveOpen, setArchiveOpen] = useState(false);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceRoot, setCreateWorkspaceRoot] = useState("");
   const [createWorkspacePassword, setCreateWorkspacePassword] = useState("");
@@ -520,10 +531,26 @@ export function WorkspaceLayout() {
 
   const todayVisible = hasWorkspace;
 
-  const { createProjectMutation, archiveMutation } = useProjectMutations(
+  const { createProjectMutation, refreshProjectScope } = useProjectMutations(
     visibleProjects,
     (path, options) => navigate(path, options),
   );
+
+  const createProjectQuickly = useCallback(async () => {
+    if (createProjectMutation.isPending) {
+      return;
+    }
+
+    const nextName = generateDefaultProjectName(
+      (projectsQuery.data ?? []).map((project) => project.name),
+    );
+
+    await createProjectMutation.mutateAsync({
+      name: nextName,
+      quickNote: "",
+      status: "active",
+    });
+  }, [createProjectMutation, projectsQuery.data]);
 
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
@@ -610,7 +637,6 @@ export function WorkspaceLayout() {
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
-      setArchiveOpen(false);
       navigate(workspacePath(), { replace: true });
       return snapshot;
     },
@@ -700,26 +726,6 @@ export function WorkspaceLayout() {
     pushToast,
     setStatus,
   ]);
-
-  const handleLockAiSecrets = useCallback(async () => {
-    try {
-      const snapshot = await projectMindApi.workspaceLock();
-      await applyWorkspaceStatus(snapshot, false);
-      setStatus({
-        tone: "success",
-        label: "Locked",
-        message: "AI secrets 已锁定",
-      });
-    } catch (error) {
-      const detail = String(error);
-      setStatus({
-        tone: "error",
-        label: "Error",
-        message: "锁定 AI secrets 失败",
-      });
-      pushToast({ tone: "error", title: "锁定 AI secrets 失败", detail });
-    }
-  }, [applyWorkspaceStatus, pushToast, setStatus]);
 
   const resolveProjectNavigationPath = useCallback(
     (projectId: number) =>
@@ -817,6 +823,76 @@ export function WorkspaceLayout() {
       }
     },
     [activeProjectId, closeProjectTab, navigate],
+  );
+
+  const updateProjectRecordFilters = useCallback(
+    (updates: { query?: string; tagId?: number | null }) => {
+      const nextSearchParams = new URLSearchParams(location.search);
+
+      if (updates.query !== undefined) {
+        const nextQuery = updates.query.trim();
+        if (nextQuery) {
+          nextSearchParams.set("recordQuery", updates.query);
+        } else {
+          nextSearchParams.delete("recordQuery");
+        }
+      }
+
+      if (updates.tagId !== undefined) {
+        if (updates.tagId === null) {
+          nextSearchParams.delete("recordTag");
+        } else {
+          nextSearchParams.set("recordTag", String(updates.tagId));
+        }
+      }
+
+      const nextSearch = nextSearchParams.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : "",
+        },
+        { replace: true },
+      );
+    },
+    [location.pathname, location.search, navigate],
+  );
+
+  const renameProjectSidebarRecord = useCallback(
+    async (record: ProjectSidebarRecordItem, title: string) => {
+      const projectId = record.projectId ?? activeProjectId;
+      if (projectId === null) {
+        return;
+      }
+
+      await projectMindApi.projectRecordUpsert({
+        projectId,
+        activityId: record.activityId ?? undefined,
+        noteId: record.id,
+        title: title.trim() || undefined,
+        markdown: record.contentMarkdown,
+        html: record.contentHtml ?? "",
+        tagIds: record.tags.map((tag) => tag.id),
+      });
+      await refreshProjectScope(queryClient, projectId);
+    },
+    [activeProjectId, queryClient, refreshProjectScope],
+  );
+
+  const deleteProjectSidebarRecord = useCallback(
+    async (record: ProjectSidebarRecordItem) => {
+      const projectId = record.projectId ?? activeProjectId;
+      if (projectId === null) {
+        return;
+      }
+
+      await projectMindApi.projectRecordDelete({ noteId: record.id });
+      await refreshProjectScope(queryClient, projectId);
+      if (activeRecordId === record.id) {
+        navigate(projectPath(projectId));
+      }
+    },
+    [activeProjectId, activeRecordId, navigate, queryClient, refreshProjectScope],
   );
 
   const handleSearchSelect = useCallback(
@@ -959,8 +1035,6 @@ export function WorkspaceLayout() {
 
   useEffect(() => {
     if (!hasWorkspace) {
-      setArchiveOpen(false);
-      setWorkspaceMenuOpen(false);
       return;
     }
 
@@ -1019,36 +1093,18 @@ export function WorkspaceLayout() {
   const workspaceTopBar = (
     <WorkspaceTopBar
       projects={openedProjects}
-      currentWorkspace={currentWorkspace}
-      aiSecretsUnlocked={workspaceStatusQuery.data?.aiSecretsUnlocked ?? false}
       activeProjectId={activeProjectId}
       todayActive={workspaceActive}
       showToday={todayVisible}
       settingsActive={settingsOpen}
-      archivedProjects={archivedProjects}
       searchInput={searchInput}
       onSearchInput={setSearchInput}
       searchResults={searchQuery.data ?? []}
       searching={searchQuery.isLoading}
-      archiveOpen={archiveOpen}
-      onToggleArchive={() => setArchiveOpen((current) => !current)}
-      onCloseArchive={() => setArchiveOpen(false)}
       onOpenProject={(projectId) => {
         void openProjectInTab(projectId);
       }}
       onCloseProject={closeProjectTabAndMaybeNavigate}
-      onRestoreProject={(id) =>
-        archiveMutation.mutate({ projectId: id, isArchived: false })
-      }
-      workspaceMenuOpen={workspaceMenuOpen}
-      onToggleWorkspaceMenu={() => setWorkspaceMenuOpen((current) => !current)}
-      onCloseWorkspaceMenu={() => setWorkspaceMenuOpen(false)}
-      onOpenWorkspaceFolder={() =>
-        void desktopApi.openFolder(currentWorkspace.rootPath)
-      }
-      onSwitchWorkspace={() => void handleOpenExistingWorkspace()}
-      onLockAiSecrets={() => void handleLockAiSecrets()}
-      onCreateProject={() => setCreateProjectOpen(true)}
       onOpenToday={() => navigate(workspacePath())}
       onOpenSettings={() => openSettings("file-tags", activeProjectId)}
       onSearchSelect={handleSearchSelect}
@@ -1067,9 +1123,12 @@ export function WorkspaceLayout() {
           <Button
             type="button"
             variant="primary"
-            onClick={() => setCreateProjectOpen(true)}
+            disabled={createProjectMutation.isPending}
+            onClick={() => {
+              void createProjectQuickly();
+            }}
           >
-            创建项目
+            {createProjectMutation.isPending ? "创建中..." : "创建项目"}
           </Button>
         }
         className="w-full max-w-xl"
@@ -1083,7 +1142,7 @@ export function WorkspaceLayout() {
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
       {projectWindow ? null : workspaceTopBar}
 
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {showProjectSidebarShell ? (
           <ProjectSidebar
             project={{
@@ -1096,11 +1155,17 @@ export function WorkspaceLayout() {
             records={projectSidebarRecords}
             documents={projectSidebarDocuments}
             activeRecordId={activeRecordId}
+            recordQuery={projectRecordQuery}
+            onRecordQueryChange={(value) => updateProjectRecordFilters({ query: value })}
+            activeRecordTagId={projectRecordTagId}
+            onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => navigate(projectPath(activeProject.id))}
             onCreateRecord={() => navigate(`/projects/${activeProject.id}?view=history&compose=record`)}
             onOpenRecord={(recordId) =>
               navigate(projectPath(activeProject.id, recordFocusId(recordId)))
             }
+            onRenameRecord={renameProjectSidebarRecord}
+            onDeleteRecord={deleteProjectSidebarRecord}
             onOpenDocument={(document) => {
               void desktopApi.openFile(document.managedPath).catch((error) => {
                 pushToast({
@@ -1128,16 +1193,6 @@ export function WorkspaceLayout() {
           />
         </div>
       </div>
-
-      {createProjectOpen ? (
-        <CreateProjectModal
-          workspaceRoot={currentWorkspace.rootPath}
-          onClose={() => setCreateProjectOpen(false)}
-          onSubmit={(input) => createProjectMutation.mutate(input)}
-          isPending={createProjectMutation.isPending}
-        />
-      ) : null}
-
       <CreateWorkspaceDialog
         open={createWorkspaceOpen}
         rootPath={createWorkspaceRoot}
