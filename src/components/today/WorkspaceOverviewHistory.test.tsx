@@ -7,10 +7,19 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceRecord } from "../../lib/types";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
+
+const richEditorMocks = vi.hoisted(() => ({
+  richTextViewerProps: [] as Array<{
+    html?: string;
+    deferUntilVisible?: boolean;
+    active?: boolean;
+    eagerManagedImages?: boolean;
+  }>,
+}));
 
 function render(ui: ReactElement) {
   return baseRender(
@@ -24,7 +33,15 @@ vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
-  RichTextViewer: ({ html }: { html?: string }) => <div>{toPlainText(html ?? "")}</div>,
+  RichTextViewer: (props: {
+    html?: string;
+    deferUntilVisible?: boolean;
+    active?: boolean;
+    eagerManagedImages?: boolean;
+  }) => {
+    richEditorMocks.richTextViewerProps.push(props);
+    return <div>{toPlainText(props.html ?? "")}</div>;
+  },
   RichEditor: ({
     html,
     autoFocus,
@@ -109,6 +126,10 @@ const baseNote: WorkspaceRecord = {
 };
 
 describe("WorkspaceOverviewHistory", () => {
+  beforeEach(() => {
+    richEditorMocks.richTextViewerProps.length = 0;
+  });
+
   it("uses focus only for positioning and does not auto-enter editing", () => {
     render(
       <WorkspaceOverviewHistory
@@ -131,6 +152,37 @@ describe("WorkspaceOverviewHistory", () => {
     expect(record).toHaveClass("scroll-mt-6");
     expect(screen.queryByLabelText("记录标题")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
+  });
+
+  it("does not defer the record viewer in browse mode so images can render immediately", () => {
+    render(
+      <WorkspaceOverviewHistory
+        notes={[
+          {
+            ...baseNote,
+            contentHtml: '<p>图片记录</p><img src="asset://workspace-image.png" alt="截图">',
+          },
+        ]}
+        focusId={null}
+        composeRecord={false}
+        pageWidthMode="adaptive"
+        availableTags={[]}
+        onCreateRecord={vi.fn()}
+        onUpdateRecord={vi.fn()}
+        onDeleteRecord={vi.fn()}
+        onCloseCompose={vi.fn()}
+        contactMentionOptions={{}}
+        onOpenInternalReference={vi.fn()}
+      />,
+    );
+
+    const recordViewerProps = richEditorMocks.richTextViewerProps.find((props) =>
+      props.html?.includes("asset://workspace-image.png"),
+    );
+
+    expect(recordViewerProps).toBeDefined();
+    expect(recordViewerProps?.deferUntilVisible).toBeUndefined();
+    expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 
   it("enters editing only after clicking the record surface", () => {

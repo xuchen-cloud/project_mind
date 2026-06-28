@@ -100,8 +100,8 @@ export function ProjectOverviewPage({
   const composeRecord = searchParams.get("compose") === "record";
   const routeView =
     explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
-  const [optimisticView, setOptimisticView] = useState<ProjectPageView | null>(null);
-  const currentView = optimisticView ?? routeView;
+  const [buttonView, setButtonView] = useState<ProjectPageView | null>(null);
+  const currentView = buttonView ?? routeView;
   const { pushToast } = useFeedbackStore();
   const { openSettings, pageWidthMode, projectSidebarCollapsed, todoRailCollapsed } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
@@ -220,8 +220,10 @@ export function ProjectOverviewPage({
   } = useDocumentImportFlow({ projectId });
 
   useEffect(() => {
-    setOptimisticView(null);
-  }, [routeView]);
+    if (buttonView === null || buttonView === routeView) {
+      setButtonView(null);
+    }
+  }, [buttonView, routeView]);
 
   useEffect(() => {
     if (!activeProject) return;
@@ -492,7 +494,7 @@ export function ProjectOverviewPage({
   }
 
   function setProjectPageView(nextView: ProjectPageView) {
-    setOptimisticView(nextView);
+    setButtonView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
 
     if (nextView === "quick-note") {
@@ -1278,8 +1280,8 @@ function RecordRow({
           <div className="project-history-record__content">
             <RichTextViewer
               html={renderableHtml}
-              deferUntilVisible
               active={pageVisible}
+              eagerManagedImages
             />
           </div>
         </div>

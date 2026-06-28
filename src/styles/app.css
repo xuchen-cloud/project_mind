@@ -1849,7 +1849,6 @@
   color: var(--color-text-soft);
   font-size: var(--text-ui);
   font-weight: 600;
-  transition: background-color 160ms var(--ease-soft), color 160ms var(--ease-soft);
 }
 
 .project-overview-focus__view-switch-button:hover {

@@ -675,8 +675,8 @@ function WorkspaceHistoryRecordRow({
                 html: note.contentHtml,
                 markdown: note.contentMarkdown,
               })}
-              deferUntilVisible
               active={active}
+              eagerManagedImages
             />
           </div>
         </div>

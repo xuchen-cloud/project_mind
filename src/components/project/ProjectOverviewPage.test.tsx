@@ -10,6 +10,12 @@ const scrollIntoViewMock = vi.fn();
 const scrollToMock = vi.fn();
 const noteImageAssetMocks = vi.hoisted(() => ({
   externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
+  richTextViewerProps: [] as Array<{
+    html?: string;
+    deferUntilVisible?: boolean;
+    active?: boolean;
+    eagerManagedImages?: boolean;
+  }>,
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -138,7 +144,15 @@ vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
-  RichTextViewer: ({ html }: { html?: string }) => <div>{html}</div>,
+  RichTextViewer: (props: {
+    html?: string;
+    deferUntilVisible?: boolean;
+    active?: boolean;
+    eagerManagedImages?: boolean;
+  }) => {
+    noteImageAssetMocks.richTextViewerProps.push(props);
+    return <div>{props.html}</div>;
+  },
   RichEditor: ({
     html,
     readOnly,
@@ -240,6 +254,7 @@ vi.mock("../../hooks/useDocumentImportFlow", () => ({
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
+    noteImageAssetMocks.richTextViewerProps.length = 0;
     scrollIntoViewMock.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -338,6 +353,35 @@ describe("ProjectOverviewPage", () => {
     await waitFor(() => {
       expect(projectMindApi.projectRecordDelete).toHaveBeenCalledWith({ noteId: 7 });
     });
+  });
+
+  it("does not defer the project record viewer in browse mode so images can render immediately", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: /目标记录/ });
+
+    const recordViewerProps = noteImageAssetMocks.richTextViewerProps.find((props) =>
+      props.html?.includes("命中记录内容"),
+    );
+
+    expect(recordViewerProps).toBeDefined();
+    expect(recordViewerProps?.deferUntilVisible).toBeUndefined();
+    expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 
   it("opens the record context menu from an edited project record header but not the editor body", async () => {

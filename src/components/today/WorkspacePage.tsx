@@ -87,8 +87,8 @@ export function WorkspacePage({
   const explicitView = parseWorkspacePageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
   const routeView = explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
-  const [optimisticView, setOptimisticView] = useState<WorkspacePageView | null>(null);
-  const currentView = optimisticView ?? routeView;
+  const [buttonView, setButtonView] = useState<WorkspacePageView | null>(null);
+  const currentView = buttonView ?? routeView;
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "all"],
@@ -156,8 +156,10 @@ export function WorkspacePage({
   } = useTodoMutations(allTodos);
 
   useEffect(() => {
-    setOptimisticView(null);
-  }, [routeView]);
+    if (buttonView === null || buttonView === routeView) {
+      setButtonView(null);
+    }
+  }, [buttonView, routeView]);
 
   useEffect(() => {
     if (!visible) {
@@ -322,7 +324,7 @@ export function WorkspacePage({
   }
 
   function setWorkspacePageView(nextView: WorkspacePageView) {
-    setOptimisticView(nextView);
+    setButtonView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
 
     if (nextView === "quick-note") {
