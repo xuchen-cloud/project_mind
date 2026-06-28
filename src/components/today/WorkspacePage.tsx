@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Settings2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { parseRouteId, projectPath, workspacePath } from "../../lib/formatters";
+import { parseRouteId, projectPath, recordFocusId, workspacePath } from "../../lib/formatters";
 import { pageWidthContainerClass, withPageWidthClass } from "../../lib/pageWidth";
 import {
   getRenderableRichTextHtml,
@@ -22,6 +22,7 @@ import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNot
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
+import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { refreshAll } from "../../hooks/shared";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
@@ -92,8 +93,16 @@ export function WorkspacePage() {
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
-  const [recordSearchQuery, setRecordSearchQuery] = useState("");
-  const [recordFilterTagId, setRecordFilterTagId] = useState<number | null>(null);
+  const recordSearchQuery = searchParams.get("recordQuery") ?? "";
+  const recordFilterTagId = useMemo(() => {
+    const value = searchParams.get("recordTag");
+    if (!value) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [searchParams]);
   const allTodos = useMemo(
     () => [
       ...(workspacePage?.unfinishedTodos ?? []),
@@ -148,6 +157,17 @@ export function WorkspacePage() {
       return matchesQuery && matchesTag;
     });
   }, [recordFilterTagId, recordSearchQuery, workspaceRecords]);
+  const visibleRecordFocusKey = useMemo(
+    () => filteredWorkspaceRecords.map((record) => record.id).join(","),
+    [filteredWorkspaceRecords],
+  );
+
+  useFocusTarget(
+    focusedRecordId !== null && currentView === "record"
+      ? recordFocusId(focusedRecordId)
+      : null,
+    [currentView, visibleRecordFocusKey],
+  );
 
   const appendSelectionToProjectNoteMutation = useMutation({
     mutationFn: async (input: {
@@ -278,12 +298,36 @@ export function WorkspacePage() {
     setSearchParams(nextSearchParams);
   }
 
-  function openComposeRecord() {
+  function setWorkspaceRecordQuery(value: string) {
     const nextSearchParams = new URLSearchParams(searchParams);
+    if (value.trim()) {
+      nextSearchParams.set("recordQuery", value);
+    } else {
+      nextSearchParams.delete("recordQuery");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+  }
+
+  function setWorkspaceRecordTagId(tagId: number | null) {
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (tagId === null) {
+      nextSearchParams.delete("recordTag");
+    } else {
+      nextSearchParams.set("recordTag", String(tagId));
+    }
     nextSearchParams.set("view", "record");
-    nextSearchParams.set("compose", "record");
-    nextSearchParams.delete("focus");
     setSearchParams(nextSearchParams);
+  }
+
+  async function createWorkspaceRecordInFocus() {
+    const record = await workspaceRecordMutation.mutateAsync({
+      markdown: "",
+      html: "<p></p>",
+      tagIds: [],
+    });
+    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+    await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    navigate(`/workspace/records/${record.id}`);
   }
 
   function closeComposeRecord() {
@@ -397,9 +441,9 @@ export function WorkspacePage() {
         }))}
         activeRecordId={focusedRecordId}
         recordQuery={recordSearchQuery}
-        onRecordQueryChange={setRecordSearchQuery}
+        onRecordQueryChange={setWorkspaceRecordQuery}
         activeRecordTagId={recordFilterTagId}
-        onActiveRecordTagIdChange={setRecordFilterTagId}
+        onActiveRecordTagIdChange={setWorkspaceRecordTagId}
         onOpenOverview={() => navigate(workspacePath())}
         onOpenProject={(projectId) => {
           void openProject(projectId);
@@ -421,7 +465,7 @@ export function WorkspacePage() {
         onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
         onDeleteProject={(project) => deleteProject(project.id, project.name)}
         onOpenRecord={openRecord}
-        onCreateRecord={openComposeRecord}
+        onCreateRecord={() => void createWorkspaceRecordInFocus()}
       />
 
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">

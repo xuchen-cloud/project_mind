@@ -395,7 +395,20 @@ describe("RichEditor tables", () => {
     await waitFor(() => {
       const html = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]?.html as string | undefined;
 
-      expect(html).toContain('style="width: 312px;"');
+      expect(html).toContain('style="width: 216px;"');
+    });
+  });
+
+  it("uses a compact minimum width for table columns", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<RichEditor variant="toolbar" />);
+
+    await user.click(await screen.findByLabelText("表格"));
+    await user.click(screen.getByLabelText("插入 2 行 2 列表格"));
+
+    await waitFor(() => {
+      expect(container.querySelector("col")?.style.minWidth).toBe("48px");
+      expect(container.querySelector("table")?.style.minWidth).toBe("96px");
     });
   });
 

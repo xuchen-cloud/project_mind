@@ -414,9 +414,8 @@ describe("AiSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Ask开关" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "AI 总结开关" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "AI 提炼开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activity 总结开关" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "项目概览开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Today开关" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Workspace开关" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "结论候选开关" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Todo 候选开关" })).toBeInTheDocument();
   });
@@ -428,21 +427,21 @@ describe("AiSettingsPanel", () => {
 
     await screen.findByText("能力开关");
     const summaryToggle = screen.getByRole("button", { name: "AI 总结开关" });
-    const activitySummaryToggle = screen.getByRole("button", { name: "Activity 总结开关" });
+    const projectSummaryToggle = screen.getByRole("button", { name: "项目概览开关" });
 
-    await user.click(activitySummaryToggle);
+    await user.click(projectSummaryToggle);
 
     await waitFor(() =>
       expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
         expect.objectContaining({
           features: expect.objectContaining({
-            "summary.activity_summary": false,
+            "summary.project_brief": false,
           }),
         }),
         expect.anything(),
       ),
     );
-    expect(activitySummaryToggle).toHaveAttribute("aria-pressed", "false");
+    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
 
     await user.click(summaryToggle);
 
@@ -457,8 +456,8 @@ describe("AiSettingsPanel", () => {
       ),
     );
     expect(summaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(activitySummaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(activitySummaryToggle).toBeDisabled();
+    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
+    expect(projectSummaryToggle).toBeDisabled();
 
     await user.click(summaryToggle);
 
@@ -473,8 +472,8 @@ describe("AiSettingsPanel", () => {
       ),
     );
     expect(summaryToggle).toHaveAttribute("aria-pressed", "true");
-    expect(activitySummaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(activitySummaryToggle).not.toBeDisabled();
+    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
+    expect(projectSummaryToggle).not.toBeDisabled();
   });
 
   it("updates the global AI switch without overwriting saved child states", async () => {

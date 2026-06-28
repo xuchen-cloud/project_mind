@@ -26,6 +26,16 @@ vi.mock("./services/desktopApi", () => ({
   },
 }));
 
+vi.mock("./lib/project-window", () => ({
+  PROJECT_WINDOW_NAVIGATE_EVENT: "project-window:navigate",
+  getCurrentWindowLabel: vi.fn(() => "main"),
+  isProjectWindow: vi.fn(() => false),
+  parseProjectWindowProjectId: vi.fn((label: string) => {
+    const match = /^project-(\d+)$/u.exec(label);
+    return match ? Number.parseInt(match[1] ?? "", 10) : null;
+  }),
+}));
+
 vi.mock("./services/projectMindApi", () => ({
   projectMindApi: {
     workspaceStatusGet: vi.fn(async () => ({
@@ -234,11 +244,22 @@ vi.mock("./services/projectMindApi", () => ({
       unfinishedTodos: [],
       finishedTodos: [],
     })),
+    projectRecordUpsert: vi.fn(async () => ({
+      id: 99,
+      projectId: 1,
+      activityId: null,
+      title: null,
+      contentMarkdown: "",
+      contentHtml: "<p></p>",
+      createdAt: "",
+      updatedAt: "",
+      tags: [],
+    })),
   },
 }));
 
 import { WorkspaceLayout } from "./App";
-import type { ActivityCardData } from "./lib/types";
+import { getCurrentWindowLabel, isProjectWindow } from "./lib/project-window";
 import { desktopApi } from "./services/desktopApi";
 import { projectMindApi } from "./services/projectMindApi";
 import { useUiStore } from "./state/ui-store";
@@ -246,11 +267,12 @@ import { useUiStore } from "./state/ui-store";
 describe("WorkspaceLayout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(isProjectWindow).mockReturnValue(false);
+    vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState({
       createProjectOpen: false,
-      createActivityOpen: false,
       settingsOpen: false,
-      settingsSection: "activity",
+      settingsSection: "page-width",
       projectComposer: null,
       projectSidebarCollapsed: false,
       todoRailCollapsed: false,
@@ -338,15 +360,7 @@ describe("WorkspaceLayout", () => {
     expect(
       await screen.findByRole("dialog", { name: "设置" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /活动标签/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /文件标签/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /记录类型/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /项目标签/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 设置/ })).toBeInTheDocument();
   });
 
@@ -409,399 +423,11 @@ describe("WorkspaceLayout", () => {
       await screen.findByRole("dialog", { name: "设置" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /文件标签/ }),
+      screen.getByRole("button", { name: /项目标签/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "文件标签" }),
+      screen.getByRole("region", { name: "项目标签" }),
     ).toBeInTheDocument();
-  });
-
-  it("renders the project activity sidebar at shell level while keeping the top tabs", async () => {
-    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
-      {
-        id: 1,
-        name: "Alpha Project",
-        kind: "normal",
-        status: "active",
-        rootPath: "/tmp/alpha",
-        summary: "",
-        isArchived: false,
-        createdAt: "",
-        updatedAt: "",
-        activityCount: 2,
-        unorganizedCount: 0,
-        openTodoCount: 1,
-      },
-    ]);
-    vi.mocked(projectMindApi.activityList).mockResolvedValueOnce([
-      {
-        id: 11,
-        projectId: 1,
-        attributeOptionId: null,
-        attributeLabel: "会议",
-        attributeColorKey: "blue",
-        title: "Kickoff Review",
-        activityTime: "2026-04-11T00:00:00.000Z",
-        statusOptionId: 1,
-        statusLabel: "已整理",
-        statusColorKey: "green",
-        isPinned: false,
-        isExpanded: false,
-        createdAt: "",
-        updatedAt: "",
-        digest: {
-          id: 11,
-          projectId: 1,
-          attributeOptionId: null,
-          attributeLabel: "会议",
-          attributeColorKey: "blue",
-          title: "Kickoff Review",
-          activityTime: "2026-04-11T00:00:00.000Z",
-          statusOptionId: 1,
-          statusLabel: "已整理",
-          statusColorKey: "green",
-          isPinned: false,
-          noteCount: 0,
-          conclusionCount: 0,
-          todoCount: 1,
-          documentCount: 2,
-          completedTodoCount: 0,
-          totalTodoCount: 1,
-          hasOpenTodos: true,
-        },
-        notes: [],
-        conclusions: [],
-        todos: [],
-        documents: [],
-        aiSuggestions: [],
-      },
-    ]);
-
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/",
-          element: <WorkspaceLayout />,
-          children: [
-            {
-              path: "projects/:projectId",
-              element: <div>project route body</div>,
-            },
-          ],
-        },
-      ],
-      { initialEntries: ["/projects/1"] },
-    );
-
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByLabelText("项目导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "收起项目侧边栏" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Kickoff Review")).toBeInTheDocument();
-    expect(screen.getByText("project route body")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "新建 Activity" }),
-    ).toBeInTheDocument();
-  });
-
-  it("creates a new activity from the sidebar and navigates into it", async () => {
-    const user = userEvent.setup();
-
-    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
-      {
-        id: 1,
-        name: "Alpha Project",
-        kind: "normal",
-        status: "active",
-        rootPath: "/tmp/alpha",
-        summary: "",
-        isArchived: false,
-        createdAt: "",
-        updatedAt: "",
-        activityCount: 2,
-        unorganizedCount: 0,
-        openTodoCount: 1,
-      },
-    ]);
-    vi.mocked(projectMindApi.activityList).mockResolvedValue([
-      {
-        id: 11,
-        projectId: 1,
-        attributeOptionId: null,
-        attributeLabel: "会议",
-        attributeColorKey: "blue",
-        title: "Kickoff Review",
-        activityTime: "2026-04-11T00:00:00.000Z",
-        statusOptionId: 1,
-        statusLabel: "已整理",
-        statusColorKey: "green",
-        isPinned: false,
-        isExpanded: false,
-        createdAt: "",
-        updatedAt: "",
-        digest: {
-          id: 11,
-          projectId: 1,
-          attributeOptionId: null,
-          attributeLabel: "会议",
-          attributeColorKey: "blue",
-          title: "Kickoff Review",
-          activityTime: "2026-04-11T00:00:00.000Z",
-          statusOptionId: 1,
-          statusLabel: "已整理",
-          statusColorKey: "green",
-          isPinned: false,
-          noteCount: 0,
-          conclusionCount: 0,
-          todoCount: 1,
-          documentCount: 2,
-          completedTodoCount: 0,
-          totalTodoCount: 1,
-          hasOpenTodos: true,
-        },
-        notes: [],
-        conclusions: [],
-        todos: [],
-        documents: [],
-        aiSuggestions: [],
-      },
-    ]);
-
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/",
-          element: <WorkspaceLayout />,
-          children: [
-            {
-              path: "projects/:projectId",
-              element: <div>project route body</div>,
-            },
-            {
-              path: "projects/:projectId/activities/:activityId",
-              element: <div>activity route body</div>,
-            },
-          ],
-        },
-      ],
-      { initialEntries: ["/projects/1"] },
-    );
-
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>,
-    );
-
-    await screen.findByLabelText("项目导航侧边栏");
-    await user.click(screen.getByRole("button", { name: "新建 Activity" }));
-
-    await waitFor(() =>
-      expect(vi.mocked(projectMindApi.activityCreate)).toHaveBeenCalled(),
-    );
-    expect(vi.mocked(projectMindApi.activityCreate).mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        projectId: 1,
-        title: "",
-        activityTime: expect.any(String),
-      }),
-    );
-    await screen.findByText("activity route body");
-  });
-
-  it("deletes the active activity from the sidebar context menu after confirmation", async () => {
-    const user = userEvent.setup();
-    let deleted = false;
-    const activity: ActivityCardData = {
-      id: 11,
-      projectId: 1,
-      attributeOptionId: null,
-      attributeLabel: "会议",
-      attributeColorKey: "blue",
-      title: "Kickoff Review",
-      activityTime: "2026-04-11T00:00:00.000Z",
-      statusOptionId: 1,
-      statusLabel: "已整理",
-      statusColorKey: "green",
-      isPinned: false,
-      isExpanded: false,
-      createdAt: "",
-      updatedAt: "",
-      digest: {
-        id: 11,
-        projectId: 1,
-        attributeOptionId: null,
-        attributeLabel: "会议",
-        attributeColorKey: "blue",
-        title: "Kickoff Review",
-        activityTime: "2026-04-11T00:00:00.000Z",
-        statusOptionId: 1,
-        statusLabel: "已整理",
-        statusColorKey: "green",
-        isPinned: false,
-        noteCount: 1,
-        conclusionCount: 1,
-        todoCount: 1,
-        documentCount: 1,
-        completedTodoCount: 0,
-        totalTodoCount: 1,
-        hasOpenTodos: true,
-      },
-      notes: [
-        {
-          id: 201,
-          projectId: 1,
-          activityId: 11,
-          noteType: "quick_note",
-          title: null,
-          contentMarkdown: "记录",
-          contentHtml: "<p>记录</p>",
-          createdAt: "",
-          updatedAt: "",
-        },
-      ],
-      conclusions: [
-        {
-          id: 301,
-          projectId: 1,
-          activityId: 11,
-          noteId: 201,
-          contentMarkdown: "结论",
-          contentHtml: "<p>结论</p>",
-          promotedToProject: false,
-          createdAt: "",
-          updatedAt: "",
-        },
-      ],
-      todos: [
-        {
-          id: 401,
-          projectId: 1,
-          activityId: 11,
-          content: "Todo",
-          status: "unfinished" as const,
-          priority: "not_urgent_important" as const,
-          createdAt: "",
-          updatedAt: "",
-          progresses: [],
-        },
-      ],
-      documents: [
-        {
-          id: 501,
-          projectId: 1,
-          activityId: 11,
-          name: "brief.md",
-          baseName: "brief",
-          originalPath: "/tmp/alpha/brief.md",
-          managedPath: "/tmp/alpha/.project-mind/files/brief.md",
-          historyDirPath: "/tmp/alpha/.project-mind/history/brief",
-          storageMode: "managed_copy",
-          mimeType: "text/markdown",
-          isStarred: false,
-          currentVersionNumber: 1,
-          versionCount: 1,
-          sourceActivityTitle: "Kickoff Review",
-          health: "normal" as const,
-          tags: [],
-          createdAt: "",
-          updatedAt: "",
-        },
-      ],
-      aiSuggestions: [],
-    };
-
-    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
-      {
-        id: 1,
-        name: "Alpha Project",
-        kind: "normal",
-        status: "active",
-        rootPath: "/tmp/alpha",
-        summary: "",
-        isArchived: false,
-        createdAt: "",
-        updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
-        openTodoCount: 1,
-      },
-    ]);
-    vi.mocked(projectMindApi.activityList).mockImplementation(async () =>
-      deleted ? [] : [activity],
-    );
-    vi.mocked(projectMindApi.activityDelete).mockImplementation(
-      async ({ activityId }) => {
-        deleted = true;
-        return {
-          ...activity,
-          id: activityId,
-        };
-      },
-    );
-
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/",
-          element: <WorkspaceLayout />,
-          children: [
-            {
-              path: "projects/:projectId",
-              element: <div>project route body</div>,
-            },
-            {
-              path: "projects/:projectId/activities/:activityId",
-              element: <div>activity route body</div>,
-            },
-          ],
-        },
-      ],
-      { initialEntries: ["/projects/1/activities/11"] },
-    );
-
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByText("activity route body")).toBeInTheDocument();
-
-    const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    fireEvent.contextMenu(
-      within(sidebar).getByText("Kickoff Review").closest("button")!,
-      {
-        clientX: 180,
-        clientY: 140,
-      },
-    );
-
-    await user.click(screen.getByRole("menuitem", { name: "删除" }));
-    expect(
-      await screen.findByRole("dialog", { name: "删除 Activity" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("活动记录：1 条")).toBeInTheDocument();
-    expect(screen.getByText("结论：1 条")).toBeInTheDocument();
-    expect(screen.getByText("Todo：1 条")).toBeInTheDocument();
-    expect(screen.getByText("文件：1 个")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "确认删除" }));
-
-    await waitFor(() =>
-      expect(vi.mocked(projectMindApi.activityDelete)).toHaveBeenCalledWith(
-        { activityId: 11 },
-        expect.anything(),
-      ),
-    );
-    expect(await screen.findByText("project route body")).toBeInTheDocument();
   });
 
   it("returns to the remembered project route when switching back by top tabs", async () => {
@@ -975,7 +601,7 @@ describe("WorkspaceLayout", () => {
     expect(
       screen.queryByRole("button", { name: "Ask" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "总览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
   });
 
   it("keeps /today accessible after AI entry removal", async () => {
@@ -1108,8 +734,8 @@ describe("WorkspaceLayout", () => {
       unfinishedTodos: [],
       finishedTodos: [],
     });
-    vi.mocked(desktopApi.isProjectWindow).mockReturnValueOnce(true);
-    vi.mocked(desktopApi.getCurrentWindowLabel).mockReturnValueOnce("project-1");
+    vi.mocked(isProjectWindow).mockReturnValue(true);
+    vi.mocked(getCurrentWindowLabel).mockReturnValue("project-1");
 
     const router = createMemoryRouter(
       [
@@ -1130,5 +756,102 @@ describe("WorkspaceLayout", () => {
 
     expect(await screen.findByText("project route body")).toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Projects" })).not.toBeInTheDocument();
+  });
+
+  it("creates a project record from the sidebar and opens its focus page", async () => {
+    const user = userEvent.setup();
+    const LocationDisplay = () => {
+      const location = useLocation();
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+    };
+
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({
+      project: {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        summaryMarkdown: "",
+        summaryHtml: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      activityFeed: [],
+      records: [],
+      projectDocuments: [],
+      conclusionGroups: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId",
+              element: (
+                <>
+                  <div>project route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+            {
+              path: "projects/:projectId/records/:noteId",
+              element: (
+                <>
+                  <div>record focus route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
+
+    expect(projectMindApi.projectRecordUpsert).toHaveBeenCalledWith({
+      projectId: 1,
+      markdown: "",
+      html: "<p></p>",
+      tagIds: [],
+    });
+    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
   });
 });

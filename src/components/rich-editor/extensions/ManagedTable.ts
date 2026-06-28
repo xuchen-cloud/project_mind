@@ -118,7 +118,7 @@ export const ManagedTable = TiptapTable.extend({
   },
 });
 
-const MIN_TABLE_WIDTH = 220;
+const MIN_TABLE_WIDTH = 48;
 const MIN_TABLE_HEIGHT = 48;
 
 function updateManagedColumns(

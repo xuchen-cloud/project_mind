@@ -103,11 +103,21 @@ export function ActionContextMenu({
       }
     };
 
+    const handleClose = () => {
+      onClose();
+    };
+
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleClose, true);
+    window.addEventListener("resize", handleClose);
+    window.addEventListener("blur", handleClose);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleClose, true);
+      window.removeEventListener("resize", handleClose);
+      window.removeEventListener("blur", handleClose);
     };
   }, [onClose]);
 

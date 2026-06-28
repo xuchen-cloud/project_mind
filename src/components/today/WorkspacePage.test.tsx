@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 
@@ -16,6 +16,10 @@ const projectMutationMocks = vi.hoisted(() => ({
   archiveMutate: vi.fn(),
   createProjectMutateAsync: vi.fn(async () => undefined),
   deleteProjectMutate: vi.fn(),
+}));
+
+const workspaceRecordMutationMocks = vi.hoisted(() => ({
+  mutateAsync: vi.fn(),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -45,7 +49,10 @@ vi.mock("../../hooks/useWorkspaceQuickNoteMutations", () => ({
 
 vi.mock("../../hooks/useWorkspaceRecordMutations", () => ({
   useWorkspaceRecordMutations: () => ({
-    workspaceRecordMutation: { mutateAsync: vi.fn(), isPending: false },
+    workspaceRecordMutation: {
+      mutateAsync: workspaceRecordMutationMocks.mutateAsync,
+      isPending: false,
+    },
     workspaceRecordDeleteMutation: { mutateAsync: vi.fn(), isPending: false },
   }),
 }));
@@ -83,11 +90,17 @@ vi.mock("../../services/desktopApi", () => ({
 
 import { WorkspacePage } from "./WorkspacePage";
 
+function LocationDisplay() {
+  const location = useLocation();
+  return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+}
+
 function renderPage(initialEntries: string[] = ["/"]) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={initialEntries}>
         <WorkspacePage />
+        <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -105,6 +118,16 @@ describe("WorkspacePage", () => {
     projectMutationMocks.archiveMutate.mockClear();
     projectMutationMocks.createProjectMutateAsync.mockClear();
     projectMutationMocks.deleteProjectMutate.mockClear();
+    workspaceRecordMutationMocks.mutateAsync.mockReset();
+    workspaceRecordMutationMocks.mutateAsync.mockResolvedValue({
+      id: 99,
+      title: null,
+      contentMarkdown: "",
+      contentHtml: "<p></p>",
+      tags: [],
+      createdAt: "2026-04-06T08:00:00.000Z",
+      updatedAt: "2026-04-06T08:00:00.000Z",
+    });
     useUiStore.setState(createUiStoreState());
   });
 
@@ -607,5 +630,40 @@ describe("WorkspacePage", () => {
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
+  });
+
+  it("creates a workspace record from the sidebar and opens its focus page", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.projectsList.mockResolvedValueOnce([]);
+    apiMocks.workspacePageGet.mockResolvedValueOnce({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    apiMocks.workspaceStatusGet.mockResolvedValueOnce({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+
+    renderPage(["/?view=record"]);
+
+    const sidebar = await screen.findByLabelText("工作区导航侧边栏");
+    await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
+    await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
+
+    expect(workspaceRecordMutationMocks.mutateAsync).toHaveBeenCalledWith({
+      markdown: "",
+      html: "<p></p>",
+      tagIds: [],
+    });
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/99");
+    expect(screen.queryByPlaceholderText("记录标题")).not.toBeInTheDocument();
   });
 });

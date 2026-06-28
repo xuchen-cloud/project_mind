@@ -37,7 +37,7 @@ export function buildRichEditorExtensions(placeholder: string) {
       nested: true,
     }),
     ManagedTable.configure({
-      cellMinWidth: 96,
+      cellMinWidth: 48,
       renderWrapper: true,
       resizable: true,
     }),

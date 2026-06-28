@@ -51,6 +51,7 @@ import {
 import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
+import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import {
   Button,
@@ -109,6 +110,20 @@ function toProjectSidebarDocuments(
     health: document.health,
     tags: document.tags ?? [],
   }));
+}
+
+function isProjectOverviewPath(pathname: string, projectId: number | null) {
+  return projectId !== null && pathname === projectPath(projectId);
+}
+
+function getProjectOverviewSearchParams(route: string) {
+  const [, search = ""] = route.split("?");
+  return new URLSearchParams(search);
+}
+
+function buildProjectOverviewRoute(projectId: number, searchParams: URLSearchParams) {
+  const nextSearch = searchParams.toString();
+  return `${projectPath(projectId)}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
 function WorkspaceGatePage({
@@ -390,7 +405,11 @@ function UnlockWorkspaceSecretsDialog({
   );
 }
 
-export function WorkspaceLayout() {
+export function WorkspaceLayout({
+  cacheProjectOverviewPages = false,
+}: {
+  cacheProjectOverviewPages?: boolean;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -402,7 +421,8 @@ export function WorkspaceLayout() {
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
-  const workspaceActive = location.pathname === workspacePath();
+  const workspaceActive =
+    location.pathname === workspacePath() || /^\/workspace\/records\/\d+$/u.test(location.pathname);
   const projectRecordQuery = useMemo(
     () => new URLSearchParams(location.search).get("recordQuery") ?? "",
     [location.search],
@@ -879,6 +899,21 @@ export function WorkspaceLayout() {
     [activeProjectId, queryClient, refreshProjectScope],
   );
 
+  const createProjectSidebarRecord = useCallback(async () => {
+    if (activeProjectId === null) {
+      return;
+    }
+
+    const record = await projectMindApi.projectRecordUpsert({
+      projectId: activeProjectId,
+      markdown: "",
+      html: "<p></p>",
+      tagIds: [],
+    });
+    await refreshProjectScope(queryClient, activeProjectId);
+    navigate(recordPath(activeProjectId, record.id));
+  }, [activeProjectId, navigate, queryClient, refreshProjectScope]);
+
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {
       const projectId = record.projectId ?? activeProjectId;
@@ -920,6 +955,9 @@ export function WorkspaceLayout() {
     visibleProjects.length === 0 &&
     !activeProjectId &&
     !workspaceActive;
+  const projectOverviewActive =
+    cacheProjectOverviewPages &&
+    isProjectOverviewPath(location.pathname, activeProjectId);
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -1137,6 +1175,44 @@ export function WorkspaceLayout() {
   ) : (
     <Outlet />
   );
+  const cachedProjectOverviewPages =
+    cacheProjectOverviewPages && hasWorkspace && openedProjects.length > 0 ? (
+      <>
+        {openedProjects.map((project) => {
+          const active = projectOverviewActive && activeProjectId === project.id;
+          const route = active
+            ? `${location.pathname}${location.search}`
+            : (projectRecentPaths[project.id] ?? projectPath(project.id));
+          const cachedSearchParams = getProjectOverviewSearchParams(route);
+
+          return (
+            <div
+              key={project.id}
+              className="h-full min-h-0"
+              style={{ display: active ? undefined : "none" }}
+              aria-hidden={active ? undefined : true}
+            >
+              <ProjectOverviewPage
+                projectIdOverride={project.id}
+                searchParamsOverride={cachedSearchParams}
+                visible={active}
+                onSearchParamsOverride={(nextSearchParams, options) => {
+                  const nextRoute = buildProjectOverviewRoute(
+                    project.id,
+                    nextSearchParams,
+                  );
+                  rememberProjectRoute(project.id, nextRoute);
+
+                  if (active) {
+                    navigate(nextRoute, options);
+                  }
+                }}
+              />
+            </div>
+          );
+        })}
+      </>
+    ) : null;
 
   return (
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
@@ -1160,7 +1236,9 @@ export function WorkspaceLayout() {
             activeRecordTagId={projectRecordTagId}
             onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => navigate(projectPath(activeProject.id))}
-            onCreateRecord={() => navigate(`/projects/${activeProject.id}?view=history&compose=record`)}
+            onCreateRecord={() => {
+              void createProjectSidebarRecord();
+            }}
             onOpenRecord={(recordId) =>
               navigate(projectPath(activeProject.id, recordFocusId(recordId)))
             }
@@ -1179,7 +1257,10 @@ export function WorkspaceLayout() {
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <main className="min-h-0 flex-1 overflow-hidden">{mainContent}</main>
+          <main className="min-h-0 flex-1 overflow-hidden">
+            {cachedProjectOverviewPages}
+            {projectOverviewActive ? null : mainContent}
+          </main>
 
           <StatusBar
             context={

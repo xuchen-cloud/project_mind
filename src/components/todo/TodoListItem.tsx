@@ -13,7 +13,7 @@ import type {
   TodoProgressRecord,
   TodoRecord,
 } from "../../lib/types";
-import { ActionContextMenu, IconButton } from "../../ui/components";
+import { ActionContextMenu, IconButton, type ContextMenuAction } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   InternalReferenceInlineText,
@@ -383,9 +383,9 @@ function TodoHistoryProgressItem({
   const [statusSaving, setStatusSaving] = useState(false);
   const saveInFlightRef = useRef(false);
   const displayProgress = optimisticProgress ?? progress;
-  const progressContextActions = [
-    editable
-      ? {
+  const progressContextActions: ContextMenuAction[] = [
+    ...(editable
+      ? [{
           icon: Pencil,
           label: "编辑子项",
           onSelect: () => {
@@ -393,8 +393,8 @@ function TodoHistoryProgressItem({
               setEditing(true);
             }
           },
-        }
-      : null,
+        }]
+      : []),
     {
       icon: Trash2,
       label: "删除子项",
@@ -403,7 +403,7 @@ function TodoHistoryProgressItem({
         void onDeleteProgress(progress.id);
       },
     },
-  ].filter(Boolean);
+  ];
 
   useEffect(() => {
     if (!editing) {

@@ -1,0 +1,574 @@
+import { ArrowLeft, LoaderCircle, Settings2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+
+import { parseRouteId, projectPath, workspacePath } from "../../lib/formatters";
+import { generateDefaultProjectName } from "../../lib/projectDefaultName";
+import { withPageWidthClass } from "../../lib/pageWidth";
+import { colorKeyForTagLabel } from "../../lib/tags";
+import { extractTagMentionIds } from "../../lib/tagMentions";
+import { resolveTodoContentTagSync, todoTagIds } from "../../lib/todo-tag-sync";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
+import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
+import { useProjectMutations } from "../../hooks/useProjectMutations";
+import { useTodoMutations } from "../../hooks/useTodoMutations";
+import { projectMindApi } from "../../services/projectMindApi";
+import { desktopApi } from "../../services/desktopApi";
+import { useFeedbackStore } from "../../state/feedback-store";
+import { useUiStore } from "../../state/ui-store";
+import { IconButton, TextField } from "../../ui/components";
+import { cn } from "../../ui/lib/cn";
+import {
+  getRenderableRichTextHtml,
+  normalizeRichEditorValue,
+  RichEditor,
+  type RichEditorController,
+  type RichEditorPersistState,
+  type RichEditorValue,
+} from "../rich-editor";
+import { EntityTagEditor } from "../tags/EntityTagEditor";
+import { TodoRail } from "../todo";
+import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
+import type { FileTagRecord, TodoPriority } from "../../lib/types";
+
+const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
+
+export function WorkspaceRecordFocusPage() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const noteId = parseRouteId(params.noteId);
+  const { pushToast } = useFeedbackStore();
+  const {
+    openSettings,
+    pageWidthMode,
+    projectRecentPaths,
+    openProjectIds,
+    closeProjectTab,
+    projectSidebarCollapsed,
+    todoRailCollapsed,
+  } = useUiStore();
+  const openInternalReference = useInternalReferenceNavigation();
+  const openContactMention = useContactMentionNavigation();
+  const contactMentionOptions = useContactMentionOptions();
+
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [tagIds, setTagIds] = useState<number[]>([]);
+  const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
+  const [isSaving, setIsSaving] = useState(false);
+  const editorControllerRef = useRef<RichEditorController | null>(null);
+
+  const workspacePageQuery = useQuery({
+    queryKey: ["workspace-page"],
+    queryFn: projectMindApi.workspacePageGet,
+    enabled: noteId !== null,
+  });
+  const projectsQuery = useQuery({
+    queryKey: ["projects", "all"],
+    queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
+    enabled: noteId !== null,
+  });
+  const workspaceStatusQuery = useQuery({
+    queryKey: ["workspace-status"],
+    queryFn: projectMindApi.workspaceStatusGet,
+    enabled: noteId !== null,
+  });
+
+  const tagSettingsQuery = useQuery({
+    queryKey: ["file-tag-settings", "workspace"],
+    queryFn: () => projectMindApi.fileTagSettingsGet({}),
+  });
+
+  const note = useMemo(() => {
+    if (!workspacePageQuery.data || noteId === null) return null;
+    return (workspacePageQuery.data.records ?? []).find((record) => record.id === noteId) ?? null;
+  }, [noteId, workspacePageQuery.data]);
+
+  const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const visibleProjects = useMemo(
+    () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
+    [projectsQuery.data],
+  );
+  const archivedProjects = useMemo(
+    () => (projectsQuery.data ?? []).filter((project) => project.isArchived),
+    [projectsQuery.data],
+  );
+  const allTodos = useMemo(
+    () => [
+      ...(workspacePageQuery.data?.unfinishedTodos ?? []),
+      ...(workspacePageQuery.data?.finishedTodos ?? []),
+    ],
+    [workspacePageQuery.data?.finishedTodos, workspacePageQuery.data?.unfinishedTodos],
+  );
+  const recordSearchQuery = searchParams.get("recordQuery") ?? "";
+  const recordFilterTagId = useMemo(() => {
+    const value = searchParams.get("recordTag");
+    if (!value) return null;
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [searchParams]);
+  const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
+    visibleProjects,
+    (path, options) => navigate(path, options),
+  );
+  const {
+    todoMutation,
+    todoContentMutation,
+    todoDeleteMutation,
+    todoPriorityMutation,
+    todoTagMutation,
+    todoProgressMutation,
+    todoProgressUpdateMutation,
+    todoProgressDeleteMutation,
+    todoStatusMutation,
+  } = useTodoMutations(allTodos);
+
+  function syncWorkspaceTagCache(tag: FileTagRecord) {
+    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
+      ["file-tag-settings", "workspace"],
+      (current) => {
+        const tags = current?.tags ?? [];
+        if (tags.some((item) => item.id === tag.id)) {
+          return current ?? { tags };
+        }
+
+        return {
+          tags: [...tags, tag].sort((left, right) =>
+            left.label.localeCompare(right.label, "zh-Hans-CN"),
+          ),
+        };
+      },
+    );
+  }
+
+  useEffect(() => {
+    if (!note) return;
+
+    setTitle(note.title ?? "");
+    setContent({
+      html: getRenderableRichTextHtml({ html: note.contentHtml, markdown: note.contentMarkdown }),
+      text: note.contentMarkdown,
+      markdown: note.contentMarkdown,
+    });
+    setTagIds((note.tags ?? []).map((tag) => tag.id));
+  }, [note]);
+
+  const handleSave = async (value: RichEditorValue) => {
+    if (!note || isSaving) return;
+
+    setIsSaving(true);
+    try {
+      const normalized = normalizeRichEditorValue(value);
+      const mentionedTagIds = extractTagMentionIds(normalized.markdown);
+      await projectMindApi.workspaceRecordUpsert({
+        noteId: note.id,
+        title: title.trim() || undefined,
+        markdown: normalized.markdown,
+        html: normalized.html,
+        tagIds: Array.from(new Set([...tagIds, ...mentionedTagIds])),
+      });
+      await workspacePageQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    } catch (error) {
+      pushToast({ tone: "error", title: "保存失败", detail: String(error) });
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBack = async () => {
+    if (noteId === null) return;
+    await handleSave(editorControllerRef.current?.getValue() ?? content);
+    navigate(`${workspacePath()}?view=record&focus=record-${noteId}`);
+  };
+
+  async function createWorkspaceRecordInFocus() {
+    const record = await projectMindApi.workspaceRecordUpsert({
+      markdown: "",
+      html: "<p></p>",
+      tagIds: [],
+    });
+    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+    await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    navigate(`/workspace/records/${record.id}`);
+  }
+
+  function setWorkspaceRecordQuery(value: string) {
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (value.trim()) {
+      nextSearchParams.set("recordQuery", value);
+    } else {
+      nextSearchParams.delete("recordQuery");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+  }
+
+  function setWorkspaceRecordTagId(tagId: number | null) {
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (tagId === null) {
+      nextSearchParams.delete("recordTag");
+    } else {
+      nextSearchParams.set("recordTag", String(tagId));
+    }
+    setSearchParams(nextSearchParams);
+  }
+
+  async function createTodo(projectId: number, todoContent: string, priority: TodoPriority) {
+    const synced = await resolveTodoContentTagSync({
+      projectId,
+      content: todoContent,
+      explicitTagIds: [],
+    });
+    await todoMutation.mutateAsync({
+      projectId,
+      content: synced.content,
+      priority,
+      tagIds: synced.tagIds,
+    });
+  }
+
+  async function updateTodoContent(todoId: number, todoContent: string) {
+    const currentTodo = allTodos.find((todo) => todo.id === todoId);
+    if (!currentTodo) {
+      await todoContentMutation.mutateAsync({ todoId, content: todoContent });
+      return;
+    }
+
+    const synced = await resolveTodoContentTagSync({
+      projectId: currentTodo.projectId,
+      content: todoContent,
+      explicitTagIds: todoTagIds(currentTodo.tags),
+    });
+    await todoContentMutation.mutateAsync({
+      todoId,
+      content: synced.content,
+      tagIds: synced.tagIds,
+    });
+  }
+
+  async function openProject(projectId: number) {
+    const focused = await desktopApi.focusProjectWindow(projectId);
+    if (focused) {
+      return;
+    }
+
+    navigate(projectPath(projectId));
+  }
+
+  async function openProjectInNewWindow(projectId: number) {
+    const project = visibleProjects.find((item) => item.id === projectId);
+    if (!project) {
+      return;
+    }
+
+    const route = projectRecentPaths[projectId] ?? projectPath(projectId);
+    try {
+      await desktopApi.openProjectWindow({
+        projectId,
+        projectName: project.name,
+        route,
+      });
+
+      if (openProjectIds.includes(projectId)) {
+        closeProjectTab(projectId);
+        navigate(workspacePath());
+      }
+    } catch (error) {
+      pushToast({
+        tone: "error",
+        title: "打开项目新窗口失败",
+        detail: String(error),
+      });
+    }
+  }
+
+  async function createProjectQuickly() {
+    if (createProjectMutation.isPending) {
+      return;
+    }
+
+    await createProjectMutation.mutateAsync({
+      name: generateDefaultProjectName((projectsQuery.data ?? []).map((project) => project.name)),
+      quickNote: "",
+      status: "active",
+    });
+  }
+
+  async function renameProject(projectId: number, name: string) {
+    const project = visibleProjects.find((item) => item.id === projectId);
+    if (!project) {
+      return;
+    }
+
+    await projectMindApi.projectUpdate({
+      projectId,
+      name,
+      quickNote: project.quickNote,
+      quickNoteMarkdown: project.quickNoteMarkdown,
+      quickNoteHtml: project.quickNoteHtml,
+      status: project.status,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
+    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+  }
+
+  function deleteProject(projectId: number, name: string) {
+    if (!window.confirm(`确定删除项目「${name}」？项目目录会移到废纸篓。`)) {
+      return;
+    }
+
+    deleteProjectMutation.mutate({ projectId });
+  }
+
+  const handleTagsChange = async (newTagIds: number[]) => {
+    if (!note) return;
+    setTagIds(newTagIds);
+    try {
+      const nextValue = editorControllerRef.current?.getValue() ?? content;
+      await projectMindApi.workspaceRecordUpsert({
+        noteId: note.id,
+        title: title.trim() || undefined,
+        markdown: nextValue.markdown,
+        html: nextValue.html,
+        tagIds: newTagIds,
+      });
+      await workspacePageQuery.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    } catch (error) {
+      pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
+    }
+  };
+
+  if (noteId === null) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-text-soft">无效的记录ID</p>
+      </div>
+    );
+  }
+
+  if (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoaderCircle className="animate-spin text-text-soft" size={24} />
+      </div>
+    );
+  }
+
+  if (!note) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-text-soft">记录未找到</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex h-full min-h-0 overflow-hidden">
+      {currentWorkspace ? (
+        <WorkspaceOverviewSidebar
+          workspaceRootPath={currentWorkspace.rootPath}
+          projects={visibleProjects}
+          archivedProjects={archivedProjects}
+          records={(workspacePageQuery.data?.records ?? []).map((record) => ({
+            id: record.id,
+            title: record.title,
+            contentMarkdown: record.contentMarkdown,
+            tags: record.tags ?? [],
+            updatedAt: record.updatedAt,
+          }))}
+          activeRecordId={noteId}
+          recordQuery={recordSearchQuery}
+          onRecordQueryChange={setWorkspaceRecordQuery}
+          activeRecordTagId={recordFilterTagId}
+          onActiveRecordTagIdChange={setWorkspaceRecordTagId}
+          onOpenOverview={() => navigate(workspacePath())}
+          onOpenProject={(projectId) => {
+            void openProject(projectId);
+          }}
+          onOpenProjectInNewWindow={(projectId) => {
+            void openProjectInNewWindow(projectId);
+          }}
+          onCreateProject={() => {
+            void createProjectQuickly();
+          }}
+          createProjectPending={createProjectMutation.isPending}
+          onOpenArchivedProject={(projectId) => {
+            void openProject(projectId);
+          }}
+          onRestoreArchivedProject={(projectId) => {
+            archiveMutation.mutate({ projectId, isArchived: false });
+          }}
+          onRenameProject={(project, name) => renameProject(project.id, name)}
+          onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
+          onDeleteProject={(project) => deleteProject(project.id, project.name)}
+          onOpenRecord={(recordId) => navigate(`/workspace/records/${recordId}`)}
+          onCreateRecord={() => void createWorkspaceRecordInFocus()}
+        />
+      ) : null}
+
+      <div className="project-overview-focus flex-1">
+        <header className="project-overview-focus__chrome">
+          <div
+            className={cn(
+              "project-overview-focus__chrome-inner",
+              projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
+              todoRailCollapsed && "project-overview-focus__chrome-inner--dock-right",
+            )}
+          >
+            <div className="project-overview-focus__meta">
+              <div className="flex items-center gap-3">
+                <IconButton
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="返回 Workspace"
+                  onClick={() => void handleBack()}
+                >
+                  <ArrowLeft size={16} />
+                </IconButton>
+                <div>
+                  <p className="text-caption text-text-soft">Workspace</p>
+                  <p className="text-ui font-medium text-text">记录</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="project-overview-focus__header-actions">
+              <IconButton
+                type="button"
+                size="sm"
+                variant="secondary"
+                aria-label="打开页面设置"
+                onClick={() => openSettings("page-width")}
+              >
+                <Settings2 size={14} />
+              </IconButton>
+              <span
+                className={cn(
+                  "text-caption",
+                  persistState === "saving"
+                    ? "text-text-soft"
+                    : persistState === "saved"
+                      ? "text-green-600"
+                      : persistState === "error"
+                        ? "text-red-600"
+                        : "text-text-soft",
+                )}
+              >
+                {persistState === "saving"
+                  ? "保存中..."
+                  : persistState === "saved"
+                    ? "已保存"
+                    : persistState === "error"
+                      ? "保存失败"
+                      : ""}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <div className="project-overview-focus__scroll">
+          <div className={withPageWidthClass("mx-auto w-full px-6 py-6", pageWidthMode, "focus")}>
+            <div className="grid gap-4">
+              <TextField
+                value={title}
+                placeholder="记录标题"
+                onChange={(event) => setTitle(event.target.value)}
+                onBlur={() => {
+                  if (note && title !== (note.title ?? "")) {
+                    void handleSave(editorControllerRef.current?.getValue() ?? content);
+                  }
+                }}
+                className="text-lg font-medium"
+              />
+              <EntityTagEditor
+                projectId={null}
+                availableTags={availableTags}
+                tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
+                onChange={handleTagsChange}
+                onCreated={syncWorkspaceTagCache}
+              />
+              <RichEditor
+                html={content.html}
+                variant="bare"
+                autoFocus
+                placeholder="写记录，正文里的 #标签 会自动同步。"
+                tagMentions={{
+                  projectId: null,
+                  availableTags,
+                  onCreateTag: async (label) => {
+                    const tag = await projectMindApi.fileTagOptionUpsert({
+                      label,
+                      colorKey: colorKeyForTagLabel(label),
+                    });
+                    syncWorkspaceTagCache(tag);
+                    return tag;
+                  },
+                }}
+                internalReferences={{
+                  context: { scope: "workspace" },
+                  onOpenReference: openInternalReference,
+                }}
+                contactMentions={contactMentionOptions}
+                autosave={{
+                  delay: 120000,
+                  onBlur: true,
+                  onWindowBlur: true,
+                  onVisibilityChange: true,
+                }}
+                controllerRef={editorControllerRef}
+                onSave={handleSave}
+                onPersistStateChange={setPersistState}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {workspacePageQuery.data ? (
+        <TodoRail
+          title="To Do List"
+          scopeLabel="整个工作区"
+          unfinishedTodos={workspacePageQuery.data.unfinishedTodos}
+          finishedTodos={workspacePageQuery.data.finishedTodos}
+          createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
+          onCreateTodo={(payload) => {
+            const fallbackProjectId = visibleProjects[0]?.id;
+            if (!fallbackProjectId) return;
+            void createTodo(fallbackProjectId, payload.content, payload.priority);
+          }}
+          onToggleStatus={(todoId, status) => todoStatusMutation.mutateAsync({ todoId, status })}
+          onUpdatePriority={(todoId, priority) =>
+            todoPriorityMutation.mutateAsync({ todoId, priority })
+          }
+          onUpdateContent={updateTodoContent}
+          onUpdateTags={(todoId, nextTagIds) =>
+            todoTagMutation.mutateAsync({ todoId, tagIds: nextTagIds })
+          }
+          onAddProgress={(todoId, payload) =>
+            todoProgressMutation.mutateAsync({ todoId, ...payload })
+          }
+          onUpdateProgress={(progressId, payload) =>
+            todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
+          }
+          onDeleteProgress={(progressId) => todoProgressDeleteMutation.mutateAsync({ progressId })}
+          onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
+          onError={(message) => {
+            pushToast({ tone: "error", title: "Todo 处理失败", detail: message });
+          }}
+          onOpenInternalReference={openInternalReference}
+          onOpenContactMention={openContactMention}
+        />
+      ) : null}
+    </div>
+  );
+}

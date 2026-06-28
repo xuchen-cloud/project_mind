@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
-  ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX,
-  ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX,
+  NOTE_EDITOR_WIDTH_DEFAULT_PX,
+  NOTE_EDITOR_WIDTH_MAX_PX,
+  NOTE_EDITOR_WIDTH_MIN_PX,
   PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
   TODO_RAIL_WIDTH_DEFAULT_PX,
   createUiStore,
@@ -27,7 +27,7 @@ describe("useUiStore", () => {
     });
 
     useUiStore.getState().setCreateProjectOpen(false);
-    useUiStore.getState().setCreateActivityOpen(true);
+    useUiStore.getState().setProjectComposer("todo");
     useUiStore.getState().openSettings("contacts");
     useUiStore.getState().rememberProjectRoute(9, "/projects/9/activities/11?focus=todo-3");
     useUiStore.getState().toggleProjectSidebarCollapsed();
@@ -37,54 +37,56 @@ describe("useUiStore", () => {
 
     const state = useUiStore.getState();
     expect(state.createProjectOpen).toBe(false);
-    expect(state.createActivityOpen).toBe(true);
+    expect(state.projectComposer).toBe("todo");
     expect(state.settingsOpen).toBe(true);
     expect(state.settingsSection).toBe("contacts");
     expect(state.projectSidebarCollapsed).toBe(true);
     expect(state.todoRailCollapsed).toBe(true);
     expect(state.projectRecentPaths[9]).toBe("/projects/9/activities/11?focus=todo-3");
-    expect(state.activityNoteEditorWidthPx).toBe(
-      ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
+    expect(state.noteEditorWidthPx).toBe(
+      NOTE_EDITOR_WIDTH_DEFAULT_PX,
     );
 
     useUiStore.getState().clearProjectRecentPaths();
     expect(useUiStore.getState().projectRecentPaths).toEqual({});
   });
 
-  it("clamps the persisted activity note editor width preference", () => {
-    expect(useUiStore.getState().activityNoteEditorWidthPx).toBe(
-      ACTIVITY_NOTE_EDITOR_WIDTH_DEFAULT_PX,
+  it("clamps the persisted note editor width preference", () => {
+    expect(useUiStore.getState().noteEditorWidthPx).toBe(
+      NOTE_EDITOR_WIDTH_DEFAULT_PX,
     );
 
-    useUiStore.getState().setActivityNoteEditorWidthPx(600);
-    expect(useUiStore.getState().activityNoteEditorWidthPx).toBe(
-      ACTIVITY_NOTE_EDITOR_WIDTH_MIN_PX,
+    useUiStore.getState().setNoteEditorWidthPx(600);
+    expect(useUiStore.getState().noteEditorWidthPx).toBe(
+      NOTE_EDITOR_WIDTH_MIN_PX,
     );
 
-    useUiStore.getState().setActivityNoteEditorWidthPx(2048);
-    expect(useUiStore.getState().activityNoteEditorWidthPx).toBe(
-      ACTIVITY_NOTE_EDITOR_WIDTH_MAX_PX,
+    useUiStore.getState().setNoteEditorWidthPx(2048);
+    expect(useUiStore.getState().noteEditorWidthPx).toBe(
+      NOTE_EDITOR_WIDTH_MAX_PX,
     );
   });
 
-  it("rehydrates the activity note editor width from persisted storage only", async () => {
+  it("rehydrates the note editor width from persisted storage only", async () => {
     useUiStore.getState().setCreateProjectOpen(true);
-    useUiStore.getState().setActivityNoteEditorWidthPx(960);
+    useUiStore.getState().setNoteEditorWidthPx(960);
 
     const persistedStore = createUiStore();
     await persistedStore.persist.rehydrate();
 
-    expect(persistedStore.getState().activityNoteEditorWidthPx).toBe(960);
+    expect(persistedStore.getState().noteEditorWidthPx).toBe(960);
     expect(persistedStore.getState().createProjectOpen).toBe(false);
 
     expect(uiStorePersistStorage?.getItem(UI_STORE_STORAGE_KEY)).toEqual({
       state: {
-        activityNoteEditorWidthPx: 960,
-        overviewPageWidth: "auto",
+        noteEditorWidthPx: 960,
+        pageWidthMode: "adaptive",
         todoRailWidthPx: TODO_RAIL_WIDTH_DEFAULT_PX,
         projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
+        projectSidebarCollapsed: false,
+        todoRailCollapsed: false,
       },
-      version: 0,
+      version: 1,
     });
   });
 });

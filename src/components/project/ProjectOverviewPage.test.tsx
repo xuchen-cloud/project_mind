@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectOverviewPage } from "./ProjectOverviewPage";
 
 const scrollIntoViewMock = vi.fn();
+const scrollToMock = vi.fn();
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
@@ -53,6 +54,7 @@ vi.mock("../../services/projectMindApi", () => ({
     fileTagSettingsGet: vi.fn(async () => ({
       tags: [{ id: 3, label: "预算", colorKey: "amber" }],
     })),
+    projectRecordDelete: vi.fn(async () => undefined),
   },
 }));
 
@@ -121,7 +123,11 @@ vi.mock("../rich-editor", () => ({
     readOnly ? (
       <div>{html}</div>
     ) : (
-      <textarea aria-label={placeholder ?? "rich-editor"} defaultValue={html ?? ""} />
+      <textarea
+        aria-label={placeholder ?? "rich-editor"}
+        className="rich-editor__surface"
+        defaultValue={html ?? ""}
+      />
     ),
 }));
 
@@ -157,6 +163,11 @@ describe("ProjectOverviewPage", () => {
       configurable: true,
       value: scrollIntoViewMock,
     });
+    scrollToMock.mockReset();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: scrollToMock,
+    });
   });
 
   it("switches to history and focuses the matching record from focus query", async () => {
@@ -183,7 +194,7 @@ describe("ProjectOverviewPage", () => {
     );
 
     await waitFor(() => {
-      expect(scrollIntoViewMock).toHaveBeenCalled();
+      expect(scrollToMock).toHaveBeenCalled();
     });
 
     const record = document.getElementById("record-7");
@@ -217,5 +228,102 @@ describe("ProjectOverviewPage", () => {
       expect(nameInput).toHaveFocus();
     });
     expect(nameInput).toHaveValue("Alpha Project");
+  });
+
+  it("keeps the record context menu available after opening the record view", async () => {
+    const { projectMindApi } = await import("../../services/projectMindApi");
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record&recordTag=3"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const record = await screen.findByRole("button", { name: /目标记录/ });
+    fireEvent.contextMenu(record, { clientX: 64, clientY: 96 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+
+    await waitFor(() => {
+      expect(projectMindApi.projectRecordDelete).toHaveBeenCalledWith({ noteId: 7 });
+    });
+  });
+
+  it("opens the record context menu from an edited project record header but not the editor body", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const record = await screen.findByRole("button", { name: /目标记录/ });
+    fireEvent.mouseDown(record, { button: 0 });
+
+    fireEvent.contextMenu(screen.getByPlaceholderText("记录标题"), {
+      clientX: 64,
+      clientY: 86,
+    });
+    expect(screen.getByRole("menu", { name: "记录操作" })).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "记录操作" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.contextMenu(screen.getByLabelText(/写记录/), {
+      clientX: 64,
+      clientY: 126,
+    });
+    expect(screen.queryByRole("menu", { name: "记录操作" })).not.toBeInTheDocument();
+  });
+
+  it("exits project record editing with Ctrl+Enter", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const record = await screen.findByRole("button", { name: /目标记录/ });
+    fireEvent.mouseDown(record, { button: 0 });
+
+    const editor = screen.getByLabelText(/写记录/);
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/写记录/)).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("button", { name: /目标记录/ })).toBeInTheDocument();
   });
 });

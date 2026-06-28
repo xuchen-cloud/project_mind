@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Bold, Copy, Trash2 } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
@@ -96,6 +96,36 @@ describe("ActionContextMenu", () => {
 
     await user.click(screen.getByRole("button", { name: "outside" }));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes on scroll, resize, and window blur", () => {
+    const onClose = vi.fn();
+
+    render(
+      <ActionContextMenu
+        x={24}
+        y={32}
+        ariaLabel="测试菜单"
+        onClose={onClose}
+        actions={[
+          {
+            key: "copy",
+            label: "复制",
+            icon: Copy,
+            onSelect: vi.fn(),
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.scroll(window);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.resize(window);
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    fireEvent.blur(window);
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("opens a submenu and runs nested actions", async () => {

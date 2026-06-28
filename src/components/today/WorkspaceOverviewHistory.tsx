@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Save, Trash2 } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { ExternalLink, Save, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 import { fileTagColorValue } from "../../lib/constants";
 import { formatDateTime } from "../../lib/formatters";
@@ -70,7 +77,21 @@ export function WorkspaceOverviewHistory({
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
+  const [recordContextMenu, setRecordContextMenu] = useState<{
+    x: number;
+    y: number;
+    noteId: number;
+  } | null>(null);
   const recordDraftEditorRef = useRef<RichEditorController | null>(null);
+  const contextMenuNote = recordContextMenu
+    ? notes.find((note) => note.id === recordContextMenu.noteId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (recordContextMenu && !contextMenuNote) {
+      setRecordContextMenu(null);
+    }
+  }, [contextMenuNote, recordContextMenu]);
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
@@ -110,6 +131,12 @@ export function WorkspaceOverviewHistory({
     onCloseCompose();
   }
 
+  function openRecordContextMenu(event: ReactMouseEvent, noteId: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    setRecordContextMenu({ x: event.clientX, y: event.clientY, noteId });
+  }
+
   return (
     <section
       className={withPageWidthClass(
@@ -138,11 +165,11 @@ export function WorkspaceOverviewHistory({
             </div>
             <div className="project-history-record__tag-row">
               <EntityTagEditor
-                projectId={0}
+                projectId={null}
                 availableTags={availableTags}
                 tags={availableTags.filter((tag) => recordDraftTagIds.includes(tag.id))}
                 onChange={(tagIds) => setRecordDraftTagIds(tagIds)}
-                onCreated={() => undefined}
+                onCreated={syncWorkspaceTagCache}
               />
             </div>
             <RichEditor
@@ -210,7 +237,7 @@ export function WorkspaceOverviewHistory({
                   setSavingRecordId(null);
                 }
               }}
-              onDelete={onDeleteRecord}
+              onOpenContextMenu={openRecordContextMenu}
               contactMentionOptions={contactMentionOptions}
               onOpenInternalReference={onOpenInternalReference}
             />
@@ -221,6 +248,25 @@ export function WorkspaceOverviewHistory({
       ) : (
         <EmptyState text="没有匹配的记录。" compact />
       )}
+      {contextMenuNote && recordContextMenu ? (
+        <ActionContextMenu
+          x={recordContextMenu.x}
+          y={recordContextMenu.y}
+          ariaLabel="记录操作"
+          actions={[
+            {
+              label: "删除",
+              icon: Trash2,
+              tone: "danger",
+              onSelect: () => {
+                setRecordContextMenu(null);
+                void onDeleteRecord(contextMenuNote.id);
+              },
+            },
+          ]}
+          onClose={() => setRecordContextMenu(null)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -231,7 +277,7 @@ function WorkspaceHistoryRecordRow({
   availableTags,
   busy,
   onSave,
-  onDelete,
+  onOpenContextMenu,
   contactMentionOptions,
   onOpenInternalReference,
 }: {
@@ -245,17 +291,17 @@ function WorkspaceHistoryRecordRow({
     title: string,
     tagIds: number[],
   ) => Promise<void>;
-  onDelete: (noteId: number) => Promise<unknown>;
+  onOpenContextMenu: (event: ReactMouseEvent, noteId: number) => void;
   contactMentionOptions: RichEditorContactMentionOptions;
   onOpenInternalReference: (reference: unknown) => Promise<boolean> | boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const navigate = useNavigate();
   const [autoFocusPoint, setAutoFocusPoint] = useState<RichEditorAutoFocusPoint | null>(null);
   const [title, setTitle] = useState(note.title ?? "");
   const [value, setValue] = useState<RichEditorValue>(() => buildWorkspaceDraft(note));
   const [tagIds, setTagIds] = useState<number[]>((note.tags ?? []).map((tag) => tag.id));
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLElement | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
@@ -268,7 +314,6 @@ function WorkspaceHistoryRecordRow({
 
   const noteTags = note.tags ?? [];
   const titleDisplay = note.title?.trim() || "未命名记录";
-  const hasContent = note.contentMarkdown.trim().length > 0;
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
@@ -378,6 +423,21 @@ function WorkspaceHistoryRecordRow({
     await persistRecord(editorControllerRef.current?.getValue() ?? value, title, nextTagIds);
   }
 
+  async function saveAndExitEditing() {
+    await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
+    exitEditing();
+  }
+
+  function handleEditingKeyDown(event: ReactKeyboardEvent) {
+    if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void saveAndExitEditing();
+  }
+
   function enterEditing(point?: RichEditorAutoFocusPoint) {
     scrollParentRef.current =
       containerRef.current?.closest("[data-testid='workspace-overview-focus-scroll']") ?? null;
@@ -399,10 +459,25 @@ function WorkspaceHistoryRecordRow({
     setEditing(false);
   }
 
+  async function openFocusPage() {
+    if (editing) {
+      await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
+    }
+
+    navigate(`/workspace/records/${note.id}`);
+  }
+
   return (
     <article
       id={`record-${note.id}`}
       ref={containerRef}
+      onContextMenu={(event) => {
+        if (editing && shouldLetRichEditorHandleContextMenu(event.target)) {
+          return;
+        }
+
+        onOpenContextMenu(event, note.id);
+      }}
       className={cn(
         "project-history-record",
         focused && "scroll-mt-6",
@@ -410,7 +485,7 @@ function WorkspaceHistoryRecordRow({
       )}
     >
       {editing ? (
-        <div className="project-history-record__editor">
+        <div className="project-history-record__editor" onKeyDownCapture={handleEditingKeyDown}>
           <div className="project-history-record__header">
             <div className="project-history-record__header-main">
               <TextField
@@ -438,59 +513,67 @@ function WorkspaceHistoryRecordRow({
                       ? "保存失败"
                       : "自动保存"}
               </span>
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="打开专注页"
+                onClick={() => void openFocusPage()}
+              >
+                <ExternalLink size={15} />
+              </IconButton>
             </div>
           </div>
           <div className="project-history-record__tag-row">
             <EntityTagEditor
-              projectId={0}
+              projectId={null}
               availableTags={availableTags}
               tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
               busy={busy}
               onChange={(nextTagIds) => void handleTagChange(nextTagIds)}
-              onCreated={() => undefined}
+              onCreated={syncWorkspaceTagCache}
             />
           </div>
-          <RichEditor
-            html={value.html}
-            variant="bare"
-            autoFocus={autoFocusPoint ?? true}
-            placeholder="写记录，正文里的 #标签 会自动同步。"
-            tagMentions={{
-              projectId: null,
-              availableTags,
-              onCreateTag: async (label) => {
-                const tag = await projectMindApi.fileTagOptionUpsert({
-                  label,
-                  colorKey: colorKeyForTagLabel(label),
-                });
-                syncWorkspaceTagCache(tag);
-                return tag;
-              },
-            }}
-            internalReferences={{
-              context: { scope: "workspace" },
-              onOpenReference: onOpenInternalReference as never,
-            }}
-            contactMentions={contactMentionOptions}
-            autosave={{
-              delay: 120000,
-              onBlur: true,
-              onWindowBlur: true,
-              onVisibilityChange: true,
-            }}
-            controllerRef={editorControllerRef}
-            onPersistStateChange={setPersistState}
-            onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
-          />
+          <div className="project-history-record__content">
+            <RichEditor
+              html={value.html}
+              variant="bare"
+              autoFocus={autoFocusPoint ?? true}
+              placeholder="写记录，正文里的 #标签 会自动同步。"
+              tagMentions={{
+                projectId: null,
+                availableTags,
+                onCreateTag: async (label) => {
+                  const tag = await projectMindApi.fileTagOptionUpsert({
+                    label,
+                    colorKey: colorKeyForTagLabel(label),
+                  });
+                  syncWorkspaceTagCache(tag);
+                  return tag;
+                },
+              }}
+              internalReferences={{
+                context: { scope: "workspace" },
+                onOpenReference: onOpenInternalReference as never,
+              }}
+              contactMentions={contactMentionOptions}
+              autosave={{
+                delay: 120000,
+                onBlur: true,
+                onWindowBlur: true,
+                onVisibilityChange: true,
+              }}
+              controllerRef={editorControllerRef}
+              onPersistStateChange={setPersistState}
+              onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
+            />
+          </div>
         </div>
       ) : (
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="project-history-record__surface"
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setContextMenu({ x: event.clientX, y: event.clientY });
-          }}
           onMouseDown={(event) => {
             if (event.button !== 0) {
               return;
@@ -512,14 +595,36 @@ function WorkspaceHistoryRecordRow({
               mode: "content-relative",
             });
           }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+              return;
+            }
+
+            event.preventDefault();
+            enterEditing();
+          }}
         >
           <div className="project-history-record__header">
             <div className="project-history-record__header-main">
               <p className="project-history-record__title">{titleDisplay}</p>
             </div>
-            <div className="project-history-record__meta">
-              <span>更新于 {formatDateTime(note.updatedAt)}</span>
-              <span>{hasContent ? "点按编辑" : "等待补充内容"}</span>
+            <div className="project-history-record__header-actions">
+              <div className="project-history-record__meta">
+                <span>更新于 {formatDateTime(note.updatedAt)}</span>
+              </div>
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="打开专注页"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void openFocusPage();
+                }}
+              >
+                <ExternalLink size={15} />
+              </IconButton>
             </div>
           </div>
           <div
@@ -560,42 +665,20 @@ function WorkspaceHistoryRecordRow({
               deferUntilVisible
             />
           </div>
-          <div className="mt-3 flex justify-end">
-            <IconButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label="删除记录"
-              onClick={(event) => {
-                event.stopPropagation();
-                void onDelete(note.id);
-              }}
-            >
-              ×
-            </IconButton>
-          </div>
-        </button>
+        </div>
       )}
-      {contextMenu ? (
-        <ActionContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          ariaLabel="记录操作"
-          actions={[
-            {
-              label: "删除",
-              icon: Trash2,
-              tone: "danger",
-              onSelect: () => {
-                setContextMenu(null);
-                void onDelete(note.id);
-              },
-            },
-          ]}
-          onClose={() => setContextMenu(null)}
-        />
-      ) : null}
     </article>
+  );
+}
+
+function shouldLetRichEditorHandleContextMenu(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        ".rich-editor__surface, .rich-editor__toolbar, .rich-editor__ai-menu, .rich-editor__table-toolbar, .context-menu__panel",
+      ),
+    )
   );
 }
 

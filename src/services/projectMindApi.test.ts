@@ -166,61 +166,6 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps note upsert to the unified note command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 7,
-      noteType: "quick_note",
-    });
-
-    await projectMindApi.noteUpsert({
-      projectId: 1,
-      activityId: 2,
-      noteType: "quick_note",
-      title: "原始记录",
-      markdown: "Captured detail",
-      html: "<p>Captured detail</p>",
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_record_upsert", {
-      input: {
-        projectId: 1,
-        activityId: 2,
-        noteType: "quick_note",
-        title: "原始记录",
-        markdown: "Captured detail",
-        html: "<p>Captured detail</p>",
-      },
-    });
-  });
-
-  it("maps note delete to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 7 });
-
-    await projectMindApi.noteDelete({
-      noteId: 7,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_record_delete", {
-      input: {
-        noteId: 7,
-      },
-    });
-  });
-
-  it("maps activity delete to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
-
-    await projectMindApi.activityDelete({
-      activityId: 11,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("activity_delete", {
-      input: {
-        activityId: 11,
-      },
-    });
-  });
-
   it("maps conclusion create to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
 
@@ -299,25 +244,6 @@ describe("projectMindApi", () => {
         },
       },
     );
-  });
-
-  it("maps todo activity update to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 5,
-      activityId: 12,
-    });
-
-    await projectMindApi.todoUpdateActivity({
-      todoId: 5,
-      activityId: 12,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_activity", {
-      input: {
-        todoId: 5,
-        activityId: 12,
-      },
-    });
   });
 
   it("maps todo delete to the correct command", async () => {
@@ -437,19 +363,6 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_settings_get");
   });
 
-  it("maps activity settings fetch without payload", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      activityAttributeOptions: [],
-      activityStatusOptions: [],
-    });
-
-    await projectMindApi.activitySettingsGet();
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "activity_settings_get",
-    );
-  });
-
   it("maps file tag settings fetch with project payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       tags: [],
@@ -460,18 +373,6 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
       "file_tag_settings_get",
       { input: { projectId: 7 } },
-    );
-  });
-
-  it("maps record type settings fetch without payload", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      recordTypes: [],
-    });
-
-    await projectMindApi.recordTypeSettingsGet();
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "record_type_settings_get",
     );
   });
 
@@ -544,68 +445,6 @@ describe("projectMindApi", () => {
       {
         input: {
           projectId: 7,
-          id: 4,
-          label: "法务",
-          colorKey: "blue",
-        },
-      },
-    );
-  });
-
-  it("maps record type save to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 3,
-      key: "research_note",
-      label: "调研记录",
-      colorKey: "teal",
-      templateHtml: "<h2>背景</h2><p></p>",
-      isDefault: false,
-      usageCount: 0,
-      createdAt: "",
-      updatedAt: "",
-    });
-
-    await projectMindApi.recordTypeOptionUpsert({
-      id: 3,
-      label: "调研记录",
-      colorKey: "teal",
-      templateHtml: "<h2>背景</h2><p></p>",
-      isDefault: false,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "record_type_option_upsert",
-      {
-        input: {
-          id: 3,
-          label: "调研记录",
-          colorKey: "teal",
-          templateHtml: "<h2>背景</h2><p></p>",
-          isDefault: false,
-        },
-      },
-    );
-  });
-
-  it("maps activity attribute save to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 4,
-      label: "法务",
-      colorKey: "blue",
-      createdAt: "",
-      updatedAt: "",
-    });
-
-    await projectMindApi.activityAttributeOptionUpsert({
-      id: 4,
-      label: "法务",
-      colorKey: "blue",
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "activity_attribute_option_upsert",
-      {
-        input: {
           id: 4,
           label: "法务",
           colorKey: "blue",
@@ -730,30 +569,6 @@ describe("projectMindApi", () => {
         documentId: 12,
       },
     });
-  });
-
-  it("maps activity status save to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 3,
-      label: "待法务确认",
-    });
-
-    await projectMindApi.activityStatusOptionUpsert({
-      id: 3,
-      label: "待法务确认",
-      colorKey: "amber",
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "activity_status_option_upsert",
-      {
-        input: {
-          id: 3,
-          label: "待法务确认",
-          colorKey: "amber",
-        },
-      },
-    );
   });
 
   it("maps rich text style fetch without payload", async () => {

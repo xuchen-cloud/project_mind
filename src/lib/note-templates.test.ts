@@ -16,6 +16,6 @@ describe("getEditableNoteHtml", () => {
           '<p><img src="data:image/png;base64,AAAA" data-path="/tmp/managed/demo.png" alt="demo"></p>',
         contentMarkdown: "[图片] markdown placeholder",
       }),
-    ).toBe('<p><img src="data:image/png;base64,AAAA" data-path="/tmp/managed/demo.png" alt="demo"></p>');
+    ).toBe('<p><img src="asset:///tmp/managed/demo.png" data-path="/tmp/managed/demo.png" alt="demo"></p>');
   });
 });

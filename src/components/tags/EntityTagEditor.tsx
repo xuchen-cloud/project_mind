@@ -8,7 +8,7 @@ import { projectMindApi } from "../../services/projectMindApi";
 import { cn } from "../../ui/lib/cn";
 
 interface EntityTagEditorProps {
-  projectId: number;
+  projectId?: number | null;
   availableTags: FileTagRecord[];
   tags: DocumentTagRecord[];
   busy?: boolean;
@@ -58,7 +58,7 @@ export function EntityTagEditor({
     try {
       setCreating(true);
       const tag = await projectMindApi.fileTagOptionUpsert({
-        projectId,
+        projectId: projectId ?? null,
         label,
         colorKey: colorKeyForTagLabel(label),
       });

@@ -14,14 +14,16 @@ import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { ProjectNoteFocusPage } from "./components/project/ProjectNoteFocusPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/today/WorkspacePage";
+import { WorkspaceRecordFocusPage } from "./components/today/WorkspaceRecordFocusPage";
 
 const router = createHashRouter([
   {
-    element: <WorkspaceLayout />,
+    element: <WorkspaceLayout cacheProjectOverviewPages />,
     children: [
       { index: true, element: <Navigate to="/workspace" replace /> },
       { path: "projects", element: <Navigate to="/workspace" replace /> },
       { path: "workspace", element: <WorkspacePage /> },
+      { path: "workspace/records/:noteId", element: <WorkspaceRecordFocusPage /> },
       { path: "projects/:projectId", element: <ProjectOverviewPage /> },
       { path: "projects/:projectId/records/:noteId", element: <ProjectNoteFocusPage /> },
       {

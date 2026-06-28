@@ -12,8 +12,8 @@ type BoundarySide = "start" | "end";
 export function normalizeRichEditorValue(value: RichEditorValue): RichEditorValue {
   return {
     html: normalizeRichEditorHtml(value.html),
-    text: value.text,
-    markdown: value.markdown,
+    text: trimBoundaryPlainText(value.text),
+    markdown: trimBoundaryPlainText(value.markdown),
   };
 }
 
@@ -29,8 +29,7 @@ export function normalizeRichEditorHtml(html?: string | null) {
   }
 
   const doc = new DOMParser().parseFromString(normalized, "text/html");
-  // Don't trim boundary whitespace - preserve user's formatting
-  // trimDocumentBoundaryWhitespace(doc.body);
+  trimDocumentBoundaryWhitespace(doc.body);
 
   const serialized = doc.body.innerHTML;
   return serialized.length > 0 ? serialized : EMPTY_RICH_EDITOR_HTML;
@@ -164,4 +163,10 @@ function isMeaningfulBoundaryElement(element: Element) {
 
 function isProtectedTrimElement(element: Element) {
   return PROTECTED_TRIM_TAGS.has(element.tagName);
+}
+
+function trimBoundaryPlainText(value: string) {
+  return value
+    .replace(LEADING_BOUNDARY_SPACE_PATTERN, "")
+    .replace(TRAILING_BOUNDARY_SPACE_PATTERN, "");
 }

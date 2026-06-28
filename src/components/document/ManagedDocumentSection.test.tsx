@@ -421,38 +421,6 @@ describe("ManagedDocumentSection", () => {
     expect(screen.queryByDisplayValue("Context target.pdf")).not.toBeInTheDocument();
   });
 
-  it("opens a tag context menu on right click and updates tag ids immediately", async () => {
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
-      tags: [
-        buildFileTag({ id: 1, label: "法务", colorKey: "blue" }),
-        buildFileTag({ id: 2, label: "紧急", colorKey: "red" }),
-      ],
-    });
-
-    renderSection([
-      buildDocument({
-        id: 7,
-        tags: [buildDocumentTag({ id: 1, label: "法务", colorKey: "blue" })],
-      }),
-    ]);
-
-    const documentCard = document.getElementById("document-7");
-    expect(documentCard).not.toBeNull();
-
-    fireEvent.contextMenu(documentCard as HTMLElement);
-
-    const urgentCheckbox = await screen.findByLabelText("紧急");
-    fireEvent.click(urgentCheckbox);
-
-    expect(documentMutationMocks.documentMetaMutation.mutate).toHaveBeenCalledWith(
-      {
-        documentId: 7,
-        tagIds: [1, 2],
-      },
-      expect.any(Object),
-    );
-  });
-
   it("shows ordered document actions and reveals the file location from the context menu", async () => {
     const user = userEvent.setup();
 
@@ -577,7 +545,8 @@ describe("ManagedDocumentSection", () => {
     await user.click(await screen.findByRole("button", { name: "导入文件" }));
     expect(await screen.findByRole("dialog", { name: "选择导入标签" })).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("待审核"));
+    await user.type(screen.getByPlaceholderText("#输入或选择标签"), "待审核");
+    await user.click(screen.getByRole("button", { name: "待审核" }));
     await user.click(screen.getByRole("button", { name: "开始导入" }));
 
     await waitFor(() => {

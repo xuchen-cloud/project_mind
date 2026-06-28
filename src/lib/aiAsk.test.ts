@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { deriveAskScopeContext } from "./aiAsk";
 
 describe("deriveAskScopeContext", () => {
-  it("uses activity scope defaults on activity routes", () => {
+  it("uses project scope defaults on activity routes", () => {
     expect(deriveAskScopeContext("/projects/1/activities/2", 1, 2)).toEqual({
-      defaultScope: "activity",
-      allowedScopes: ["activity", "project", "workspace"],
+      defaultScope: "project",
+      allowedScopes: ["project", "workspace"],
     });
   });
 

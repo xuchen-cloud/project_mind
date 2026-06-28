@@ -80,12 +80,7 @@ interface UiStore extends UiStoreState {
 }
 
 function sanitizeProjectRoute(path: string) {
-  const match = path.match(/^\/projects\/(\d+)(?:\/activities\/\d+)?(?:\?.*)?$/);
-  if (!match) {
-    return path;
-  }
-
-  return `/projects/${match[1]}`;
+  return path;
 }
 
 export function createUiStoreState(): UiStoreState {

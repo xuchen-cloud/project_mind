@@ -190,7 +190,7 @@ describe("desktopApi", () => {
     expect(tauriMocks.webviewWindowInstances[0]?.options).toMatchObject({
       width: 1680,
       height: 1024,
-      minWidth: 736,
+      minWidth: 640,
     });
     expect(tauriMocks.getCurrentWindowMock).toHaveBeenCalledTimes(1);
     Object.defineProperty(window, "location", {
