@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useRef } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +8,9 @@ import { ProjectOverviewPage } from "./ProjectOverviewPage";
 
 const scrollIntoViewMock = vi.fn();
 const scrollToMock = vi.fn();
+const noteImageAssetMocks = vi.hoisted(() => ({
+  externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
+}));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
@@ -53,6 +57,22 @@ vi.mock("../../services/projectMindApi", () => ({
     })),
     fileTagSettingsGet: vi.fn(async () => ({
       tags: [{ id: 3, label: "预算", colorKey: "amber" }],
+    })),
+    fileTagOptionUpsert: vi.fn(async ({ label }: { label: string }) => ({
+      id: 9,
+      label,
+      colorKey: "blue",
+    })),
+    projectRecordUpsert: vi.fn(async (input) => ({
+      id: input.noteId ?? 99,
+      projectId: input.projectId,
+      activityId: input.activityId ?? null,
+      title: input.title ?? null,
+      contentMarkdown: input.markdown,
+      contentHtml: input.html,
+      tags: [],
+      createdAt: "2026-04-06T08:00:00.000Z",
+      updatedAt: "2026-04-06T09:00:00.000Z",
     })),
     projectRecordDelete: vi.fn(async () => undefined),
   },
@@ -106,6 +126,14 @@ vi.mock("../../hooks/useUtilityHooks", async () => {
   };
 });
 
+vi.mock("../rich-editor/noteImageAssets", () => ({
+  buildProjectNoteImageAssetHandlers: () => ({
+    insertImage: vi.fn(),
+    insertPastedImage: vi.fn(),
+  }),
+  externalizeEmbeddedImageDataUrls: noteImageAssetMocks.externalizeEmbeddedImageDataUrls,
+}));
+
 vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
@@ -115,21 +143,74 @@ vi.mock("../rich-editor", () => ({
     html,
     readOnly,
     placeholder,
+    controllerRef,
   }: {
     html?: string;
     readOnly?: boolean;
     placeholder?: string;
+    controllerRef?: {
+      current: {
+        getValue: () => { html: string; text: string; markdown: string };
+        focus: () => void;
+        save: () => Promise<unknown>;
+      } | null;
+    };
   }) =>
     readOnly ? (
       <div>{html}</div>
     ) : (
-      <textarea
-        aria-label={placeholder ?? "rich-editor"}
-        className="rich-editor__surface"
-        defaultValue={html ?? ""}
-      />
+      <MockRichEditor html={html} placeholder={placeholder} controllerRef={controllerRef} />
     ),
 }));
+
+function MockRichEditor({
+  html,
+  placeholder,
+  controllerRef,
+}: {
+  html?: string;
+  placeholder?: string;
+  controllerRef?: {
+    current: {
+      getValue: () => { html: string; text: string; markdown: string };
+      focus: () => void;
+      save: () => Promise<unknown>;
+    } | null;
+  };
+}) {
+  const valueRef = useRef(html ?? "");
+
+  useEffect(() => {
+    if (!controllerRef) {
+      return;
+    }
+
+    controllerRef.current = {
+      getValue: () => ({
+        html: valueRef.current,
+        text: valueRef.current.replace(/<[^>]+>/gu, ""),
+        markdown: valueRef.current.replace(/<[^>]+>/gu, ""),
+      }),
+      focus: vi.fn(),
+      save: vi.fn(async () => undefined),
+    };
+
+    return () => {
+      controllerRef.current = null;
+    };
+  }, [controllerRef]);
+
+  return (
+    <textarea
+      aria-label={placeholder ?? "rich-editor"}
+      className="rich-editor__surface"
+      defaultValue={html ?? ""}
+      onChange={(event) => {
+        valueRef.current = event.currentTarget.value;
+      }}
+    />
+  );
+}
 
 vi.mock("../document/DocumentImportTagDialog", () => ({
   DocumentImportTagDialog: () => null,
@@ -158,6 +239,7 @@ vi.mock("../../hooks/useDocumentImportFlow", () => ({
 
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
+    noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     scrollIntoViewMock.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -319,11 +401,13 @@ describe("ProjectOverviewPage", () => {
     fireEvent.mouseDown(record, { button: 0 });
 
     const editor = screen.getByLabelText(/写记录/);
+    fireEvent.change(editor, { target: { value: "<p>新的记录内容</p>" } });
     fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
 
     await waitFor(() => {
       expect(screen.queryByLabelText(/写记录/)).not.toBeInTheDocument();
     });
+    expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalled();
     expect(await screen.findByRole("button", { name: /目标记录/ })).toBeInTheDocument();
   });
 });

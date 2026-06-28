@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { Circle, Plus, X } from "lucide-react";
 
 import { fileTagColorValue } from "../../lib/constants";
@@ -14,8 +14,10 @@ interface EntityTagEditorProps {
   busy?: boolean;
   compact?: boolean;
   mode?: "full" | "edit" | "display";
+  inputRef?: Ref<HTMLInputElement>;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
   onCreated?: (tag: FileTagRecord) => void;
+  onCommitNavigation?: (reason: "tab" | "enter") => Promise<unknown> | void;
 }
 
 export function EntityTagEditor({
@@ -25,11 +27,14 @@ export function EntityTagEditor({
   busy = false,
   compact = false,
   mode = "full",
+  inputRef,
   onChange,
   onCreated,
+  onCommitNavigation,
 }: EntityTagEditorProps) {
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
+  const localInputRef = useRef<HTMLInputElement | null>(null);
   const selectedIds = useMemo(() => new Set(tags.map((tag) => tag.id)), [tags]);
   const query = input.trim().replace(/^#/, "");
   const canRemove = mode !== "display";
@@ -54,6 +59,11 @@ export function EntityTagEditor({
     setInput("");
   };
 
+  const handleInputRef = (node: HTMLInputElement | null) => {
+    localInputRef.current = node;
+    setRef(inputRef, node);
+  };
+
   const createTag = async (label: string) => {
     try {
       setCreating(true);
@@ -72,8 +82,21 @@ export function EntityTagEditor({
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      void commitLabel(suggestions[0]?.label ?? query);
+      void commitLabel(suggestions[0]?.label ?? query).then(() =>
+        onCommitNavigation?.("enter"),
+      );
+      return;
     }
+
+    if (event.key === "Tab" && query) {
+      event.preventDefault();
+      void commitLabel(suggestions[0]?.label ?? query).then(() => {
+        localInputRef.current?.focus();
+        onCommitNavigation?.("tab");
+      });
+      return;
+    }
+
     if (event.key === "Escape") {
       event.preventDefault();
       setInput("");
@@ -132,6 +155,7 @@ export function EntityTagEditor({
         >
           <Plus size={11} aria-hidden="true" />
           <input
+            ref={handleInputRef}
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-soft"
             value={input}
             disabled={busy || creating}
@@ -169,6 +193,19 @@ export function EntityTagEditor({
       ) : null}
     </div>
   );
+}
+
+function setRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (!ref) {
+    return;
+  }
+
+  if (typeof ref === "function") {
+    ref(value);
+    return;
+  }
+
+  ref.current = value;
 }
 
 export function buildTagSuggestions(

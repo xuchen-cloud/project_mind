@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EntityTagEditor } from "./EntityTagEditor";
 
@@ -13,6 +13,10 @@ vi.mock("../../services/projectMindApi", () => ({
 }));
 
 describe("EntityTagEditor", () => {
+  beforeEach(() => {
+    apiMocks.fileTagOptionUpsert.mockReset();
+  });
+
   it("creates workspace-scoped tags with a null project id", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -47,5 +51,95 @@ describe("EntityTagEditor", () => {
     });
     expect(onChange).toHaveBeenCalledWith([7]);
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 7, label: "预算" }));
+  });
+
+  it("commits a tag with Tab and keeps focus on the tag input", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onCommitNavigation = vi.fn();
+    apiMocks.fileTagOptionUpsert.mockResolvedValueOnce({
+      id: 8,
+      label: "合同",
+      colorKey: "blue",
+      usageCount: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    render(
+      <EntityTagEditor
+        projectId={1}
+        availableTags={[]}
+        tags={[]}
+        onChange={onChange}
+        onCommitNavigation={onCommitNavigation}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("#标签");
+    await user.type(input, "合同{Tab}");
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith([8]);
+    });
+    expect(onCommitNavigation).toHaveBeenCalledWith("tab");
+    expect(input).toHaveFocus();
+  });
+
+  it("commits a tag with Enter and requests enter navigation", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onCommitNavigation = vi.fn();
+    apiMocks.fileTagOptionUpsert.mockResolvedValueOnce({
+      id: 9,
+      label: "复盘",
+      colorKey: "teal",
+      usageCount: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    render(
+      <EntityTagEditor
+        projectId={1}
+        availableTags={[]}
+        tags={[]}
+        onChange={onChange}
+        onCommitNavigation={onCommitNavigation}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("#标签"), "复盘{Enter}");
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith([9]);
+    });
+    expect(onCommitNavigation).toHaveBeenCalledWith("enter");
+  });
+
+  it("keeps empty Tab as normal browser focus navigation", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onCommitNavigation = vi.fn();
+
+    render(
+      <>
+        <EntityTagEditor
+          projectId={1}
+          availableTags={[]}
+          tags={[]}
+          onChange={onChange}
+          onCommitNavigation={onCommitNavigation}
+        />
+        <button type="button">下一个控件</button>
+      </>,
+    );
+
+    screen.getByPlaceholderText("#标签").focus();
+    await user.keyboard("{Tab}");
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommitNavigation).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "下一个控件" })).toHaveFocus();
   });
 });

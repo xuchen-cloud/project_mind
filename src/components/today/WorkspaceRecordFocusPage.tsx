@@ -28,6 +28,10 @@ import {
   type RichEditorPersistState,
   type RichEditorValue,
 } from "../rich-editor";
+import {
+  buildWorkspaceNoteImageAssetHandlers,
+  externalizeEmbeddedImageDataUrls,
+} from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TodoRail } from "../todo";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
@@ -54,6 +58,7 @@ export function WorkspaceRecordFocusPage() {
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
+  const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<RichEditorValue>(EMPTY_VALUE);
@@ -164,7 +169,11 @@ export function WorkspaceRecordFocusPage() {
 
     setIsSaving(true);
     try {
-      const normalized = normalizeRichEditorValue(value);
+      const externalizedValue = await externalizeEmbeddedImageDataUrls(
+        value,
+        workspaceAssetHandlers,
+      );
+      const normalized = normalizeRichEditorValue(externalizedValue);
       const mentionedTagIds = extractTagMentionIds(normalized.markdown);
       await projectMindApi.workspaceRecordUpsert({
         noteId: note.id,
@@ -320,11 +329,7 @@ export function WorkspaceRecordFocusPage() {
     await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
   }
 
-  function deleteProject(projectId: number, name: string) {
-    if (!window.confirm(`确定删除项目「${name}」？项目目录会移到废纸篓。`)) {
-      return;
-    }
-
+  function deleteProject(projectId: number) {
     deleteProjectMutation.mutate({ projectId });
   }
 
@@ -333,11 +338,15 @@ export function WorkspaceRecordFocusPage() {
     setTagIds(newTagIds);
     try {
       const nextValue = editorControllerRef.current?.getValue() ?? content;
+      const externalizedValue = await externalizeEmbeddedImageDataUrls(
+        nextValue,
+        workspaceAssetHandlers,
+      );
       await projectMindApi.workspaceRecordUpsert({
         noteId: note.id,
         title: title.trim() || undefined,
-        markdown: nextValue.markdown,
-        html: nextValue.html,
+        markdown: externalizedValue.markdown,
+        html: externalizedValue.html,
         tagIds: newTagIds,
       });
       await workspacePageQuery.refetch();
@@ -409,7 +418,7 @@ export function WorkspaceRecordFocusPage() {
           }}
           onRenameProject={(project, name) => renameProject(project.id, name)}
           onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
-          onDeleteProject={(project) => deleteProject(project.id, project.name)}
+          onDeleteProject={(project) => deleteProject(project.id)}
           onOpenRecord={(recordId) => navigate(`/workspace/records/${recordId}`)}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
         />
@@ -501,6 +510,7 @@ export function WorkspaceRecordFocusPage() {
                 html={content.html}
                 variant="bare"
                 autoFocus
+                assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"
                 tagMentions={{
                   projectId: null,

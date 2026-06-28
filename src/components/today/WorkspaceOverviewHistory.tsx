@@ -24,6 +24,7 @@ import {
   RichEditor,
   RichTextViewer,
   type RichEditorAutoFocusPoint,
+  type RichEditorAssetHandlers,
   type RichEditorController,
   type RichEditorContactMentionOptions,
   type RichEditorPersistState,
@@ -55,6 +56,8 @@ interface WorkspaceOverviewHistoryProps {
   onCloseCompose: () => void;
   contactMentionOptions: RichEditorContactMentionOptions;
   onOpenInternalReference: (reference: unknown) => Promise<boolean> | boolean;
+  assetHandlers?: RichEditorAssetHandlers;
+  active?: boolean;
 }
 
 export function WorkspaceOverviewHistory({
@@ -71,6 +74,8 @@ export function WorkspaceOverviewHistory({
   onCloseCompose,
   contactMentionOptions,
   onOpenInternalReference,
+  assetHandlers,
+  active = true,
 }: WorkspaceOverviewHistoryProps) {
   const queryClient = useQueryClient();
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
@@ -176,6 +181,7 @@ export function WorkspaceOverviewHistory({
               html={recordDraftValue.html}
               variant="bare"
               autoFocus
+              assetHandlers={assetHandlers}
               placeholder="写记录，正文里的 #标签 会自动同步。"
               tagMentions={{
                 projectId: null,
@@ -240,6 +246,8 @@ export function WorkspaceOverviewHistory({
               onOpenContextMenu={openRecordContextMenu}
               contactMentionOptions={contactMentionOptions}
               onOpenInternalReference={onOpenInternalReference}
+              assetHandlers={assetHandlers}
+              active={active}
             />
           ))}
         </div>
@@ -280,6 +288,8 @@ function WorkspaceHistoryRecordRow({
   onOpenContextMenu,
   contactMentionOptions,
   onOpenInternalReference,
+  assetHandlers,
+  active,
 }: {
   note: WorkspaceRecord;
   focused: boolean;
@@ -294,6 +304,8 @@ function WorkspaceHistoryRecordRow({
   onOpenContextMenu: (event: ReactMouseEvent, noteId: number) => void;
   contactMentionOptions: RichEditorContactMentionOptions;
   onOpenInternalReference: (reference: unknown) => Promise<boolean> | boolean;
+  assetHandlers?: RichEditorAssetHandlers;
+  active: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
@@ -350,7 +362,7 @@ function WorkspaceHistoryRecordRow({
   }, [editing, note]);
 
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || !active) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -369,7 +381,7 @@ function WorkspaceHistoryRecordRow({
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [editing, tagIds, title, value]);
+  }, [active, editing, tagIds, title, value]);
 
   useEffect(() => {
     if (editing) {
@@ -539,6 +551,7 @@ function WorkspaceHistoryRecordRow({
               html={value.html}
               variant="bare"
               autoFocus={autoFocusPoint ?? true}
+              assetHandlers={assetHandlers}
               placeholder="写记录，正文里的 #标签 会自动同步。"
               tagMentions={{
                 projectId: null,
@@ -663,6 +676,7 @@ function WorkspaceHistoryRecordRow({
                 markdown: note.contentMarkdown,
               })}
               deferUntilVisible
+              active={active}
             />
           </div>
         </div>

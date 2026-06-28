@@ -80,6 +80,9 @@ import type {
   TodoUpdateTagsInput,
   WorkspaceQuickNoteUpsertInput,
   WorkspacePageData,
+  WorkspaceClipboardNoteImageImportInput,
+  WorkspaceNoteImageAsset,
+  WorkspaceNoteImageImportInput,
   WorkspaceRecordDeleteInput,
   WorkspaceRecord,
   WorkspaceRecordUpsertInput,
@@ -175,6 +178,17 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceRecord>("workspace_record_upsert", { input }),
   workspaceRecordDelete: (input: WorkspaceRecordDeleteInput) =>
     desktopApi.command<WorkspaceRecord>("workspace_record_delete", { input }),
+  workspaceNoteImageImport: (input: WorkspaceNoteImageImportInput) =>
+    desktopApi.command<WorkspaceNoteImageAsset>("workspace_note_image_import", {
+      input,
+    }),
+  workspaceClipboardNoteImageImport: (
+    input: WorkspaceClipboardNoteImageImportInput,
+  ) =>
+    desktopApi.command<WorkspaceNoteImageAsset>(
+      "workspace_clipboard_note_image_import",
+      { input },
+    ),
   documentImport: (input: DocumentImportInput) =>
     desktopApi.command<DocumentRecord>("document_import", { input }),
   documentImportClipboardImage: (input: DocumentImportClipboardImageInput) =>

@@ -1070,6 +1070,28 @@ pub struct DocumentImportClipboardNoteImageInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceNoteImageImportInput {
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceClipboardNoteImageImportInput {
+    pub file_name: String,
+    pub mime_type: String,
+    pub data_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceNoteImageAsset {
+    pub title: String,
+    pub path: String,
+    pub mime_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentUpdateMetaInput {
     pub document_id: i64,
     pub activity_id: Option<Option<i64>>,

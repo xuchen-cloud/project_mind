@@ -695,6 +695,22 @@ export interface DocumentImportClipboardNoteImageInput {
   dataBase64: string;
 }
 
+export interface WorkspaceNoteImageImportInput {
+  sourcePath: string;
+}
+
+export interface WorkspaceClipboardNoteImageImportInput {
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+}
+
+export interface WorkspaceNoteImageAsset {
+  title: string;
+  path: string;
+  mimeType: string;
+}
+
 export interface DocumentUpdateMetaInput {
   documentId: number;
   baseName?: string;

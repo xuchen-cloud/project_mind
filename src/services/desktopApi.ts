@@ -102,6 +102,10 @@ export const desktopApi = {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
   },
 
+  generateImageThumbnail(path: string, maxEdge = 960) {
+    return invoke<string>("desktop_generate_image_thumbnail", { path, maxEdge });
+  },
+
   listSystemFontFamilies() {
     return invoke<string[]>("desktop_list_system_font_families");
   },

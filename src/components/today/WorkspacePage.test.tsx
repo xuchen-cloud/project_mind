@@ -253,6 +253,60 @@ describe("WorkspacePage", () => {
     });
   });
 
+  it("requires dialog confirmation before deleting a project", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.projectsList.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "Alpha",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        quickNote: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    apiMocks.workspacePageGet.mockResolvedValueOnce({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    apiMocks.workspaceStatusGet.mockResolvedValueOnce({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+
+    renderPage();
+
+    const projectButton = await screen.findByRole("button", { name: /alpha/i });
+    fireEvent.contextMenu(projectButton, {
+      clientX: 100,
+      clientY: 120,
+    });
+    await user.click(await screen.findByRole("menuitem", { name: "删除" }));
+
+    expect(projectMutationMocks.deleteProjectMutate).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("dialog", { name: "删除项目" });
+    expect(within(dialog).getByText("Alpha")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "删除项目" }));
+
+    expect(projectMutationMocks.deleteProjectMutate).toHaveBeenCalledWith({ projectId: 1 });
+  });
+
   it("closes the matching main-window tab after opening the project in a new window", async () => {
     apiMocks.projectsList.mockResolvedValueOnce([
       {

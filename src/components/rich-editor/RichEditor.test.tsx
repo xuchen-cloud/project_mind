@@ -8,6 +8,7 @@ import { buildInternalReferenceHtml } from "../../lib/internalReferences";
 import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useAiJobStore } from "../../state/ai-job-store";
+import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor } from "./RichEditor";
 
 const intersectionObservers: Array<{
@@ -224,9 +225,13 @@ beforeAll(() => {
     const resolvedMimeType = mimeType || "image/png";
     return `data:${resolvedMimeType};base64,${btoa(path)}`;
   });
+  vi.spyOn(desktopApi, "generateImageThumbnail").mockImplementation(async (path, maxEdge) => {
+    return `${path}.${maxEdge}.thumb.jpg`;
+  });
 });
 
 beforeEach(() => {
+  clearManagedImageThumbnailCacheForTests();
   useAiJobStore.getState().reset();
   defaultIntersectionState = true;
   intersectionObservers.length = 0;
@@ -509,7 +514,11 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png");
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/clip.png.960.thumb.jpg",
+      );
+    });
 
     await waitFor(() => {
       const html = getLatestHtml(onChange);
@@ -797,7 +806,11 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png");
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/clip.png.960.thumb.jpg",
+      );
+    });
     pickFileSpy.mockRestore();
   });
 
@@ -841,7 +854,11 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clipboard.png");
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/clipboard.png.960.thumb.jpg",
+      );
+    });
   });
 
   it("opens an image context menu and updates width from a preset", async () => {
@@ -975,7 +992,9 @@ describe("RichEditor images", () => {
       return nextImage as HTMLImageElement;
     });
 
-    expect(image.getAttribute("src")).toBe("asset:///tmp/fixed.png");
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe("asset:///tmp/fixed.png.960.thumb.jpg");
+    });
   });
 
   it("opens the image browser on double click and keeps saved annotation previews after reopening", async () => {
@@ -2203,7 +2222,9 @@ describe("RichEditor context menus", () => {
     triggerIntersection(true);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy.png");
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/lazy.png.960.thumb.jpg",
+      );
       expect(image.dataset.lazyMounted).toBe("true");
     });
   });
@@ -2229,14 +2250,18 @@ describe("RichEditor context menus", () => {
     triggerIntersection(true);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png");
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/lazy-stable.png.960.thumb.jpg",
+      );
       expect(image.dataset.lazyMounted).toBe("true");
     });
 
     triggerIntersection(false);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png");
+      expect(image.getAttribute("src")).toBe(
+        "asset:///tmp/managed/lazy-stable.png.960.thumb.jpg",
+      );
       expect(image.dataset.lazyMounted).toBe("true");
     });
   });

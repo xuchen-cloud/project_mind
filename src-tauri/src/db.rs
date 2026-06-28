@@ -44,8 +44,9 @@ use crate::{
         TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
         TodoUpdateActivityInput, TodoUpdateContentInput, TodoUpdatePriorityInput,
         TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
-        WorkspaceRecordDeleteInput, WorkspaceRecord, WorkspaceRecordUpsertInput,
-        WorkspacePageData,
+        WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
+        WorkspaceNoteImageImportInput, WorkspaceRecordDeleteInput, WorkspaceRecord,
+        WorkspaceRecordUpsertInput, WorkspacePageData,
         WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
@@ -2809,6 +2810,70 @@ impl Database {
             self.touch_activity(activity_id)?;
         }
         self.document_record(id)
+    }
+
+    pub fn workspace_note_image_import(
+        &mut self,
+        input: WorkspaceNoteImageImportInput,
+    ) -> Result<WorkspaceNoteImageAsset> {
+        let source = PathBuf::from(input.source_path.trim());
+        if !source.exists() {
+            return Err(anyhow!("source file does not exist"));
+        }
+
+        let mime_type = mime_guess::from_path(&source)
+            .first_or_octet_stream()
+            .essence_str()
+            .to_string();
+        let file_name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow!("invalid file name"))?
+            .to_string();
+        let sanitized_name = sanitize_import_file_name(&file_name, &mime_type)?;
+        let target_dir = self.workspace_note_image_target_dir()?;
+        let resolved_name = resolve_unique_file_name(&target_dir, &sanitized_name);
+        let managed_path = target_dir.join(&resolved_name);
+
+        fs::copy(&source, &managed_path).with_context(|| {
+            format!(
+                "failed to copy workspace note image from {} to {}",
+                source.display(),
+                managed_path.display()
+            )
+        })?;
+
+        Ok(WorkspaceNoteImageAsset {
+            title: resolved_name,
+            path: managed_path.to_string_lossy().to_string(),
+            mime_type,
+        })
+    }
+
+    pub fn workspace_clipboard_note_image_import(
+        &mut self,
+        input: WorkspaceClipboardNoteImageImportInput,
+    ) -> Result<WorkspaceNoteImageAsset> {
+        let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
+        let target_dir = self.workspace_note_image_target_dir()?;
+        let resolved_name = resolve_unique_file_name(&target_dir, &file_name);
+        let managed_path = target_dir.join(&resolved_name);
+        let bytes = STANDARD
+            .decode(input.data_base64.trim())
+            .context("failed to decode workspace clipboard image")?;
+
+        fs::write(&managed_path, &bytes).with_context(|| {
+            format!(
+                "failed to write workspace note image to {}",
+                managed_path.display()
+            )
+        })?;
+
+        Ok(WorkspaceNoteImageAsset {
+            title: resolved_name,
+            path: managed_path.to_string_lossy().to_string(),
+            mime_type: input.mime_type,
+        })
     }
 
     pub fn document_update_meta(
@@ -8559,6 +8624,16 @@ impl Database {
         Ok(target_dir)
     }
 
+    fn workspace_note_image_target_dir(&self) -> Result<PathBuf> {
+        let target_dir = self
+            .workspace_root
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join(PROJECT_NOTE_ASSET_DIR_NAME)
+            .join("workspace");
+        fs::create_dir_all(&target_dir)?;
+        Ok(target_dir)
+    }
+
     fn document_name_exists(
         &self,
         project_id: i64,
@@ -10446,6 +10521,33 @@ fn sanitize_import_file_name(file_name: &str, mime_type: &str) -> Result<String>
     }
 
     Ok(sanitized)
+}
+
+fn resolve_unique_file_name(target_dir: &Path, file_name: &str) -> String {
+    let candidate = Path::new(file_name);
+    let stem = candidate
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("image");
+    let extension = candidate.extension().and_then(|value| value.to_str());
+
+    if !target_dir.join(file_name).exists() {
+        return file_name.to_string();
+    }
+
+    for suffix in 2.. {
+        let next_name = match extension {
+            Some(extension) if !extension.is_empty() => format!("{stem}-{suffix}.{extension}"),
+            _ => format!("{stem}-{suffix}"),
+        };
+
+        if !target_dir.join(&next_name).exists() {
+            return next_name;
+        }
+    }
+
+    unreachable!("unbounded suffix search should always return")
 }
 
 fn current_workspace_date() -> String {
@@ -14858,6 +14960,38 @@ mod tests {
         );
         assert!(document.name.ends_with(".heic"));
         assert!(document.managed_path.ends_with(".heic"));
+    }
+
+    #[test]
+    fn workspace_note_image_imports_are_file_backed_without_project_documents() {
+        let (harness, mut database) = setup_database();
+        let source_path = harness.root.join("workspace-clip.png");
+        fs::write(&source_path, b"workspace-image").unwrap();
+
+        let first = database
+            .workspace_note_image_import(WorkspaceNoteImageImportInput {
+                source_path: source_path.to_string_lossy().to_string(),
+            })
+            .unwrap();
+        let second = database
+            .workspace_clipboard_note_image_import(WorkspaceClipboardNoteImageImportInput {
+                file_name: "workspace-clip.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode("second-image"),
+            })
+            .unwrap();
+
+        assert!(source_path.exists());
+        assert!(Path::new(&first.path).exists());
+        assert!(Path::new(&second.path).exists());
+        assert_eq!(fs::read(&first.path).unwrap(), b"workspace-image");
+        assert_eq!(fs::read(&second.path).unwrap(), b"second-image");
+        assert_eq!(first.mime_type, "image/png");
+        assert_eq!(second.mime_type, "image/png");
+        assert!(first
+            .path
+            .contains(".project-mind/embedded-note-assets/workspace/"));
+        assert!(second.path.ends_with("workspace-clip-2.png"));
     }
 
     #[test]

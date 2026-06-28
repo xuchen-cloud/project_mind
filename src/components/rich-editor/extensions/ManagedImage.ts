@@ -8,13 +8,15 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { resolveRichTextImageSrc } from "../../../lib/richTextAssets";
 import { desktopApi } from "../../../services/desktopApi";
 import { buildImageAnnotationPreviewMarkup } from "../image-annotations";
+import {
+  resolveManagedImageDisplaySrc,
+  TRANSPARENT_IMAGE_DATA_URL,
+} from "../imageThumbnails";
 
 const MIN_IMAGE_WIDTH = 120;
 const MIN_IMAGE_HEIGHT = 60;
 const LAZY_IMAGE_ROOT_MARGIN = "240px 0px";
 const DEFAULT_PLACEHOLDER_ASPECT_RATIO = 3 / 2;
-const TRANSPARENT_IMAGE_DATA_URL =
-  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 export const ManagedImage = Image.extend({
   addAttributes() {
@@ -88,9 +90,12 @@ export const ManagedImage = Image.extend({
       let resizeObserver: ResizeObserver | null = null;
       let cleanupViewportResize: (() => void) | null = null;
       let scheduledSyncFrame: number | null = null;
+      let displayImageRequestId = 0;
+      let mountedDisplayPath: string | null = null;
+      let mountedDisplaySrc: string | null = null;
 
       image.decoding = "async";
-      image.loading = "eager";
+      image.loading = "lazy";
 
       const scheduleSyncImage = () => {
         if (scheduledSyncFrame !== null) {
@@ -109,11 +114,23 @@ export const ManagedImage = Image.extend({
           asOptionalString(nextNode.attrs.src),
         );
         const nextPath = asOptionalString(nextNode.attrs.path);
+        const hasMountedDisplay =
+          Boolean(nextPath)
+          && mountedDisplayPath === nextPath
+          && Boolean(mountedDisplaySrc);
+        const shouldLoadManagedDisplay =
+          hasActivatedSource && Boolean(resolvedSrc) && Boolean(nextPath);
 
         hasResolvedImageSource = Boolean(resolvedSrc);
         syncManagedImageSource(
           image,
-          hasActivatedSource || !resolvedSrc ? resolvedSrc : TRANSPARENT_IMAGE_DATA_URL,
+          shouldLoadManagedDisplay
+            ? hasMountedDisplay
+              ? mountedDisplaySrc
+              : TRANSPARENT_IMAGE_DATA_URL
+            : hasActivatedSource || !resolvedSrc
+              ? resolvedSrc
+              : TRANSPARENT_IMAGE_DATA_URL,
           resolvedSrc,
           nextPath,
         );
@@ -134,6 +151,27 @@ export const ManagedImage = Image.extend({
         image.dataset.lazyMounted = String(hasActivatedSource || !resolvedSrc);
         applyPlaceholderSizing(nextNode);
 
+        if (shouldLoadManagedDisplay && nextPath && resolvedSrc && !hasMountedDisplay) {
+          void loadManagedDisplayImage(nextPath, resolvedSrc);
+        }
+      };
+
+      const loadManagedDisplayImage = async (path: string, originalSrc: string) => {
+        const requestId = displayImageRequestId + 1;
+        displayImageRequestId = requestId;
+        image.dataset.thumbnailLoading = "true";
+
+        const displaySrc = await resolveManagedImageDisplaySrc(path, originalSrc);
+
+        if (requestId !== displayImageRequestId) {
+          return;
+        }
+
+        mountedDisplayPath = path;
+        mountedDisplaySrc = displaySrc ?? originalSrc;
+        image.dataset.thumbnailLoading = "false";
+        syncManagedImageSource(image, mountedDisplaySrc, originalSrc, path);
+        applyPlaceholderSizing();
       };
 
       const syncAnnotation = (nextNode = currentNode) => {

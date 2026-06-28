@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  FolderKanban,
-  FolderOpen,
-  LockKeyhole,
-  ShieldEllipsis,
-  Sparkles,
-} from "lucide-react";
+import { FolderKanban } from "lucide-react";
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import type {
@@ -14,7 +8,6 @@ import type {
   NoteRecord,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
-  WorkspaceSummary,
 } from "./lib/types";
 import { ensureAiJobSync, resetAiJobSync } from "./lib/aiJobs";
 import {
@@ -53,13 +46,13 @@ import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { WorkspacePage } from "./components/today/WorkspacePage";
+import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
 import {
-  Button,
-  Dialog,
-  EmptyState,
-  SurfaceCard,
-  TextField,
-} from "./ui/components";
+  CreateWorkspaceDialog,
+  UnlockWorkspaceSecretsDialog,
+} from "./components/workspace/WorkspaceDialogs";
+import { Button, EmptyState } from "./ui/components";
 
 function workspaceScopedQueryKeys() {
   return [
@@ -121,289 +114,25 @@ function getProjectOverviewSearchParams(route: string) {
   return new URLSearchParams(search);
 }
 
+function getWorkspaceOverviewSearchParams(route: string) {
+  const [, search = ""] = route.split("?");
+  return new URLSearchParams(search);
+}
+
 function buildProjectOverviewRoute(projectId: number, searchParams: URLSearchParams) {
   const nextSearch = searchParams.toString();
   return `${projectPath(projectId)}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
-function WorkspaceGatePage({
-  loading,
-  recentWorkspaces,
-  onOpenExisting,
-  onCreateWorkspace,
-  onOpenRecent,
-}: {
-  loading: boolean;
-  recentWorkspaces: WorkspaceSummary[];
-  onOpenExisting: () => void;
-  onCreateWorkspace: () => void;
-  onOpenRecent: (rootPath: string) => void;
-}) {
-  if (loading) {
-    return (
-      <div className="workspace-gate-shell flex h-dvh items-center justify-center px-6">
-        <SurfaceCard className="w-full max-w-xl p-8 text-center">
-          <p className="text-body text-text-soft">
-            正在检查最近使用的 workspace...
-          </p>
-        </SurfaceCard>
-      </div>
-    );
-  }
-
-  return (
-    <div className="workspace-gate-shell flex min-h-dvh items-center justify-center px-6 py-10">
-      <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.9fr)]">
-        <SurfaceCard className="grid gap-6 p-8">
-          <div className="grid gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-[1.1rem] bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))] text-accent">
-              <FolderKanban size={24} />
-            </div>
-            <div className="grid gap-2">
-              <p className="text-caption font-medium uppercase tracking-[0.18em] text-text-soft">
-                Workspace First
-              </p>
-              <h1 className="text-[2rem] font-semibold leading-tight tracking-[-0.03em] text-text">
-                先打开一个 Workspace，再继续整理项目。
-              </h1>
-              <p className="max-w-2xl text-body leading-7 text-text-soft">
-                所有项目、数据库、AI 缓存、日志和设置都会存放在同一个 workspace
-                里的
-                <code className="mx-1 rounded bg-bg-subtle px-1.5 py-0.5 text-ui">
-                  .project-mind
-                </code>
-                隐藏目录中。复制整个 workspace
-                后，另一台电脑也可以直接继续使用。
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              leadingIcon={<FolderOpen size={16} />}
-              onClick={onOpenExisting}
-            >
-              打开已有 Workspace
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              leadingIcon={<Sparkles size={16} />}
-              onClick={onCreateWorkspace}
-            >
-              新建 Workspace
-            </Button>
-          </div>
-
-          <div className="grid gap-3 rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle/80 p-4">
-            <p className="text-ui font-medium text-text">
-              旧版本本地数据已清理
-            </p>
-            <p className="text-ui leading-6 text-text-soft">
-              当前版本不再读取系统 app data
-              中的历史业务库。后续请直接打开或创建新的 workspace。
-            </p>
-          </div>
-        </SurfaceCard>
-
-        <SurfaceCard className="grid gap-4 p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-caption font-medium uppercase tracking-[0.18em] text-text-soft">
-                Recent
-              </p>
-              <h2 className="mt-1 text-title font-semibold text-text">
-                最近使用的 Workspace
-              </h2>
-            </div>
-            <ShieldEllipsis size={18} className="text-text-soft" />
-          </div>
-
-          {recentWorkspaces.length > 0 ? (
-            <div className="grid gap-2">
-              {recentWorkspaces.map((workspace) => (
-                <button
-                  key={workspace.rootPath}
-                  type="button"
-                  className="grid gap-1 rounded-[var(--radius-8)] border border-border bg-bg px-4 py-3 text-left transition-colors hover:border-border-strong hover:bg-bg-hover"
-                  onClick={() => onOpenRecent(workspace.rootPath)}
-                >
-                  <p className="truncate text-body font-medium text-text">
-                    {workspace.displayName}
-                  </p>
-                  <p className="break-all text-ui leading-6 text-text-soft">
-                    {workspace.rootPath}
-                  </p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              compact
-              title="还没有最近记录"
-              text="先创建一个 workspace，或者打开一个已有目录。"
-              icon={<FolderOpen size={16} />}
-              className="min-h-40"
-            />
-          )}
-        </SurfaceCard>
-      </div>
-    </div>
-  );
+function buildWorkspaceOverviewRoute(searchParams: URLSearchParams) {
+  const nextSearch = searchParams.toString();
+  return `${workspacePath()}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
-function CreateWorkspaceDialog({
-  open,
-  rootPath,
-  password,
-  pending,
-  error,
-  onRootPathChange,
-  onPasswordChange,
-  onPickRoot,
-  onClose,
-  onSubmit,
-}: {
-  open: boolean;
-  rootPath: string;
-  password: string;
-  pending: boolean;
-  error: string | null;
-  onRootPathChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
-  onPickRoot: () => void;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="新建 Workspace"
-      description="会在所选目录下创建 .project-mind 隐藏目录，并初始化数据库与配置。"
-      widthClassName="max-w-2xl"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={pending}
-            onClick={onSubmit}
-          >
-            {pending ? "创建中..." : "创建 Workspace"}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-4">
-        <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">
-            Workspace 根目录
-          </span>
-          <div className="flex gap-2">
-            <TextField
-              value={rootPath}
-              onChange={(event) => onRootPathChange(event.target.value)}
-              placeholder="例如：/Users/alex/workspaces/customer-success"
-              className="flex-1"
-            />
-            <Button type="button" variant="secondary" onClick={onPickRoot}>
-              选择
-            </Button>
-          </div>
-        </label>
-
-        <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">
-            Workspace 密码
-          </span>
-          <TextField
-            type="password"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder="用于加密保存的 AI API Key"
-          />
-        </label>
-
-        {error ? (
-          <div className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
-            {error}
-          </div>
-        ) : null}
-      </div>
-    </Dialog>
-  );
-}
-
-function UnlockWorkspaceSecretsDialog({
-  open,
-  pending,
-  error,
-  password,
-  onPasswordChange,
-  onClose,
-  onSubmit,
-}: {
-  open: boolean;
-  pending: boolean;
-  error: string | null;
-  password: string;
-  onPasswordChange: (value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="解锁 Workspace Secrets"
-      description="输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"
-      widthClassName="max-w-lg"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={pending}
-            onClick={onSubmit}
-          >
-            {pending ? "解锁中..." : "解锁"}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3">
-        <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">
-            Workspace 密码
-          </span>
-          <TextField
-            type="password"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder="输入密码后继续"
-          />
-        </label>
-
-        {error ? (
-          <div className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
-            {error}
-          </div>
-        ) : null}
-      </div>
-    </Dialog>
-  );
-}
+const PROJECT_OVERVIEW_RESIDENCY_MS = 30 * 60 * 1000;
+const PROJECT_OVERVIEW_RESIDENCY_PRUNE_MS = 60 * 1000;
+const WORKSPACE_OVERVIEW_RESIDENCY_MS = 30 * 60 * 1000;
+const WORKSPACE_OVERVIEW_RESIDENCY_PRUNE_MS = 60 * 1000;
 
 export function WorkspaceLayout({
   cacheProjectOverviewPages = false,
@@ -422,7 +151,9 @@ export function WorkspaceLayout({
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
   const workspaceActive =
-    location.pathname === workspacePath() || /^\/workspace\/records\/\d+$/u.test(location.pathname);
+    location.pathname === workspacePath() ||
+    location.pathname === "/today" ||
+    /^\/workspace\/records\/\d+$/u.test(location.pathname);
   const projectRecordQuery = useMemo(
     () => new URLSearchParams(location.search).get("recordQuery") ?? "",
     [location.search],
@@ -548,6 +279,11 @@ export function WorkspaceLayout({
   const [unlockPending, setUnlockPending] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const projectOverviewLastActiveAtRef = useRef<Map<number, number>>(new Map());
+  const [residentProjectOverviewIds, setResidentProjectOverviewIds] = useState<number[]>([]);
+  const workspaceOverviewLastActiveAtRef = useRef<number | null>(null);
+  const [workspaceOverviewResident, setWorkspaceOverviewResident] = useState(false);
+  const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
   const todayVisible = hasWorkspace;
 
@@ -958,6 +694,8 @@ export function WorkspaceLayout({
   const projectOverviewActive =
     cacheProjectOverviewPages &&
     isProjectOverviewPath(location.pathname, activeProjectId);
+  const workspaceOverviewActive =
+    cacheProjectOverviewPages && location.pathname === workspacePath();
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -991,6 +729,137 @@ export function WorkspaceLayout({
       openProjectTab(activeProjectId);
     }
   }, [activeProjectId, openProjectTab]);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      projectOverviewLastActiveAtRef.current.clear();
+      setResidentProjectOverviewIds([]);
+      return;
+    }
+
+    const openIds = new Set(openProjectIds);
+    for (const projectId of projectOverviewLastActiveAtRef.current.keys()) {
+      if (!openIds.has(projectId)) {
+        projectOverviewLastActiveAtRef.current.delete(projectId);
+      }
+    }
+
+    setResidentProjectOverviewIds((current) =>
+      current.filter((projectId) => openIds.has(projectId)),
+    );
+  }, [cacheProjectOverviewPages, hasWorkspace, openProjectIds]);
+
+  useEffect(() => {
+    if (
+      !hasWorkspace ||
+      !cacheProjectOverviewPages ||
+      activeProjectId === null
+    ) {
+      return;
+    }
+
+    projectOverviewLastActiveAtRef.current.set(activeProjectId, Date.now());
+    setResidentProjectOverviewIds((current) =>
+      current.includes(activeProjectId) ? current : [...current, activeProjectId],
+    );
+  }, [activeProjectId, cacheProjectOverviewPages, hasWorkspace]);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      return;
+    }
+
+    const pruneResidentProjectOverviewPages = () => {
+      const now = Date.now();
+      const openIds = new Set(openProjectIds);
+
+      setResidentProjectOverviewIds((current) =>
+        current.filter((projectId) => {
+          if (!openIds.has(projectId)) {
+            projectOverviewLastActiveAtRef.current.delete(projectId);
+            return false;
+          }
+
+          if (projectId === activeProjectId) {
+            return true;
+          }
+
+          const lastActiveAt =
+            projectOverviewLastActiveAtRef.current.get(projectId) ?? 0;
+          const keepResident =
+            now - lastActiveAt <= PROJECT_OVERVIEW_RESIDENCY_MS;
+
+          if (!keepResident) {
+            projectOverviewLastActiveAtRef.current.delete(projectId);
+          }
+
+          return keepResident;
+        }),
+      );
+    };
+
+    pruneResidentProjectOverviewPages();
+    const intervalId = window.setInterval(
+      pruneResidentProjectOverviewPages,
+      PROJECT_OVERVIEW_RESIDENCY_PRUNE_MS,
+    );
+
+    return () => window.clearInterval(intervalId);
+  }, [activeProjectId, cacheProjectOverviewPages, hasWorkspace, openProjectIds]);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      workspaceOverviewLastActiveAtRef.current = null;
+      setWorkspaceOverviewResident(false);
+      setWorkspaceOverviewRoute(workspacePath());
+      return;
+    }
+
+    if (!workspaceOverviewActive) {
+      return;
+    }
+
+    workspaceOverviewLastActiveAtRef.current = Date.now();
+    setWorkspaceOverviewResident(true);
+    setWorkspaceOverviewRoute(`${location.pathname}${location.search}`);
+  }, [
+    cacheProjectOverviewPages,
+    hasWorkspace,
+    location.pathname,
+    location.search,
+    workspaceOverviewActive,
+  ]);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      return;
+    }
+
+    const pruneResidentWorkspaceOverviewPage = () => {
+      if (workspaceOverviewActive) {
+        return;
+      }
+
+      const lastActiveAt = workspaceOverviewLastActiveAtRef.current;
+      if (
+        lastActiveAt === null ||
+        Date.now() - lastActiveAt <= WORKSPACE_OVERVIEW_RESIDENCY_MS
+      ) {
+        return;
+      }
+
+      workspaceOverviewLastActiveAtRef.current = null;
+      setWorkspaceOverviewResident(false);
+    };
+
+    pruneResidentWorkspaceOverviewPage();
+    const intervalId = window.setInterval(
+      pruneResidentWorkspaceOverviewPage,
+      WORKSPACE_OVERVIEW_RESIDENCY_PRUNE_MS,
+    );
+
+    return () => window.clearInterval(intervalId);
+  }, [cacheProjectOverviewPages, hasWorkspace, workspaceOverviewActive]);
 
   useEffect(() => {
     if (
@@ -1167,11 +1036,46 @@ export function WorkspaceLayout({
   ) : (
     <Outlet />
   );
+  const cachedWorkspaceOverviewPage =
+    cacheProjectOverviewPages &&
+    hasWorkspace &&
+    (workspaceOverviewActive || workspaceOverviewResident) ? (
+      <div
+        className="h-full min-h-0"
+        style={{ display: workspaceOverviewActive ? undefined : "none" }}
+        aria-hidden={workspaceOverviewActive ? undefined : true}
+      >
+        <WorkspacePage
+          activeProjectIdOverride={null}
+          searchParamsOverride={getWorkspaceOverviewSearchParams(
+            workspaceOverviewActive
+              ? `${location.pathname}${location.search}`
+              : workspaceOverviewRoute,
+          )}
+          visible={workspaceOverviewActive}
+          onSearchParamsOverride={(nextSearchParams, options) => {
+            const nextRoute = buildWorkspaceOverviewRoute(nextSearchParams);
+            setWorkspaceOverviewRoute(nextRoute);
+
+            if (workspaceOverviewActive) {
+              navigate(nextRoute, options);
+            }
+          }}
+        />
+      </div>
+    ) : null;
   const cachedProjectOverviewPages =
     cacheProjectOverviewPages && hasWorkspace && openedProjects.length > 0 ? (
       <>
         {openedProjects.map((project) => {
           const active = projectOverviewActive && activeProjectId === project.id;
+          const resident =
+            active || residentProjectOverviewIds.includes(project.id);
+
+          if (!resident) {
+            return null;
+          }
+
           const route = active
             ? `${location.pathname}${location.search}`
             : (projectRecentPaths[project.id] ?? projectPath(project.id));
@@ -1250,8 +1154,9 @@ export function WorkspaceLayout({
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <main className="min-h-0 flex-1 overflow-hidden">
+            {cachedWorkspaceOverviewPage}
             {cachedProjectOverviewPages}
-            {projectOverviewActive ? null : mainContent}
+            {projectOverviewActive || workspaceOverviewActive ? null : mainContent}
           </main>
 
           <StatusBar

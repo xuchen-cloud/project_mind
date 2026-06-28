@@ -7,15 +7,20 @@ mod system_fonts;
 mod workspace;
 
 use std::{
+    collections::hash_map::DefaultHasher,
     env, fs,
+    hash::{Hash, Hasher},
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
+    time::UNIX_EPOCH,
 };
 
 use ai_jobs::AiJobManager;
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
 use db::Database;
+use image::{codecs::jpeg::JpegEncoder, ExtendedColorType, ImageReader};
 pub use db::DemoSeedResult;
 use models::{
     AcceptedSuggestionResult, AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult,
@@ -37,7 +42,8 @@ use models::{
     ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput, ProjectListItem,
     ProjectPageData, ProjectRecord, ProjectUpdateInput, ProjectsListInput,
     RichTextStyleSettings, RichTextStyleUpsertInput,
-    WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+    WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
+    WorkspaceNoteImageImportInput, WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
     TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
     TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
     WorkspacePageData,
@@ -256,6 +262,15 @@ fn reveal_path_in_explorer(path: &Path) -> Result<()> {
     reveal_item_in_dir(path).map_err(Into::into)
 }
 
+fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u32) -> String {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    len.hash(&mut hasher);
+    modified_millis.hash(&mut hasher);
+    max_edge.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 pub fn default_demo_workspace_root() -> Result<PathBuf> {
     Ok(default_home_dir()?
         .join("Documents")
@@ -391,6 +406,80 @@ fn desktop_read_file_as_data_url(path: String, mime_type: Option<String>) -> Com
             format!("data:{resolved_mime};base64,{encoded}")
         })
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn desktop_generate_image_thumbnail(
+    state: State<'_, AppState>,
+    path: String,
+    max_edge: Option<u32>,
+) -> CommandResult<String> {
+    with_workspace_runtime(state, |runtime| {
+        let normalized_path = path.trim();
+        let source_path = Path::new(normalized_path);
+
+        ensure_path_exists(source_path)?;
+
+        let max_edge = max_edge.unwrap_or(960).clamp(160, 1600);
+        let metadata = fs::metadata(source_path)
+            .with_context(|| format!("failed to read metadata for {}", source_path.display()))?;
+        let modified_millis = metadata
+            .modified()
+            .ok()
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_millis())
+            .unwrap_or(0);
+        let cache_key = thumbnail_cache_key(
+            normalized_path,
+            metadata.len(),
+            modified_millis,
+            max_edge,
+        );
+        let cache_dir = runtime
+            .paths
+            .root_path
+            .join(".project-mind")
+            .join("cache")
+            .join("image-thumbnails");
+        fs::create_dir_all(&cache_dir)?;
+
+        let target_path = cache_dir.join(format!("{cache_key}-{max_edge}.jpg"));
+
+        if target_path.exists() {
+            return Ok(target_path.to_string_lossy().to_string());
+        }
+
+        let pending_path = cache_dir.join(format!("{cache_key}-{max_edge}.tmp"));
+        let image = ImageReader::open(source_path)
+            .with_context(|| format!("failed to open image {}", source_path.display()))?
+            .with_guessed_format()
+            .context("failed to detect image format")?
+            .decode()
+            .with_context(|| format!("failed to decode image {}", source_path.display()))?;
+        let thumbnail = image.thumbnail(max_edge, max_edge).to_rgb8();
+        let file = fs::File::create(&pending_path)
+            .with_context(|| format!("failed to create thumbnail {}", pending_path.display()))?;
+        let mut writer = BufWriter::new(file);
+        let mut encoder = JpegEncoder::new_with_quality(&mut writer, 72);
+
+        encoder
+            .encode(
+                thumbnail.as_raw(),
+                thumbnail.width(),
+                thumbnail.height(),
+                ExtendedColorType::Rgb8,
+            )
+            .with_context(|| format!("failed to encode thumbnail {}", target_path.display()))?;
+        fs::rename(&pending_path, &target_path).with_context(|| {
+            format!(
+                "failed to move thumbnail from {} to {}",
+                pending_path.display(),
+                target_path.display(),
+            )
+        })?;
+
+        Ok(target_path.to_string_lossy().to_string())
+    })
 }
 
 #[tauri::command]
@@ -706,6 +795,22 @@ fn workspace_record_delete(
 }
 
 #[tauri::command]
+fn workspace_note_image_import(
+    state: State<'_, AppState>,
+    input: WorkspaceNoteImageImportInput,
+) -> CommandResult<WorkspaceNoteImageAsset> {
+    with_db(state, |db| db.workspace_note_image_import(input))
+}
+
+#[tauri::command]
+fn workspace_clipboard_note_image_import(
+    state: State<'_, AppState>,
+    input: WorkspaceClipboardNoteImageImportInput,
+) -> CommandResult<WorkspaceNoteImageAsset> {
+    with_db(state, |db| db.workspace_clipboard_note_image_import(input))
+}
+
+#[tauri::command]
 fn document_import(
     state: State<'_, AppState>,
     input: DocumentImportInput,
@@ -983,6 +1088,7 @@ pub fn run() {
             desktop_open_folder,
             desktop_reveal_in_explorer,
             desktop_read_file_as_data_url,
+            desktop_generate_image_thumbnail,
             desktop_list_system_font_families,
             workspace_status_get,
             workspace_create,
@@ -1025,6 +1131,8 @@ pub fn run() {
             workspace_record_list,
             workspace_record_upsert,
             workspace_record_delete,
+            workspace_note_image_import,
+            workspace_clipboard_note_image_import,
             document_import,
             document_import_clipboard_image,
             document_import_note_image,

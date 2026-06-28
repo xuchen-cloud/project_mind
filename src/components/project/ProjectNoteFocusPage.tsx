@@ -1,5 +1,5 @@
 import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -23,7 +23,10 @@ import {
   type RichEditorPersistState,
   type RichEditorValue,
 } from "../rich-editor";
-import { buildProjectNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
+import {
+  buildProjectNoteImageAssetHandlers,
+  externalizeEmbeddedImageDataUrls,
+} from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import type { FileTagRecord, NoteRecord } from "../../lib/types";
 
@@ -43,7 +46,10 @@ export function ProjectNoteFocusPage() {
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const lastSavedTitleRef = useRef("");
 
   const projectQuery = useQuery({
     queryKey: ["projects", "all"],
@@ -104,6 +110,7 @@ export function ProjectNoteFocusPage() {
   useEffect(() => {
     if (note) {
       setTitle(note.title ?? "");
+      lastSavedTitleRef.current = note.title ?? "";
       setContent({
         html: getRenderableRichTextHtml({ html: note.contentHtml, markdown: note.contentMarkdown }),
         text: note.contentMarkdown,
@@ -118,7 +125,8 @@ export function ProjectNoteFocusPage() {
 
     setIsSaving(true);
     try {
-      const normalized = normalizeRichEditorValue(value);
+      const externalizedValue = await externalizeEmbeddedImageDataUrls(value, assetHandlers);
+      const normalized = normalizeRichEditorValue(externalizedValue);
       const mentionedTagIds = extractTagMentionIds(normalized.markdown);
       await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
@@ -131,12 +139,34 @@ export function ProjectNoteFocusPage() {
       });
       await projectPageQuery.refetch();
       await queryClient.invalidateQueries({ queryKey: ["project-page", projectId] });
+      lastSavedTitleRef.current = title;
     } catch (error) {
       pushToast({ tone: "error", title: "保存失败", detail: String(error) });
       throw error;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const saveTitleIfChanged = async () => {
+    if (!note || title === lastSavedTitleRef.current) {
+      return;
+    }
+
+    await handleSave(editorControllerRef.current?.getValue() ?? content);
+  };
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || (event.key !== "Tab" && event.key !== "Enter")) {
+      return;
+    }
+
+    event.preventDefault();
+    void saveTitleIfChanged()
+      .then(() => {
+        tagInputRef.current?.focus();
+      })
+      .catch(() => undefined);
   };
 
   const handleBack = async () => {
@@ -152,14 +182,18 @@ export function ProjectNoteFocusPage() {
     setTagIds(newTagIds);
     try {
       const nextValue = editorControllerRef.current?.getValue() ?? content;
+      const externalizedValue = await externalizeEmbeddedImageDataUrls(nextValue, assetHandlers);
+      const normalized = normalizeRichEditorValue(externalizedValue);
       await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
         activityId: note.activityId ?? undefined,
         noteId: note.id,
-        markdown: nextValue.markdown,
-        html: nextValue.html,
+        title: title.trim() || undefined,
+        markdown: normalized.markdown,
+        html: normalized.html,
         tagIds: newTagIds,
       });
+      lastSavedTitleRef.current = title;
       await projectPageQuery.refetch();
     } catch (error) {
       pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
@@ -257,23 +291,26 @@ export function ProjectNoteFocusPage() {
         >
           <div className="grid gap-4">
             <TextField
+              ref={titleInputRef}
               value={title}
               placeholder="记录标题"
               onChange={(event) => setTitle(event.target.value)}
-              onBlur={() => {
-                // Save title changes
-                if (note && title !== (note.title ?? "")) {
-                  handleSave(editorControllerRef.current?.getValue() ?? content);
-                }
-              }}
+              onBlur={() => void saveTitleIfChanged().catch(() => undefined)}
+              onKeyDown={handleTitleKeyDown}
               className="text-lg font-medium"
             />
             <EntityTagEditor
               projectId={project.id}
               availableTags={availableTags}
               tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
+              inputRef={tagInputRef}
               onChange={handleTagsChange}
               onCreated={() => tagSettingsQuery.refetch()}
+              onCommitNavigation={(reason) => {
+                if (reason === "enter") {
+                  editorControllerRef.current?.focus("end");
+                }
+              }}
             />
             <RichEditor
               html={content.html}

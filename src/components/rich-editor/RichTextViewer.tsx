@@ -2,34 +2,52 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { repairRichTextAssetHtml } from "../../lib/richTextAssets";
 import { desktopApi } from "../../services/desktopApi";
+import {
+  resolveManagedImageDisplaySrc,
+  TRANSPARENT_IMAGE_DATA_URL,
+} from "./imageThumbnails";
 
-const viewerImageDataUrlCache = new Map<string, string>();
 const viewerImagePendingCache = new Map<string, Promise<string>>();
 
 interface RichTextViewerProps {
   html?: string | null;
   className?: string;
   deferUntilVisible?: boolean;
+  active?: boolean;
 }
 
 export function RichTextViewer({
   html,
   className = "rich-editor__surface ProseMirror",
   deferUntilVisible = false,
+  active = true,
 }: RichTextViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const renderableHtml = useMemo(() => repairRichTextAssetHtml(html), [html]);
-  const [viewerHtml, setViewerHtml] = useState(() => buildViewerHydratedHtml(renderableHtml));
+  const rawHtml = html?.trim() ?? "";
   const [isVisible, setIsVisible] = useState(!deferUntilVisible);
+  const renderableHtml = useMemo(() => {
+    if (deferUntilVisible && !isVisible) {
+      return "";
+    }
+
+    return repairRichTextAssetHtml(rawHtml);
+  }, [deferUntilVisible, isVisible, rawHtml]);
+  const [viewerHtml, setViewerHtml] = useState(() =>
+    buildViewerRenderableHtml(deferUntilVisible ? "" : repairRichTextAssetHtml(rawHtml)),
+  );
   const placeholderMinHeight = useMemo(() => {
-    if (!deferUntilVisible || isVisible || !renderableHtml) {
+    if (!deferUntilVisible || isVisible || !rawHtml) {
       return undefined;
     }
 
-    return /<img\b/i.test(renderableHtml) ? 180 : 72;
-  }, [deferUntilVisible, isVisible, renderableHtml]);
+    return /<img\b/i.test(rawHtml) ? 180 : 72;
+  }, [deferUntilVisible, isVisible, rawHtml]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     if (!deferUntilVisible) {
       setIsVisible(true);
       return;
@@ -66,14 +84,14 @@ export function RichTextViewer({
 
     observer.observe(container);
     return () => observer.disconnect();
-  }, [deferUntilVisible, isVisible]);
+  }, [active, deferUntilVisible, isVisible]);
 
   useEffect(() => {
-    setViewerHtml(buildViewerHydratedHtml(renderableHtml));
+    setViewerHtml(buildViewerRenderableHtml(renderableHtml));
   }, [renderableHtml]);
 
   useEffect(() => {
-    if (!isVisible) {
+    if (!active || !isVisible) {
       return;
     }
 
@@ -84,35 +102,32 @@ export function RichTextViewer({
     }
 
     const cleanups: Array<() => void> = [];
-    let cancelled = false;
 
     container.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
       image.decoding = "async";
+      image.loading = "lazy";
       image.style.maxWidth = "100%";
       image.style.height = "auto";
 
       const handleError = () => {
+        void recoverManagedViewerImageSource(image);
+      };
+      const loadImage = () => {
         void hydrateManagedViewerImage(image);
       };
+      const observer = createViewerImageObserver(image, loadImage);
 
       image.addEventListener("error", handleError);
-      cleanups.push(() => image.removeEventListener("error", handleError));
-      void hydrateManagedViewerImage(image);
-    });
-
-    void hydrateManagedViewerHtml(renderableHtml).then((nextHtml) => {
-      if (cancelled) {
-        return;
-      }
-
-      setViewerHtml(nextHtml);
+      cleanups.push(() => {
+        image.removeEventListener("error", handleError);
+        observer?.disconnect();
+      });
     });
 
     return () => {
-      cancelled = true;
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [isVisible, renderableHtml]);
+  }, [active, isVisible, viewerHtml]);
 
   return (
     <div
@@ -126,18 +141,31 @@ export function RichTextViewer({
 
 async function hydrateManagedViewerImage(image: HTMLImageElement) {
   const path = image.getAttribute("data-path")?.trim() ?? "";
-  const mimeType = image.getAttribute("data-mime-type")?.trim() ?? undefined;
-  const currentSrc = image.getAttribute("src")?.trim() ?? "";
+  const originalSrc =
+    image.getAttribute("data-original-src")?.trim() ||
+    image.getAttribute("src")?.trim() ||
+    "";
 
-  if (!path || currentSrc.startsWith("data:")) {
+  if (!path || image.dataset.thumbnailLoaded === "true") {
     return;
   }
 
-  const cacheKey = `${mimeType ?? ""}::${path}`;
-  const cached = viewerImageDataUrlCache.get(cacheKey);
+  const displaySrc = await resolveManagedImageDisplaySrc(path, originalSrc);
 
-  if (cached) {
-    image.setAttribute("src", cached);
+  if (displaySrc) {
+    if (image.getAttribute("src") !== displaySrc) {
+      image.setAttribute("src", displaySrc);
+    }
+    image.dataset.thumbnailLoaded = "true";
+  }
+}
+
+async function recoverManagedViewerImageSource(image: HTMLImageElement) {
+  const path = image.getAttribute("data-path")?.trim() ?? "";
+  const mimeType = image.getAttribute("data-mime-type")?.trim() ?? undefined;
+  const currentSrc = image.getAttribute("src")?.trim() ?? "";
+
+  if (!path || (currentSrc.startsWith("data:") && currentSrc !== TRANSPARENT_IMAGE_DATA_URL)) {
     return;
   }
 
@@ -150,49 +178,7 @@ async function hydrateManagedViewerImage(image: HTMLImageElement) {
   }
 }
 
-async function hydrateManagedViewerHtml(html: string) {
-  const normalizedHtml = html.trim();
-
-  if (!normalizedHtml || typeof DOMParser === "undefined") {
-    return normalizedHtml;
-  }
-
-  const doc = new DOMParser().parseFromString(normalizedHtml, "text/html");
-  const hydrationTasks: Promise<unknown>[] = [];
-
-  doc.body.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-    const path = image.getAttribute("data-path")?.trim() ?? "";
-    const mimeType = image.getAttribute("data-mime-type")?.trim() ?? undefined;
-
-    if (!path) {
-      return;
-    }
-
-    const cached = viewerImageDataUrlCache.get(buildViewerImageCacheKey(path, mimeType));
-
-    if (cached) {
-      image.setAttribute("src", cached);
-      return;
-    }
-
-    hydrationTasks.push(
-      ensureManagedViewerImageDataUrl(path, mimeType).then((dataUrl) => {
-        image.setAttribute("src", dataUrl);
-      }).catch(() => {
-        // Leave the current src untouched when hydration fails.
-      }),
-    );
-  });
-
-  if (hydrationTasks.length === 0) {
-    return doc.body.innerHTML.trim();
-  }
-
-  await Promise.all(hydrationTasks);
-  return doc.body.innerHTML.trim();
-}
-
-function buildViewerHydratedHtml(html: string) {
+function buildViewerRenderableHtml(html: string) {
   const normalizedHtml = html.trim();
 
   if (!normalizedHtml || typeof DOMParser === "undefined") {
@@ -203,17 +189,15 @@ function buildViewerHydratedHtml(html: string) {
 
   doc.body.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
     const path = image.getAttribute("data-path")?.trim() ?? "";
-    const mimeType = image.getAttribute("data-mime-type")?.trim() ?? undefined;
+    const src = image.getAttribute("src")?.trim() ?? "";
 
-    if (!path) {
-      return;
+    if (path && src) {
+      image.setAttribute("data-original-src", src);
+      image.setAttribute("src", TRANSPARENT_IMAGE_DATA_URL);
     }
 
-    const cached = viewerImageDataUrlCache.get(buildViewerImageCacheKey(path, mimeType));
-
-    if (cached) {
-      image.setAttribute("src", cached);
-    }
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("decoding", "async");
   });
 
   return doc.body.innerHTML.trim();
@@ -221,16 +205,9 @@ function buildViewerHydratedHtml(html: string) {
 
 function ensureManagedViewerImageDataUrl(path: string, mimeType?: string) {
   const cacheKey = buildViewerImageCacheKey(path, mimeType);
-  const cached = viewerImageDataUrlCache.get(cacheKey);
-
-  if (cached) {
-    return Promise.resolve(cached);
-  }
-
   const pending =
     viewerImagePendingCache.get(cacheKey) ??
     desktopApi.readFileAsDataUrl(path, mimeType).then((dataUrl) => {
-      viewerImageDataUrlCache.set(cacheKey, dataUrl);
       viewerImagePendingCache.delete(cacheKey);
       return dataUrl;
     }).catch((error) => {
@@ -244,4 +221,39 @@ function ensureManagedViewerImageDataUrl(path: string, mimeType?: string) {
 
 function buildViewerImageCacheKey(path: string, mimeType?: string) {
   return `${mimeType ?? ""}::${path}`;
+}
+
+function createViewerImageObserver(image: HTMLImageElement, onVisible: () => void) {
+  if (!image.getAttribute("data-path")) {
+    onVisible();
+    return null;
+  }
+
+  if (typeof IntersectionObserver === "undefined") {
+    onVisible();
+    return null;
+  }
+
+  let loaded = false;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0];
+
+      if (!entry || loaded || (!entry.isIntersecting && entry.intersectionRatio <= 0)) {
+        return;
+      }
+
+      loaded = true;
+      onVisible();
+      observer.disconnect();
+    },
+    {
+      root: null,
+      rootMargin: "360px 0px",
+      threshold: 0.01,
+    },
+  );
+
+  observer.observe(image);
+  return observer;
 }

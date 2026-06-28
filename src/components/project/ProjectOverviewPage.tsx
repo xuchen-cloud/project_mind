@@ -21,7 +21,10 @@ import {
   type RichEditorPersistState,
   type RichEditorValue,
 } from "../rich-editor";
-import { buildProjectNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
+import {
+  buildProjectNoteImageAssetHandlers,
+  externalizeEmbeddedImageDataUrls,
+} from "../rich-editor/noteImageAssets";
 import type { FileTagRecord, NoteRecord, ProjectPageData, TodoPriority } from "../../lib/types";
 import { fileTagColorValue } from "../../lib/constants";
 import {
@@ -32,6 +35,10 @@ import {
   recordFocusId,
   recordPath,
 } from "../../lib/formatters";
+import {
+  filterProjectRecords,
+  parseRecordFilterTagId,
+} from "../../lib/project-records";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import {
@@ -91,8 +98,10 @@ export function ProjectOverviewPage({
   const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const explicitView = parseProjectPageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
-  const currentView =
+  const routeView =
     explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
+  const [optimisticView, setOptimisticView] = useState<ProjectPageView | null>(null);
+  const currentView = optimisticView ?? routeView;
   const { pushToast } = useFeedbackStore();
   const { openSettings, pageWidthMode, projectSidebarCollapsed, todoRailCollapsed } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
@@ -111,6 +120,13 @@ export function ProjectOverviewPage({
     () => (projectsQuery.data ?? []).find((project) => project.id === projectId) ?? null,
     [projectId, projectsQuery.data],
   );
+  const projectQuickNoteAssetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
+    if (!projectId) {
+      return undefined;
+    }
+
+    return buildProjectNoteImageAssetHandlers(projectId, null);
+  }, [projectId]);
   const projectPageQuery = useQuery({
     queryKey: ["project-page", projectId],
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
@@ -159,32 +175,18 @@ export function ProjectOverviewPage({
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const allRecords = useMemo(() => projectPage?.records ?? [], [projectPage?.records]);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
-  const recordFilterTagId = useMemo(() => {
-    const value = searchParams.get("recordTag");
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }, [searchParams]);
-
-  const records = useMemo(() => {
-    const normalizedQuery = recordSearchQuery.trim().toLowerCase();
-
-    return allRecords.filter((record) => {
-      const matchesQuery =
-        !normalizedQuery ||
-        (record.title ?? "").toLowerCase().includes(normalizedQuery) ||
-        record.contentMarkdown.toLowerCase().includes(normalizedQuery) ||
-        (record.tags ?? []).some((tag) => tag.label.toLowerCase().includes(normalizedQuery));
-      const matchesTag =
-        recordFilterTagId === null ||
-        (record.tags ?? []).some((tag) => tag.id === recordFilterTagId);
-
-      return matchesQuery && matchesTag;
-    });
-  }, [allRecords, recordFilterTagId, recordSearchQuery]);
+  const recordFilterTagId = useMemo(
+    () => parseRecordFilterTagId(searchParams.get("recordTag")),
+    [searchParams],
+  );
+  const records = useMemo(
+    () =>
+      filterProjectRecords(allRecords, {
+        query: recordSearchQuery,
+        tagId: recordFilterTagId,
+      }),
+    [allRecords, recordFilterTagId, recordSearchQuery],
+  );
   const visibleRecordFocusKey = useMemo(
     () => records.map((record) => record.id).join(","),
     [records],
@@ -218,11 +220,31 @@ export function ProjectOverviewPage({
   } = useDocumentImportFlow({ projectId });
 
   useEffect(() => {
+    setOptimisticView(null);
+  }, [routeView]);
+
+  useEffect(() => {
     if (!activeProject) return;
 
     setNameDraft(activeProject.name);
-    setQuickNoteDraft(buildProjectQuickNoteDraft(activeProject));
-  }, [activeProject]);
+
+    if (!visible) {
+      return;
+    }
+
+    const nextDraft = buildProjectQuickNoteDraft(activeProject);
+    setQuickNoteDraft((current) => {
+      if (
+        current.html === nextDraft.html &&
+        current.text === nextDraft.text &&
+        current.markdown === nextDraft.markdown
+      ) {
+        return current;
+      }
+
+      return nextDraft;
+    });
+  }, [activeProject, visible]);
 
   useEffect(() => {
     setRecordDraftOpen(composeRecord);
@@ -356,7 +378,11 @@ export function ProjectOverviewPage({
   async function saveProjectQuickNote(value: RichEditorValue) {
     if (!activeProject) return;
 
-    const normalized = normalizeRichEditorValue(value);
+    const externalizedValue = await externalizeEmbeddedImageDataUrls(
+      value,
+      projectQuickNoteAssetHandlers,
+    );
+    const normalized = normalizeRichEditorValue(externalizedValue);
     await projectUpdateMutation.mutateAsync({
       projectId: activeProject.id,
       quickNote: normalized.text,
@@ -371,12 +397,17 @@ export function ProjectOverviewPage({
 
     if (!projectId || !nextValue.markdown.trim()) return;
 
-    const tagIds = await ensureTagIdsFromText(nextValue.markdown, recordDraftTagIds);
+    const externalizedValue = await externalizeEmbeddedImageDataUrls(
+      nextValue,
+      projectQuickNoteAssetHandlers,
+    );
+    const normalized = normalizeRichEditorValue(externalizedValue);
+    const tagIds = await ensureTagIdsFromText(normalized.markdown, recordDraftTagIds);
     const savedRecord = await projectMindApi.projectRecordUpsert({
       projectId,
       title: recordDraftTitle.trim() || undefined,
-      markdown: nextValue.markdown,
-      html: nextValue.html,
+      markdown: normalized.markdown,
+      html: normalized.html,
       tagIds,
     });
     upsertRecordInProjectCache(savedRecord);
@@ -395,7 +426,12 @@ export function ProjectOverviewPage({
     setSavingRecordId(note.id);
 
     try {
-      const normalized = normalizeRichEditorValue(value);
+      const recordAssetHandlers = buildProjectNoteImageAssetHandlers(
+        note.projectId,
+        note.activityId ?? null,
+      );
+      const externalizedValue = await externalizeEmbeddedImageDataUrls(value, recordAssetHandlers);
+      const normalized = normalizeRichEditorValue(externalizedValue);
       const nextTagIds = await ensureTagIdsFromText(normalized.markdown, tagIds);
       const savedRecord = await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
@@ -456,6 +492,7 @@ export function ProjectOverviewPage({
   }
 
   function setProjectPageView(nextView: ProjectPageView) {
+    setOptimisticView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
 
     if (nextView === "quick-note") {
@@ -622,53 +659,56 @@ export function ProjectOverviewPage({
             />
           ) : null}
 
-          {currentView === "quick-note" ? (
-            <section
-              className={withPageWidthClass("project-overview-focus__page", pageWidthMode, "focus")}
-              data-testid="project-page-body-quick-note"
-            >
-              <RichEditor
-                html={quickNoteDraft.html}
-                variant="page"
-                showToolbar={false}
-                enableTables={false}
-                tagMentions={{
-                  projectId: activeProject.id,
-                  availableTags,
-                  onCreateTag: async (label) => {
-                    const tag = await projectMindApi.fileTagOptionUpsert({
-                      projectId: activeProject.id,
-                      label,
-                      colorKey: colorKeyForTagLabel(label),
-                    });
-                    syncProjectTagCache(tag);
-                    return tag;
-                  },
-                }}
-                internalReferences={{
-                  context: { scope: "project", projectId: activeProject.id },
-                  onOpenReference: openInternalReference,
-                }}
-                contactMentions={contactMentionOptions}
-                autosave={{
-                  delay: 120000,
-                  onBlur: true,
-                  onWindowBlur: true,
-                  onVisibilityChange: true,
-                }}
-                controllerRef={quickNoteEditorRef}
-                onSave={saveProjectQuickNote}
-              />
-            </section>
-          ) : (
-            <section
-              className={withPageWidthClass(
-                "project-overview-focus__page project-overview-focus__page--history",
-                pageWidthMode,
-                "history",
-              )}
-              data-testid="project-overview-body-history"
-            >
+          <section
+            className={withPageWidthClass("project-overview-focus__page", pageWidthMode, "focus")}
+            data-testid="project-page-body-quick-note"
+            style={{ display: currentView === "quick-note" ? undefined : "none" }}
+            aria-hidden={currentView === "quick-note" ? undefined : true}
+          >
+            <RichEditor
+              html={quickNoteDraft.html}
+              variant="page"
+              showToolbar={false}
+              enableTables={false}
+              assetHandlers={projectQuickNoteAssetHandlers}
+              tagMentions={{
+                projectId: activeProject.id,
+                availableTags,
+                onCreateTag: async (label) => {
+                  const tag = await projectMindApi.fileTagOptionUpsert({
+                    projectId: activeProject.id,
+                    label,
+                    colorKey: colorKeyForTagLabel(label),
+                  });
+                  syncProjectTagCache(tag);
+                  return tag;
+                },
+              }}
+              internalReferences={{
+                context: { scope: "project", projectId: activeProject.id },
+                onOpenReference: openInternalReference,
+              }}
+              contactMentions={contactMentionOptions}
+              autosave={{
+                delay: 120000,
+                onBlur: true,
+                onWindowBlur: true,
+                onVisibilityChange: true,
+              }}
+              controllerRef={quickNoteEditorRef}
+              onSave={saveProjectQuickNote}
+            />
+          </section>
+          <section
+            className={withPageWidthClass(
+              "project-overview-focus__page project-overview-focus__page--history",
+              pageWidthMode,
+              "history",
+            )}
+            data-testid="project-overview-body-history"
+            style={{ display: currentView === "record" ? undefined : "none" }}
+            aria-hidden={currentView === "record" ? undefined : true}
+          >
               {recordDraftOpen ? (
                 <article className="project-history-record project-history-record--draft project-history-record--editing">
                   <div className="project-history-record__editor">
@@ -699,6 +739,7 @@ export function ProjectOverviewPage({
                       html={recordDraftValue.html}
                       variant="bare"
                       autoFocus
+                      assetHandlers={projectQuickNoteAssetHandlers}
                       placeholder="写记录，正文里的 #标签 会自动同步。"
                       tagMentions={{
                         projectId: activeProject.id,
@@ -757,7 +798,7 @@ export function ProjectOverviewPage({
                         onCreatedTag={() => void refreshProject()}
                         onOpenInternalReference={openInternalReference}
                         contactMentionOptions={contactMentionOptions}
-                        pageVisible={visible}
+                        pageVisible={visible && currentView === "record"}
                       />
                     </div>
                   ))}
@@ -786,8 +827,7 @@ export function ProjectOverviewPage({
                   onClose={() => setRecordContextMenu(null)}
                 />
               ) : null}
-            </section>
-          )}
+          </section>
         </div>
       </div>
 
@@ -1239,6 +1279,7 @@ function RecordRow({
             <RichTextViewer
               html={renderableHtml}
               deferUntilVisible
+              active={pageVisible}
             />
           </div>
         </div>

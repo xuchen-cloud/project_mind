@@ -390,6 +390,7 @@ export function RichEditor({
   }, [autosave]);
 
   const saveTimerRef = useRef<number | null>(null);
+  const blurPersistTimerRef = useRef<number | null>(null);
   const changePublishTimerRef = useRef<number | null>(null);
   const deferredUiFrameRef = useRef<number | null>(null);
   const deferredUiEditorRef = useRef<Editor | null>(null);
@@ -954,6 +955,28 @@ export function RichEditor({
     [clearChangePublishTimer, onChange, onSnapshot],
   );
 
+  const scheduleChangeSnapshot = useCallback(
+    (snapshotEditor: Editor) => {
+      if (!onChange && !onSnapshot) {
+        return;
+      }
+
+      clearChangePublishTimer();
+      changePublishTimerRef.current = window.setTimeout(() => {
+        if (snapshotEditor.isDestroyed) {
+          changePublishTimerRef.current = null;
+          return;
+        }
+
+        const snapshot = serializeEditor(snapshotEditor);
+
+        lastResolvedHtmlRef.current = snapshot.html;
+        publishChangeSnapshot(snapshot, { immediate: true });
+      }, CHANGE_PUBLISH_DELAY_MS);
+    },
+    [clearChangePublishTimer, onChange, onSnapshot, publishChangeSnapshot],
+  );
+
   const clearDeferredUiFrame = useCallback(() => {
     if (deferredUiFrameRef.current !== null) {
       window.cancelAnimationFrame(deferredUiFrameRef.current);
@@ -1283,9 +1306,7 @@ export function RichEditor({
         return;
       }
       if (onChange || onSnapshot) {
-        const snapshot = serializeEditor(nextEditor);
-        lastResolvedHtmlRef.current = snapshot.html;
-        publishChangeSnapshot(snapshot);
+        scheduleChangeSnapshot(nextEditor);
       }
       scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
       if (persistStateRef.current !== "saving") {
@@ -1362,6 +1383,13 @@ export function RichEditor({
     }
   }, []);
 
+  const clearBlurPersistTimer = useCallback(() => {
+    if (blurPersistTimerRef.current) {
+      window.clearTimeout(blurPersistTimerRef.current);
+      blurPersistTimerRef.current = null;
+    }
+  }, []);
+
   const persistEditor = useCallback(
     async (reason: SaveReason, options?: { force?: boolean }) => {
       if (!editor || !onSave || readOnly) {
@@ -1370,6 +1398,7 @@ export function RichEditor({
 
       clearChangePublishTimer();
       clearPersistTimer();
+      clearBlurPersistTimer();
 
       const snapshot = normalizeRichEditorValue(serializeEditor(editor));
       publishChangeSnapshot(snapshot, { immediate: true, sync: true });
@@ -1392,9 +1421,11 @@ export function RichEditor({
 
       saveInFlightRef.current = true;
       updatePersistState("saving");
+      let saveSucceeded = false;
 
       try {
         const result = await onSave(snapshot);
+        saveSucceeded = true;
         lastPersistedHtmlRef.current = snapshot.html;
         lastResolvedHtmlRef.current = snapshot.html;
         updatePersistState(snapshot.html === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
@@ -1407,9 +1438,10 @@ export function RichEditor({
 
         if (
           saveQueuedRef.current ||
-          reason === "blur" ||
-          reason === "window-blur" ||
-          reason === "visibility-hidden"
+          (saveSucceeded &&
+            (reason === "blur" ||
+              reason === "window-blur" ||
+              reason === "visibility-hidden"))
         ) {
           saveQueuedRef.current = false;
           const latestSnapshot = serializeEditor(editor);
@@ -1424,6 +1456,7 @@ export function RichEditor({
     },
     [
       clearChangePublishTimer,
+      clearBlurPersistTimer,
       clearPersistTimer,
       editor,
       onSave,
@@ -1679,10 +1712,11 @@ export function RichEditor({
   useEffect(() => {
     return () => {
       clearPersistTimer();
+      clearBlurPersistTimer();
     };
-  }, [clearPersistTimer]);
+  }, [clearBlurPersistTimer, clearPersistTimer]);
 
-  const handleBlur = useCallback(async (relatedTarget: EventTarget | null) => {
+  const handleBlur = useCallback((relatedTarget: EventTarget | null) => {
     if (!autosaveConfig.enabled || !autosaveConfig.saveOnBlur || !onSave || readOnly) {
       return;
     }
@@ -1698,17 +1732,31 @@ export function RichEditor({
       return;
     }
 
-    try {
-      const result = await persistEditor("blur");
-      onBlurPersisted?.(result);
-    } catch {
-      // The activity page handles error feedback with a toast.
-    }
+    clearBlurPersistTimer();
+    blurPersistTimerRef.current = window.setTimeout(() => {
+      blurPersistTimerRef.current = null;
+
+      if (
+        persistStateRef.current !== "dirty" &&
+        persistStateRef.current !== "saving"
+      ) {
+        return;
+      }
+
+      void persistEditor("blur")
+        .then((result) => {
+          onBlurPersisted?.(result);
+        })
+        .catch(() => {
+          // The activity page handles error feedback with a toast.
+        });
+    }, 48);
   }, [
     autosaveConfig.enabled,
     autosaveConfig.saveOnBlur,
     autosaveConfig.saveOnVisibilityChange,
     autosaveConfig.saveOnWindowBlur,
+    clearBlurPersistTimer,
     onBlurPersisted,
     onSave,
     persistEditor,

@@ -171,6 +171,19 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_list_system_font_families");
   });
 
+  it("generates image thumbnails through the desktop command", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce("/tmp/thumb.jpg");
+
+    await expect(desktopApi.generateImageThumbnail("/tmp/clip.png", 720)).resolves.toBe(
+      "/tmp/thumb.jpg",
+    );
+
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_generate_image_thumbnail", {
+      path: "/tmp/clip.png",
+      maxEdge: 720,
+    });
+  });
+
   it("creates a new project window when none exists", async () => {
     tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
     const originalLocation = window.location;

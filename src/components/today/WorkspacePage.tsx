@@ -31,6 +31,10 @@ import { desktopApi } from "../../services/desktopApi";
 import { cn } from "../../ui/lib/cn";
 import { IconButton } from "../../ui/components";
 import { RichEditor } from "../rich-editor";
+import {
+  buildWorkspaceNoteImageAssetHandlers,
+  externalizeEmbeddedImageDataUrls,
+} from "../rich-editor/noteImageAssets";
 import { TodoRail } from "../todo";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
@@ -38,11 +42,28 @@ import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 type WorkspacePageView = "quick-note" | "record";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
-export function WorkspacePage() {
+interface WorkspacePageProps {
+  activeProjectIdOverride?: number | null;
+  searchParamsOverride?: URLSearchParams;
+  visible?: boolean;
+  onSearchParamsOverride?: (
+    nextSearchParams: URLSearchParams,
+    options?: { replace?: boolean },
+  ) => void;
+}
+
+export function WorkspacePage({
+  activeProjectIdOverride,
+  searchParamsOverride,
+  visible = true,
+  onSearchParamsOverride,
+}: WorkspacePageProps = {}) {
   const navigate = useNavigate();
   const params = useParams();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [routeSearchParams, setRouteSearchParams] = useSearchParams();
+  const searchParams = searchParamsOverride ?? routeSearchParams;
+  const setWorkspaceSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
   const { pushToast } = useFeedbackStore();
   const {
     openSettings,
@@ -56,13 +77,18 @@ export function WorkspacePage() {
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
-  const activeProjectId = parseRouteId(params.projectId);
+  const activeProjectId =
+    activeProjectIdOverride !== undefined
+      ? activeProjectIdOverride
+      : parseRouteId(params.projectId);
 
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
   const explicitView = parseWorkspacePageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
-  const currentView = explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
+  const routeView = explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
+  const [optimisticView, setOptimisticView] = useState<WorkspacePageView | null>(null);
+  const currentView = optimisticView ?? routeView;
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "all"],
@@ -93,6 +119,7 @@ export function WorkspacePage() {
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
+  const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(() => {
     const value = searchParams.get("recordTag");
@@ -129,16 +156,36 @@ export function WorkspacePage() {
   } = useTodoMutations(allTodos);
 
   useEffect(() => {
+    setOptimisticView(null);
+  }, [routeView]);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
     const quickNote = workspacePage?.quickNote;
-    setQuickNoteDraft({
+    const nextDraft = {
       html: getRenderableRichTextHtml({
         html: quickNote?.contentHtml,
         markdown: quickNote?.contentMarkdown,
       }),
       text: quickNote?.contentMarkdown ?? "",
       markdown: quickNote?.contentMarkdown ?? "",
+    };
+
+    setQuickNoteDraft((current) => {
+      if (
+        current.html === nextDraft.html &&
+        current.text === nextDraft.text &&
+        current.markdown === nextDraft.markdown
+      ) {
+        return current;
+      }
+
+      return nextDraft;
     });
-  }, [workspacePage?.quickNote?.contentHtml, workspacePage?.quickNote?.contentMarkdown]);
+  }, [visible, workspacePage?.quickNote?.contentHtml, workspacePage?.quickNote?.contentMarkdown]);
 
   const workspaceRecords = useMemo(() => workspacePage?.records ?? [], [workspacePage?.records]);
   const filteredWorkspaceRecords = useMemo(() => {
@@ -163,10 +210,10 @@ export function WorkspacePage() {
   );
 
   useFocusTarget(
-    focusedRecordId !== null && currentView === "record"
+    visible && focusedRecordId !== null && currentView === "record"
       ? recordFocusId(focusedRecordId)
       : null,
-    [currentView, visibleRecordFocusKey],
+    [currentView, visible, visibleRecordFocusKey],
   );
 
   const appendSelectionToProjectNoteMutation = useMutation({
@@ -275,6 +322,7 @@ export function WorkspacePage() {
   }
 
   function setWorkspacePageView(nextView: WorkspacePageView) {
+    setOptimisticView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
 
     if (nextView === "quick-note") {
@@ -287,7 +335,7 @@ export function WorkspacePage() {
       nextSearchParams.set("view", "record");
     }
 
-    setSearchParams(nextSearchParams);
+    setWorkspaceSearchParams(nextSearchParams);
   }
 
   function openRecord(recordId: number) {
@@ -295,7 +343,7 @@ export function WorkspacePage() {
     nextSearchParams.set("view", "record");
     nextSearchParams.set("focus", `record-${recordId}`);
     nextSearchParams.delete("compose");
-    setSearchParams(nextSearchParams);
+    setWorkspaceSearchParams(nextSearchParams);
   }
 
   function setWorkspaceRecordQuery(value: string) {
@@ -305,7 +353,7 @@ export function WorkspacePage() {
     } else {
       nextSearchParams.delete("recordQuery");
     }
-    setSearchParams(nextSearchParams, { replace: true });
+    setWorkspaceSearchParams(nextSearchParams, { replace: true });
   }
 
   function setWorkspaceRecordTagId(tagId: number | null) {
@@ -316,7 +364,7 @@ export function WorkspacePage() {
       nextSearchParams.set("recordTag", String(tagId));
     }
     nextSearchParams.set("view", "record");
-    setSearchParams(nextSearchParams);
+    setWorkspaceSearchParams(nextSearchParams);
   }
 
   async function createWorkspaceRecordInFocus() {
@@ -333,7 +381,7 @@ export function WorkspacePage() {
   function closeComposeRecord() {
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("compose");
-    setSearchParams(nextSearchParams);
+    setWorkspaceSearchParams(nextSearchParams);
   }
 
   async function openProjectInNewWindow(projectId: number) {
@@ -409,11 +457,7 @@ export function WorkspacePage() {
     await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
   }
 
-  function deleteProject(projectId: number, name: string) {
-    if (!window.confirm(`确定删除项目「${name}」？项目目录会移到废纸篓。`)) {
-      return;
-    }
-
+  function deleteProject(projectId: number) {
     deleteProjectMutation.mutate({ projectId });
   }
 
@@ -463,7 +507,7 @@ export function WorkspacePage() {
         }}
         onRenameProject={(project, name) => renameProject(project.id, name)}
         onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
-        onDeleteProject={(project) => deleteProject(project.id, project.name)}
+        onDeleteProject={(project) => deleteProject(project.id)}
         onOpenRecord={openRecord}
         onCreateRecord={() => void createWorkspaceRecordInFocus()}
       />
@@ -547,71 +591,80 @@ export function WorkspacePage() {
                 : "max-w-none",
             )}
           >
-            {currentView === "quick-note" ? (
-              <section
-                className={withPageWidthClass("project-overview-focus__page", pageWidthMode, "focus")}
-                data-testid="workspace-page-body-quick-note"
-              >
-                <RichEditor
-                  html={quickNoteDraft.html}
-                  variant="page"
-                  showToolbar={false}
-                  enableTables={false}
-                  placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
-                  tagMentions={{
-                    projectId: null,
-                    availableTags,
-                    onCreateTag: async (label) => {
-                      const tag = await projectMindApi.fileTagOptionUpsert({
-                        label,
-                        colorKey: colorKeyForTagLabel(label),
+            <section
+              className={withPageWidthClass("project-overview-focus__page", pageWidthMode, "focus")}
+              data-testid="workspace-page-body-quick-note"
+              style={{ display: currentView === "quick-note" ? undefined : "none" }}
+              aria-hidden={currentView === "quick-note" ? undefined : true}
+            >
+              <RichEditor
+                html={quickNoteDraft.html}
+                variant="page"
+                showToolbar={false}
+                enableTables={false}
+                assetHandlers={workspaceAssetHandlers}
+                placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
+                tagMentions={{
+                  projectId: null,
+                  availableTags,
+                  onCreateTag: async (label) => {
+                    const tag = await projectMindApi.fileTagOptionUpsert({
+                      label,
+                      colorKey: colorKeyForTagLabel(label),
+                    });
+                    syncWorkspaceTagCache(tag);
+                    return tag;
+                  },
+                }}
+                selectionActions={[
+                  {
+                    key: "workspace-selection-append-project-quick-note",
+                    label: "追加到项目 QuickNote",
+                    icon: null as never,
+                    disabled: visibleProjects.length === 0,
+                    onSelect: (selection) => {
+                      const targetProjectId = visibleProjects[0]?.id;
+                      if (!targetProjectId) {
+                        return;
+                      }
+                      void appendSelectionToProjectNoteMutation.mutateAsync({
+                        projectId: targetProjectId,
+                        selection,
                       });
-                      syncWorkspaceTagCache(tag);
-                      return tag;
                     },
-                  }}
-                  selectionActions={[
-                    {
-                      key: "workspace-selection-append-project-quick-note",
-                      label: "追加到项目 QuickNote",
-                      icon: null as never,
-                      disabled: visibleProjects.length === 0,
-                      onSelect: (selection) => {
-                        const targetProjectId = visibleProjects[0]?.id;
-                        if (!targetProjectId) {
-                          return;
-                        }
-                        void appendSelectionToProjectNoteMutation.mutateAsync({
-                          projectId: targetProjectId,
-                          selection,
-                        });
-                      },
-                    },
-                  ]}
-                  internalReferences={{
-                    context: { scope: "workspace" },
-                    onOpenReference: openInternalReference,
-                  }}
-                  contactMentions={contactMentionOptions}
+                  },
+                ]}
+                internalReferences={{
+                  context: { scope: "workspace" },
+                  onOpenReference: openInternalReference,
+                }}
+                contactMentions={contactMentionOptions}
                 autosave={{
                   delay: 120000,
                   onBlur: true,
                   onWindowBlur: true,
                   onVisibilityChange: true,
                 }}
-                  onSave={async (value) => {
-                    const tagIds = await ensureWorkspaceTagIds(value.markdown, []);
-                    await workspaceQuickNoteMutation.mutateAsync({
-                      markdown: value.markdown,
-                      html: value.html,
-                      tagIds,
-                    });
-                    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-                    await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
-                  }}
-                />
-              </section>
-            ) : (
+                onSave={async (value) => {
+                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
+                    value,
+                    workspaceAssetHandlers,
+                  );
+                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, []);
+                  await workspaceQuickNoteMutation.mutateAsync({
+                    markdown: externalizedValue.markdown,
+                    html: externalizedValue.html,
+                    tagIds,
+                  });
+                  await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+                  await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+                }}
+              />
+            </section>
+            <div
+              style={{ display: currentView === "record" ? undefined : "none" }}
+              aria-hidden={currentView === "record" ? undefined : true}
+            >
               <WorkspaceOverviewHistory
                 notes={filteredWorkspaceRecords}
                 hasAnyNotes={workspaceRecords.length > 0}
@@ -621,16 +674,31 @@ export function WorkspacePage() {
                 availableTags={availableTags}
                 saving={workspaceRecordMutation.isPending}
                 onCreateRecord={async (input) => {
-                  const tagIds = await ensureWorkspaceTagIds(input.markdown, input.tagIds ?? []);
-                  await workspaceRecordMutation.mutateAsync({ ...input, tagIds });
+                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
+                    { html: input.html, markdown: input.markdown, text: input.markdown },
+                    workspaceAssetHandlers,
+                  );
+                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, input.tagIds ?? []);
+                  await workspaceRecordMutation.mutateAsync({
+                    ...input,
+                    markdown: externalizedValue.markdown,
+                    html: externalizedValue.html,
+                    tagIds,
+                  });
                   await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
                   await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
                 }}
                 onUpdateRecord={async (note, input) => {
-                  const tagIds = await ensureWorkspaceTagIds(input.markdown, input.tagIds ?? []);
+                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
+                    { html: input.html, markdown: input.markdown, text: input.markdown },
+                    workspaceAssetHandlers,
+                  );
+                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, input.tagIds ?? []);
                   await workspaceRecordMutation.mutateAsync({
                     noteId: note.id,
                     ...input,
+                    markdown: externalizedValue.markdown,
+                    html: externalizedValue.html,
                     tagIds,
                   });
                   await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
@@ -644,8 +712,10 @@ export function WorkspacePage() {
                 onCloseCompose={closeComposeRecord}
                 contactMentionOptions={contactMentionOptions}
                 onOpenInternalReference={openInternalReference as (reference: unknown) => Promise<boolean>}
+                assetHandlers={workspaceAssetHandlers}
+                active={visible && currentView === "record"}
               />
-            )}
+            </div>
           </div>
         </div>
       </div>

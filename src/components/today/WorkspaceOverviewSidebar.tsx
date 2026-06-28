@@ -96,6 +96,7 @@ export function WorkspaceOverviewSidebar({
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [deleteConfirmProject, setDeleteConfirmProject] = useState<ProjectListItem | null>(null);
   const normalizedProjectQuery = projectQuery.trim().toLowerCase();
 
   const filteredProjects = useMemo(
@@ -179,7 +180,7 @@ export function WorkspaceOverviewSidebar({
               icon: Trash2,
               tone: "danger",
               onSelect: () => {
-                onDeleteProject(projectContextProject);
+                setDeleteConfirmProject(projectContextProject);
                 setProjectContextMenu(null);
               },
             },
@@ -476,6 +477,53 @@ export function WorkspaceOverviewSidebar({
           onClose={() => setProjectContextMenu(null)}
         />
       ) : null}
+
+      <Dialog
+        open={deleteConfirmProject !== null}
+        title="删除项目"
+        description="删除后项目目录会移到废纸篓，项目中的记录、待办和文件关联也会从当前 workspace 移除。"
+        widthClassName="max-w-lg"
+        onClose={() => setDeleteConfirmProject(null)}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDeleteConfirmProject(null)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                if (!deleteConfirmProject) {
+                  return;
+                }
+
+                onDeleteProject(deleteConfirmProject);
+                setDeleteConfirmProject(null);
+              }}
+            >
+              删除项目
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3">
+          <div className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-4 py-3">
+            <p className="text-body font-medium text-text">
+              {deleteConfirmProject?.name}
+            </p>
+            <p className="mt-1 break-all text-ui leading-5 text-text-soft">
+              {deleteConfirmProject?.rootPath}
+            </p>
+          </div>
+          <p className="text-ui leading-6 text-text-muted">
+            请确认你确实要删除这个项目。这个操作会立即执行。
+          </p>
+        </div>
+      </Dialog>
 
       <Dialog
         open={archiveDialogOpen}
