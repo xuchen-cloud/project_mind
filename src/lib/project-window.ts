@@ -32,6 +32,25 @@ export function isProjectWindow() {
   return parseProjectWindowProjectId(getCurrentWindowLabel()) !== null;
 }
 
+export async function listenToProjectWindowNavigation(onNavigate: (route: string) => void) {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  try {
+    return await webviewWindow.getCurrentWebviewWindow().listen<{ route: string }>(
+      PROJECT_WINDOW_NAVIGATE_EVENT,
+      ({ payload }) => {
+        if (payload?.route) {
+          onNavigate(payload.route);
+        }
+      },
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function getProjectWindow(projectId: number) {
   if (!isTauriRuntime()) {
     return null;

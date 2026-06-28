@@ -147,7 +147,7 @@ export function ActionContextMenu({
   return (
     <PopoverPanel
       ref={menuRef}
-      className="context-menu__panel fixed z-[80] min-w-[15rem] rounded-[14px] border-[color-mix(in_srgb,var(--color-border)_84%,transparent)] bg-[color-mix(in_srgb,var(--color-bg)_96%,var(--color-bg-subtle))] p-2 shadow-[0_18px_40px_rgba(15,15,15,0.14),0_6px_16px_rgba(15,15,15,0.08)] outline-none backdrop-blur-[18px]"
+      className="context-menu__panel fixed z-[80] min-w-[15rem] rounded-[14px] border p-2 outline-none backdrop-blur-[18px]"
       style={position}
     >
       <ActionContextMenuLevel
@@ -417,7 +417,7 @@ function ActionContextMenuLevel({
             top: openSubmenuTop,
           }}
         >
-          <PopoverPanel className="context-menu__submenu-panel min-w-[15rem] rounded-[14px] border-[color-mix(in_srgb,var(--color-border)_84%,transparent)] bg-[color-mix(in_srgb,var(--color-bg)_96%,var(--color-bg-subtle))] p-2 shadow-[0_18px_40px_rgba(15,15,15,0.14),0_6px_16px_rgba(15,15,15,0.08)] backdrop-blur-[18px]">
+          <PopoverPanel className="context-menu__submenu-panel min-w-[15rem] rounded-[14px] border p-2 backdrop-blur-[18px]">
             <ActionContextMenuLevel
               actions={activeSubmenu.actions}
               ariaLabel={`${activeSubmenu.label} 子菜单`}

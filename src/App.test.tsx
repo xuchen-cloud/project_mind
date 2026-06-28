@@ -30,6 +30,7 @@ vi.mock("./lib/project-window", () => ({
   PROJECT_WINDOW_NAVIGATE_EVENT: "project-window:navigate",
   getCurrentWindowLabel: vi.fn(() => "main"),
   isProjectWindow: vi.fn(() => false),
+  listenToProjectWindowNavigation: vi.fn(async () => null),
   parseProjectWindowProjectId: vi.fn((label: string) => {
     const match = /^project-(\d+)$/u.exec(label);
     return match ? Number.parseInt(match[1] ?? "", 10) : null;

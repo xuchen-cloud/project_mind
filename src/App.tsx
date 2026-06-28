@@ -29,8 +29,8 @@ import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
+  listenToProjectWindowNavigation,
   parseProjectWindowProjectId,
-  PROJECT_WINDOW_NAVIGATE_EVENT,
 } from "./lib/project-window";
 import {
   DEFAULT_RICH_TEXT_STYLE_SETTINGS,
@@ -141,7 +141,7 @@ function WorkspaceGatePage({
 }) {
   if (loading) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_42%),linear-gradient(180deg,var(--color-bg)_0%,var(--color-bg-subtle)_100%)] px-6">
+      <div className="workspace-gate-shell flex h-dvh items-center justify-center px-6">
         <SurfaceCard className="w-full max-w-xl p-8 text-center">
           <p className="text-body text-text-soft">
             正在检查最近使用的 workspace...
@@ -152,7 +152,7 @@ function WorkspaceGatePage({
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_42%),linear-gradient(180deg,var(--color-bg)_0%,var(--color-bg-subtle)_100%)] px-6 py-10">
+    <div className="workspace-gate-shell flex min-h-dvh items-center justify-center px-6 py-10">
       <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.9fr)]">
         <SurfaceCard className="grid gap-6 p-8">
           <div className="grid gap-4">
@@ -1024,29 +1024,21 @@ export function WorkspaceLayout({
   }, [activeProjectId, currentProjectWindowId, navigate, projectWindow]);
 
   useEffect(() => {
-    if (!projectWindow || typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    if (!projectWindow) {
       return;
     }
 
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
-    void import("@tauri-apps/api")
-      .then((api) =>
-        api.webviewWindow.getCurrentWebviewWindow().listen<{ route: string }>(
-          PROJECT_WINDOW_NAVIGATE_EVENT,
-          ({ payload }: { payload: { route: string } }) => {
-            if (disposed || !payload?.route) {
-              return;
-            }
-
-            navigate(payload.route);
-          },
-        ),
-      )
+    void listenToProjectWindowNavigation((route) => {
+      if (!disposed) {
+        navigate(route);
+      }
+    })
       .then((nextUnlisten) => {
         if (disposed) {
-          nextUnlisten();
+          nextUnlisten?.();
           return;
         }
 
