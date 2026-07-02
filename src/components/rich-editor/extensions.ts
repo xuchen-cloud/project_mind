@@ -6,7 +6,9 @@ import TaskList from "@tiptap/extension-task-list";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
-import { getSchema } from "@tiptap/core";
+import { Extension, getSchema } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 import { Attachment } from "./extensions/Attachment";
 import { ContactMention } from "./extensions/ContactMention";
@@ -14,12 +16,153 @@ import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
 import { ManagedTable } from "./extensions/ManagedTable";
 import { TagMention } from "./extensions/TagMention";
+import { codeLanguageLabel, highlightCodeRanges, normalizeCodeLanguage } from "./codeHighlight";
+
+export const RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT =
+  "project-mind-rich-editor-code-language-open";
+
+const CodeBlockLanguageMetadata = Extension.create({
+  name: "codeBlockLanguageMetadata",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["codeBlock"],
+        attributes: {
+          languageExplicit: {
+            default: false,
+            parseHTML: (element) => {
+              const explicitValue = element.getAttribute("data-language-explicit");
+
+              if (explicitValue === "true") {
+                return true;
+              }
+
+              if (explicitValue === "false") {
+                return false;
+              }
+
+              return Boolean(
+                element.getAttribute("data-language") ||
+                  element.querySelector("code[class*='language-']"),
+              );
+            },
+            renderHTML: (attributes) =>
+              attributes.languageExplicit
+                ? { "data-language-explicit": "true" }
+                : { "data-language-explicit": "false" },
+          },
+        },
+      },
+    ];
+  },
+});
+
+const CodeHighlightDecorations = Extension.create({
+  name: "codeHighlightDecorations",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          decorations(state) {
+            const decorations: Decoration[] = [];
+            let activeCodeBlockPos: number | null = null;
+
+            const { $from } = state.selection;
+
+            for (let depth = $from.depth; depth >= 0; depth -= 1) {
+              const node = $from.node(depth);
+
+              if (node.type.name === "codeBlock") {
+                activeCodeBlockPos = depth > 0 ? $from.before(depth) : 0;
+                break;
+              }
+            }
+
+            state.doc.descendants((node, pos) => {
+              if (node.type.name !== "codeBlock") {
+                return true;
+              }
+
+              const language = normalizeCodeLanguage(
+                typeof node.attrs.language === "string" ? node.attrs.language : node.attrs.params,
+              );
+              const code = node.textContent;
+
+              highlightCodeRanges(code, language).forEach((range) => {
+                decorations.push(
+                  Decoration.inline(pos + 1 + range.from, pos + 1 + range.to, {
+                    class: range.className,
+                  }),
+                );
+              });
+
+              if (pos !== activeCodeBlockPos) {
+                decorations.push(
+                  Decoration.widget(
+                    pos + 1,
+                    () => {
+                      const button = document.createElement("button");
+                      button.type = "button";
+                      button.className = "rich-editor__inline-code-language-button";
+                      button.textContent = codeLanguageLabel(language);
+                      button.addEventListener("mousedown", (event) => {
+                        if (event.button !== 0) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        event.stopPropagation();
+                        button.dispatchEvent(
+                          new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
+                            bubbles: true,
+                            detail: { mode: "select", pos },
+                          }),
+                        );
+                      });
+                      button.addEventListener("contextmenu", (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        button.dispatchEvent(
+                          new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
+                            bubbles: true,
+                            detail: { mode: "document", pos },
+                          }),
+                        );
+                      });
+                      return button;
+                    },
+                    {
+                      key: `code-language-${pos}-${language}`,
+                      side: -1,
+                      ignoreSelection: true,
+                    },
+                  ),
+                );
+              }
+
+              return false;
+            });
+
+            return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 export function buildRichEditorExtensions(placeholder: string) {
   return [
     StarterKit.configure({
       heading: {
         levels: [1, 2, 3],
+      },
+      codeBlock: {
+        HTMLAttributes: {
+          class: "rich-editor__code-block",
+        },
       },
     }),
     Highlight.configure({
@@ -54,6 +197,8 @@ export function buildRichEditorExtensions(placeholder: string) {
     ContactMention,
     TagMention,
     Attachment,
+    CodeBlockLanguageMetadata,
+    CodeHighlightDecorations,
   ];
 }
 

@@ -1,5 +1,5 @@
 import { ArrowLeft, LoaderCircle, Settings2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -63,6 +63,8 @@ export function WorkspaceRecordFocusPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<RichEditorValue>(EMPTY_VALUE);
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [codeLanguage, setCodeLanguage] = useState<string | null>(null);
+  const [loadedNoteId, setLoadedNoteId] = useState<number | null>(null);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
   const editorControllerRef = useRef<RichEditorController | null>(null);
@@ -94,6 +96,7 @@ export function WorkspaceRecordFocusPage() {
   }, [noteId, workspacePageQuery.data]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const draftReady = Boolean(note && loadedNoteId === note.id);
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
     [projectsQuery.data],
@@ -162,40 +165,71 @@ export function WorkspaceRecordFocusPage() {
       markdown: note.contentMarkdown,
     });
     setTagIds((note.tags ?? []).map((tag) => tag.id));
+    setCodeLanguage(note.defaultCodeLanguage ?? null);
+    setPersistState("idle");
+    setLoadedNoteId(note.id);
   }, [note]);
 
-  const handleSave = async (value: RichEditorValue) => {
-    if (!note || isSaving) return;
+  const persistWorkspaceRecord = useCallback(
+    async (
+      targetNote: NonNullable<typeof note>,
+      value: RichEditorValue,
+      nextTitle: string,
+      nextTagIds: number[],
+      nextCodeLanguage: string | null,
+    ) => {
+      setIsSaving(true);
+      try {
+        const externalizedValue = await externalizeEmbeddedImageDataUrls(
+          value,
+          workspaceAssetHandlers,
+        );
+        const normalized = normalizeRichEditorValue(externalizedValue);
+        const mentionedTagIds = extractTagMentionIds(normalized.markdown);
+        await projectMindApi.workspaceRecordUpsert({
+          noteId: targetNote.id,
+          title: nextTitle.trim() || undefined,
+          markdown: normalized.markdown,
+          html: normalized.html,
+          defaultCodeLanguage: nextCodeLanguage,
+          tagIds: Array.from(new Set([...nextTagIds, ...mentionedTagIds])),
+        });
+        await workspacePageQuery.refetch();
+        await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+        await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+        return true;
+      } catch (error) {
+        pushToast({ tone: "error", title: "保存失败", detail: String(error) });
+        throw error;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [pushToast, queryClient, workspaceAssetHandlers, workspacePageQuery],
+  );
 
-    setIsSaving(true);
-    try {
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(
-        value,
-        workspaceAssetHandlers,
-      );
-      const normalized = normalizeRichEditorValue(externalizedValue);
-      const mentionedTagIds = extractTagMentionIds(normalized.markdown);
-      await projectMindApi.workspaceRecordUpsert({
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: normalized.markdown,
-        html: normalized.html,
-        tagIds: Array.from(new Set([...tagIds, ...mentionedTagIds])),
-      });
-      await workspacePageQuery.refetch();
-      await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
-    } catch (error) {
-      pushToast({ tone: "error", title: "保存失败", detail: String(error) });
-      throw error;
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const handleSave = useCallback(
+    async (value: RichEditorValue) => {
+      if (!note || !draftReady) return false;
+      return persistWorkspaceRecord(note, value, title, tagIds, codeLanguage);
+    },
+    [codeLanguage, draftReady, note, persistWorkspaceRecord, tagIds, title],
+  );
+
+  const saveCurrentRecord = useCallback(async () => {
+    if (!note || !draftReady) return false;
+    return persistWorkspaceRecord(
+      note,
+      editorControllerRef.current?.getValue() ?? content,
+      title,
+      tagIds,
+      codeLanguage,
+    );
+  }, [codeLanguage, content, draftReady, note, persistWorkspaceRecord, tagIds, title]);
 
   const handleBack = async () => {
     if (noteId === null) return;
-    await handleSave(editorControllerRef.current?.getValue() ?? content);
+    await saveCurrentRecord();
     navigate(`${workspacePath()}?view=record&focus=record-${noteId}`);
   };
 
@@ -203,6 +237,7 @@ export function WorkspaceRecordFocusPage() {
     const record = await projectMindApi.workspaceRecordUpsert({
       markdown: "",
       html: "<p></p>",
+      defaultCodeLanguage: null,
       tagIds: [],
     });
     await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
@@ -323,6 +358,7 @@ export function WorkspaceRecordFocusPage() {
       quickNote: project.quickNote,
       quickNoteMarkdown: project.quickNoteMarkdown,
       quickNoteHtml: project.quickNoteHtml,
+      quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
       status: project.status,
     });
     await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
@@ -334,23 +370,11 @@ export function WorkspaceRecordFocusPage() {
   }
 
   const handleTagsChange = async (newTagIds: number[]) => {
-    if (!note) return;
+    if (!note || !draftReady) return;
     setTagIds(newTagIds);
     try {
       const nextValue = editorControllerRef.current?.getValue() ?? content;
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(
-        nextValue,
-        workspaceAssetHandlers,
-      );
-      await projectMindApi.workspaceRecordUpsert({
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: externalizedValue.markdown,
-        html: externalizedValue.html,
-        tagIds: newTagIds,
-      });
-      await workspacePageQuery.refetch();
-      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+      await persistWorkspaceRecord(note, nextValue, title, newTagIds, codeLanguage);
     } catch (error) {
       pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
     }
@@ -376,6 +400,14 @@ export function WorkspaceRecordFocusPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-text-soft">记录未找到</p>
+      </div>
+    );
+  }
+
+  if (!draftReady) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoaderCircle className="animate-spin text-text-soft" size={24} />
       </div>
     );
   }
@@ -419,7 +451,24 @@ export function WorkspaceRecordFocusPage() {
           onRenameProject={(project, name) => renameProject(project.id, name)}
           onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
           onDeleteProject={(project) => deleteProject(project.id)}
-          onOpenRecord={(recordId) => navigate(`/workspace/records/${recordId}`)}
+          onOpenRecord={(recordId) => {
+            void (async () => {
+              if (recordId === noteId) {
+                return;
+              }
+
+              try {
+                const saved = await saveCurrentRecord();
+                if (!saved) {
+                  return;
+                }
+              } catch {
+                return;
+              }
+
+              navigate(`/workspace/records/${recordId}`);
+            })();
+          }}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
         />
       ) : null}
@@ -493,7 +542,7 @@ export function WorkspaceRecordFocusPage() {
                 placeholder="记录标题"
                 onChange={(event) => setTitle(event.target.value)}
                 onBlur={() => {
-                  if (note && title !== (note.title ?? "")) {
+                  if (note && draftReady && title !== (note.title ?? "")) {
                     void handleSave(editorControllerRef.current?.getValue() ?? content);
                   }
                 }}
@@ -507,7 +556,10 @@ export function WorkspaceRecordFocusPage() {
                 onCreated={syncWorkspaceTagCache}
               />
               <RichEditor
+                key={note.id}
                 html={content.html}
+                defaultCodeLanguage={codeLanguage}
+                onDefaultCodeLanguageChange={setCodeLanguage}
                 variant="bare"
                 autoFocus
                 assetHandlers={workspaceAssetHandlers}

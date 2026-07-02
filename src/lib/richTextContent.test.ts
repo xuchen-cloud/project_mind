@@ -5,6 +5,7 @@ import {
   getRenderableRichTextHtml,
   renderMarkdownToHtml,
   richTextHtmlToPlainText,
+  trimTrailingCodeBlockNewline,
 } from "./richTextContent";
 
 describe("renderMarkdownToHtml", () => {
@@ -24,6 +25,27 @@ describe("renderMarkdownToHtml", () => {
 
   it("returns the empty editor html for blank markdown", () => {
     expect(renderMarkdownToHtml("   ")).toBe(EMPTY_RICH_TEXT_HTML);
+  });
+
+  it("does not keep the fence-closing newline inside code blocks", () => {
+    const html = renderMarkdownToHtml(["```ts", "const value = 1;", "```"].join("\n"));
+
+    expect(html).toContain('class="language-ts"');
+    expect(html).toContain(">const value = 1;</code></pre>");
+  });
+});
+
+describe("trimTrailingCodeBlockNewline", () => {
+  it("removes one pasted html code-block trailing newline", () => {
+    expect(trimTrailingCodeBlockNewline("<pre><code>const value = 1;\n</code></pre>")).toBe(
+      "<pre><code>const value = 1;</code></pre>",
+    );
+  });
+
+  it("keeps internal code-block blank lines intact", () => {
+    expect(trimTrailingCodeBlockNewline("<pre><code>const a = 1;\n\nconst b = 2;\n</code></pre>")).toBe(
+      "<pre><code>const a = 1;\n\nconst b = 2;</code></pre>",
+    );
   });
 });
 

@@ -119,6 +119,7 @@ export function WorkspacePage({
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(() => {
@@ -167,6 +168,7 @@ export function WorkspacePage({
     }
 
     const quickNote = workspacePage?.quickNote;
+    setQuickNoteCodeLanguage(quickNote?.defaultCodeLanguage ?? null);
     const nextDraft = {
       html: getRenderableRichTextHtml({
         html: quickNote?.contentHtml,
@@ -187,7 +189,12 @@ export function WorkspacePage({
 
       return nextDraft;
     });
-  }, [visible, workspacePage?.quickNote?.contentHtml, workspacePage?.quickNote?.contentMarkdown]);
+  }, [
+    visible,
+    workspacePage?.quickNote?.contentHtml,
+    workspacePage?.quickNote?.contentMarkdown,
+    workspacePage?.quickNote?.defaultCodeLanguage,
+  ]);
 
   const workspaceRecords = useMemo(() => workspacePage?.records ?? [], [workspacePage?.records]);
   const filteredWorkspaceRecords = useMemo(() => {
@@ -240,6 +247,7 @@ export function WorkspacePage({
         quickNote: richTextHtmlToPlainText(nextHtml, { preserveStructure: true }),
         quickNoteMarkdown: nextMarkdown,
         quickNoteHtml: nextHtml,
+        quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
         status: project.status,
       });
     },
@@ -453,6 +461,7 @@ export function WorkspacePage({
       quickNote: project.quickNote,
       quickNoteMarkdown: project.quickNoteMarkdown,
       quickNoteHtml: project.quickNoteHtml,
+      quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
       status: project.status,
     });
     await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
@@ -601,6 +610,8 @@ export function WorkspacePage({
             >
               <RichEditor
                 html={quickNoteDraft.html}
+                defaultCodeLanguage={quickNoteCodeLanguage}
+                onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
                 variant="page"
                 showToolbar={false}
                 enableTables={false}
@@ -656,6 +667,7 @@ export function WorkspacePage({
                   await workspaceQuickNoteMutation.mutateAsync({
                     markdown: externalizedValue.markdown,
                     html: externalizedValue.html,
+                    defaultCodeLanguage: quickNoteCodeLanguage,
                     tagIds,
                   });
                   await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });

@@ -442,6 +442,7 @@ impl Database {
               summary TEXT NOT NULL DEFAULT '',
               summary_markdown TEXT NOT NULL DEFAULT '',
               summary_html TEXT NOT NULL DEFAULT '',
+              quick_note_code_language TEXT,
               is_archived INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
@@ -493,6 +494,7 @@ impl Database {
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
+              default_code_language TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -505,6 +507,7 @@ impl Database {
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
+              default_code_language TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -749,9 +752,24 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN summary_html TEXT NOT NULL DEFAULT ''",
         )?;
         self.ensure_column(
+            "projects",
+            "quick_note_code_language",
+            "ALTER TABLE projects ADD COLUMN quick_note_code_language TEXT",
+        )?;
+        self.ensure_column(
+            "notes",
+            "default_code_language",
+            "ALTER TABLE notes ADD COLUMN default_code_language TEXT",
+        )?;
+        self.ensure_column(
             "workspace_notes",
             "note_kind",
             "ALTER TABLE workspace_notes ADD COLUMN note_kind TEXT NOT NULL DEFAULT 'workspace_note'",
+        )?;
+        self.ensure_column(
+            "workspace_notes",
+            "default_code_language",
+            "ALTER TABLE workspace_notes ADD COLUMN default_code_language TEXT",
         )?;
         self.ensure_column(
             "activities",
@@ -1040,7 +1058,7 @@ impl Database {
             r#"
             SELECT
               p.id, p.name, p.kind, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
-              p.is_archived, p.created_at, p.updated_at,
+              p.quick_note_code_language, p.is_archived, p.created_at, p.updated_at,
               0 AS activity_count,
               0 AS unorganized_count,
               (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
@@ -1067,12 +1085,13 @@ impl Database {
                 summary: row.get(5)?,
                 summary_markdown: row.get(6)?,
                 summary_html: row.get(7)?,
-                is_archived: int_to_bool(row.get::<_, i64>(8)?),
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-                activity_count: row.get(11)?,
-                unorganized_count: row.get(12)?,
-                open_todo_count: row.get(13)?,
+                summary_code_language: row.get(8)?,
+                is_archived: int_to_bool(row.get::<_, i64>(9)?),
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+                activity_count: row.get(12)?,
+                unorganized_count: row.get(13)?,
+                open_todo_count: row.get(14)?,
             })
         })?;
 
@@ -1110,9 +1129,10 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO projects (
-              name, kind, status, root_path, summary, summary_markdown, summary_html, is_archived, created_at, updated_at
+              name, kind, status, root_path, summary, summary_markdown, summary_html,
+              quick_note_code_language, is_archived, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, 0, ?8, ?9)
             "#,
             params![
                 project_name,
@@ -1397,13 +1417,19 @@ impl Database {
                     rich_text_html_from_markdown(&next_summary_markdown)
                 }
             });
+        let next_summary_code_language = input
+            .summary_code_language
+            .as_deref()
+            .map(normalize_code_language)
+            .unwrap_or_else(|| current.summary_code_language.clone());
         self.conn.execute(
-            "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, status = ?5, updated_at = ?6 WHERE id = ?7",
+            "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, quick_note_code_language = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
             params![
                 project_name,
                 next_summary,
                 next_summary_markdown,
                 next_summary_html,
+                next_summary_code_language,
                 input.status.unwrap_or(current.status),
                 now_iso(),
                 input.project_id
@@ -1928,6 +1954,10 @@ impl Database {
 
     pub fn project_record_upsert(&mut self, input: ProjectRecordUpsertInput) -> Result<NoteRecord> {
         let timestamp = now_iso();
+        let default_code_language = input
+            .default_code_language
+            .as_deref()
+            .and_then(normalize_code_language);
         match input.note_id {
             Some(note_id) => {
                 let current = self.note_record(note_id)?;
@@ -1937,13 +1967,15 @@ impl Database {
                     SET title = ?1,
                         content_markdown = ?2,
                         content_html = ?3,
-                        updated_at = ?4
-                    WHERE id = ?5
+                        default_code_language = ?4,
+                        updated_at = ?5
+                    WHERE id = ?6
                     "#,
                     params![
                         input.title,
                         input.markdown,
                         input.html,
+                        default_code_language,
                         timestamp,
                         note_id
                     ],
@@ -1963,6 +1995,7 @@ impl Database {
                     input.title.as_deref(),
                     input.markdown.as_str(),
                     input.html.as_str(),
+                    default_code_language.as_deref(),
                     &timestamp,
                 )?;
                 let note_id = self.conn.last_insert_rowid();
@@ -2009,6 +2042,10 @@ impl Database {
         input: WorkspaceRecordUpsertInput,
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
+        let default_code_language = input
+            .default_code_language
+            .as_deref()
+            .and_then(normalize_code_language);
 
         match input.note_id {
             Some(note_id) => {
@@ -2019,10 +2056,11 @@ impl Database {
                     SET title = ?1,
                         content_markdown = ?2,
                         content_html = ?3,
-                        updated_at = ?4
-                    WHERE id = ?5
+                        default_code_language = ?4,
+                        updated_at = ?5
+                    WHERE id = ?6
                     "#,
-                    params![input.title, input.markdown, input.html, timestamp, note_id],
+                    params![input.title, input.markdown, input.html, default_code_language, timestamp, note_id],
                 )?;
                 self.replace_workspace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note_id)
@@ -2031,15 +2069,16 @@ impl Database {
                 self.conn.execute(
                     r#"
                     INSERT INTO workspace_notes (
-                      note_kind, title, content_markdown, content_html, created_at, updated_at
+                      note_kind, title, content_markdown, content_html, default_code_language, created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                     "#,
                     params![
                         WORKSPACE_NOTE_KIND_STANDARD,
                         input.title,
                         input.markdown,
                         input.html,
+                        default_code_language,
                         timestamp,
                         timestamp
                     ],
@@ -2078,6 +2117,10 @@ impl Database {
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
         let existing = self.workspace_quick_note_get()?;
+        let default_code_language = input
+            .default_code_language
+            .as_deref()
+            .and_then(normalize_code_language);
 
         match existing {
             Some(note) => {
@@ -2087,10 +2130,11 @@ impl Database {
                     SET title = NULL,
                         content_markdown = ?1,
                         content_html = ?2,
-                        updated_at = ?3
-                    WHERE id = ?4
+                        default_code_language = ?3,
+                        updated_at = ?4
+                    WHERE id = ?5
                     "#,
-                    params![input.markdown, input.html, timestamp, note.id],
+                    params![input.markdown, input.html, default_code_language, timestamp, note.id],
                 )?;
                 self.replace_workspace_note_tags(note.id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note.id)
@@ -2099,14 +2143,15 @@ impl Database {
                 self.conn.execute(
                     r#"
                     INSERT INTO workspace_notes (
-                      note_kind, title, content_markdown, content_html, created_at, updated_at
+                      note_kind, title, content_markdown, content_html, default_code_language, created_at, updated_at
                     )
-                    VALUES (?1, NULL, ?2, ?3, ?4, ?5)
+                    VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6)
                     "#,
                     params![
                         WORKSPACE_NOTE_KIND_TODAY_QUICK,
                         input.markdown,
                         input.html,
+                        default_code_language,
                         timestamp,
                         timestamp
                     ],
@@ -3650,15 +3695,17 @@ impl Database {
         title: Option<&str>,
         markdown: &str,
         html: &str,
+        default_code_language: Option<&str>,
         timestamp: &str,
     ) -> Result<()> {
         if self.has_column("notes", "note_type")? {
             self.conn.execute(
                 r#"
                 INSERT INTO notes (
-                  project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+                  project_id, activity_id, note_type, title, content_markdown, content_html,
+                  default_code_language, created_at, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 "#,
                 params![
                     project_id,
@@ -3667,6 +3714,7 @@ impl Database {
                     title,
                     markdown,
                     html,
+                    default_code_language,
                     timestamp,
                     timestamp
                 ],
@@ -3675,9 +3723,10 @@ impl Database {
             self.conn.execute(
                 r#"
                 INSERT INTO notes (
-                  project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
+                  project_id, activity_id, title, content_markdown, content_html,
+                  default_code_language, created_at, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                 "#,
                 params![
                     project_id,
@@ -3685,6 +3734,7 @@ impl Database {
                     title,
                     markdown,
                     html,
+                    default_code_language,
                     timestamp,
                     timestamp
                 ],
@@ -5104,6 +5154,7 @@ impl Database {
             title: Some(title.to_string()),
             markdown: markdown.to_string(),
             html: rich_text_html_from_markdown(markdown),
+            default_code_language: None,
             tag_ids: vec![],
         })
     }
@@ -7275,7 +7326,7 @@ impl Database {
             .query_row(
                 r#"
                 SELECT id, name, kind, status, root_path, summary, summary_markdown, summary_html,
-                  is_archived, created_at, updated_at
+                  quick_note_code_language, is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
                 [project_id],
@@ -7290,9 +7341,10 @@ impl Database {
                         summary: row.get(5)?,
                         summary_markdown: row.get(6)?,
                         summary_html: row.get(7)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(8)?),
-                        created_at: row.get(9)?,
-                        updated_at: row.get(10)?,
+                        summary_code_language: row.get(8)?,
+                        is_archived: int_to_bool(row.get::<_, i64>(9)?),
+                        created_at: row.get(10)?,
+                        updated_at: row.get(11)?,
                     })
                 },
             )
@@ -7332,7 +7384,8 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
+                SELECT id, project_id, activity_id, title, content_markdown, content_html,
+                  default_code_language, created_at, updated_at
                 FROM notes WHERE id = ?1
                 "#,
                 [note_id],
@@ -7344,9 +7397,10 @@ impl Database {
                         title: row.get(3)?,
                         content_markdown: row.get(4)?,
                         content_html: row.get(5)?,
+                        default_code_language: row.get(6)?,
                         tags: tags.clone(),
-                        created_at: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
                     })
                 },
             )
@@ -7358,7 +7412,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, title, content_markdown, content_html, created_at, updated_at
+                SELECT id, title, content_markdown, content_html, default_code_language, created_at, updated_at
                 FROM workspace_notes WHERE id = ?1
                 "#,
                 [note_id],
@@ -7368,9 +7422,10 @@ impl Database {
                         title: row.get(1)?,
                         content_markdown: row.get(2)?,
                         content_html: row.get(3)?,
+                        default_code_language: row.get(4)?,
                         tags: tags.clone(),
-                        created_at: row.get(4)?,
-                        updated_at: row.get(5)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
                     })
                 },
             )
@@ -9763,15 +9818,20 @@ impl Database {
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
+              default_code_language TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
               FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
             );
             INSERT INTO notes_next (
-              id, project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
+              id, project_id, activity_id, title, content_markdown, content_html,
+              default_code_language, created_at, updated_at
             )
-            SELECT id, project_id, activity_id, title, content_markdown, content_html, created_at, updated_at
+            SELECT id, project_id, activity_id, title, content_markdown, content_html,
+              CASE WHEN EXISTS(SELECT 1 FROM pragma_table_info('notes') WHERE name = 'default_code_language')
+                THEN default_code_language ELSE NULL END,
+              created_at, updated_at
             FROM notes;
             DROP TABLE notes;
             ALTER TABLE notes_next RENAME TO notes;
@@ -9828,15 +9888,20 @@ impl Database {
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
+              default_code_language TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
               FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
             );
             INSERT INTO notes_next (
-              id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+              id, project_id, activity_id, note_type, title, content_markdown, content_html,
+              default_code_language, created_at, updated_at
             )
-            SELECT id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
+            SELECT id, project_id, activity_id, note_type, title, content_markdown, content_html,
+              CASE WHEN EXISTS(SELECT 1 FROM pragma_table_info('notes') WHERE name = 'default_code_language')
+                THEN default_code_language ELSE NULL END,
+              created_at, updated_at
             FROM notes;
             DROP TABLE notes;
             ALTER TABLE notes_next RENAME TO notes;
@@ -10141,6 +10206,7 @@ impl Database {
                     },
                     resolved_markdown.as_str(),
                     resolved_html.as_str(),
+                    None,
                     &timestamp,
                 )?;
                 let note_id = self.conn.last_insert_rowid();
@@ -10453,6 +10519,16 @@ fn bool_to_int(value: bool) -> i64 {
 
 fn int_to_bool(value: i64) -> bool {
     value != 0
+}
+
+fn normalize_code_language(value: &str) -> Option<String> {
+    let trimmed = value.trim().to_lowercase();
+
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn legacy_organize_status_for_system(is_system: bool) -> &'static str {

@@ -19,6 +19,7 @@ import {
   workspacePath,
 } from "./lib/formatters";
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
+import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
@@ -80,6 +81,7 @@ function toProjectSidebarRecords(
     typeLabel: "记录",
     contentMarkdown: record.contentMarkdown,
     contentHtml: record.contentHtml,
+    defaultCodeLanguage: record.defaultCodeLanguage ?? null,
     tags: record.tags ?? [],
     updatedAt: record.updatedAt,
   }));
@@ -628,6 +630,7 @@ export function WorkspaceLayout({
         title: title.trim() || undefined,
         markdown: record.contentMarkdown,
         html: record.contentHtml ?? "",
+        defaultCodeLanguage: record.defaultCodeLanguage ?? null,
         tagIds: record.tags.map((tag) => tag.id),
       });
       await refreshProjectScope(queryClient, projectId);
@@ -644,6 +647,7 @@ export function WorkspaceLayout({
       projectId: activeProjectId,
       markdown: "",
       html: "<p></p>",
+      defaultCodeLanguage: null,
       tagIds: [],
     });
     await refreshProjectScope(queryClient, activeProjectId);
@@ -1135,9 +1139,27 @@ export function WorkspaceLayout({
             onCreateRecord={() => {
               void createProjectSidebarRecord();
             }}
-            onOpenRecord={(recordId) =>
-              navigate(projectPath(activeProject.id, recordFocusId(recordId)))
-            }
+            onOpenRecord={(recordId) => {
+              void (async () => {
+                if (
+                  activeRecordId !== null &&
+                  activeRecordId !== recordId &&
+                  activeProjectId === activeProject.id &&
+                  /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
+                ) {
+                  const saveResult = await requestProjectRecordFocusSave({
+                    projectId: activeProject.id,
+                    noteId: activeRecordId,
+                  });
+
+                  if (saveResult === "failed") {
+                    return;
+                  }
+                }
+
+                navigate(projectPath(activeProject.id, recordFocusId(recordId)));
+              })();
+            }}
             onRenameRecord={renameProjectSidebarRecord}
             onDeleteRecord={deleteProjectSidebarRecord}
             onOpenDocument={(document) => {

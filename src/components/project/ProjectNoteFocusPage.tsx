@@ -1,10 +1,14 @@
 import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { parseRouteId, projectPath } from "../../lib/formatters";
 import { withPageWidthClass } from "../../lib/pageWidth";
+import {
+  PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+  type ProjectRecordFocusSaveRequestDetail,
+} from "../../lib/record-focus-save";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { colorKeyForTagLabel } from "../../lib/tags";
@@ -44,6 +48,8 @@ export function ProjectNoteFocusPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<RichEditorValue>({ html: "", text: "", markdown: "" });
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [codeLanguage, setCodeLanguage] = useState<string | null>(null);
+  const [loadedNoteId, setLoadedNoteId] = useState<number | null>(null);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,6 +86,7 @@ export function ProjectNoteFocusPage() {
   }, [projectPageQuery.data, noteId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const draftReady = Boolean(note && loadedNoteId === note.id);
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !note) {
       return undefined;
@@ -117,39 +124,95 @@ export function ProjectNoteFocusPage() {
         markdown: note.contentMarkdown,
       });
       setTagIds((note.tags ?? []).map((tag) => tag.id));
+      setCodeLanguage(note.defaultCodeLanguage ?? null);
+      setPersistState("idle");
+      setLoadedNoteId(note.id);
     }
   }, [note]);
 
-  const handleSave = async (value: RichEditorValue) => {
-    if (!note || isSaving || !projectId) return;
+  const persistProjectRecord = useCallback(
+    async (
+      targetNote: NoteRecord,
+      value: RichEditorValue,
+      nextTitle: string,
+      nextTagIds: number[],
+      nextCodeLanguage: string | null,
+    ) => {
+      if (!projectId) return false;
 
-    setIsSaving(true);
-    try {
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(value, assetHandlers);
-      const normalized = normalizeRichEditorValue(externalizedValue);
-      const mentionedTagIds = extractTagMentionIds(normalized.markdown);
-      await projectMindApi.projectRecordUpsert({
-        projectId: note.projectId,
-        activityId: note.activityId ?? undefined,
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: normalized.markdown,
-        html: normalized.html,
-        tagIds: Array.from(new Set([...tagIds, ...mentionedTagIds])),
-      });
-      await projectPageQuery.refetch();
-      await queryClient.invalidateQueries({ queryKey: ["project-page", projectId] });
-      lastSavedTitleRef.current = title;
-    } catch (error) {
-      pushToast({ tone: "error", title: "保存失败", detail: String(error) });
-      throw error;
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      setIsSaving(true);
+      try {
+        const targetAssetHandlers = buildProjectNoteImageAssetHandlers(
+          targetNote.projectId,
+          targetNote.activityId ?? null,
+        );
+        const externalizedValue = await externalizeEmbeddedImageDataUrls(
+          value,
+          targetAssetHandlers,
+        );
+        const normalized = normalizeRichEditorValue(externalizedValue);
+        const mentionedTagIds = extractTagMentionIds(normalized.markdown);
+        await projectMindApi.projectRecordUpsert({
+          projectId: targetNote.projectId,
+          activityId: targetNote.activityId ?? undefined,
+          noteId: targetNote.id,
+          title: nextTitle.trim() || undefined,
+          markdown: normalized.markdown,
+          html: normalized.html,
+          defaultCodeLanguage: nextCodeLanguage,
+          tagIds: Array.from(new Set([...nextTagIds, ...mentionedTagIds])),
+        });
+        await projectPageQuery.refetch();
+        await queryClient.invalidateQueries({ queryKey: ["project-page", projectId] });
+        lastSavedTitleRef.current = nextTitle;
+        return true;
+      } catch (error) {
+        pushToast({ tone: "error", title: "保存失败", detail: String(error) });
+        throw error;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [projectId, projectPageQuery, pushToast, queryClient],
+  );
+
+  const handleSave = useCallback(
+    async (value: RichEditorValue) => {
+      if (!note || !draftReady) return false;
+      return persistProjectRecord(note, value, title, tagIds, codeLanguage);
+    },
+    [codeLanguage, draftReady, note, persistProjectRecord, tagIds, title],
+  );
+
+  const saveCurrentRecord = useCallback(async () => {
+    if (!note || !draftReady) return false;
+    return persistProjectRecord(
+      note,
+      editorControllerRef.current?.getValue() ?? content,
+      title,
+      tagIds,
+      codeLanguage,
+    );
+  }, [codeLanguage, content, draftReady, note, persistProjectRecord, tagIds, title]);
+
+  useEffect(() => {
+    const handleSaveRequest = (event: Event) => {
+      const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
+      if (!detail || detail.projectId !== projectId || detail.noteId !== noteId) {
+        return;
+      }
+
+      detail.respond(saveCurrentRecord());
+    };
+
+    window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
+    return () => {
+      window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
+    };
+  }, [noteId, projectId, saveCurrentRecord]);
 
   const saveTitleIfChanged = async () => {
-    if (!note || title === lastSavedTitleRef.current) {
+    if (!note || !draftReady || title === lastSavedTitleRef.current) {
       return;
     }
 
@@ -172,29 +235,17 @@ export function ProjectNoteFocusPage() {
   const handleBack = async () => {
     if (projectId !== null) {
       // Save before navigating back
-      await handleSave(editorControllerRef.current?.getValue() ?? content);
+      await saveCurrentRecord();
       navigate(projectPath(projectId, `record-${noteId}`));
     }
   };
 
   const handleTagsChange = async (newTagIds: number[]) => {
-    if (!note) return;
+    if (!note || !draftReady) return;
     setTagIds(newTagIds);
     try {
       const nextValue = editorControllerRef.current?.getValue() ?? content;
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(nextValue, assetHandlers);
-      const normalized = normalizeRichEditorValue(externalizedValue);
-      await projectMindApi.projectRecordUpsert({
-        projectId: note.projectId,
-        activityId: note.activityId ?? undefined,
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: normalized.markdown,
-        html: normalized.html,
-        tagIds: newTagIds,
-      });
-      lastSavedTitleRef.current = title;
-      await projectPageQuery.refetch();
+      await persistProjectRecord(note, nextValue, title, newTagIds, codeLanguage);
     } catch (error) {
       pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
     }
@@ -220,6 +271,14 @@ export function ProjectNoteFocusPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-text-soft">记录未找到</p>
+      </div>
+    );
+  }
+
+  if (!draftReady) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoaderCircle className="animate-spin text-text-soft" size={24} />
       </div>
     );
   }
@@ -313,7 +372,10 @@ export function ProjectNoteFocusPage() {
               }}
             />
             <RichEditor
+              key={note.id}
               html={content.html}
+              defaultCodeLanguage={codeLanguage}
+              onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
               autoFocus
               placeholder="写记录，正文里的 #标签 会自动同步。"

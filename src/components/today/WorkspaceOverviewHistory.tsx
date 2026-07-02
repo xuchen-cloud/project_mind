@@ -46,11 +46,18 @@ interface WorkspaceOverviewHistoryProps {
     title?: string;
     markdown: string;
     html: string;
+    defaultCodeLanguage?: string | null;
     tagIds?: number[];
   }) => Promise<unknown>;
   onUpdateRecord: (
     note: WorkspaceRecord,
-    input: { title?: string; markdown: string; html: string; tagIds?: number[] },
+    input: {
+      title?: string;
+      markdown: string;
+      html: string;
+      defaultCodeLanguage?: string | null;
+      tagIds?: number[];
+    },
   ) => Promise<unknown>;
   onDeleteRecord: (noteId: number) => Promise<unknown>;
   onCloseCompose: () => void;
@@ -80,6 +87,7 @@ export function WorkspaceOverviewHistory({
   const queryClient = useQueryClient();
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [recordContextMenu, setRecordContextMenu] = useState<{
@@ -128,10 +136,12 @@ export function WorkspaceOverviewHistory({
       title: recordDraftTitle.trim() || undefined,
       markdown: normalized.markdown,
       html: normalized.html,
+      defaultCodeLanguage: recordDraftCodeLanguage,
       tagIds: recordDraftTagIds,
     });
     setRecordDraftTitle("");
     setRecordDraftValue(EMPTY_VALUE);
+    setRecordDraftCodeLanguage(null);
     setRecordDraftTagIds([]);
     onCloseCompose();
   }
@@ -179,6 +189,8 @@ export function WorkspaceOverviewHistory({
             </div>
             <RichEditor
               html={recordDraftValue.html}
+              defaultCodeLanguage={recordDraftCodeLanguage}
+              onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
               variant="bare"
               autoFocus
               assetHandlers={assetHandlers}
@@ -229,7 +241,7 @@ export function WorkspaceOverviewHistory({
               focused={focusId === `record-${note.id}`}
               availableTags={availableTags}
               busy={saving || savingRecordId === note.id}
-              onSave={async (current, value, title, tagIds) => {
+              onSave={async (current, value, title, tagIds, defaultCodeLanguage) => {
                 setSavingRecordId(current.id);
                 try {
                   const normalized = normalizeRichEditorValue(value);
@@ -237,6 +249,7 @@ export function WorkspaceOverviewHistory({
                     title: title.trim() || undefined,
                     markdown: normalized.markdown,
                     html: normalized.html,
+                    defaultCodeLanguage,
                     tagIds,
                   });
                 } finally {
@@ -300,6 +313,7 @@ function WorkspaceHistoryRecordRow({
     value: RichEditorValue,
     title: string,
     tagIds: number[],
+    defaultCodeLanguage: string | null,
   ) => Promise<void>;
   onOpenContextMenu: (event: ReactMouseEvent, noteId: number) => void;
   contactMentionOptions: RichEditorContactMentionOptions;
@@ -313,6 +327,9 @@ function WorkspaceHistoryRecordRow({
   const [title, setTitle] = useState(note.title ?? "");
   const [value, setValue] = useState<RichEditorValue>(() => buildWorkspaceDraft(note));
   const [tagIds, setTagIds] = useState<number[]>((note.tags ?? []).map((tag) => tag.id));
+  const [codeLanguage, setCodeLanguage] = useState<string | null>(
+    note.defaultCodeLanguage ?? null,
+  );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLElement | null>(null);
@@ -321,7 +338,12 @@ function WorkspaceHistoryRecordRow({
   const exitScrollTopRef = useRef<number | null>(null);
   const pendingAnchorTopRef = useRef<number | null>(null);
   const saveSignatureRef = useRef(
-    buildRecordSaveSignature(buildWorkspaceDraft(note), note.title ?? "", tagIds),
+    buildRecordSaveSignature(
+      buildWorkspaceDraft(note),
+      note.title ?? "",
+      tagIds,
+      note.defaultCodeLanguage ?? null,
+    ),
   );
 
   const noteTags = note.tags ?? [];
@@ -352,11 +374,13 @@ function WorkspaceHistoryRecordRow({
       setAutoFocusPoint(null);
       setValue(buildWorkspaceDraft(note));
       setTagIds(nextTagIds);
+      setCodeLanguage(note.defaultCodeLanguage ?? null);
       setPersistState("idle");
       saveSignatureRef.current = buildRecordSaveSignature(
         buildWorkspaceDraft(note),
         note.title ?? "",
         nextTagIds,
+        note.defaultCodeLanguage ?? null,
       );
     }
   }, [editing, note]);
@@ -420,9 +444,9 @@ function WorkspaceHistoryRecordRow({
     nextTitle: string,
     nextTagIds: number[],
   ) {
-    const nextSignature = buildRecordSaveSignature(nextValue, nextTitle, nextTagIds);
+    const nextSignature = buildRecordSaveSignature(nextValue, nextTitle, nextTagIds, codeLanguage);
     if (nextSignature === saveSignatureRef.current) return;
-    await onSave(note, nextValue, nextTitle, nextTagIds);
+    await onSave(note, nextValue, nextTitle, nextTagIds, codeLanguage);
     saveSignatureRef.current = nextSignature;
   }
 
@@ -549,6 +573,8 @@ function WorkspaceHistoryRecordRow({
           <div className="project-history-record__content">
             <RichEditor
               html={value.html}
+              defaultCodeLanguage={codeLanguage}
+              onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
               autoFocus={autoFocusPoint ?? true}
               assetHandlers={assetHandlers}
@@ -690,7 +716,7 @@ function shouldLetRichEditorHandleContextMenu(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        ".rich-editor__surface, .rich-editor__toolbar, .rich-editor__ai-menu, .rich-editor__table-toolbar, .context-menu__panel",
+        ".rich-editor__surface, .rich-editor__toolbar, .rich-editor__ai-menu, .rich-editor__table-toolbar, .rich-editor__code-language-popover, .context-menu__panel",
       ),
     )
   );
@@ -711,6 +737,7 @@ function buildRecordSaveSignature(
   value: RichEditorValue,
   title: string,
   tagIds: number[],
+  defaultCodeLanguage: string | null,
 ) {
   const normalized = normalizeRichEditorValue(value);
   const normalizedTagIds = [...tagIds].sort((left, right) => left - right);
@@ -719,5 +746,6 @@ function buildRecordSaveSignature(
     markdown: normalized.markdown,
     html: normalized.html,
     tagIds: normalizedTagIds,
+    defaultCodeLanguage,
   });
 }

@@ -17,6 +17,8 @@ pub struct ProjectRecord {
     pub summary_markdown: String,
     #[serde(rename = "quickNoteHtml")]
     pub summary_html: String,
+    #[serde(rename = "quickNoteCodeLanguage")]
+    pub summary_code_language: Option<String>,
     pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -36,6 +38,8 @@ pub struct ProjectListItem {
     pub summary_markdown: String,
     #[serde(rename = "quickNoteHtml")]
     pub summary_html: String,
+    #[serde(rename = "quickNoteCodeLanguage")]
+    pub summary_code_language: Option<String>,
     pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -53,6 +57,7 @@ pub struct NoteRecord {
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
+    pub default_code_language: Option<String>,
     pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
@@ -110,6 +115,7 @@ pub struct WorkspaceRecord {
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
+    pub default_code_language: Option<String>,
     pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
@@ -725,6 +731,8 @@ pub struct ProjectUpdateInput {
     pub summary_markdown: Option<String>,
     #[serde(rename = "quickNoteHtml", alias = "summaryHtml")]
     pub summary_html: Option<String>,
+    #[serde(rename = "quickNoteCodeLanguage", alias = "summaryCodeLanguage")]
+    pub summary_code_language: Option<String>,
     pub status: Option<String>,
 }
 
@@ -879,6 +887,7 @@ pub struct ProjectRecordUpsertInput {
     pub title: Option<String>,
     pub markdown: String,
     pub html: String,
+    pub default_code_language: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }
@@ -896,6 +905,7 @@ pub struct WorkspaceRecordUpsertInput {
     pub title: Option<String>,
     pub markdown: String,
     pub html: String,
+    pub default_code_language: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }
@@ -905,6 +915,7 @@ pub struct WorkspaceRecordUpsertInput {
 pub struct WorkspaceQuickNoteUpsertInput {
     pub markdown: String,
     pub html: String,
+    pub default_code_language: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }

@@ -62,6 +62,7 @@ export interface ProjectSidebarRecordItem {
   typeLabel: string;
   contentMarkdown: string;
   contentHtml?: string;
+  defaultCodeLanguage?: string | null;
   tags: Array<{ id: number; label: string; colorKey: FileTagColorKey }>;
   updatedAt: string;
 }

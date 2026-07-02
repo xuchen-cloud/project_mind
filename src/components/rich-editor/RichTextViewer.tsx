@@ -6,6 +6,7 @@ import {
   resolveManagedImageDisplaySrc,
   TRANSPARENT_IMAGE_DATA_URL,
 } from "./imageThumbnails";
+import { codeLanguageLabel, highlightCodeToHtml, normalizeCodeLanguage } from "./codeHighlight";
 
 const viewerImagePendingCache = new Map<string, Promise<string>>();
 const VIEWER_IMAGE_MIN_HEIGHT = 60;
@@ -268,7 +269,36 @@ function buildViewerRenderableHtml(html: string) {
     image.setAttribute("decoding", "async");
   });
 
+  doc.body.querySelectorAll<HTMLElement>("pre code").forEach((code) => {
+    const language = readCodeElementLanguage(code);
+
+    if (language) {
+      code.classList.add(`language-${language}`);
+    }
+
+    code.innerHTML = highlightCodeToHtml(code.textContent ?? "", language);
+    const pre = code.parentElement;
+
+    if (pre && !pre.querySelector(".rich-editor__readonly-code-language-button")) {
+      const languageButton = doc.createElement("button");
+      languageButton.type = "button";
+      languageButton.className = "rich-editor__readonly-code-language-button";
+      languageButton.tabIndex = -1;
+      languageButton.textContent = codeLanguageLabel(language);
+      pre.insertBefore(languageButton, code);
+    }
+  });
+
   return doc.body.innerHTML.trim();
+}
+
+function readCodeElementLanguage(code: HTMLElement) {
+  const classLanguage = Array.from(code.classList)
+    .map((className) => className.match(/^language-(.+)$/u)?.[1] ?? "")
+    .find((value) => value.trim().length > 0);
+  const dataLanguage = code.getAttribute("data-language") ?? code.parentElement?.getAttribute("data-language");
+
+  return normalizeCodeLanguage(classLanguage || dataLanguage || "");
 }
 
 function getViewerHtmlForRender(html: string) {

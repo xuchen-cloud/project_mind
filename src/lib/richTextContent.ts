@@ -64,7 +64,41 @@ export function renderMarkdownToHtml(markdown?: string | null) {
     ? renderMarkdownWithTables(normalizedWithReferences)
     : defaultMarkdownParser.tokenizer.render(normalizedWithReferences).trim();
 
-  return rendered.length > 0 ? rendered : EMPTY_RICH_TEXT_HTML;
+  const normalizedCodeBlocks = trimTrailingCodeBlockNewline(rendered);
+
+  return normalizedCodeBlocks.length > 0 ? normalizedCodeBlocks : EMPTY_RICH_TEXT_HTML;
+}
+
+export function trimTrailingCodeBlockNewline(html: string) {
+  if (!html || typeof DOMParser === "undefined") {
+    return html;
+  }
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  let changed = false;
+
+  const trimElement = (element: Element) => {
+    const text = element.textContent ?? "";
+    const trimmed = text.replace(/(?:\r\n|\n|\r)$/u, "");
+
+    if (trimmed === text) {
+      return;
+    }
+
+    element.textContent = trimmed;
+    changed = true;
+  };
+
+  doc.body.querySelectorAll("pre code").forEach(trimElement);
+  doc.body.querySelectorAll("pre").forEach((element) => {
+    if (element.querySelector("code")) {
+      return;
+    }
+
+    trimElement(element);
+  });
+
+  return changed ? doc.body.innerHTML : html;
 }
 
 export function getRenderableRichTextHtml(content: {

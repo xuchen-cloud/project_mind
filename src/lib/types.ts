@@ -7,6 +7,7 @@ export interface ProjectRecord {
   quickNote: string;
   quickNoteMarkdown?: string;
   quickNoteHtml?: string;
+  quickNoteCodeLanguage?: string | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -24,6 +25,7 @@ export interface NoteRecord {
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
+  defaultCodeLanguage?: string | null;
   tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
@@ -76,6 +78,7 @@ export interface WorkspaceRecord {
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
+  defaultCodeLanguage?: string | null;
   tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
@@ -496,6 +499,7 @@ export interface ProjectUpdateInput {
   quickNote: string;
   quickNoteMarkdown?: string;
   quickNoteHtml?: string;
+  quickNoteCodeLanguage?: string | null;
   status?: string;
 }
 
@@ -564,6 +568,7 @@ export interface ProjectRecordUpsertInput {
   title?: string;
   markdown: string;
   html: string;
+  defaultCodeLanguage?: string | null;
   tagIds?: number[];
 }
 
@@ -576,12 +581,14 @@ export interface WorkspaceRecordUpsertInput {
   title?: string;
   markdown: string;
   html: string;
+  defaultCodeLanguage?: string | null;
   tagIds?: number[];
 }
 
 export interface WorkspaceQuickNoteUpsertInput {
   markdown: string;
   html: string;
+  defaultCodeLanguage?: string | null;
   tagIds?: number[];
 }
 

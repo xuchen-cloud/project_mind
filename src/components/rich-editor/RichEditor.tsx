@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { forwardRef, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Editor, JSONContent } from "@tiptap/core";
@@ -13,6 +13,8 @@ import {
   ArrowRightToLine,
   ArrowUpToLine,
   Bold,
+  ChevronDown,
+  ChevronUp,
   Code2,
   Columns2,
   Combine,
@@ -46,6 +48,7 @@ import {
   TextSelect,
   Trash2,
   WandSparkles,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -75,7 +78,11 @@ import {
 } from "../../lib/internalReferences";
 import { findHashTagTextTrigger } from "../../lib/tags";
 import { repairRichTextAssetHtml, resolveRichTextImageSrc } from "../../lib/richTextAssets";
-import { renderMarkdownToHtml, richTextHtmlToPlainText } from "../../lib/richTextContent";
+import {
+  renderMarkdownToHtml,
+  richTextHtmlToPlainText,
+  trimTrailingCodeBlockNewline,
+} from "../../lib/richTextContent";
 import type {
   AiEditorRewriteContext,
   AiSettingsSnapshot,
@@ -108,10 +115,15 @@ import {
   buildEditorRewriteSlice,
   type EditorRewritePlaceholder,
 } from "./editorRewrite";
+import {
+  codeLanguageLabel,
+  filterCodeLanguageOptions,
+  normalizeCodeLanguage,
+} from "./codeHighlight";
 import { RichEditorAiMenu, type RichEditorAiMenuIconAction, type RichEditorAiMenuTextAction } from "./RichEditorAiMenu";
 import { RichEditorRewriteWidget } from "./RichEditorRewriteWidget";
 import { ImageAnnotationDialog } from "./ImageAnnotationDialog";
-import { buildRichEditorExtensions } from "./extensions";
+import { buildRichEditorExtensions, RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
 import { normalizeRichEditorValue } from "./normalize";
 import type {
@@ -145,6 +157,9 @@ export const RICH_EDITOR_FOCUS_REQUEST_EVENT =
   "project-mind-rich-editor-focus-request";
 const RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY = new PluginKey(
   "project-mind-rich-editor-rewrite-widget",
+);
+const RICH_EDITOR_SEARCH_PLUGIN_KEY = new PluginKey(
+  "project-mind-rich-editor-search",
 );
 
 type SaveReason =
@@ -189,6 +204,16 @@ interface EditorAiMenuState {
 interface TableToolbarPosition {
   left: number;
   top: number;
+}
+
+interface CodeToolbarPosition {
+  left: number;
+  top: number;
+}
+
+interface ActiveCodeBlockInfo {
+  pos: number;
+  language: string;
 }
 
 interface ImageContextMenuTarget {
@@ -243,6 +268,11 @@ interface EditorRewriteWidgetState {
   errorMessage?: string | null;
 }
 
+interface EditorSearchMatch {
+  from: number;
+  to: number;
+}
+
 interface RichEditorProps {
   html?: string;
   defaultHtml?: string;
@@ -283,6 +313,8 @@ interface RichEditorProps {
     persistState: RichEditorPersistState;
     save: (options?: { force?: boolean }) => Promise<unknown>;
   }) => ReactNode;
+  defaultCodeLanguage?: string | null;
+  onDefaultCodeLanguageChange?: (language: string | null) => void;
 }
 
 export interface RichEditorSelectionPayload {
@@ -334,6 +366,8 @@ export function RichEditor({
   onOpenAiSettings,
   selectionActions,
   renderToolbarExtras,
+  defaultCodeLanguage,
+  onDefaultCodeLanguageChange,
 }: RichEditorProps) {
   const { pushToast } = useFeedbackStore();
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
@@ -345,6 +379,10 @@ export function RichEditor({
   const [rewriteSession, setRewriteSession] = useState<EditorRewriteSessionState | null>(null);
   const [uiTick, setUiTick] = useState(0);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<TableToolbarPosition | null>(null);
+  const [codeToolbarPosition, setCodeToolbarPosition] = useState<CodeToolbarPosition | null>(null);
+  const [codeLanguagePanelOpen, setCodeLanguagePanelOpen] = useState(false);
+  const [codeLanguageContextMenuOpen, setCodeLanguageContextMenuOpen] = useState(false);
+  const [codeLanguageQuery, setCodeLanguageQuery] = useState("");
   const [referencePicker, setReferencePicker] = useState<null | {
     start: number;
     end: number;
@@ -366,6 +404,11 @@ export function RichEditor({
     position: { left: number; top: number };
   }>(null);
   const [tagActiveIndex, setTagActiveIndex] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [searchMatches, setSearchMatches] = useState<EditorSearchMatch[]>([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
 
   const autosaveConfig = useMemo<AutosaveConfig>(() => {
     if (typeof autosave === "object") {
@@ -409,6 +452,8 @@ export function RichEditor({
   const syntheticPasteRef = useRef(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const tableToolbarRef = useRef<HTMLDivElement | null>(null);
+  const codeToolbarRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const storedTextSelectionRef = useRef<StoredTextSelection | null>(null);
   const referencePickerRef = useRef<null | {
     start: number;
@@ -443,6 +488,15 @@ export function RichEditor({
     onAccept: () => {},
     onClose: () => {},
     onOpenAiSettings: undefined,
+  });
+  const searchStateRef = useRef<{
+    open: boolean;
+    matches: EditorSearchMatch[];
+    activeIndex: number;
+  }>({
+    open: false,
+    matches: [],
+    activeIndex: 0,
   });
   const rewriteJob = useAiJobTarget(rewriteSession?.targetKey ?? "__rich-editor-rewrite-idle__");
   const enabledRewriteActions = useMemo(
@@ -580,11 +634,32 @@ export function RichEditor({
     showToolbar ||
     enableTables ||
     contextMenu !== null ||
-    aiMenu !== null;
+    aiMenu !== null ||
+    searchOpen;
+
+  searchStateRef.current = {
+    open: searchOpen,
+    matches: searchMatches,
+    activeIndex: activeSearchIndex,
+  };
 
   const closeInternalReferencePicker = useCallback(() => {
     setReferencePicker(null);
     setReferenceActiveIndex(0);
+  }, []);
+
+  const openEditorSearch = useCallback(() => {
+    setSearchOpen(true);
+    setContextMenu(null);
+    setAiMenu(null);
+    window.requestAnimationFrame(() => {
+      const input = searchInputRef.current;
+
+      input?.focus();
+      if (input && input.value.length === 0) {
+        input.select();
+      }
+    });
   }, []);
 
   const syncInternalReferencePicker = useCallback(
@@ -1089,6 +1164,12 @@ export function RichEditor({
         return true;
       },
       handleKeyDown: (_view, event) => {
+        if (!event.isComposing && event.key.toLowerCase() === "f" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          openEditorSearch();
+          return true;
+        }
+
         const activeReferencePicker = referencePickerRef.current;
 
         if (!effectiveReadOnly && activeReferencePicker) {
@@ -1314,6 +1395,147 @@ export function RichEditor({
       }
     },
   });
+
+  const closeEditorSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchMatches([]);
+    setActiveSearchIndex(0);
+    editor?.commands.focus(undefined, { scrollIntoView: false });
+  }, [editor]);
+
+  const selectSearchMatch = useCallback((index: number, options?: { focus?: boolean }) => {
+    const nextEditor = editor;
+    const matches = searchMatches;
+
+    if (!nextEditor || matches.length === 0) {
+      setActiveSearchIndex(0);
+      return;
+    }
+
+    const nextIndex = clampNumber(index, 0, matches.length - 1);
+    const match = matches[nextIndex];
+    const shouldRestoreSearchFocus =
+      document.activeElement === searchInputRef.current &&
+      options?.focus !== true;
+    setActiveSearchIndex(nextIndex);
+    const selection = nextEditor.state.selection;
+    if (selection.from !== match.from || selection.to !== match.to) {
+      nextEditor.view.dispatch(
+        nextEditor.state.tr
+          .setSelection(TextSelection.create(nextEditor.state.doc, match.from, match.to))
+          .scrollIntoView(),
+      );
+    }
+    window.requestAnimationFrame(() => {
+      scrollSearchMatchIntoComfortView(nextEditor, match.from);
+    });
+
+    if (options?.focus) {
+      nextEditor.commands.focus(undefined, { scrollIntoView: false });
+    } else if (shouldRestoreSearchFocus) {
+      searchInputRef.current?.focus();
+      window.requestAnimationFrame(() => {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof Node && nextEditor.view.dom.contains(activeElement)) {
+          searchInputRef.current?.focus();
+        }
+      });
+    }
+  }, [editor, searchMatches]);
+
+  const goToNextSearchMatch = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+
+    selectSearchMatch((activeSearchIndex + 1) % searchMatches.length);
+  }, [activeSearchIndex, searchMatches.length, selectSearchMatch]);
+
+  const goToPreviousSearchMatch = useCallback(() => {
+    if (searchMatches.length === 0) {
+      return;
+    }
+
+    selectSearchMatch(
+      activeSearchIndex === 0 ? searchMatches.length - 1 : activeSearchIndex - 1,
+    );
+  }, [activeSearchIndex, searchMatches.length, selectSearchMatch]);
+
+  const replaceCurrentSearchMatch = useCallback(() => {
+    if (!editor || effectiveReadOnly || searchMatches.length === 0) {
+      return;
+    }
+
+    const match = searchMatches[Math.max(0, Math.min(activeSearchIndex, searchMatches.length - 1))];
+    editor.chain().focus().insertContentAt({ from: match.from, to: match.to }, replaceQuery).run();
+  }, [activeSearchIndex, editor, effectiveReadOnly, replaceQuery, searchMatches]);
+
+  const replaceAllSearchMatches = useCallback(() => {
+    if (!editor || effectiveReadOnly || searchMatches.length === 0) {
+      return;
+    }
+
+    const tr = editor.state.tr;
+    for (const match of [...searchMatches].sort((left, right) => right.from - left.from)) {
+      tr.insertText(replaceQuery, match.from, match.to);
+    }
+
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.commands.focus(undefined, { scrollIntoView: false });
+  }, [editor, effectiveReadOnly, replaceQuery, searchMatches]);
+
+  useEffect(() => {
+    if (!editor || !searchOpen) {
+      setSearchMatches([]);
+      setActiveSearchIndex(0);
+      return;
+    }
+
+    const nextMatches = findEditorSearchMatches(editor, searchQuery);
+    setSearchMatches((current) =>
+      editorSearchMatchesEqual(current, nextMatches) ? current : nextMatches,
+    );
+    setActiveSearchIndex((current) => {
+      if (nextMatches.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, nextMatches.length - 1);
+    });
+  }, [editor, searchOpen, searchQuery, uiTick]);
+
+  useEffect(() => {
+    if (!editor || !searchOpen || searchMatches.length === 0) {
+      return;
+    }
+
+    selectSearchMatch(activeSearchIndex);
+  }, [activeSearchIndex, editor, searchMatches, searchOpen, selectSearchMatch]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const plugin = createEditorSearchPlugin({
+      getSearchState: () => searchStateRef.current,
+    });
+
+    editor.registerPlugin(plugin);
+    return () => {
+      editor.unregisterPlugin(RICH_EDITOR_SEARCH_PLUGIN_KEY);
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    editor.view.dispatch(
+      editor.state.tr.setMeta(RICH_EDITOR_SEARCH_PLUGIN_KEY, Date.now()),
+    );
+  }, [activeSearchIndex, editor, searchMatches, searchOpen]);
 
   const rewritePreviewHtml = useMemo(() => {
     if (!editor || !rewriteSession) {
@@ -2131,6 +2353,151 @@ export function RichEditor({
     };
   }, [tableToolbarGroups.length, updateTableToolbarPosition]);
 
+  const activeCodeBlockInfo = useMemo(() => {
+    if (!editor || effectiveReadOnly || !editor.isEditable) {
+      return null;
+    }
+
+    return getActiveCodeBlockInfo(editor);
+  }, [editor, effectiveReadOnly, uiTick]);
+
+  const updateCodeToolbarPosition = useCallback(() => {
+    if (!editor || !activeCodeBlockInfo) {
+      setCodeToolbarPosition(null);
+      return;
+    }
+
+    const frame = frameRef.current;
+    const toolbar = codeToolbarRef.current;
+    const codeElement = editor.view.nodeDOM(activeCodeBlockInfo.pos);
+
+    if (!frame || !toolbar || !(codeElement instanceof HTMLElement)) {
+      setCodeToolbarPosition(null);
+      return;
+    }
+
+    const codeRect = codeElement.getBoundingClientRect();
+    const margin = 8;
+    const toolbarWidth = toolbar.offsetWidth || 220;
+    const minLeft = margin;
+    const maxLeft = Math.max(minLeft, window.innerWidth - toolbarWidth - margin);
+    const nextLeft = clampNumber(
+      codeRect.left + margin,
+      minLeft,
+      maxLeft,
+    );
+    const nextTop = Math.max(margin, codeRect.top + margin);
+
+    setCodeToolbarPosition((current) => {
+      if (current && current.left === nextLeft && current.top === nextTop) {
+        return current;
+      }
+
+      return { left: nextLeft, top: nextTop };
+    });
+  }, [activeCodeBlockInfo, editor]);
+
+  useLayoutEffect(() => {
+    if (!activeCodeBlockInfo) {
+      setCodeToolbarPosition(null);
+      setCodeLanguagePanelOpen(false);
+      setCodeLanguageContextMenuOpen(false);
+      return;
+    }
+
+    updateCodeToolbarPosition();
+  }, [activeCodeBlockInfo, uiTick, updateCodeToolbarPosition]);
+
+  useEffect(() => {
+    if (!activeCodeBlockInfo) {
+      return;
+    }
+
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    const syncPosition = () => {
+      window.requestAnimationFrame(() => {
+        updateCodeToolbarPosition();
+      });
+    };
+
+    frame.addEventListener("scroll", syncPosition, { passive: true });
+    window.addEventListener("resize", syncPosition);
+
+    return () => {
+      frame.removeEventListener("scroll", syncPosition);
+      window.removeEventListener("resize", syncPosition);
+    };
+  }, [activeCodeBlockInfo, updateCodeToolbarPosition]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    const handleCodeLanguageOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: "select" | "document"; pos?: number }>).detail;
+      const pos = Number(detail?.pos);
+
+      if (!Number.isFinite(pos)) {
+        return;
+      }
+
+      try {
+        editor.view.dispatch(
+          editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos + 1)),
+        );
+      } catch {
+        editor.commands.focus();
+      }
+
+      setCodeLanguageQuery("");
+      setCodeLanguagePanelOpen(detail?.mode !== "document");
+      setCodeLanguageContextMenuOpen(detail?.mode === "document");
+      editor.commands.focus(undefined, { scrollIntoView: false });
+      window.requestAnimationFrame(() => updateCodeToolbarPosition());
+    };
+
+    frame.addEventListener(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, handleCodeLanguageOpen);
+    return () => {
+      frame.removeEventListener(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, handleCodeLanguageOpen);
+    };
+  }, [editor, updateCodeToolbarPosition]);
+
+  const applyCodeLanguage = useCallback(
+    (language: string | null) => {
+      if (!editor || !activeCodeBlockInfo) {
+        return;
+      }
+
+      const normalized = normalizeCodeLanguage(language);
+      applyCodeBlockLanguage(editor, activeCodeBlockInfo.pos, normalized);
+      setCodeLanguageQuery("");
+      setCodeLanguagePanelOpen(false);
+      editor.commands.focus();
+    },
+    [activeCodeBlockInfo, editor],
+  );
+
+  const applyCurrentCodeLanguageToDocument = useCallback(() => {
+    if (!editor || !activeCodeBlockInfo || !activeCodeBlockInfo.language) {
+      return;
+    }
+
+    applyPlainTextCodeBlocksLanguage(editor, activeCodeBlockInfo.language);
+    editor.commands.focus();
+  }, [activeCodeBlockInfo, editor]);
+
   const closeRewriteSession = useCallback(() => {
     setRewriteSession(null);
   }, []);
@@ -2375,6 +2742,7 @@ export function RichEditor({
               readOnly: effectiveReadOnly,
               selectionActions,
               selectionPayload,
+              defaultCodeLanguage,
             }),
             autoFocus: false,
           });
@@ -2395,7 +2763,12 @@ export function RichEditor({
           x: event.clientX,
           y: event.clientY,
           ariaLabel: "文本操作",
-          actions: buildTextContextMenuActions(editor, effectiveReadOnly, enableTables ? insertTable : undefined),
+          actions: buildTextContextMenuActions(
+            editor,
+            effectiveReadOnly,
+            enableTables ? insertTable : undefined,
+            defaultCodeLanguage,
+          ),
           autoFocus: false,
         });
         return;
@@ -2585,7 +2958,7 @@ export function RichEditor({
           icon: Code2,
           isActive: () => editor.isActive("codeBlock"),
           isDisabled: editorDisabled,
-          run: () => editor.chain().focus().toggleCodeBlock().run(),
+          run: () => toggleCodeBlockWithDefault(editor, defaultCodeLanguage),
         },
         {
           key: "blockquote",
@@ -2633,6 +3006,7 @@ export function RichEditor({
     assetBusy,
     assetHandlers?.insertFile,
     assetHandlers?.insertImage,
+    defaultCodeLanguage,
     editor,
     enableTables,
     handleInsertFile,
@@ -2699,10 +3073,10 @@ export function RichEditor({
         icon: Code2,
         active: editor.isActive("codeBlock"),
         disabled: effectiveReadOnly || !editor.can().chain().focus().toggleCodeBlock().run(),
-        onSelect: () => runWithSelection(() => editor.chain().focus().toggleCodeBlock().run()),
+        onSelect: () => runWithSelection(() => toggleCodeBlockWithDefault(editor, defaultCodeLanguage)),
       },
     ];
-  }, [editor, effectiveReadOnly, restoreStoredTextSelection, uiTick]);
+  }, [defaultCodeLanguage, editor, effectiveReadOnly, restoreStoredTextSelection, uiTick]);
 
   const aiMenuMoreActions = useMemo<RichEditorAiMenuTextAction[]>(() => {
     if (!editor) {
@@ -2869,9 +3243,36 @@ export function RichEditor({
         </div>
       ) : null}
 
+      {activeCodeBlockInfo ? (
+        <CodeLanguageFloatingToolbar
+          ref={codeToolbarRef}
+          position={codeToolbarPosition}
+          language={activeCodeBlockInfo.language}
+          query={codeLanguageQuery}
+          open={codeLanguagePanelOpen}
+          contextMenuOpen={codeLanguageContextMenuOpen}
+          onQueryChange={setCodeLanguageQuery}
+          onOpenChange={setCodeLanguagePanelOpen}
+          onContextMenuOpenChange={setCodeLanguageContextMenuOpen}
+          onApplyToDocument={applyCurrentCodeLanguageToDocument}
+          onSelect={applyCodeLanguage}
+        />
+      ) : null}
+
       <div
         ref={frameRef}
         className="rich-editor__frame"
+        onKeyDownCapture={(event) => {
+          if (
+            !event.nativeEvent.isComposing &&
+            event.key.toLowerCase() === "f" &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            openEditorSearch();
+          }
+        }}
         onPointerDownCapture={handleFramePointerDownCapture}
         onMouseDownCapture={handleFrameMouseDownCapture}
         onClick={handleFrameClick}
@@ -2917,6 +3318,107 @@ export function RichEditor({
                 ))}
               </div>
             ))}
+          </div>
+        ) : null}
+
+        {searchOpen ? (
+          <div className="rich-editor__search-panel" role="dialog" aria-label="文本搜索">
+            <div className="rich-editor__search-row">
+              <input
+                ref={searchInputRef}
+                className="rich-editor__search-input"
+                aria-label="搜索正文"
+                placeholder="搜索"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) {
+                    return;
+                  }
+
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (event.shiftKey) {
+                      goToPreviousSearchMatch();
+                    } else {
+                      goToNextSearchMatch();
+                    }
+                  }
+
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeEditorSearch();
+                  }
+                }}
+              />
+              <span className="rich-editor__search-count" aria-label="搜索结果数量">
+                {searchMatches.length > 0 ? activeSearchIndex + 1 : 0} / {searchMatches.length}
+              </span>
+              <ToolbarButton
+                type="button"
+                aria-label="上一个匹配"
+                title="上一个匹配"
+                disabled={searchMatches.length === 0}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={goToPreviousSearchMatch}
+              >
+                <ChevronUp size={15} />
+              </ToolbarButton>
+              <ToolbarButton
+                type="button"
+                aria-label="下一个匹配"
+                title="下一个匹配"
+                disabled={searchMatches.length === 0}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={goToNextSearchMatch}
+              >
+                <ChevronDown size={15} />
+              </ToolbarButton>
+              <ToolbarButton
+                type="button"
+                aria-label="关闭搜索"
+                title="关闭搜索"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={closeEditorSearch}
+              >
+                <X size={15} />
+              </ToolbarButton>
+            </div>
+            {!effectiveReadOnly ? (
+              <div className="rich-editor__search-row">
+                <input
+                  className="rich-editor__search-input"
+                  aria-label="替换为"
+                  placeholder="替换为"
+                  value={replaceQuery}
+                  onChange={(event) => setReplaceQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeEditorSearch();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rich-editor__search-action"
+                  disabled={searchMatches.length === 0}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={replaceCurrentSearchMatch}
+                >
+                  替换
+                </button>
+                <button
+                  type="button"
+                  className="rich-editor__search-action"
+                  disabled={searchMatches.length === 0}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={replaceAllSearchMatches}
+                >
+                  全部
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -3175,6 +3677,246 @@ function TableInsertButton({
     </div>
   );
 }
+
+const CodeLanguageFloatingToolbar = forwardRef<
+  HTMLDivElement,
+  {
+    position: CodeToolbarPosition | null;
+    language: string;
+    query: string;
+    open: boolean;
+    contextMenuOpen: boolean;
+    onQueryChange: (query: string) => void;
+    onOpenChange: (open: boolean) => void;
+    onContextMenuOpenChange: (open: boolean) => void;
+    onApplyToDocument: () => void;
+    onSelect: (language: string | null) => void;
+  }
+>(function CodeLanguageFloatingToolbar(
+  {
+    position,
+    language,
+    query,
+    open,
+    contextMenuOpen,
+    onQueryChange,
+    onOpenChange,
+    onContextMenuOpenChange,
+    onApplyToDocument,
+    onSelect,
+  },
+  ref,
+) {
+  const options = useMemo(() => filterCodeLanguageOptions(query).slice(0, 12), [query]);
+  const normalizedLanguage = normalizeCodeLanguage(language);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const optionIds = useMemo<(string | null)[]>(() => [null, ...options.map((option) => option.id)], [options]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open && !contextMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+
+      if (target && rootRef.current?.contains(target)) {
+        return;
+      }
+
+      onOpenChange(false);
+      onContextMenuOpenChange(false);
+      onQueryChange("");
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      onOpenChange(false);
+      onContextMenuOpenChange(false);
+      onQueryChange("");
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenuOpen, onContextMenuOpenChange, onOpenChange, onQueryChange, open]);
+
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node;
+
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref],
+  );
+
+  const commitLanguage = (nextLanguage: string | null) => {
+    onSelect(nextLanguage);
+    onOpenChange(false);
+    onContextMenuOpenChange(false);
+  };
+
+  const runContextAction = (action: () => void) => {
+    action();
+    onOpenChange(false);
+    onContextMenuOpenChange(false);
+    onQueryChange("");
+  };
+
+  return (
+    <div
+      ref={setRefs}
+      className={[
+        "rich-editor__code-language-popover",
+        open || contextMenuOpen ? "rich-editor__code-language-popover--open" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{
+        left: `${position?.left ?? 0}px`,
+        top: `${position?.top ?? 0}px`,
+        visibility: position ? "visible" : "hidden",
+      }}
+      aria-label="代码类型"
+    >
+      <div className="rich-editor__code-language-actions">
+        <button
+          type="button"
+          className="rich-editor__code-language-button"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => {
+            onContextMenuOpenChange(false);
+            onOpenChange(!open);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenChange(false);
+            onContextMenuOpenChange(true);
+          }}
+        >
+          <span>{codeLanguageLabel(normalizedLanguage)}</span>
+          <span aria-hidden="true">▾</span>
+        </button>
+      </div>
+
+      {contextMenuOpen ? (
+        <div className="rich-editor__code-language-context-panel" role="menu" aria-label="代码类型应用范围">
+          <button
+            type="button"
+            className="rich-editor__code-language-context-option"
+            role="menuitem"
+            disabled={!normalizedLanguage}
+            onClick={() => runContextAction(onApplyToDocument)}
+          >
+            应用到整个文档
+          </button>
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="rich-editor__code-language-panel">
+          <div className="rich-editor__code-language-panel-header">
+            <input
+              ref={inputRef}
+              className="rich-editor__code-language-search"
+              value={query}
+              placeholder="Search language"
+              aria-label="搜索代码语言"
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.min(current + 1, Math.max(optionIds.length - 1, 0)));
+                }
+
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.max(current - 1, 0));
+                }
+
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitLanguage(optionIds[activeIndex] ?? optionIds[0] ?? null);
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onOpenChange(false);
+                  onQueryChange("");
+                }
+              }}
+            />
+          </div>
+          <div className="rich-editor__code-language-list" role="listbox">
+            <button
+              type="button"
+              className={[
+                "rich-editor__code-language-option",
+                normalizedLanguage === "" ? "rich-editor__code-language-option--selected" : "",
+                activeIndex === 0 ? "rich-editor__code-language-option--active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onMouseEnter={() => setActiveIndex(0)}
+              onClick={() => commitLanguage(null)}
+            >
+              Plain Text
+            </button>
+            {options.map((option, index) => (
+              <button
+                key={option.id}
+                type="button"
+                className={[
+                  "rich-editor__code-language-option",
+                  normalizedLanguage === option.id ? "rich-editor__code-language-option--selected" : "",
+                  activeIndex === index + 1 ? "rich-editor__code-language-option--active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onMouseEnter={() => setActiveIndex(index + 1)}
+                onClick={() => commitLanguage(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+});
 
 function focusEditorForAutoFocus(
   editor: Editor,
@@ -3493,7 +4235,7 @@ function sanitizePastedHtml(rawHtml: string) {
     element.removeAttribute("style");
   });
 
-  return doc.body.innerHTML;
+  return trimTrailingCodeBlockNewline(doc.body.innerHTML);
 }
 
 function serializeEditor(editor: Editor): RichEditorValue {
@@ -3652,11 +4394,13 @@ function buildSelectionContextMenuActions({
   readOnly,
   selectionActions,
   selectionPayload,
+  defaultCodeLanguage,
 }: {
   editor: Editor;
   readOnly: boolean;
   selectionActions: RichEditorSelectionAction[];
   selectionPayload: RichEditorSelectionPayload;
+  defaultCodeLanguage?: string | null;
 }) {
   const customActions: ContextMenuAction[] = selectionActions.map((action) => ({
     key: action.key,
@@ -3671,7 +4415,7 @@ function buildSelectionContextMenuActions({
   return [
     ...customActions,
     { type: "separator", key: "selection-actions-separator" } satisfies ContextMenuAction,
-    ...buildTextContextMenuActions(editor, readOnly),
+    ...buildTextContextMenuActions(editor, readOnly, undefined, defaultCodeLanguage),
   ];
 }
 
@@ -3679,6 +4423,7 @@ function buildTextContextMenuActions(
   editor: Editor,
   readOnly: boolean,
   insertTable?: (rows?: number, cols?: number) => void,
+  defaultCodeLanguage?: string | null,
 ) {
   const canRun = (callback: (chain: any) => { run: () => boolean }) =>
     !readOnly && editor.isEditable && callback(editor.can().chain().focus()).run();
@@ -3719,7 +4464,9 @@ function buildTextContextMenuActions(
       icon: Code2,
       active: () => editor.isActive("codeBlock"),
       disabled: !canRun((chain) => chain.toggleCodeBlock()),
-      onSelect: runCommand((chain) => chain.toggleCodeBlock()),
+      onSelect: () => {
+        toggleCodeBlockWithDefault(editor, defaultCodeLanguage);
+      },
     },
     {
       key: "text-blockquote",
@@ -3891,6 +4638,258 @@ function buildTextContextMenuActions(
   });
 
   return groupedActions;
+}
+
+function getActiveCodeBlockInfo(editor: Editor): ActiveCodeBlockInfo | null {
+  const { $from } = editor.state.selection;
+
+  for (let depth = $from.depth; depth >= 0; depth -= 1) {
+    const node = $from.node(depth);
+
+    if (node.type.name !== "codeBlock") {
+      continue;
+    }
+
+    const language = normalizeCodeLanguage(
+      typeof node.attrs.language === "string" ? node.attrs.language : node.attrs.params,
+    );
+
+    return {
+      pos: depth > 0 ? $from.before(depth) : 0,
+      language,
+    };
+  }
+
+  return null;
+}
+
+function toggleCodeBlockWithDefault(editor: Editor, defaultCodeLanguage?: string | null) {
+  const language = normalizeCodeLanguage(defaultCodeLanguage);
+
+  if (language) {
+    return editor
+      .chain()
+      .focus()
+      .toggleCodeBlock({ language, languageExplicit: false } as { language: string })
+      .run();
+  }
+
+  return editor.chain().focus().toggleCodeBlock().run();
+}
+
+function applyCodeBlockLanguage(
+  editor: Editor,
+  activeCodeBlockPos: number,
+  language: string,
+) {
+  const { state, view } = editor;
+  let tr = state.tr;
+
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "codeBlock") {
+      return true;
+    }
+
+    if (pos !== activeCodeBlockPos) {
+      return false;
+    }
+
+    tr = tr.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      language,
+      params: language,
+      languageExplicit: true,
+    });
+
+    return false;
+  });
+
+  if (tr.docChanged) {
+    view.dispatch(tr.scrollIntoView());
+  }
+}
+
+function applyPlainTextCodeBlocksLanguage(editor: Editor, language: string) {
+  const normalized = normalizeCodeLanguage(language);
+
+  if (!normalized) {
+    return;
+  }
+
+  const { state, view } = editor;
+  let tr = state.tr;
+
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "codeBlock") {
+      return true;
+    }
+
+    const currentLanguage = normalizeCodeLanguage(
+      typeof node.attrs.language === "string" ? node.attrs.language : node.attrs.params,
+    );
+
+    if (currentLanguage) {
+      return false;
+    }
+
+    tr = tr.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      language: normalized,
+      params: normalized,
+      languageExplicit: false,
+    });
+
+    return false;
+  });
+
+  if (tr.docChanged) {
+    view.dispatch(tr.scrollIntoView());
+  }
+}
+
+function findEditorSearchMatches(editor: Editor, query: string): EditorSearchMatch[] {
+  const trimmedQuery = query.trim();
+  const normalizedQuery = trimmedQuery.toLocaleLowerCase("zh-Hans-CN");
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const matches: EditorSearchMatch[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) {
+      return true;
+    }
+
+    const normalizedText = node.text.toLocaleLowerCase("zh-Hans-CN");
+    let index = normalizedText.indexOf(normalizedQuery);
+
+    while (index !== -1) {
+      matches.push({
+        from: pos + index,
+        to: pos + index + trimmedQuery.length,
+      });
+      index = normalizedText.indexOf(normalizedQuery, index + Math.max(1, normalizedQuery.length));
+    }
+
+    return true;
+  });
+
+  return matches;
+}
+
+function editorSearchMatchesEqual(left: EditorSearchMatch[], right: EditorSearchMatch[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((match, index) => {
+    const other = right[index];
+    return other && match.from === other.from && match.to === other.to;
+  });
+}
+
+function scrollSearchMatchIntoComfortView(editor: Editor, position: number) {
+  if (editor.isDestroyed) {
+    return;
+  }
+
+  let coords: { top: number; bottom: number };
+  try {
+    coords = editor.view.coordsAtPos(position);
+  } catch {
+    return;
+  }
+
+  const scrollParent = findScrollableParent(editor.view.dom);
+  const comfortTopRatio = 0.28;
+  const comfortBottomRatio = 0.72;
+
+  if (scrollParent) {
+    const parentRect = scrollParent.getBoundingClientRect();
+    const comfortTop = parentRect.top + parentRect.height * comfortTopRatio;
+    const comfortBottom = parentRect.top + parentRect.height * comfortBottomRatio;
+    const matchMiddle = (coords.top + coords.bottom) / 2;
+
+    if (matchMiddle < comfortTop || matchMiddle > comfortBottom) {
+      scrollParent.scrollBy({
+        top: matchMiddle - (parentRect.top + parentRect.height * 0.42),
+        behavior: "smooth",
+      });
+    }
+    return;
+  }
+
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const comfortTop = viewportHeight * comfortTopRatio;
+  const comfortBottom = viewportHeight * comfortBottomRatio;
+  const matchMiddle = (coords.top + coords.bottom) / 2;
+
+  if (matchMiddle < comfortTop || matchMiddle > comfortBottom) {
+    window.scrollBy({
+      top: matchMiddle - viewportHeight * 0.42,
+      behavior: "smooth",
+    });
+  }
+}
+
+function findScrollableParent(node: HTMLElement): HTMLElement | null {
+  let parent = node.parentElement;
+
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const style = window.getComputedStyle(parent);
+    const canScrollY =
+      /(auto|scroll|overlay)/u.test(style.overflowY) ||
+      /(auto|scroll|overlay)/u.test(style.overflow);
+
+    if (canScrollY && parent.scrollHeight > parent.clientHeight) {
+      return parent;
+    }
+
+    parent = parent.parentElement;
+  }
+
+  return null;
+}
+
+function createEditorSearchPlugin(options: {
+  getSearchState: () => {
+    open: boolean;
+    matches: EditorSearchMatch[];
+    activeIndex: number;
+  };
+}) {
+  return new Plugin({
+    key: RICH_EDITOR_SEARCH_PLUGIN_KEY,
+    state: {
+      init: () => 0,
+      apply(tr, value) {
+        return tr.getMeta(RICH_EDITOR_SEARCH_PLUGIN_KEY) ?? value;
+      },
+    },
+    props: {
+      decorations(state) {
+        const searchState = options.getSearchState();
+
+        if (!searchState.open || searchState.matches.length === 0) {
+          return null;
+        }
+
+        const decorations = searchState.matches
+          .filter((match) => match.from >= 0 && match.to <= state.doc.content.size && match.from < match.to)
+          .map((match, index) =>
+            Decoration.inline(match.from, match.to, {
+              class:
+                index === searchState.activeIndex
+                  ? "rich-editor__search-match rich-editor__search-match--active"
+                  : "rich-editor__search-match",
+            }),
+          );
+
+        return DecorationSet.create(state.doc, decorations);
+      },
+    },
+  });
 }
 
 function createEditorRewriteWidgetPlugin(options: {

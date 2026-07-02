@@ -2520,4 +2520,110 @@ describe("RichEditor focus and blur persistence", () => {
 
     expect(onModEnter).toHaveBeenCalledTimes(1);
   });
+
+  it("opens in-editor search with Ctrl/Cmd+F and navigates matches", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <RichEditor variant="bare" html="<p>Alpha beta alpha gamma ALPHA.</p>" />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.keyDown(surface, { key: "f", ctrlKey: true });
+
+    const searchInput = await screen.findByLabelText("搜索正文");
+    await waitFor(() => {
+      expect(searchInput).toHaveFocus();
+    });
+    await user.type(searchInput, "alpha");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("1 / 3");
+      expect(container.querySelectorAll(".rich-editor__search-match")).toHaveLength(3);
+      expect(container.querySelectorAll(".rich-editor__search-match--active")).toHaveLength(1);
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("2 / 3");
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Enter", shiftKey: true });
+    await waitFor(() => {
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("1 / 3");
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "文本搜索" })).not.toBeInTheDocument();
+      expect(container.querySelectorAll(".rich-editor__search-match")).toHaveLength(0);
+    });
+
+    fireEvent.keyDown(surface, { key: "f", metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "文本搜索" })).toBeInTheDocument();
+  });
+
+  it("replaces the current match and all remaining matches", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <RichEditor variant="bare" html="<p>alpha beta alpha</p>" onChange={onChange} />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.keyDown(surface, { key: "f", ctrlKey: true });
+    await user.type(await screen.findByLabelText("搜索正文"), "alpha");
+    await user.type(await screen.findByLabelText("替换为"), "omega");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("1 / 2");
+    });
+
+    await user.click(screen.getByRole("button", { name: "替换" }));
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain("omega beta alpha");
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("1 / 1");
+    });
+
+    await user.click(screen.getByRole("button", { name: "全部" }));
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain("omega beta omega");
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("0 / 0");
+    });
+  });
+
+  it("allows search in read-only editors without replacement controls", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <RichEditor variant="bare" readOnly html="<p>alpha beta alpha</p>" />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    fireEvent.keyDown(surface, { key: "f", ctrlKey: true });
+    await user.type(await screen.findByLabelText("搜索正文"), "alpha");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("搜索结果数量")).toHaveTextContent("1 / 2");
+      expect(container.querySelectorAll(".rich-editor__search-match")).toHaveLength(2);
+    });
+    expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "替换" })).not.toBeInTheDocument();
+  });
 });

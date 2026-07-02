@@ -156,9 +156,11 @@ export function ProjectOverviewPage({
 
   const [nameDraft, setNameDraft] = useState("");
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const [recordDraftOpen, setRecordDraftOpen] = useState(composeRecord);
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
+  const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [recordContextMenu, setRecordContextMenu] = useState<{
@@ -229,6 +231,7 @@ export function ProjectOverviewPage({
     if (!activeProject) return;
 
     setNameDraft(activeProject.name);
+    setQuickNoteCodeLanguage(activeProject.quickNoteCodeLanguage ?? null);
 
     if (!visible) {
       return;
@@ -373,6 +376,7 @@ export function ProjectOverviewPage({
       quickNote: activeProject.quickNote,
       quickNoteMarkdown: activeProject.quickNoteMarkdown,
       quickNoteHtml: activeProject.quickNoteHtml,
+      quickNoteCodeLanguage: activeProject.quickNoteCodeLanguage ?? null,
       status: activeProject.status,
     });
   }
@@ -390,6 +394,7 @@ export function ProjectOverviewPage({
       quickNote: normalized.text,
       quickNoteMarkdown: normalized.markdown,
       quickNoteHtml: normalized.html,
+      quickNoteCodeLanguage,
       status: activeProject.status,
     });
   }
@@ -410,12 +415,14 @@ export function ProjectOverviewPage({
       title: recordDraftTitle.trim() || undefined,
       markdown: normalized.markdown,
       html: normalized.html,
+      defaultCodeLanguage: recordDraftCodeLanguage,
       tagIds,
     });
     upsertRecordInProjectCache(savedRecord);
     closeRecordDraft();
     setRecordDraftTitle("");
     setRecordDraftValue(EMPTY_VALUE);
+    setRecordDraftCodeLanguage(null);
     setRecordDraftTagIds([]);
   }
 
@@ -424,6 +431,7 @@ export function ProjectOverviewPage({
     value: RichEditorValue,
     title: string,
     tagIds: number[],
+    defaultCodeLanguage: string | null,
   ) {
     setSavingRecordId(note.id);
 
@@ -442,6 +450,7 @@ export function ProjectOverviewPage({
         title: title.trim() || undefined,
         markdown: normalized.markdown,
         html: normalized.html,
+        defaultCodeLanguage,
         tagIds: nextTagIds,
       });
       upsertRecordInProjectCache(savedRecord);
@@ -669,6 +678,8 @@ export function ProjectOverviewPage({
           >
             <RichEditor
               html={quickNoteDraft.html}
+              defaultCodeLanguage={quickNoteCodeLanguage}
+              onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
               variant="page"
               showToolbar={false}
               enableTables={false}
@@ -739,6 +750,8 @@ export function ProjectOverviewPage({
                   </div>
                     <RichEditor
                       html={recordDraftValue.html}
+                      defaultCodeLanguage={recordDraftCodeLanguage}
+                      onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
                       variant="bare"
                       autoFocus
                       assetHandlers={projectQuickNoteAssetHandlers}
@@ -892,6 +905,7 @@ function RecordRow({
     value: RichEditorValue,
     title: string,
     tagIds: number[],
+    defaultCodeLanguage: string | null,
   ) => Promise<void>;
   onOpenContextMenu: (event: ReactMouseEvent, noteId: number) => void;
   onCreatedTag: () => void;
@@ -905,6 +919,9 @@ function RecordRow({
   const [title, setTitle] = useState(note.title ?? "");
   const [value, setValue] = useState<RichEditorValue>(() => buildNoteDraft(note));
   const [tagIds, setTagIds] = useState<number[]>((note.tags ?? []).map((tag) => tag.id));
+  const [codeLanguage, setCodeLanguage] = useState<string | null>(
+    note.defaultCodeLanguage ?? null,
+  );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -917,6 +934,7 @@ function RecordRow({
       buildNoteDraft(note),
       note.title ?? "",
       (note.tags ?? []).map((tag) => tag.id),
+      note.defaultCodeLanguage ?? null,
     ),
   );
 
@@ -956,12 +974,14 @@ function RecordRow({
       setTitle(note.title ?? "");
       setValue(buildNoteDraft(note));
       setTagIds(noteTagIds);
+      setCodeLanguage(note.defaultCodeLanguage ?? null);
       setPersistState("idle");
       setAutoFocusPoint(null);
       saveSignatureRef.current = buildRecordSaveSignature(
         buildNoteDraft(note),
         note.title ?? "",
         noteTagIds,
+        note.defaultCodeLanguage ?? null,
       );
     }
   }, [editing, note, noteSnapshotKey]);
@@ -1027,9 +1047,9 @@ function RecordRow({
     nextTitle: string,
     nextTagIds: number[],
   ) {
-    const nextSignature = buildRecordSaveSignature(nextValue, nextTitle, nextTagIds);
+    const nextSignature = buildRecordSaveSignature(nextValue, nextTitle, nextTagIds, codeLanguage);
     if (nextSignature === saveSignatureRef.current) return;
-    await onSave(note, nextValue, nextTitle, nextTagIds);
+    await onSave(note, nextValue, nextTitle, nextTagIds, codeLanguage);
     saveSignatureRef.current = nextSignature;
   }
 
@@ -1156,6 +1176,8 @@ function RecordRow({
           <div className="project-history-record__content">
             <RichEditor
               html={value.html}
+              defaultCodeLanguage={codeLanguage}
+              onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
               autoFocus={autoFocusPoint ?? true}
               placeholder="写记录，正文里的 #标签 会自动同步。"
@@ -1295,7 +1317,7 @@ function shouldLetRichEditorHandleContextMenu(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        ".rich-editor__surface, .rich-editor__toolbar, .rich-editor__ai-menu, .rich-editor__table-toolbar, .context-menu__panel",
+        ".rich-editor__surface, .rich-editor__toolbar, .rich-editor__ai-menu, .rich-editor__table-toolbar, .rich-editor__code-language-popover, .context-menu__panel",
       ),
     )
   );
@@ -1330,6 +1352,7 @@ function buildRecordSaveSignature(
   value: RichEditorValue,
   title: string,
   tagIds: number[],
+  defaultCodeLanguage: string | null,
 ) {
   const normalized = normalizeRichEditorValue(value);
   const normalizedTagIds = [...tagIds].sort((left, right) => left - right);
@@ -1338,6 +1361,7 @@ function buildRecordSaveSignature(
     markdown: normalized.markdown,
     html: normalized.html,
     tagIds: normalizedTagIds,
+    defaultCodeLanguage,
   });
 }
 

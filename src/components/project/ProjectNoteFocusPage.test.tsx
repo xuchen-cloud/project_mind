@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteRecord, ProjectPageData, ProjectRecord } from "../../lib/types";
+import { PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT } from "../../lib/record-focus-save";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 
 const richEditorMocks = vi.hoisted(() => ({
@@ -267,6 +268,32 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
           noteId: 7,
           title: "直接加标签的标题",
           tagIds: [22],
+        }),
+      );
+    });
+  });
+
+  it("saves the active record when project sidebar navigation requests a flush", async () => {
+    render(<ProjectNoteFocusPage />);
+
+    await screen.findByPlaceholderText("记录标题");
+
+    window.dispatchEvent(
+      new CustomEvent(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, {
+        detail: {
+          projectId: 1,
+          noteId: 7,
+          respond: vi.fn(),
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          noteId: 7,
+          markdown: "正文",
+          html: "<p>正文</p>",
         }),
       );
     });
