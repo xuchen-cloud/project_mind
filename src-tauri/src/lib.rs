@@ -23,13 +23,12 @@ use db::Database;
 use image::{codecs::jpeg::JpegEncoder, ExtendedColorType, ImageReader};
 pub use db::DemoSeedResult;
 use models::{
-    AcceptedSuggestionResult, AiAcceptSuggestionInput, AiAnswerQuestionInput, AiAnswerResult,
-    AiArtifactGetInput, AiArtifactRecord, AiCapabilityBindingRecord,
-    AiCapabilityBindingUpsertInput, AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
-    AiEditorRewriteActionUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput,
+    AiCapabilityBindingRecord,
+    AiCapabilityBindingUpsertInput, AiEditorSkillDeleteInput, AiEditorSkillRecord,
+    AiEditorSkillReorderInput, AiEditorSkillUpsertInput, AiExecutionSettings,
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
-    AiSettingsSnapshot, AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput,
+    AiSettingsSnapshot, ConclusionCreateInput, ConclusionDeleteInput,
     ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
     ContactRecord, ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput,
     DocumentDeleteInput, DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
@@ -883,46 +882,6 @@ fn document_delete(
 }
 
 #[tauri::command]
-fn ai_generate_note_suggestions(
-    state: State<'_, AppState>,
-    input: AiGenerateInput,
-) -> CommandResult<Vec<AiSuggestionRecord>> {
-    with_db(state, |db| db.ai_generate_note_suggestions(input))
-}
-
-#[tauri::command]
-fn ai_accept_suggestion(
-    state: State<'_, AppState>,
-    input: AiAcceptSuggestionInput,
-) -> CommandResult<AcceptedSuggestionResult> {
-    with_db(state, |db| db.ai_accept_suggestion(input))
-}
-
-#[tauri::command]
-fn ai_artifact_get(
-    state: State<'_, AppState>,
-    input: AiArtifactGetInput,
-) -> CommandResult<Option<AiArtifactRecord>> {
-    with_db(state, |db| db.ai_artifact_get(input))
-}
-
-#[tauri::command]
-fn ai_artifact_refresh(
-    state: State<'_, AppState>,
-    input: AiArtifactGetInput,
-) -> CommandResult<AiArtifactRecord> {
-    with_db(state, |db| db.ai_artifact_refresh(input))
-}
-
-#[tauri::command]
-fn ai_answer_question(
-    state: State<'_, AppState>,
-    input: AiAnswerQuestionInput,
-) -> CommandResult<AiAnswerResult> {
-    with_db(state, |db| db.ai_answer_question(input))
-}
-
-#[tauri::command]
 fn ai_settings_get(state: State<'_, AppState>) -> CommandResult<AiSettingsSnapshot> {
     with_db(state, |db| db.ai_settings_get())
 }
@@ -973,19 +932,27 @@ fn ai_binding_upsert(
 }
 
 #[tauri::command]
-fn ai_editor_rewrite_action_upsert(
+fn ai_editor_skill_upsert(
     state: State<'_, AppState>,
-    input: AiEditorRewriteActionUpsertInput,
-) -> CommandResult<AiEditorRewriteActionRecord> {
-    with_db(state, |db| db.ai_editor_rewrite_action_upsert(input))
+    input: AiEditorSkillUpsertInput,
+) -> CommandResult<AiEditorSkillRecord> {
+    with_db(state, |db| db.ai_editor_skill_upsert(input))
 }
 
 #[tauri::command]
-fn ai_editor_rewrite_action_delete(
+fn ai_editor_skill_delete(
     state: State<'_, AppState>,
-    input: AiEditorRewriteActionDeleteInput,
-) -> CommandResult<Vec<AiEditorRewriteActionRecord>> {
-    with_db(state, |db| db.ai_editor_rewrite_action_delete(input))
+    input: AiEditorSkillDeleteInput,
+) -> CommandResult<Vec<AiEditorSkillRecord>> {
+    with_db(state, |db| db.ai_editor_skill_delete(input))
+}
+
+#[tauri::command]
+fn ai_editor_skill_reorder(
+    state: State<'_, AppState>,
+    input: AiEditorSkillReorderInput,
+) -> CommandResult<Vec<AiEditorSkillRecord>> {
+    with_db(state, |db| db.ai_editor_skill_reorder(input))
 }
 
 #[tauri::command]
@@ -1023,14 +990,6 @@ fn ai_execution_settings_upsert(
         .ai_jobs
         .set_max_concurrency(settings.max_concurrency);
     Ok(settings)
-}
-
-#[tauri::command]
-fn ai_feature_settings_upsert(
-    state: State<'_, AppState>,
-    input: AiFeatureSettings,
-) -> CommandResult<AiFeatureSettings> {
-    with_db(state, |db| db.ai_feature_settings_upsert(input))
 }
 
 #[tauri::command]
@@ -1142,11 +1101,6 @@ pub fn run() {
             document_list_versions,
             document_add_version,
             document_delete,
-            ai_generate_note_suggestions,
-            ai_accept_suggestion,
-            ai_artifact_get,
-            ai_artifact_refresh,
-            ai_answer_question,
             ai_settings_get,
             rich_text_style_get,
             rich_text_style_upsert,
@@ -1154,13 +1108,13 @@ pub fn run() {
             ai_profile_delete,
             ai_profile_test,
             ai_binding_upsert,
-            ai_editor_rewrite_action_upsert,
-            ai_editor_rewrite_action_delete,
+            ai_editor_skill_upsert,
+            ai_editor_skill_delete,
+            ai_editor_skill_reorder,
             ai_job_enqueue,
             ai_job_get,
             ai_jobs_list_active,
             ai_execution_settings_upsert,
-            ai_feature_settings_upsert,
             internal_reference_search,
             internal_reference_resolve,
             workspace_search

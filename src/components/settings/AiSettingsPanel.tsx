@@ -8,12 +8,11 @@ import {
   type SetStateAction,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, LoaderCircle, Plus } from "lucide-react";
 
 import {
   bindingForCapability,
   createAiProfileDraft,
-  featureSettingsFromSnapshot,
   isAiCapabilityConfigured,
   providerDefaults,
 } from "../../lib/ai";
@@ -28,23 +27,17 @@ import {
 import { getErrorMessage } from "../../lib/errors";
 import {
   AI_CAPABILITY_OPTIONS,
-  AI_FEATURE_OPTIONS,
   AI_PROVIDER_FAMILY_OPTIONS,
-  AI_VISIBLE_CAPABILITY_OPTIONS,
   aiCapabilityLabel,
-  aiFeatureLabel,
   aiProviderLabel,
-  aiVisibleCapabilityLabel,
 } from "../../lib/constants";
 import type {
   AiCapability,
   AiCapabilityBindingUpsertInput,
-  AiEditorRewriteActionRecord,
-  AiEditorRewriteActionUpsertInput,
+  AiEditorSkillRecord,
+  AiEditorSkillResultMode,
+  AiEditorSkillUpsertInput,
   AiExecutionSettings,
-  AiFeatureKey,
-  AiFeatureSettings,
-  AiManagedCapability,
   AiProfileTestResult,
   AiProviderFamily,
   AiProviderProfileRecord,
@@ -69,27 +62,43 @@ import {
   settingsSelectClassName,
 } from "./shared";
 
-type BindingMode = "normal" | "advanced";
+const EDITOR_SKILL_LIMIT = 24;
 
 interface BindingDraft {
   profileId: string;
   model: string;
 }
 
-interface EditorRewriteActionDraft {
-  id?: number;
+interface EditorSkillDraft {
+  id?: string;
+  name: string;
+  icon: string;
+  description: string;
+  prompt: string;
+  resultMode: AiEditorSkillResultMode;
+  showInTextMenu: boolean;
+  sortOrder?: number;
+  enabled: boolean;
+}
+
+interface LegacyEditorRewriteAction {
+  id: number;
   label: string;
   prompt: string;
   enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AiSettingsPanelProps {
   open: boolean;
+  section: "models" | "rewrite";
   onUnlockAiSecrets?: () => Promise<boolean>;
 }
 
 export function AiSettingsPanel({
   open,
+  section,
   onUnlockAiSecrets = async () => false,
 }: AiSettingsPanelProps) {
   const queryClient = useQueryClient();
@@ -102,23 +111,22 @@ export function AiSettingsPanel({
   });
 
   const snapshot = aiSettingsQuery.data;
+  const editorSkills =
+    snapshot?.editorSkills ??
+    ((snapshot as unknown as { editorRewriteActions?: LegacyEditorRewriteAction[] } | undefined)
+      ?.editorRewriteActions ?? []).map(legacyRewriteActionToSkill);
   const aiSecretsUnlocked = snapshot?.aiSecretsUnlocked ?? true;
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
-  const [bindingMode, setBindingMode] = useState<BindingMode>("normal");
-  const [bindingModeBusy, setBindingModeBusy] = useState(false);
   const [profileDraft, setProfileDraft] = useState<AiProviderProfileUpsertInput>(
     createAiProfileDraft(),
   );
   const [testResult, setTestResult] = useState<AiProfileTestResult | null>(null);
-  const [isCreatingRewriteAction, setIsCreatingRewriteAction] = useState(false);
-  const [rewriteActionDraft, setRewriteActionDraft] = useState<EditorRewriteActionDraft>(
-    createEditorRewriteActionDraft(),
+  const [isCreatingSkill, setIsCreatingSkill] = useState(false);
+  const [skillDraft, setSkillDraft] = useState<EditorSkillDraft>(
+    createEditorSkillDraft(),
   );
 
-  const hasCustomBindings =
-    snapshot?.bindings.some((binding) => binding.capability !== "default" && !binding.useDefault) ??
-    false;
   const selectedProfile = useMemo(
     () =>
       selectedProfileId !== null
@@ -151,10 +159,6 @@ export function AiSettingsPanel({
       setProfileDraft(createAiProfileDraft());
     }
   }, [selectedProfileId, snapshot]);
-
-  useEffect(() => {
-    setBindingMode(hasCustomBindings ? "advanced" : "normal");
-  }, [hasCustomBindings]);
 
   const saveProfileMutation = useMutation({
     mutationFn: projectMindApi.aiProfileUpsert,
@@ -255,54 +259,21 @@ export function AiSettingsPanel({
       pushToast({ tone: "error", title: "更新 AI 调度设置失败", detail });
     },
   });
-  const saveFeatureSettingsMutation = useMutation({
-    mutationFn: projectMindApi.aiFeatureSettingsUpsert,
-    onMutate: async (featureSettings) => {
-      await queryClient.cancelQueries({ queryKey: ["ai-settings"] });
-      const previousSnapshot = queryClient.getQueryData<AiSettingsSnapshot>(["ai-settings"]);
+  const saveEditorSkillMutation = useMutation({
+    mutationFn: projectMindApi.aiEditorSkillUpsert,
+    onSuccess: async (skill) => {
+      setStatus({ tone: "success", label: "Saved", message: "AI 技能已保存" });
+      setIsCreatingSkill(false);
+      setSkillDraft(createEditorSkillDraft());
       queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
         current
           ? {
               ...current,
-              featureSettings,
-            }
-          : current,
-      );
-      return { previousSnapshot };
-    },
-    onSuccess: (featureSettings) => {
-      setStatus({ tone: "success", label: "Saved", message: "AI 能力开关已更新" });
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
-        current
-          ? {
-              ...current,
-              featureSettings,
-            }
-          : current,
-      );
-    },
-    onError: (error, _featureSettings, context) => {
-      if (context?.previousSnapshot) {
-        queryClient.setQueryData(["ai-settings"], context.previousSnapshot);
-      }
-      const detail = getErrorMessage(error, "更新 AI 能力开关失败");
-      setStatus({ tone: "error", label: "Error", message: "更新 AI 能力开关失败" });
-      pushToast({ tone: "error", title: "更新 AI 能力开关失败", detail });
-    },
-  });
-  const saveEditorRewriteActionMutation = useMutation({
-    mutationFn: projectMindApi.aiEditorRewriteActionUpsert,
-    onSuccess: async (action) => {
-      setStatus({ tone: "success", label: "Saved", message: "编辑改写动作已保存" });
-      setIsCreatingRewriteAction(false);
-      setRewriteActionDraft(createEditorRewriteActionDraft());
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
-        current
-          ? {
-              ...current,
-              editorRewriteActions: upsertEditorRewriteActionRecord(
-                current.editorRewriteActions,
-                action,
+              editorSkills: upsertEditorSkillRecord(
+                current.editorSkills ??
+                  ((current as unknown as { editorRewriteActions?: AiEditorSkillRecord[] })
+                    .editorRewriteActions ?? []),
+                skill,
               ),
             }
           : current,
@@ -310,39 +281,59 @@ export function AiSettingsPanel({
       await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
-      const detail = getErrorMessage(error, "保存编辑改写动作失败");
-      setStatus({ tone: "error", label: "Error", message: "保存编辑改写动作失败" });
-      pushToast({ tone: "error", title: "保存编辑改写动作失败", detail });
+      const detail = getErrorMessage(error, "保存 AI 技能失败");
+      setStatus({ tone: "error", label: "Error", message: "保存 AI 技能失败" });
+      pushToast({ tone: "error", title: "保存 AI 技能失败", detail });
     },
   });
-  const deleteEditorRewriteActionMutation = useMutation({
-    mutationFn: projectMindApi.aiEditorRewriteActionDelete,
-    onSuccess: async (actions) => {
-      setStatus({ tone: "success", label: "Deleted", message: "编辑改写动作已删除" });
+  const deleteEditorSkillMutation = useMutation({
+    mutationFn: projectMindApi.aiEditorSkillDelete,
+    onSuccess: async (skills) => {
+      setStatus({ tone: "success", label: "Deleted", message: "AI 技能已删除" });
       queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
         current
           ? {
               ...current,
-              editorRewriteActions: actions,
+              editorSkills: skills,
             }
           : current,
       );
       await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
     },
     onError: (error) => {
-      const detail = getErrorMessage(error, "删除编辑改写动作失败");
-      setStatus({ tone: "error", label: "Error", message: "删除编辑改写动作失败" });
-      pushToast({ tone: "error", title: "删除编辑改写动作失败", detail });
+      const detail = getErrorMessage(error, "删除 AI 技能失败");
+      setStatus({ tone: "error", label: "Error", message: "删除 AI 技能失败" });
+      pushToast({ tone: "error", title: "删除 AI 技能失败", detail });
+    },
+  });
+  const reorderEditorSkillMutation = useMutation({
+    mutationFn: projectMindApi.aiEditorSkillReorder,
+    onSuccess: async (skills) => {
+      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+        current
+          ? {
+              ...current,
+              editorSkills: skills,
+            }
+          : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+    },
+    onError: (error) => {
+      const detail = getErrorMessage(error, "调整 AI 技能顺序失败");
+      pushToast({ tone: "error", title: "调整 AI 技能顺序失败", detail });
     },
   });
 
   const enabledProfilesCount = snapshot?.profiles.filter((profile) => profile.enabled).length ?? 0;
-  const bindingControlsBusy = saveBindingMutation.isPending || bindingModeBusy;
+  const bindingControlsBusy = saveBindingMutation.isPending;
   const executionBusy = saveExecutionMutation.isPending;
-  const featureSettings = featureSettingsFromSnapshot(snapshot);
-  const featureToggleBusy = saveFeatureSettingsMutation.isPending;
-  const editorRewriteActionsBusy =
-    saveEditorRewriteActionMutation.isPending || deleteEditorRewriteActionMutation.isPending;
+  const editorSkillsBusy =
+    saveEditorSkillMutation.isPending ||
+    deleteEditorSkillMutation.isPending ||
+    reorderEditorSkillMutation.isPending;
+  const canCreateSkill =
+    editorSkills.length < EDITOR_SKILL_LIMIT;
 
   const beginCreateProfile = useCallback(() => {
     setSelectedProfileId(null);
@@ -368,81 +359,14 @@ export function AiSettingsPanel({
     setProfileDraft(createAiProfileDraft());
     setTestResult(null);
   }, []);
-  const beginCreateRewriteAction = useCallback(() => {
-    setIsCreatingRewriteAction(true);
-    setRewriteActionDraft(createEditorRewriteActionDraft());
+  const beginCreateSkill = useCallback(() => {
+    setIsCreatingSkill(true);
+    setSkillDraft(createEditorSkillDraft());
   }, []);
-  const closeCreateRewriteAction = useCallback(() => {
-    setIsCreatingRewriteAction(false);
-    setRewriteActionDraft(createEditorRewriteActionDraft());
+  const closeCreateSkill = useCallback(() => {
+    setIsCreatingSkill(false);
+    setSkillDraft(createEditorSkillDraft());
   }, []);
-
-  const handleBindingModeChange = useCallback(
-    async (nextMode: BindingMode) => {
-      if (!snapshot || nextMode === bindingMode) {
-        return;
-      }
-
-      if (nextMode === "advanced") {
-        setBindingMode("advanced");
-        return;
-      }
-
-      const customBindings = snapshot.bindings.filter(
-        (binding) => binding.capability !== "default" && !binding.useDefault,
-      );
-
-      setBindingModeBusy(true);
-      try {
-        for (const binding of customBindings) {
-          await saveBindingMutation.mutateAsync({
-            capability: binding.capability,
-            useDefault: true,
-          });
-        }
-        setBindingMode("normal");
-      } finally {
-        setBindingModeBusy(false);
-      }
-    },
-    [bindingMode, saveBindingMutation, snapshot],
-  );
-  const commitFeatureSettings = useCallback(
-    (nextSettings: AiFeatureSettings) => {
-      saveFeatureSettingsMutation.mutate(nextSettings);
-    },
-    [saveFeatureSettingsMutation],
-  );
-  const toggleMasterEnabled = useCallback(
-    (checked: boolean) =>
-      commitFeatureSettings({
-        ...featureSettings,
-        masterEnabled: checked,
-      }),
-    [commitFeatureSettings, featureSettings],
-  );
-  const toggleCapabilityVisibility = useCallback(
-    (capability: AiManagedCapability, checked: boolean) =>
-      commitFeatureSettings({
-        ...featureSettings,
-        capabilities: {
-          ...featureSettings.capabilities,
-          [capability]: checked,
-        },
-      }),
-    [commitFeatureSettings, featureSettings],
-  );
-  const toggleFeatureVisibility = useCallback(
-    (feature: AiFeatureKey, checked: boolean) =>
-      commitFeatureSettings({
-        ...featureSettings,
-        features: {
-          ...featureSettings.features,
-          [feature]: checked,
-        },
-      }),
-    [commitFeatureSettings, featureSettings],
-  );
 
   if (aiSettingsQuery.isLoading) {
     return (
@@ -470,15 +394,130 @@ export function AiSettingsPanel({
     );
   }
 
+  if (section === "rewrite") {
+    return (
+      <div className="grid gap-3">
+        <SurfaceCard subtle className="px-3.5 py-3 sm:px-4">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div>
+              <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
+                AI Skills
+              </p>
+              <p className="mt-0.5 text-body text-text-muted">
+                配置选中文本后可以调用的 AI 技能、结果模式和菜单显隐。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <StatusBadge tone={editorSkills.length >= EDITOR_SKILL_LIMIT ? "warning" : "neutral"}>
+                {editorSkills.length}/{EDITOR_SKILL_LIMIT} 个技能
+              </StatusBadge>
+              <StatusBadge tone={isAiCapabilityConfigured(snapshot, "editor_rewrite") ? "success" : "warning"}>
+                {isAiCapabilityConfigured(snapshot, "editor_rewrite") ? "模型已就绪" : "模型待配置"}
+              </StatusBadge>
+            </div>
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard className={settingsCardClassName}>
+          <SectionHeader
+            eyebrow="Skills"
+            title="AI 技能"
+            actions={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <StatusBadge tone={editorSkillsBusy ? "warning" : "neutral"}>
+                  {editorSkillsBusy ? "保存中" : "同步到文本菜单"}
+                </StatusBadge>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  leadingIcon={<Plus size={14} />}
+                  disabled={!canCreateSkill && !isCreatingSkill}
+                  onClick={() => {
+                    if (isCreatingSkill) {
+                      closeCreateSkill();
+                      return;
+                    }
+                    beginCreateSkill();
+                  }}
+                >
+                  {isCreatingSkill ? "取消" : "新增技能"}
+                </Button>
+              </div>
+            }
+          />
+
+          <div className="mt-3 grid gap-2.5">
+            <p className="text-body text-text-muted">
+              用户选中文本后，右键即可调用启用并显示在文本菜单中的技能。交互由结果模式决定，而不是技能名称。
+            </p>
+            <p className="text-ui text-text-soft">
+              修改原文会先进入预览，生成回答会展示卡片；禁用技能不会出现在文本菜单中。
+            </p>
+
+            {!canCreateSkill && !isCreatingSkill ? (
+              <SurfaceCard subtle className="px-3 py-2.5">
+                <p className="text-body text-text-muted">
+                  已达到 {EDITOR_SKILL_LIMIT} 个技能上限。删除一个技能后可以继续新增。
+                </p>
+              </SurfaceCard>
+            ) : null}
+
+            {isCreatingSkill ? (
+              <EditorSkillEditor
+                draft={skillDraft}
+                setDraft={setSkillDraft}
+                busy={editorSkillsBusy}
+                autoFocusName
+                onSave={() => saveEditorSkillMutation.mutate(toEditorSkillInput(skillDraft))}
+                onCancel={closeCreateSkill}
+              />
+            ) : null}
+
+            {editorSkills.length > 0 ? (
+              <div className="grid gap-2.5">
+                {editorSkills.map((skill, index) => (
+                  <EditorSkillRow
+                    key={skill.id}
+                    skill={skill}
+                    busy={editorSkillsBusy}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < editorSkills.length - 1}
+                    onSave={(input) => saveEditorSkillMutation.mutate(input)}
+                    onDelete={(skillId) =>
+                      deleteEditorSkillMutation.mutate({ skillId })
+                    }
+                    onMove={(direction) => {
+                      const nextSkills = moveEditorSkill(editorSkills, index, direction);
+                      reorderEditorSkillMutation.mutate({
+                        skillIds: nextSkills.map((item) => item.id),
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            ) : !isCreatingSkill ? (
+              <EmptyState
+                compact
+                className="min-h-36"
+                text="还没有 AI 技能。新增后，右键文本选区就能直接调用。"
+              />
+            ) : null}
+          </div>
+        </SurfaceCard>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-3">
       <SurfaceCard subtle className="px-3.5 py-3 sm:px-4">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
             <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-              Workspace AI
+              AI Models
             </p>
-            <p className="mt-0.5 text-body text-text-muted">接入配置与能力绑定。</p>
+            <p className="mt-0.5 text-body text-text-muted">接入配置、模型绑定与调度。</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
             <StatusBadge tone={snapshot.hasUsableDefault ? "success" : "warning"}>
@@ -495,7 +534,7 @@ export function AiSettingsPanel({
       <SurfaceCard subtle className={`grid gap-3 ${settingsCardClassName}`}>
         <SectionHeader
           eyebrow="Profiles"
-          title="接入配置"
+          title="AI 模型配置"
           actions={
             <Button
               type="button"
@@ -522,7 +561,7 @@ export function AiSettingsPanel({
               <div>
                 <p className="text-body font-medium text-text">Workspace secrets 已锁定</p>
                 <p className="mt-1 text-ui text-text-soft">
-                  保存 API Key、测试连接和执行 AI 能力前，需要先输入当前 workspace 密码。
+                  保存 API Key、测试连接和执行 AI 改写前，需要先输入当前 workspace 密码。
                 </p>
               </div>
               <Button type="button" size="sm" variant="primary" onClick={() => void onUnlockAiSecrets()}>
@@ -612,188 +651,31 @@ export function AiSettingsPanel({
       </SurfaceCard>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.88fr)]">
-        <div className="grid gap-3">
-          <SurfaceCard className={settingsCardClassName}>
-            <SectionHeader
-              eyebrow="Visibility"
-              title="能力开关"
-              actions={
-                <StatusBadge tone={featureToggleBusy ? "warning" : "neutral"}>
-                  {featureToggleBusy ? "保存中" : "实时生效"}
-                </StatusBadge>
-              }
-            />
+        <SurfaceCard className={settingsCardClassName}>
+          <SectionHeader
+            eyebrow="Bindings"
+            title="模型绑定"
+            actions={
+              <StatusBadge tone={bindingControlsBusy ? "warning" : "neutral"}>
+                {bindingControlsBusy ? "同步中" : "自动保存"}
+              </StatusBadge>
+            }
+          />
 
-            <div className="mt-3 grid gap-3">
-              <FeatureToggleRow
-                label="全局 AI"
-                description="关闭后隐藏所有 AI 模块和入口，但会保留下面每一项的开关状态。"
-                checked={featureSettings.masterEnabled}
-                disabled={featureToggleBusy}
-                onChange={toggleMasterEnabled}
-              />
-
-              {AI_VISIBLE_CAPABILITY_OPTIONS.map((capability) => {
-                const childDisabled =
-                  featureToggleBusy ||
-                  !featureSettings.masterEnabled ||
-                  !featureSettings.capabilities[capability.value];
-                const childFeatures = AI_FEATURE_OPTIONS.filter(
-                  (feature) => feature.capability === capability.value,
-                );
-
-                return (
-                  <div
-                    key={capability.value}
-                    className="rounded-[var(--radius-8)] border border-border bg-bg-subtle px-3 py-3"
-                  >
-                    <FeatureToggleRow
-                      label={aiVisibleCapabilityLabel(capability.value)}
-                      description={capabilityDescription(capability.value)}
-                      checked={featureSettings.capabilities[capability.value]}
-                      disabled={featureToggleBusy || !featureSettings.masterEnabled}
-                      onChange={(checked) =>
-                        toggleCapabilityVisibility(capability.value, checked)
-                      }
-                    />
-
-                    {childFeatures.length > 0 ? (
-                      <div className="mt-3 border-t border-border pt-3">
-                        <p className="text-ui font-medium text-text-soft">子功能</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {childFeatures.map((feature) => (
-                            <TogglePill
-                              key={feature.value}
-                              label={aiFeatureLabel(feature.value)}
-                              ariaLabel={`${aiFeatureLabel(feature.value)}开关`}
-                              checked={featureSettings.features[feature.value]}
-                              disabled={childDisabled}
-                              onChange={(checked) =>
-                                toggleFeatureVisibility(feature.value, checked)
-                              }
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </SurfaceCard>
-
-          <SurfaceCard className={settingsCardClassName}>
-            <SectionHeader
-              eyebrow="Bindings"
-              title="能力绑定"
-              actions={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <StatusBadge tone={bindingControlsBusy ? "warning" : "neutral"}>
-                    {bindingControlsBusy ? "同步中" : "自动保存"}
-                  </StatusBadge>
-                  <BindingModeSwitch
-                    value={bindingMode}
-                    disabled={bindingControlsBusy}
-                    onChange={handleBindingModeChange}
-                  />
-                </div>
-              }
-            />
-
-            <div className="mt-3 grid gap-2.5">
+          <div className="mt-3 grid gap-2.5">
+            {AI_CAPABILITY_OPTIONS.map((option) => (
               <BindingRow
+                key={option.value}
                 snapshot={snapshot}
-                capability="default"
+                capability={option.value}
                 busy={bindingControlsBusy}
                 onSave={(input) => saveBindingMutation.mutateAsync(input)}
               />
-              {bindingMode === "advanced"
-                ? AI_CAPABILITY_OPTIONS.filter((option) => option.value !== "default").map((option) => (
-                    <BindingRow
-                      key={option.value}
-                      snapshot={snapshot}
-                      capability={option.value}
-                      busy={bindingControlsBusy}
-                      onSave={(input) => saveBindingMutation.mutateAsync(input)}
-                    />
-                  ))
-                : null}
-            </div>
-          </SurfaceCard>
-        </div>
+            ))}
+          </div>
+        </SurfaceCard>
 
         <div className="grid gap-3">
-          <SurfaceCard className={settingsCardClassName}>
-            <SectionHeader
-              eyebrow="Editor Rewrite"
-              title="编辑改写动作"
-              actions={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <StatusBadge tone={editorRewriteActionsBusy ? "warning" : "neutral"}>
-                    {editorRewriteActionsBusy ? "保存中" : "可在右键菜单直接调用"}
-                  </StatusBadge>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    leadingIcon={<Plus size={14} />}
-                    onClick={() => {
-                      if (isCreatingRewriteAction) {
-                        closeCreateRewriteAction();
-                        return;
-                      }
-                      beginCreateRewriteAction();
-                    }}
-                  >
-                    {isCreatingRewriteAction ? "取消" : "新增动作"}
-                  </Button>
-                </div>
-              }
-            />
-
-            <div className="mt-3 grid gap-2.5">
-              <p className="text-body text-text-muted">
-                用户选中文本后，右键即可直接调用这里配置的动作。系统会自动带上原始选区、扩选后的整段内容和上下文。
-              </p>
-              <p className="text-ui text-text-soft">
-                动作名称和提示词只决定“做什么”。要实际运行，还需要在「能力绑定」里给默认能力或「编辑改写」绑定一个可用的文本模型。
-              </p>
-
-              {isCreatingRewriteAction ? (
-                <EditorRewriteActionEditor
-                  draft={rewriteActionDraft}
-                  setDraft={setRewriteActionDraft}
-                  busy={editorRewriteActionsBusy}
-                  autoFocusName
-                  onSave={() => saveEditorRewriteActionMutation.mutate(rewriteActionDraft)}
-                  onCancel={closeCreateRewriteAction}
-                />
-              ) : null}
-
-              {snapshot.editorRewriteActions.length > 0 ? (
-                <div className="grid gap-2.5">
-                  {snapshot.editorRewriteActions.map((action) => (
-                    <EditorRewriteActionRow
-                      key={action.id}
-                      action={action}
-                      busy={editorRewriteActionsBusy}
-                      onSave={(input) => saveEditorRewriteActionMutation.mutate(input)}
-                      onDelete={(actionId) =>
-                        deleteEditorRewriteActionMutation.mutate({ actionId })
-                      }
-                    />
-                  ))}
-                </div>
-              ) : !isCreatingRewriteAction ? (
-                <EmptyState
-                  compact
-                  className="min-h-36"
-                  text="还没有编辑改写动作。新增后，右键文本选区就能直接调用。"
-                />
-              ) : null}
-            </div>
-          </SurfaceCard>
-
           <SurfaceCard className={settingsCardClassName}>
             <SectionHeader
               eyebrow="Execution"
@@ -1333,44 +1215,6 @@ function upsertBindingRecord(
   return bindings.map((binding, index) => (index === existingIndex ? nextBinding : binding));
 }
 
-function BindingModeSwitch({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: BindingMode;
-  disabled: boolean;
-  onChange: (value: BindingMode) => void;
-}) {
-  return (
-    <div className="inline-flex items-center rounded-[var(--radius-8)] border border-border bg-bg p-0.5">
-      {([
-        { value: "normal", label: "普通模式" },
-        { value: "advanced", label: "专业模式" },
-      ] as const).map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            disabled={disabled}
-            aria-pressed={active}
-            className={[
-              "rounded-[var(--radius-6)] px-2.5 py-1 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)] disabled:cursor-not-allowed disabled:opacity-60",
-              active
-                ? "bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                : "text-text-muted hover:text-text",
-            ].join(" ")}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ExecutionModeSwitch({
   value,
   disabled,
@@ -1415,95 +1259,112 @@ function ExecutionModeSwitch({
   );
 }
 
-function FeatureToggleRow({
-  label,
-  description,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-body font-medium text-text">{label}</p>
-        <p className="mt-1 text-ui leading-6 text-text-muted">{description}</p>
-      </div>
-      <TogglePill
-        label={checked ? "开启" : "关闭"}
-        ariaLabel={`${label}开关`}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-      />
-    </div>
-  );
-}
-
-function capabilityDescription(capability: AiManagedCapability) {
-  switch (capability) {
-    case "assistant":
-      return "控制顶栏 Ask 入口与问答面板。";
-    case "summary":
-      return "控制 Activity / 项目页 / Workspace 的 AI 总结类模块。";
-    case "suggestion_generation":
-      return "控制记录区的 AI 提炼按钮和候选写入流程。";
-    case "editor_rewrite":
-      return "控制记录编辑器和 Workspace Record 的选区级 AI 改写入口。";
-    default:
-      return capability;
-  }
-}
-
-function createEditorRewriteActionDraft(
-  action?: AiEditorRewriteActionRecord | null,
-): EditorRewriteActionDraft {
+function createEditorSkillDraft(
+  skill?: AiEditorSkillRecord | null,
+): EditorSkillDraft {
   return {
-    id: action?.id,
-    label: action?.label ?? "",
-    prompt: action?.prompt ?? "",
-    enabled: action?.enabled ?? true,
+    id: skill?.id,
+    name: skill?.name ?? "",
+    icon: skill?.icon ?? "",
+    description: skill?.description ?? "",
+    prompt: skill?.prompt ?? "",
+    resultMode: skill?.resultMode ?? "modify",
+    showInTextMenu: skill?.showInTextMenu ?? true,
+    sortOrder: skill?.sortOrder,
+    enabled: skill?.enabled ?? true,
   };
 }
 
-function upsertEditorRewriteActionRecord(
-  actions: AiEditorRewriteActionRecord[],
-  nextAction: AiEditorRewriteActionRecord,
-) {
-  const index = actions.findIndex((action) => action.id === nextAction.id);
-  if (index < 0) {
-    return [...actions, nextAction];
-  }
-
-  return actions.map((action, currentIndex) =>
-    currentIndex === index ? nextAction : action,
-  );
+function legacyRewriteActionToSkill(
+  action: LegacyEditorRewriteAction,
+  index: number,
+): AiEditorSkillRecord {
+  return {
+    id: `rewrite-action-${action.id}`,
+    name: action.label,
+    icon: null,
+    description: null,
+    prompt: action.prompt,
+    resultMode: "modify",
+    showInTextMenu: true,
+    sortOrder: index + 1,
+    enabled: action.enabled,
+    createdAt: action.createdAt,
+    updatedAt: action.updatedAt,
+  };
 }
 
-function EditorRewriteActionRow({
-  action,
+function toEditorSkillInput(draft: EditorSkillDraft): AiEditorSkillUpsertInput {
+  return {
+    id: draft.id,
+    name: draft.name,
+    icon: draft.icon,
+    description: draft.description,
+    prompt: draft.prompt,
+    resultMode: draft.resultMode,
+    showInTextMenu: draft.showInTextMenu,
+    sortOrder: draft.sortOrder,
+    enabled: draft.enabled,
+  };
+}
+
+function upsertEditorSkillRecord(
+  skills: AiEditorSkillRecord[],
+  nextSkill: AiEditorSkillRecord,
+) {
+  const index = skills.findIndex((skill) => skill.id === nextSkill.id);
+  if (index < 0) {
+    return [...skills, nextSkill].sort(sortEditorSkills);
+  }
+
+  return skills
+    .map((skill, currentIndex) => (currentIndex === index ? nextSkill : skill))
+    .sort(sortEditorSkills);
+}
+
+function sortEditorSkills(left: AiEditorSkillRecord, right: AiEditorSkillRecord) {
+  return left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN");
+}
+
+function moveEditorSkill(
+  skills: AiEditorSkillRecord[],
+  index: number,
+  direction: "up" | "down",
+) {
+  const next = [...skills];
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= next.length) {
+    return next;
+  }
+  [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+  return next;
+}
+
+function EditorSkillRow({
+  skill,
   busy,
+  canMoveUp,
+  canMoveDown,
   onSave,
   onDelete,
+  onMove,
 }: {
-  action: AiEditorRewriteActionRecord;
+  skill: AiEditorSkillRecord;
   busy: boolean;
-  onSave: (input: AiEditorRewriteActionUpsertInput) => void;
-  onDelete: (actionId: number) => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onSave: (input: AiEditorSkillUpsertInput) => void;
+  onDelete: (skillId: string) => void;
+  onMove: (direction: "up" | "down") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [draft, setDraft] = useState<EditorRewriteActionDraft>(() =>
-    createEditorRewriteActionDraft(action),
+  const [draft, setDraft] = useState<EditorSkillDraft>(() =>
+    createEditorSkillDraft(skill),
   );
 
   useEffect(() => {
-    setDraft(createEditorRewriteActionDraft(action));
-  }, [action]);
+    setDraft(createEditorSkillDraft(skill));
+  }, [skill]);
 
   return (
     <article
@@ -1514,41 +1375,79 @@ function EditorRewriteActionRow({
           : "border-border hover:border-border-strong",
       ].join(" ")}
     >
-      <button
-        type="button"
-        aria-expanded={expanded}
+      <div
         className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
-        onClick={() => setExpanded((current) => !current)}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <p className="truncate text-body font-medium text-text">{action.label}</p>
-            <StatusBadge tone={action.enabled ? "success" : "warning"}>
-              {action.enabled ? "启用" : "停用"}
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-8)] border border-border bg-bg-muted text-ui">
+              {skill.icon?.trim() || "✦"}
+            </span>
+            <p className="truncate text-body font-medium text-text">{skill.name}</p>
+            <StatusBadge tone={skill.resultMode === "modify" ? "neutral" : "success"}>
+              {skill.resultMode === "modify" ? "修改原文" : "生成回答"}
+            </StatusBadge>
+            <StatusBadge tone={skill.enabled ? "success" : "warning"}>
+              {skill.enabled ? "启用" : "停用"}
+            </StatusBadge>
+            <StatusBadge tone={skill.showInTextMenu ? "neutral" : "warning"}>
+              {skill.showInTextMenu ? "文本菜单" : "已隐藏"}
             </StatusBadge>
           </div>
-          <p className="mt-1 line-clamp-2 text-ui text-text-soft">{action.prompt}</p>
+          <p className="mt-1 line-clamp-2 text-ui text-text-soft">
+            {skill.description?.trim() || skill.prompt}
+          </p>
         </div>
-        <span className="shrink-0 text-ui font-medium text-text-muted">
-          {expanded ? "收起" : "展开"}
-        </span>
-      </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-8)] text-text-soft hover:bg-bg-hover hover:text-text disabled:cursor-not-allowed disabled:text-text-disabled"
+            aria-label="上移技能"
+            disabled={busy || !canMoveUp}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMove("up");
+            }}
+          >
+            <ArrowUp size={14} />
+          </button>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-8)] text-text-soft hover:bg-bg-hover hover:text-text disabled:cursor-not-allowed disabled:text-text-disabled"
+            aria-label="下移技能"
+            disabled={busy || !canMoveDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMove("down");
+            }}
+          >
+            <ArrowDown size={14} />
+          </button>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            className="rounded-[var(--radius-8)] px-2 py-1 text-ui font-medium text-text-muted hover:bg-bg-hover hover:text-text"
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? "收起" : "展开"}
+          </button>
+        </div>
+      </div>
 
       {expanded ? (
         <div className="border-t border-border px-3 pb-3 pt-3">
-          <EditorRewriteActionEditor
+          <EditorSkillEditor
             draft={draft}
             setDraft={setDraft}
             busy={busy}
             onSave={() =>
               onSave({
-                id: action.id,
-                label: draft.label,
-                prompt: draft.prompt,
-                enabled: draft.enabled,
+                ...toEditorSkillInput(draft),
+                id: skill.id,
+                sortOrder: skill.sortOrder,
               })
             }
-            onDelete={() => onDelete(action.id)}
+            onDelete={() => onDelete(skill.id)}
           />
         </div>
       ) : null}
@@ -1556,7 +1455,7 @@ function EditorRewriteActionRow({
   );
 }
 
-function EditorRewriteActionEditor({
+function EditorSkillEditor({
   draft,
   setDraft,
   busy,
@@ -1565,8 +1464,8 @@ function EditorRewriteActionEditor({
   onDelete,
   autoFocusName = false,
 }: {
-  draft: EditorRewriteActionDraft;
-  setDraft: Dispatch<SetStateAction<EditorRewriteActionDraft>>;
+  draft: EditorSkillDraft;
+  setDraft: Dispatch<SetStateAction<EditorSkillDraft>>;
   busy: boolean;
   onSave: () => void;
   onCancel?: () => void;
@@ -1576,16 +1475,44 @@ function EditorRewriteActionEditor({
   return (
     <>
       <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-[5rem_minmax(0,1fr)]">
+          <label className={settingsFieldClassName}>
+            <span className={settingsFieldLabelClassName}>图标</span>
+            <TextField
+              fieldSize="sm"
+              value={draft.icon}
+              disabled={busy}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, icon: event.target.value }))
+              }
+              placeholder="✦"
+            />
+          </label>
+          <label className={settingsFieldClassName}>
+            <span className={settingsFieldLabelClassName}>技能名称</span>
+            <TextField
+              fieldSize="sm"
+              autoFocus={autoFocusName}
+              value={draft.name}
+              disabled={busy}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, name: event.target.value }))
+              }
+              placeholder="比如：翻译成英文"
+            />
+          </label>
+        </div>
+
         <label className={settingsFieldClassName}>
-          <span className={settingsFieldLabelClassName}>动作名称</span>
+          <span className={settingsFieldLabelClassName}>技能描述</span>
           <TextField
             fieldSize="sm"
-            autoFocus={autoFocusName}
-            value={draft.label}
+            value={draft.description}
+            disabled={busy}
             onChange={(event) =>
-              setDraft((current) => ({ ...current, label: event.target.value }))
+              setDraft((current) => ({ ...current, description: event.target.value }))
             }
-            placeholder="比如：翻译成英文"
+            placeholder="可选，用来说明这个技能会做什么"
           />
         </label>
 
@@ -1602,19 +1529,43 @@ function EditorRewriteActionEditor({
             placeholder="比如：请保持原意，把这段文字翻译成自然、专业的英文。"
           />
           <span className={settingsFieldHintClassName}>
-            这里只写动作意图即可，系统会自动注入选中文本、扩展后的段落内容和编辑上下文。
+            这里只写技能意图即可，系统会自动注入选中文本，并按结果模式约束 AI 输出。
           </span>
         </label>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        <select
+          value={draft.resultMode}
+          disabled={busy}
+          className={settingsSelectClassName}
+          aria-label="技能结果模式"
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              resultMode: event.target.value as AiEditorSkillResultMode,
+            }))
+          }
+        >
+          <option value="modify">修改原文</option>
+          <option value="answer">生成回答</option>
+        </select>
         <TogglePill
           label={draft.enabled ? "启用" : "停用"}
-          ariaLabel="编辑改写动作启用开关"
+          ariaLabel="AI 技能启用开关"
           checked={draft.enabled}
           disabled={busy}
           onChange={(checked) =>
             setDraft((current) => ({ ...current, enabled: checked }))
+          }
+        />
+        <TogglePill
+          label={draft.showInTextMenu ? "显示在文本菜单" : "从文本菜单隐藏"}
+          ariaLabel="AI 技能文本菜单显示开关"
+          checked={draft.showInTextMenu}
+          disabled={busy}
+          onChange={(checked) =>
+            setDraft((current) => ({ ...current, showInTextMenu: checked }))
           }
         />
       </div>

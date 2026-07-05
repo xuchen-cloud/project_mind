@@ -1,131 +1,240 @@
-import { Check, LoaderCircle, Sparkles, X } from "lucide-react";
+import { Check, Clipboard, LoaderCircle, RotateCcw, Sparkles, X } from "lucide-react";
 
 interface RichEditorRewriteWidgetProps {
-  actionLabel: string;
+  skillName: string;
+  resultMode: "modify" | "answer";
   status: "queued" | "running" | "succeeded" | "failed";
-  previewHtml: string;
+  answer?: string | null;
+  answerHtml?: string | null;
   errorMessage?: string | null;
+  hasModifyPreview?: boolean;
+  showingOriginal?: boolean;
   onAccept: () => void;
+  onReject: () => void;
+  onCompareDown: () => void;
+  onCompareUp: () => void;
+  onRetry: () => void;
+  onCopyAnswer: () => void;
+  onInsertAnswer: () => void;
   onClose: () => void;
   onOpenAiSettings?: () => void;
 }
 
 export function RichEditorRewriteWidget({
-  actionLabel,
+  skillName,
+  resultMode,
   status,
-  previewHtml,
+  answer,
+  answerHtml,
   errorMessage,
+  hasModifyPreview = false,
+  showingOriginal = false,
   onAccept,
+  onReject,
+  onCompareDown,
+  onCompareUp,
+  onRetry,
+  onCopyAnswer,
+  onInsertAnswer,
   onClose,
   onOpenAiSettings,
 }: RichEditorRewriteWidgetProps) {
   const isPending = status === "queued" || status === "running";
   const isFailed = status === "failed";
-  const hasPreview = previewHtml.trim().length > 0;
 
-  if (isPending && !hasPreview) {
+  if (isPending && !(resultMode === "answer" && answer) && !hasModifyPreview) {
+    if (resultMode === "modify") {
+      return (
+        <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify rich-editor__rewrite-widget--loading">
+          <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+            <div className="rich-editor__rewrite-widget-status">
+              <AiBadge loading />
+              <span>AI 正在修改...</span>
+              <span className="rich-editor__rewrite-widget-compat-text">AI 正在处理...</span>
+            </div>
+            <button
+              type="button"
+              className="rich-editor__rewrite-widget-icon-button"
+              aria-label="关闭 AI"
+              title="关闭 AI"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={onClose}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--thinking">
-        <div className="rich-editor__rewrite-widget-thinking">
-          <div className="rich-editor__rewrite-widget-thinking-copy">
-            <span className="rich-editor__rewrite-widget-thinking-icon">
-              <LoaderCircle className="spin" size={16} />
+      <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--answer rich-editor__rewrite-widget--loading">
+        <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+          <div className="rich-editor__rewrite-widget-status rich-editor__rewrite-widget-answer-stack">
+            <span className="rich-editor__rewrite-widget-status-line">
+              <AiBadge loading />
+              <span>AI 正在处理...</span>
             </span>
-            <span>{`AI 正在${actionLabel}…`}</span>
           </div>
           <button
             type="button"
             className="rich-editor__rewrite-widget-icon-button"
-            aria-label="关闭 AI 建议"
-            title="关闭 AI 建议"
+            aria-label="关闭 AI"
+            title="关闭 AI"
             onMouseDown={(event) => event.preventDefault()}
             onClick={onClose}
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="rich-editor__rewrite-widget">
-      <div className="rich-editor__rewrite-widget-shell">
-        <div className="rich-editor__rewrite-widget-header">
-          <div className="rich-editor__rewrite-widget-brand">
-            <span className="rich-editor__rewrite-widget-badge">
-              <Sparkles size={16} />
-            </span>
-            <div className="rich-editor__rewrite-widget-copy">
-              <p className="rich-editor__rewrite-widget-title">
-                {isFailed
-                  ? `AI ${actionLabel}失败`
-                  : isPending
-                    ? `AI 正在${actionLabel}…`
-                    : "我已完成更新。"}
-              </p>
-              <p className="rich-editor__rewrite-widget-subtitle">
-                {isFailed
-                  ? "原文保持不变，关闭后可以继续编辑。"
-                  : "原文保留在上方，接受后才会真正写回。"}
-              </p>
+  if (isFailed) {
+    if (resultMode === "modify") {
+      return (
+        <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify rich-editor__rewrite-widget--error">
+          <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+            <div className="rich-editor__rewrite-widget-status">
+              <AiBadge />
+              <span>修改失败，请重试</span>
+            </div>
+            <div className="rich-editor__rewrite-widget-actions rich-editor__rewrite-widget-actions--row">
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onRetry}>
+                <RotateCcw size={13} />
+                重试
+              </button>
+              {onOpenAiSettings ? (
+                <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onOpenAiSettings}>
+                  打开设置
+                </button>
+              ) : null}
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onClose}>
+                关闭
+              </button>
             </div>
           </div>
-          <div className="rich-editor__rewrite-widget-actions">
-            <button
-              type="button"
-              className="rich-editor__rewrite-widget-icon-button"
-              aria-label="关闭 AI 建议"
-              title="关闭 AI 建议"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={onClose}
-            >
-              <X size={16} />
-            </button>
-            <button
-              type="button"
-              className={[
-                "rich-editor__rewrite-widget-icon-button",
-                "is-accept",
-              ].join(" ")}
-              aria-label="接受 AI 建议"
-              title="接受 AI 建议"
-              disabled={status !== "succeeded"}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={onAccept}
-            >
-              <Check size={16} />
-            </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--answer rich-editor__rewrite-widget--error">
+        <div className="rich-editor__rewrite-widget-card">
+          <AiBadge />
+          <div className="rich-editor__rewrite-widget-answer-stack">
+            <div className="rich-editor__rewrite-widget-answer rich-editor__surface">
+              <p>处理失败，请重试</p>
+              {errorMessage ? <p className="rich-editor__rewrite-widget-error-detail">{errorMessage}</p> : null}
+            </div>
+            <div className="rich-editor__rewrite-widget-actions rich-editor__rewrite-widget-actions--row">
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onRetry}>
+                <RotateCcw size={13} />
+                重试
+              </button>
+              {onOpenAiSettings ? (
+                <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onOpenAiSettings}>
+                  打开设置
+                </button>
+              ) : null}
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onClose}>
+                关闭
+              </button>
+            </div>
           </div>
         </div>
+      </div>
+    );
+  }
 
-        {isFailed ? (
-          <div className="rich-editor__rewrite-widget-error">
-            <p>{errorMessage ?? "AI 改写失败"}</p>
-            {onOpenAiSettings ? (
-              <button
-                type="button"
-                className="rich-editor__rewrite-widget-link"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={onOpenAiSettings}
-              >
-                打开 AI 设置
+  if (resultMode === "answer") {
+    return (
+      <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--answer">
+        <div className="rich-editor__rewrite-widget-card">
+          <AiBadge />
+          <div className="rich-editor__rewrite-widget-answer-stack">
+            <div className="rich-editor__rewrite-widget-meta">{skillName}</div>
+            <div
+              className="rich-editor__rewrite-widget-answer rich-editor__surface"
+              dangerouslySetInnerHTML={{ __html: answerHtml || "" }}
+            />
+            <div className="rich-editor__rewrite-widget-actions rich-editor__rewrite-widget-actions--row">
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onCopyAnswer}>
+                <Clipboard size={13} />
+                复制
               </button>
-            ) : null}
+              <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending} onMouseDown={(event) => event.preventDefault()} onClick={onInsertAnswer}>
+                <Check size={13} />
+                {isPending ? "生成中" : "插入"}
+              </button>
+              <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onClose}>
+                关闭
+              </button>
+            </div>
           </div>
-        ) : hasPreview ? (
-          <div
-            className="rich-editor__rewrite-widget-preview rich-editor__surface ProseMirror"
-            contentEditable={false}
-            suppressContentEditableWarning
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
-          />
-        ) : (
-          <div className="rich-editor__rewrite-widget-empty">
-            正在整理富文本结果…
-          </div>
-        )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasModifyPreview) {
+    return null;
+  }
+
+  return (
+    <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify">
+      <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+        <div className="rich-editor__rewrite-widget-status">
+          <AiBadge />
+          <span>{isPending ? "AI 正在修改..." : "我已完成更新。"}</span>
+        </div>
+        <div className="rich-editor__rewrite-widget-actions rich-editor__rewrite-widget-actions--row">
+          <button
+            type="button"
+            className={["rich-editor__rewrite-widget-action", showingOriginal ? "is-active" : ""].filter(Boolean).join(" ")}
+            aria-pressed={showingOriginal}
+            title={showingOriginal ? "正在显示原文" : "按住显示原文"}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+              onCompareDown();
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              event.currentTarget.releasePointerCapture?.(event.pointerId);
+              onCompareUp();
+            }}
+            onPointerCancel={(event) => {
+              event.currentTarget.releasePointerCapture?.(event.pointerId);
+              onCompareUp();
+            }}
+            onPointerLeave={(event) => {
+              if (!event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                onCompareUp();
+              }
+            }}
+          >
+            {showingOriginal ? "原文" : "对比"}
+          </button>
+          <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onReject}>
+            <X size={13} />
+            撤销
+          </button>
+          <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending} onMouseDown={(event) => event.preventDefault()} onClick={onAccept}>
+            <Check size={13} />
+            {isPending ? "生成中" : "接受"}
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+function AiBadge({ loading = false }: { loading?: boolean }) {
+  return (
+    <span className="rich-editor__rewrite-widget-badge" aria-hidden="true">
+      {loading ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+    </span>
   );
 }

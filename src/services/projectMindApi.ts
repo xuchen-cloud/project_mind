@@ -1,20 +1,12 @@
 import { desktopApi } from "./desktopApi";
 import type {
-  AcceptedSuggestionResult,
-  AiAcceptSuggestionInput,
-  AiAnswerQuestionInput,
-  AiAnswerResult,
-  AiArtifactGetInput,
-  AiArtifactRecord,
   AiCapabilityBindingRecord,
   AiCapabilityBindingUpsertInput,
-  AiEditorRewriteActionDeleteInput,
-  AiEditorRewriteActionRecord,
-  AiEditorRewriteActionUpsertInput,
+  AiEditorSkillDeleteInput,
+  AiEditorSkillRecord,
+  AiEditorSkillReorderInput,
+  AiEditorSkillUpsertInput,
   AiExecutionSettings,
-  AiFeatureSettings,
-  AiFeatureSettingsUpsertInput,
-  AiGenerateInput,
   AiJobEnqueueInput,
   AiJobSnapshot,
   AiProfileTestInput,
@@ -23,7 +15,6 @@ import type {
   AiProviderProfileRecord,
   AiProviderProfileUpsertInput,
   AiSettingsSnapshot,
-  AiSuggestionRecord,
   ConclusionCreateInput,
   ConclusionDeleteInput,
   ConclusionListInput,
@@ -215,20 +206,6 @@ export const projectMindApi = {
     desktopApi.command<DocumentRecord>("document_add_version", { input }),
   documentDelete: (input: DocumentDeleteInput) =>
     desktopApi.command<DocumentRecord>("document_delete", { input }),
-  aiGenerateNoteSuggestions: (input: AiGenerateInput) =>
-    desktopApi.command<AiSuggestionRecord[]>("ai_generate_note_suggestions", {
-      input,
-    }),
-  aiAcceptSuggestion: (input: AiAcceptSuggestionInput) =>
-    desktopApi.command<AcceptedSuggestionResult>("ai_accept_suggestion", {
-      input,
-    }),
-  aiArtifactGet: (input: AiArtifactGetInput) =>
-    desktopApi.command<AiArtifactRecord | null>("ai_artifact_get", { input }),
-  aiArtifactRefresh: (input: AiArtifactGetInput) =>
-    desktopApi.command<AiArtifactRecord>("ai_artifact_refresh", { input }),
-  aiAnswerQuestion: (input: AiAnswerQuestionInput) =>
-    desktopApi.command<AiAnswerResult>("ai_answer_question", { input }),
   aiSettingsGet: () =>
     desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
   richTextStyleGet: () =>
@@ -247,22 +224,16 @@ export const projectMindApi = {
     desktopApi.command<AiCapabilityBindingRecord>("ai_binding_upsert", {
       input,
     }),
-  aiEditorRewriteActionUpsert: (input: AiEditorRewriteActionUpsertInput) =>
-    desktopApi.command<AiEditorRewriteActionRecord>(
-      "ai_editor_rewrite_action_upsert",
-      {
-        input,
-      },
-    ),
-  aiEditorRewriteActionDelete: (input: AiEditorRewriteActionDeleteInput) =>
-    desktopApi.command<AiEditorRewriteActionRecord[]>(
-      "ai_editor_rewrite_action_delete",
-      {
-        input,
-      },
-    ),
-  aiFeatureSettingsUpsert: (input: AiFeatureSettingsUpsertInput) =>
-    desktopApi.command<AiFeatureSettings>("ai_feature_settings_upsert", {
+  aiEditorSkillUpsert: (input: AiEditorSkillUpsertInput) =>
+    desktopApi.command<AiEditorSkillRecord>("ai_editor_skill_upsert", {
+      input,
+    }),
+  aiEditorSkillDelete: (input: AiEditorSkillDeleteInput) =>
+    desktopApi.command<AiEditorSkillRecord[]>("ai_editor_skill_delete", {
+      input,
+    }),
+  aiEditorSkillReorder: (input: AiEditorSkillReorderInput) =>
+    desktopApi.command<AiEditorSkillRecord[]>("ai_editor_skill_reorder", {
       input,
     }),
   aiJobEnqueue: (input: AiJobEnqueueInput) =>

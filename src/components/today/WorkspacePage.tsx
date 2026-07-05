@@ -106,6 +106,10 @@ export function WorkspacePage({
     queryKey: ["file-tag-settings", "workspace"],
     queryFn: () => projectMindApi.fileTagSettingsGet({}),
   });
+  const aiSettingsQuery = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: projectMindApi.aiSettingsGet,
+  });
 
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
@@ -118,6 +122,7 @@ export function WorkspacePage({
   const workspacePage = workspacePageQuery.data;
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
+  const aiSettings = aiSettingsQuery.data ?? null;
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
   const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
@@ -610,11 +615,11 @@ export function WorkspacePage({
             >
               <RichEditor
                 html={quickNoteDraft.html}
+                aiSettings={aiSettings}
                 defaultCodeLanguage={quickNoteCodeLanguage}
                 onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
                 variant="page"
                 showToolbar={false}
-                enableTables={false}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
                 tagMentions={{
@@ -658,6 +663,7 @@ export function WorkspacePage({
                   onWindowBlur: true,
                   onVisibilityChange: true,
                 }}
+                onOpenAiSettings={() => openSettings("ai-rewrite")}
                 onSave={async (value) => {
                   const externalizedValue = await externalizeEmbeddedImageDataUrls(
                     value,
@@ -686,6 +692,7 @@ export function WorkspacePage({
                 composeRecord={composeRecord}
                 pageWidthMode={pageWidthMode}
                 availableTags={availableTags}
+                aiSettings={aiSettings}
                 saving={workspaceRecordMutation.isPending}
                 onCreateRecord={async (input) => {
                   const externalizedValue = await externalizeEmbeddedImageDataUrls(

@@ -20,12 +20,14 @@ import {
   Combine,
   Copy,
   ExternalLink,
+  File as FileIcon,
   FolderOpen,
   Grid2X2Plus,
   Heading1,
   Heading2,
   Heading3,
   Highlighter,
+  Image,
   ImageUp,
   ImagePlus,
   Italic,
@@ -33,27 +35,33 @@ import {
   ListOrdered,
   ListTodo,
   LoaderCircle,
+  Lightbulb,
   Maximize2,
+  Minus,
   MoreHorizontal,
   Paperclip,
   PanelLeft,
   PanelTop,
+  Pencil,
   Pilcrow,
   Quote,
   Rows2,
   Scissors,
+  Settings2,
+  Sparkles,
+  Star,
   Split,
   Strikethrough,
   Table2,
-  TextSelect,
   Trash2,
+  Type,
   WandSparkles,
   X,
   type LucideIcon,
 } from "lucide-react";
 
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
-import { isAiCapabilityConfigured, isAiCapabilityVisible } from "../../lib/ai";
+import { isAiCapabilityConfigured } from "../../lib/ai";
 import {
   buildContactMentionTarget,
   findContactMentionElement,
@@ -92,6 +100,7 @@ import type {
 } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
+import { useAiJobStore } from "../../state/ai-job-store";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
   ActionContextMenu,
@@ -109,8 +118,6 @@ import {
 } from "../internal-reference";
 import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import {
-  buildEditorRewritePreviewHtml,
-  type EditorRewriteBlockRange,
   buildEditorRewriteSelection,
   buildEditorRewriteSlice,
   type EditorRewritePlaceholder,
@@ -230,6 +237,19 @@ interface ImageContextMenuTarget {
   };
 }
 
+interface AttachmentContextMenuTarget {
+  nodePos: number;
+  attrs: {
+    documentId?: number;
+    href?: string;
+    isStarred?: boolean;
+    meta?: string;
+    mimeType?: string;
+    path?: string;
+    title?: string;
+  };
+}
+
 interface ImageAnnotationDialogState {
   nodePos: number;
   title: string;
@@ -246,25 +266,51 @@ interface StoredTextSelection {
   to: number;
 }
 
-interface EditorRewriteSessionState {
-  targetKey: string;
-  actionId?: number | null;
-  actionLabel: string;
+interface EditorAiSelectionSnapshot {
   from: number;
   to: number;
-  originalMarkdown: string;
+  text: string;
+  markdown: string;
   placeholders: EditorRewritePlaceholder[];
-  blockRanges: EditorRewriteBlockRange[];
+  originalSlice: Slice;
+}
+
+interface EditorAiSkillSnapshot {
+  id?: string | null;
+  name: string;
+  prompt: string;
+  resultMode: "modify" | "answer";
+}
+
+interface EditorAiModifyPreview {
+  originalMarkdown: string;
+  modifiedMarkdown: string;
+  placeholders: EditorRewritePlaceholder[];
+  originalSlice: Slice;
+  currentFrom: number;
+  currentTo: number;
+  showing: "original" | "modified";
+}
+
+interface EditorRewriteSessionState {
+  targetKey: string;
+  skill: EditorAiSkillSnapshot;
+  selectionSnapshot: EditorAiSelectionSnapshot;
+  anchorPos: number;
+  modifyPreview?: EditorAiModifyPreview | null;
+  answer?: string | null;
 }
 
 type EditorRewriteDisplayStatus = "queued" | "running" | "succeeded" | "failed";
 
 interface EditorRewriteWidgetState {
-  actionLabel: string;
+  skillName: string;
   anchorPos: number;
-  blockRanges: EditorRewriteBlockRange[];
+  resultMode: "modify" | "answer";
   status: EditorRewriteDisplayStatus;
-  previewHtml: string;
+  answer?: string | null;
+  answerHtml?: string | null;
+  modifyPreview?: EditorAiModifyPreview | null;
   errorMessage?: string | null;
 }
 
@@ -305,7 +351,7 @@ interface RichEditorProps {
   internalReferences?: RichEditorInternalReferenceOptions;
   contactMentions?: RichEditorContactMentionOptions;
   tagMentions?: RichEditorTagMentionOptions;
-  aiSettings?: AiSettingsSnapshot;
+  aiSettings?: AiSettingsSnapshot | null;
   aiRewriteContext?: AiEditorRewriteContext;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
@@ -442,6 +488,7 @@ export function RichEditor({
   const saveQueuedRef = useRef(false);
   const assetBusyRef = useRef<null | "image" | "file">(null);
   const taskShortcutTransformRef = useRef(false);
+  const aiPreviewMutationRef = useRef(false);
   const autoFocusAppliedRef = useRef(false);
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
@@ -479,16 +526,30 @@ export function RichEditor({
   }>(null);
   const tagActiveIndexRef = useRef(0);
   const tagResultsRef = useRef<FileTagRecord[]>([]);
+  const rewriteSessionRef = useRef<EditorRewriteSessionState | null>(null);
   const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
+    onReject: () => void;
+    onCompareDown: () => void;
+    onCompareUp: () => void;
+    onRetry: () => void;
+    onCopyAnswer: () => void;
+    onInsertAnswer: () => void;
     onClose: () => void;
     onOpenAiSettings?: () => void;
   }>({
     onAccept: () => {},
+    onReject: () => {},
+    onCompareDown: () => {},
+    onCompareUp: () => {},
+    onRetry: () => {},
+    onCopyAnswer: () => {},
+    onInsertAnswer: () => {},
     onClose: () => {},
     onOpenAiSettings: undefined,
   });
+  rewriteSessionRef.current = rewriteSession;
   const searchStateRef = useRef<{
     open: boolean;
     matches: EditorSearchMatch[];
@@ -499,18 +560,18 @@ export function RichEditor({
     activeIndex: 0,
   });
   const rewriteJob = useAiJobTarget(rewriteSession?.targetKey ?? "__rich-editor-rewrite-idle__");
-  const enabledRewriteActions = useMemo(
-    () => aiSettings?.editorRewriteActions.filter((action) => action.enabled) ?? [],
-    [aiSettings?.editorRewriteActions],
+  const enabledEditorSkills = useMemo(
+    () =>
+      (aiSettings?.editorSkills ?? [])
+        .filter((skill) => skill.enabled && skill.showInTextMenu)
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN")),
+    [aiSettings?.editorSkills],
   );
-  const editorRewriteVisible = Boolean(aiSettings) && isAiCapabilityVisible(aiSettings, "editor_rewrite");
-  const editorRewriteReady = Boolean(aiSettings) && isAiCapabilityConfigured(aiSettings, "editor_rewrite");
-  const editorInteractionLocked = Boolean(rewriteSession);
+  const editorRewriteVisible = Boolean(aiSettings);
+  const editorRewriteReady =
+    Boolean(aiSettings) && isAiCapabilityConfigured(aiSettings ?? undefined, "editor_rewrite");
+  const editorInteractionLocked = Boolean(rewriteSession?.modifyPreview);
   const effectiveReadOnly = readOnly || editorInteractionLocked;
-  const rewritePreviewMarkdown =
-    rewriteJob?.status === "succeeded"
-      ? readEditorRewriteJobResult(rewriteJob).rewrittenMarkdown
-      : rewriteJob?.streamText ?? "";
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
     : !editorRewriteReady
@@ -1380,6 +1441,10 @@ export function RichEditor({
       scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
     },
     onUpdate: ({ editor: nextEditor }) => {
+      if (aiPreviewMutationRef.current) {
+        scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
+        return;
+      }
       if (taskShortcutTransformRef.current) {
         taskShortcutTransformRef.current = false;
       } else if (applyTaskListMarkdownShortcut(nextEditor)) {
@@ -1427,6 +1492,9 @@ export function RichEditor({
       );
     }
     window.requestAnimationFrame(() => {
+      if (nextEditor.isDestroyed) {
+        return;
+      }
       scrollSearchMatchIntoComfortView(nextEditor, match.from);
     });
 
@@ -1435,6 +1503,9 @@ export function RichEditor({
     } else if (shouldRestoreSearchFocus) {
       searchInputRef.current?.focus();
       window.requestAnimationFrame(() => {
+        if (nextEditor.isDestroyed) {
+          return;
+        }
         const activeElement = document.activeElement;
         if (activeElement instanceof Node && nextEditor.view.dom.contains(activeElement)) {
           searchInputRef.current?.focus();
@@ -1537,21 +1608,6 @@ export function RichEditor({
     );
   }, [activeSearchIndex, editor, searchMatches, searchOpen]);
 
-  const rewritePreviewHtml = useMemo(() => {
-    if (!editor || !rewriteSession) {
-      return "";
-    }
-
-    try {
-      return buildEditorRewritePreviewHtml(
-        editor,
-        rewritePreviewMarkdown,
-        rewriteSession.placeholders,
-      );
-    } catch {
-      return "";
-    }
-  }, [editor, rewritePreviewMarkdown, rewriteSession]);
   const rewriteDisplayStatus: EditorRewriteDisplayStatus = rewriteSession
     ? rewriteJob?.status ?? "queued"
     : "queued";
@@ -1561,14 +1617,16 @@ export function RichEditor({
     }
 
     return {
-      actionLabel: rewriteSession.actionLabel,
-      anchorPos: rewriteSession.to,
-      blockRanges: rewriteSession.blockRanges,
+      skillName: rewriteSession.skill.name,
+      anchorPos: rewriteSession.anchorPos,
+      resultMode: rewriteSession.skill.resultMode,
       status: rewriteDisplayStatus,
-      previewHtml: rewritePreviewHtml,
+      answer: rewriteSession.answer ?? null,
+      answerHtml: rewriteSession.answer ? renderMarkdownToHtml(rewriteSession.answer) : null,
+      modifyPreview: rewriteSession.modifyPreview ?? null,
       errorMessage: rewriteJob?.errorMessage ?? null,
     };
-  }, [rewriteDisplayStatus, rewriteJob?.errorMessage, rewritePreviewHtml, rewriteSession]);
+  }, [rewriteDisplayStatus, rewriteJob?.errorMessage, rewriteSession]);
 
   rewriteWidgetStateRef.current = rewriteWidgetState;
 
@@ -2110,6 +2168,7 @@ export function RichEditor({
           mimeType: asset.mimeType,
           documentId: asset.documentId,
           meta: asset.meta,
+          isStarred: asset.isStarred,
         },
       });
     } finally {
@@ -2153,10 +2212,6 @@ export function RichEditor({
         return;
       }
 
-      if (!onOpenAsset) {
-        return;
-      }
-
       const target = event.target as HTMLElement;
       const clickable = target.closest<HTMLElement>("[data-rich-editor-openable='true']");
       const attachment = target.closest<HTMLElement>("[data-type='attachment']");
@@ -2175,18 +2230,23 @@ export function RichEditor({
         ? Number(attachment.dataset.documentId)
         : undefined;
       const meta = attachment.dataset.meta || undefined;
+      const isStarred = attachment.dataset.isStarred === "true";
+      const asset: RichEditorAsset = {
+        kind: "file",
+        title,
+        href,
+        path,
+        mimeType,
+        documentId,
+        meta,
+        isStarred,
+      };
 
-      void Promise.resolve(
-        onOpenAsset({
-          kind: "file",
-          title,
-          href,
-          path,
-          mimeType,
-          documentId,
-          meta,
-        }),
-      ).catch(() => {
+      const openPromise = onOpenAsset
+        ? Promise.resolve(onOpenAsset(asset))
+        : openAttachmentAsset(asset);
+
+      void openPromise.catch(() => {
         // The caller owns error presentation.
       });
     },
@@ -2508,11 +2568,22 @@ export function RichEditor({
 
   const startEditorRewrite = useCallback(
     async (options: {
-      actionId?: number | null;
-      actionLabel: string;
-      promptOverride?: string | null;
+      skillId?: string | null;
+      skillName: string;
+      prompt: string;
+      resultMode: "modify" | "answer";
+      selectionSnapshot?: EditorAiSelectionSnapshot;
     }) => {
       if (!editor) {
+        return;
+      }
+
+      if (rewriteSession && !rewriteSession.answer) {
+        pushToast({
+          tone: "info",
+          title: "请先处理当前 AI 修改",
+          detail: "请先接受或撤销当前 AI 修改。",
+        });
         return;
       }
 
@@ -2520,18 +2591,37 @@ export function RichEditor({
         onOpenAiSettings?.();
         pushToast({
           tone: "error",
-          title: "AI 改写暂不可用",
+          title: "AI 编辑暂不可用",
           detail:
             rewriteUnavailableReason === "需先解锁 AI 配置"
-              ? "请先解锁 AI 配置，再运行编辑改写动作。"
-              : "请先在 AI 设置里完成编辑改写能力绑定。",
+              ? "请先解锁 AI 配置，再运行编辑 AI。"
+              : "请先在 AI 设置里完成编辑 AI 能力绑定。",
         });
         return;
       }
 
-      restoreStoredTextSelection(editor);
-      const selection = buildEditorRewriteSelection(editor);
-      if (!selection) {
+      let selectionSnapshot = options.selectionSnapshot;
+      if (!selectionSnapshot) {
+        restoreStoredTextSelection(editor);
+        const selection = editor.state.selection;
+        if (!(selection instanceof TextSelection) || selection.empty) {
+          return;
+        }
+        const rewriteSelection = buildEditorRewriteSelection(editor);
+        if (!rewriteSelection?.selectedText.trim() || !rewriteSelection.expandedMarkdown.trim()) {
+          return;
+        }
+        selectionSnapshot = {
+          from: rewriteSelection.from,
+          to: rewriteSelection.to,
+          text: rewriteSelection.selectedText.trim(),
+          markdown: rewriteSelection.expandedMarkdown.trim(),
+          placeholders: rewriteSelection.placeholders,
+          originalSlice: editor.state.doc.slice(rewriteSelection.from, rewriteSelection.to),
+        };
+      }
+
+      if (!selectionSnapshot.text.trim()) {
         return;
       }
 
@@ -2541,29 +2631,36 @@ export function RichEditor({
 
       setRewriteSession({
         targetKey,
-        actionId: options.actionId ?? null,
-        actionLabel: options.actionLabel,
-        from: selection.from,
-        to: selection.to,
-        originalMarkdown: selection.expandedMarkdown,
-        placeholders: selection.placeholders,
-        blockRanges: selection.blockRanges,
+        skill: {
+          id: options.skillId ?? null,
+          name: options.skillName,
+          prompt: options.prompt,
+          resultMode: options.resultMode,
+        },
+        selectionSnapshot,
+        anchorPos: selectionSnapshot.to,
+        modifyPreview: null,
+        answer: null,
       });
       setAiMenu(null);
       setContextMenu(null);
 
       try {
         await ensureAiJobSync();
-        await projectMindApi.aiJobEnqueue(
+        const queuedJob = await projectMindApi.aiJobEnqueue(
           editorRewriteJobInput(targetKey, {
-            actionId: options.actionId ?? null,
-            promptOverride: options.promptOverride ?? null,
-            selectedText: selection.selectedText,
-            expandedMarkdown: selection.expandedMarkdown,
-            placeholderTokens: selection.placeholders.map((item) => item.token),
+            skillId: options.skillId ?? null,
+            skillName: options.skillName,
+            prompt: options.prompt,
+            resultMode: options.resultMode,
+            selectedText: selectionSnapshot.markdown,
+            expandedMarkdown: selectionSnapshot.markdown,
+            placeholderTokens: selectionSnapshot.placeholders.map((placeholder) => placeholder.token),
+            documentContext: null,
             context: aiRewriteContext,
           }),
         );
+        useAiJobStore.getState().upsertJob(queuedJob);
       } catch (error) {
         setRewriteSession(null);
         pushToast({
@@ -2579,64 +2676,294 @@ export function RichEditor({
       onOpenAiSettings,
       pushToast,
       restoreStoredTextSelection,
+      rewriteSession,
       rewriteUnavailableReason,
     ],
   );
 
   const runEditorRewriteAction = useCallback(
-    (actionId: number, actionLabel: string) => {
+    (skill: { id: string; name: string; prompt: string; resultMode: "modify" | "answer" }) => {
       void startEditorRewrite({
-        actionId,
-        actionLabel,
-        promptOverride: null,
+        skillId: skill.id,
+        skillName: skill.name,
+        prompt: skill.prompt,
+        resultMode: skill.resultMode,
       });
     },
     [startEditorRewrite],
   );
 
   const runEditorRewritePrompt = useCallback(
-    (promptOverride: string) => {
+    (prompt: string, resultMode: "modify" | "answer") => {
       void startEditorRewrite({
-        actionId: null,
-        actionLabel: "AI 编辑",
-        promptOverride,
+        skillId: null,
+        skillName: "AI 编辑",
+        prompt,
+        resultMode,
       });
     },
     [startEditorRewrite],
   );
 
-  const applyRewriteResult = useCallback(
-    () => {
-      if (!editor || !rewriteSession || rewriteJob?.status !== "succeeded") {
+  const replaceAiPreviewMarkdown = useCallback(
+    (markdown: string, showing: "original" | "modified") => {
+      const session = rewriteSessionRef.current;
+      if (!editor || !session?.modifyPreview) {
+        return;
+      }
+
+      const preview = session.modifyPreview;
+      if (preview.showing === showing && (showing === "original" || preview.modifiedMarkdown === markdown)) {
         return;
       }
 
       try {
-        const rewrite = readEditorRewriteJobResult(rewriteJob);
-        const slice = buildEditorRewriteSlice(
-          editor,
-          rewrite.rewrittenMarkdown,
-          rewriteSession.placeholders,
-        );
-        const tr = editor.state.tr;
+        aiPreviewMutationRef.current = true;
+        let nextTo = preview.currentTo;
+        try {
+          const slice =
+            showing === "original"
+              ? preview.originalSlice
+              : buildEditorRewriteSlice(editor, markdown, preview.placeholders);
+          nextTo = replaceEditorRangeWithSlice(editor, preview.currentFrom, preview.currentTo, slice);
+        } finally {
+          aiPreviewMutationRef.current = false;
+        }
 
-        tr.replaceRange(rewriteSession.from, rewriteSession.to, slice);
-        editor.view.dispatch(tr.scrollIntoView());
-        setRewriteSession(null);
+        const nextPreview: EditorAiModifyPreview = {
+          ...preview,
+          modifiedMarkdown: showing === "modified" ? markdown : preview.modifiedMarkdown,
+          currentTo: nextTo,
+          showing,
+        };
+        const nextSession: EditorRewriteSessionState = {
+          ...session,
+          anchorPos: nextTo,
+          modifyPreview: nextPreview,
+        };
+        rewriteSessionRef.current = nextSession;
+        flushSync(() => {
+          setRewriteSession((current) =>
+            current?.targetKey === session.targetKey
+              ? {
+                  ...current,
+                  anchorPos: nextTo,
+                  modifyPreview: {
+                    ...(current.modifyPreview ?? preview),
+                    modifiedMarkdown:
+                      showing === "modified" ? markdown : (current.modifyPreview ?? preview).modifiedMarkdown,
+                    currentTo: nextTo,
+                    showing,
+                  },
+                }
+              : current,
+          );
+        });
       } catch (error) {
+        rewriteSessionRef.current = null;
+        setRewriteSession(null);
         pushToast({
           tone: "error",
-          title: "应用 AI 改写失败",
-          detail: error instanceof Error ? error.message : "改写结果无法写回编辑器",
+          title: "应用 AI 结果失败",
+          detail: error instanceof Error ? error.message : "AI 结果无法写回编辑器",
         });
       }
     },
-    [editor, pushToast, rewriteJob, rewriteSession],
+    [editor, pushToast],
   );
+
+  const publishAiEditorSnapshot = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+    const snapshot = serializeEditor(editor);
+    lastResolvedHtmlRef.current = snapshot.html;
+    publishChangeSnapshot(snapshot, { immediate: true, sync: true });
+    updatePersistState("dirty");
+  }, [editor, publishChangeSnapshot, updatePersistState]);
+
+  const acceptModifyPreview = useCallback(() => {
+    setRewriteSession(null);
+    publishAiEditorSnapshot();
+  }, [publishAiEditorSnapshot]);
+
+  const rejectModifyPreview = useCallback(() => {
+    if (!rewriteSession?.modifyPreview) {
+      setRewriteSession(null);
+      return;
+    }
+    replaceAiPreviewMarkdown(rewriteSession.modifyPreview.originalMarkdown, "original");
+    setRewriteSession(null);
+    publishAiEditorSnapshot();
+  }, [publishAiEditorSnapshot, replaceAiPreviewMarkdown, rewriteSession]);
+
+  const copyAiAnswer = useCallback(() => {
+    const answer = rewriteSession?.answer?.trim();
+    if (!answer) {
+      return;
+    }
+    const clipboardWrite = navigator.clipboard?.writeText?.(answer);
+    void (clipboardWrite ?? runFallbackClipboardWrite(answer)).catch(() => {
+      void runFallbackClipboardWrite(answer);
+    });
+  }, [rewriteSession?.answer]);
+
+  const insertAiAnswer = useCallback(() => {
+    if (!editor || !rewriteSession?.answer) {
+      return;
+    }
+
+    const insertPosition = getInsertPositionAfterSelectedBlock(
+      editor,
+      rewriteSession.selectionSnapshot.to,
+    );
+    insertMarkdownAtPosition(editor, insertPosition, rewriteSession.answer);
+    setRewriteSession(null);
+    publishAiEditorSnapshot();
+  }, [editor, publishAiEditorSnapshot, rewriteSession]);
+
+  const retryAiSession = useCallback(() => {
+    if (!rewriteSession) {
+      return;
+    }
+    void startEditorRewrite({
+      skillId: rewriteSession.skill.id ?? null,
+      skillName: rewriteSession.skill.name,
+      prompt: rewriteSession.skill.prompt,
+      resultMode: rewriteSession.skill.resultMode,
+      selectionSnapshot: rewriteSession.selectionSnapshot,
+    });
+  }, [rewriteSession, startEditorRewrite]);
+
+  useEffect(() => {
+    if (!editor || !rewriteSession) {
+      return;
+    }
+    if (rewriteJob?.status !== "running" && rewriteJob?.status !== "succeeded") {
+      return;
+    }
+
+    try {
+      const content =
+        rewriteJob.status === "succeeded"
+          ? readEditorRewriteJobResult(rewriteJob).content.trim()
+          : rewriteJob.streamText?.trim() ?? "";
+      if (!content) {
+        return;
+      }
+      if (rewriteSession.skill.resultMode === "answer") {
+        setRewriteSession((current) =>
+          current?.targetKey === rewriteSession.targetKey
+            ? {
+                ...current,
+                answer: content,
+              }
+            : current,
+        );
+        return;
+      }
+
+      if (rewriteSession.skill.resultMode === "modify" && rewriteSession.selectionSnapshot.placeholders.length > 0) {
+        const hasRequiredPlaceholders = hasAllPlaceholderTokens(
+          content,
+          rewriteSession.selectionSnapshot.placeholders,
+        );
+        if (!hasRequiredPlaceholders && rewriteJob.status === "running") {
+          return;
+        }
+        if (!hasRequiredPlaceholders) {
+          throw new Error("AI 返回内容缺少需要保留的图片、表格或附件占位符。");
+        }
+      }
+
+      if (rewriteSession.modifyPreview?.modifiedMarkdown === content) {
+        return;
+      }
+      const snapshot = rewriteSession.selectionSnapshot;
+      const currentFrom = rewriteSession.modifyPreview?.currentFrom ?? snapshot.from;
+      const currentTo = rewriteSession.modifyPreview?.currentTo ?? snapshot.to;
+
+      aiPreviewMutationRef.current = true;
+      let nextTo = currentTo;
+      try {
+        if (rewriteSession.modifyPreview?.showing === "original") {
+          nextTo = currentTo;
+        } else {
+          const slice = buildEditorRewriteSlice(editor, content, snapshot.placeholders);
+          nextTo = replaceEditorRangeWithSlice(editor, currentFrom, currentTo, slice);
+        }
+      } finally {
+        aiPreviewMutationRef.current = false;
+      }
+
+      setRewriteSession((current) =>
+        current?.targetKey === rewriteSession.targetKey
+          ? {
+              ...current,
+              anchorPos: nextTo,
+              modifyPreview: {
+                originalMarkdown: snapshot.markdown,
+                modifiedMarkdown: content,
+                placeholders: snapshot.placeholders,
+                originalSlice: snapshot.originalSlice,
+                currentFrom,
+                currentTo: nextTo,
+                showing: rewriteSession.modifyPreview?.showing ?? "modified",
+              },
+            }
+          : current,
+      );
+    } catch (error) {
+      rewriteSessionRef.current = null;
+      setRewriteSession(null);
+      pushToast({
+        tone: "error",
+        title: "应用 AI 结果失败",
+        detail: error instanceof Error ? error.message : "AI 结果无法写回编辑器",
+      });
+    }
+  }, [editor, pushToast, rewriteJob, rewriteSession]);
+
+  useEffect(() => {
+    if (!rewriteSession?.modifyPreview || rewriteSession.modifyPreview.showing !== "original") {
+      return;
+    }
+
+    const restoreModified = () => {
+      replaceAiPreviewMarkdown(rewriteSession.modifyPreview?.modifiedMarkdown ?? "", "modified");
+    };
+
+    window.addEventListener("blur", restoreModified);
+    return () => window.removeEventListener("blur", restoreModified);
+  }, [replaceAiPreviewMarkdown, rewriteSession]);
 
   rewriteWidgetCallbacksRef.current = {
     onAccept: () => {
-      applyRewriteResult();
+      acceptModifyPreview();
+    },
+    onReject: () => {
+      rejectModifyPreview();
+    },
+    onCompareDown: () => {
+      const session = rewriteSessionRef.current;
+      if (session?.modifyPreview) {
+        replaceAiPreviewMarkdown(session.modifyPreview.originalMarkdown, "original");
+      }
+    },
+    onCompareUp: () => {
+      const session = rewriteSessionRef.current;
+      if (session?.modifyPreview) {
+        replaceAiPreviewMarkdown(session.modifyPreview.modifiedMarkdown, "modified");
+      }
+    },
+    onRetry: () => {
+      retryAiSession();
+    },
+    onCopyAnswer: () => {
+      copyAiAnswer();
+    },
+    onInsertAnswer: () => {
+      insertAiAnswer();
     },
     onClose: () => {
       closeRewriteSession();
@@ -2671,6 +2998,31 @@ export function RichEditor({
       }
 
       const target = event.target instanceof Element ? event.target : null;
+      const eventPath =
+        typeof event.nativeEvent.composedPath === "function"
+          ? event.nativeEvent.composedPath()
+          : [];
+      const attachmentTarget = resolveAttachmentContextMenuTarget(editor, target, eventPath);
+
+      if (attachmentTarget) {
+        selectNodeAtPos(editor, attachmentTarget.nodePos);
+        event.preventDefault();
+        event.stopPropagation();
+        setAiMenu(null);
+        setContextMenu({
+          x: event.clientX,
+          y: event.clientY,
+          ariaLabel: "文件操作",
+          actions: buildAttachmentContextMenuActions({
+            editor,
+            attachmentTarget,
+            readOnly: effectiveReadOnly,
+          }),
+          autoFocus: false,
+        });
+        return;
+      }
+
       const hasTextSelection =
         syncDomTextSelectionToEditor(editor) ||
         syncStoredTextSelectionToEditor(editor, storedTextSelectionRef.current, {
@@ -2743,17 +3095,25 @@ export function RichEditor({
               selectionActions,
               selectionPayload,
               defaultCodeLanguage,
+              editorSkills: enabledEditorSkills,
+              rewriteUnavailableReason,
+              onOpenAiSettings,
+              onOpenAiEdit: () => {
+                setContextMenu(null);
+                setAiMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              },
+              onRunEditorSkill: runEditorRewriteAction,
+              onUnavailableAction: (title) =>
+                pushToast({
+                  tone: "info",
+                  title,
+                  detail: "能力建设中",
+                }),
             }),
             autoFocus: false,
-          });
-          return;
-        }
-
-        if (hasTextSelection && editorRewriteVisible && !effectiveReadOnly) {
-          setContextMenu(null);
-          setAiMenu({
-            x: event.clientX,
-            y: event.clientY,
           });
           return;
         }
@@ -2763,12 +3123,35 @@ export function RichEditor({
           x: event.clientX,
           y: event.clientY,
           ariaLabel: "文本操作",
-          actions: buildTextContextMenuActions(
+          actions: buildTextContextMenuActions({
             editor,
-            effectiveReadOnly,
-            enableTables ? insertTable : undefined,
+            readOnly: effectiveReadOnly,
+            hasTextSelection,
+            insertTable: enableTables ? insertTable : undefined,
+            onInsertImage: handleInsertImage,
+            onInsertFile: handleInsertFile,
+            canInsertImage: Boolean(assetHandlers?.insertImage),
+            canInsertFile: Boolean(assetHandlers?.insertFile),
+            assetBusy,
             defaultCodeLanguage,
-          ),
+            editorSkills: enabledEditorSkills,
+            rewriteUnavailableReason,
+            onOpenAiSettings,
+            onOpenAiEdit: () => {
+              setContextMenu(null);
+              setAiMenu({
+                x: event.clientX,
+                y: event.clientY,
+              });
+            },
+            onRunEditorSkill: runEditorRewriteAction,
+            onUnavailableAction: (title) =>
+              pushToast({
+                tone: "info",
+                title,
+                detail: "能力建设中",
+              }),
+          }),
           autoFocus: false,
         });
         return;
@@ -2780,13 +3163,21 @@ export function RichEditor({
     [
       editor,
       editorInteractionLocked,
-      editorRewriteVisible,
       effectiveReadOnly,
       enableTables,
+      enabledEditorSkills,
       onOpenAiSettings,
       openImageAnnotationDialog,
+      assetBusy,
+      assetHandlers?.insertFile,
+      assetHandlers?.insertImage,
+      handleInsertFile,
+      handleInsertImage,
+      insertTable,
+      pushToast,
       runEditorRewriteAction,
       selectionActions,
+      rewriteUnavailableReason,
     ],
   );
 
@@ -3163,13 +3554,14 @@ export function RichEditor({
 
   const aiMenuSkillActions = useMemo(
     () =>
-      enabledRewriteActions.map((action) => ({
-        id: action.id,
-        label: action.label,
+      enabledEditorSkills.map((skill) => ({
+        id: skill.id,
+        label: skill.name,
+        icon: skill.icon,
         disabled: Boolean(rewriteUnavailableReason),
-        onSelect: () => runEditorRewriteAction(action.id, action.label),
+        onSelect: () => runEditorRewriteAction(skill),
       })),
-    [enabledRewriteActions, rewriteUnavailableReason, runEditorRewriteAction],
+    [enabledEditorSkills, rewriteUnavailableReason, runEditorRewriteAction],
   );
 
   if (!editor) {
@@ -3275,9 +3667,9 @@ export function RichEditor({
         }}
         onPointerDownCapture={handleFramePointerDownCapture}
         onMouseDownCapture={handleFrameMouseDownCapture}
-        onClick={handleFrameClick}
+        onClickCapture={handleFrameClick}
         onDoubleClick={handleEditorDoubleClick}
-        onContextMenu={handleEditorContextMenu}
+        onContextMenuCapture={handleEditorContextMenu}
       >
         {tableToolbarGroups.length > 0 ? (
           <div
@@ -4395,12 +4787,24 @@ function buildSelectionContextMenuActions({
   selectionActions,
   selectionPayload,
   defaultCodeLanguage,
+  editorSkills,
+  rewriteUnavailableReason,
+  onOpenAiSettings,
+  onOpenAiEdit,
+  onRunEditorSkill,
+  onUnavailableAction,
 }: {
   editor: Editor;
   readOnly: boolean;
   selectionActions: RichEditorSelectionAction[];
   selectionPayload: RichEditorSelectionPayload;
   defaultCodeLanguage?: string | null;
+  editorSkills: AiSettingsSnapshot["editorSkills"];
+  rewriteUnavailableReason?: string | null;
+  onOpenAiSettings?: () => void;
+  onOpenAiEdit: () => void;
+  onRunEditorSkill: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
+  onUnavailableAction: (title: string) => void;
 }) {
   const customActions: ContextMenuAction[] = selectionActions.map((action) => ({
     key: action.key,
@@ -4415,22 +4819,106 @@ function buildSelectionContextMenuActions({
   return [
     ...customActions,
     { type: "separator", key: "selection-actions-separator" } satisfies ContextMenuAction,
-    ...buildTextContextMenuActions(editor, readOnly, undefined, defaultCodeLanguage),
+    ...buildTextContextMenuActions({
+      editor,
+      readOnly,
+      hasTextSelection: true,
+      defaultCodeLanguage,
+      editorSkills,
+      rewriteUnavailableReason,
+      onOpenAiSettings,
+      onOpenAiEdit,
+      onRunEditorSkill,
+      onUnavailableAction,
+    }),
   ];
 }
 
-function buildTextContextMenuActions(
-  editor: Editor,
-  readOnly: boolean,
-  insertTable?: (rows?: number, cols?: number) => void,
-  defaultCodeLanguage?: string | null,
-) {
+function buildTextContextMenuActions({
+  editor,
+  readOnly,
+  hasTextSelection,
+  insertTable,
+  onInsertImage,
+  onInsertFile,
+  canInsertImage = false,
+  canInsertFile = false,
+  assetBusy = null,
+  defaultCodeLanguage,
+  editorSkills = [],
+  rewriteUnavailableReason,
+  onOpenAiSettings,
+  onOpenAiEdit,
+  onRunEditorSkill,
+  onUnavailableAction,
+}: {
+  editor: Editor;
+  readOnly: boolean;
+  hasTextSelection: boolean;
+  insertTable?: (rows?: number, cols?: number) => void;
+  onInsertImage?: () => void | Promise<void>;
+  onInsertFile?: () => void | Promise<void>;
+  canInsertImage?: boolean;
+  canInsertFile?: boolean;
+  assetBusy?: null | "image" | "file";
+  defaultCodeLanguage?: string | null;
+  editorSkills?: AiSettingsSnapshot["editorSkills"];
+  rewriteUnavailableReason?: string | null;
+  onOpenAiSettings?: () => void;
+  onOpenAiEdit?: () => void;
+  onRunEditorSkill?: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
+  onUnavailableAction?: (title: string) => void;
+}) {
   const canRun = (callback: (chain: any) => { run: () => boolean }) =>
     !readOnly && editor.isEditable && callback(editor.can().chain().focus()).run();
   const runCommand = (callback: (chain: any) => { run: () => boolean }) => () => {
     callback(editor.chain().focus()).run();
   };
+
+  const clipboardActions: ContextMenuAction = {
+    type: "quick-actions",
+    key: "text-clipboard-actions",
+    ariaLabel: "剪贴板",
+    actions: [
+      {
+        key: "text-cut",
+        label: "剪切",
+        icon: Scissors,
+        disabled: readOnly || !editor.isEditable,
+        onSelect: () => {
+          void runEditorClipboardCommand(editor, "cut");
+        },
+      },
+      {
+        key: "text-copy",
+        label: "复制",
+        icon: Copy,
+        disabled: false,
+        onSelect: () => {
+          void runEditorClipboardCommand(editor, "copy");
+        },
+      },
+      {
+        key: "text-paste",
+        label: "粘贴",
+        icon: Paperclip,
+        disabled: readOnly || !editor.isEditable,
+        onSelect: () => {
+          void runEditorPasteCommand(editor);
+        },
+      },
+    ],
+  };
+
   const formatActions = [
+    {
+      key: "text-highlight",
+      label: "着重",
+      icon: Highlighter,
+      active: editor.isActive("highlight"),
+      disabled: !canRun((chain) => chain.toggleHighlight()),
+      onSelect: runCommand((chain) => chain.toggleHighlight()),
+    },
     {
       key: "text-bold",
       label: "加粗",
@@ -4448,86 +4936,72 @@ function buildTextContextMenuActions(
       onSelect: runCommand((chain) => chain.toggleItalic()),
     },
     {
-      key: "text-highlight",
-      label: "着重色",
-      icon: Highlighter,
-      active: editor.isActive("highlight"),
-      disabled: !canRun((chain) => chain.toggleHighlight()),
-      onSelect: runCommand((chain) => chain.toggleHighlight()),
+      key: "text-strike",
+      label: "删除线",
+      icon: Strikethrough,
+      active: editor.isActive("strike"),
+      disabled: !canRun((chain) => chain.toggleStrike()),
+      onSelect: runCommand((chain) => chain.toggleStrike()),
+    },
+    {
+      key: "text-code",
+      label: "代码",
+      icon: Code2,
+      active: editor.isActive("code"),
+      disabled: !canRun((chain) => chain.toggleCode()),
+      onSelect: runCommand((chain) => chain.toggleCode()),
+    },
+  ];
+
+  const blockShortcutActions = [
+    {
+      key: "shortcut-h1",
+      label: "标题 1",
+      icon: Heading1,
+      active: editor.isActive("heading", { level: 1 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 1 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 1 })),
+    },
+    {
+      key: "shortcut-h2",
+      label: "标题 2",
+      icon: Heading2,
+      active: editor.isActive("heading", { level: 2 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 2 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 2 })),
+    },
+    {
+      key: "shortcut-h3",
+      label: "标题 3",
+      icon: Heading3,
+      active: editor.isActive("heading", { level: 3 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 3 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 3 })),
+    },
+    {
+      key: "shortcut-blockquote",
+      label: "引用",
+      icon: Quote,
+      active: editor.isActive("blockquote"),
+      disabled: !canRun((chain) => chain.toggleBlockquote()),
+      onSelect: runCommand((chain) => chain.toggleBlockquote()),
+    },
+    {
+      key: "shortcut-task-list",
+      label: "待办",
+      icon: ListTodo,
+      active: editor.isActive("taskList"),
+      disabled: !canRun((chain) => chain.toggleTaskList()),
+      onSelect: runCommand((chain) => chain.toggleTaskList()),
     },
   ];
 
   const blockOptions = [
     {
-      key: "text-code-block",
-      label: "代码段",
-      icon: Code2,
-      active: () => editor.isActive("codeBlock"),
-      disabled: !canRun((chain) => chain.toggleCodeBlock()),
-      onSelect: () => {
-        toggleCodeBlockWithDefault(editor, defaultCodeLanguage);
-      },
-    },
-    {
-      key: "text-blockquote",
-      label: "引用",
-      icon: Quote,
-      active: () => editor.isActive("blockquote"),
-      disabled: !canRun((chain) => chain.toggleBlockquote()),
-      onSelect: runCommand((chain) => chain.toggleBlockquote()),
-    },
-    {
-      key: "text-task-list",
-      label: "Todo List",
-      icon: ListTodo,
-      active: () => editor.isActive("taskList"),
-      disabled: !canRun((chain) => chain.toggleTaskList()),
-      onSelect: runCommand((chain) => chain.toggleTaskList()),
-    },
-    {
-      key: "text-ordered-list",
-      label: "有序列表",
-      icon: ListOrdered,
-      active: () => editor.isActive("orderedList"),
-      disabled: !canRun((chain) => chain.toggleOrderedList()),
-      onSelect: runCommand((chain) => chain.toggleOrderedList()),
-    },
-    {
-      key: "text-bullet-list",
-      label: "无序列表",
-      icon: List,
-      active: () => editor.isActive("bulletList"),
-      disabled: !canRun((chain) => chain.toggleBulletList()),
-      onSelect: runCommand((chain) => chain.toggleBulletList()),
-    },
-    {
-      key: "text-h1",
-      label: "H1",
-      icon: Heading1,
-      active: () => editor.isActive("heading", { level: 1 }),
-      disabled: !canRun((chain) => chain.toggleHeading({ level: 1 })),
-      onSelect: runCommand((chain) => chain.toggleHeading({ level: 1 })),
-    },
-    {
-      key: "text-h2",
-      label: "H2",
-      icon: Heading2,
-      active: () => editor.isActive("heading", { level: 2 }),
-      disabled: !canRun((chain) => chain.toggleHeading({ level: 2 })),
-      onSelect: runCommand((chain) => chain.toggleHeading({ level: 2 })),
-    },
-    {
-      key: "text-h3",
-      label: "H3",
-      icon: Heading3,
-      active: () => editor.isActive("heading", { level: 3 }),
-      disabled: !canRun((chain) => chain.toggleHeading({ level: 3 })),
-      onSelect: runCommand((chain) => chain.toggleHeading({ level: 3 })),
-    },
-    {
       key: "text-paragraph",
-      label: "正文",
-      icon: Pilcrow,
+      label: "文本",
+      mainLabel: "普通文本",
+      icon: Type,
       active: () =>
         editor.isActive("paragraph") &&
         !editor.isActive("blockquote") &&
@@ -4539,8 +5013,82 @@ function buildTextContextMenuActions(
       disabled: !canRun((chain) => chain.setParagraph()),
       onSelect: runCommand((chain) => chain.setParagraph()),
     },
+    {
+      key: "text-h1",
+      label: "标题 1",
+      mainLabel: "标题 1",
+      icon: Heading1,
+      active: () => editor.isActive("heading", { level: 1 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 1 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 1 })),
+    },
+    {
+      key: "text-h2",
+      label: "标题 2",
+      mainLabel: "标题 2",
+      icon: Heading2,
+      active: () => editor.isActive("heading", { level: 2 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 2 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 2 })),
+    },
+    {
+      key: "text-h3",
+      label: "标题 3",
+      mainLabel: "标题 3",
+      icon: Heading3,
+      active: () => editor.isActive("heading", { level: 3 }),
+      disabled: !canRun((chain) => chain.toggleHeading({ level: 3 })),
+      onSelect: runCommand((chain) => chain.toggleHeading({ level: 3 })),
+    },
+    {
+      key: "text-bullet-list",
+      label: "项目符号列表",
+      mainLabel: "项目符号列表",
+      icon: List,
+      active: () => editor.isActive("bulletList"),
+      disabled: !canRun((chain) => chain.toggleBulletList()),
+      onSelect: runCommand((chain) => chain.toggleBulletList()),
+    },
+    {
+      key: "text-ordered-list",
+      label: "有序列表",
+      mainLabel: "有序列表",
+      icon: ListOrdered,
+      active: () => editor.isActive("orderedList"),
+      disabled: !canRun((chain) => chain.toggleOrderedList()),
+      onSelect: runCommand((chain) => chain.toggleOrderedList()),
+    },
+    {
+      key: "text-task-list",
+      label: "待办清单",
+      mainLabel: "待办清单",
+      icon: ListTodo,
+      active: () => editor.isActive("taskList"),
+      disabled: !canRun((chain) => chain.toggleTaskList()),
+      onSelect: runCommand((chain) => chain.toggleTaskList()),
+    },
+    {
+      key: "text-code-block",
+      label: "代码",
+      mainLabel: "代码",
+      icon: Code2,
+      active: () => editor.isActive("codeBlock"),
+      disabled: !canRun((chain) => chain.toggleCodeBlock()),
+      onSelect: () => {
+        toggleCodeBlockWithDefault(editor, defaultCodeLanguage);
+      },
+    },
+    {
+      key: "text-blockquote",
+      label: "引用",
+      mainLabel: "引用",
+      icon: Quote,
+      active: () => editor.isActive("blockquote"),
+      disabled: !canRun((chain) => chain.toggleBlockquote()),
+      onSelect: runCommand((chain) => chain.toggleBlockquote()),
+    },
   ];
-  const currentBlock = blockOptions.find((option) => option.active()) ?? blockOptions[blockOptions.length - 1];
+  const currentBlock = blockOptions.find((option) => option.active()) ?? blockOptions[0];
   const blockMenuOrder = [
     "text-paragraph",
     "text-h1",
@@ -4549,8 +5097,8 @@ function buildTextContextMenuActions(
     "text-bullet-list",
     "text-ordered-list",
     "text-task-list",
-    "text-blockquote",
     "text-code-block",
+    "text-blockquote",
   ];
   const blockActions: ContextMenuAction[] = blockMenuOrder
     .map((key) => blockOptions.find((option) => option.key === key))
@@ -4564,80 +5112,199 @@ function buildTextContextMenuActions(
       onSelect: option.onSelect,
     }));
   const isDisabledContextAction = (action: ContextMenuAction) =>
-    action.type !== "separator" && action.type !== "inline-actions" && Boolean(action.disabled);
-
-  const clipboardActions: ContextMenuAction[] = [
-    {
-      key: "text-copy",
-      label: "复制",
-      icon: Copy,
-      shortcut: "Mod+C",
-      disabled: false,
-      onSelect: () => {
-        void runEditorClipboardCommand(editor, "copy");
-      },
-    },
-    {
-      key: "text-cut",
-      label: "剪切",
-      icon: Scissors,
-      shortcut: "Mod+X",
-      disabled: readOnly || !editor.isEditable,
-      onSelect: () => {
-        void runEditorClipboardCommand(editor, "cut");
-      },
-    },
-    {
-      key: "text-select-all",
-      label: "全选",
-      icon: TextSelect,
-      shortcut: "Mod+A",
-      disabled: !editor.can().chain().focus().selectAll().run(),
-      onSelect: runCommand((chain) => chain.selectAll()),
-    },
-  ];
+    action.type !== "separator" &&
+    action.type !== "inline-actions" &&
+    action.type !== "quick-actions" &&
+    action.type !== "grid-actions" &&
+    action.type !== "scroll-actions" &&
+    action.type !== "section-label" &&
+    Boolean(action.disabled);
 
   const groupedActions: ContextMenuAction[] = [
+    clipboardActions,
+    { type: "separator", key: "text-clipboard-separator" },
     {
       type: "submenu",
       key: "text-group-block",
-      label: currentBlock.label,
+      label: currentBlock.mainLabel,
       icon: currentBlock.icon,
       actions: blockActions,
       disabled: blockActions.every(isDisabledContextAction),
       selected: true,
       featured: true,
     },
-    { type: "separator", key: "text-featured-separator" },
     {
       type: "inline-actions",
       key: "text-inline-format-actions",
-      ariaLabel: "文本格式",
+      ariaLabel: "行内文本格式",
+      columns: 5,
+      showLabels: false,
       actions: formatActions,
+    },
+    {
+      type: "inline-actions",
+      key: "text-block-shortcut-actions",
+      ariaLabel: "常用块样式",
+      columns: 5,
+      showLabels: false,
+      actions: blockShortcutActions,
     },
     { type: "separator", key: "text-inline-actions-separator" },
   ];
 
-  if (insertTable && !readOnly) {
+  if (hasTextSelection) {
+    groupedActions.push(
+      ...buildAiContextMenuActions({
+        editorSkills,
+        rewriteUnavailableReason,
+        onOpenAiSettings,
+        onOpenAiEdit,
+        onRunEditorSkill,
+        onUnavailableAction,
+      }),
+    );
+  } else {
     groupedActions.push({
-      key: "insert-table",
-      label: "插入表格",
-      icon: Table2,
-      disabled: false,
-      onSelect: () => insertTable(),
+      type: "grid-actions",
+      key: "insert-block-grid",
+      title: "新增区块",
+      ariaLabel: "新增区块",
+      columns: 2,
+      actions: [
+        {
+          key: "insert-blockquote",
+          label: "引用",
+          icon: Quote,
+          disabled: !canRun((chain) => chain.toggleBlockquote()),
+          onSelect: runCommand((chain) => chain.toggleBlockquote()),
+        },
+        {
+          key: "insert-table",
+          label: "表格",
+          icon: Table2,
+          disabled: readOnly || !insertTable,
+          onSelect: () => insertTable?.(),
+        },
+        {
+          key: "insert-image",
+          label: "图片",
+          icon: Image,
+          disabled: readOnly || !canInsertImage || assetBusy !== null,
+          onSelect: () => {
+            void onInsertImage?.();
+          },
+        },
+        {
+          key: "insert-file",
+          label: "文件",
+          icon: FileIcon,
+          disabled: readOnly || !canInsertFile || assetBusy !== null,
+          onSelect: () => {
+            void onInsertFile?.();
+          },
+        },
+        {
+          key: "insert-code-block",
+          label: "代码块",
+          icon: Code2,
+          disabled: !canRun((chain) => chain.toggleCodeBlock()),
+          onSelect: () => toggleCodeBlockWithDefault(editor, defaultCodeLanguage),
+        },
+        {
+          key: "insert-task-list",
+          label: "待办",
+          icon: ListTodo,
+          disabled: !canRun((chain) => chain.toggleTaskList()),
+          onSelect: runCommand((chain) => chain.toggleTaskList()),
+        },
+        {
+          key: "insert-divider",
+          label: "分隔线",
+          icon: Minus,
+          disabled: !canRun((chain) => chain.setHorizontalRule()),
+          onSelect: runCommand((chain) => chain.setHorizontalRule()),
+        },
+        {
+          key: "insert-more-blocks",
+          label: "更多",
+          icon: MoreHorizontal,
+          disabled: true,
+          onSelect: () => onUnavailableAction?.("更多"),
+        },
+      ],
     });
   }
 
-  groupedActions.push({
-    type: "submenu",
-    key: "text-group-clipboard",
-    label: "剪贴板",
-    icon: Copy,
-    actions: clipboardActions,
-    disabled: clipboardActions.every(isDisabledContextAction),
-  });
-
   return groupedActions;
+}
+
+function buildAiContextMenuActions({
+  editorSkills,
+  rewriteUnavailableReason,
+  onOpenAiSettings,
+  onOpenAiEdit,
+  onRunEditorSkill,
+  onUnavailableAction,
+}: {
+  editorSkills: AiSettingsSnapshot["editorSkills"];
+  rewriteUnavailableReason?: string | null;
+  onOpenAiSettings?: () => void;
+  onOpenAiEdit?: () => void;
+  onRunEditorSkill?: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
+  onUnavailableAction?: (title: string) => void;
+}) {
+  const visibleSkills = editorSkills.filter((skill) => skill.enabled && skill.showInTextMenu);
+
+  return [
+    {
+      type: "section-label",
+      key: "ai-skills-label",
+      label: "技能",
+      trailingIcon: Settings2,
+      trailingLabel: "打开 AI 设置",
+      trailingDisabled: !onOpenAiSettings,
+      onTrailingSelect: onOpenAiSettings,
+    },
+    {
+      type: "scroll-actions",
+      key: "ai-skills-scroll",
+      ariaLabel: "AI 技能列表",
+      maxVisibleItems: 3,
+      actions:
+        visibleSkills.length > 0
+          ? visibleSkills.map((skill) => ({
+              key: `ai-skill-${skill.id}`,
+              label: `${skill.icon?.trim() ? `${skill.icon.trim()} ` : ""}${skill.name}`,
+              icon: skill.resultMode === "answer" ? Lightbulb : Sparkles,
+              disabled: Boolean(rewriteUnavailableReason) || !onRunEditorSkill,
+              onSelect: () => {
+                if (!onRunEditorSkill) {
+                  onUnavailableAction?.(skill.name);
+                  return;
+                }
+                onRunEditorSkill(skill);
+              },
+            }))
+          : [
+              {
+                key: "ai-no-skills",
+                label: "暂无启用技能",
+                icon: MoreHorizontal,
+                disabled: true,
+                onSelect: () => onUnavailableAction?.("暂无启用技能"),
+              },
+            ],
+    },
+    { type: "separator", key: "ai-editor-entry-separator" },
+    {
+      key: "ai-edit",
+      label: "使用 AI 编辑",
+      icon: WandSparkles,
+      shortcut: "⌘ ^ E",
+      disabled: !onOpenAiEdit,
+      onSelect: () => onOpenAiEdit?.(),
+    },
+  ] satisfies ContextMenuAction[];
 }
 
 function getActiveCodeBlockInfo(editor: Editor): ActiveCodeBlockInfo | null {
@@ -4661,6 +5328,84 @@ function getActiveCodeBlockInfo(editor: Editor): ActiveCodeBlockInfo | null {
   }
 
   return null;
+}
+
+function getInsertPositionAfterSelectedBlock(editor: Editor, selectionTo: number): number {
+  const docSize = editor.state.doc.content.size;
+  const safeTo = clampNumber(selectionTo, 1, Math.max(1, docSize));
+  const resolvePos = safeTo > 1 ? safeTo - 1 : safeTo;
+  const $pos = editor.state.doc.resolve(resolvePos);
+
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    const node = $pos.node(depth);
+    if (node.isBlock) {
+      try {
+        return $pos.after(depth);
+      } catch {
+        return selectionTo;
+      }
+    }
+  }
+
+  return selectionTo;
+}
+
+function replaceEditorRangeWithSlice(editor: Editor, from: number, to: number, slice: Slice) {
+  const docSize = editor.state.doc.content.size;
+  if (from < 0 || to < from || from > docSize || to > docSize) {
+    throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
+  }
+
+  if (from === to && !slice.content.size) {
+    return to;
+  }
+
+  const transaction = editor.state.tr.replaceRange(from, to, slice);
+  const nextTo = transaction.mapping.map(to, -1);
+  editor.view.dispatch(transaction);
+  editor.commands.focus();
+  return nextTo;
+}
+
+function insertMarkdownAtPosition(editor: Editor, position: number, markdown: string) {
+  const slice = buildEditorRewriteSlice(editor, markdown, []);
+  if (!slice.content.size) {
+    return;
+  }
+
+  const safePosition = clampNumber(position, 0, editor.state.doc.content.size);
+  editor.view.dispatch(editor.state.tr.insert(safePosition, slice.content));
+  editor.commands.focus();
+}
+
+function hasAllPlaceholderTokens(
+  markdown: string,
+  placeholders: readonly EditorRewritePlaceholder[],
+) {
+  let searchStart = 0;
+  return placeholders.every((placeholder) => {
+    const index = markdown.indexOf(placeholder.token, searchStart);
+    if (index < 0) {
+      return false;
+    }
+    searchStart = index + placeholder.token.length;
+    return true;
+  });
+}
+
+async function runFallbackClipboardWrite(text: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
 }
 
 function toggleCodeBlockWithDefault(editor: Editor, defaultCodeLanguage?: string | null) {
@@ -4896,6 +5641,12 @@ function createEditorRewriteWidgetPlugin(options: {
   getWidgetState: () => EditorRewriteWidgetState | null;
   getCallbacks: () => {
     onAccept: () => void;
+    onReject: () => void;
+    onCompareDown: () => void;
+    onCompareUp: () => void;
+    onRetry: () => void;
+    onCopyAnswer: () => void;
+    onInsertAnswer: () => void;
     onClose: () => void;
     onOpenAiSettings?: () => void;
   };
@@ -4926,11 +5677,21 @@ function createEditorRewriteWidgetPlugin(options: {
 
     widgetRoot.render(
       <RichEditorRewriteWidget
-        actionLabel={widgetState.actionLabel}
+        skillName={widgetState.skillName}
+        resultMode={widgetState.resultMode}
         status={widgetState.status}
-        previewHtml={widgetState.previewHtml}
+        answer={widgetState.answer}
+        answerHtml={widgetState.answerHtml}
         errorMessage={widgetState.errorMessage}
+        hasModifyPreview={Boolean(widgetState.modifyPreview)}
+        showingOriginal={widgetState.modifyPreview?.showing === "original"}
         onAccept={options.getCallbacks().onAccept}
+        onReject={options.getCallbacks().onReject}
+        onCompareDown={options.getCallbacks().onCompareDown}
+        onCompareUp={options.getCallbacks().onCompareUp}
+        onRetry={options.getCallbacks().onRetry}
+        onCopyAnswer={options.getCallbacks().onCopyAnswer}
+        onInsertAnswer={options.getCallbacks().onInsertAnswer}
         onClose={options.getCallbacks().onClose}
         onOpenAiSettings={options.getCallbacks().onOpenAiSettings}
       />,
@@ -4953,13 +5714,7 @@ function createEditorRewriteWidgetPlugin(options: {
           return null;
         }
 
-        const decorations = widgetState.blockRanges
-          .filter((range) => !range.isPlaceholder)
-          .map((range) =>
-            Decoration.node(range.from - 1, range.to, {
-              class: "rich-editor__rewrite-origin-block",
-            }),
-          );
+        const decorations: Decoration[] = [];
 
         decorations.push(
           Decoration.widget(
@@ -5088,6 +5843,65 @@ function buildImageContextMenuActions({
       disabled: !canEditImage,
       tone: "danger",
       onSelect: () => removeNodeAtPos(editor, imageTarget.nodePos),
+    },
+  ] satisfies ContextMenuAction[];
+}
+
+function buildAttachmentContextMenuActions({
+  editor,
+  attachmentTarget,
+  readOnly,
+}: {
+  editor: Editor;
+  attachmentTarget: AttachmentContextMenuTarget;
+  readOnly: boolean;
+}) {
+  const attrs = attachmentTarget.attrs;
+  const canOpen = Boolean(attrs.path || attrs.href);
+  const canReveal = Boolean(attrs.path);
+  const canUpdateDocument = !readOnly && editor.isEditable && Boolean(attrs.documentId);
+
+  return [
+    {
+      key: "attachment-open",
+      label: "打开文件",
+      icon: ExternalLink,
+      disabled: !canOpen,
+      onSelect: () => {
+        void openAttachmentAsset({ kind: "file", ...attrs, title: attrs.title ?? "未命名文件" });
+      },
+    },
+    {
+      key: "attachment-reveal",
+      label: "打开文件所在位置",
+      icon: FolderOpen,
+      disabled: !canReveal,
+      onSelect: () => {
+        if (attrs.path) {
+          void desktopApi.revealPath(attrs.path).catch(() => {
+            // The caller owns error presentation.
+          });
+        }
+      },
+    },
+    { type: "separator", key: "attachment-separator-document" },
+    {
+      key: "attachment-rename",
+      label: "重命名",
+      icon: Pencil,
+      disabled: !canUpdateDocument,
+      onSelect: () => {
+        void renameAttachmentDocument(editor, attachmentTarget);
+      },
+    },
+    {
+      key: "attachment-star",
+      label: attrs.isStarred ? "取消标星" : "标星",
+      icon: Star,
+      disabled: !canUpdateDocument,
+      onSelect: () => {
+        void toggleAttachmentStar(editor, attachmentTarget);
+      },
     },
   ] satisfies ContextMenuAction[];
 }
@@ -5335,6 +6149,130 @@ function resolveImageNodePos(editor: Editor, element: HTMLElement) {
   return findNodePos(editor.view, element, "image");
 }
 
+function resolveAttachmentContextMenuTarget(
+  editor: Editor,
+  target: Element | null,
+  eventPath: EventTarget[] = [],
+): AttachmentContextMenuTarget | null {
+  const attachmentElement =
+    findAttachmentElementFromEventPath(eventPath) ??
+    target?.closest<HTMLElement>("[data-type='attachment']");
+
+  if (!(attachmentElement instanceof HTMLElement)) {
+    const selection = editor.state.selection;
+
+    if (selection instanceof NodeSelection && selection.node.type.name === "attachment") {
+      return {
+        nodePos: selection.from,
+        attrs: normalizeAttachmentAttrs(selection.node.attrs),
+      };
+    }
+
+    return null;
+  }
+
+  const nodePos =
+    findNodePos(editor.view, attachmentElement, "attachment") ??
+    findAttachmentNodePosByElement(editor, attachmentElement);
+
+  if (typeof nodePos !== "number") {
+    return null;
+  }
+
+  const node = editor.state.doc.nodeAt(nodePos);
+
+  if (!node || node.type.name !== "attachment") {
+    return null;
+  }
+
+  return {
+    nodePos,
+    attrs: normalizeAttachmentAttrs(node.attrs),
+  };
+}
+
+function findAttachmentElementFromEventPath(eventPath: EventTarget[]) {
+  for (const pathTarget of eventPath) {
+    if (!(pathTarget instanceof Element)) {
+      continue;
+    }
+
+    const attachmentElement = pathTarget.closest<HTMLElement>("[data-type='attachment']");
+
+    if (attachmentElement) {
+      return attachmentElement;
+    }
+  }
+
+  return null;
+}
+
+function findAttachmentNodePosByElement(editor: Editor, attachmentElement: HTMLElement) {
+  const targetAttrs = normalizeAttachmentAttrs({
+    documentId: attachmentElement.dataset.documentId,
+    href: attachmentElement.dataset.href,
+    isStarred: attachmentElement.dataset.isStarred,
+    meta: attachmentElement.dataset.meta,
+    mimeType: attachmentElement.dataset.mimeType,
+    path: attachmentElement.dataset.path,
+    title: attachmentElement.dataset.title,
+  });
+  let foundPos: number | null = null;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (foundPos !== null || node.type.name !== "attachment") {
+      return foundPos === null;
+    }
+
+    const nodeAttrs = normalizeAttachmentAttrs(node.attrs);
+    const matchesDocument =
+      targetAttrs.documentId !== undefined && nodeAttrs.documentId === targetAttrs.documentId;
+    const matchesPath = targetAttrs.path !== undefined && nodeAttrs.path === targetAttrs.path;
+    const matchesHref = targetAttrs.href !== undefined && nodeAttrs.href === targetAttrs.href;
+    const matchesTitle = targetAttrs.title !== undefined && nodeAttrs.title === targetAttrs.title;
+
+    if (matchesDocument || matchesPath || matchesHref || matchesTitle) {
+      foundPos = pos;
+      return false;
+    }
+
+    return true;
+  });
+
+  return foundPos ?? undefined;
+}
+
+function normalizeAttachmentAttrs(attrs: Record<string, unknown>): AttachmentContextMenuTarget["attrs"] {
+  const documentId = normalizeOptionalNumber(attrs.documentId);
+
+  return {
+    documentId,
+    href: normalizeOptionalString(attrs.href),
+    isStarred: attrs.isStarred === true || attrs.isStarred === "true",
+    meta: normalizeOptionalString(attrs.meta),
+    mimeType: normalizeOptionalString(attrs.mimeType),
+    path: normalizeOptionalString(attrs.path),
+    title: normalizeOptionalString(attrs.title),
+  };
+}
+
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function normalizeOptionalNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
 function resolveTableFocusPos(editor: Editor, target: Element | null) {
   if (editor.isActive("table")) {
     return editor.state.selection.from;
@@ -5397,10 +6335,14 @@ function shouldIgnoreRichEditorContextMenuTarget(target: EventTarget | null) {
 }
 
 function selectImageNode(editor: Editor, nodePos: number) {
+  selectNodeAtPos(editor, nodePos, "image");
+}
+
+function selectNodeAtPos(editor: Editor, nodePos: number, expectedType?: string) {
   const { doc, tr } = editor.state;
   const node = doc.nodeAt(nodePos);
 
-  if (!node || node.type.name !== "image") {
+  if (!node || (expectedType && node.type.name !== expectedType)) {
     return;
   }
 
@@ -5441,6 +6383,27 @@ function updateImageNodeAttrs(
   editor.view.dispatch(tr);
 }
 
+function updateAttachmentNodeAttrs(
+  editor: Editor,
+  nodePos: number,
+  attrs: Partial<AttachmentContextMenuTarget["attrs"]>,
+) {
+  const node = editor.state.doc.nodeAt(nodePos);
+
+  if (!node || node.type.name !== "attachment") {
+    return;
+  }
+
+  const tr = editor.state.tr;
+
+  tr.setSelection(NodeSelection.create(tr.doc, nodePos));
+  tr.setNodeMarkup(nodePos, undefined, {
+    ...node.attrs,
+    ...attrs,
+  });
+  editor.view.dispatch(tr);
+}
+
 function removeNodeAtPos(editor: Editor, nodePos: number) {
   const node = editor.state.doc.nodeAt(nodePos);
 
@@ -5461,6 +6424,103 @@ async function openImageOriginal(attrs: ImageContextMenuTarget["attrs"]) {
 
   if (attrs.src) {
     window.open(attrs.src, "_blank", "noopener,noreferrer");
+  }
+}
+
+async function openAttachmentAsset(asset: RichEditorAsset) {
+  if (asset.path) {
+    await desktopApi.openFile(asset.path);
+    return;
+  }
+
+  if (asset.href && asset.href !== "#") {
+    const filePath = asset.href.startsWith("file:") ? fileUriToPath(asset.href) : null;
+
+    if (filePath) {
+      await desktopApi.openFile(filePath);
+      return;
+    }
+
+    window.open(asset.href, "_blank", "noopener,noreferrer");
+  }
+}
+
+async function renameAttachmentDocument(
+  editor: Editor,
+  attachmentTarget: AttachmentContextMenuTarget,
+) {
+  const documentId = attachmentTarget.attrs.documentId;
+  if (!documentId) {
+    return;
+  }
+
+  const currentTitle = attachmentTarget.attrs.title?.trim() || "未命名文件";
+  const nextTitle = window.prompt("重命名文件", currentTitle)?.trim();
+
+  if (!nextTitle || nextTitle === currentTitle) {
+    return;
+  }
+
+  const document = await projectMindApi.documentUpdateMeta({
+    documentId,
+    baseName: nextTitle,
+  });
+
+  updateAttachmentNodeAttrs(editor, attachmentTarget.nodePos, {
+    title: document.name,
+    path: document.managedPath || document.originalPath,
+    href: document.managedPath || document.originalPath,
+    mimeType: document.mimeType,
+    meta: document.mimeType,
+    isStarred: document.isStarred,
+  });
+}
+
+async function toggleAttachmentStar(
+  editor: Editor,
+  attachmentTarget: AttachmentContextMenuTarget,
+) {
+  const documentId = attachmentTarget.attrs.documentId;
+  if (!documentId) {
+    return;
+  }
+
+  const document = await projectMindApi.documentUpdateMeta({
+    documentId,
+    isStarred: !attachmentTarget.attrs.isStarred,
+  });
+
+  updateAttachmentNodeAttrs(editor, attachmentTarget.nodePos, {
+    isStarred: document.isStarred,
+    title: document.name,
+    path: document.managedPath || document.originalPath,
+    href: document.managedPath || document.originalPath,
+    mimeType: document.mimeType,
+    meta: document.mimeType,
+  });
+}
+
+async function runEditorPasteCommand(editor: Editor) {
+  editor.commands.focus();
+
+  try {
+    const execCommand = document.execCommand?.("paste");
+
+    if (execCommand) {
+      return;
+    }
+  } catch {
+    // Fall through to best-effort clipboard APIs.
+  }
+
+  try {
+    const text = await navigator.clipboard?.readText?.();
+
+    if (text) {
+      editor.chain().focus().insertContent(text).run();
+    }
+  } catch {
+    // Clipboard read permissions vary by webview/browser; fail silently.
   }
 }
 

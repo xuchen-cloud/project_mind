@@ -25,7 +25,13 @@ import {
   buildProjectNoteImageAssetHandlers,
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
-import type { FileTagRecord, NoteRecord, ProjectPageData, TodoPriority } from "../../lib/types";
+import type {
+  AiSettingsSnapshot,
+  FileTagRecord,
+  NoteRecord,
+  ProjectPageData,
+  TodoPriority,
+} from "../../lib/types";
 import { fileTagColorValue } from "../../lib/constants";
 import {
   formatDateTime,
@@ -137,6 +143,10 @@ export function ProjectOverviewPage({
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
+  const aiSettingsQuery = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: projectMindApi.aiSettingsGet,
+  });
   const { projectUpdateMutation } = useProjectMutations(visibleProjects, (path) => navigate(path));
   const allTodos = [
     ...(projectPageQuery.data?.unfinishedTodos ?? []),
@@ -175,6 +185,7 @@ export function ProjectOverviewPage({
   const autoFocusedProjectNameIdRef = useRef<number | null>(null);
   const projectPage = projectPageQuery.data;
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const aiSettings = aiSettingsQuery.data ?? null;
   const allRecords = useMemo(() => projectPage?.records ?? [], [projectPage?.records]);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(
@@ -678,11 +689,11 @@ export function ProjectOverviewPage({
           >
             <RichEditor
               html={quickNoteDraft.html}
+              aiSettings={aiSettings}
               defaultCodeLanguage={quickNoteCodeLanguage}
               onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
               variant="page"
               showToolbar={false}
-              enableTables={false}
               assetHandlers={projectQuickNoteAssetHandlers}
               tagMentions={{
                 projectId: activeProject.id,
@@ -709,6 +720,7 @@ export function ProjectOverviewPage({
                 onVisibilityChange: true,
               }}
               controllerRef={quickNoteEditorRef}
+              onOpenAiSettings={() => openSettings("ai-rewrite")}
               onSave={saveProjectQuickNote}
             />
           </section>
@@ -750,6 +762,7 @@ export function ProjectOverviewPage({
                   </div>
                     <RichEditor
                       html={recordDraftValue.html}
+                      aiSettings={aiSettings}
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
                       variant="bare"
@@ -775,6 +788,7 @@ export function ProjectOverviewPage({
                       }}
                       contactMentions={contactMentionOptions}
                       controllerRef={recordDraftEditorRef}
+                      onOpenAiSettings={() => openSettings("ai-rewrite")}
                     />
                     <div className="project-history-record__composer-actions">
                       <Button
@@ -814,6 +828,8 @@ export function ProjectOverviewPage({
                         onOpenInternalReference={openInternalReference}
                         contactMentionOptions={contactMentionOptions}
                         pageVisible={visible && currentView === "record"}
+                        aiSettings={aiSettings}
+                        onOpenAiSettings={() => openSettings("ai-rewrite")}
                       />
                     </div>
                   ))}
@@ -895,6 +911,8 @@ function RecordRow({
   onOpenInternalReference,
   contactMentionOptions,
   pageVisible,
+  aiSettings,
+  onOpenAiSettings,
 }: {
   note: NoteRecord;
   focused: boolean;
@@ -912,6 +930,8 @@ function RecordRow({
   onOpenInternalReference: ReturnType<typeof useInternalReferenceNavigation>;
   contactMentionOptions: ReturnType<typeof useContactMentionOptions>;
   pageVisible: boolean;
+  aiSettings: AiSettingsSnapshot | null;
+  onOpenAiSettings: () => void;
 }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
@@ -1176,6 +1196,7 @@ function RecordRow({
           <div className="project-history-record__content">
             <RichEditor
               html={value.html}
+              aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}
               onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
@@ -1207,6 +1228,7 @@ function RecordRow({
                 onVisibilityChange: true,
               }}
               controllerRef={editorControllerRef}
+              onOpenAiSettings={onOpenAiSettings}
               onPersistStateChange={setPersistState}
               onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
             />

@@ -8,13 +8,13 @@ import type { AiSettingsSnapshot } from "../../lib/types";
 const {
   mockAiSettingsGet,
   mockAiBindingUpsert,
-  mockAiFeatureSettingsUpsert,
   mockAiExecutionSettingsUpsert,
   mockAiProfileUpsert,
   mockAiProfileDelete,
   mockAiProfileTest,
-  mockAiEditorRewriteActionUpsert,
-  mockAiEditorRewriteActionDelete,
+  mockAiEditorSkillUpsert,
+  mockAiEditorSkillDelete,
+  mockAiEditorSkillReorder,
   mockEnqueueAndWait,
   mockUseAiJobTarget,
   mockSetStatus,
@@ -22,13 +22,13 @@ const {
 } = vi.hoisted(() => ({
   mockAiSettingsGet: vi.fn(),
   mockAiBindingUpsert: vi.fn(),
-  mockAiFeatureSettingsUpsert: vi.fn(),
   mockAiExecutionSettingsUpsert: vi.fn(),
   mockAiProfileUpsert: vi.fn(),
   mockAiProfileDelete: vi.fn(),
   mockAiProfileTest: vi.fn(),
-  mockAiEditorRewriteActionUpsert: vi.fn(),
-  mockAiEditorRewriteActionDelete: vi.fn(),
+  mockAiEditorSkillUpsert: vi.fn(),
+  mockAiEditorSkillDelete: vi.fn(),
+  mockAiEditorSkillReorder: vi.fn(),
   mockEnqueueAndWait: vi.fn(),
   mockUseAiJobTarget: vi.fn(),
   mockSetStatus: vi.fn(),
@@ -39,13 +39,13 @@ vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     aiSettingsGet: mockAiSettingsGet,
     aiBindingUpsert: mockAiBindingUpsert,
-    aiFeatureSettingsUpsert: mockAiFeatureSettingsUpsert,
     aiExecutionSettingsUpsert: mockAiExecutionSettingsUpsert,
     aiProfileUpsert: mockAiProfileUpsert,
     aiProfileDelete: mockAiProfileDelete,
     aiProfileTest: mockAiProfileTest,
-    aiEditorRewriteActionUpsert: mockAiEditorRewriteActionUpsert,
-    aiEditorRewriteActionDelete: mockAiEditorRewriteActionDelete,
+    aiEditorSkillUpsert: mockAiEditorSkillUpsert,
+    aiEditorSkillDelete: mockAiEditorSkillDelete,
+    aiEditorSkillReorder: mockAiEditorSkillReorder,
   },
 }));
 
@@ -78,13 +78,13 @@ describe("AiSettingsPanel", () => {
   beforeEach(() => {
     mockAiSettingsGet.mockReset();
     mockAiBindingUpsert.mockReset();
-    mockAiFeatureSettingsUpsert.mockReset();
     mockAiExecutionSettingsUpsert.mockReset();
     mockAiProfileUpsert.mockReset();
     mockAiProfileDelete.mockReset();
     mockAiProfileTest.mockReset();
-    mockAiEditorRewriteActionUpsert.mockReset();
-    mockAiEditorRewriteActionDelete.mockReset();
+    mockAiEditorSkillUpsert.mockReset();
+    mockAiEditorSkillDelete.mockReset();
+    mockAiEditorSkillReorder.mockReset();
     mockEnqueueAndWait.mockReset();
     mockUseAiJobTarget.mockReset();
     mockSetStatus.mockReset();
@@ -145,27 +145,6 @@ describe("AiSettingsPanel", () => {
           updatedAt: "",
         },
         {
-          capability: "assistant",
-          useDefault: true,
-          profileId: null,
-          model: null,
-          updatedAt: "",
-        },
-        {
-          capability: "summary",
-          useDefault: true,
-          profileId: null,
-          model: null,
-          updatedAt: "",
-        },
-        {
-          capability: "suggestion_generation",
-          useDefault: true,
-          profileId: null,
-          model: null,
-          updatedAt: "",
-        },
-        {
           capability: "editor_rewrite",
           useDefault: true,
           profileId: null,
@@ -179,23 +158,7 @@ describe("AiSettingsPanel", () => {
       execution: {
         maxConcurrency: 1,
       },
-      featureSettings: {
-        masterEnabled: true,
-        capabilities: {
-          assistant: true,
-          summary: true,
-          suggestion_generation: true,
-          editor_rewrite: true,
-        },
-        features: {
-          "summary.activity_summary": true,
-          "summary.project_brief": true,
-          "summary.daily_brief": true,
-          "suggestion_generation.conclusion": true,
-          "suggestion_generation.todo": true,
-        },
-      },
-      editorRewriteActions: [],
+      editorSkills: [],
     };
 
     mockAiSettingsGet.mockImplementation(async () => aiSettingsSnapshot);
@@ -237,40 +200,50 @@ describe("AiSettingsPanel", () => {
       };
       return nextBinding;
     });
-    mockAiEditorRewriteActionUpsert.mockImplementation(async (input) => {
-      const nextAction = {
-        id: input.id ?? aiSettingsSnapshot.editorRewriteActions.length + 1,
-        label: input.label,
+    mockAiEditorSkillUpsert.mockImplementation(async (input) => {
+      const nextSkill = {
+        id: input.id ?? `skill-${aiSettingsSnapshot.editorSkills.length + 1}`,
+        name: input.name,
+        icon: input.icon || null,
+        description: input.description || null,
         prompt: input.prompt,
+        resultMode: input.resultMode,
+        showInTextMenu: input.showInTextMenu,
+        sortOrder: input.sortOrder ?? aiSettingsSnapshot.editorSkills.length + 1,
         enabled: input.enabled,
         createdAt: "",
         updatedAt: "",
       };
       aiSettingsSnapshot = {
         ...aiSettingsSnapshot,
-        editorRewriteActions: input.id
-          ? aiSettingsSnapshot.editorRewriteActions.map((action) =>
-              action.id === input.id ? nextAction : action,
+        editorSkills: input.id
+          ? aiSettingsSnapshot.editorSkills.map((skill) =>
+              skill.id === input.id ? nextSkill : skill,
             )
-          : [...aiSettingsSnapshot.editorRewriteActions, nextAction],
+          : [...aiSettingsSnapshot.editorSkills, nextSkill],
       };
-      return nextAction;
+      return nextSkill;
     });
-    mockAiEditorRewriteActionDelete.mockImplementation(async ({ actionId }) => {
+    mockAiEditorSkillDelete.mockImplementation(async ({ skillId }) => {
       aiSettingsSnapshot = {
         ...aiSettingsSnapshot,
-        editorRewriteActions: aiSettingsSnapshot.editorRewriteActions.filter(
-          (action) => action.id !== actionId,
+        editorSkills: aiSettingsSnapshot.editorSkills.filter(
+          (skill) => skill.id !== skillId,
         ),
       };
-      return aiSettingsSnapshot.editorRewriteActions;
+      return aiSettingsSnapshot.editorSkills;
     });
-    mockAiFeatureSettingsUpsert.mockImplementation(async (input) => {
+    mockAiEditorSkillReorder.mockImplementation(async ({ skillIds }) => {
       aiSettingsSnapshot = {
         ...aiSettingsSnapshot,
-        featureSettings: input,
-      };
-      return input;
+        editorSkills: skillIds
+          .map((skillId, index) => {
+            const skill = aiSettingsSnapshot.editorSkills.find((item) => item.id === skillId);
+            return skill ? { ...skill, sortOrder: index + 1 } : null;
+          })
+          .filter(Boolean),
+      } as AiSettingsSnapshot;
+      return aiSettingsSnapshot.editorSkills;
     });
     mockAiExecutionSettingsUpsert.mockImplementation(async (input) => input);
   });
@@ -298,7 +271,7 @@ describe("AiSettingsPanel", () => {
 
     renderPanel();
 
-    await screen.findByRole("heading", { name: "接入配置" });
+    await screen.findByRole("heading", { name: "AI 模型配置" });
     expect(screen.queryByLabelText("名称")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /OpenAI Prod/ }));
@@ -310,38 +283,24 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(screen.queryByLabelText("名称")).not.toBeInTheDocument());
   });
 
-  it("uses normal and advanced modes instead of per-row inherit toggles", async () => {
+  it("renders only default and editor AI model bindings", async () => {
     const user = userEvent.setup();
 
     renderPanel();
 
-    await screen.findByText("能力绑定");
+    await screen.findByText("模型绑定");
     expect(screen.queryByText("继承默认")).not.toBeInTheDocument();
-    expect(screen.getAllByLabelText("接入配置")).toHaveLength(1);
-
-    await user.click(screen.getByRole("button", { name: "专业模式" }));
-    expect(screen.getAllByLabelText("接入配置")).toHaveLength(5);
+    expect(screen.getAllByLabelText("接入配置")).toHaveLength(2);
 
     await user.selectOptions(screen.getAllByLabelText("接入配置")[1], "2");
 
     await waitFor(
       () =>
         expect(mockAiBindingUpsert.mock.calls[0]?.[0]).toEqual({
-          capability: "assistant",
+          capability: "editor_rewrite",
           useDefault: false,
           profileId: 2,
           model: "gpt-5.4-mini",
-        }),
-      { timeout: 1500 },
-    );
-
-    await user.click(screen.getByRole("button", { name: "普通模式" }));
-
-    await waitFor(
-      () =>
-        expect(mockAiBindingUpsert.mock.calls[mockAiBindingUpsert.mock.calls.length - 1]?.[0]).toEqual({
-          capability: "assistant",
-          useDefault: true,
         }),
       { timeout: 1500 },
     );
@@ -363,14 +322,14 @@ describe("AiSettingsPanel", () => {
     );
   });
 
-  it("creates a custom editor rewrite action from the settings panel", async () => {
+  it("creates a custom editor AI skill from the settings panel", async () => {
     const user = userEvent.setup();
 
-    renderPanel();
+    renderPanel("rewrite");
 
-    await screen.findByText("编辑改写动作");
-    await user.click(screen.getByRole("button", { name: "新增动作" }));
-    await user.type(await screen.findByLabelText("动作名称"), "翻译成英文");
+    await screen.findByText("AI 技能");
+    await user.click(screen.getByRole("button", { name: "新增技能" }));
+    await user.type(await screen.findByLabelText("技能名称"), "翻译成英文");
     await user.type(
       screen.getByPlaceholderText("比如：请保持原意，把这段文字翻译成自然、专业的英文。"),
       "请翻译成自然英文",
@@ -378,10 +337,16 @@ describe("AiSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
-      expect(mockAiEditorRewriteActionUpsert).toHaveBeenCalledWith(
+      expect(mockAiEditorSkillUpsert).toHaveBeenCalledWith(
         {
-          label: "翻译成英文",
+          id: undefined,
+          name: "翻译成英文",
+          icon: "",
+          description: "",
           prompt: "请翻译成自然英文",
+          resultMode: "modify",
+          showInTextMenu: true,
+          sortOrder: undefined,
           enabled: true,
         },
         expect.anything(),
@@ -398,7 +363,7 @@ describe("AiSettingsPanel", () => {
 
     renderPanel();
 
-    await screen.findByRole("heading", { name: "接入配置" });
+    await screen.findByRole("heading", { name: "AI 模型配置" });
     await user.click(screen.getByRole("button", { name: /OpenAI Prod/ }));
     await user.click(await screen.findByRole("button", { name: "测试" }));
 
@@ -406,135 +371,33 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(failedBadge).toHaveAttribute("title", "上游服务返回 401"));
   });
 
-  it("renders global, capability, and subfeature toggles", async () => {
-    renderPanel();
+  it("disables new AI skills after the saved skill limit", async () => {
+    aiSettingsSnapshot = {
+      ...aiSettingsSnapshot,
+      editorSkills: Array.from({ length: 24 }, (_, index) => ({
+        id: `skill-${index + 1}`,
+        name: `技能 ${index + 1}`,
+        icon: null,
+        description: null,
+        prompt: `提示词 ${index + 1}`,
+        resultMode: "modify",
+        showInTextMenu: true,
+        sortOrder: index + 1,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+      })),
+    };
 
-    await screen.findByText("能力开关");
-    expect(screen.getByRole("button", { name: "全局 AI开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ask开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "AI 总结开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "AI 提炼开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "项目概览开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Workspace开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "结论候选开关" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Todo 候选开关" })).toBeInTheDocument();
-  });
+    renderPanel("rewrite");
 
-  it("keeps child toggle values when the parent capability is turned off and back on", async () => {
-    const user = userEvent.setup();
-
-    renderPanel();
-
-    await screen.findByText("能力开关");
-    const summaryToggle = screen.getByRole("button", { name: "AI 总结开关" });
-    const projectSummaryToggle = screen.getByRole("button", { name: "项目概览开关" });
-
-    await user.click(projectSummaryToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          features: expect.objectContaining({
-            "summary.project_brief": false,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
-
-    await user.click(summaryToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          capabilities: expect.objectContaining({
-            summary: false,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-    expect(summaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(projectSummaryToggle).toBeDisabled();
-
-    await user.click(summaryToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          capabilities: expect.objectContaining({
-            summary: true,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-    expect(summaryToggle).toHaveAttribute("aria-pressed", "true");
-    expect(projectSummaryToggle).toHaveAttribute("aria-pressed", "false");
-    expect(projectSummaryToggle).not.toBeDisabled();
-  });
-
-  it("updates the global AI switch without overwriting saved child states", async () => {
-    const user = userEvent.setup();
-
-    renderPanel();
-
-    await screen.findByText("能力开关");
-    const globalToggle = screen.getByRole("button", { name: "全局 AI开关" });
-    const conclusionToggle = screen.getByRole("button", { name: "结论候选开关" });
-
-    await user.click(conclusionToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          features: expect.objectContaining({
-            "suggestion_generation.conclusion": false,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-
-    await user.click(globalToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          masterEnabled: false,
-          features: expect.objectContaining({
-            "suggestion_generation.conclusion": false,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-    expect(globalToggle).toHaveAttribute("aria-pressed", "false");
-    expect(conclusionToggle).toHaveAttribute("aria-pressed", "false");
-    expect(conclusionToggle).toBeDisabled();
-
-    await user.click(globalToggle);
-
-    await waitFor(() =>
-      expect(mockAiFeatureSettingsUpsert).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          masterEnabled: true,
-          features: expect.objectContaining({
-            "suggestion_generation.conclusion": false,
-          }),
-        }),
-        expect.anything(),
-      ),
-    );
-    expect(globalToggle).toHaveAttribute("aria-pressed", "true");
-    expect(conclusionToggle).toHaveAttribute("aria-pressed", "false");
-    expect(conclusionToggle).not.toBeDisabled();
+    await screen.findByText("24/24 个技能");
+    expect(screen.getByRole("button", { name: "新增技能" })).toBeDisabled();
+    expect(screen.getByText(/已达到 24 个技能上限/)).toBeInTheDocument();
   });
 });
 
-function renderPanel() {
+function renderPanel(section: "models" | "rewrite" = "models") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -545,7 +408,7 @@ function renderPanel() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <AiSettingsPanel open />
+      <AiSettingsPanel open section={section} />
     </QueryClientProvider>,
   );
 }

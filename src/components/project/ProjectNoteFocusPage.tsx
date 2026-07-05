@@ -74,6 +74,10 @@ export function ProjectNoteFocusPage() {
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
+  const aiSettingsQuery = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: projectMindApi.aiSettingsGet,
+  });
 
   const project =
     projectId === null
@@ -86,6 +90,7 @@ export function ProjectNoteFocusPage() {
   }, [projectPageQuery.data, noteId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
+  const aiSettings = aiSettingsQuery.data ?? null;
   const draftReady = Boolean(note && loadedNoteId === note.id);
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !note) {
@@ -374,6 +379,7 @@ export function ProjectNoteFocusPage() {
             <RichEditor
               key={note.id}
               html={content.html}
+              aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}
               onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
@@ -405,6 +411,7 @@ export function ProjectNoteFocusPage() {
                 onVisibilityChange: true,
               }}
               controllerRef={editorControllerRef}
+              onOpenAiSettings={() => openSettings("ai-rewrite")}
               onSave={handleSave}
               onPersistStateChange={setPersistState}
             />

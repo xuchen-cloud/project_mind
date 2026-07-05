@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
+  documentImport: vi.fn(),
   documentImportNoteImage: vi.fn(),
   documentImportClipboardNoteImage: vi.fn(),
   workspaceNoteImageImport: vi.fn(),
@@ -25,6 +26,7 @@ import {
 
 describe("buildProjectNoteImageAssetHandlers", () => {
   beforeEach(() => {
+    apiMocks.documentImport.mockReset();
     apiMocks.documentImportNoteImage.mockReset();
     apiMocks.documentImportClipboardNoteImage.mockReset();
     apiMocks.workspaceNoteImageImport.mockReset();
@@ -93,10 +95,43 @@ describe("buildProjectNoteImageAssetHandlers", () => {
       documentId: 32,
     });
   });
+
+  it("imports regular files as project documents for attachment references", async () => {
+    apiMocks.documentImport.mockResolvedValueOnce({
+      id: 42,
+      name: "brief.pdf",
+      managedPath: "/tmp/project/brief.pdf",
+      originalPath: "/tmp/source/brief.pdf",
+      mimeType: "application/pdf",
+      isStarred: false,
+    });
+
+    const handlers = buildProjectNoteImageAssetHandlers(9, 16);
+    const asset = await handlers.insertFile?.("/tmp/source/brief.pdf");
+
+    expect(apiMocks.documentImport).toHaveBeenCalledWith({
+      projectId: 9,
+      activityId: 16,
+      sourcePath: "/tmp/source/brief.pdf",
+      isStarred: false,
+      tagIds: [],
+    });
+    expect(asset).toEqual({
+      kind: "file",
+      title: "brief.pdf",
+      path: "/tmp/project/brief.pdf",
+      href: "file:///tmp/project/brief.pdf",
+      mimeType: "application/pdf",
+      documentId: 42,
+      meta: "application/pdf",
+      isStarred: false,
+    });
+  });
 });
 
 describe("buildWorkspaceNoteImageAssetHandlers", () => {
   beforeEach(() => {
+    apiMocks.documentImport.mockReset();
     apiMocks.documentImportNoteImage.mockReset();
     apiMocks.documentImportClipboardNoteImage.mockReset();
     apiMocks.workspaceNoteImageImport.mockReset();
@@ -129,6 +164,7 @@ describe("buildWorkspaceNoteImageAssetHandlers", () => {
       path: "/tmp/workspace/.project-mind/embedded-note-assets/workspace/clip.png",
       mimeType: "image/png",
     });
+    expect(handlers.insertFile).toBeUndefined();
   });
 
   it("uploads workspace clipboard-only images without embedding data urls in the editor", async () => {

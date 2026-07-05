@@ -1,4 +1,4 @@
-import { Contact, Files, Settings2, Sparkles, StretchHorizontal } from "lucide-react";
+import { Contact, Files, Pencil, Settings2, Sparkles, StretchHorizontal } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -42,9 +42,14 @@ const SETTINGS_SECTIONS: Array<{
     icon: Contact,
   },
   {
-    value: "ai",
-    label: "AI 设置",
+    value: "ai-models",
+    label: "AI 模型配置",
     icon: Settings2,
+  },
+  {
+    value: "ai-rewrite",
+    label: "AI 技能",
+    icon: Pencil,
   },
   {
     value: "rich-text",
@@ -115,8 +120,11 @@ export function SettingsDialog({
           <section hidden={activeSection !== "contacts"} aria-label="联系人">
             <ContactSettingsPanel open={open} />
           </section>
-          <section hidden={activeSection !== "ai"} aria-label="AI 设置">
-            <AiSettingsPanel open={open} onUnlockAiSecrets={onUnlockAiSecrets} />
+          <section hidden={activeSection !== "ai-models"} aria-label="AI 模型配置">
+            <AiSettingsPanel open={open} section="models" onUnlockAiSecrets={onUnlockAiSecrets} />
+          </section>
+          <section hidden={activeSection !== "ai-rewrite"} aria-label="AI 技能">
+            <AiSettingsPanel open={open} section="rewrite" onUnlockAiSecrets={onUnlockAiSecrets} />
           </section>
           <section hidden={activeSection !== "rich-text"} aria-label="富文本样式">
             <RichTextStylePanel open={open} />
@@ -153,8 +161,11 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   if (section === "contacts") {
     return "contacts";
   }
-  if (section === "ai") {
-    return "ai";
+  if (section === "ai" || section === "ai-models") {
+    return "ai-models";
+  }
+  if (section === "ai-rewrite") {
+    return "ai-rewrite";
   }
   return "page-width";
 }

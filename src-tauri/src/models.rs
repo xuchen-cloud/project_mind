@@ -234,13 +234,6 @@ pub struct ActivityStatusOption {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivitySettingsSnapshot {
-    pub activity_attribute_options: Vec<ActivityAttributeOption>,
-    pub activity_status_options: Vec<ActivityStatusOption>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ActivityDigest {
     pub id: i64,
     pub project_id: i64,
@@ -318,6 +311,22 @@ pub struct AiEditorRewriteActionRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorSkillRecord {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub prompt: String,
+    pub result_mode: String,
+    pub show_in_text_menu: bool,
+    pub sort_order: i64,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettingsSnapshot {
@@ -327,8 +336,7 @@ pub struct AiSettingsSnapshot {
     pub security_mode: String,
     pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
-    pub feature_settings: AiFeatureSettings,
-    pub editor_rewrite_actions: Vec<AiEditorRewriteActionRecord>,
+    pub editor_skills: Vec<AiEditorSkillRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,17 +461,15 @@ pub struct AiEditorRewriteContext {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiEditorRewriteResult {
-    pub action_id: Option<i64>,
-    pub rewritten_markdown: String,
+    pub skill_id: Option<String>,
+    pub result_mode: String,
+    pub content: String,
     pub resolved_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AiJobKind {
-    ArtifactRefresh,
-    AnswerQuestion,
-    NoteSuggestions,
     ProfileTest,
     EditorRewrite,
 }
@@ -500,15 +506,6 @@ pub struct AiFeatureSettings {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiJobResult {
-    ArtifactRefresh {
-        artifact: AiArtifactRecord,
-    },
-    AnswerQuestion {
-        answer: AiAnswerResult,
-    },
-    NoteSuggestions {
-        suggestions: Vec<AiSuggestionRecord>,
-    },
     ProfileTest {
         #[serde(rename = "testResult")]
         test_result: AiProfileTestResult,
@@ -604,7 +601,6 @@ pub struct ActivityCardData {
     pub conclusions: Vec<ConclusionRecord>,
     pub todos: Vec<TodoRecord>,
     pub documents: Vec<DocumentRecord>,
-    pub ai_suggestions: Vec<AiSuggestionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -810,12 +806,6 @@ pub struct ActivityUpdateMetaInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivityDeleteInput {
-    pub activity_id: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ActivityAttributeOptionUpsertInput {
     pub id: Option<i64>,
     pub label: String,
@@ -828,12 +818,6 @@ pub struct ActivityStatusOptionUpsertInput {
     pub id: Option<i64>,
     pub label: String,
     pub color_key: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityOptionDeleteInput {
-    pub option_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -987,13 +971,6 @@ pub struct TodoUpdateTagsInput {
     pub todo_id: i64,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TodoUpdateActivityInput {
-    pub todo_id: i64,
-    pub activity_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1155,11 +1132,19 @@ pub struct AiAcceptSuggestionInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiEditorRewriteInput {
+    pub skill_id: Option<String>,
+    pub skill_name: Option<String>,
+    pub prompt: Option<String>,
+    #[serde(default = "default_ai_editor_skill_result_mode")]
+    pub result_mode: String,
     pub action_id: Option<i64>,
     pub prompt_override: Option<String>,
+    #[serde(default)]
     pub selected_text: String,
-    pub expanded_markdown: String,
+    pub expanded_markdown: Option<String>,
+    #[serde(default)]
     pub placeholder_tokens: Vec<String>,
+    pub document_context: Option<String>,
     pub context: Option<AiEditorRewriteContext>,
 }
 
@@ -1184,21 +1169,6 @@ pub struct AiAnswerQuestionInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiJobEnqueueInput {
-    ArtifactRefresh {
-        #[serde(rename = "targetKey", alias = "target_key")]
-        target_key: String,
-        input: AiArtifactGetInput,
-    },
-    AnswerQuestion {
-        #[serde(rename = "targetKey", alias = "target_key")]
-        target_key: String,
-        input: AiAnswerQuestionInput,
-    },
-    NoteSuggestions {
-        #[serde(rename = "targetKey", alias = "target_key")]
-        target_key: String,
-        input: AiGenerateInput,
-    },
     ProfileTest {
         #[serde(rename = "targetKey", alias = "target_key")]
         target_key: String,
@@ -1214,9 +1184,6 @@ pub enum AiJobEnqueueInput {
 impl AiJobEnqueueInput {
     pub fn kind(&self) -> AiJobKind {
         match self {
-            Self::ArtifactRefresh { .. } => AiJobKind::ArtifactRefresh,
-            Self::AnswerQuestion { .. } => AiJobKind::AnswerQuestion,
-            Self::NoteSuggestions { .. } => AiJobKind::NoteSuggestions,
             Self::ProfileTest { .. } => AiJobKind::ProfileTest,
             Self::EditorRewrite { .. } => AiJobKind::EditorRewrite,
         }
@@ -1224,10 +1191,7 @@ impl AiJobEnqueueInput {
 
     pub fn target_key(&self) -> &str {
         match self {
-            Self::ArtifactRefresh { target_key, .. }
-            | Self::AnswerQuestion { target_key, .. }
-            | Self::NoteSuggestions { target_key, .. }
-            | Self::ProfileTest { target_key, .. }
+            Self::ProfileTest { target_key, .. }
             | Self::EditorRewrite { target_key, .. } => target_key,
         }
     }
@@ -1293,33 +1257,64 @@ pub struct AiEditorRewriteActionDeleteInput {
     pub action_id: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorSkillUpsertInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub prompt: String,
+    pub result_mode: String,
+    pub show_in_text_menu: bool,
+    pub sort_order: Option<i64>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorSkillDeleteInput {
+    pub skill_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorSkillReorderInput {
+    pub skill_ids: Vec<String>,
+}
+
 pub type RichTextStyleUpsertInput = RichTextStyleSettings;
+
+fn default_ai_editor_skill_result_mode() -> String {
+    "modify".to_string()
+}
 
 #[cfg(test)]
 mod tests {
-    use super::{AiAnswerScope, AiJobEnqueueInput};
+    use super::AiJobEnqueueInput;
     use serde_json::json;
 
     #[test]
     fn ai_job_enqueue_input_accepts_camel_case_target_key() {
         let input: AiJobEnqueueInput = serde_json::from_value(json!({
-            "kind": "answer_question",
-            "targetKey": "ask:project:7:none",
+            "kind": "editor_rewrite",
+            "targetKey": "editor-rewrite:test",
             "input": {
-                "scope": "project",
-                "question": "现在最重要的事情是什么？",
-                "projectId": 7
+                "selectedText": "hello",
+                "expandedMarkdown": "hello",
+                "placeholderTokens": [],
+                "promptOverride": "请润色"
             }
         }))
         .expect("camelCase ai job payload should deserialize");
 
         match input {
-            AiJobEnqueueInput::AnswerQuestion { target_key, input } => {
-                assert_eq!(target_key, "ask:project:7:none");
-                assert_eq!(input.scope, AiAnswerScope::Project);
-                assert_eq!(input.question, "现在最重要的事情是什么？");
-                assert_eq!(input.project_id, Some(7));
-                assert_eq!(input.activity_id, None);
+            AiJobEnqueueInput::EditorRewrite { target_key, input } => {
+                assert_eq!(target_key, "editor-rewrite:test");
+                assert_eq!(input.selected_text, "hello");
+                assert_eq!(input.expanded_markdown.as_deref(), Some("hello"));
+                assert_eq!(input.prompt_override.as_deref(), Some("请润色"));
+                assert_eq!(input.result_mode, "modify");
             }
             other => panic!("expected answer question payload, got {other:?}"),
         }

@@ -24,8 +24,9 @@ export interface RichEditorAiMenuTextAction {
 }
 
 export interface RichEditorAiMenuSkillAction {
-  id: number;
+  id: string;
   label: string;
+  icon?: string | null;
   disabled?: boolean;
   onSelect: () => void;
 }
@@ -39,7 +40,7 @@ interface RichEditorAiMenuProps {
   disabledReason?: string | null;
   onClose: () => void;
   onOpenSettings?: () => void;
-  onSubmitPrompt: (prompt: string) => void;
+  onSubmitPrompt: (prompt: string, resultMode: "modify" | "answer") => void;
 }
 
 export function RichEditorAiMenu({
@@ -55,10 +56,12 @@ export function RichEditorAiMenu({
 }: RichEditorAiMenuProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [resultMode, setResultMode] = useState<"modify" | "answer">("modify");
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setPrompt("");
+    setResultMode("modify");
     setMoreOpen(false);
   }, [x, y]);
 
@@ -200,6 +203,9 @@ export function RichEditorAiMenu({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => skill.onSelect()}
               >
+                <span className="rich-editor__ai-menu-skill-icon" aria-hidden="true">
+                  {skill.icon?.trim() || "✦"}
+                </span>
                 {skill.label}
               </button>
             ))
@@ -231,11 +237,31 @@ export function RichEditorAiMenu({
               if (submitDisabled) {
                 return;
               }
-              onSubmitPrompt(prompt.trim());
+              onSubmitPrompt(prompt.trim(), resultMode);
             }
           }}
         />
         <div className="rich-editor__ai-menu-footer">
+          <div className="rich-editor__ai-menu-mode" role="group" aria-label="AI 结果模式">
+            <button
+              type="button"
+              className={resultMode === "modify" ? "is-active" : ""}
+              disabled={Boolean(disabledReason)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setResultMode("modify")}
+            >
+              修改原文
+            </button>
+            <button
+              type="button"
+              className={resultMode === "answer" ? "is-active" : ""}
+              disabled={Boolean(disabledReason)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setResultMode("answer")}
+            >
+              生成回答
+            </button>
+          </div>
           <span className="rich-editor__ai-menu-hint">
             {disabledReason ?? "Enter 提交，Shift+Enter 换行"}
           </span>

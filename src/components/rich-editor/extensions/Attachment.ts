@@ -59,6 +59,12 @@ export const Attachment = Node.create({
         renderHTML: (attributes: Record<string, unknown>) =>
           attributes.documentId ? { "data-document-id": attributes.documentId } : {},
       },
+      isStarred: {
+        default: false,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-is-starred") === "true",
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.isStarred ? { "data-is-starred": "true" } : {},
+      },
       meta: {
         default: null,
         parseHTML: (element: HTMLElement) => element.getAttribute("data-meta"),
@@ -96,14 +102,14 @@ export const Attachment = Node.create({
     const linkAttributes = isFallbackLink
       ? {
           class: "rich-editor__attachment-link",
-          href,
+          role: "link",
+          tabindex: "0",
           "data-rich-editor-openable": "true",
         }
       : {
           class: "rich-editor__attachment-link",
-          href,
-          target: "_blank",
-          rel: "noreferrer noopener",
+          role: "link",
+          tabindex: "0",
           "data-rich-editor-openable": "true",
         };
 

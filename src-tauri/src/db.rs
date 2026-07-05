@@ -15,15 +15,15 @@ use crate::{
     ai_provider::{self, ResolvedAiProfile},
     models::{
         AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
-        ActivityCardData, ActivityCreateInput, ActivityDeleteInput, ActivityDigest,
-        ActivityOptionDeleteInput, ActivitySettingsSnapshot, ActivityStatusOption,
+        ActivityCardData, ActivityCreateInput, ActivityDigest, ActivityStatusOption,
         ActivityStatusOptionUpsertInput, ActivityUpdateMetaInput, AiAcceptSuggestionInput,
-        AiAnswerCitationRecord, AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
+        AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
         AiArtifactCitationRecord, AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord,
         AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
         AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
         AiEditorRewriteActionUpsertInput, AiEditorRewriteInput, AiEditorRewriteResult,
-        AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobResult,
+        AiEditorSkillDeleteInput, AiEditorSkillRecord, AiEditorSkillReorderInput,
+        AiEditorSkillUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobResult,
         AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
         AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot,
         AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput, ConclusionGroup,
@@ -37,12 +37,12 @@ use crate::{
         InternalReferenceResolveInput, InternalReferenceResolveResult,
         InternalReferenceSearchInput, InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord,
         ProjectRecordUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectDeleteInput, ProjectIdInput,
-        ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordGroup,
+        ProjectListItem, ProjectPageData, ProjectRecord,
         ProjectUpdateInput, ProjectsListInput,
         RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
         RichTextStyleUpsertInput, WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput,
         TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
-        TodoUpdateActivityInput, TodoUpdateContentInput, TodoUpdatePriorityInput,
+        TodoUpdateContentInput, TodoUpdatePriorityInput,
         TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
         WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
         WorkspaceNoteImageImportInput, WorkspaceRecordDeleteInput, WorkspaceRecord,
@@ -67,14 +67,9 @@ const ACTIVITY_RETIRE_SCHEMA_VERSION: i64 = 13;
 const FILE_TAG_PROJECT_UNIQUENESS_SCHEMA_VERSION: i64 = 14;
 const NOTE_TYPE_REMOVAL_SCHEMA_VERSION: i64 = 15;
 const WORKSPACE_NOTE_TAG_SCHEMA_VERSION: i64 = 16;
+const AI_REWRITE_ONLY_SCHEMA_VERSION: i64 = 17;
 const PROJECT_KIND_NORMAL: &str = "normal";
-const AI_CAPABILITIES: [&str; 5] = [
-    "default",
-    "assistant",
-    "summary",
-    "suggestion_generation",
-    "editor_rewrite",
-];
+const AI_CAPABILITIES: [&str; 2] = ["default", "editor_rewrite"];
 const AI_VISIBLE_CAPABILITIES: [&str; 4] = [
     "assistant",
     "summary",
@@ -104,6 +99,9 @@ const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
 const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
 const APP_SETTING_KEY_AI_FEATURE_SETTINGS: &str = "ai_feature_settings";
 const APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS: &str = "ai_editor_rewrite_actions";
+const APP_SETTING_KEY_AI_EDITOR_SKILLS: &str = "ai_editor_skills";
+const AI_EDITOR_SKILL_LIMIT: usize = 24;
+const AI_EDITOR_REWRITE_ACTION_LIMIT: usize = 5;
 const MANAGED_NOTE_IMAGE_STORAGE_MODE: &str = "managed_note_image";
 const PROJECT_NOTE_ASSET_DIR_NAME: &str = "embedded-note-assets";
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
@@ -138,10 +136,8 @@ const INTERNAL_REFERENCE_PRIORITY_CONCLUSION_CONTENT: u8 = 1;
 const INTERNAL_REFERENCE_PRIORITY_TODO_CONTENT: u8 = 2;
 const INTERNAL_REFERENCE_PRIORITY_DOCUMENT_NAME: u8 = 3;
 const INTERNAL_REFERENCE_PRIORITY_NOTE_CONTENT: u8 = 4;
-const INTERNAL_REFERENCE_PRIORITY_ACTIVITY_TITLE: u8 = 5;
 const INTERNAL_REFERENCE_COMPACT_LABEL_MAX_CHARS: usize = 15;
 const WORKSPACE_SEARCH_PRIORITY_PROJECT_NAME: u8 = 0;
-const WORKSPACE_SEARCH_PRIORITY_ACTIVITY_TITLE: u8 = 1;
 const WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE: u8 = 2;
 const WORKSPACE_SEARCH_PRIORITY_CONCLUSION_CONTENT: u8 = 3;
 const WORKSPACE_SEARCH_PRIORITY_TODO_CONTENT: u8 = 4;
@@ -274,17 +270,6 @@ struct ActivityFsRecord {
     folder_name: String,
 }
 
-struct RecordTypeStorage {
-    id: i64,
-    key: String,
-    label: String,
-    color_key: String,
-    template_html: String,
-    is_default: bool,
-    created_at: String,
-    updated_at: String,
-}
-
 struct ArtifactSkillSpec {
     kind: &'static str,
     skill_key: &'static str,
@@ -376,7 +361,6 @@ pub struct DemoSeedResult {
     pub conclusion_count: i64,
     pub todo_count: i64,
     pub document_count: i64,
-    pub artifact_count: i64,
     pub ai_profile_mode: String,
 }
 
@@ -647,23 +631,6 @@ impl Database {
               FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
             );
 
-            CREATE TABLE IF NOT EXISTS ai_suggestions (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id INTEGER NOT NULL,
-              activity_id INTEGER,
-              note_id INTEGER,
-              suggestion_type TEXT NOT NULL,
-              title TEXT NOT NULL,
-              preview TEXT NOT NULL,
-              payload_json TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'pending',
-              created_at TEXT NOT NULL,
-              accepted_at TEXT,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE,
-              FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE
-            );
-
             CREATE TABLE IF NOT EXISTS ai_provider_profiles (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL,
@@ -689,38 +656,6 @@ impl Database {
               model TEXT,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(profile_id) REFERENCES ai_provider_profiles(id) ON DELETE RESTRICT
-            );
-
-            CREATE TABLE IF NOT EXISTS ai_artifacts (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              scope_key TEXT NOT NULL UNIQUE,
-              kind TEXT NOT NULL,
-              skill_key TEXT NOT NULL DEFAULT '',
-              skill_version TEXT NOT NULL DEFAULT '',
-              project_id INTEGER,
-              activity_id INTEGER,
-              artifact_date TEXT,
-              status TEXT NOT NULL DEFAULT 'stale',
-              markdown TEXT NOT NULL DEFAULT '',
-              json_payload TEXT NOT NULL DEFAULT '{}',
-              source_updated_at TEXT NOT NULL DEFAULT '',
-              generated_at TEXT,
-              error_message TEXT,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS ai_artifact_citations (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              artifact_id INTEGER NOT NULL,
-              source_kind TEXT NOT NULL,
-              source_id INTEGER NOT NULL,
-              project_id INTEGER,
-              activity_id INTEGER,
-              label TEXT NOT NULL,
-              excerpt TEXT NOT NULL DEFAULT '',
-              order_index INTEGER NOT NULL DEFAULT 0,
-              FOREIGN KEY(artifact_id) REFERENCES ai_artifacts(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS app_settings (
@@ -940,6 +875,10 @@ impl Database {
             self.migrate_workspace_note_tag_schema()?;
             self.set_schema_version(WORKSPACE_NOTE_TAG_SCHEMA_VERSION)?;
         }
+        if self.schema_version()? < AI_REWRITE_ONLY_SCHEMA_VERSION {
+            self.migrate_ai_rewrite_only_schema()?;
+            self.set_schema_version(AI_REWRITE_ONLY_SCHEMA_VERSION)?;
+        }
         self.conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_projects_archived_updated ON projects(is_archived, updated_at DESC);
@@ -970,11 +909,7 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_todo_tag_links_todo ON todo_tag_links(todo_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_tag ON workspace_note_tag_links(tag_id, workspace_note_id);
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_note ON workspace_note_tag_links(workspace_note_id, tag_id);
-            CREATE INDEX IF NOT EXISTS idx_ai_suggestions_activity ON ai_suggestions(activity_id, status, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_ai_artifacts_kind_scope ON ai_artifacts(kind, project_id, activity_id, artifact_date);
-            CREATE INDEX IF NOT EXISTS idx_ai_artifacts_status_kind ON ai_artifacts(status, kind, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_ai_artifact_citations_artifact_order ON ai_artifact_citations(artifact_id, order_index ASC, id ASC);
             "#,
         )?;
         Ok(())
@@ -1513,19 +1448,6 @@ impl Database {
         self.activity_card(activity_id)
     }
 
-    pub fn activity_list(&mut self, input: ProjectIdInput) -> Result<Vec<ActivityCardData>> {
-        self.ensure_project_file_layout(input.project_id)?;
-        self.refresh_document_health(input.project_id)?;
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM activities WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map([input.project_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        ids.into_iter().map(|id| self.activity_card(id)).collect()
-    }
-
     pub fn activity_update_meta(
         &mut self,
         input: ActivityUpdateMetaInput,
@@ -1617,55 +1539,6 @@ impl Database {
         self.activity_card(input.activity_id)
     }
 
-    pub fn activity_delete(&mut self, input: ActivityDeleteInput) -> Result<ActivityCardData> {
-        let deleted = self.activity_card(input.activity_id)?;
-        let current = self.activity_row(input.activity_id)?;
-        let project_id = current.project_id;
-        self.ensure_project_file_layout(project_id)?;
-        let project = self.project_record(project_id)?;
-        let project_root = PathBuf::from(&project.root_path);
-
-        for document in self.fetch_all_documents_for_activity(input.activity_id)? {
-            self.document_delete(DocumentDeleteInput {
-                document_id: document.id,
-            })?;
-        }
-
-        for todo_id in self.fetch_todo_ids_for_activity(input.activity_id)? {
-            self.todo_delete(TodoDeleteInput { todo_id })?;
-        }
-
-        self.conn
-            .execute("DELETE FROM activities WHERE id = ?1", [input.activity_id])?;
-
-        let folder_name = if current.folder_name.trim().is_empty() {
-            self.default_activity_folder_name(&current.title, input.activity_id)
-        } else {
-            current.folder_name
-        };
-        let activity_dir = project_root.join(folder_name);
-        let note_asset_dir = project_root
-            .join(WORKSPACE_HIDDEN_DIR_NAME)
-            .join(PROJECT_NOTE_ASSET_DIR_NAME)
-            .join(format!("activity-{}", input.activity_id));
-        let cleanup_paths = [activity_dir, note_asset_dir]
-            .into_iter()
-            .filter(|path| path.exists())
-            .collect::<Vec<_>>();
-        move_paths_to_trash(&cleanup_paths)?;
-
-        self.touch_project(project_id)?;
-        Ok(deleted)
-    }
-
-    pub fn activity_settings_get(&mut self) -> Result<ActivitySettingsSnapshot> {
-        self.ensure_activity_settings_seeded()?;
-        Ok(ActivitySettingsSnapshot {
-            activity_attribute_options: self.fetch_activity_attribute_options()?,
-            activity_status_options: self.fetch_activity_status_options()?,
-        })
-    }
-
     pub fn activity_attribute_option_upsert(
         &mut self,
         input: ActivityAttributeOptionUpsertInput,
@@ -1692,18 +1565,6 @@ impl Database {
         )?;
 
         self.activity_attribute_option_record(self.conn.last_insert_rowid())
-    }
-
-    pub fn activity_attribute_option_delete(
-        &mut self,
-        input: ActivityOptionDeleteInput,
-    ) -> Result<ActivitySettingsSnapshot> {
-        self.activity_attribute_option_record(input.option_id)?;
-        self.conn.execute(
-            "DELETE FROM activity_attribute_options WHERE id = ?1",
-            params![input.option_id],
-        )?;
-        self.activity_settings_get()
     }
 
     pub fn activity_status_option_upsert(
@@ -1736,22 +1597,6 @@ impl Database {
         )?;
 
         self.activity_status_option_record(self.conn.last_insert_rowid())
-    }
-
-    pub fn activity_status_option_delete(
-        &mut self,
-        input: ActivityOptionDeleteInput,
-    ) -> Result<ActivitySettingsSnapshot> {
-        let current = self.activity_status_option_record(input.option_id)?;
-        if current.is_system {
-            return Err(anyhow!("system activity status cannot be deleted"));
-        }
-
-        self.conn.execute(
-            "DELETE FROM activity_status_options WHERE id = ?1",
-            params![input.option_id],
-        )?;
-        self.activity_settings_get()
     }
 
     pub fn file_tag_settings_get(
@@ -2331,44 +2176,6 @@ impl Database {
             self.touch_activity(activity_id)?;
         }
         self.todo_record(input.todo_id)
-    }
-
-    pub fn todo_update_activity(&mut self, input: TodoUpdateActivityInput) -> Result<TodoRecord> {
-        let current = self.todo_record(input.todo_id)?;
-        if let Some(activity_id) = input.activity_id {
-            let activity_project_id = self
-                .conn
-                .query_row(
-                    "SELECT project_id FROM activities WHERE id = ?1",
-                    [activity_id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?
-                .ok_or_else(|| anyhow!("目标 Activity 不存在"))?;
-
-            if activity_project_id != current.project_id {
-                return Err(anyhow!("Todo 只能改绑到同项目下的 Activity"));
-            }
-        }
-
-        self.conn.execute(
-            "UPDATE todos SET activity_id = ?1, updated_at = ?2 WHERE id = ?3",
-            params![input.activity_id, now_iso(), input.todo_id],
-        )?;
-        let record = self.todo_record(input.todo_id)?;
-
-        match (current.activity_id, record.activity_id) {
-            (Some(previous), Some(next)) if previous == next => self.touch_activity(previous)?,
-            (Some(previous), Some(next)) => {
-                self.touch_activity(previous)?;
-                self.touch_activity(next)?;
-            }
-            (Some(previous), None) => self.touch_activity(previous)?,
-            (None, Some(next)) => self.touch_activity(next)?,
-            (None, None) => self.touch_project(record.project_id)?,
-        }
-
-        Ok(record)
     }
 
     pub fn todo_update_status(&mut self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
@@ -3200,344 +3007,31 @@ impl Database {
 
     pub fn ai_generate_note_suggestions(
         &mut self,
-        input: AiGenerateInput,
+        _input: AiGenerateInput,
     ) -> Result<Vec<AiSuggestionRecord>> {
-        self.ensure_ai_capability_enabled("suggestion_generation")?;
-
-        let (activity_title, source_text) =
-            self.ai_source(input.project_id, input.activity_id, input.note_id)?;
-        let profile = self.resolve_profile_for_capability("suggestion_generation")?;
-        let feature_settings = self.ai_feature_settings_get()?;
-        let allow_conclusions =
-            ai_feature_enabled(&feature_settings, "suggestion_generation.conclusion")?;
-        let allow_todos = ai_feature_enabled(&feature_settings, "suggestion_generation.todo")?;
-        if !allow_conclusions && !allow_todos {
-            return Err(anyhow!(
-                "AI suggestion generation has no enabled output types in workspace settings"
-            ));
-        }
-        self.conn.execute(
-            "DELETE FROM ai_suggestions WHERE project_id = ?1 AND activity_id = ?2 AND status = 'pending'",
-            params![input.project_id, input.activity_id],
-        )?;
-
-        let payload = ai_provider::generate_suggestions(&profile, &activity_title, &source_text)?;
-        let timestamp = now_iso();
-
-        if let Some(proposed_title) = payload
-            .activity_title
-            .as_ref()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty() && *value != activity_title.trim())
-        {
-            self.insert_ai_suggestion(
-                input.project_id,
-                Some(input.activity_id),
-                input.note_id,
-                "activity_title",
-                "活动标题建议",
-                proposed_title,
-                json!({ "proposedTitle": proposed_title }),
-                &timestamp,
-            )?;
-        }
-
-        if allow_conclusions {
-            for content in payload.conclusions.iter().take(3) {
-                self.insert_ai_suggestion(
-                    input.project_id,
-                    Some(input.activity_id),
-                    input.note_id,
-                    "conclusion",
-                    "结论候选",
-                    content,
-                    json!({
-                        "content": content,
-                        "promotedToProject": true
-                    }),
-                    &timestamp,
-                )?;
-            }
-        }
-
-        if allow_todos {
-            for content in payload.todos.iter().take(3) {
-                let priority = infer_todo_priority(content);
-                self.insert_ai_suggestion(
-                    input.project_id,
-                    Some(input.activity_id),
-                    input.note_id,
-                    "todo",
-                    "待办候选",
-                    content,
-                    json!({
-                        "content": content,
-                        "priority": priority
-                    }),
-                    &timestamp,
-                )?;
-            }
-        }
-
-        self.fetch_ai_suggestions(Some(input.activity_id))
+        Err(anyhow!("AI suggestion generation has been removed"))
     }
 
     pub fn ai_accept_suggestion(
         &mut self,
-        input: AiAcceptSuggestionInput,
+        _input: AiAcceptSuggestionInput,
     ) -> Result<AcceptedSuggestionResult> {
-        let suggestion = self.ai_suggestion_record(input.suggestion_id)?;
-        let timestamp = now_iso();
-        let merged_payload =
-            merge_ai_suggestion_payload(&suggestion.payload, input.payload_override.as_ref());
-
-        let entity_kind;
-        let entity_id;
-        match suggestion.suggestion_type.as_str() {
-            "activity_title" => {
-                let proposed_title = suggestion_payload_string(
-                    &merged_payload,
-                    "proposedTitle",
-                    "missing proposedTitle",
-                )?;
-                let activity_id = suggestion
-                    .activity_id
-                    .ok_or_else(|| anyhow!("title suggestion requires activity"))?;
-                let next_title = normalize_activity_title(proposed_title, activity_id);
-                self.ensure_project_file_layout(suggestion.project_id)?;
-                let current = self.activity_row(activity_id)?;
-                self.rename_activity_folder(activity_id, &current, &next_title, &timestamp)?;
-                self.conn.execute(
-                    "UPDATE activities SET title = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![next_title, timestamp, activity_id],
-                )?;
-                entity_kind = "activity".to_string();
-                entity_id = activity_id;
-            }
-            "conclusion" => {
-                let content = suggestion_payload_string(
-                    &merged_payload,
-                    "content",
-                    "missing conclusion content",
-                )?;
-                self.conn.execute(
-                    r#"
-                    INSERT INTO conclusions (
-                      project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, created_at, updated_at
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                    "#,
-                    params![
-                        suggestion.project_id,
-                        suggestion.activity_id,
-                        suggestion.note_id,
-                        content,
-                        "",
-                        content,
-                        bool_to_int(
-                            merged_payload
-                                .get("promotedToProject")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(true)
-                        ),
-                        timestamp,
-                        timestamp
-                    ],
-                )?;
-                entity_kind = "conclusion".to_string();
-                entity_id = self.conn.last_insert_rowid();
-            }
-            "todo" => {
-                let content =
-                    suggestion_payload_string(&merged_payload, "content", "missing todo content")?;
-                let priority = merged_payload
-                    .get("priority")
-                    .and_then(Value::as_str)
-                    .filter(|value| is_todo_priority(value))
-                    .unwrap_or_else(|| infer_todo_priority(content));
-                self.conn.execute(
-                    r#"
-                    INSERT INTO todos (
-                      project_id, activity_id, content, status, priority, created_at, updated_at
-                    )
-                    VALUES (?1, ?2, ?3, 'unfinished', ?4, ?5, ?6)
-                    "#,
-                    params![
-                        suggestion.project_id,
-                        suggestion.activity_id,
-                        content,
-                        priority,
-                        timestamp,
-                        timestamp
-                    ],
-                )?;
-                entity_kind = "todo".to_string();
-                entity_id = self.conn.last_insert_rowid();
-            }
-            _ => return Err(anyhow!("unsupported suggestion type")),
-        }
-
-        let preview = ai_suggestion_preview(&suggestion.suggestion_type, &merged_payload)?;
-        self.conn.execute(
-            "UPDATE ai_suggestions SET payload_json = ?1, preview = ?2, status = 'accepted', accepted_at = ?3 WHERE id = ?4",
-            params![merged_payload.to_string(), preview, timestamp, input.suggestion_id],
-        )?;
-        self.touch_project(suggestion.project_id)?;
-        if let Some(activity_id) = suggestion.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-
-        Ok(AcceptedSuggestionResult {
-            suggestion: self.ai_suggestion_record(input.suggestion_id)?,
-            entity_kind,
-            entity_id,
-        })
+        Err(anyhow!("AI suggestion acceptance has been removed"))
     }
 
     pub fn ai_artifact_get(
         &mut self,
-        input: AiArtifactGetInput,
+        _input: AiArtifactGetInput,
     ) -> Result<Option<AiArtifactRecord>> {
-        let resolved = self.resolve_artifact_request(input)?;
-        if let Some(project_id) = resolved.project_id {
-            self.ensure_project_file_layout(project_id)?;
-            self.refresh_document_health(project_id)?;
-        }
-        self.ai_artifact_record_by_scope(
-            resolved.spec.kind,
-            resolved.project_id,
-            resolved.activity_id,
-            resolved.artifact_date.as_deref(),
-        )
+        Err(anyhow!("AI artifacts have been removed"))
     }
 
-    pub fn ai_artifact_refresh(&mut self, input: AiArtifactGetInput) -> Result<AiArtifactRecord> {
-        let resolved = self.resolve_artifact_request(input)?;
-        self.ensure_ai_feature_enabled(ai_feature_key_for_artifact_kind(resolved.spec.kind)?)?;
-        if let Some(project_id) = resolved.project_id {
-            self.ensure_project_file_layout(project_id)?;
-            self.refresh_document_health(project_id)?;
-        }
-
-        let profile = self.resolve_profile_for_capability("summary")?;
-        let context = self.build_artifact_context(
-            resolved.spec,
-            resolved.project_id,
-            resolved.activity_id,
-            resolved.artifact_date.clone(),
-        )?;
-        let timestamp = now_iso();
-        match ai_provider::generate_artifact(
-            &profile,
-            resolved.spec.artifact_name,
-            resolved.spec.section_titles,
-            &context.context_text,
-        ) {
-            Ok(payload) => {
-                self.upsert_ai_artifact_success(resolved.spec, context, payload, &timestamp)
-            }
-            Err(error) => self.upsert_ai_artifact_error(
-                resolved.spec,
-                context.project_id,
-                context.activity_id,
-                context.artifact_date.as_deref(),
-                &context.source_updated_at,
-                &timestamp,
-                &error.to_string(),
-            ),
-        }
+    pub fn ai_artifact_refresh(&mut self, _input: AiArtifactGetInput) -> Result<AiArtifactRecord> {
+        Err(anyhow!("AI artifacts have been removed"))
     }
 
-    pub fn ai_answer_question(&mut self, input: AiAnswerQuestionInput) -> Result<AiAnswerResult> {
-        self.ensure_ai_capability_enabled("assistant")?;
-        let resolved = self.resolve_ai_answer_request(input)?;
-        if let Some(project_id) = resolved.project_id {
-            self.ensure_project_file_layout(project_id)?;
-            self.refresh_document_health(project_id)?;
-        }
-
-        let profile = self.resolve_profile_for_capability("assistant")?;
-        let context_sources = self.build_ai_answer_sources(
-            &resolved.scope,
-            resolved.project_id,
-            resolved.activity_id,
-        )?;
-        let ranked_sources = rank_ask_sources(&resolved.question, context_sources);
-        if ranked_sources.is_empty() || ranked_sources[0].0 < 12 {
-            return Ok(insufficient_ai_answer(
-                resolved.scope,
-                "当前作用域内没有足够的直接依据，暂时不能可靠回答这个问题。可以换一个更具体的问法，或切到更贴近内容的范围继续提问。",
-            ));
-        }
-
-        let sources = select_ask_sources(ranked_sources, 8);
-        let generated_at = now_iso();
-        let context_text = render_ask_context(
-            resolved.scope.as_str(),
-            resolved.project_id,
-            resolved.activity_id,
-            &resolved.question,
-            &sources,
-        );
-        let payload = ai_provider::generate_answer(
-            &profile,
-            resolved.scope.as_str(),
-            &resolved.question,
-            &context_text,
-        )?;
-        let allowed_refs = sources
-            .iter()
-            .map(|source| (source.ref_code.clone(), source))
-            .collect::<HashMap<_, _>>();
-        let citations =
-            payload
-                .citations
-                .into_iter()
-                .filter_map(|ref_code| {
-                    allowed_refs.get(ref_code.trim()).cloned().map(|source| {
-                        AiAnswerCitationRecord {
-                            ref_code: source.ref_code.clone(),
-                            source_kind: source.source_kind.clone(),
-                            source_id: source.source_id,
-                            project_id: source.project_id,
-                            activity_id: source.activity_id,
-                            label: source.label.clone(),
-                            excerpt: source.excerpt.clone(),
-                        }
-                    })
-                })
-                .fold(Vec::new(), |mut acc, citation| {
-                    if !acc.iter().any(|existing: &AiAnswerCitationRecord| {
-                        existing.ref_code == citation.ref_code
-                    }) {
-                        acc.push(citation);
-                    }
-                    acc
-                });
-
-        if citations.is_empty() {
-            return Ok(insufficient_ai_answer(
-                resolved.scope,
-                "检索到了相关资料，但当前证据还不足以给出可引用的可靠答案。建议换成更具体的问题，或缩小到当前项目 / 当前活动范围继续提问。",
-            ));
-        }
-
-        let answer_markdown = payload.answer_markdown.trim();
-        if answer_markdown.is_empty() {
-            return Ok(insufficient_ai_answer(
-                resolved.scope,
-                "当前资料还不足以形成稳定答案，建议补充更明确的问题或更多记录后再试。",
-            ));
-        }
-
-        Ok(AiAnswerResult {
-            answer_markdown: truncate_text(answer_markdown, 4000),
-            citations,
-            scope: resolved.scope,
-            generated_at,
-            skill_key: ASK_SKILL.skill_key.to_string(),
-            skill_version: ASK_SKILL.skill_version.to_string(),
-        })
+    pub fn ai_answer_question(&mut self, _input: AiAnswerQuestionInput) -> Result<AiAnswerResult> {
+        Err(anyhow!("AI Ask has been removed"))
     }
 
     pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
@@ -3562,12 +3056,8 @@ impl Database {
             let _ = self.clear_app_setting(APP_SETTING_KEY_AI_EXECUTION_SETTINGS);
             default_ai_execution_settings()
         });
-        let feature_settings = self.ai_feature_settings_get().unwrap_or_else(|_| {
-            let _ = self.clear_app_setting(APP_SETTING_KEY_AI_FEATURE_SETTINGS);
-            default_ai_feature_settings()
-        });
-        let editor_rewrite_actions = self.ai_editor_rewrite_actions_get().unwrap_or_else(|_| {
-            let _ = self.clear_app_setting(APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS);
+        let editor_skills = self.ai_editor_skills_get().unwrap_or_else(|_| {
+            let _ = self.clear_app_setting(APP_SETTING_KEY_AI_EDITOR_SKILLS);
             Vec::new()
         });
         let has_usable_default = self
@@ -3581,9 +3071,169 @@ impl Database {
             security_mode: WORKSPACE_SECURITY_MODE.to_string(),
             ai_secrets_unlocked: self.secret_password.is_some(),
             execution,
-            feature_settings,
-            editor_rewrite_actions,
+            editor_skills,
         })
+    }
+
+    pub fn ai_editor_skills_get(&mut self) -> Result<Vec<AiEditorSkillRecord>> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = ?1",
+                params![APP_SETTING_KEY_AI_EDITOR_SKILLS],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        let mut skills = if let Some(value_json) = stored {
+            serde_json::from_str::<Vec<AiEditorSkillRecord>>(&value_json)
+                .context("failed to parse AI editor skills")?
+        } else {
+            let legacy_actions = self.ai_editor_rewrite_actions_get().unwrap_or_default();
+            let next_skills = if legacy_actions.is_empty() {
+                default_ai_editor_skills()
+            } else {
+                legacy_actions
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, action)| AiEditorSkillRecord {
+                        id: format!("rewrite-action-{}", action.id),
+                        name: action.label,
+                        icon: None,
+                        description: None,
+                        prompt: action.prompt,
+                        result_mode: "modify".to_string(),
+                        show_in_text_menu: true,
+                        sort_order: index as i64 + 1,
+                        enabled: action.enabled,
+                        created_at: action.created_at,
+                        updated_at: action.updated_at,
+                    })
+                    .collect()
+            };
+            self.persist_ai_editor_skills(&next_skills)?;
+            next_skills
+        };
+
+        for skill in &skills {
+            validate_ai_editor_skill(skill)?;
+        }
+
+        skills.sort_by(|left, right| {
+            left.sort_order
+                .cmp(&right.sort_order)
+                .then_with(|| left.created_at.cmp(&right.created_at))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+
+        Ok(skills)
+    }
+
+    pub fn ai_editor_skill_upsert(
+        &mut self,
+        input: AiEditorSkillUpsertInput,
+    ) -> Result<AiEditorSkillRecord> {
+        validate_ai_editor_skill_fields(
+            &input.name,
+            input.icon.as_deref(),
+            input.description.as_deref(),
+            &input.prompt,
+            &input.result_mode,
+        )?;
+
+        let mut skills = self.ai_editor_skills_get()?;
+        let now = now_iso();
+        let saved = if let Some(skill_id) = input.id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            let skill = skills
+                .iter_mut()
+                .find(|skill| skill.id == skill_id)
+                .ok_or_else(|| anyhow!("AI editor skill does not exist"))?;
+            skill.name = input.name.trim().to_string();
+            skill.icon = nullable_trimmed(input.icon.as_deref());
+            skill.description = nullable_trimmed(input.description.as_deref());
+            skill.prompt = input.prompt.trim().to_string();
+            skill.result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
+            skill.show_in_text_menu = input.show_in_text_menu;
+            skill.sort_order = input.sort_order.unwrap_or(skill.sort_order);
+            skill.enabled = input.enabled;
+            skill.updated_at = now.clone();
+            skill.clone()
+        } else {
+            if skills.len() >= AI_EDITOR_SKILL_LIMIT {
+                return Err(anyhow!(
+                    "AI editor skills cannot exceed {}",
+                    AI_EDITOR_SKILL_LIMIT
+                ));
+            }
+            let sort_order = input
+                .sort_order
+                .unwrap_or_else(|| skills.iter().map(|skill| skill.sort_order).max().unwrap_or(0) + 1);
+            let skill = AiEditorSkillRecord {
+                id: next_ai_editor_skill_id(&skills),
+                name: input.name.trim().to_string(),
+                icon: nullable_trimmed(input.icon.as_deref()),
+                description: nullable_trimmed(input.description.as_deref()),
+                prompt: input.prompt.trim().to_string(),
+                result_mode: normalize_ai_editor_skill_result_mode(&input.result_mode)?,
+                show_in_text_menu: input.show_in_text_menu,
+                sort_order,
+                enabled: input.enabled,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+            skills.push(skill.clone());
+            skill
+        };
+
+        normalize_ai_editor_skill_sort_orders(&mut skills);
+        self.persist_ai_editor_skills(&skills)?;
+        Ok(saved)
+    }
+
+    pub fn ai_editor_skill_delete(
+        &mut self,
+        input: AiEditorSkillDeleteInput,
+    ) -> Result<Vec<AiEditorSkillRecord>> {
+        let mut skills = self.ai_editor_skills_get()?;
+        let initial_len = skills.len();
+        let skill_id = input.skill_id.trim();
+        skills.retain(|skill| skill.id != skill_id);
+        if skills.len() == initial_len {
+            return Err(anyhow!("AI editor skill does not exist"));
+        }
+
+        normalize_ai_editor_skill_sort_orders(&mut skills);
+        self.persist_ai_editor_skills(&skills)?;
+        Ok(skills)
+    }
+
+    pub fn ai_editor_skill_reorder(
+        &mut self,
+        input: AiEditorSkillReorderInput,
+    ) -> Result<Vec<AiEditorSkillRecord>> {
+        let mut skills = self.ai_editor_skills_get()?;
+        if input.skill_ids.len() != skills.len() {
+            return Err(anyhow!("AI editor skill reorder must include every skill"));
+        }
+
+        let mut order_by_id = BTreeMap::new();
+        for (index, skill_id) in input.skill_ids.iter().enumerate() {
+            let skill_id = skill_id.trim();
+            if skill_id.is_empty() || order_by_id.insert(skill_id.to_string(), index as i64 + 1).is_some() {
+                return Err(anyhow!("AI editor skill reorder contains duplicate or empty ids"));
+            }
+        }
+
+        for skill in &mut skills {
+            let Some(sort_order) = order_by_id.get(&skill.id).copied() else {
+                return Err(anyhow!("AI editor skill reorder contains unknown ids"));
+            };
+            skill.sort_order = sort_order;
+            skill.updated_at = now_iso();
+        }
+
+        self.persist_ai_editor_skills(&skills)?;
+        self.ai_editor_skills_get()
     }
 
     pub fn ai_editor_rewrite_actions_get(&mut self) -> Result<Vec<AiEditorRewriteActionRecord>> {
@@ -3636,6 +3286,12 @@ impl Database {
             action.updated_at = now.clone();
             action.clone()
         } else {
+            if actions.len() >= AI_EDITOR_REWRITE_ACTION_LIMIT {
+                return Err(anyhow!(
+                    "AI editor rewrite actions cannot exceed {}",
+                    AI_EDITOR_REWRITE_ACTION_LIMIT
+                ));
+            }
             let next_id = actions.iter().map(|action| action.id).max().unwrap_or(0) + 1;
             let action = AiEditorRewriteActionRecord {
                 id: next_id,
@@ -3683,6 +3339,22 @@ impl Database {
               updated_at = excluded.updated_at
             "#,
             params![APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS, value_json, now],
+        )?;
+        Ok(())
+    }
+
+    fn persist_ai_editor_skills(&mut self, skills: &[AiEditorSkillRecord]) -> Result<()> {
+        let value_json = serde_json::to_string(skills)?;
+        let now = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(key) DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            "#,
+            params![APP_SETTING_KEY_AI_EDITOR_SKILLS, value_json, now],
         )?;
         Ok(())
     }
@@ -4070,6 +3742,7 @@ impl Database {
     }
 
     pub fn ai_profile_test(&mut self, input: AiProfileTestInput) -> Result<AiProfileTestResult> {
+        let _request_capabilities = (input.supports_image, input.supports_file, input.enabled);
         validate_ai_profile_fields(
             &input.name,
             &input.provider_family,
@@ -4149,15 +3822,30 @@ impl Database {
         mut on_stream: impl FnMut(String),
     ) -> Result<AiEditorRewriteResult> {
         self.ensure_ai_capability_enabled("editor_rewrite")?;
-        let action_id = input.action_id;
-        let prompt_override = input
-            .prompt_override
+        let result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
+        let skill_id = input
+            .skill_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let action_prompt = match (action_id, prompt_override.as_deref()) {
-            (Some(action_id), None) => {
+        let skill_name = input
+            .skill_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("AI 编辑")
+            .to_string();
+        let skill_prompt = input
+            .prompt
+            .as_deref()
+            .or(input.prompt_override.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let skill_prompt = match (skill_prompt, input.action_id) {
+            (Some(prompt), _) => prompt,
+            (None, Some(action_id)) => {
                 let actions = self.ai_editor_rewrite_actions_get()?;
                 let action = actions
                     .iter()
@@ -4168,51 +3856,43 @@ impl Database {
                 }
                 action.prompt.clone()
             }
-            (None, Some(prompt_override)) => prompt_override.to_string(),
-            (Some(_), Some(_)) => {
-                return Err(anyhow!(
-                    "AI editor rewrite requires either action_id or prompt_override, but not both"
-                ));
-            }
             (None, None) => {
-                return Err(anyhow!(
-                    "AI editor rewrite requires either action_id or prompt_override"
-                ));
+                return Err(anyhow!("AI editor skill prompt cannot be empty"));
             }
         };
 
-        let selected_text = input.selected_text.trim();
-        if selected_text.is_empty() {
+        let selected_markdown = input
+            .expanded_markdown
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| input.selected_text.trim());
+        if selected_markdown.is_empty() {
             return Err(anyhow!("selected text cannot be empty"));
         }
 
-        let expanded_markdown = input.expanded_markdown.trim();
-        if expanded_markdown.is_empty() {
-            return Err(anyhow!("expanded markdown cannot be empty"));
-        }
-
         let profile = self.resolve_profile_for_capability("editor_rewrite")?;
-        let payload = ai_provider::rewrite_selection(
+        let payload = ai_provider::run_editor_skill(
             &profile,
-            &action_prompt,
-            selected_text,
-            expanded_markdown,
+            &skill_name,
+            &skill_prompt,
+            &result_mode,
+            selected_markdown,
             &input.placeholder_tokens,
-            input.context.as_ref(),
+            input.document_context.as_deref(),
             |stream_text| on_stream(stream_text),
         )?;
-        let rewritten_markdown = normalize_ai_editor_rewrite_markdown(&payload.rewritten_markdown);
-        validate_rewrite_placeholder_tokens(&rewritten_markdown, &input.placeholder_tokens)?;
+        let content = normalize_ai_editor_rewrite_markdown(&payload.content);
+        if result_mode == "modify" {
+            validate_rewrite_placeholder_tokens(&content, &input.placeholder_tokens)?;
+        }
 
         Ok(AiEditorRewriteResult {
-            action_id,
-            rewritten_markdown,
+            skill_id,
+            result_mode,
+            content,
             resolved_model: payload.resolved_model,
         })
-    }
-
-    pub fn execute_ai_job(&mut self, input: AiJobEnqueueInput) -> Result<AiJobResult> {
-        self.execute_ai_job_with_progress(input, |_| {})
     }
 
     pub fn execute_ai_job_with_progress(
@@ -4221,18 +3901,6 @@ impl Database {
         mut on_stream: impl FnMut(String),
     ) -> Result<AiJobResult> {
         match input {
-            AiJobEnqueueInput::ArtifactRefresh { input, .. } => {
-                let artifact = self.ai_artifact_refresh(input)?;
-                Ok(AiJobResult::ArtifactRefresh { artifact })
-            }
-            AiJobEnqueueInput::AnswerQuestion { input, .. } => {
-                let answer = self.ai_answer_question(input)?;
-                Ok(AiJobResult::AnswerQuestion { answer })
-            }
-            AiJobEnqueueInput::NoteSuggestions { input, .. } => {
-                let suggestions = self.ai_generate_note_suggestions(input)?;
-                Ok(AiJobResult::NoteSuggestions { suggestions })
-            }
             AiJobEnqueueInput::ProfileTest { input, .. } => {
                 let test_result = self.ai_profile_test(input)?;
                 Ok(AiJobResult::ProfileTest { test_result })
@@ -4933,40 +4601,6 @@ impl Database {
             self.seed_demo_contract_review_project(workspace_root, &source_root, &catalog)?;
 
         let mock_ai_profile_created = self.ensure_demo_mock_ai_profile_if_needed()?;
-        if mock_ai_profile_created {
-            for project_id in [
-                project_a.project_id,
-                project_b.project_id,
-                project_c.project_id,
-            ] {
-                self.ai_artifact_refresh(AiArtifactGetInput {
-                    kind: "project_brief".to_string(),
-                    project_id: Some(project_id),
-                    activity_id: None,
-                    artifact_date: None,
-                })?;
-            }
-            for activity_id in project_a
-                .activity_ids
-                .iter()
-                .chain(project_b.activity_ids.iter())
-                .chain(project_c.activity_ids.iter())
-            {
-                let project_id = self.activity_row(*activity_id)?.project_id;
-                self.ai_artifact_refresh(AiArtifactGetInput {
-                    kind: "activity_summary".to_string(),
-                    project_id: Some(project_id),
-                    activity_id: Some(*activity_id),
-                    artifact_date: None,
-                })?;
-            }
-            self.ai_artifact_refresh(AiArtifactGetInput {
-                kind: "daily_brief".to_string(),
-                project_id: None,
-                activity_id: None,
-                artifact_date: Some(current_workspace_date()),
-            })?;
-        }
         Ok(DemoSeedResult {
             workspace_root: workspace_root.to_string_lossy().to_string(),
             project_count: self.count_table_rows("projects")?,
@@ -4975,7 +4609,6 @@ impl Database {
             conclusion_count: self.count_table_rows("conclusions")?,
             todo_count: self.count_table_rows("todos")?,
             document_count: self.count_table_rows("documents")?,
-            artifact_count: self.count_table_rows("ai_artifacts")?,
             ai_profile_mode: if mock_ai_profile_created {
                 "mock_seeded".to_string()
             } else {
@@ -5009,9 +4642,6 @@ impl Database {
         let tx = self.conn.transaction()?;
         tx.execute_batch(
             r#"
-            DELETE FROM ai_artifact_citations;
-            DELETE FROM ai_artifacts;
-            DELETE FROM ai_suggestions;
             DELETE FROM document_tag_links;
             DELETE FROM document_versions;
             DELETE FROM documents;
@@ -5971,6 +5601,12 @@ impl Database {
         &self,
         input: AiArtifactGetInput,
     ) -> Result<ResolvedArtifactRequest> {
+        if input.activity_id.is_some() {
+            return Err(anyhow!(
+                "activity artifacts are no longer supported; use project_brief or daily_brief"
+            ));
+        }
+
         let kind = input.kind.trim();
         let spec = artifact_skill_spec(kind)?;
 
@@ -6003,6 +5639,12 @@ impl Database {
         &self,
         input: AiAnswerQuestionInput,
     ) -> Result<ResolvedAskRequest> {
+        if input.activity_id.is_some() {
+            return Err(anyhow!(
+                "activity scope is no longer supported; use project scope instead"
+            ));
+        }
+
         let question = input.question.trim().to_string();
         if question.is_empty() {
             return Err(anyhow!("question is required"));
@@ -6037,7 +5679,7 @@ impl Database {
         &mut self,
         scope: &AiAnswerScope,
         project_id: Option<i64>,
-        activity_id: Option<i64>,
+        _activity_id: Option<i64>,
     ) -> Result<Vec<AskSource>> {
         match scope {
             AiAnswerScope::Activity => Err(anyhow!(
@@ -6053,7 +5695,7 @@ impl Database {
         &mut self,
         spec: &ArtifactSkillSpec,
         project_id: Option<i64>,
-        activity_id: Option<i64>,
+        _activity_id: Option<i64>,
         artifact_date: Option<String>,
     ) -> Result<ArtifactGenerationContext> {
         match spec.kind {
@@ -6065,129 +5707,6 @@ impl Database {
             }
             _ => Err(anyhow!("unsupported artifact kind")),
         }
-    }
-
-    fn build_activity_summary_context(
-        &mut self,
-        project_id: i64,
-        activity_id: i64,
-    ) -> Result<ArtifactGenerationContext> {
-        let activity = self.activity_card(activity_id)?;
-        let project = self.project_record(project_id)?;
-        let mut sources = Vec::new();
-        let mut latest = project.updated_at.clone();
-
-        push_artifact_source(
-            &mut sources,
-            &mut latest,
-            Some(project.id),
-            Some(activity.id),
-            "ACTIVITY",
-            activity.id,
-            "activity",
-            format!("Activity · {}", activity.title),
-            format!(
-                "项目：{}；时间：{}；状态：{}；属性：{}",
-                project.name,
-                activity.activity_time,
-                activity.status_label,
-                activity
-                    .attribute_label
-                    .clone()
-                    .unwrap_or_else(|| "未设置".to_string())
-            ),
-            &activity.updated_at,
-        );
-
-        for note in &activity.notes {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(note.project_id),
-                note.activity_id,
-                "NOTE",
-                note.id,
-                "note",
-                format!(
-                    "Note · {}",
-                    note.title
-                        .clone()
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| "记录".to_string())
-                ),
-                note.content_markdown.clone(),
-                &note.updated_at,
-            );
-        }
-
-        for conclusion in &activity.conclusions {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(conclusion.project_id),
-                conclusion.activity_id,
-                "CONCLUSION",
-                conclusion.id,
-                "conclusion",
-                "Conclusion".to_string(),
-                conclusion.content_markdown.clone(),
-                &conclusion.updated_at,
-            );
-        }
-
-        for todo in &activity.todos {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(todo.project_id),
-                todo.activity_id,
-                "TODO",
-                todo.id,
-                "todo",
-                "Todo".to_string(),
-                format!(
-                    "{}；优先级：{}；最近进展：{}",
-                    todo.content,
-                    todo.priority,
-                    todo.progresses
-                        .first()
-                        .map(|item| item.content.clone())
-                        .unwrap_or_else(|| "暂无进展".to_string())
-                ),
-                &todo.updated_at,
-            );
-        }
-
-        for document in &activity.documents {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(document.project_id),
-                document.activity_id,
-                "DOCUMENT",
-                document.id,
-                "document",
-                format!("Document · {}", document.name),
-                format!(
-                    "文件：{}；类型：{}；状态：{}；最近更新时间：{}",
-                    document.name, document.mime_type, document.health, document.updated_at
-                ),
-                &document.updated_at,
-            );
-        }
-
-        Ok(ArtifactGenerationContext {
-            project_id: Some(project_id),
-            activity_id: Some(activity_id),
-            artifact_date: None,
-            source_updated_at: latest,
-            context_text: render_artifact_context(
-                "Activity Summary",
-                &format!("Project: {}\nActivity: {}", project.name, activity.title),
-                &sources,
-            ),
-            sources,
-        })
     }
 
     fn build_project_brief_context(
@@ -6366,147 +5885,6 @@ impl Database {
             ),
             sources,
         })
-    }
-
-    fn build_activity_ask_sources(
-        &mut self,
-        project_id: i64,
-        activity_id: i64,
-    ) -> Result<Vec<AskSource>> {
-        let project = self.project_record(project_id)?;
-        let activity = self.activity_card(activity_id)?;
-        if activity.project_id != project_id {
-            return Err(anyhow!("activity does not belong to the selected project"));
-        }
-
-        let mut sources = Vec::new();
-        push_ask_source(
-            &mut sources,
-            Some(project.id),
-            Some(activity.id),
-            "ACTIVITY",
-            activity.id,
-            "activity",
-            format!("Activity · {}", activity.title),
-            format!(
-                "项目：{}；时间：{}；状态：{}；属性：{}",
-                project.name,
-                activity.activity_time,
-                activity.status_label,
-                activity
-                    .attribute_label
-                    .clone()
-                    .unwrap_or_else(|| "未设置".to_string())
-            ),
-            format!(
-                "Activity title: {}\nProject: {}\nTime: {}\nStatus: {}\nAttribute: {}",
-                activity.title,
-                project.name,
-                activity.activity_time,
-                activity.status_label,
-                activity
-                    .attribute_label
-                    .clone()
-                    .unwrap_or_else(|| "未设置".to_string())
-            ),
-            &activity.updated_at,
-        );
-
-        for note in &activity.notes {
-            let label = note
-                .title
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "记录".to_string());
-            push_ask_source(
-                &mut sources,
-                Some(note.project_id),
-                note.activity_id,
-                "NOTE",
-                note.id,
-                "note",
-                format!("Note · {}", label),
-                note.content_markdown.clone(),
-                truncate_text(&note.content_markdown, 2200),
-                &note.updated_at,
-            );
-        }
-
-        for conclusion in &activity.conclusions {
-            push_ask_source(
-                &mut sources,
-                Some(conclusion.project_id),
-                conclusion.activity_id,
-                "CONCLUSION",
-                conclusion.id,
-                "conclusion",
-                "Conclusion".to_string(),
-                conclusion.content_markdown.clone(),
-                conclusion.content_markdown.clone(),
-                &conclusion.updated_at,
-            );
-        }
-
-        for todo in &activity.todos {
-            let progress = todo
-                .progresses
-                .first()
-                .map(|item| item.content.clone())
-                .unwrap_or_else(|| "暂无进展".to_string());
-            let body_text = format!(
-                "Todo: {}\nPriority: {}\nStatus: {}\nLatest progress: {}",
-                todo.content, todo.priority, todo.status, progress
-            );
-            push_ask_source(
-                &mut sources,
-                Some(todo.project_id),
-                todo.activity_id,
-                "TODO",
-                todo.id,
-                "todo",
-                "Todo".to_string(),
-                format!(
-                    "{}；优先级：{}；最近进展：{}",
-                    todo.content, todo.priority, progress
-                ),
-                body_text,
-                &todo.updated_at,
-            );
-        }
-
-        for document in &activity.documents {
-            let tags = if document.tags.is_empty() {
-                "无标签".to_string()
-            } else {
-                document
-                    .tags
-                    .iter()
-                    .map(|tag| tag.label.clone())
-                    .collect::<Vec<_>>()
-                    .join("、")
-            };
-            let body_text = format!(
-                "Document: {}\nType: {}\nHealth: {}\nTags: {}\nActivity: {}",
-                document.name, document.mime_type, document.health, tags, activity.title
-            );
-            push_ask_source(
-                &mut sources,
-                Some(document.project_id),
-                document.activity_id,
-                "DOCUMENT",
-                document.id,
-                "document",
-                format!("Document · {}", document.name),
-                format!(
-                    "文件：{}；类型：{}；状态：{}；标签：{}",
-                    document.name, document.mime_type, document.health, tags
-                ),
-                body_text,
-                &document.updated_at,
-            );
-        }
-
-        Ok(sources)
     }
 
     fn build_project_ask_sources(&mut self, project_id: i64) -> Result<Vec<AskSource>> {
@@ -7107,78 +6485,12 @@ impl Database {
 
     fn upsert_ai_artifact_success(
         &mut self,
-        spec: &ArtifactSkillSpec,
-        context: ArtifactGenerationContext,
-        payload: ai_provider::ArtifactPayload,
-        timestamp: &str,
+        _spec: &ArtifactSkillSpec,
+        _context: ArtifactGenerationContext,
+        _payload: AiArtifactPayload,
+        _timestamp: &str,
     ) -> Result<AiArtifactRecord> {
-        let ai_provider::ArtifactPayload {
-            overview,
-            sections,
-            citations,
-        } = payload;
-        let structured_payload = AiArtifactPayload { overview, sections };
-        let markdown = render_artifact_markdown(&structured_payload);
-        let payload_json = serde_json::to_string(&structured_payload)?;
-        let artifact_date = context.artifact_date.clone();
-        let scope_key = ai_artifact_scope_key(
-            spec.kind,
-            context.project_id,
-            context.activity_id,
-            artifact_date.as_deref(),
-        );
-        self.conn.execute(
-            r#"
-            INSERT INTO ai_artifacts (
-              scope_key, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
-              status, markdown, json_payload, source_updated_at, generated_at, error_message,
-              created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14)
-            ON CONFLICT(scope_key) DO UPDATE SET
-              kind = excluded.kind,
-              skill_key = excluded.skill_key,
-              skill_version = excluded.skill_version,
-              project_id = excluded.project_id,
-              activity_id = excluded.activity_id,
-              artifact_date = excluded.artifact_date,
-              status = excluded.status,
-              markdown = excluded.markdown,
-              json_payload = excluded.json_payload,
-              source_updated_at = excluded.source_updated_at,
-              generated_at = excluded.generated_at,
-              error_message = NULL,
-              updated_at = excluded.updated_at
-            "#,
-            params![
-                scope_key,
-                spec.kind,
-                spec.skill_key,
-                spec.skill_version,
-                context.project_id,
-                context.activity_id,
-                artifact_date.clone(),
-                AI_ARTIFACT_STATUS_FRESH,
-                markdown,
-                payload_json,
-                context.source_updated_at,
-                timestamp,
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let artifact_id = self.conn.query_row(
-            "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
-            params![ai_artifact_scope_key(
-                spec.kind,
-                context.project_id,
-                context.activity_id,
-                artifact_date.as_deref()
-            )],
-            |row| row.get::<_, i64>(0),
-        )?;
-        self.replace_ai_artifact_citations(artifact_id, &context.sources, &citations)?;
-        self.ai_artifact_record(artifact_id)
+        Err(anyhow!("AI artifacts have been removed"))
     }
 
     fn upsert_ai_artifact_error(
@@ -7841,31 +7153,6 @@ impl Database {
         ids.into_iter().map(|id| self.note_record(id)).collect()
     }
 
-    fn fetch_project_record_groups(&self, project_id: i64) -> Result<Vec<ProjectRecordGroup>> {
-        let notes = self.fetch_project_notes(project_id)?;
-        let mut groups: BTreeMap<String, ProjectRecordGroup> = BTreeMap::new();
-
-        for note in notes {
-            let (group_key, group_title) = note
-                .tags
-                .first()
-                .map(|tag| (format!("tag-{}", tag.id), tag.label.clone()))
-                .unwrap_or_else(|| ("untagged".to_string(), "未标记记录".to_string()));
-
-            groups
-                .entry(group_key.clone())
-                .or_insert_with(|| ProjectRecordGroup {
-                    group_key,
-                    group_title,
-                    notes: Vec::new(),
-                })
-                .notes
-                .push(note);
-        }
-
-        Ok(groups.into_values().collect())
-    }
-
     fn fetch_conclusions(&self, activity_id: i64) -> Result<Vec<ConclusionRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM conclusions WHERE activity_id = ?1 ORDER BY is_pinned DESC, created_at DESC",
@@ -7912,16 +7199,6 @@ impl Database {
         Ok(current_max + 1)
     }
 
-    fn fetch_todo_ids_for_activity(&self, activity_id: i64) -> Result<Vec<i64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM todos WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(ids)
-    }
-
     fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY created_at DESC, id DESC",
@@ -7931,16 +7208,6 @@ impl Database {
                 params![activity_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
                 |row| row.get::<_, i64>(0),
             )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.document_record(id)).collect()
-    }
-
-    fn fetch_all_documents_for_activity(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM documents WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
@@ -8341,24 +7608,6 @@ impl Database {
                 },
             )
             .map_err(Into::into)
-    }
-
-    fn project_file_tag_record(&self, project_id: i64, tag_id: i64) -> Result<FileTagRecord> {
-        let belongs_to_project = self
-            .conn
-            .query_row(
-                "SELECT 1 FROM file_tag_options WHERE id = ?1 AND project_id = ?2",
-                params![tag_id, project_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-
-        if !belongs_to_project {
-            return Err(anyhow!("file tag does not belong to the active project"));
-        }
-
-        self.file_tag_record(tag_id)
     }
 
     fn scoped_file_tag_record(&self, project_id: Option<i64>, tag_id: i64) -> Result<FileTagRecord> {
@@ -9384,7 +8633,6 @@ impl Database {
         let conclusions = self.fetch_conclusions(activity_id)?;
         let todos = self.fetch_todos_for_activity(activity_id)?;
         let documents = self.fetch_documents(activity_id)?;
-        let ai_suggestions = self.fetch_ai_suggestions(Some(activity_id))?;
         let digest = ActivityDigest {
             id: base.0,
             project_id: base.1,
@@ -9433,7 +8681,6 @@ impl Database {
             conclusions,
             todos,
             documents,
-            ai_suggestions,
         })
     }
 
@@ -9539,27 +8786,15 @@ impl Database {
         Ok(())
     }
 
-    fn mark_project_artifacts_stale(&self, project_id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE project_id = ?3 AND kind = 'project_brief'",
-            params![AI_ARTIFACT_STATUS_STALE, now_iso(), project_id],
-        )?;
+    fn mark_project_artifacts_stale(&self, _project_id: i64) -> Result<()> {
         Ok(())
     }
 
-    fn mark_activity_artifacts_stale(&self, project_id: i64, activity_id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE project_id = ?3 AND activity_id = ?4 AND kind = 'activity_summary'",
-            params![AI_ARTIFACT_STATUS_STALE, now_iso(), project_id, activity_id],
-        )?;
+    fn mark_activity_artifacts_stale(&self, _project_id: i64, _activity_id: i64) -> Result<()> {
         Ok(())
     }
 
     fn mark_daily_artifacts_stale(&self) -> Result<()> {
-        self.conn.execute(
-            "UPDATE ai_artifacts SET status = ?1, updated_at = ?2 WHERE kind = 'daily_brief'",
-            params![AI_ARTIFACT_STATUS_STALE, now_iso()],
-        )?;
         Ok(())
     }
 
@@ -9869,10 +9104,6 @@ impl Database {
         self.migrate_legacy_file_tags_to_project_scope()?;
         self.migrate_activity_titles_to_project_tags()?;
         self.conn.execute("DELETE FROM conclusions", [])?;
-        self.conn.execute(
-            "DELETE FROM ai_suggestions WHERE suggestion_type = 'conclusion'",
-            [],
-        )?;
         Ok(())
     }
 
@@ -10027,6 +9258,20 @@ impl Database {
               FOREIGN KEY(workspace_note_id) REFERENCES workspace_notes(id) ON DELETE CASCADE,
               FOREIGN KEY(tag_id) REFERENCES file_tag_options(id) ON DELETE CASCADE
             );
+            "#,
+        )?;
+        Ok(())
+    }
+
+    fn migrate_ai_rewrite_only_schema(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS ai_artifact_citations;
+            DROP TABLE IF EXISTS ai_artifacts;
+            DROP TABLE IF EXISTS ai_suggestions;
+            DELETE FROM app_settings WHERE key = 'ai_feature_settings';
+            DELETE FROM ai_capability_bindings
+            WHERE capability NOT IN ('default', 'editor_rewrite');
             "#,
         )?;
         Ok(())
@@ -10220,18 +9465,6 @@ impl Database {
                 "DELETE FROM conclusions WHERE activity_id = ?1",
                 params![activity_id],
             )?;
-            self.conn.execute(
-                "DELETE FROM ai_suggestions WHERE activity_id = ?1",
-                params![activity_id],
-            )?;
-            self.conn.execute(
-                "DELETE FROM ai_artifacts WHERE activity_id = ?1 OR kind = 'activity_summary'",
-                params![activity_id],
-            )?;
-            self.conn.execute(
-                "DELETE FROM ai_artifact_citations WHERE activity_id = ?1",
-                params![activity_id],
-            )?;
         }
 
         self.conn.execute("UPDATE notes SET activity_id = NULL", [])?;
@@ -10348,18 +9581,6 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn fetch_activity_attribute_options(&self) -> Result<Vec<ActivityAttributeOption>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM activity_attribute_options ORDER BY created_at ASC, id ASC")?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter()
-            .map(|option_id| self.activity_attribute_option_record(option_id))
-            .collect()
-    }
-
     fn activity_status_option_record(&self, option_id: i64) -> Result<ActivityStatusOption> {
         self.conn
             .query_row(
@@ -10402,25 +9623,6 @@ impl Database {
             Some(option_id) => self.activity_status_option_record(option_id),
             None => self.pending_activity_status_option(),
         }
-    }
-
-    fn fetch_activity_status_options(&self) -> Result<Vec<ActivityStatusOption>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT id
-            FROM activity_status_options
-            ORDER BY
-              CASE WHEN system_key IS NOT NULL THEN 0 ELSE 1 END,
-              created_at ASC,
-              id ASC
-            "#,
-        )?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter()
-            .map(|option_id| self.activity_status_option_record(option_id))
-            .collect()
     }
 
     fn schema_version(&self) -> Result<i64> {
@@ -10878,19 +10080,6 @@ fn normalize_activity_title(value: &str, activity_id: i64) -> String {
     } else {
         normalized.to_string()
     }
-}
-
-fn build_internal_reference_subtitle(project_name: &str, activity_title: Option<&str>) -> String {
-    match activity_title.map(str::trim) {
-        Some(activity_title) if !activity_title.is_empty() => {
-            format!("{} · {}", project_name.trim(), activity_title)
-        }
-        _ => project_name.trim().to_string(),
-    }
-}
-
-fn build_activity_note_route(project_id: i64, activity_id: i64, note_id: i64) -> String {
-    format!("/projects/{project_id}/activities/{activity_id}/notes/{note_id}")
 }
 
 fn build_internal_reference_route(
@@ -11846,90 +11035,6 @@ mod tests {
             .unwrap()
     }
 
-    fn configure_summary_profile(database: &mut Database) -> AiProviderProfileRecord {
-        let profile = database
-            .ai_profile_upsert(AiProviderProfileUpsertInput {
-                id: None,
-                name: "Mock Summary".to_string(),
-                provider_family: "openai_compatible".to_string(),
-                base_url: "https://mock.local/v1".to_string(),
-                api_key: Some("test-key".to_string()),
-                default_model: "mock-model".to_string(),
-                supports_text: true,
-                supports_image: false,
-                supports_file: false,
-                enabled: true,
-            })
-            .unwrap();
-
-        database
-            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
-                capability: "summary".to_string(),
-                use_default: false,
-                profile_id: Some(profile.id),
-                model: None,
-            })
-            .unwrap();
-
-        profile
-    }
-
-    fn configure_assistant_profile(database: &mut Database) -> AiProviderProfileRecord {
-        let profile = database
-            .ai_profile_upsert(AiProviderProfileUpsertInput {
-                id: None,
-                name: "Mock Assistant".to_string(),
-                provider_family: "openai_compatible".to_string(),
-                base_url: "https://mock.local/v1".to_string(),
-                api_key: Some("test-key".to_string()),
-                default_model: "mock-model".to_string(),
-                supports_text: true,
-                supports_image: false,
-                supports_file: false,
-                enabled: true,
-            })
-            .unwrap();
-
-        database
-            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
-                capability: "assistant".to_string(),
-                use_default: false,
-                profile_id: Some(profile.id),
-                model: None,
-            })
-            .unwrap();
-
-        profile
-    }
-
-    fn configure_suggestion_profile(database: &mut Database) -> AiProviderProfileRecord {
-        let profile = database
-            .ai_profile_upsert(AiProviderProfileUpsertInput {
-                id: None,
-                name: "Mock Suggestions".to_string(),
-                provider_family: "openai_compatible".to_string(),
-                base_url: "https://mock.local/v1".to_string(),
-                api_key: Some("test-key".to_string()),
-                default_model: "mock-model".to_string(),
-                supports_text: true,
-                supports_image: false,
-                supports_file: false,
-                enabled: true,
-            })
-            .unwrap();
-
-        database
-            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
-                capability: "suggestion_generation".to_string(),
-                use_default: false,
-                profile_id: Some(profile.id),
-                model: None,
-            })
-            .unwrap();
-
-        profile
-    }
-
     fn configure_editor_rewrite_profile(database: &mut Database) -> AiProviderProfileRecord {
         let profile = database
             .ai_profile_upsert(AiProviderProfileUpsertInput {
@@ -12060,7 +11165,6 @@ mod tests {
         assert!(summary.todo_count >= 12);
         assert!(summary.document_count >= 8);
         assert_eq!(summary.ai_profile_mode, "mock_seeded");
-        assert!(summary.artifact_count >= 13);
         assert!(!legacy_root.exists());
 
         let projects = database
@@ -12111,138 +11215,116 @@ mod tests {
     }
 
     #[test]
-    fn ai_feature_settings_default_and_round_trip_persistence() {
+    fn ai_editor_skills_can_be_upserted_deleted_and_reordered() {
         let (_harness, mut database) = setup_database();
 
-        let defaults = database.ai_feature_settings_get().unwrap();
-        assert_eq!(defaults, default_ai_feature_settings());
-        assert_eq!(
-            database.ai_settings_get().unwrap().feature_settings,
-            defaults
-        );
-
-        let custom = AiFeatureSettings {
-            master_enabled: false,
-            capabilities: BTreeMap::from([
-                ("assistant".to_string(), false),
-                ("summary".to_string(), true),
-                ("suggestion_generation".to_string(), false),
-                ("editor_rewrite".to_string(), true),
-            ]),
-            features: BTreeMap::from([
-                ("summary.activity_summary".to_string(), false),
-                ("summary.project_brief".to_string(), true),
-                ("summary.daily_brief".to_string(), false),
-                ("suggestion_generation.conclusion".to_string(), true),
-                ("suggestion_generation.todo".to_string(), false),
-            ]),
-        };
-
-        let saved = database.ai_feature_settings_upsert(custom.clone()).unwrap();
-        assert_eq!(saved, custom);
-        assert_eq!(database.ai_feature_settings_get().unwrap(), custom);
-        assert_eq!(database.ai_settings_get().unwrap().feature_settings, custom);
-    }
-
-    #[test]
-    fn ai_feature_settings_parser_fills_missing_fields_and_rejects_invalid_keys() {
-        let normalized = parse_ai_feature_settings_json(
-            r#"{
-                "capabilities": { "assistant": false },
-                "features": { "suggestion_generation.todo": false }
-            }"#,
-        )
-        .unwrap();
-
-        assert!(normalized.master_enabled);
-        assert!(!normalized.capabilities["assistant"]);
-        assert!(normalized.capabilities["summary"]);
-        assert!(normalized.capabilities["suggestion_generation"]);
-        assert!(normalized.capabilities["editor_rewrite"]);
-        assert!(normalized.features["summary.activity_summary"]);
-        assert!(normalized.features["summary.project_brief"]);
-        assert!(normalized.features["summary.daily_brief"]);
-        assert!(normalized.features["suggestion_generation.conclusion"]);
-        assert!(!normalized.features["suggestion_generation.todo"]);
-
-        let top_level_error = parse_ai_feature_settings_json(
-            r#"{
-                "masterEnabled": true,
-                "capabilities": {},
-                "features": {},
-                "extra": true
-            }"#,
-        )
-        .unwrap_err();
-        assert!(top_level_error
-            .to_string()
-            .contains("AI feature settings contains unsupported key 'extra'"));
-
-        let nested_error = parse_ai_feature_settings_json(
-            r#"{
-                "masterEnabled": true,
-                "capabilities": { "assistant": true, "unexpected": false },
-                "features": {}
-            }"#,
-        )
-        .unwrap_err();
-        assert!(nested_error
-            .to_string()
-            .contains("AI feature settings capabilities contains unsupported key 'unexpected'"));
-    }
-
-    #[test]
-    fn ai_editor_rewrite_actions_can_be_upserted_and_deleted() {
-        let (_harness, mut database) = setup_database();
-
-        let action = database
-            .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
+        let skill = database
+            .ai_editor_skill_upsert(AiEditorSkillUpsertInput {
                 id: None,
-                label: "润色".to_string(),
+                name: "润色".to_string(),
+                icon: Some("📝".to_string()),
+                description: Some("润色当前选区".to_string()),
                 prompt: "请润色当前段落".to_string(),
+                result_mode: "modify".to_string(),
+                show_in_text_menu: true,
+                sort_order: Some(99),
                 enabled: true,
             })
             .unwrap();
 
-        assert_eq!(action.label, "润色");
+        assert_eq!(skill.name, "润色");
         assert_eq!(
-            database
-                .ai_settings_get()
-                .unwrap()
-                .editor_rewrite_actions
-                .len(),
-            1
+            database.ai_settings_get().unwrap().editor_skills.len(),
+            5
         );
 
         let updated = database
-            .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
-                id: Some(action.id),
-                label: "翻译".to_string(),
+            .ai_editor_skill_upsert(AiEditorSkillUpsertInput {
+                id: Some(skill.id.clone()),
+                name: "解释".to_string(),
+                icon: None,
+                description: None,
                 prompt: "请翻译成英文".to_string(),
+                result_mode: "answer".to_string(),
+                show_in_text_menu: false,
+                sort_order: Some(skill.sort_order),
                 enabled: false,
             })
             .unwrap();
 
-        assert_eq!(updated.label, "翻译");
+        assert_eq!(updated.name, "解释");
+        assert_eq!(updated.result_mode, "answer");
+        assert!(!updated.show_in_text_menu);
         assert!(!updated.enabled);
 
+        let mut skill_ids = database
+            .ai_editor_skills_get()
+            .unwrap()
+            .into_iter()
+            .map(|skill| skill.id)
+            .collect::<Vec<_>>();
+        skill_ids.reverse();
+        let reordered = database
+            .ai_editor_skill_reorder(AiEditorSkillReorderInput { skill_ids })
+            .unwrap();
+        assert_eq!(reordered.first().map(|skill| skill.sort_order), Some(1));
+
         let remaining = database
-            .ai_editor_rewrite_action_delete(AiEditorRewriteActionDeleteInput {
-                action_id: action.id,
+            .ai_editor_skill_delete(AiEditorSkillDeleteInput {
+                skill_id: skill.id,
             })
             .unwrap();
-        assert!(remaining.is_empty());
+        assert_eq!(remaining.len(), 4);
     }
 
     #[test]
-    fn ai_editor_rewrite_preserves_placeholder_tokens_and_returns_markdown() {
+    fn ai_editor_skills_migrate_legacy_rewrite_actions() {
         let (_harness, mut database) = setup_database();
-        configure_editor_rewrite_profile(&mut database);
         let action = database
             .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
                 id: None,
-                label: "润色".to_string(),
+                label: "旧动作".to_string(),
+                prompt: "请改写当前选区".to_string(),
+                enabled: true,
+            })
+            .unwrap();
+
+        let skills = database.ai_editor_skills_get().unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, format!("rewrite-action-{}", action.id));
+        assert_eq!(skills[0].result_mode, "modify");
+        assert!(skills[0].show_in_text_menu);
+    }
+
+    #[test]
+    fn ai_binding_upsert_rejects_removed_capabilities() {
+        let (_harness, mut database) = setup_database();
+        let error = database
+            .ai_binding_upsert(AiCapabilityBindingUpsertInput {
+                capability: "assistant".to_string(),
+                use_default: true,
+                profile_id: None,
+                model: None,
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("unsupported AI capability"));
+    }
+
+    #[test]
+    fn ai_editor_rewrite_runs_modify_skill() {
+        let (_harness, mut database) = setup_database();
+        configure_editor_rewrite_profile(&mut database);
+        let skill = database
+            .ai_editor_skill_upsert(AiEditorSkillUpsertInput {
+                id: None,
+                name: "润色".to_string(),
+                icon: None,
+                description: None,
                 prompt: "请润色这段文字".to_string(),
+                result_mode: "modify".to_string(),
+                show_in_text_menu: true,
+                sort_order: None,
                 enabled: true,
             })
             .unwrap();
@@ -12251,47 +11333,59 @@ mod tests {
         let result = database
             .ai_editor_rewrite(
                 AiEditorRewriteInput {
-                    action_id: Some(action.id),
+                    skill_id: Some(skill.id.clone()),
+                    skill_name: Some(skill.name.clone()),
+                    prompt: Some(skill.prompt.clone()),
+                    result_mode: "modify".to_string(),
+                    action_id: None,
                     prompt_override: None,
                     selected_text: "第一段".to_string(),
-                    expanded_markdown: "第一段\n\nPM_TOKEN_IMAGE_1\n\n第二段".to_string(),
-                    placeholder_tokens: vec!["PM_TOKEN_IMAGE_1".to_string()],
+                    expanded_markdown: None,
+                    placeholder_tokens: Vec::new(),
+                    document_context: None,
                     context: None,
                 },
                 |stream_text| streamed.push(stream_text),
             )
             .unwrap();
 
-        assert_eq!(result.action_id, Some(action.id));
-        assert!(result.rewritten_markdown.contains("PM_TOKEN_IMAGE_1"));
+        assert_eq!(result.skill_id.as_deref(), Some(skill.id.as_str()));
+        assert_eq!(result.result_mode, "modify");
+        assert!(result.content.contains("第一段"));
         assert!(!streamed.is_empty());
         assert_eq!(
             streamed.last().map(String::as_str),
-            Some(result.rewritten_markdown.as_str())
+            Some(result.content.as_str())
         );
     }
 
     #[test]
-    fn ai_editor_rewrite_accepts_prompt_override_without_preset_action() {
+    fn ai_editor_rewrite_runs_answer_prompt_override() {
         let (_harness, mut database) = setup_database();
         configure_editor_rewrite_profile(&mut database);
 
         let result = database
             .ai_editor_rewrite(
                 AiEditorRewriteInput {
+                    skill_id: None,
+                    skill_name: Some("解释".to_string()),
+                    prompt: Some("请解释这段话".to_string()),
+                    result_mode: "answer".to_string(),
                     action_id: None,
-                    prompt_override: Some("请把这段翻译成英文".to_string()),
+                    prompt_override: None,
                     selected_text: "第一段".to_string(),
-                    expanded_markdown: "第一段".to_string(),
+                    expanded_markdown: None,
                     placeholder_tokens: Vec::new(),
+                    document_context: None,
                     context: None,
                 },
                 |_| {},
             )
             .unwrap();
 
-        assert_eq!(result.action_id, None);
-        assert!(!result.rewritten_markdown.trim().is_empty());
+        assert_eq!(result.skill_id, None);
+        assert_eq!(result.result_mode, "answer");
+        assert!(result.content.contains("AI 回答"));
     }
 
     #[test]
@@ -12304,574 +11398,6 @@ mod tests {
         assert!(error
             .to_string()
             .contains("missing required placeholder token"));
-    }
-
-    #[test]
-    fn ai_artifact_refresh_generates_activity_summary_with_skill_metadata() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "确认当前目标与下一步约束",
-        );
-        create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "补充风险清单",
-            "urgent_important",
-        );
-        configure_summary_profile(&mut database);
-
-        let artifact = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "activity_summary".to_string(),
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-                artifact_date: None,
-            })
-            .unwrap();
-
-        assert_eq!(artifact.kind, "activity_summary");
-        assert_eq!(artifact.status, AI_ARTIFACT_STATUS_FRESH);
-        assert_eq!(artifact.skill_key, ACTIVITY_SUMMARY_SKILL.skill_key);
-        assert_eq!(artifact.skill_version, ACTIVITY_SUMMARY_SKILL.skill_version);
-        assert!(!artifact.markdown.trim().is_empty());
-        assert!(artifact.generated_at.is_some());
-        assert!(!artifact.citations.is_empty());
-        assert_eq!(
-            artifact.json_payload["overview"].as_str().unwrap_or(""),
-            "AI 已基于当前本地上下文整理出一版概览，方便快速判断当前状态与下一步。"
-        );
-
-        let sections = artifact
-            .json_payload
-            .get("sections")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(sections.len(), ACTIVITY_SUMMARY_SECTIONS.len());
-
-        let loaded = database
-            .ai_artifact_get(AiArtifactGetInput {
-                kind: "activity_summary".to_string(),
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-                artifact_date: None,
-            })
-            .unwrap()
-            .unwrap();
-        assert_eq!(loaded.id, artifact.id);
-    }
-
-    #[test]
-    fn ai_artifact_refresh_returns_controlled_error_when_feature_toggle_is_disabled() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "确认当前目标与下一步约束",
-        );
-        configure_summary_profile(&mut database);
-
-        let mut feature_settings = default_ai_feature_settings();
-        feature_settings
-            .features
-            .insert("summary.activity_summary".to_string(), false);
-        database
-            .ai_feature_settings_upsert(feature_settings)
-            .unwrap();
-
-        let error = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "activity_summary".to_string(),
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-                artifact_date: None,
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("AI feature 'summary.activity_summary' is disabled in workspace settings"));
-    }
-
-    #[test]
-    fn ai_artifact_stale_marking_only_hits_related_scope() {
-        let (harness, mut database) = setup_database();
-        let project_a = create_project(&mut database, &harness.workspace_root);
-        let activity_a = create_activity(&mut database, project_a.id, "Kickoff");
-        let note_a = create_note(
-            &mut database,
-            project_a.id,
-            activity_a.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "记录 A",
-        );
-
-        let project_b = database
-            .project_create(ProjectCreateInput {
-                name: "Beta".to_string(),
-                summary: Some("Second project".to_string()),
-                status: None,
-            })
-            .unwrap();
-        create_activity(&mut database, project_b.id, "Review");
-
-        configure_summary_profile(&mut database);
-
-        let activity_a_artifact = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "activity_summary".to_string(),
-                project_id: Some(project_a.id),
-                activity_id: Some(activity_a.id),
-                artifact_date: None,
-            })
-            .unwrap();
-        let project_a_artifact = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "project_brief".to_string(),
-                project_id: Some(project_a.id),
-                activity_id: None,
-                artifact_date: None,
-            })
-            .unwrap();
-        let project_b_artifact = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "project_brief".to_string(),
-                project_id: Some(project_b.id),
-                activity_id: None,
-                artifact_date: None,
-            })
-            .unwrap();
-        let daily_artifact = database
-            .ai_artifact_refresh(AiArtifactGetInput {
-                kind: "daily_brief".to_string(),
-                project_id: None,
-                activity_id: None,
-                artifact_date: Some(current_workspace_date()),
-            })
-            .unwrap();
-
-        assert_eq!(activity_a_artifact.status, AI_ARTIFACT_STATUS_FRESH);
-        assert_eq!(project_a_artifact.status, AI_ARTIFACT_STATUS_FRESH);
-        assert_eq!(project_b_artifact.status, AI_ARTIFACT_STATUS_FRESH);
-        assert_eq!(daily_artifact.status, AI_ARTIFACT_STATUS_FRESH);
-
-        database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project_a.id,
-                activity_id: Some(activity_a.id),
-                note_id: Some(note_a.id),
-                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
-                title: Some("记录".to_string()),
-                markdown: "记录 A updated".to_string(),
-                html: "<p>记录 A updated</p>".to_string(),
-                tag_ids: vec![],
-            })
-            .unwrap();
-
-        let refreshed_activity_a = database
-            .ai_artifact_get(AiArtifactGetInput {
-                kind: "activity_summary".to_string(),
-                project_id: Some(project_a.id),
-                activity_id: Some(activity_a.id),
-                artifact_date: None,
-            })
-            .unwrap()
-            .unwrap();
-        let refreshed_project_a = database
-            .ai_artifact_get(AiArtifactGetInput {
-                kind: "project_brief".to_string(),
-                project_id: Some(project_a.id),
-                activity_id: None,
-                artifact_date: None,
-            })
-            .unwrap()
-            .unwrap();
-        let refreshed_project_b = database
-            .ai_artifact_get(AiArtifactGetInput {
-                kind: "project_brief".to_string(),
-                project_id: Some(project_b.id),
-                activity_id: None,
-                artifact_date: None,
-            })
-            .unwrap()
-            .unwrap();
-        let refreshed_daily = database
-            .ai_artifact_get(AiArtifactGetInput {
-                kind: "daily_brief".to_string(),
-                project_id: None,
-                activity_id: None,
-                artifact_date: Some(current_workspace_date()),
-            })
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(refreshed_activity_a.status, AI_ARTIFACT_STATUS_STALE);
-        assert_eq!(refreshed_project_a.status, AI_ARTIFACT_STATUS_STALE);
-        assert_eq!(refreshed_project_b.status, AI_ARTIFACT_STATUS_FRESH);
-        assert_eq!(refreshed_daily.status, AI_ARTIFACT_STATUS_STALE);
-    }
-
-    #[test]
-    fn ai_answer_question_returns_controlled_error_when_assistant_is_unconfigured() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-
-        let error = database
-            .ai_answer_question(AiAnswerQuestionInput {
-                scope: AiAnswerScope::Project,
-                question: "当前重点是什么？".to_string(),
-                project_id: Some(project.id),
-                activity_id: None,
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("AI capability 'assistant' is not configured yet"));
-    }
-
-    #[test]
-    fn ai_answer_question_returns_controlled_error_when_assistant_toggle_is_disabled() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        create_activity(&mut database, project.id, "Budget Review");
-        configure_assistant_profile(&mut database);
-
-        let mut feature_settings = default_ai_feature_settings();
-        feature_settings
-            .capabilities
-            .insert("assistant".to_string(), false);
-        database
-            .ai_feature_settings_upsert(feature_settings)
-            .unwrap();
-
-        let error = database
-            .ai_answer_question(AiAnswerQuestionInput {
-                scope: AiAnswerScope::Project,
-                question: "当前重点是什么？".to_string(),
-                project_id: Some(project.id),
-                activity_id: None,
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("AI capability 'assistant' is disabled in workspace settings"));
-    }
-
-    #[test]
-    fn ai_answer_question_returns_mock_answer_with_citations() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "需要先确认预算范围，再决定是否推进合同。",
-        );
-        create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "确认预算边界",
-            "urgent_important",
-        );
-        configure_assistant_profile(&mut database);
-
-        let answer = database
-            .ai_answer_question(AiAnswerQuestionInput {
-                scope: AiAnswerScope::Activity,
-                question: "预算下一步是什么？".to_string(),
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-            })
-            .unwrap();
-
-        assert_eq!(answer.scope, AiAnswerScope::Activity);
-        assert_eq!(answer.skill_key, ASK_SKILL.skill_key);
-        assert_eq!(answer.skill_version, ASK_SKILL.skill_version);
-        assert!(!answer.answer_markdown.trim().is_empty());
-        assert!(!answer.citations.is_empty());
-        assert!(answer
-            .citations
-            .iter()
-            .all(|citation| citation.project_id == Some(project.id)));
-    }
-
-    #[test]
-    fn ai_answer_question_keeps_project_scope_isolated() {
-        let (harness, mut database) = setup_database();
-        let project_a = create_project(&mut database, &harness.workspace_root);
-        let activity_a = create_activity(&mut database, project_a.id, "Alpha Activity");
-        create_todo(
-            &mut database,
-            project_a.id,
-            Some(activity_a.id),
-            "确认预算边界",
-            "urgent_important",
-        );
-
-        let project_b = database
-            .project_create(ProjectCreateInput {
-                name: "Beta".to_string(),
-                summary: Some("Second project".to_string()),
-                status: None,
-            })
-            .unwrap();
-        let activity_b = create_activity(&mut database, project_b.id, "Beta Activity");
-        create_todo(
-            &mut database,
-            project_b.id,
-            Some(activity_b.id),
-            "法务回款阻塞",
-            "urgent_important",
-        );
-        configure_assistant_profile(&mut database);
-
-        let answer = database
-            .ai_answer_question(AiAnswerQuestionInput {
-                scope: AiAnswerScope::Project,
-                question: "预算当前卡在哪？".to_string(),
-                project_id: Some(project_a.id),
-                activity_id: None,
-            })
-            .unwrap();
-
-        assert!(!answer.citations.is_empty());
-        assert!(answer
-            .citations
-            .iter()
-            .all(|citation| citation.project_id == Some(project_a.id)));
-    }
-
-    #[test]
-    fn ai_answer_question_returns_conservative_result_when_hits_are_insufficient() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        create_activity(&mut database, project.id, "Kickoff");
-        configure_assistant_profile(&mut database);
-
-        let answer = database
-            .ai_answer_question(AiAnswerQuestionInput {
-                scope: AiAnswerScope::Workspace,
-                question: "完全不存在的超长专有词条".to_string(),
-                project_id: None,
-                activity_id: None,
-            })
-            .unwrap();
-
-        assert!(answer.answer_markdown.contains("依据"));
-        assert!(answer.citations.is_empty());
-        assert_eq!(answer.scope, AiAnswerScope::Workspace);
-    }
-
-    #[test]
-    fn ai_generate_note_suggestions_respects_enabled_output_types() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "确认当前阶段目标与约束",
-        );
-        configure_suggestion_profile(&mut database);
-
-        let mut conclusion_only = default_ai_feature_settings();
-        conclusion_only
-            .features
-            .insert("suggestion_generation.conclusion".to_string(), true);
-        conclusion_only
-            .features
-            .insert("suggestion_generation.todo".to_string(), false);
-        database
-            .ai_feature_settings_upsert(conclusion_only)
-            .unwrap();
-
-        let suggestions = database
-            .ai_generate_note_suggestions(AiGenerateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-            })
-            .unwrap();
-
-        assert!(!suggestions.is_empty());
-        assert!(suggestions
-            .iter()
-            .all(|suggestion| suggestion.suggestion_type == "conclusion"));
-
-        let mut todo_only = default_ai_feature_settings();
-        todo_only
-            .features
-            .insert("suggestion_generation.conclusion".to_string(), false);
-        todo_only
-            .features
-            .insert("suggestion_generation.todo".to_string(), true);
-        database.ai_feature_settings_upsert(todo_only).unwrap();
-
-        let suggestions = database
-            .ai_generate_note_suggestions(AiGenerateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-            })
-            .unwrap();
-
-        assert!(!suggestions.is_empty());
-        assert!(suggestions
-            .iter()
-            .all(|suggestion| suggestion.suggestion_type == "todo"));
-    }
-
-    #[test]
-    fn ai_generate_note_suggestions_returns_controlled_error_when_capability_is_disabled() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "确认当前阶段目标与约束",
-        );
-        configure_suggestion_profile(&mut database);
-
-        let mut feature_settings = default_ai_feature_settings();
-        feature_settings
-            .capabilities
-            .insert("suggestion_generation".to_string(), false);
-        database
-            .ai_feature_settings_upsert(feature_settings)
-            .unwrap();
-
-        let error = database
-            .ai_generate_note_suggestions(AiGenerateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("AI capability 'suggestion_generation' is disabled in workspace settings"));
-    }
-
-    #[test]
-    fn infer_todo_priority_distinguishes_urgency_and_importance() {
-        assert_eq!(
-            infer_todo_priority("今天确认预算审批边界，并由财务补充拆分明细"),
-            "urgent_important"
-        );
-        assert_eq!(
-            infer_todo_priority("尽快同步会议纪要"),
-            "urgent_not_important"
-        );
-        assert_eq!(
-            infer_todo_priority("准备法务评审材料"),
-            "not_urgent_important"
-        );
-        assert_eq!(
-            infer_todo_priority("整理一下记录"),
-            "not_urgent_not_important"
-        );
-    }
-
-    #[test]
-    fn ai_accept_suggestion_uses_payload_override_for_edited_content() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "确认预算范围，需要财务补充拆分明细",
-        );
-        configure_suggestion_profile(&mut database);
-
-        let suggestions = database
-            .ai_generate_note_suggestions(AiGenerateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-            })
-            .unwrap();
-
-        let conclusion = suggestions
-            .iter()
-            .find(|suggestion| suggestion.suggestion_type == "conclusion")
-            .unwrap();
-        let todo = suggestions
-            .iter()
-            .find(|suggestion| suggestion.suggestion_type == "todo")
-            .unwrap();
-
-        let accepted_conclusion = database
-            .ai_accept_suggestion(AiAcceptSuggestionInput {
-                suggestion_id: conclusion.id,
-                payload_override: Some(json!({
-                    "content": "已确认预算边界，按现方案推进",
-                    "promotedToProject": false
-                })),
-            })
-            .unwrap();
-        let accepted_todo = database
-            .ai_accept_suggestion(AiAcceptSuggestionInput {
-                suggestion_id: todo.id,
-                payload_override: Some(json!({
-                    "content": "财务今天补充预算拆分明细",
-                    "priority": "urgent_important"
-                })),
-            })
-            .unwrap();
-
-        let saved_conclusion = database
-            .conclusion_record(accepted_conclusion.entity_id)
-            .unwrap();
-        let saved_todo = database.todo_record(accepted_todo.entity_id).unwrap();
-
-        assert_eq!(
-            saved_conclusion.content_markdown,
-            "已确认预算边界，按现方案推进"
-        );
-        assert!(!saved_conclusion.promoted_to_project);
-        assert_eq!(saved_todo.content, "财务今天补充预算拆分明细");
-        assert_eq!(saved_todo.priority, "urgent_important");
-        assert_eq!(
-            accepted_todo
-                .suggestion
-                .payload
-                .get("content")
-                .and_then(Value::as_str),
-            Some("财务今天补充预算拆分明细")
-        );
-        assert_eq!(
-            accepted_todo
-                .suggestion
-                .payload
-                .get("priority")
-                .and_then(Value::as_str),
-            Some("urgent_important")
-        );
     }
 
     #[test]
@@ -12903,44 +11429,6 @@ mod tests {
         let refreshed = database.todo_record(todo.id).unwrap();
         assert_eq!(refreshed.priority, "urgent_important");
         assert_eq!(refreshed.updated_at, updated.updated_at);
-    }
-
-    #[test]
-    fn todo_update_activity_rebinds_within_project_and_can_clear_to_project_level() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity_a = create_activity(&mut database, project.id, "Budget Review");
-        let activity_b = create_activity(&mut database, project.id, "Project Retro");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity_a.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-
-        let rebound = database
-            .todo_update_activity(TodoUpdateActivityInput {
-                todo_id: todo.id,
-                activity_id: Some(activity_b.id),
-            })
-            .unwrap();
-
-        assert_eq!(rebound.activity_id, Some(activity_b.id));
-        assert_eq!(
-            rebound.source_activity_title.as_deref(),
-            Some("Project Retro")
-        );
-
-        let cleared = database
-            .todo_update_activity(TodoUpdateActivityInput {
-                todo_id: todo.id,
-                activity_id: None,
-            })
-            .unwrap();
-
-        assert_eq!(cleared.activity_id, None);
-        assert_eq!(cleared.source_activity_title, None);
     }
 
     #[test]
@@ -13594,180 +12082,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_activity_settings_migration_backfills_existing_rows() {
-        let unique = next_test_unique();
-        let root =
-            std::env::temp_dir().join(format!("project-mind-activity-settings-legacy-{unique}"));
-        let workspace_root = root.join("workspace");
-        let project_root = workspace_root.join("Alpha");
-        fs::create_dir_all(&project_root).unwrap();
-        let db_path = root.join("app.sqlite3");
-        let conn = Connection::open(&db_path).unwrap();
-
-        conn.execute_batch(
-            r#"
-            CREATE TABLE projects (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              name TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'active',
-              root_path TEXT NOT NULL,
-              file_layout_version INTEGER NOT NULL DEFAULT 2,
-              summary TEXT NOT NULL DEFAULT '',
-              is_archived INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE activities (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id INTEGER NOT NULL,
-              category TEXT NOT NULL,
-              title TEXT NOT NULL DEFAULT '',
-              activity_time TEXT NOT NULL,
-              is_pinned INTEGER NOT NULL DEFAULT 0,
-              is_expanded INTEGER NOT NULL DEFAULT 0,
-              organize_status TEXT NOT NULL DEFAULT 'needs_review',
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-            "#,
-        )
-        .unwrap();
-        conn.execute(
-            r#"
-            INSERT INTO projects (id, name, status, root_path, file_layout_version, summary, is_archived, created_at, updated_at)
-            VALUES (?1, ?2, 'active', ?3, 2, '', 0, ?4, ?5)
-            "#,
-            params![
-                1,
-                "Alpha",
-                project_root.to_string_lossy().to_string(),
-                "2026-04-06T08:00:00.000Z",
-                "2026-04-06T08:00:00.000Z",
-            ],
-        )
-        .unwrap();
-        conn.execute(
-            r#"
-            INSERT INTO activities (
-              project_id, category, title, activity_time, is_pinned, is_expanded, organize_status, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, 0, 1, 'organized', ?5, ?6)
-            "#,
-            params![
-                1,
-                "legal",
-                "法务确认",
-                "2026-04-06T10:00:00.000Z",
-                "2026-04-06T10:00:00.000Z",
-                "2026-04-06T10:00:00.000Z",
-            ],
-        )
-        .unwrap();
-        drop(conn);
-
-        let mut database =
-            Database::open(&db_path, &workspace_root, Some("test-secret".to_string())).unwrap();
-        let settings = database.activity_settings_get().unwrap();
-        let activities = database
-            .activity_list(ProjectIdInput { project_id: 1 })
-            .unwrap();
-
-        assert!(settings
-            .activity_attribute_options
-            .iter()
-            .any(|option| option.label == "LEGAL"));
-        assert!(settings
-            .activity_attribute_options
-            .iter()
-            .any(|option| option.label == "LEGAL"
-                && option.color_key == DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY));
-        assert!(settings
-            .activity_status_options
-            .iter()
-            .any(|option| option.label == "待启动" && option.is_system));
-        assert_eq!(activities[0].attribute_label.as_deref(), Some("LEGAL"));
-        assert_eq!(
-            activities[0].attribute_color_key.as_deref(),
-            Some(DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY)
-        );
-        assert_eq!(activities[0].status_label, "已整理");
-        assert_eq!(
-            activities[0].status_color_key,
-            LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY
-        );
-        assert!(!activities[0].status_needs_attention);
-
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn deleting_activity_options_updates_existing_activities() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let attribute = database
-            .activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
-                id: None,
-                label: "LEGAL".to_string(),
-                color_key: "blue".to_string(),
-            })
-            .unwrap();
-        let status = database
-            .activity_status_option_upsert(ActivityStatusOptionUpsertInput {
-                id: None,
-                label: "待外部反馈".to_string(),
-                color_key: "orange".to_string(),
-            })
-            .unwrap();
-
-        let activity = database
-            .activity_create(ActivityCreateInput {
-                project_id: project.id,
-                attribute_option_id: Some(attribute.id),
-                title: Some("合同同步".to_string()),
-                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
-            })
-            .unwrap();
-
-        database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
-                title: None,
-                brief_markdown: None,
-                brief_html: None,
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: Some(status.id),
-            })
-            .unwrap();
-
-        database
-            .activity_attribute_option_delete(ActivityOptionDeleteInput {
-                option_id: attribute.id,
-            })
-            .unwrap();
-        database
-            .activity_status_option_delete(ActivityOptionDeleteInput {
-                option_id: status.id,
-            })
-            .unwrap();
-
-        let refreshed = database.activity_card(activity.id).unwrap();
-        assert_eq!(refreshed.attribute_option_id, None);
-        assert_eq!(refreshed.attribute_label, None);
-        assert_eq!(refreshed.attribute_color_key, None);
-        assert_eq!(refreshed.status_label, "待启动");
-        assert_eq!(
-            refreshed.status_color_key,
-            DEFAULT_ACTIVITY_STATUS_COLOR_KEY
-        );
-        assert!(refreshed.status_needs_attention);
-    }
-
-    #[test]
     fn activity_update_meta_persists_brief_and_preserves_it_on_title_changes() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -13853,164 +12167,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.title, format!("未命名 Activity {}", activity.id));
-    }
-
-    #[test]
-    fn activity_delete_removes_related_notes_conclusions_todos_and_documents() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "范围确认记录",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "已确认第一阶段交付范围".to_string(),
-                html: "<p>已确认第一阶段交付范围</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "同步第一阶段排期",
-            "not_urgent_important",
-        );
-
-        let activity_source = harness.root.join("kickoff-brief.pdf");
-        fs::write(&activity_source, b"brief").unwrap();
-        let activity_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: activity_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let root_source = harness.root.join("root-overview.pdf");
-        fs::write(&root_source, b"root").unwrap();
-        let root_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: None,
-                source_path: root_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let note_image = database
-            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                file_name: "kickoff-inline.png".to_string(),
-                mime_type: "image/png".to_string(),
-                data_base64: STANDARD.encode("inline-image"),
-            })
-            .unwrap();
-
-        let activity_dir = PathBuf::from(&activity_document.managed_path)
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let note_asset_dir = PathBuf::from(&note_image.managed_path)
-            .parent()
-            .unwrap()
-            .to_path_buf();
-
-        let deleted = database
-            .activity_delete(ActivityDeleteInput {
-                activity_id: Some(activity.id),
-            })
-            .unwrap();
-
-        assert_eq!(deleted.id, activity.id);
-        assert_eq!(deleted.project_id, project.id);
-        assert!(database.activity_card(activity.id).is_err());
-        assert!(database.note_record(note.id).is_err());
-        assert!(database.conclusion_record(conclusion.id).is_err());
-        assert!(database.todo_record(todo.id).is_err());
-        assert!(database.document_record(activity_document.id).is_err());
-        assert!(database.document_record(note_image.id).is_err());
-        assert!(database.document_record(root_document.id).is_ok());
-        assert!(!Path::new(&activity_document.managed_path).exists());
-        assert!(!activity_dir.exists());
-        assert!(!note_asset_dir.exists());
-        assert_eq!(
-            database
-                .activity_list(ProjectIdInput {
-                    project_id: project.id
-                })
-                .unwrap()
-                .len(),
-            0
-        );
-        assert_eq!(
-            database
-                .fetch_documents_for_project(project.id, false)
-                .unwrap()
-                .into_iter()
-                .map(|document| document.id)
-                .collect::<Vec<_>>(),
-            vec![root_document.id]
-        );
-    }
-
-    #[test]
-    fn system_activity_status_can_be_edited_and_remains_non_deletable() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let pending_status = database
-            .activity_settings_get()
-            .unwrap()
-            .activity_status_options
-            .into_iter()
-            .find(|option| option.is_system)
-            .unwrap();
-
-        let updated = database
-            .activity_status_option_upsert(ActivityStatusOptionUpsertInput {
-                id: Some(pending_status.id),
-                label: "待排期".to_string(),
-                color_key: "green".to_string(),
-            })
-            .unwrap();
-
-        assert!(updated.is_system);
-        assert_eq!(updated.label, "待排期");
-        assert_eq!(updated.color_key, "green");
-        assert!(!updated.needs_attention);
-
-        let activity = database
-            .activity_create(ActivityCreateInput {
-                project_id: project.id,
-                attribute_option_id: None,
-                title: Some("合同同步".to_string()),
-                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
-            })
-            .unwrap();
-        let refreshed = database.activity_card(activity.id).unwrap();
-
-        assert_eq!(refreshed.status_label, "待排期");
-        assert_eq!(refreshed.status_color_key, "green");
-        assert!(!refreshed.status_needs_attention);
-        assert!(database
-            .activity_status_option_delete(ActivityOptionDeleteInput {
-                option_id: pending_status.id,
-            })
-            .is_err());
     }
 
     #[test]
@@ -14205,7 +12361,6 @@ mod tests {
 
         assert_eq!(ai_settings.profiles.len(), 1);
         assert_eq!(ai_settings.profiles[0].name, "Legacy AI");
-        assert_eq!(ai_settings.feature_settings, default_ai_feature_settings());
         assert_eq!(rich_text.headings.h2_size_px, 20);
 
         fs::remove_dir_all(root).unwrap();
@@ -14868,7 +13023,7 @@ mod tests {
     }
 
     #[test]
-    fn internal_reference_resolve_returns_current_routes_after_todo_and_document_moves() {
+    fn internal_reference_resolve_returns_current_routes_after_document_moves() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
         let activity = create_activity(&mut database, project.id, "Kickoff");
@@ -14891,13 +13046,6 @@ mod tests {
                 is_pinned: None,
             })
             .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "推进预算审批",
-            "not_urgent_important",
-        );
         let document_source = harness.root.join("delivery-brief.pdf");
         fs::write(&document_source, b"brief").unwrap();
         let document = database
@@ -14910,12 +13058,6 @@ mod tests {
             })
             .unwrap();
 
-        database
-            .todo_update_activity(TodoUpdateActivityInput {
-                todo_id: todo.id,
-                activity_id: Some(next_activity.id),
-            })
-            .unwrap();
         database
             .document_update_meta(DocumentUpdateMetaInput {
                 document_id: document.id,
@@ -14940,13 +13082,6 @@ mod tests {
             })
             .unwrap()
             .unwrap();
-        let resolved_todo = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "todo".to_string(),
-                id: todo.id,
-            })
-            .unwrap()
-            .unwrap();
         let resolved_document = database
             .internal_reference_resolve(InternalReferenceResolveInput {
                 kind: "document".to_string(),
@@ -14967,13 +13102,6 @@ mod tests {
             format!(
                 "/projects/{}/activities/{}?focus=conclusion-{}",
                 project.id, activity.id, conclusion.id
-            )
-        );
-        assert_eq!(
-            resolved_todo.route,
-            format!(
-                "/projects/{}/activities/{}?focus=todo-{}",
-                project.id, next_activity.id, todo.id
             )
         );
         assert_eq!(
@@ -16720,25 +14848,6 @@ fn validate_activity_option_label(value: &str) -> Result<String> {
     Ok(normalized.to_string())
 }
 
-fn validate_record_type_label(value: &str) -> Result<String> {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return Err(anyhow!("record type label cannot be empty"));
-    }
-    if normalized.chars().count() > 32 {
-        return Err(anyhow!("record type label must be 32 characters or fewer"));
-    }
-    Ok(normalized.to_string())
-}
-
-fn validate_record_type_key(value: &str) -> Result<String> {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return Err(anyhow!("record type key cannot be empty"));
-    }
-    Ok(normalized.to_string())
-}
-
 fn validate_file_tag_label(value: &str) -> Result<String> {
     let normalized = value.trim();
     if normalized.is_empty() {
@@ -16818,15 +14927,6 @@ fn validate_activity_status_color_key(value: &str) -> Result<String> {
         return Err(anyhow!("activity status color is not supported"));
     }
     Ok(normalized.to_string())
-}
-
-fn normalize_record_type_template_html(value: &str) -> String {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        "<p></p>".to_string()
-    } else {
-        normalized.to_string()
-    }
 }
 
 fn normalize_file_tag_ids(tag_ids: &[i64]) -> Vec<i64> {
@@ -16925,6 +15025,149 @@ fn validate_ai_editor_rewrite_action_fields(label: &str, prompt: &str) -> Result
         ));
     }
 
+    Ok(())
+}
+
+fn default_ai_editor_skills() -> Vec<AiEditorSkillRecord> {
+    let now = now_iso();
+    vec![
+        AiEditorSkillRecord {
+            id: "improve-writing".to_string(),
+            name: "改进写作".to_string(),
+            icon: Some("📝".to_string()),
+            description: Some("优化表达，使文字更清晰、自然、专业。".to_string()),
+            prompt: "请优化这段文字的表达，使其更清晰、自然、专业。".to_string(),
+            result_mode: "modify".to_string(),
+            show_in_text_menu: true,
+            sort_order: 1,
+            enabled: true,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+        AiEditorSkillRecord {
+            id: "proofread".to_string(),
+            name: "校对".to_string(),
+            icon: Some("✅".to_string()),
+            description: Some("检查错别字、语法、标点和表达问题。".to_string()),
+            prompt: "请检查这段文字中的错别字、语法、标点和表达问题，并直接返回修正后的版本。".to_string(),
+            result_mode: "modify".to_string(),
+            show_in_text_menu: true,
+            sort_order: 2,
+            enabled: true,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+        AiEditorSkillRecord {
+            id: "explain".to_string(),
+            name: "解释".to_string(),
+            icon: Some("💬".to_string()),
+            description: Some("解释选中文字的含义。".to_string()),
+            prompt: "请解释这段文字的含义，并用更容易理解的方式说明。".to_string(),
+            result_mode: "answer".to_string(),
+            show_in_text_menu: true,
+            sort_order: 3,
+            enabled: true,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        },
+        AiEditorSkillRecord {
+            id: "reformat".to_string(),
+            name: "重排格式".to_string(),
+            icon: Some("✨".to_string()),
+            description: Some("整理文字格式，使结构更清晰。".to_string()),
+            prompt: "请重新整理这段文字的格式，使结构更清晰，但不要改变原意。".to_string(),
+            result_mode: "modify".to_string(),
+            show_in_text_menu: true,
+            sort_order: 4,
+            enabled: true,
+            created_at: now.clone(),
+            updated_at: now,
+        },
+    ]
+}
+
+fn next_ai_editor_skill_id(skills: &[AiEditorSkillRecord]) -> String {
+    let mut index = skills.len() + 1;
+    loop {
+        let id = format!("custom-skill-{index}");
+        if !skills.iter().any(|skill| skill.id == id) {
+            return id;
+        }
+        index += 1;
+    }
+}
+
+fn normalize_ai_editor_skill_sort_orders(skills: &mut [AiEditorSkillRecord]) {
+    skills.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then_with(|| left.created_at.cmp(&right.created_at))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    for (index, skill) in skills.iter_mut().enumerate() {
+        skill.sort_order = index as i64 + 1;
+    }
+}
+
+fn normalize_ai_editor_skill_result_mode(value: &str) -> Result<String> {
+    match value.trim() {
+        "modify" => Ok("modify".to_string()),
+        "answer" => Ok("answer".to_string()),
+        _ => Err(anyhow!("AI editor skill result mode must be modify or answer")),
+    }
+}
+
+fn validate_ai_editor_skill(skill: &AiEditorSkillRecord) -> Result<()> {
+    if skill.id.trim().is_empty() {
+        return Err(anyhow!("AI editor skill id cannot be empty"));
+    }
+    validate_ai_editor_skill_fields(
+        &skill.name,
+        skill.icon.as_deref(),
+        skill.description.as_deref(),
+        &skill.prompt,
+        &skill.result_mode,
+    )
+}
+
+fn validate_ai_editor_skill_fields(
+    name: &str,
+    icon: Option<&str>,
+    description: Option<&str>,
+    prompt: &str,
+    result_mode: &str,
+) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(anyhow!("AI editor skill name cannot be empty"));
+    }
+    if name.chars().count() > 32 {
+        return Err(anyhow!("AI editor skill name must be 32 characters or fewer"));
+    }
+    if icon
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some_and(|value| value.chars().count() > 8)
+    {
+        return Err(anyhow!("AI editor skill icon must be 8 characters or fewer"));
+    }
+    if description
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some_and(|value| value.chars().count() > 200)
+    {
+        return Err(anyhow!("AI editor skill description must be 200 characters or fewer"));
+    }
+
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        return Err(anyhow!("AI editor skill prompt cannot be empty"));
+    }
+    if prompt.chars().count() > 4_000 {
+        return Err(anyhow!("AI editor skill prompt must be 4000 characters or fewer"));
+    }
+    normalize_ai_editor_skill_result_mode(result_mode)?;
     Ok(())
 }
 

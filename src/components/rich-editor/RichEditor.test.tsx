@@ -241,6 +241,28 @@ function getLatestHtml(onChange: ReturnType<typeof vi.fn>) {
   return onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]?.html as string | undefined;
 }
 
+function buildDocumentRecord(overrides: Partial<Awaited<ReturnType<typeof projectMindApi.documentUpdateMeta>>> = {}) {
+  return {
+    id: 42,
+    projectId: 7,
+    name: "brief.pdf",
+    baseName: "brief.pdf",
+    originalPath: "/tmp/source/brief.pdf",
+    managedPath: "/tmp/project/brief.pdf",
+    historyDirPath: "/tmp/project/.history/42",
+    storageMode: "copied",
+    mimeType: "application/pdf",
+    isStarred: false,
+    currentVersionNumber: 1,
+    versionCount: 1,
+    health: "normal" as const,
+    tags: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 async function getEditorSurface(container: HTMLElement) {
   return waitFor(() => {
     const nextSurface = container.querySelector(".rich-editor__surface");
@@ -296,6 +318,27 @@ function clearBrowserSelection() {
   selection?.removeAllRanges();
   document.dispatchEvent(new Event("selectionchange"));
 }
+
+describe("RichEditor links", () => {
+  it("keeps hyperlinks in editor content and applies the rich editor link class", async () => {
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml='<p>参考 <a href="https://example.com">Example</a></p>'
+      />,
+    );
+
+    const link = await waitFor(() => {
+      const nextLink = container.querySelector<HTMLAnchorElement>("a[href='https://example.com']");
+
+      expect(nextLink).toBeTruthy();
+      return nextLink;
+    });
+
+    expect(link).toHaveClass("rich-editor__link");
+    expect(link.textContent).toBe("Example");
+  });
+});
 
 describe("RichEditor tables", () => {
   it("inserts a selected table size and reveals the table toolbar", async () => {
@@ -361,7 +404,7 @@ describe("RichEditor tables", () => {
     fireEvent.focus(surface);
     fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.click(within(menu).getByRole("menuitem", { name: "插入表格" }));
+    await user.click(within(menu).getByRole("button", { name: "表格" }));
 
     await waitFor(() => {
       expect(container.querySelectorAll("table tr")).toHaveLength(3);
@@ -1475,13 +1518,29 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    const labels = within(menu)
-      .getAllByRole("menuitem")
-      .map((item) => item.textContent ?? "");
-
-    expect(labels).toEqual(["正文", "插入表格", "剪贴板"]);
-    expect(within(menu).queryAllByRole("separator")).toHaveLength(2);
-    expect(within(menu).getByRole("group", { name: "文本格式" })).toBeInTheDocument();
+    expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: "剪切" })).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: "复制" })).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: "粘贴" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "普通文本" })).toBeInTheDocument();
+    const inlineFormatGroup = within(menu).getByRole("group", { name: "行内文本格式" });
+    expect(within(inlineFormatGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "着重",
+      "加粗",
+      "斜体",
+      "删除线",
+      "代码",
+    ]);
+    within(inlineFormatGroup).getAllByRole("button").forEach((button) => {
+      expect(button).toHaveTextContent("");
+    });
+    expect(within(menu).getByRole("group", { name: "常用块样式" })).toBeInTheDocument();
+    expect(within(menu).getByText("技能")).toBeInTheDocument();
+    const aiSkillGroup = within(menu).getByRole("group", { name: "AI 技能列表" });
+    expect(aiSkillGroup).toHaveStyle({ maxHeight: "84px" });
+    expect(within(aiSkillGroup).getByRole("menuitem", { name: "暂无启用技能" })).toBeDisabled();
+    expect(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ })).toBeInTheDocument();
+    expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();
 
     await user.click(within(menu).getByRole("button", { name: "加粗" }));
 
@@ -1503,11 +1562,215 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(paragraph, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    expect(within(menu).getByRole("menuitem", { name: "正文" })).toBeInTheDocument();
-    expect(within(menu).getByRole("group", { name: "文本格式" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "剪贴板" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "普通文本" })).toBeInTheDocument();
+    expect(within(menu).getByRole("group", { name: "行内文本格式" })).toBeInTheDocument();
+    const blockShortcutGroup = within(menu).getByRole("group", { name: "常用块样式" });
+    expect(within(blockShortcutGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "标题 1",
+      "标题 2",
+      "标题 3",
+      "引用",
+      "待办",
+    ]);
+    expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
+    const insertBlockGroup = within(menu).getByRole("group", { name: "新增区块" });
+    ["引用", "表格", "图片", "文件", "代码块", "待办", "分隔线", "更多"].forEach((label) => {
+      expect(within(insertBlockGroup).getByRole("button", { name: label })).toBeInTheDocument();
+    });
+    expect(within(insertBlockGroup).getByRole("button", { name: "表格" })).toBeEnabled();
+    expect(within(insertBlockGroup).getByRole("button", { name: "文件" })).toBeDisabled();
+    expect(within(insertBlockGroup).queryByRole("button", { name: "待办事项" })).not.toBeInTheDocument();
+    expect(within(insertBlockGroup).queryByRole("button", { name: "更多区块" })).not.toBeInTheDocument();
+    expect(within(insertBlockGroup).queryByRole("button", { name: "页面" })).not.toBeInTheDocument();
+    expect(within(menu).queryByText("技能")).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /使用 AI 编辑/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "图片操作" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "表格操作" })).not.toBeInTheDocument();
+  });
+
+  it("enables file insertion from the context menu when project file handlers are available", async () => {
+    const user = userEvent.setup();
+    const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockResolvedValue("/tmp/source/brief.pdf");
+    const onChange = vi.fn();
+    const insertFile = vi.fn(async () => ({
+      kind: "file" as const,
+      title: "brief.pdf",
+      path: "/tmp/project/brief.pdf",
+      href: "file:///tmp/project/brief.pdf",
+      mimeType: "application/pdf",
+      documentId: 42,
+      meta: "application/pdf",
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        onChange={onChange}
+        assetHandlers={{ insertFile }}
+      />,
+    );
+
+    const paragraph = await waitFor(() => {
+      const nextParagraph = container.querySelector(".ProseMirror p");
+
+      expect(nextParagraph).toBeTruthy();
+      return nextParagraph as HTMLParagraphElement;
+    });
+
+    fireEvent.contextMenu(paragraph, { clientX: 20, clientY: 20 });
+
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    const fileButton = within(within(menu).getByRole("group", { name: "新增区块" })).getByRole("button", {
+      name: "文件",
+    });
+    expect(fileButton).toBeEnabled();
+
+    await user.click(fileButton);
+
+    await waitFor(() => {
+      expect(insertFile).toHaveBeenCalledWith("/tmp/source/brief.pdf");
+      expect(container.querySelector('[data-type="attachment"]')).toBeTruthy();
+      expect(getLatestHtml(onChange)).toContain("brief.pdf");
+    });
+
+    pickFileSpy.mockRestore();
+  });
+
+  it("opens attachment references with a single click", async () => {
+    const user = userEvent.setup();
+    const openFileSpy = vi.spyOn(desktopApi, "openFile").mockResolvedValue(undefined);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<div data-type="attachment" data-title="brief.pdf" data-path="/tmp/project/brief.pdf" data-document-id="42" data-meta="application/pdf"><a class="rich-editor__attachment-link" href="file:///tmp/project/brief.pdf">brief.pdf</a></div>'
+        }
+      />,
+    );
+
+    const attachmentLink = await waitFor(() => {
+      const nextLink = container.querySelector<HTMLAnchorElement>(".rich-editor__attachment-link");
+
+      expect(nextLink).toBeTruthy();
+      return nextLink as HTMLAnchorElement;
+    });
+
+    await user.click(attachmentLink);
+
+    await waitFor(() => {
+      expect(openFileSpy).toHaveBeenCalledWith("/tmp/project/brief.pdf");
+    });
+
+    openFileSpy.mockRestore();
+  });
+
+  it("opens legacy attachment file hrefs with a single click", async () => {
+    const user = userEvent.setup();
+    const openFileSpy = vi.spyOn(desktopApi, "openFile").mockResolvedValue(undefined);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<div data-type="attachment" data-title="brief.pdf" data-href="file:///tmp/project/brief.pdf" data-document-id="42" data-meta="application/pdf"><a class="rich-editor__attachment-link" href="file:///tmp/project/brief.pdf">brief.pdf</a></div>'
+        }
+      />,
+    );
+
+    const attachmentLink = await waitFor(() => {
+      const nextLink = container.querySelector<HTMLAnchorElement>(".rich-editor__attachment-link");
+
+      expect(nextLink).toBeTruthy();
+      return nextLink as HTMLAnchorElement;
+    });
+
+    await user.click(attachmentLink);
+
+    await waitFor(() => {
+      expect(openFileSpy).toHaveBeenCalledWith("/tmp/project/brief.pdf");
+    });
+
+    openFileSpy.mockRestore();
+  });
+
+  it("shows attachment context actions for reveal, rename, and star", async () => {
+    const user = userEvent.setup();
+    const revealSpy = vi.spyOn(desktopApi, "revealPath").mockResolvedValue(undefined);
+    const updateMetaSpy = vi
+      .spyOn(projectMindApi, "documentUpdateMeta")
+      .mockResolvedValueOnce(buildDocumentRecord({
+        name: "renamed.pdf",
+        baseName: "renamed.pdf",
+        managedPath: "/tmp/project/renamed.pdf",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      }))
+      .mockResolvedValueOnce(buildDocumentRecord({
+        name: "renamed.pdf",
+        baseName: "renamed.pdf",
+        managedPath: "/tmp/project/renamed.pdf",
+        isStarred: true,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      }));
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("renamed.pdf");
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<div data-type="attachment" data-title="brief.pdf" data-path="/tmp/project/brief.pdf" data-document-id="42" data-meta="application/pdf"><a class="rich-editor__attachment-link" href="file:///tmp/project/brief.pdf">brief.pdf</a></div>'
+        }
+      />,
+    );
+
+    const attachment = await waitFor(() => {
+      const nextAttachment = container.querySelector<HTMLElement>('[data-type="attachment"]');
+
+      expect(nextAttachment).toBeTruthy();
+      return nextAttachment as HTMLElement;
+    });
+    const attachmentTitle = attachment.querySelector<HTMLElement>(".rich-editor__attachment-title");
+    expect(attachmentTitle).toBeTruthy();
+
+    fireEvent.contextMenu(attachmentTitle as HTMLElement, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文件操作" });
+    expect(within(menu).getByRole("menuitem", { name: "打开文件" })).toBeEnabled();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "打开文件所在位置" }));
+    expect(revealSpy).toHaveBeenCalledWith("/tmp/project/brief.pdf");
+
+    fireEvent.contextMenu(attachment, { clientX: 20, clientY: 20 });
+    const renameMenu = await screen.findByRole("menu", { name: "文件操作" });
+    await user.click(within(renameMenu).getByRole("menuitem", { name: "重命名" }));
+
+    await waitFor(() => {
+      expect(updateMetaSpy).toHaveBeenCalledWith({
+        documentId: 42,
+        baseName: "renamed.pdf",
+      });
+      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute(
+        "data-title",
+        "renamed.pdf",
+      );
+    });
+
+    const renamedAttachment = container.querySelector<HTMLElement>('[data-type="attachment"]');
+    expect(renamedAttachment).toBeTruthy();
+    fireEvent.contextMenu(renamedAttachment as HTMLElement, { clientX: 20, clientY: 20 });
+    const starMenu = await screen.findByRole("menu", { name: "文件操作" });
+    await user.click(within(starMenu).getByRole("menuitem", { name: "标星" }));
+
+    await waitFor(() => {
+      expect(updateMetaSpy).toHaveBeenLastCalledWith({
+        documentId: 42,
+        isStarred: true,
+      });
+      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute(
+        "data-is-starred",
+        "true",
+      );
+    });
+
+    revealSpy.mockRestore();
+    updateMetaSpy.mockRestore();
+    promptSpy.mockRestore();
   });
 
   it("shows the active block selection in the featured submenu", async () => {
@@ -1523,13 +1786,17 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(heading, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    const featured = within(menu).getByRole("menuitem", { name: "H2" });
+    const featured = within(menu).getByRole("menuitem", { name: "标题 2" });
     expect(featured.dataset.featured).toBe("true");
 
     await user.hover(featured);
-    const submenu = await screen.findByRole("menu", { name: "H2 子菜单" });
-    const selectedItem = within(submenu).getByRole("menuitem", { name: "H2" });
+    const submenu = await screen.findByRole("menu", { name: "标题 2 子菜单" });
+    const selectedItem = within(submenu).getByRole("menuitem", { name: "标题 2" });
     expect(selectedItem.dataset.selected).toBe("true");
+    expect(within(submenu).getByRole("menuitem", { name: "文本" })).toBeInTheDocument();
+    expect(within(submenu).getByRole("menuitem", { name: "代码" })).toBeInTheDocument();
+    expect(within(submenu).queryByRole("menuitem", { name: "标题 4" })).not.toBeInTheDocument();
+    expect(within(submenu).queryByRole("menuitem", { name: "公式块" })).not.toBeInTheDocument();
   });
 
   it("keeps selection actions ahead of the standard text menu", async () => {
@@ -1559,11 +1826,10 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "选区操作" });
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? "")).toEqual([
-      "追加到项目默认笔记",
-      "正文",
-      "剪贴板",
-    ]);
+    const menuItems = within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? "");
+    expect(menuItems.slice(0, 2)).toEqual(["追加到项目默认笔记", "普通文本"]);
+    expect(within(menu).getByText("技能")).toBeInTheDocument();
+    expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();
   });
 
   it("restores the remembered text selection when the browser clears it before right click", async () => {
@@ -1578,27 +1844,16 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
-          featureSettings: {
-            masterEnabled: true,
-            capabilities: {
-              assistant: true,
-              summary: true,
-              suggestion_generation: true,
-              editor_rewrite: true,
-            },
-            features: {
-              "summary.activity_summary": true,
-              "summary.project_brief": true,
-              "summary.daily_brief": true,
-              "suggestion_generation.conclusion": true,
-              "suggestion_generation.todo": true,
-            },
-          },
-          editorRewriteActions: [
+          editorSkills: [
             {
-              id: 1,
-              label: "润色",
+              id: "polish",
+              name: "润色",
+              icon: null,
+              description: null,
               prompt: "请润色",
+              resultMode: "modify",
+              showInTextMenu: true,
+              sortOrder: 1,
               enabled: true,
               createdAt: "",
               updatedAt: "",
@@ -1622,12 +1877,18 @@ describe("RichEditor context menus", () => {
       clientY: 20,
     });
 
-    const menu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    expect(within(menu).getByRole("button", { name: "润色" })).toBeInTheDocument();
-    expect(within(menu).getByPlaceholderText("使用 AI 编辑")).toBeInTheDocument();
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    expect(within(menu).getByText("技能")).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "润色" })).toBeEnabled();
+    expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+    const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
+    expect(within(aiMenu).getByRole("button", { name: "润色" })).toBeInTheDocument();
+    expect(within(aiMenu).getByPlaceholderText("使用 AI 编辑")).toBeInTheDocument();
   });
 
-  it("shows configured AI rewrite actions in the dedicated AI menu even before the capability is ready", async () => {
+  it("shows configured AI skills in the dedicated AI menu even before the capability is ready", async () => {
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -1639,27 +1900,16 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: false,
           execution: { maxConcurrency: 1 },
-          featureSettings: {
-            masterEnabled: true,
-            capabilities: {
-              assistant: true,
-              summary: true,
-              suggestion_generation: true,
-              editor_rewrite: true,
-            },
-            features: {
-              "summary.activity_summary": true,
-              "summary.project_brief": true,
-              "summary.daily_brief": true,
-              "suggestion_generation.conclusion": true,
-              "suggestion_generation.todo": true,
-            },
-          },
-          editorRewriteActions: [
+          editorSkills: [
             {
-              id: 2,
-              label: "翻译",
+              id: "translate",
+              name: "翻译",
+              icon: null,
+              description: null,
               prompt: "请翻译成英文",
+              resultMode: "modify",
+              showInTextMenu: true,
+              sortOrder: 1,
               enabled: true,
               createdAt: "",
               updatedAt: "",
@@ -1682,10 +1932,14 @@ describe("RichEditor context menus", () => {
       clientY: 20,
     });
 
-    const menu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    expect(within(menu).getByRole("button", { name: "翻译" })).toBeDisabled();
-    expect(within(menu).getByPlaceholderText("使用 AI 编辑")).toBeDisabled();
-    expect(within(menu).getByText("需先解锁 AI 配置")).toBeInTheDocument();
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    expect(within(menu).getByRole("menuitem", { name: "翻译" })).toBeDisabled();
+
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+    const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
+    expect(within(aiMenu).getByRole("button", { name: "翻译" })).toBeDisabled();
+    expect(within(aiMenu).getByPlaceholderText("使用 AI 编辑")).toBeDisabled();
+    expect(within(aiMenu).getByText("需先解锁 AI 配置")).toBeInTheDocument();
   });
 
   it("submits prompt overrides from the AI menu with Enter", async () => {
@@ -1716,23 +1970,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
-          featureSettings: {
-            masterEnabled: true,
-            capabilities: {
-              assistant: true,
-              summary: true,
-              suggestion_generation: true,
-              editor_rewrite: true,
-            },
-            features: {
-              "summary.activity_summary": true,
-              "summary.project_brief": true,
-              "summary.daily_brief": true,
-              "suggestion_generation.conclusion": true,
-              "suggestion_generation.todo": true,
-            },
-          },
-          editorRewriteActions: [],
+          editorSkills: [],
         }}
       />,
     );
@@ -1750,8 +1988,11 @@ describe("RichEditor context menus", () => {
       clientY: 20,
     });
 
-    const menu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    const promptInput = within(menu).getByPlaceholderText("使用 AI 编辑");
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+
+    const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
+    const promptInput = within(aiMenu).getByPlaceholderText("使用 AI 编辑");
     await user.type(promptInput, "请翻译成英文");
     fireEvent.keyDown(promptInput, { key: "Enter" });
 
@@ -1765,8 +2006,10 @@ describe("RichEditor context menus", () => {
     if (request.kind !== "editor_rewrite") {
       throw new Error("expected an editor rewrite job");
     }
-    expect(request.input.promptOverride).toBe("请翻译成英文");
-    expect(request.input.actionId).toBeNull();
+    expect(request.input.prompt).toBe("请翻译成英文");
+    expect(request.input.skillId).toBeNull();
+    expect(request.input.skillName).toBe("AI 编辑");
+    expect(request.input.resultMode).toBe("modify");
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -1806,27 +2049,16 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
-          featureSettings: {
-            masterEnabled: true,
-            capabilities: {
-              assistant: true,
-              summary: true,
-              suggestion_generation: true,
-              editor_rewrite: true,
-            },
-            features: {
-              "summary.activity_summary": true,
-              "summary.project_brief": true,
-              "summary.daily_brief": true,
-              "suggestion_generation.conclusion": true,
-              "suggestion_generation.todo": true,
-            },
-          },
-          editorRewriteActions: [
+          editorSkills: [
             {
-              id: 9,
-              label: "润色",
+              id: "polish",
+              name: "润色",
+              icon: null,
+              description: null,
               prompt: "请润色",
+              resultMode: "modify",
+              showInTextMenu: true,
+              sortOrder: 1,
               enabled: true,
               createdAt: "",
               updatedAt: "",
@@ -1849,8 +2081,8 @@ describe("RichEditor context menus", () => {
       clientY: 20,
     });
 
-    const menu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    await user.click(within(menu).getByRole("button", { name: "润色" }));
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
 
     await waitFor(() => {
       expect(targetKey).toContain("editor-rewrite:");
@@ -1865,13 +2097,12 @@ describe("RichEditor context menus", () => {
       startedAt: "",
       finishedAt: null,
       errorMessage: null,
-      streamText: "hello universe",
+      streamText: "a much longer rewritten paragraph",
       result: null,
     });
 
     await waitFor(() => {
-      expect(screen.getByText("AI 正在润色…")).toBeInTheDocument();
-      expect(container.querySelector(".rich-editor__rewrite-origin-block")).toBeTruthy();
+      expect(screen.getByText("AI 正在处理...")).toBeInTheDocument();
     });
 
     useAiJobStore.getState().upsertJob({
@@ -1883,26 +2114,283 @@ describe("RichEditor context menus", () => {
       startedAt: "",
       finishedAt: "",
       errorMessage: null,
-      streamText: "hello universe",
+      streamText: "a much longer rewritten paragraph",
       result: {
         kind: "editor_rewrite",
         rewrite: {
-          actionId: 9,
-          rewrittenMarkdown: "hello universe",
+          skillId: "polish",
+          resultMode: "modify",
+          content: "a much longer rewritten paragraph",
           resolvedModel: "mock-model",
         },
       },
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "接受 AI 建议" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "接受" })).toBeEnabled();
     });
-    const acceptButton = screen.getByRole("button", { name: "接受 AI 建议" });
+
+    const compareButton = screen.getByRole("button", { name: "对比" });
+    for (let index = 0; index < 3; index += 1) {
+      fireEvent.pointerDown(compareButton, { pointerId: index + 1 });
+      await waitFor(() => {
+        expect(container.querySelectorAll(".ProseMirror p")[0]?.textContent).toBe("hello world");
+        expect(compareButton).toHaveTextContent("原文");
+      });
+
+      fireEvent.pointerUp(compareButton, { pointerId: index + 1 });
+      expect(container.querySelectorAll(".ProseMirror p")[0]?.textContent).toBe("a much longer rewritten paragraph");
+      expect(compareButton).toHaveTextContent("对比");
+    }
+
+    expect(Array.from(container.querySelectorAll(".ProseMirror p")).map((item) => item.textContent)).toEqual([
+      "a much longer rewritten paragraph",
+    ]);
+
+    const acceptButton = screen.getByRole("button", { name: "接受" });
     await user.click(acceptButton);
 
     await waitFor(() => {
-      expect(container.querySelector(".rich-editor__rewrite-origin-block")).toBeNull();
-      expect(container.querySelector(".ProseMirror")?.textContent).toContain("hello universe");
+      expect(container.querySelector(".ProseMirror")?.textContent).toContain("a much longer rewritten paragraph");
+    });
+
+    enqueueSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("preserves selected rich text formatting while streaming and accepting modify results", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    let targetKey = "";
+    const enqueueSpy = vi
+      .spyOn(projectMindApi, "aiJobEnqueue")
+      .mockImplementation(async (input) => {
+        targetKey = input.targetKey;
+        return {
+          id: 51,
+          kind: "editor_rewrite",
+          targetKey,
+          status: "queued",
+          queuedAt: "",
+          startedAt: null,
+          finishedAt: null,
+          errorMessage: null,
+          streamText: null,
+          result: null,
+        };
+      });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p><strong>hello</strong> world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [
+            {
+              id: "polish",
+              name: "润色",
+              icon: null,
+              description: null,
+              prompt: "请润色",
+              resultMode: "modify",
+              showInTextMenu: true,
+              sortOrder: 1,
+              enabled: true,
+              createdAt: "",
+              updatedAt: "",
+            },
+          ],
+        }}
+      />,
+    );
+
+    const strongText = await waitFor(() => {
+      const textNode = container.querySelector(".ProseMirror strong")?.firstChild;
+      expect(textNode?.nodeType).toBe(Node.TEXT_NODE);
+      return textNode as Text;
+    });
+
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextContent(strongText, 0, 5);
+    fireEvent.contextMenu(strongText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
+
+    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    const enqueuedInput = enqueueSpy.mock.calls[0]?.[0];
+    expect(enqueuedInput.kind).toBe("editor_rewrite");
+    if (enqueuedInput.kind === "editor_rewrite") {
+      expect(enqueuedInput.input.selectedText).toBe("**hello** world");
+      expect(enqueuedInput.input.expandedMarkdown).toBe("**hello** world");
+      expect(enqueuedInput.input.placeholderTokens).toEqual([]);
+    }
+    useAiJobStore.getState().upsertJob({
+      id: 51,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "**better wording** world",
+      result: null,
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror strong")?.textContent).toBe("better wording");
+      expect(screen.getByRole("button", { name: "生成中" })).toBeDisabled();
+    });
+
+    useAiJobStore.getState().upsertJob({
+      id: 51,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "**better wording** world",
+      result: {
+        kind: "editor_rewrite",
+        rewrite: {
+          skillId: "polish",
+          resultMode: "modify",
+          content: "**better wording** world",
+          resolvedModel: "mock-model",
+        },
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "接受" }));
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror strong")?.textContent).toBe("better wording");
+      expect(container.querySelector(".ProseMirror p")?.innerHTML).toContain("<strong>better wording</strong>");
+    });
+
+    enqueueSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("streams markdown answers and inserts them as rich editor blocks", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    let targetKey = "";
+    const enqueueSpy = vi
+      .spyOn(projectMindApi, "aiJobEnqueue")
+      .mockImplementation(async (input) => {
+        targetKey = input.targetKey;
+        return {
+          id: 52,
+          kind: "editor_rewrite",
+          targetKey,
+          status: "queued",
+          queuedAt: "",
+          startedAt: null,
+          finishedAt: null,
+          errorMessage: null,
+          streamText: null,
+          result: null,
+        };
+      });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [
+            {
+              id: "explain",
+              name: "解释",
+              icon: null,
+              description: null,
+              prompt: "请解释",
+              resultMode: "answer",
+              showInTextMenu: true,
+              sortOrder: 1,
+              enabled: true,
+              createdAt: "",
+              updatedAt: "",
+            },
+          ],
+        }}
+      />,
+    );
+
+    const paragraphText = await waitFor(() => {
+      const textNode = container.querySelector(".ProseMirror p")?.firstChild;
+      expect(textNode?.nodeType).toBe(Node.TEXT_NODE);
+      return textNode as Text;
+    });
+
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextContent(paragraphText, 0, 5);
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: "解释" }));
+
+    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    useAiJobStore.getState().upsertJob({
+      id: 52,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "## 分析\n- 第一条",
+      result: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "分析", level: 2 })).toBeInTheDocument();
+      expect(screen.getByText("第一条")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "生成中" })).toBeDisabled();
+    });
+
+    useAiJobStore.getState().upsertJob({
+      id: 52,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "## 分析\n- 第一条\n- 第二条",
+      result: {
+        kind: "editor_rewrite",
+        rewrite: {
+          skillId: "explain",
+          resultMode: "answer",
+          content: "## 分析\n- 第一条\n- 第二条",
+          resolvedModel: "mock-model",
+        },
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "插入" }));
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror h2")?.textContent).toBe("分析");
+      expect(Array.from(container.querySelectorAll(".ProseMirror li")).map((item) => item.textContent)).toEqual([
+        "第一条",
+        "第二条",
+      ]);
     });
 
     enqueueSpy.mockRestore();
@@ -1999,8 +2487,7 @@ describe("RichEditor context menus", () => {
 
     execCommand.mockReturnValueOnce(false);
     const menu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
-    await user.click(await screen.findByRole("menuitem", { name: /复制/i }));
+    await user.click(within(menu).getByRole("button", { name: "复制" }));
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(["1. 第一项", "2. 第二项"].join("\n"));
@@ -2025,12 +2512,19 @@ describe("RichEditor context menus", () => {
       expect(nextSurface).toBeTruthy();
       return nextSurface as HTMLElement;
     });
+    const textNodes = await waitFor(() => {
+      const nextNodes = Array.from(container.querySelectorAll(".ProseMirror p"))
+        .map((element) => element.firstChild)
+        .filter((node): node is Text => node?.nodeType === Node.TEXT_NODE);
+
+      expect(nextNodes).toHaveLength(2);
+      return nextNodes;
+    });
 
     fireEvent.focus(surface);
+    selectTextRange(textNodes[0], 0, textNodes[1], textNodes[1].textContent?.length ?? 0);
     fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
-    const menu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
-    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+    expect(await screen.findByRole("menu", { name: "文本操作" })).toBeInTheDocument();
 
     fireEvent.copy(surface, {
       clipboardData: {
@@ -2089,12 +2583,19 @@ describe("RichEditor context menus", () => {
       expect(nextSurface).toBeTruthy();
       return nextSurface as HTMLElement;
     });
+    const textNodes = await waitFor(() => {
+      const nextNodes = Array.from(container.querySelectorAll(".ProseMirror p"))
+        .map((element) => element.firstChild)
+        .filter((node): node is Text => node?.nodeType === Node.TEXT_NODE);
+
+      expect(nextNodes).toHaveLength(2);
+      return nextNodes;
+    });
 
     fireEvent.focus(surface);
+    selectTextRange(textNodes[0], 0, textNodes[1], textNodes[1].textContent?.length ?? 0);
     fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
-    const menu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
-    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+    expect(await screen.findByRole("menu", { name: "文本操作" })).toBeInTheDocument();
 
     fireEvent.copy(surface, {
       clipboardData: {
@@ -2166,19 +2667,22 @@ describe("RichEditor context menus", () => {
       expect(nextSurface).toBeTruthy();
       return nextSurface as HTMLElement;
     });
+    const textNodes = await waitFor(() => {
+      const nextNodes = Array.from(container.querySelectorAll(".ProseMirror p"))
+        .map((element) => element.firstChild)
+        .filter((node): node is Text => node?.nodeType === Node.TEXT_NODE);
+
+      expect(nextNodes).toHaveLength(2);
+      return nextNodes;
+    });
 
     fireEvent.focus(surface);
-    fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
-    const menu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.hover(within(menu).getByRole("menuitem", { name: "剪贴板" }));
-    await user.click(await screen.findByRole("menuitem", { name: /全选/i }));
+    selectTextRange(textNodes[0], 0, textNodes[1], textNodes[1].textContent?.length ?? 0);
 
     execCommand.mockReturnValueOnce(false);
     fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
     const reopenedMenu = await screen.findByRole("menu", { name: "文本操作" });
-    await user.click(within(reopenedMenu).getByRole("menuitem", { name: "剪贴板" }));
-    const clipboardSubmenu = await screen.findByRole("menu", { name: "剪贴板 子菜单" });
-    await user.click(within(clipboardSubmenu).getByRole("menuitem", { name: /^复制/ }));
+    await user.click(within(reopenedMenu).getByRole("button", { name: "复制" }));
 
     await waitFor(() => {
       expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(

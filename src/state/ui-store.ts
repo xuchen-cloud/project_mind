@@ -9,7 +9,8 @@ export type SettingsSection =
   | "page-width"
   | "file-tags"
   | "contacts"
-  | "ai"
+  | "ai-models"
+  | "ai-rewrite"
   | "rich-text";
 export type PageWidthMode = "adaptive" | "narrow" | "wide" | "full";
 

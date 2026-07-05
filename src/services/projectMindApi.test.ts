@@ -301,33 +301,6 @@ describe("projectMindApi", () => {
     );
   });
 
-  it("maps ai suggestion accept with edited payload to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      entityKind: "todo",
-      entityId: 12,
-    });
-
-    await projectMindApi.aiAcceptSuggestion({
-      suggestionId: 9,
-      payloadOverride: {
-        content: "财务今天补充预算拆分明细",
-        priority: "urgent_important",
-      },
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_accept_suggestion",
-      {
-        input: {
-          suggestionId: 9,
-          payloadOverride: {
-            content: "财务今天补充预算拆分明细",
-            priority: "urgent_important",
-          },
-        },
-      },
-    );
-  });
 
   it("maps ai settings fetch without payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
@@ -338,22 +311,6 @@ describe("projectMindApi", () => {
       aiSecretsUnlocked: true,
       execution: {
         maxConcurrency: 1,
-      },
-      featureSettings: {
-        masterEnabled: true,
-        capabilities: {
-          assistant: true,
-          summary: true,
-          suggestion_generation: true,
-          editor_rewrite: true,
-        },
-        features: {
-          "summary.activity_summary": true,
-          "summary.project_brief": true,
-          "summary.daily_brief": true,
-          "suggestion_generation.conclusion": true,
-          "suggestion_generation.todo": true,
-        },
       },
       editorRewriteActions: [],
     });
@@ -692,130 +649,72 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps editor rewrite action upserts to the correct command", async () => {
+  it("maps editor skill upserts to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
-      id: 1,
-      label: "翻译成英文",
+      id: "translate",
+      name: "翻译成英文",
+      icon: "🌐",
+      description: "翻译选区",
       prompt: "请翻译成自然英文",
+      resultMode: "answer",
+      showInTextMenu: true,
+      sortOrder: 1,
       enabled: true,
       createdAt: "",
       updatedAt: "",
     });
 
-    await projectMindApi.aiEditorRewriteActionUpsert({
-      label: "翻译成英文",
+    await projectMindApi.aiEditorSkillUpsert({
+      name: "翻译成英文",
+      icon: "🌐",
+      description: "翻译选区",
       prompt: "请翻译成自然英文",
+      resultMode: "answer",
+      showInTextMenu: true,
       enabled: true,
     });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_editor_rewrite_action_upsert",
+      "ai_editor_skill_upsert",
       {
         input: {
-          label: "翻译成英文",
+          name: "翻译成英文",
+          icon: "🌐",
+          description: "翻译选区",
           prompt: "请翻译成自然英文",
+          resultMode: "answer",
+          showInTextMenu: true,
           enabled: true,
         },
       },
     );
   });
 
-  it("maps editor rewrite action deletes to the correct command", async () => {
+  it("maps editor skill deletes to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce([]);
 
-    await projectMindApi.aiEditorRewriteActionDelete({ actionId: 7 });
+    await projectMindApi.aiEditorSkillDelete({ skillId: "translate" });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_editor_rewrite_action_delete",
+      "ai_editor_skill_delete",
       {
         input: {
-          actionId: 7,
+          skillId: "translate",
         },
       },
     );
   });
 
-  it("maps ai feature settings updates to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      masterEnabled: true,
-      capabilities: {
-        assistant: false,
-        summary: true,
-        suggestion_generation: true,
-        editor_rewrite: true,
-      },
-      features: {
-        "summary.activity_summary": true,
-        "summary.project_brief": true,
-        "summary.daily_brief": true,
-        "suggestion_generation.conclusion": true,
-        "suggestion_generation.todo": false,
-      },
-    });
+  it("maps editor skill reorders to the correct command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce([]);
 
-    await projectMindApi.aiFeatureSettingsUpsert({
-      masterEnabled: true,
-      capabilities: {
-        assistant: false,
-        summary: true,
-        suggestion_generation: true,
-        editor_rewrite: true,
-      },
-      features: {
-        "summary.activity_summary": true,
-        "summary.project_brief": true,
-        "summary.daily_brief": true,
-        "suggestion_generation.conclusion": true,
-        "suggestion_generation.todo": false,
-      },
-    });
+    await projectMindApi.aiEditorSkillReorder({ skillIds: ["b", "a"] });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_feature_settings_upsert",
+      "ai_editor_skill_reorder",
       {
         input: {
-          masterEnabled: true,
-          capabilities: {
-            assistant: false,
-            summary: true,
-            suggestion_generation: true,
-            editor_rewrite: true,
-          },
-          features: {
-            "summary.activity_summary": true,
-            "summary.project_brief": true,
-            "summary.daily_brief": true,
-            "suggestion_generation.conclusion": true,
-            "suggestion_generation.todo": false,
-          },
-        },
-      },
-    );
-  });
-
-  it("maps ask question requests to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({
-      answerMarkdown: "目前最重要的是先推进预算确认。",
-      citations: [],
-      scope: "project",
-      generatedAt: "",
-      skillKey: "builtin.ask",
-      skillVersion: "1.0.0",
-    });
-
-    await projectMindApi.aiAnswerQuestion({
-      scope: "project",
-      question: "最近最重要的事情是什么？",
-      projectId: 7,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_answer_question",
-      {
-        input: {
-          scope: "project",
-          question: "最近最重要的事情是什么？",
-          projectId: 7,
+          skillIds: ["b", "a"],
         },
       },
     );
@@ -824,8 +723,8 @@ describe("projectMindApi", () => {
   it("maps ai job enqueue to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 1,
-      kind: "answer_question",
-      targetKey: "ask:project:7:none",
+      kind: "editor_rewrite",
+      targetKey: "editor-rewrite:test",
       status: "queued",
       queuedAt: "",
       startedAt: null,
@@ -835,23 +734,27 @@ describe("projectMindApi", () => {
     });
 
     await projectMindApi.aiJobEnqueue({
-      kind: "answer_question",
-      targetKey: "ask:project:7:none",
+      kind: "editor_rewrite",
+      targetKey: "editor-rewrite:test",
       input: {
-        scope: "project",
-        question: "现在最重要的事情是什么？",
-        projectId: 7,
+        skillId: "proofread",
+        skillName: "校对",
+        prompt: "请校对",
+        resultMode: "modify",
+        selectedText: "原文",
       },
     });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_enqueue", {
       input: {
-        kind: "answer_question",
-        targetKey: "ask:project:7:none",
+        kind: "editor_rewrite",
+        targetKey: "editor-rewrite:test",
         input: {
-          scope: "project",
-          question: "现在最重要的事情是什么？",
-          projectId: 7,
+          skillId: "proofread",
+          skillName: "校对",
+          prompt: "请校对",
+          resultMode: "modify",
+          selectedText: "原文",
         },
       },
     });

@@ -8,7 +8,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 
-use crate::models::{AiArtifactSection, AiEditorRewriteContext};
+use crate::models::AiEditorRewriteContext;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedAiProfile {
@@ -20,26 +20,6 @@ pub struct ResolvedAiProfile {
 }
 
 #[derive(Debug, Clone)]
-pub struct SuggestionPayload {
-    pub activity_title: Option<String>,
-    pub conclusions: Vec<String>,
-    pub todos: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ArtifactPayload {
-    pub overview: String,
-    pub sections: Vec<AiArtifactSection>,
-    pub citations: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AnswerPayload {
-    pub answer_markdown: String,
-    pub citations: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ProviderTestOutcome {
     pub message: String,
     pub latency_ms: i64,
@@ -48,7 +28,7 @@ pub struct ProviderTestOutcome {
 
 #[derive(Debug, Clone)]
 pub struct EditorRewritePayload {
-    pub rewritten_markdown: String,
+    pub content: String,
     pub resolved_model: Option<String>,
 }
 
@@ -65,44 +45,6 @@ pub fn test_profile(profile: &ResolvedAiProfile) -> Result<ProviderTestOutcome> 
         latency_ms,
         resolved_model: response.resolved_model,
     })
-}
-
-pub fn generate_suggestions(
-    profile: &ResolvedAiProfile,
-    activity_title: &str,
-    source_text: &str,
-) -> Result<SuggestionPayload> {
-    ensure_text_support(profile)?;
-
-    let prompt = suggestion_prompt(activity_title, source_text);
-    let response = request_text(profile, suggestion_system_prompt(), &prompt)?;
-    normalize_suggestions(&response.text)
-}
-
-pub fn generate_artifact(
-    profile: &ResolvedAiProfile,
-    artifact_name: &str,
-    section_titles: &[&str],
-    context_text: &str,
-) -> Result<ArtifactPayload> {
-    ensure_text_support(profile)?;
-
-    let prompt = artifact_prompt(artifact_name, section_titles, context_text);
-    let response = request_text(profile, artifact_system_prompt(), &prompt)?;
-    normalize_artifact(&response.text)
-}
-
-pub fn generate_answer(
-    profile: &ResolvedAiProfile,
-    scope: &str,
-    question: &str,
-    context_text: &str,
-) -> Result<AnswerPayload> {
-    ensure_text_support(profile)?;
-
-    let prompt = answer_prompt(scope, question, context_text);
-    let response = request_text(profile, answer_system_prompt(), &prompt)?;
-    normalize_answer(&response.text)
 }
 
 pub fn rewrite_selection(
@@ -133,7 +75,41 @@ pub fn rewrite_selection(
         )?;
 
     Ok(EditorRewritePayload {
-        rewritten_markdown: response.text,
+        content: response.text,
+        resolved_model: response.resolved_model,
+    })
+}
+
+pub fn run_editor_skill(
+    profile: &ResolvedAiProfile,
+    skill_name: &str,
+    skill_prompt: &str,
+    result_mode: &str,
+    selected_markdown: &str,
+    placeholder_tokens: &[String],
+    document_context: Option<&str>,
+    mut on_stream: impl FnMut(String),
+) -> Result<EditorRewritePayload> {
+    ensure_text_support(profile)?;
+
+    let prompt = editor_skill_prompt(
+        skill_name,
+        skill_prompt,
+        result_mode,
+        selected_markdown,
+        placeholder_tokens,
+        document_context,
+    );
+    let response =
+        request_text_streaming(profile, editor_skill_system_prompt(), &prompt, &mut on_stream)
+            .or_else(|_| {
+                let response = request_text(profile, editor_skill_system_prompt(), &prompt)?;
+                on_stream(response.text.clone());
+                Ok::<ProviderTextResponse, anyhow::Error>(response)
+            })?;
+
+    Ok(EditorRewritePayload {
+        content: response.text,
         resolved_model: response.resolved_model,
     })
 }
@@ -1213,18 +1189,6 @@ fn minimal_system_prompt() -> &'static str {
     "You are a connectivity test. Reply with a short plain-text OK only."
 }
 
-fn suggestion_system_prompt() -> &'static str {
-    "You extract structured suggestions from project notes. Reply with valid JSON only. Do not wrap the JSON in markdown fences."
-}
-
-fn artifact_system_prompt() -> &'static str {
-    "You write concise Chinese project summaries from structured local context. Reply with valid JSON only. Do not wrap the JSON in markdown fences."
-}
-
-fn answer_system_prompt() -> &'static str {
-    "You answer questions from structured local project sources. Reply with valid JSON only. Do not wrap the JSON in markdown fences."
-}
-
 fn rewrite_system_prompt() -> &'static str {
     concat!(
         "You rewrite selected rich-text markdown blocks inside a local editor. ",
@@ -1233,77 +1197,67 @@ fn rewrite_system_prompt() -> &'static str {
     )
 }
 
-fn suggestion_prompt(activity_title: &str, source_text: &str) -> String {
-    format!(
-        concat!(
-            "Read the activity notes and return one JSON object with this exact shape:\n",
-            "{{\"activityTitle\":\"\", \"conclusions\":[], \"todos\":[]}}\n\n",
-            "Rules:\n",
-            "- activityTitle: a concise improved activity title in Chinese, or an empty string if no better title is needed.\n",
-            "- conclusions: 0 to 3 concise Chinese conclusion sentences.\n",
-            "- todos: 0 to 3 concise Chinese todo items.\n",
-            "- Do not include any fields other than activityTitle, conclusions, todos.\n",
-            "- Do not include explanations.\n\n",
-            "Current activity title:\n{activity_title}\n\n",
-            "Source notes:\n{source_text}"
-        ),
-        activity_title = if activity_title.trim().is_empty() {
-            "(empty)"
-        } else {
-            activity_title.trim()
-        },
-        source_text = truncate_chars(source_text, 12000)
-    )
+fn editor_skill_system_prompt() -> &'static str {
+    "你是一个文本编辑器中的 AI 助手。严格遵守用户配置的技能提示词和结果模式。"
 }
 
-fn artifact_prompt(artifact_name: &str, section_titles: &[&str], context_text: &str) -> String {
-    let section_copy = section_titles
-        .iter()
-        .map(|title| format!("- {title}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+fn editor_skill_prompt(
+    skill_name: &str,
+    skill_prompt: &str,
+    result_mode: &str,
+    selected_markdown: &str,
+    placeholder_tokens: &[String],
+    document_context: Option<&str>,
+) -> String {
+    let placeholder_rules = if placeholder_tokens.is_empty() {
+        "无占位符。".to_string()
+    } else {
+        placeholder_tokens
+            .iter()
+            .map(|token| format!("- 必须原样保留占位符：{token}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mode_rule = if result_mode == "modify" {
+        concat!(
+            "结果模式：修改原文。\n",
+            "用户选区会以 Markdown 提供。请只返回修改后的 Markdown，不要解释，不要添加额外说明，不要包裹代码围栏。\n",
+            "尽量保持原有 Markdown 结构、标题层级、列表层级、引用、代码块和强调标记；除非技能提示词明确要求调整结构，否则优先只修改文字内容。\n",
+            "返回内容将直接用于替换原文块，所以不要加入“以下是修改结果”等前缀。"
+        )
+    } else {
+        concat!(
+            "结果模式：生成回答。\n",
+            "请返回针对选中 Markdown 的回答内容，可以使用 Markdown 表达标题、列表、引用、代码块和强调。\n",
+            "不要修改原文。不要输出与问题无关的内容。不要包裹代码围栏。"
+        )
+    };
+    let context = document_context
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("无");
 
     format!(
         concat!(
-            "Read the local project context and return one JSON object with this exact shape:\n",
-            "{{\"overview\":\"\", \"sections\":[{{\"title\":\"\", \"items\":[]}}], \"citations\":[]}}\n\n",
-            "Rules:\n",
-            "- overview: a concise Chinese overview paragraph.\n",
-            "- sections: use the required section titles in the same order.\n",
-            "- each section contains 0 to 4 concise Chinese bullet items.\n",
-            "- citations: 1 to 6 source refs chosen only from the provided source list. Refs must match exactly.\n",
-            "- Do not invent refs.\n",
-            "- Do not include any fields other than overview, sections, citations.\n",
-            "- Do not include explanations.\n\n",
-            "Artifact name:\n{artifact_name}\n\n",
-            "Required section titles:\n{section_copy}\n\n",
-            "Context sources:\n{context_text}"
+            "当前技能名称：\n",
+            "{skill_name}\n\n",
+            "当前技能提示词：\n",
+            "{skill_prompt}\n\n",
+            "用户选中的 Markdown：\n",
+            "{selected_markdown}\n\n",
+            "文档上下文：\n",
+            "{context}\n\n",
+            "占位符保留规则：\n",
+            "{placeholder_rules}\n\n",
+            "{mode_rule}\n\n",
+            "请根据技能提示词处理选中文本。"
         ),
-        artifact_name = artifact_name.trim(),
-        section_copy = section_copy,
-        context_text = truncate_chars(context_text, 16000)
-    )
-}
-
-fn answer_prompt(scope: &str, question: &str, context_text: &str) -> String {
-    format!(
-        concat!(
-            "Read the retrieved local sources and return one JSON object with this exact shape:\n",
-            "{{\"answerMarkdown\":\"\", \"citations\":[]}}\n\n",
-            "Rules:\n",
-            "- answerMarkdown: concise Chinese markdown answering the question.\n",
-            "- Only use the provided sources. Do not invent facts.\n",
-            "- If evidence is insufficient, answerMarkdown must clearly say the evidence is insufficient.\n",
-            "- citations: 0 to 6 source refs chosen only from the provided source list. Refs must match exactly.\n",
-            "- Do not include any fields other than answerMarkdown and citations.\n",
-            "- Do not include explanations.\n\n",
-            "Scope:\n{scope}\n\n",
-            "Question:\n{question}\n\n",
-            "Retrieved sources:\n{context_text}"
-        ),
-        scope = scope.trim(),
-        question = truncate_chars(question, 1200),
-        context_text = truncate_chars(context_text, 16000)
+        skill_name = truncate_chars(skill_name.trim(), 200),
+        skill_prompt = truncate_chars(skill_prompt.trim(), 4000),
+        selected_markdown = truncate_chars(selected_markdown.trim(), 20000),
+        context = truncate_chars(context, 4000),
+        placeholder_rules = placeholder_rules,
+        mode_rule = mode_rule,
     )
 }
 
@@ -1372,163 +1326,6 @@ fn render_editor_rewrite_context(context: &AiEditorRewriteContext) -> String {
     }
 
     parts.join(", ")
-}
-
-fn normalize_suggestions(raw_text: &str) -> Result<SuggestionPayload> {
-    let json = extract_json_object(raw_text)?;
-
-    let activity_title = json
-        .get("activityTitle")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    let conclusions: Vec<String> = collect_string_array(json.get("conclusions"))
-        .into_iter()
-        .take(3)
-        .collect();
-    let todos: Vec<String> = collect_string_array(json.get("todos"))
-        .into_iter()
-        .take(3)
-        .collect();
-
-    if activity_title.is_none() && conclusions.is_empty() && todos.is_empty() {
-        return Err(anyhow!(
-            "AI provider returned JSON, but no usable suggestions were found"
-        ));
-    }
-
-    Ok(SuggestionPayload {
-        activity_title,
-        conclusions,
-        todos,
-    })
-}
-
-fn normalize_artifact(raw_text: &str) -> Result<ArtifactPayload> {
-    let json = extract_json_object(raw_text)?;
-    let overview = json
-        .get("overview")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| anyhow!("AI provider returned JSON, but overview is empty"))?;
-    let sections = json
-        .get("sections")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    let title = item
-                        .get("title")
-                        .and_then(Value::as_str)?
-                        .trim()
-                        .to_string();
-                    if title.is_empty() {
-                        return None;
-                    }
-                    let section_items = collect_string_array(item.get("items"));
-                    Some(AiArtifactSection {
-                        title,
-                        items: section_items.into_iter().take(4).collect(),
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let citations = collect_string_array(json.get("citations"))
-        .into_iter()
-        .take(6)
-        .collect::<Vec<_>>();
-
-    if sections.is_empty() {
-        return Err(anyhow!(
-            "AI provider returned JSON, but no usable artifact sections were found"
-        ));
-    }
-
-    Ok(ArtifactPayload {
-        overview,
-        sections,
-        citations,
-    })
-}
-
-fn normalize_answer(raw_text: &str) -> Result<AnswerPayload> {
-    let json = extract_json_object(raw_text)?;
-    let answer_markdown = json
-        .get("answerMarkdown")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| anyhow!("AI provider returned JSON, but answerMarkdown is empty"))?;
-    let citations = collect_string_array(json.get("citations"))
-        .into_iter()
-        .take(6)
-        .collect::<Vec<_>>();
-
-    Ok(AnswerPayload {
-        answer_markdown,
-        citations,
-    })
-}
-
-fn collect_string_array(value: Option<&Value>) -> Vec<String> {
-    let items = match value {
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>(),
-        Some(Value::String(item)) if !item.trim().is_empty() => vec![item.trim().to_string()],
-        _ => Vec::new(),
-    };
-
-    let mut unique = Vec::new();
-    for item in items {
-        if !unique.contains(&item) {
-            unique.push(item);
-        }
-    }
-    unique
-}
-
-fn extract_json_object(raw_text: &str) -> Result<Value> {
-    let trimmed = raw_text.trim();
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        return Ok(value);
-    }
-
-    let bytes = trimmed.as_bytes();
-    for start in 0..bytes.len() {
-        if bytes[start] != b'{' {
-            continue;
-        }
-        let mut depth = 0_i64;
-        for end in start..bytes.len() {
-            match bytes[end] {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let candidate = &trimmed[start..=end];
-                        if let Ok(value) = serde_json::from_str::<Value>(candidate) {
-                            return Ok(value);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Err(anyhow!("AI provider did not return valid JSON"))
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {
@@ -1604,7 +1401,7 @@ fn mock_provider_text(user_prompt: &str) -> String {
                 .map(|line| {
                     if line.trim().is_empty() {
                         String::new()
-                    } else if line.contains("PM_TOKEN_") {
+                    } else if line.contains("PM_TOKEN_") || line.contains("PM_BLOCK_TOKEN_") {
                         line.to_string()
                     } else if line.starts_with('#')
                         || line.starts_with('-')
@@ -1619,6 +1416,20 @@ fn mock_provider_text(user_prompt: &str) -> String {
                 .join("\n")
         };
         return rewritten;
+    }
+
+    if user_prompt.contains("用户选中的 Markdown：") {
+        let selection = extract_mock_section(user_prompt, "用户选中的 Markdown：");
+        if user_prompt.contains("结果模式：生成回答") {
+            return format!(
+                "这是基于选中文本的 AI 回答：{}",
+                selection.trim().chars().take(80).collect::<String>()
+            );
+        }
+        return format!(
+            "{}（已按技能要求优化）",
+            selection.trim()
+        );
     }
 
     "OK".to_string()

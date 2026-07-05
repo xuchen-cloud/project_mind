@@ -4,18 +4,25 @@ import { Check, ChevronRight, type LucideIcon } from "lucide-react";
 import { cn } from "../lib/cn";
 import { PopoverPanel } from "./PopoverPanel";
 
-const MENU_WIDTH = 224;
-const MENU_ITEM_HEIGHT = 38;
-const MENU_INLINE_ACTIONS_HEIGHT = 52;
-const MENU_SEPARATOR_HEIGHT = 9;
-const MENU_VERTICAL_PADDING = 8;
+const MENU_WIDTH = 176;
+const MENU_ITEM_HEIGHT = 28;
+const MENU_QUICK_ACTIONS_HEIGHT = 26;
+const MENU_INLINE_ACTION_ROW_HEIGHT = 32;
+const MENU_GRID_ACTION_ROW_HEIGHT = 26;
+const MENU_SECTION_LABEL_HEIGHT = 20;
+const MENU_SEPARATOR_HEIGHT = 4;
+const MENU_VERTICAL_PADDING = 4;
 const VIEWPORT_PADDING = 12;
-const SUBMENU_GAP = 6;
+const SUBMENU_GAP = 5;
+const DEFAULT_INLINE_COLUMNS = 5;
+const DEFAULT_GRID_COLUMNS = 2;
+const MENU_ICON_SIZE = 12;
 
 export interface ContextMenuInlineAction {
   key: string;
   label: string;
   icon?: LucideIcon;
+  glyph?: string;
   active?: boolean;
   disabled?: boolean;
   style?: CSSProperties;
@@ -59,12 +66,52 @@ export type ContextMenuAction =
       key?: string;
       actions: ContextMenuInlineAction[];
       ariaLabel?: string;
+      columns?: number;
+      showLabels?: boolean;
+    }
+  | {
+      type: "quick-actions";
+      key?: string;
+      actions: ContextMenuInlineAction[];
+      ariaLabel?: string;
+    }
+  | {
+      type: "grid-actions";
+      key?: string;
+      title?: string;
+      actions: ContextMenuInlineAction[];
+      ariaLabel?: string;
+      columns?: number;
+    }
+  | {
+      type: "scroll-actions";
+      key?: string;
+      actions: Extract<ContextMenuAction, { type?: "action" }>[];
+      ariaLabel?: string;
+      maxVisibleItems?: number;
+    }
+  | {
+      type: "section-label";
+      key?: string;
+      label: string;
+      icon?: LucideIcon;
+      trailingIcon?: LucideIcon;
+      trailingLabel?: string;
+      trailingDisabled?: boolean;
+      onTrailingSelect?: () => void;
     };
 
 function isActionButton(
   action: ContextMenuAction,
 ): action is Extract<ContextMenuAction, { type?: "action" } | { type: "submenu" }> {
-  return action.type !== "separator" && action.type !== "inline-actions";
+  return (
+    action.type !== "separator" &&
+    action.type !== "inline-actions" &&
+    action.type !== "quick-actions" &&
+    action.type !== "grid-actions" &&
+    action.type !== "scroll-actions" &&
+    action.type !== "section-label"
+  );
 }
 
 function isActionWithTone(
@@ -147,7 +194,7 @@ export function ActionContextMenu({
   return (
     <PopoverPanel
       ref={menuRef}
-      className="context-menu__panel fixed z-[80] min-w-[15rem] rounded-[14px] border p-2 outline-none backdrop-blur-[18px]"
+      className="context-menu__panel fixed z-[80] w-[11rem] rounded-[8px] border p-1 outline-none backdrop-blur-[18px]"
       style={position}
     >
       <ActionContextMenuLevel
@@ -175,6 +222,7 @@ function ActionContextMenuLevel({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [openSubmenuIndex, setOpenSubmenuIndex] = useState<number | null>(null);
   const [openSubmenuTop, setOpenSubmenuTop] = useState(0);
+  const [openSubmenuSide, setOpenSubmenuSide] = useState<"left" | "right">("right");
 
   useEffect(() => {
     if (autoFocus) {
@@ -203,8 +251,41 @@ function ActionContextMenuLevel({
 
   const openSubmenu = (index: number) => {
     const anchor = itemRefs.current[index];
+    const menuRect = menuRef.current?.getBoundingClientRect();
+    const anchorRect = anchor?.getBoundingClientRect();
+    const nextSubmenu = actions[index]?.type === "submenu" ? actions[index] : null;
+    const submenuHeight = nextSubmenu
+      ? nextSubmenu.actions.reduce(
+          (total, action) => total + getActionHeight(action),
+          MENU_VERTICAL_PADDING,
+        ) + MENU_VERTICAL_PADDING
+      : 0;
+    const submenuWidth = MENU_WIDTH;
+    const spaceRight =
+      typeof window === "undefined" || !anchorRect
+        ? Number.POSITIVE_INFINITY
+        : window.innerWidth - anchorRect.right - SUBMENU_GAP - VIEWPORT_PADDING;
+    const spaceLeft =
+      typeof window === "undefined" || !anchorRect
+        ? 0
+        : anchorRect.left - SUBMENU_GAP - VIEWPORT_PADDING;
+    const shouldOpenLeft = spaceRight < submenuWidth && spaceLeft >= submenuWidth;
+    const rawTop = anchor ? anchor.offsetTop - MENU_VERTICAL_PADDING : 0;
+    const viewportTop = menuRect ? menuRect.top + rawTop : rawTop;
+    const overflowBottom =
+      typeof window === "undefined"
+        ? 0
+        : Math.max(0, viewportTop + submenuHeight - (window.innerHeight - VIEWPORT_PADDING));
+    const overflowTop = menuRect
+      ? Math.max(0, VIEWPORT_PADDING - (viewportTop - overflowBottom))
+      : 0;
+
     setOpenSubmenuIndex(index);
-    setOpenSubmenuTop(anchor ? Math.max(0, anchor.offsetTop - MENU_VERTICAL_PADDING) : 0);
+    setOpenSubmenuSide(shouldOpenLeft ? "left" : "right");
+    setOpenSubmenuTop(Math.max(
+      menuRect ? VIEWPORT_PADDING - menuRect.top : 0,
+      rawTop - overflowBottom + overflowTop,
+    ));
   };
 
   const activeSubmenu =
@@ -218,7 +299,7 @@ function ActionContextMenuLevel({
       role="menu"
       aria-label={ariaLabel}
       tabIndex={-1}
-      className="context-menu__list relative grid gap-1 outline-none"
+      className="context-menu__list relative grid gap-0.5 outline-none"
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         const activeIndex = itemRefs.current.findIndex((item) => item === document.activeElement);
@@ -262,19 +343,95 @@ function ActionContextMenuLevel({
             <div
               key={action.key ?? `separator-${index}`}
               role="separator"
-              className="my-2 h-px bg-[color-mix(in_srgb,var(--color-border)_88%,transparent)]"
+              className="my-0.5 h-px bg-[color-mix(in_srgb,var(--color-border)_88%,transparent)]"
             />
           );
         }
 
+        if (action.type === "section-label") {
+          return (
+            <div
+              key={action.key ?? `section-label-${index}`}
+              className="context-menu__section-label flex min-h-5 items-center gap-1.5 px-1.5 text-[11px] font-medium text-text-soft"
+              onMouseEnter={() => setOpenSubmenuIndex(null)}
+            >
+              {action.icon ? (
+                <span className="flex w-3.5 shrink-0 items-center justify-center">
+                  <action.icon size={MENU_ICON_SIZE} />
+                </span>
+              ) : null}
+              <span className="min-w-0 flex-1 truncate">{action.label}</span>
+              {action.trailingIcon ? (
+                <button
+                  type="button"
+                  className="context-menu__section-label-action flex h-5 w-5 items-center justify-center rounded-[5px] text-text-soft outline-none transition-colors hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text disabled:cursor-not-allowed disabled:text-text-disabled"
+                  aria-label={action.trailingLabel ?? action.label}
+                  title={action.trailingLabel ?? action.label}
+                  disabled={action.trailingDisabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (action.trailingDisabled) {
+                      return;
+                    }
+                    action.onTrailingSelect?.();
+                  }}
+                >
+                  <action.trailingIcon size={MENU_ICON_SIZE} />
+                </button>
+              ) : null}
+            </div>
+          );
+        }
+
+        if (action.type === "quick-actions") {
+          return (
+            <div
+              key={action.key ?? `quick-actions-${index}`}
+              role="group"
+              aria-label={action.ariaLabel ?? "快捷操作"}
+              className="context-menu__quick-actions grid gap-0.5"
+              style={{ gridTemplateColumns: `repeat(${Math.max(action.actions.length, 1)}, minmax(0, 1fr))` }}
+              onMouseEnter={() => setOpenSubmenuIndex(null)}
+            >
+              {action.actions.map((inlineAction) => (
+                <button
+                  key={inlineAction.key}
+                  type="button"
+                  className={cn(
+                    "context-menu__quick-action flex h-[1.375rem] items-center justify-center gap-0.5 rounded-[5px] px-1 text-[11px] text-text-muted outline-none transition-colors",
+                    inlineAction.disabled
+                      ? "cursor-not-allowed text-text-disabled"
+                      : "hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
+                    inlineAction.active ? "bg-bg-muted text-text" : "",
+                  )}
+                  disabled={inlineAction.disabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (inlineAction.disabled) {
+                      return;
+                    }
+                    onClose();
+                    inlineAction.onSelect();
+                  }}
+                >
+                  {inlineAction.icon ? <inlineAction.icon size={MENU_ICON_SIZE} /> : null}
+                  {inlineAction.glyph ? <span aria-hidden="true">{inlineAction.glyph}</span> : null}
+                  <span className="truncate">{inlineAction.label}</span>
+                </button>
+              ))}
+            </div>
+          );
+        }
+
         if (action.type === "inline-actions") {
+          const columns = action.columns ?? DEFAULT_INLINE_COLUMNS;
           return (
             <div
               key={action.key ?? `inline-actions-${index}`}
               role="group"
               aria-label={action.ariaLabel ?? "格式操作"}
-              className="context-menu__inline-actions grid gap-2 px-0.5"
-              style={{ gridTemplateColumns: `repeat(${Math.max(action.actions.length, 1)}, minmax(0, 1fr))` }}
+              className="context-menu__inline-actions grid gap-0.5 px-0.5"
+              style={{ gridTemplateColumns: `repeat(${Math.max(columns, 1)}, minmax(0, 1fr))` }}
               onMouseEnter={() => setOpenSubmenuIndex(null)}
             >
               {action.actions.map((inlineAction) => (
@@ -285,7 +442,7 @@ function ActionContextMenuLevel({
                   title={inlineAction.label}
                   disabled={inlineAction.disabled}
                   className={cn(
-                    "context-menu__inline-action flex h-10 items-center justify-center rounded-[var(--radius-6)] border border-transparent bg-transparent text-text-muted transition-colors outline-none",
+                    "context-menu__inline-action flex aspect-square w-full min-w-0 items-center justify-center rounded-[5px] border border-transparent bg-transparent p-0 text-text-muted transition-colors outline-none",
                     inlineAction.swatch ? "px-2" : "",
                     inlineAction.disabled
                       ? "cursor-not-allowed text-text-soft"
@@ -311,8 +468,8 @@ function ActionContextMenuLevel({
                       className={cn(
                         "block shrink-0 shadow-[inset_0_1px_0_color-mix(in_srgb,white_28%,transparent),0_0_0_1px_color-mix(in_srgb,var(--swatch-color)_18%,transparent)]",
                         inlineAction.swatch.shape === "dot"
-                          ? "h-3.5 w-3.5 rounded-full"
-                          : "h-3.5 w-full rounded-full",
+                          ? "h-3 w-3 rounded-full"
+                          : "h-3 w-full rounded-full",
                       )}
                       style={
                         {
@@ -323,10 +480,124 @@ function ActionContextMenuLevel({
                       }
                     />
                   ) : inlineAction.icon ? (
-                    <inlineAction.icon size={18} />
+                    <inlineAction.icon size={MENU_ICON_SIZE} />
+                  ) : inlineAction.glyph ? (
+                    <span className="text-[11px] font-semibold leading-none" aria-hidden="true">
+                      {inlineAction.glyph}
+                    </span>
+                  ) : null}
+                  {action.showLabels ? (
+                    <span className="w-full truncate text-center text-[11px] leading-none">
+                      {inlineAction.label}
+                    </span>
                   ) : null}
                 </button>
               ))}
+            </div>
+          );
+        }
+
+        if (action.type === "grid-actions") {
+          const columns = action.columns ?? DEFAULT_GRID_COLUMNS;
+          return (
+            <div
+              key={action.key ?? `grid-actions-${index}`}
+              role="group"
+              aria-label={action.ariaLabel ?? action.title ?? "网格操作"}
+              className="context-menu__grid-actions grid gap-0.5"
+              onMouseEnter={() => setOpenSubmenuIndex(null)}
+            >
+              {action.title ? (
+                <div className="px-1.5 pb-0.5 pt-0.5 text-[11px] font-medium text-text-soft">
+                  {action.title}
+                </div>
+              ) : null}
+              <div
+                className="grid gap-0.5"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.max(columns, 1)}, minmax(0, 1fr))`,
+                }}
+              >
+                {action.actions.map((gridAction) => (
+                  <button
+                    key={gridAction.key}
+                    type="button"
+                    className={cn(
+                      "context-menu__grid-action flex h-[1.625rem] min-w-0 items-center gap-1 rounded-[5px] px-1.5 text-left text-[11px] text-text-muted outline-none transition-colors",
+                      gridAction.disabled
+                        ? "cursor-not-allowed text-text-disabled"
+                        : "hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
+                      gridAction.active ? "bg-bg-muted text-text" : "",
+                    )}
+                    disabled={gridAction.disabled}
+                    aria-label={gridAction.label}
+                    title={gridAction.label}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      if (gridAction.disabled) {
+                        return;
+                      }
+                      onClose();
+                      gridAction.onSelect();
+                    }}
+                  >
+                    <span className="flex w-3.5 shrink-0 items-center justify-center">
+                      {gridAction.icon ? (
+                        <gridAction.icon size={MENU_ICON_SIZE} />
+                      ) : gridAction.glyph ? (
+                        <span className="text-[11px] font-medium leading-none" aria-hidden="true">
+                          {gridAction.glyph}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="min-w-0 truncate">{gridAction.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (action.type === "scroll-actions") {
+          const maxVisibleItems = action.maxVisibleItems ?? 3;
+          return (
+            <div
+              key={action.key ?? `scroll-actions-${index}`}
+              role="group"
+              aria-label={action.ariaLabel ?? "滚动操作"}
+              className="context-menu__scroll-actions overflow-y-auto pr-0.5"
+              style={{ maxHeight: maxVisibleItems * MENU_ITEM_HEIGHT }}
+              onMouseEnter={() => setOpenSubmenuIndex(null)}
+            >
+              <div className="grid gap-0.5">
+                {action.actions.map((scrollAction) => (
+                  <button
+                    key={scrollAction.key ?? scrollAction.label}
+                    type="button"
+                    role="menuitem"
+                    className={cn(
+                      "context-menu__item flex min-h-7 w-full items-center gap-1.5 rounded-[6px] px-2 py-1 text-left text-[11px] transition-colors outline-none",
+                      scrollAction.disabled
+                        ? "cursor-not-allowed text-text-soft"
+                        : "text-text-muted hover:bg-bg-hover hover:text-text focus-visible:bg-bg-hover focus-visible:text-text",
+                    )}
+                    disabled={scrollAction.disabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      if (scrollAction.disabled) {
+                        return;
+                      }
+                      onClose();
+                      scrollAction.onSelect();
+                    }}
+                  >
+                    <span className="flex w-3.5 shrink-0 items-center justify-center">
+                      {scrollAction.icon ? <scrollAction.icon size={MENU_ICON_SIZE} /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{scrollAction.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           );
         }
@@ -344,7 +615,7 @@ function ActionContextMenuLevel({
             data-featured={action.featured ? "true" : undefined}
             data-selected={action.selected ? "true" : undefined}
             className={cn(
-              "context-menu__item flex min-h-[2.5rem] w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-ui transition-colors outline-none",
+              "context-menu__item flex min-h-7 w-full items-center gap-1.5 rounded-[6px] px-2 py-1 text-left text-[11px] transition-colors outline-none",
               action.featured ? "bg-bg-muted text-text" : "bg-transparent",
               isActionButton(action) && action.disabled
                 ? "cursor-not-allowed text-text-soft"
@@ -386,22 +657,22 @@ function ActionContextMenuLevel({
               action.onSelect();
             }}
           >
-            <span className="flex w-5 shrink-0 items-center justify-center">
-              {action.icon ? <action.icon size={16} /> : null}
+            <span className="flex w-3.5 shrink-0 items-center justify-center">
+              {action.icon ? <action.icon size={MENU_ICON_SIZE} /> : null}
             </span>
             <span className="min-w-0 flex-1 truncate">{action.label}</span>
             <span className="flex shrink-0 items-center gap-2">
               {action.selected ? (
                 <span className="text-text">
-                  <Check size={16} />
+                  <Check size={MENU_ICON_SIZE} />
                 </span>
               ) : null}
               {action.type === "submenu" ? (
                 <span className="text-text-soft">
-                  <ChevronRight size={16} />
+                  <ChevronRight size={MENU_ICON_SIZE} />
                 </span>
               ) : action.shortcut ? (
-                <span className="text-[11px] uppercase tracking-[0.08em] text-text-soft">
+                <span className="text-[10px] uppercase tracking-[0.06em] text-text-soft">
                   {action.shortcut}
                 </span>
               ) : null}
@@ -413,11 +684,18 @@ function ActionContextMenuLevel({
         <div
           className="absolute z-[81]"
           style={{
-            left: `calc(100% + ${SUBMENU_GAP}px)`,
+            left:
+              openSubmenuSide === "right"
+                ? `calc(100% + ${SUBMENU_GAP}px)`
+                : undefined,
+            right:
+              openSubmenuSide === "left"
+                ? `calc(100% + ${SUBMENU_GAP}px)`
+                : undefined,
             top: openSubmenuTop,
           }}
         >
-          <PopoverPanel className="context-menu__submenu-panel min-w-[15rem] rounded-[14px] border p-2 backdrop-blur-[18px]">
+          <PopoverPanel className="context-menu__submenu-panel w-[11rem] rounded-[8px] border p-1 backdrop-blur-[18px]">
             <ActionContextMenuLevel
               actions={activeSubmenu.actions}
               ariaLabel={`${activeSubmenu.label} 子菜单`}
@@ -435,8 +713,27 @@ function getActionHeight(action: ContextMenuAction) {
     return MENU_SEPARATOR_HEIGHT;
   }
 
+  if (action.type === "quick-actions") {
+    return MENU_QUICK_ACTIONS_HEIGHT;
+  }
+
   if (action.type === "inline-actions") {
-    return MENU_INLINE_ACTIONS_HEIGHT;
+    const columns = action.columns ?? DEFAULT_INLINE_COLUMNS;
+    return Math.ceil(action.actions.length / Math.max(columns, 1)) * MENU_INLINE_ACTION_ROW_HEIGHT;
+  }
+
+  if (action.type === "grid-actions") {
+    const columns = action.columns ?? DEFAULT_GRID_COLUMNS;
+    const titleHeight = action.title ? MENU_SECTION_LABEL_HEIGHT : 0;
+    return titleHeight + Math.ceil(action.actions.length / Math.max(columns, 1)) * MENU_GRID_ACTION_ROW_HEIGHT;
+  }
+
+  if (action.type === "scroll-actions") {
+    return Math.min(action.actions.length, action.maxVisibleItems ?? 3) * MENU_ITEM_HEIGHT;
+  }
+
+  if (action.type === "section-label") {
+    return MENU_SECTION_LABEL_HEIGHT;
   }
 
   return MENU_ITEM_HEIGHT;

@@ -22,6 +22,7 @@ export interface RichEditorAsset {
   mimeType?: string;
   documentId?: number;
   meta?: string;
+  isStarred?: boolean;
 }
 
 export interface RichEditorAssetHandlers {

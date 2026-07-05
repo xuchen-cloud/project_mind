@@ -23,7 +23,7 @@ describe("useUiStore", () => {
     useUiStore.setState({
       ...createUiStoreState(),
       createProjectOpen: true,
-      settingsSection: "ai",
+      settingsSection: "ai-models",
     });
 
     useUiStore.getState().setCreateProjectOpen(false);

@@ -1,5 +1,6 @@
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
+import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -169,6 +170,12 @@ export function buildRichEditorExtensions(placeholder: string) {
       multicolor: false,
       HTMLAttributes: {
         class: "rich-editor__highlight",
+      },
+    }),
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        class: "rich-editor__link",
       },
     }),
     Placeholder.configure({

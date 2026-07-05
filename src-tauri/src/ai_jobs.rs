@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     db::Database,
-    models::{AiJobEnqueueInput, AiJobKind, AiJobResult, AiJobSnapshot, AiJobStatus},
+    models::{AiJobEnqueueInput, AiJobResult, AiJobSnapshot, AiJobStatus},
 };
 
 pub const AI_JOB_EVENT: &str = "ai-job-updated";
@@ -62,21 +62,6 @@ impl AiJobManager {
 
         let snapshot = {
             let mut state = lock_state(&self.inner);
-
-            if kind == AiJobKind::ArtifactRefresh {
-                if let Some(existing) = state
-                    .jobs
-                    .values()
-                    .find(|job| {
-                        job.kind == kind
-                            && job.target_key == target_key
-                            && !job.status.is_terminal()
-                    })
-                    .cloned()
-                {
-                    return existing;
-                }
-            }
 
             let job_id = state.next_id;
             state.next_id += 1;
@@ -194,7 +179,7 @@ impl AiJobManager {
             snapshot.finished_at = Some(now_iso());
             snapshot.error_message = None;
             if let AiJobResult::EditorRewrite { rewrite } = &result {
-                snapshot.stream_text = Some(rewrite.rewritten_markdown.clone());
+                snapshot.stream_text = Some(rewrite.content.clone());
             }
             snapshot.result = Some(result);
             snapshot.clone()

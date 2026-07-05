@@ -165,13 +165,13 @@ function collectSelectedTopLevelBlocks(editor: Editor, from: number, to: number)
   const blocks: Array<{ node: ProseMirrorNode; from: number; to: number }> = [];
 
   editor.state.doc.forEach((node, offset) => {
-    const nodeFrom = offset + 1;
-    const nodeTo = nodeFrom + node.nodeSize - 1;
-    if (nodeTo <= from || nodeFrom >= to) {
+    const contentFrom = offset + 1;
+    const contentTo = contentFrom + node.nodeSize - 1;
+    if (contentTo <= from || contentFrom >= to) {
       return;
     }
 
-    blocks.push({ node, from: nodeFrom, to: nodeTo });
+    blocks.push({ node, from: offset, to: offset + node.nodeSize });
   });
 
   return blocks;

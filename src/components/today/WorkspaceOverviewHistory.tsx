@@ -14,8 +14,13 @@ import { formatDateTime } from "../../lib/formatters";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
-import type { DocumentTagRecord, FileTagRecord, WorkspaceRecord } from "../../lib/types";
-import type { PageWidthMode } from "../../state/ui-store";
+import type {
+  AiSettingsSnapshot,
+  DocumentTagRecord,
+  FileTagRecord,
+  WorkspaceRecord,
+} from "../../lib/types";
+import { useUiStore, type PageWidthMode } from "../../state/ui-store";
 import { ActionContextMenu, Button, EmptyState, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
@@ -41,6 +46,7 @@ interface WorkspaceOverviewHistoryProps {
   composeRecord: boolean;
   pageWidthMode: PageWidthMode;
   availableTags: FileTagRecord[];
+  aiSettings: AiSettingsSnapshot | null;
   saving?: boolean;
   onCreateRecord: (input: {
     title?: string;
@@ -74,6 +80,7 @@ export function WorkspaceOverviewHistory({
   composeRecord,
   pageWidthMode,
   availableTags,
+  aiSettings,
   saving = false,
   onCreateRecord,
   onUpdateRecord,
@@ -85,6 +92,7 @@ export function WorkspaceOverviewHistory({
   active = true,
 }: WorkspaceOverviewHistoryProps) {
   const queryClient = useQueryClient();
+  const openSettings = useUiStore((state) => state.openSettings);
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
@@ -189,6 +197,7 @@ export function WorkspaceOverviewHistory({
             </div>
             <RichEditor
               html={recordDraftValue.html}
+              aiSettings={aiSettings}
               defaultCodeLanguage={recordDraftCodeLanguage}
               onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
               variant="bare"
@@ -213,6 +222,7 @@ export function WorkspaceOverviewHistory({
               }}
               contactMentions={contactMentionOptions}
               controllerRef={recordDraftEditorRef}
+              onOpenAiSettings={() => openSettings("ai-rewrite")}
             />
             <div className="project-history-record__composer-actions">
               <Button type="button" size="sm" variant="ghost" onClick={onCloseCompose}>
@@ -261,6 +271,8 @@ export function WorkspaceOverviewHistory({
               onOpenInternalReference={onOpenInternalReference}
               assetHandlers={assetHandlers}
               active={active}
+              aiSettings={aiSettings}
+              onOpenAiSettings={() => openSettings("ai-rewrite")}
             />
           ))}
         </div>
@@ -303,6 +315,8 @@ function WorkspaceHistoryRecordRow({
   onOpenInternalReference,
   assetHandlers,
   active,
+  aiSettings,
+  onOpenAiSettings,
 }: {
   note: WorkspaceRecord;
   focused: boolean;
@@ -320,6 +334,8 @@ function WorkspaceHistoryRecordRow({
   onOpenInternalReference: (reference: unknown) => Promise<boolean> | boolean;
   assetHandlers?: RichEditorAssetHandlers;
   active: boolean;
+  aiSettings: AiSettingsSnapshot | null;
+  onOpenAiSettings: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
@@ -573,6 +589,7 @@ function WorkspaceHistoryRecordRow({
           <div className="project-history-record__content">
             <RichEditor
               html={value.html}
+              aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}
               onDefaultCodeLanguageChange={setCodeLanguage}
               variant="bare"
@@ -603,6 +620,7 @@ function WorkspaceHistoryRecordRow({
                 onVisibilityChange: true,
               }}
               controllerRef={editorControllerRef}
+              onOpenAiSettings={onOpenAiSettings}
               onPersistStateChange={setPersistState}
               onSave={(nextValue) => persistRecord(nextValue, title, tagIds)}
             />

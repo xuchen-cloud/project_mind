@@ -204,77 +204,7 @@ export interface ActivityDigest {
   hasOpenTodos: boolean;
 }
 
-export interface AiSuggestionRecord {
-  id: number;
-  projectId: number;
-  noteId?: number | null;
-  suggestionType: "conclusion" | "todo";
-  title: string;
-  preview: string;
-  payload: Record<string, unknown>;
-  status: "pending" | "accepted";
-  createdAt: string;
-  acceptedAt?: string | null;
-}
-
-export type AiArtifactKind = "project_brief" | "daily_brief";
-
-export interface AiArtifactSection {
-  title: string;
-  items: string[];
-}
-
-export interface AiArtifactPayload {
-  overview: string;
-  sections: AiArtifactSection[];
-}
-
-export interface AiArtifactCitationRecord {
-  id: number;
-  artifactId: number;
-  sourceKind:
-    | "project"
-    | "note"
-    | "conclusion"
-    | "todo"
-    | "document";
-  sourceId: number;
-  projectId?: number | null;
-  label: string;
-  excerpt: string;
-  orderIndex: number;
-}
-
-export interface AiArtifactRecord {
-  id: number;
-  kind: AiArtifactKind;
-  skillKey: string;
-  skillVersion: string;
-  projectId?: number | null;
-  artifactDate?: string | null;
-  status: "fresh" | "stale" | "error";
-  markdown: string;
-  jsonPayload: AiArtifactPayload;
-  sourceUpdatedAt: string;
-  generatedAt?: string | null;
-  errorMessage?: string | null;
-  citations: AiArtifactCitationRecord[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type AiAnswerScope = "workspace" | "project";
-
-export interface AiAnswerQuestionInput {
-  scope: AiAnswerScope;
-  question: string;
-  projectId?: number;
-}
-
 export type AiJobKind =
-  | "artifact_refresh"
-  | "answer_question"
-  | "note_suggestions"
   | "profile_test"
   | "editor_rewrite";
 
@@ -288,29 +218,15 @@ export interface AiJobBase {
   kind: AiJobKind;
 }
 
-export interface AiArtifactRefreshJobResult extends AiJobBase {
-  kind: "artifact_refresh";
-  artifact: AiArtifactRecord;
-}
-
-export interface AiAnswerQuestionJobResult extends AiJobBase {
-  kind: "answer_question";
-  answer: AiAnswerResult;
-}
-
-export interface AiNoteSuggestionsJobResult extends AiJobBase {
-  kind: "note_suggestions";
-  suggestions: AiSuggestionRecord[];
-}
-
 export interface AiProfileTestJobResult extends AiJobBase {
   kind: "profile_test";
   testResult: AiProfileTestResult;
 }
 
 export interface AiEditorRewriteResult {
-  actionId?: number | null;
-  rewrittenMarkdown: string;
+  skillId?: string | null;
+  resultMode: AiEditorSkillResultMode;
+  content: string;
   resolvedModel?: string | null;
 }
 
@@ -320,9 +236,6 @@ export interface AiEditorRewriteJobResult extends AiJobBase {
 }
 
 export type AiJobResult =
-  | AiArtifactRefreshJobResult
-  | AiAnswerQuestionJobResult
-  | AiNoteSuggestionsJobResult
   | AiProfileTestJobResult
   | AiEditorRewriteJobResult;
 
@@ -337,24 +250,6 @@ export interface AiJobSnapshot {
   errorMessage?: string | null;
   streamText?: string | null;
   result?: AiJobResult | null;
-}
-
-export interface AiArtifactRefreshJobInput {
-  kind: "artifact_refresh";
-  targetKey: string;
-  input: AiArtifactGetInput;
-}
-
-export interface AiAnswerQuestionJobInput {
-  kind: "answer_question";
-  targetKey: string;
-  input: AiAnswerQuestionInput;
-}
-
-export interface AiNoteSuggestionsJobInput {
-  kind: "note_suggestions";
-  targetKey: string;
-  input: AiGenerateInput;
 }
 
 export interface AiProfileTestJobInput {
@@ -374,11 +269,14 @@ export interface AiEditorRewriteContext {
 }
 
 export interface AiEditorRewriteInput {
-  actionId?: number | null;
-  promptOverride?: string | null;
+  skillId?: string | null;
+  skillName?: string | null;
+  prompt?: string | null;
+  resultMode: AiEditorSkillResultMode;
   selectedText: string;
-  expandedMarkdown: string;
-  placeholderTokens: string[];
+  expandedMarkdown?: string | null;
+  placeholderTokens?: string[];
+  documentContext?: string | null;
   context?: AiEditorRewriteContext;
 }
 
@@ -389,34 +287,8 @@ export interface AiEditorRewriteJobInput {
 }
 
 export type AiJobEnqueueInput =
-  | AiArtifactRefreshJobInput
-  | AiAnswerQuestionJobInput
-  | AiNoteSuggestionsJobInput
   | AiProfileTestJobInput
   | AiEditorRewriteJobInput;
-
-export interface AiAnswerCitationRecord {
-  refCode: string;
-  sourceKind:
-    | "project"
-    | "note"
-    | "conclusion"
-    | "todo"
-    | "document";
-  sourceId: number;
-  projectId?: number | null;
-  label: string;
-  excerpt: string;
-}
-
-export interface AiAnswerResult {
-  answerMarkdown: string;
-  citations: AiAnswerCitationRecord[];
-  scope: AiAnswerScope;
-  generatedAt: string;
-  skillKey: string;
-  skillVersion: string;
-}
 
 export interface ConclusionGroup {
   activityTitle: string;
@@ -743,32 +615,17 @@ export interface DocumentDeleteInput {
   documentId: number;
 }
 
-export interface AiGenerateInput {
-  projectId: number;
-  noteId?: number;
-}
+export type AiEditorSkillResultMode = "modify" | "answer";
 
-export interface AiAcceptSuggestionInput {
-  suggestionId: number;
-  payloadOverride?: Record<string, unknown>;
-}
-
-export interface AiArtifactGetInput {
-  kind: AiArtifactKind;
-  projectId?: number;
-  artifactDate?: string;
-}
-
-export interface AcceptedSuggestionResult {
-  suggestion: AiSuggestionRecord;
-  entityKind: string;
-  entityId: number;
-}
-
-export interface AiEditorRewriteActionRecord {
-  id: number;
-  label: string;
+export interface AiEditorSkillRecord {
+  id: string;
+  name: string;
+  icon?: string | null;
+  description?: string | null;
   prompt: string;
+  resultMode: AiEditorSkillResultMode;
+  showInTextMenu: boolean;
+  sortOrder: number;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -781,26 +638,7 @@ export type AiProviderFamily =
 
 export type AiCapability =
   | "default"
-  | "assistant"
-  | "summary"
-  | "suggestion_generation"
   | "editor_rewrite";
-
-export type AiManagedCapability = Exclude<AiCapability, "default">;
-
-export type AiFeatureKey =
-  | "summary.project_brief"
-  | "summary.daily_brief"
-  | "suggestion_generation.conclusion"
-  | "suggestion_generation.todo";
-
-export type AiSuggestionFeatureType = "conclusion" | "todo";
-
-export interface AiFeatureSettings {
-  masterEnabled: boolean;
-  capabilities: Record<AiManagedCapability, boolean>;
-  features: Record<AiFeatureKey, boolean>;
-}
 
 export interface AiProviderProfileRecord {
   id: number;
@@ -833,8 +671,7 @@ export interface AiSettingsSnapshot {
   securityMode: string;
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
-  featureSettings: AiFeatureSettings;
-  editorRewriteActions: AiEditorRewriteActionRecord[];
+  editorSkills: AiEditorSkillRecord[];
 }
 
 export interface WorkspaceSummary {
@@ -947,15 +784,22 @@ export interface AiCapabilityBindingUpsertInput {
   model?: string;
 }
 
-export type AiFeatureSettingsUpsertInput = AiFeatureSettings;
-
-export interface AiEditorRewriteActionUpsertInput {
-  id?: number;
-  label: string;
+export interface AiEditorSkillUpsertInput {
+  id?: string;
+  name: string;
+  icon?: string | null;
+  description?: string | null;
   prompt: string;
+  resultMode: AiEditorSkillResultMode;
+  showInTextMenu: boolean;
+  sortOrder?: number;
   enabled: boolean;
 }
 
-export interface AiEditorRewriteActionDeleteInput {
-  actionId: number;
+export interface AiEditorSkillDeleteInput {
+  skillId: string;
+}
+
+export interface AiEditorSkillReorderInput {
+  skillIds: string[];
 }

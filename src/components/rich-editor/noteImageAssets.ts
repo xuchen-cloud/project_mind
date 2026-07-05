@@ -1,5 +1,6 @@
 import { projectMindApi } from "../../services/projectMindApi";
 import { resolveRichTextImageSrc } from "../../lib/richTextAssets";
+import { fileHref } from "../../lib/formatters";
 import type { DocumentRecord } from "../../lib/types";
 import type { RichEditorAsset, RichEditorAssetHandlers, RichEditorValue } from "./types";
 
@@ -40,6 +41,17 @@ export function buildProjectNoteImageAssetHandlers(
       });
 
       return mapDocumentToImageAsset(document);
+    },
+    insertFile: async (sourcePath) => {
+      const document = await projectMindApi.documentImport({
+        projectId,
+        activityId,
+        sourcePath,
+        isStarred: false,
+        tagIds: [],
+      });
+
+      return mapDocumentToFileAsset(document);
     },
   };
 }
@@ -141,6 +153,21 @@ function mapDocumentToImageAsset(document: DocumentRecord): RichEditorAsset {
     path: document.managedPath || document.originalPath,
     mimeType: document.mimeType,
     documentId: document.id,
+  };
+}
+
+function mapDocumentToFileAsset(document: DocumentRecord): RichEditorAsset {
+  const path = document.managedPath || document.originalPath;
+
+  return {
+    kind: "file",
+    title: document.name,
+    path,
+    href: path ? fileHref(path) : undefined,
+    mimeType: document.mimeType,
+    documentId: document.id,
+    meta: document.mimeType,
+    isStarred: document.isStarred,
   };
 }
 

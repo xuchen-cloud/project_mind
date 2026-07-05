@@ -92,7 +92,6 @@ vi.mock("./services/projectMindApi", () => ({
       conclusions: [],
       todos: [],
       documents: [],
-      aiSuggestions: [],
     })),
     activityDelete: vi.fn(async ({ activityId }: { activityId: number }) => ({
       id: activityId,
@@ -133,7 +132,6 @@ vi.mock("./services/projectMindApi", () => ({
       conclusions: [],
       todos: [],
       documents: [],
-      aiSuggestions: [],
     })),
     workspaceTodoList: vi.fn(async () => []),
     workspaceRecordList: vi.fn(async () => []),
@@ -219,23 +217,7 @@ vi.mock("./services/projectMindApi", () => ({
       execution: {
         maxConcurrency: 1,
       },
-      featureSettings: {
-        masterEnabled: true,
-        capabilities: {
-          assistant: true,
-          summary: true,
-          suggestion_generation: true,
-          editor_rewrite: true,
-        },
-        features: {
-          "summary.activity_summary": true,
-          "summary.project_brief": true,
-          "summary.daily_brief": true,
-          "suggestion_generation.conclusion": true,
-          "suggestion_generation.todo": true,
-        },
-      },
-      editorRewriteActions: [],
+      editorSkills: [],
     })),
     projectPageGet: vi.fn(async () => ({
       project: null,
@@ -362,7 +344,8 @@ describe("WorkspaceLayout", () => {
       await screen.findByRole("dialog", { name: "设置" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /项目标签/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /AI 设置/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /AI 模型配置/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /AI 技能/ })).toBeInTheDocument();
   });
 
   it("opens rich text settings from the route bridge", async () => {
@@ -508,7 +491,6 @@ describe("WorkspaceLayout", () => {
                 conclusions: [],
                 todos: [],
                 documents: [],
-                aiSuggestions: [],
               },
             ]
           : [],
@@ -851,6 +833,7 @@ describe("WorkspaceLayout", () => {
       markdown: "",
       html: "<p></p>",
       tagIds: [],
+      defaultCodeLanguage: null,
     });
     expect(await screen.findByText("record focus route body")).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
