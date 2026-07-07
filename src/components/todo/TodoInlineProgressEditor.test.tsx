@@ -57,7 +57,7 @@ describe("TodoInlineProgressEditor", () => {
 
     expect(screen.queryByText(/\+\s*进展/u)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
     expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "true");
 
     await user.type(screen.getByRole("textbox"), "@0315 已确认方案");
@@ -67,7 +67,7 @@ describe("TodoInlineProgressEditor", () => {
       content: "已确认方案",
       progressDate: expect.stringMatching(/^\d{4}-03-15$/u),
     });
-    expect(screen.getByRole("button", { name: "点击添加子项..." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
   });
 
   it("uses the existing progress content as the trigger surface", async () => {
@@ -92,7 +92,7 @@ describe("TodoInlineProgressEditor", () => {
 
     render(<TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} />);
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
 
     const textbox = screen.getByRole("textbox");
     textbox.textContent = "@0315 已确认\n方案";
@@ -117,7 +117,7 @@ describe("TodoInlineProgressEditor", () => {
       <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={onError} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
     await user.type(screen.getByRole("textbox"), "   ");
     await user.keyboard("{Enter}");
 
@@ -135,7 +135,7 @@ describe("TodoInlineProgressEditor", () => {
       <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={onError} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
     await user.type(screen.getByRole("textbox"), "@0315");
     await user.keyboard("{Enter}");
 
@@ -221,7 +221,7 @@ describe("TodoInlineProgressEditor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
     await user.keyboard("[[[[");
     expect(await screen.findByRole("option", { name: /文件.*project-brief\.pdf/u })).toBeInTheDocument();
 
@@ -260,7 +260,7 @@ describe("TodoInlineProgressEditor", () => {
       <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
     await user.type(screen.getByRole("textbox"), "@li");
     expect(await screen.findByRole("option", { name: /李四/u })).toBeInTheDocument();
 

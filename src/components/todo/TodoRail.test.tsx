@@ -160,6 +160,24 @@ describe("TodoRail", () => {
     });
   });
 
+  it("calls the optional refresh handler from the header", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+
+    renderRail({ onRefresh });
+
+    await user.click(screen.getByRole("button", { name: "刷新代办列表" }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the refresh button while refreshing", () => {
+    const onRefresh = vi.fn();
+
+    renderRail({ onRefresh, refreshing: true });
+
+    expect(screen.getByRole("button", { name: "刷新代办列表" })).toBeDisabled();
+  });
+
   it("creates todos, auto-collapses expanded history on blur, and toggles collapse", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
@@ -194,17 +212,17 @@ describe("TodoRail", () => {
     expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
   });
 
-  it("disables expand without history and still toggles finished status", async () => {
+  it("hides expand without completed subitems and still toggles finished status", async () => {
     const user = userEvent.setup();
     const onToggleStatus = vi.fn();
 
     renderRail({ onToggleStatus });
 
-    expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "已完成" }));
     expect(screen.getByText("Done item")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "标记为未完成" }));
     expect(onToggleStatus).toHaveBeenCalledWith(2, "unfinished");

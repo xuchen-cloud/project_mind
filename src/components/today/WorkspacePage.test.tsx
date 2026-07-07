@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   workspacePageGet: vi.fn(),
   workspaceStatusGet: vi.fn(),
   fileTagSettingsGet: vi.fn(),
+  aiSettingsGet: vi.fn(),
 }));
 
 const projectMutationMocks = vi.hoisted(() => ({
@@ -112,6 +113,24 @@ describe("WorkspacePage", () => {
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
     apiMocks.fileTagSettingsGet.mockReset();
+    apiMocks.aiSettingsGet.mockReset();
+    apiMocks.projectsList.mockResolvedValue([]);
+    apiMocks.workspacePageGet.mockResolvedValue({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    apiMocks.workspaceStatusGet.mockResolvedValue({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    apiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.aiSettingsGet.mockResolvedValue(null);
     desktopApiMocks.openProjectWindow.mockClear();
     desktopApiMocks.focusProjectWindow.mockClear();
     desktopApiMocks.openFolder.mockClear();
@@ -167,7 +186,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByText("To Do List")).toBeInTheDocument();
+    expect(screen.getByText("Todo List")).toBeInTheDocument();
     expect(screen.getByTestId("workspace-overview-view-switch")).toBeInTheDocument();
   });
 
@@ -192,7 +211,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByText("To Do List")).toBeInTheDocument();
+    expect(screen.getByText("Todo List")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("AI")).not.toBeInTheDocument();
     });
@@ -686,6 +705,46 @@ describe("WorkspacePage", () => {
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
   });
 
+  it("opens a workspace record focus page when a sidebar record is double clicked", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.projectsList.mockResolvedValueOnce([]);
+    apiMocks.workspacePageGet.mockResolvedValueOnce({
+      quickNote: null,
+      records: [
+        {
+          id: 7,
+          title: "预算复盘",
+          contentMarkdown: "命中记录内容",
+          contentHtml: "<p>命中记录内容</p>",
+          createdAt: "2026-04-06T08:00:00.000Z",
+          updatedAt: "2026-04-06T09:00:00.000Z",
+          tags: [],
+        },
+      ],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    apiMocks.workspaceStatusGet.mockResolvedValueOnce({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+
+    renderPage(["/?view=record"]);
+
+    const sidebar = await screen.findByLabelText("工作区导航侧边栏");
+    await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
+
+    fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /预算复盘/ }));
+
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7");
+  });
+
   it("creates a workspace record from the sidebar and opens its focus page", async () => {
     const user = userEvent.setup();
 
@@ -717,7 +776,9 @@ describe("WorkspacePage", () => {
       html: "<p></p>",
       tagIds: [],
     });
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/99");
+    await waitFor(() => {
+      expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/99");
+    });
     expect(screen.queryByPlaceholderText("记录标题")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -231,7 +231,9 @@ vi.mock("../document/DocumentImportTagDialog", () => ({
 }));
 
 vi.mock("../tags/EntityTagEditor", () => ({
-  EntityTagEditor: () => <div>EntityTagEditor</div>,
+  EntityTagEditor: ({ inputRef }: { inputRef?: Ref<HTMLInputElement> }) => (
+    <input ref={inputRef} aria-label="项目记录标签输入" placeholder="#标签" />
+  ),
 }));
 
 vi.mock("../todo", () => ({
@@ -384,6 +386,131 @@ describe("ProjectOverviewPage", () => {
     expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 
+  it("expands and collapses long project record content without entering editing", async () => {
+    const scrollHeightSpy = mockCollapsibleScrollHeight(() => 460);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+            <Routes>
+              <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      const expandButton = await screen.findByRole("button", { name: "展开全部" });
+      fireEvent.mouseDown(expandButton, { button: 0 });
+      fireEvent.click(expandButton);
+
+      expect(await screen.findByRole("button", { name: "收起" })).toBeInTheDocument();
+      expect(screen.queryByLabelText(/写记录/)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "收起" }));
+      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
+    } finally {
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
+  it("does not reserve an empty tag row when a project record has no tags", async () => {
+    const { projectMindApi } = await import("../../services/projectMindApi");
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(projectPageWithTaglessRecord());
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: /无标签记录/ });
+
+    expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
+    expect(
+      document.querySelector("#record-8 .project-history-record__tag-row"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the tag row hidden when a tagless project record enters editing normally", async () => {
+    const { projectMindApi } = await import("../../services/projectMindApi");
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(projectPageWithTaglessRecord());
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.mouseDown(await screen.findByRole("button", { name: /无标签记录/ }), { button: 0 });
+
+    expect(screen.getByLabelText(/写记录/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("项目记录标签输入")).not.toBeInTheDocument();
+    expect(
+      document.querySelector("#record-8 .project-history-record__tag-row"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens and focuses the tag editor from the project record header add tag button", async () => {
+    const { projectMindApi } = await import("../../services/projectMindApi");
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(projectPageWithTaglessRecord());
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const recordButton = await screen.findByRole("button", { name: /无标签记录/ });
+    expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(recordButton, { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("button", { name: "添加标签" }), { button: 0 });
+
+    const tagInput = await screen.findByLabelText("项目记录标签输入");
+    await waitFor(() => {
+      expect(tagInput).toHaveFocus();
+    });
+    expect(document.querySelector("#record-8 .project-history-record__tag-row")).toBeInTheDocument();
+  });
+
   it("opens the record context menu from an edited project record header but not the editor body", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -455,3 +582,46 @@ describe("ProjectOverviewPage", () => {
     expect(await screen.findByRole("button", { name: /目标记录/ })).toBeInTheDocument();
   });
 });
+
+function mockCollapsibleScrollHeight(getHeight: (element: HTMLElement) => number) {
+  return vi
+    .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockImplementation(function getScrollHeight(this: HTMLElement) {
+      if (this.classList.contains("project-history-record__collapsible")) {
+        return getHeight(this);
+      }
+
+      return 0;
+    });
+}
+
+function projectPageWithTaglessRecord() {
+  return {
+    project: {
+      id: 1,
+      name: "Alpha Project",
+      rootPath: "/tmp/alpha-project",
+      isArchived: false,
+      kind: "normal" as const,
+      quickNote: "",
+      quickNoteMarkdown: "",
+      quickNoteHtml: "",
+      status: "active",
+    },
+    records: [
+      {
+        id: 8,
+        projectId: 1,
+        title: "无标签记录",
+        contentMarkdown: "没有标签的内容",
+        contentHtml: "<p>没有标签的内容</p>",
+        createdAt: "2026-04-06T08:00:00.000Z",
+        updatedAt: "2026-04-06T09:00:00.000Z",
+        tags: [],
+      },
+    ],
+    unfinishedTodos: [],
+    finishedTodos: [],
+    documents: [],
+  };
+}

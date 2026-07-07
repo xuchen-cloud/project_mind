@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
@@ -180,12 +180,10 @@ export function TodoInlineProgressEditor({
         onOpenContactMention={onOpenContactMention ?? contactMentionOptions.onOpenContact}
       />
     </p>
-  ) : (
-    <p className="text-ui leading-[1.2rem] text-text-soft">点击添加子项...</p>
-  );
+  ) : null;
 
   if (!editable) {
-    return <div className="grid min-w-0 gap-1">{content}</div>;
+    return content ? <div className="grid min-w-0 gap-1">{content}</div> : null;
   }
 
   return (
@@ -220,7 +218,12 @@ export function TodoInlineProgressEditor({
           setContextMenu({ x: event.clientX, y: event.clientY });
         }}
       >
-        {content}
+        {content ?? (
+          <span className="todo-inline-progress-trigger__empty">
+            <Plus size={12} aria-hidden="true" />
+            添加子任务
+          </span>
+        )}
       </div>
       {contextMenu && displayLatestProgress ? (
         <ActionContextMenu

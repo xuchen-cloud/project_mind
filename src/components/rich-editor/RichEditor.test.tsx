@@ -1799,7 +1799,7 @@ describe("RichEditor context menus", () => {
     expect(within(submenu).queryByRole("menuitem", { name: "公式块" })).not.toBeInTheDocument();
   });
 
-  it("keeps selection actions ahead of the standard text menu", async () => {
+  it("places clipboard actions before selection actions in the selected text menu", async () => {
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -1807,7 +1807,7 @@ describe("RichEditor context menus", () => {
         selectionActions={[
           {
             key: "custom-selection-action",
-            label: "追加到项目默认笔记",
+            label: "移动到记录",
             icon: Copy,
             onSelect: vi.fn(),
           },
@@ -1826,8 +1826,12 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
 
     const menu = await screen.findByRole("menu", { name: "选区操作" });
+    const menuText = menu.textContent ?? "";
     const menuItems = within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? "");
-    expect(menuItems.slice(0, 2)).toEqual(["追加到项目默认笔记", "普通文本"]);
+    expect(menuText.indexOf("剪切")).toBeLessThan(menuText.indexOf("移动到记录"));
+    expect(menuText.indexOf("复制")).toBeLessThan(menuText.indexOf("移动到记录"));
+    expect(menuText.indexOf("粘贴")).toBeLessThan(menuText.indexOf("移动到记录"));
+    expect(menuItems.slice(0, 2)).toEqual(["移动到记录", "普通文本"]);
     expect(within(menu).getByText("技能")).toBeInTheDocument();
     expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();
   });

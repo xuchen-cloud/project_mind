@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-react";
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
@@ -29,6 +35,8 @@ import {
 } from "./todo-utils";
 
 const PROGRESS_STATUS_TRANSITION_MS = 420;
+const SUBITEM_CONTROLS_HOT_ZONE_PX = 28;
+const SUBITEM_CONTROLS_REVEAL_DELAY_MS = 180;
 
 type ProgressVisualState = "completing" | "restoring" | null;
 
@@ -84,11 +92,13 @@ export function TodoListItem({
   const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
   const [progressEditing, setProgressEditing] = useState(false);
+  const [subitemControlsVisible, setSubitemControlsVisible] = useState(false);
   const [progressTransitions, setProgressTransitions] = useState<
     Record<number, { progress: TodoProgressRecord; phase: ProgressVisualState }>
   >({});
   const expandButtonRef = useRef<HTMLButtonElement | null>(null);
   const progressTimersRef = useRef(new Map<number, number>());
+  const subitemControlsTimerRef = useRef<number | null>(null);
   const todoState = [
     todo.status === "finished" ? "finished" : "unfinished",
     expanded ? "expanded" : "",
@@ -117,6 +127,9 @@ export function TodoListItem({
       progress.status === "finished" && progressTransitions[progress.id]?.phase !== "completing",
   );
   const canExpand = finishedSubItems.length > 0;
+  const canShowSubitemControls = allowInlineProgress || canExpand;
+  const shouldShowSubitemControls =
+    canShowSubitemControls && (subitemControlsVisible || expanded || progressEditing);
   const expandedItemRef = useDismissOnOutside<HTMLElement>({
     enabled: expanded,
     onDismiss: () => onToggleExpanded(todo.id, false),
@@ -136,8 +149,18 @@ export function TodoListItem({
     return () => {
       progressTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
       progressTimersRef.current.clear();
+      clearSubitemControlsTimer();
     };
   }, []);
+
+  function clearSubitemControlsTimer() {
+    if (subitemControlsTimerRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(subitemControlsTimerRef.current);
+    subitemControlsTimerRef.current = null;
+  }
 
   function clearProgressTransition(progressId: number) {
     const timerId = progressTimersRef.current.get(progressId);
@@ -231,6 +254,32 @@ export function TodoListItem({
     );
   }
 
+  function handleCardPointerMove(event: ReactPointerEvent<HTMLElement>) {
+    if (!canShowSubitemControls || shouldShowSubitemControls) {
+      clearSubitemControlsTimer();
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const inHotZone = event.clientY >= rect.bottom - SUBITEM_CONTROLS_HOT_ZONE_PX;
+    if (!inHotZone) {
+      clearSubitemControlsTimer();
+      return;
+    }
+
+    if (subitemControlsTimerRef.current === null) {
+      subitemControlsTimerRef.current = window.setTimeout(() => {
+        subitemControlsTimerRef.current = null;
+        setSubitemControlsVisible(true);
+      }, SUBITEM_CONTROLS_REVEAL_DELAY_MS);
+    }
+  }
+
+  function handleCardPointerLeave() {
+    clearSubitemControlsTimer();
+    setSubitemControlsVisible(false);
+  }
+
   return (
     <article
       id={`todo-${todo.id}`}
@@ -249,93 +298,115 @@ export function TodoListItem({
         event.preventDefault();
         onOpenContextMenu(todo.id, event.clientX, event.clientY);
       }}
+      onPointerMove={handleCardPointerMove}
+      onPointerLeave={handleCardPointerLeave}
     >
       <div className={cn("todo-card__row", compact && "todo-card__row--compact")}>
         <div className="todo-card__main">
-          <div className="todo-card__headline">
-            <div className="todo-card__content">
-              <TodoInlineContentEditor
-                value={todo.content}
-                editable={allowInlineEdit}
-                internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
-                onOpenInternalReference={onOpenInternalReference}
-                onOpenContactMention={onOpenContactMention}
-                onEditingChange={setContentEditing}
-                onSave={(content) => onUpdateContent(todo.id, content)}
-              />
-            </div>
-            <button
-              type="button"
-              className={cn("todo-card__check", contentEditing && "todo-card__check--hidden")}
-              aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
-              aria-pressed={todo.status === "finished"}
-              disabled={toggling}
-              onClick={() => {
-                void handleToggle();
-              }}
-            >
-              <span className="todo-card__check-ring">
-                <span className="todo-card__check-glyph" aria-hidden="true">
-                  {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
-                </span>
-              </span>
-            </button>
-          </div>
-
-          {(todo.tags ?? []).length > 0 ? (
-            <EntityTagEditor
-              projectId={todo.projectId}
-              availableTags={availableTags}
-              tags={todo.tags ?? []}
-              compact
-              mode={contentEditing && onUpdateTags ? "edit" : "display"}
-              onChange={(tagIds) => onUpdateTags?.(todo.id, tagIds)}
-            />
-          ) : null}
-
-          {visibleUnfinishedSubItems.length > 0 ? (
-            <div className="todo-card__progress-stack">
-              {visibleUnfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
-            </div>
-          ) : null}
-
-          <div className="todo-card__subitem-row">
-            <TodoInlineProgressEditor
-              latestProgress={null}
-              editable={allowInlineProgress}
-              onError={onError}
-              internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
-              onOpenInternalReference={onOpenInternalReference}
-              onOpenContactMention={onOpenContactMention}
-              onEditingChange={setProgressEditing}
-              onSave={(payload) => onAddProgress(todo.id, payload)}
-              onUpdateLatestProgress={onUpdateProgress}
-              onDeleteLatestProgress={onDeleteProgress}
-            />
-            <IconButton
-              ref={expandButtonRef}
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={cn(
-                "todo-card__expand opacity-60 group-hover:opacity-100 group-focus-within:opacity-100",
-                progressEditing && "todo-card__expand--hidden",
-              )}
-              aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
-              disabled={!canExpand}
-              onClick={() => onToggleExpanded(todo.id)}
-            >
-              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </IconButton>
-          </div>
-
-          {expanded && canExpand ? (
-            <div className="todo-card__finished-panel">
-              <div className="grid">
-                {finishedSubItems.map((progress, index) => renderProgressItem(progress, index > 0))}
+          <div className="todo-card__primary">
+            <div className="todo-card__headline">
+              <div className="todo-card__content">
+                <TodoInlineContentEditor
+                  value={todo.content}
+                  editable={allowInlineEdit}
+                  internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+                  onOpenInternalReference={onOpenInternalReference}
+                  onOpenContactMention={onOpenContactMention}
+                  onEditingChange={setContentEditing}
+                  onSave={(content) => onUpdateContent(todo.id, content)}
+                />
               </div>
+              <button
+                type="button"
+                className={cn("todo-card__check", contentEditing && "todo-card__check--hidden")}
+                aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
+                aria-pressed={todo.status === "finished"}
+                disabled={toggling}
+                onClick={() => {
+                  void handleToggle();
+                }}
+              >
+                <span className="todo-card__check-ring">
+                  <span className="todo-card__check-glyph" aria-hidden="true">
+                    {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
+                  </span>
+                </span>
+              </button>
             </div>
-          ) : null}
+
+            {(todo.tags ?? []).length > 0 ? (
+              <div className="todo-card__tag-row">
+                <EntityTagEditor
+                  projectId={todo.projectId}
+                  availableTags={availableTags}
+                  tags={todo.tags ?? []}
+                  compact
+                  mode={contentEditing && onUpdateTags ? "edit" : "display"}
+                  onChange={(tagIds) => onUpdateTags?.(todo.id, tagIds)}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="todo-card__subtasks">
+            {visibleUnfinishedSubItems.length > 0 ? (
+              <div className="todo-card__progress-stack">
+                {visibleUnfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
+              </div>
+            ) : null}
+
+            {allowInlineProgress || canExpand ? (
+              <>
+                <div
+                  className={cn(
+                    "todo-card__subitem-row",
+                    shouldShowSubitemControls && "todo-card__subitem-row--visible",
+                  )}
+                >
+                  <div className="todo-card__add-subtask">
+                    <TodoInlineProgressEditor
+                      latestProgress={null}
+                      editable={allowInlineProgress}
+                      onError={onError}
+                      internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+                      onOpenInternalReference={onOpenInternalReference}
+                      onOpenContactMention={onOpenContactMention}
+                      onEditingChange={setProgressEditing}
+                      onSave={(payload) => onAddProgress(todo.id, payload)}
+                      onUpdateLatestProgress={onUpdateProgress}
+                      onDeleteLatestProgress={onDeleteProgress}
+                    />
+                  </div>
+                  {canExpand ? (
+                    <IconButton
+                      ref={expandButtonRef}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className={cn(
+                        "todo-card__expand",
+                        progressEditing && "todo-card__expand--hidden",
+                      )}
+                      aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
+                      onClick={() => onToggleExpanded(todo.id)}
+                    >
+                      {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </IconButton>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {expanded && canExpand ? (
+              <div className="todo-card__finished-panel">
+                <div className="grid">
+                  {finishedSubItems.map((progress, index) =>
+                    renderProgressItem(progress, index > 0),
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </article>
@@ -543,6 +614,26 @@ function TodoHistoryProgressItem({
       }}
     >
       <div className="flex min-w-0 items-start gap-2">
+        {showCheckbox ? (
+          <button
+            type="button"
+            className="todo-progress-item__check mt-0.5"
+            aria-label={
+              displayProgress.status === "finished" ? "标记子项未完成" : "标记子项完成"
+            }
+            aria-pressed={displayProgress.status === "finished"}
+            disabled={statusSaving || saving}
+            onClick={() => {
+              void handleToggleSubItem();
+            }}
+          >
+            <span className="todo-progress-item__check-ring">
+              <span className="todo-progress-item__check-glyph" aria-hidden="true">
+                {displayProgress.status === "finished" ? <Check size={11} /> : null}
+              </span>
+            </span>
+          </button>
+        ) : null}
         <p
           role={editable ? "button" : undefined}
           tabIndex={editable ? 0 : undefined}
@@ -576,26 +667,6 @@ function TodoHistoryProgressItem({
             />
           </span>
         </p>
-        {showCheckbox ? (
-          <button
-            type="button"
-            className="todo-progress-item__check mt-0.5"
-            aria-label={
-              displayProgress.status === "finished" ? "标记子项未完成" : "标记子项完成"
-            }
-            aria-pressed={displayProgress.status === "finished"}
-            disabled={statusSaving || saving}
-            onClick={() => {
-              void handleToggleSubItem();
-            }}
-          >
-            <span className="todo-progress-item__check-ring">
-              <span className="todo-progress-item__check-glyph" aria-hidden="true">
-                {displayProgress.status === "finished" ? <Check size={11} /> : <Circle size={10} />}
-              </span>
-            </span>
-          </button>
-        ) : null}
       </div>
       {contextMenu ? (
         <ActionContextMenu

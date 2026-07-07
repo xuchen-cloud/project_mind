@@ -367,6 +367,7 @@ export interface RichEditorSelectionPayload {
   text: string;
   markdown: string;
   html: string;
+  removeSelectionAndSave: () => Promise<unknown>;
 }
 
 export interface RichEditorController {
@@ -2052,6 +2053,28 @@ export function RichEditor({
     return persistEditor("manual", options);
   }, [onSave, persistEditor, readOnly]);
 
+  const removeSelectionAndSave = useCallback(
+    async ({ from, to }: { from: number; to: number }) => {
+      if (!editor || !onSave || readOnly) {
+        return undefined;
+      }
+
+      const docSize = editor.state.doc.content.size;
+      const safeFrom = clampNumber(from, 0, docSize);
+      const safeTo = clampNumber(to, safeFrom, docSize);
+
+      if (safeFrom < safeTo) {
+        const selection = TextSelection.create(editor.state.doc, safeFrom, safeTo);
+        editor.view.dispatch(
+          editor.state.tr.setSelection(selection).deleteSelection().scrollIntoView(),
+        );
+      }
+
+      return persistEditor("manual", { force: true });
+    },
+    [editor, onSave, persistEditor, readOnly],
+  );
+
   useEffect(() => {
     if (!controllerRef) {
       return;
@@ -2479,20 +2502,43 @@ export function RichEditor({
       return;
     }
 
+    let syncFrame = 0;
+    const closeCodeLanguageMenu = () => {
+      setCodeLanguagePanelOpen(false);
+      setCodeLanguageContextMenuOpen(false);
+      setCodeLanguageQuery("");
+    };
     const syncPosition = () => {
-      window.requestAnimationFrame(() => {
+      if (syncFrame) {
+        return;
+      }
+
+      syncFrame = window.requestAnimationFrame(() => {
+        syncFrame = 0;
         updateCodeToolbarPosition();
       });
     };
+    const closeOnScroll = () => {
+      closeCodeLanguageMenu();
+    };
+    const documentScrollOptions: AddEventListenerOptions = { passive: true, capture: true };
 
-    frame.addEventListener("scroll", syncPosition, { passive: true });
+    frame.addEventListener("scroll", closeOnScroll, { passive: true });
+    window.addEventListener("scroll", closeOnScroll, documentScrollOptions);
+    window.addEventListener("wheel", closeOnScroll, documentScrollOptions);
     window.addEventListener("resize", syncPosition);
 
     return () => {
-      frame.removeEventListener("scroll", syncPosition);
+      window.cancelAnimationFrame(syncFrame);
+      frame.removeEventListener("scroll", closeOnScroll);
+      window.removeEventListener("scroll", closeOnScroll, documentScrollOptions);
+      window.removeEventListener("wheel", closeOnScroll, documentScrollOptions);
       window.removeEventListener("resize", syncPosition);
     };
-  }, [activeCodeBlockInfo, updateCodeToolbarPosition]);
+  }, [
+    activeCodeBlockInfo,
+    updateCodeToolbarPosition,
+  ]);
 
   useEffect(() => {
     if (!editor) {
@@ -2544,6 +2590,7 @@ export function RichEditor({
       applyCodeBlockLanguage(editor, activeCodeBlockInfo.pos, normalized);
       setCodeLanguageQuery("");
       setCodeLanguagePanelOpen(false);
+      setCodeLanguageContextMenuOpen(false);
       editor.commands.focus();
     },
     [activeCodeBlockInfo, editor],
@@ -2554,6 +2601,9 @@ export function RichEditor({
       return;
     }
 
+    setCodeLanguagePanelOpen(false);
+    setCodeLanguageContextMenuOpen(false);
+    setCodeLanguageQuery("");
     applyPlainTextCodeBlocksLanguage(editor, activeCodeBlockInfo.language);
     editor.commands.focus();
   }, [activeCodeBlockInfo, editor]);
@@ -3080,7 +3130,9 @@ export function RichEditor({
         event.preventDefault();
         const selectionPayload =
           hasTextSelection && selectionActions && selectionActions.length > 0
-            ? buildRichEditorSelectionPayload(editor)
+            ? buildRichEditorSelectionPayload(editor, {
+                removeSelectionAndSave,
+              })
             : null;
 
         if (selectionPayload && selectionActions && selectionActions.length > 0) {
@@ -3175,6 +3227,7 @@ export function RichEditor({
       handleInsertImage,
       insertTable,
       pushToast,
+      removeSelectionAndSave,
       runEditorRewriteAction,
       selectionActions,
       rewriteUnavailableReason,
@@ -3635,7 +3688,7 @@ export function RichEditor({
         </div>
       ) : null}
 
-      {activeCodeBlockInfo ? (
+      {activeCodeBlockInfo && (codeLanguagePanelOpen || codeLanguageContextMenuOpen) ? (
         <CodeLanguageFloatingToolbar
           ref={codeToolbarRef}
           position={codeToolbarPosition}
@@ -4188,12 +4241,7 @@ const CodeLanguageFloatingToolbar = forwardRef<
   return (
     <div
       ref={setRefs}
-      className={[
-        "rich-editor__code-language-popover",
-        open || contextMenuOpen ? "rich-editor__code-language-popover--open" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className="rich-editor__code-language-popover rich-editor__code-language-popover--open"
       style={{
         left: `${position?.left ?? 0}px`,
         top: `${position?.top ?? 0}px`,
@@ -4201,28 +4249,6 @@ const CodeLanguageFloatingToolbar = forwardRef<
       }}
       aria-label="代码类型"
     >
-      <div className="rich-editor__code-language-actions">
-        <button
-          type="button"
-          className="rich-editor__code-language-button"
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          onClick={() => {
-            onContextMenuOpenChange(false);
-            onOpenChange(!open);
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenChange(false);
-            onContextMenuOpenChange(true);
-          }}
-        >
-          <span>{codeLanguageLabel(normalizedLanguage)}</span>
-          <span aria-hidden="true">▾</span>
-        </button>
-      </div>
-
       {contextMenuOpen ? (
         <div className="rich-editor__code-language-context-panel" role="menu" aria-label="代码类型应用范围">
           <button
@@ -4767,7 +4793,13 @@ function buildTableContextMenuActions(groups: ToolbarItem[][]) {
   });
 }
 
-function buildRichEditorSelectionPayload(editor: Editor): RichEditorSelectionPayload | null {
+function buildRichEditorSelectionPayload(
+  editor: Editor,
+  options: {
+    removeSelectionAndSave: (range: { from: number; to: number }) => Promise<unknown>;
+  },
+): RichEditorSelectionPayload | null {
+  const { selection: editorSelection } = editor.state;
   const selection = buildEditorRewriteSelection(editor);
 
   if (!selection || !selection.expandedMarkdown.trim()) {
@@ -4778,6 +4810,11 @@ function buildRichEditorSelectionPayload(editor: Editor): RichEditorSelectionPay
     text: selection.selectedText.trim(),
     markdown: selection.expandedMarkdown.trim(),
     html: renderMarkdownToHtml(selection.expandedMarkdown),
+    removeSelectionAndSave: () =>
+      options.removeSelectionAndSave({
+        from: editorSelection.from,
+        to: editorSelection.to,
+      }),
   };
 }
 
@@ -4816,21 +4853,26 @@ function buildSelectionContextMenuActions({
     },
   }));
 
+  const textActions = buildTextContextMenuActions({
+    editor,
+    readOnly,
+    hasTextSelection: true,
+    defaultCodeLanguage,
+    editorSkills,
+    rewriteUnavailableReason,
+    onOpenAiSettings,
+    onOpenAiEdit,
+    onRunEditorSkill,
+    onUnavailableAction,
+  });
+  const clipboardActions = textActions.slice(0, 2);
+  const remainingTextActions = textActions.slice(2);
+
   return [
+    ...clipboardActions,
     ...customActions,
     { type: "separator", key: "selection-actions-separator" } satisfies ContextMenuAction,
-    ...buildTextContextMenuActions({
-      editor,
-      readOnly,
-      hasTextSelection: true,
-      defaultCodeLanguage,
-      editorSkills,
-      rewriteUnavailableReason,
-      onOpenAiSettings,
-      onOpenAiEdit,
-      onRunEditorSkill,
-      onUnavailableAction,
-    }),
+    ...remainingTextActions,
   ];
 }
 

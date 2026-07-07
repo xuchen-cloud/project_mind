@@ -670,6 +670,23 @@ export function WorkspaceLayout({
     [activeProjectId, activeRecordId, navigate, queryClient, refreshProjectScope],
   );
 
+  const saveActiveProjectFocusRecord = useCallback(async () => {
+    if (
+      activeRecordId === null ||
+      activeProjectId === null ||
+      !/^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
+    ) {
+      return true;
+    }
+
+    const saveResult = await requestProjectRecordFocusSave({
+      projectId: activeProjectId,
+      noteId: activeRecordId,
+    });
+
+    return saveResult !== "failed";
+  }, [activeProjectId, activeRecordId, location.pathname]);
+
   const handleSearchSelect = useCallback(
     (result: WorkspaceSearchResult) => {
       setSearchInput("");
@@ -1141,23 +1158,41 @@ export function WorkspaceLayout({
             }}
             onOpenRecord={(recordId) => {
               void (async () => {
+                const isProjectRecordFocusPage =
+                  /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+
                 if (
                   activeRecordId !== null &&
                   activeRecordId !== recordId &&
-                  activeProjectId === activeProject.id &&
-                  /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
+                  activeProjectId === activeProject.id
                 ) {
-                  const saveResult = await requestProjectRecordFocusSave({
-                    projectId: activeProject.id,
-                    noteId: activeRecordId,
-                  });
-
-                  if (saveResult === "failed") {
+                  const saved = await saveActiveProjectFocusRecord();
+                  if (!saved) {
                     return;
                   }
                 }
 
-                navigate(projectPath(activeProject.id, recordFocusId(recordId)));
+                navigate(
+                  isProjectRecordFocusPage
+                    ? recordPath(activeProject.id, recordId)
+                    : projectPath(activeProject.id, recordFocusId(recordId)),
+                );
+              })();
+            }}
+            onFocusRecord={(recordId) => {
+              void (async () => {
+                if (
+                  activeRecordId !== null &&
+                  activeRecordId !== recordId &&
+                  activeProjectId === activeProject.id
+                ) {
+                  const saved = await saveActiveProjectFocusRecord();
+                  if (!saved) {
+                    return;
+                  }
+                }
+
+                navigate(recordPath(activeProject.id, recordId));
               })();
             }}
             onRenameRecord={renameProjectSidebarRecord}

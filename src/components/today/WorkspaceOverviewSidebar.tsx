@@ -54,6 +54,7 @@ interface WorkspaceOverviewSidebarProps {
   onArchiveProject: (projectId: number) => void;
   onDeleteProject: (project: ProjectListItem) => void;
   onOpenRecord: (recordId: number) => void;
+  onFocusRecord?: (recordId: number) => void;
   onCreateRecord: () => void;
 }
 
@@ -78,6 +79,7 @@ export function WorkspaceOverviewSidebar({
   onArchiveProject,
   onDeleteProject,
   onOpenRecord,
+  onFocusRecord,
   onCreateRecord,
 }: WorkspaceOverviewSidebarProps) {
   const {
@@ -421,6 +423,10 @@ export function WorkspaceOverviewSidebar({
                           : "border-transparent hover:border-border hover:bg-bg",
                       )}
                       onClick={() => onOpenRecord(record.id)}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        onFocusRecord?.(record.id);
+                      }}
                     >
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
                         <NotebookText size={15} />

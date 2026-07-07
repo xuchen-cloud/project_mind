@@ -312,6 +312,17 @@ export function WorkspaceRecordFocusPage() {
     navigate(projectPath(projectId));
   }
 
+  async function refreshWorkspaceTodos() {
+    try {
+      await Promise.all([
+        workspacePageQuery.refetch(),
+        projectsQuery.refetch(),
+      ]);
+    } catch (error) {
+      pushToast({ tone: "error", title: "刷新 Todo 失败", detail: String(error) });
+    }
+  }
+
   async function openProjectInNewWindow(projectId: number) {
     const project = visibleProjects.find((item) => item.id === projectId);
     if (!project) {
@@ -474,6 +485,24 @@ export function WorkspaceRecordFocusPage() {
               navigate(`/workspace/records/${recordId}`);
             })();
           }}
+          onFocusRecord={(recordId) => {
+            void (async () => {
+              if (recordId === noteId) {
+                return;
+              }
+
+              try {
+                const saved = await saveCurrentRecord();
+                if (!saved) {
+                  return;
+                }
+              } catch {
+                return;
+              }
+
+              navigate(`/workspace/records/${recordId}`);
+            })();
+          }}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
         />
       ) : null}
@@ -605,7 +634,7 @@ export function WorkspaceRecordFocusPage() {
 
       {workspacePageQuery.data ? (
         <TodoRail
-          title="To Do List"
+          title="Todo List"
           scopeLabel="整个工作区"
           unfinishedTodos={workspacePageQuery.data.unfinishedTodos}
           finishedTodos={workspacePageQuery.data.finishedTodos}
@@ -631,6 +660,8 @@ export function WorkspaceRecordFocusPage() {
           }
           onDeleteProgress={(progressId) => todoProgressDeleteMutation.mutateAsync({ progressId })}
           onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
+          onRefresh={refreshWorkspaceTodos}
+          refreshing={workspacePageQuery.isFetching || projectsQuery.isFetching}
           onError={(message) => {
             pushToast({ tone: "error", title: "Todo 处理失败", detail: message });
           }}

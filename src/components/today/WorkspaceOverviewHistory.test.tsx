@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceRecord } from "../../lib/types";
@@ -29,6 +29,11 @@ function render(ui: ReactElement) {
   );
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="current path">{location.pathname}</output>;
+}
+
 vi.mock("../rich-editor", () => ({
   getRenderableRichTextHtml: ({ html, markdown }: { html?: string; markdown?: string }) =>
     html ?? (markdown ? `<p>${markdown}</p>` : ""),
@@ -40,7 +45,7 @@ vi.mock("../rich-editor", () => ({
     eagerManagedImages?: boolean;
   }) => {
     richEditorMocks.richTextViewerProps.push(props);
-    return <div>{toPlainText(props.html ?? "")}</div>;
+    return <div>{renderMockViewerContent(props.html ?? "")}</div>;
   },
   RichEditor: ({
     html,
@@ -185,6 +190,195 @@ describe("WorkspaceOverviewHistory", () => {
     expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 
+  it("does not show the expand button when record content fits the default height", async () => {
+    const scrollHeightSpy = mockCollapsibleScrollHeight(() => 180);
+
+    try {
+      render(
+        <WorkspaceOverviewHistory
+          notes={[baseNote]}
+          focusId={null}
+          composeRecord={false}
+          pageWidthMode="adaptive"
+          availableTags={[]}
+          onCreateRecord={vi.fn()}
+          onUpdateRecord={vi.fn()}
+          onDeleteRecord={vi.fn()}
+          onCloseCompose={vi.fn()}
+          contactMentionOptions={{}}
+          onOpenInternalReference={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "展开全部" })).not.toBeInTheDocument();
+      });
+    } finally {
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
+  it("expands and collapses long record content without entering editing", async () => {
+    const scrollHeightSpy = mockCollapsibleScrollHeight(() => 460);
+
+    try {
+      render(
+        <WorkspaceOverviewHistory
+          notes={[
+            {
+              ...baseNote,
+              contentMarkdown: "很长的记录",
+              contentHtml: "<p>很长的记录</p>",
+            },
+          ]}
+          focusId={null}
+          composeRecord={false}
+          pageWidthMode="adaptive"
+          availableTags={[]}
+          onCreateRecord={vi.fn()}
+          onUpdateRecord={vi.fn()}
+          onDeleteRecord={vi.fn()}
+          onCloseCompose={vi.fn()}
+          contactMentionOptions={{}}
+          onOpenInternalReference={vi.fn()}
+        />,
+      );
+
+      const expandButton = await screen.findByRole("button", { name: "展开全部" });
+      fireEvent.mouseDown(expandButton, { button: 0 });
+      fireEvent.click(expandButton);
+
+      expect(await screen.findByRole("button", { name: "收起" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "收起" }));
+      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
+    } finally {
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
+  it("shows the expand button after an image load makes content exceed the default height", async () => {
+    let imageLoaded = false;
+    const scrollHeightSpy = mockCollapsibleScrollHeight((element) =>
+      element.querySelector("img") && imageLoaded ? 460 : 180,
+    );
+
+    try {
+      render(
+        <WorkspaceOverviewHistory
+          notes={[
+            {
+              ...baseNote,
+              contentHtml: '<p>图片记录</p><img src="asset://workspace-image.png" alt="截图">',
+            },
+          ]}
+          focusId={null}
+          composeRecord={false}
+          pageWidthMode="adaptive"
+          availableTags={[]}
+          onCreateRecord={vi.fn()}
+          onUpdateRecord={vi.fn()}
+          onDeleteRecord={vi.fn()}
+          onCloseCompose={vi.fn()}
+          contactMentionOptions={{}}
+          onOpenInternalReference={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "展开全部" })).not.toBeInTheDocument();
+      });
+
+      imageLoaded = true;
+      fireEvent.load(screen.getByAltText("截图"));
+
+      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
+    } finally {
+      scrollHeightSpy.mockRestore();
+    }
+  });
+
+  it("does not reserve an empty tag row when a workspace record has no tags", () => {
+    render(
+      <WorkspaceOverviewHistory
+        notes={[baseNote]}
+        focusId={null}
+        composeRecord={false}
+        pageWidthMode="adaptive"
+        availableTags={[]}
+        onCreateRecord={vi.fn()}
+        onUpdateRecord={vi.fn()}
+        onDeleteRecord={vi.fn()}
+        onCloseCompose={vi.fn()}
+        contactMentionOptions={{}}
+        onOpenInternalReference={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
+    expect(
+      document.querySelector("#record-7 .project-history-record__tag-row"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the tag row hidden when a tagless workspace record enters editing normally", () => {
+    render(
+      <WorkspaceOverviewHistory
+        notes={[baseNote]}
+        focusId={null}
+        composeRecord={false}
+        pageWidthMode="adaptive"
+        availableTags={[]}
+        onCreateRecord={vi.fn()}
+        onUpdateRecord={vi.fn()}
+        onDeleteRecord={vi.fn()}
+        onCloseCompose={vi.fn()}
+        contactMentionOptions={{}}
+        onOpenInternalReference={vi.fn()}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), { button: 0 });
+
+    expect(screen.getByLabelText("工作区记录编辑器")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
+    expect(
+      document.querySelector("#record-7 .project-history-record__tag-row"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens and focuses the tag editor from the workspace record header add tag button", async () => {
+    render(
+      <WorkspaceOverviewHistory
+        notes={[baseNote]}
+        focusId={null}
+        composeRecord={false}
+        pageWidthMode="adaptive"
+        availableTags={[]}
+        onCreateRecord={vi.fn()}
+        onUpdateRecord={vi.fn()}
+        onDeleteRecord={vi.fn()}
+        onCloseCompose={vi.fn()}
+        contactMentionOptions={{}}
+        onOpenInternalReference={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("button", { name: "添加标签" }), { button: 0 });
+
+    const tagInput = await screen.findByPlaceholderText("#标签");
+    await waitFor(() => {
+      expect(tagInput).toHaveFocus();
+    });
+    expect(screen.queryByLabelText("工作区记录编辑器")).toBeInTheDocument();
+    expect(document.querySelector("#record-7 .project-history-record__tag-row")).toBeInTheDocument();
+  });
+
   it("enters editing only after clicking the record surface", () => {
     render(
       <WorkspaceOverviewHistory
@@ -210,6 +404,37 @@ describe("WorkspaceOverviewHistory", () => {
     const editor = screen.getByLabelText("工作区记录编辑器");
     expect(editor).toBeInTheDocument();
     expect(document.getElementById("record-7")).toHaveClass("project-history-record--editing");
+  });
+
+  it("opens the workspace record focus page from a browse-mode double click", async () => {
+    render(
+      <>
+        <WorkspaceOverviewHistory
+          notes={[baseNote]}
+          focusId={null}
+          composeRecord={false}
+          pageWidthMode="adaptive"
+          availableTags={[]}
+          onCreateRecord={vi.fn()}
+          onUpdateRecord={vi.fn()}
+          onDeleteRecord={vi.fn()}
+          onCloseCompose={vi.fn()}
+          contactMentionOptions={{}}
+          onOpenInternalReference={vi.fn()}
+        />
+        <LocationProbe />
+      </>,
+    );
+
+    const recordSurface = screen.getByRole("button", { name: /已有记录/ });
+    fireEvent.mouseDown(recordSurface, { button: 0, detail: 1 });
+    expect(screen.getByLabelText("工作区记录编辑器")).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.getElementById("record-7")!, { button: 0, detail: 2 });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("current path")).toHaveTextContent("/workspace/records/7");
+    });
   });
 
   it("deletes a record from the context menu", async () => {
@@ -362,4 +587,31 @@ function toPlainText(html: string) {
 
 function toHtml(value: string) {
   return value.trim().length > 0 ? `<p>${value.trim()}</p>` : "<p></p>";
+}
+
+function renderMockViewerContent(html: string) {
+  const text = toPlainText(html);
+
+  if (/<img\b/i.test(html)) {
+    return (
+      <>
+        <span>{text}</span>
+        <img src="mock-image.png" alt="截图" />
+      </>
+    );
+  }
+
+  return text;
+}
+
+function mockCollapsibleScrollHeight(getHeight: (element: HTMLElement) => number) {
+  return vi
+    .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockImplementation(function getScrollHeight(this: HTMLElement) {
+      if (this.classList.contains("project-history-record__collapsible")) {
+        return getHeight(this);
+      }
+
+      return 0;
+    });
 }

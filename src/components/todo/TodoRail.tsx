@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ListTodo, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListTodo, Plus, RefreshCw } from "lucide-react";
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
@@ -56,6 +56,8 @@ interface TodoRailProps {
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
+  onRefresh?: () => Promise<unknown> | void;
+  refreshing?: boolean;
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
@@ -77,6 +79,8 @@ export function TodoRail({
   onUpdateProgress,
   onDeleteProgress,
   onDeleteTodo,
+  onRefresh,
+  refreshing = false,
   onError,
   onOpenInternalReference,
   onOpenContactMention,
@@ -378,6 +382,19 @@ export function TodoRail({
           <h2 className="text-title font-medium text-text">{title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {onRefresh ? (
+            <IconButton
+              type="button"
+              size="sm"
+              variant="secondary"
+              aria-label="刷新代办列表"
+              title="刷新代办列表"
+              disabled={refreshing}
+              onClick={() => void onRefresh()}
+            >
+              <RefreshCw className={cn(refreshing && "spin")} size={14} />
+            </IconButton>
+          ) : null}
           <IconButton
             type="button"
             size="sm"

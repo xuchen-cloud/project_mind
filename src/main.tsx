@@ -2,6 +2,7 @@ import "@fontsource/work-sans/400.css";
 import "@fontsource/work-sans/500.css";
 import "@fontsource/work-sans/600.css";
 import "@fontsource-variable/noto-sans-sc/wght.css";
+import "./styles/file-icons.css";
 import "./styles/app.css";
 
 import React from "react";

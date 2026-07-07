@@ -838,4 +838,213 @@ describe("WorkspaceLayout", () => {
     expect(await screen.findByText("record focus route body")).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
   });
+
+  it("opens a project record focus page when a sidebar record is double clicked", async () => {
+    const LocationDisplay = () => {
+      const location = useLocation();
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+    };
+
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({
+      project: {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        summaryMarkdown: "",
+        summaryHtml: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      activityFeed: [],
+      records: [
+        {
+          id: 7,
+          projectId: 1,
+          activityId: null,
+          title: "Kickoff Review",
+          contentMarkdown: "记录内容",
+          contentHtml: "<p>记录内容</p>",
+          defaultCodeLanguage: null,
+          tags: [],
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      projectDocuments: [],
+      conclusionGroups: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId",
+              element: (
+                <>
+                  <div>project route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+            {
+              path: "projects/:projectId/records/:noteId",
+              element: (
+                <>
+                  <div>record focus route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
+
+    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7");
+  });
+
+  it("keeps single-click record navigation inside the project focus page", async () => {
+    const user = userEvent.setup();
+    const LocationDisplay = () => {
+      const location = useLocation();
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
+    };
+
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+    ]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({
+      project: {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        summaryMarkdown: "",
+        summaryHtml: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 1,
+        unorganizedCount: 0,
+        openTodoCount: 1,
+      },
+      activityFeed: [],
+      records: [
+        {
+          id: 7,
+          projectId: 1,
+          activityId: null,
+          title: "Current Record",
+          contentMarkdown: "当前记录",
+          contentHtml: "<p>当前记录</p>",
+          defaultCodeLanguage: null,
+          tags: [],
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          id: 8,
+          projectId: 1,
+          activityId: null,
+          title: "Next Record",
+          contentMarkdown: "下一条记录",
+          contentHtml: "<p>下一条记录</p>",
+          defaultCodeLanguage: null,
+          tags: [],
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      projectDocuments: [],
+      conclusionGroups: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId/records/:noteId",
+              element: (
+                <>
+                  <div>record focus route body</div>
+                  <LocationDisplay />
+                </>
+              ),
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1/records/7"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    await user.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
+
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+  });
 });

@@ -68,18 +68,6 @@ const CodeHighlightDecorations = Extension.create({
         props: {
           decorations(state) {
             const decorations: Decoration[] = [];
-            let activeCodeBlockPos: number | null = null;
-
-            const { $from } = state.selection;
-
-            for (let depth = $from.depth; depth >= 0; depth -= 1) {
-              const node = $from.node(depth);
-
-              if (node.type.name === "codeBlock") {
-                activeCodeBlockPos = depth > 0 ? $from.before(depth) : 0;
-                break;
-              }
-            }
 
             state.doc.descendants((node, pos) => {
               if (node.type.name !== "codeBlock") {
@@ -99,49 +87,47 @@ const CodeHighlightDecorations = Extension.create({
                 );
               });
 
-              if (pos !== activeCodeBlockPos) {
-                decorations.push(
-                  Decoration.widget(
-                    pos + 1,
-                    () => {
-                      const button = document.createElement("button");
-                      button.type = "button";
-                      button.className = "rich-editor__inline-code-language-button";
-                      button.textContent = codeLanguageLabel(language);
-                      button.addEventListener("mousedown", (event) => {
-                        if (event.button !== 0) {
-                          return;
-                        }
+              decorations.push(
+                Decoration.widget(
+                  pos + 1,
+                  () => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "rich-editor__inline-code-language-button";
+                    button.textContent = codeLanguageLabel(language);
+                    button.addEventListener("mousedown", (event) => {
+                      if (event.button !== 0) {
+                        return;
+                      }
 
-                        event.preventDefault();
-                        event.stopPropagation();
-                        button.dispatchEvent(
-                          new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
-                            bubbles: true,
-                            detail: { mode: "select", pos },
-                          }),
-                        );
-                      });
-                      button.addEventListener("contextmenu", (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        button.dispatchEvent(
-                          new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
-                            bubbles: true,
-                            detail: { mode: "document", pos },
-                          }),
-                        );
-                      });
-                      return button;
-                    },
-                    {
-                      key: `code-language-${pos}-${language}`,
-                      side: -1,
-                      ignoreSelection: true,
-                    },
-                  ),
-                );
-              }
+                      event.preventDefault();
+                      event.stopPropagation();
+                      button.dispatchEvent(
+                        new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
+                          bubbles: true,
+                          detail: { mode: "select", pos },
+                        }),
+                      );
+                    });
+                    button.addEventListener("contextmenu", (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      button.dispatchEvent(
+                        new CustomEvent(RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT, {
+                          bubbles: true,
+                          detail: { mode: "document", pos },
+                        }),
+                      );
+                    });
+                    return button;
+                  },
+                  {
+                    key: `code-language-${pos}-${language}`,
+                    side: -1,
+                    ignoreSelection: true,
+                  },
+                ),
+              );
 
               return false;
             });

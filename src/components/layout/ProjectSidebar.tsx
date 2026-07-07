@@ -13,23 +13,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
-  File,
-  FileArchive,
-  FileCode2,
-  FileImage,
   FilePlus2,
-  FileSpreadsheet,
   FileText,
   Files,
   FolderKanban,
   FolderOpen,
   NotebookText,
   Pencil,
-  Presentation,
   Star,
   Trash2,
   Upload,
-  type LucideIcon,
 } from "lucide-react";
 
 import type { DocumentRecord, DocumentTagRecord, FileTagColorKey } from "../../lib/types";
@@ -100,6 +93,7 @@ interface ProjectSidebarProps {
   onActiveRecordTagIdChange?: (tagId: number | null) => void;
   onOpenProject: () => void;
   onOpenRecord?: (recordId: number) => void;
+  onFocusRecord?: (recordId: number) => void;
   onCreateRecord?: () => void;
   onRenameRecord?: (record: ProjectSidebarRecordItem, title: string) => Promise<unknown> | unknown;
   onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
@@ -136,6 +130,7 @@ export function ProjectSidebar({
   onActiveRecordTagIdChange,
   onOpenProject,
   onOpenRecord,
+  onFocusRecord,
   onCreateRecord,
   onRenameRecord,
   onDeleteRecord,
@@ -921,6 +916,14 @@ export function ProjectSidebar({
                           openRecord(record.id);
                         }
                       }}
+                      onDoubleClick={(event) => {
+                        if (isEditingRecord) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        onFocusRecord?.(record.id);
+                      }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         if (isEditingRecord) {
@@ -957,13 +960,7 @@ export function ProjectSidebar({
                             }}
                           />
                         ) : (
-                          <p
-                            className="truncate text-body font-medium text-text"
-                            onDoubleClick={(event) => {
-                              event.stopPropagation();
-                              beginRenameRecord(record);
-                            }}
-                          >
+                          <p className="truncate text-body font-medium text-text">
                             {record.title || "未命名记录"}
                           </p>
                         )}
@@ -1020,7 +1017,7 @@ export function ProjectSidebar({
                         }}
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
+                        <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
                           {resolveDocumentIcon(document)}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -1045,7 +1042,7 @@ export function ProjectSidebar({
                             ) : (
                               <>
                                 <p
-                                  className="min-w-0 flex-1 truncate text-[12px] font-medium leading-4.5 text-text"
+                                  className="min-w-0 flex-1 truncate font-sans text-[12px] font-medium leading-4.5 text-text"
                                   title={document.baseName}
                                   onDoubleClick={(event) => {
                                     stopPropagation(event);
@@ -1309,16 +1306,126 @@ function resolveDocumentIcon(document: ProjectSidebarDocumentItem) {
   const mimeType = document.mimeType.trim().toLowerCase();
   const extension = document.name.split(".").pop()?.trim().toLowerCase() ?? "";
 
-  let Icon: LucideIcon = File;
+  const type = resolveDocumentIconType(mimeType, extension);
 
-  if (mimeType.startsWith("image/")) Icon = FileImage;
-  else if (mimeType.includes("spreadsheet") || ["csv", "xls", "xlsx"].includes(extension)) Icon = FileSpreadsheet;
-  else if (mimeType.includes("presentation") || ["ppt", "pptx", "key"].includes(extension)) Icon = Presentation;
-  else if (mimeType.includes("zip") || mimeType.includes("compressed") || ["zip", "rar", "7z", "gz", "tar"].includes(extension)) Icon = FileArchive;
-  else if (mimeType.includes("json") || mimeType.includes("xml") || ["js", "ts", "tsx", "jsx", "rs", "py", "json", "md"].includes(extension)) Icon = FileCode2;
-  else if (mimeType.startsWith("text/") || ["txt", "pdf", "doc", "docx"].includes(extension)) Icon = FileText;
+  return (
+    <span
+      className={cn("pm-file-icon", type.iconClass, type.colorClass)}
+      title={type.title}
+      aria-hidden="true"
+    />
+  );
+}
 
-  return <Icon size={15} aria-hidden="true" />;
+function resolveDocumentIconType(mimeType: string, extension: string): {
+  iconClass: string;
+  title: string;
+  colorClass: string;
+} {
+  if (
+    mimeType.startsWith("image/") ||
+    ["apng", "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--image",
+      title: "图片",
+      colorClass: "pm-file-icon--blue",
+    };
+  }
+
+  if (
+    mimeType.includes("spreadsheet") ||
+    mimeType.includes("excel") ||
+    ["csv", "numbers", "ods", "xls", "xlsm", "xlsx"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--excel",
+      title: "表格",
+      colorClass: "pm-file-icon--green",
+    };
+  }
+
+  if (
+    mimeType.includes("presentation") ||
+    mimeType.includes("powerpoint") ||
+    ["key", "odp", "pps", "ppsx", "ppt", "pptx"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--powerpoint",
+      title: "演示文稿",
+      colorClass: "pm-file-icon--orange",
+    };
+  }
+
+  if (
+    mimeType.includes("wordprocessingml") ||
+    mimeType.includes("msword") ||
+    ["doc", "docx", "odt", "pages", "rtf"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--word",
+      title: "Word 文档",
+      colorClass: "pm-file-icon--blue",
+    };
+  }
+
+  if (mimeType === "application/pdf" || extension === "pdf") {
+    return {
+      iconClass: "pm-file-icon--default",
+      title: "PDF",
+      colorClass: "pm-file-icon--red",
+    };
+  }
+
+  if (
+    mimeType.includes("message") ||
+    mimeType.includes("rfc822") ||
+    ["eml", "msg"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--outlook",
+      title: "邮件",
+      colorClass: "pm-file-icon--purple",
+    };
+  }
+
+  if (
+    mimeType.includes("zip") ||
+    mimeType.includes("compressed") ||
+    ["7z", "br", "bz2", "gz", "rar", "tar", "tgz", "zip"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--default",
+      title: "压缩包",
+      colorClass: "pm-file-icon--yellow",
+    };
+  }
+
+  if (
+    mimeType.includes("json") ||
+    mimeType.includes("xml") ||
+    ["css", "go", "html", "js", "json", "jsx", "md", "py", "rs", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)
+  ) {
+    return {
+      iconClass: "pm-file-icon--default",
+      title: "代码",
+      colorClass: "pm-file-icon--purple",
+    };
+  }
+
+  if (mimeType.startsWith("text/") || ["log", "txt"].includes(extension)) {
+    return {
+      iconClass: "pm-file-icon--default",
+      title: "文本",
+      colorClass: "pm-file-icon--grey",
+    };
+  }
+
+  return {
+    iconClass: "pm-file-icon--default",
+    title: "文件",
+    colorClass: "pm-file-icon--grey",
+  };
 }
 
 function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {

@@ -71,6 +71,44 @@ describe("ProjectSidebar records", () => {
     expect(onOpenRecord).toHaveBeenCalledWith(11);
   });
 
+  it("calls onFocusRecord when a record item is double clicked", () => {
+    const onOpenRecord = vi.fn();
+    const onFocusRecord = vi.fn();
+
+    renderWithProviders(
+      <ProjectSidebar
+        project={{
+          id: 1,
+          name: "Alpha Project",
+          rootPath: "/tmp/alpha-project",
+          isArchived: false,
+        }}
+        records={[
+          {
+            id: 11,
+            title: "Kickoff Review",
+            typeLabel: "会议记录",
+            contentMarkdown: "记录内容",
+            tags: [],
+            updatedAt: "2026-04-06T08:00:00.000Z",
+          },
+        ]}
+        documents={[]}
+        activeRecordId={null}
+        onOpenProject={vi.fn()}
+        onOpenRecord={onOpenRecord}
+        onFocusRecord={onFocusRecord}
+        onCreateRecord={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    fireEvent.doubleClick(screen.getByText("Kickoff Review").closest("button")!);
+
+    expect(onFocusRecord).toHaveBeenCalledWith(11);
+    expect(onOpenRecord).not.toHaveBeenCalled();
+  });
+
   it("uses controlled record search and tag filter props", async () => {
     const user = userEvent.setup();
     const onRecordQueryChange = vi.fn();

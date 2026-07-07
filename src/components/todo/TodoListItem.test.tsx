@@ -59,6 +59,34 @@ describe("TodoListItem", () => {
     });
   });
 
+  it("scopes the priority accent to the primary todo area", () => {
+    renderItem({
+      tags: [{ id: 12, label: "法务", colorKey: "red" }],
+      progresses: [
+        {
+          id: 31,
+          todoId: todo.id,
+          content: "等待财务确认",
+          progressDate: "2026-04-05",
+          createdAt: "2026-04-05T09:00:00.000Z",
+          status: "unfinished",
+          completedAt: null,
+          orderIndex: 0,
+        },
+      ],
+    });
+
+    const primary = document.querySelector("#todo-7 .todo-card__primary");
+    const subtasks = document.querySelector("#todo-7 .todo-card__subtasks");
+
+    expect(primary).toBeInTheDocument();
+    expect(subtasks).toBeInTheDocument();
+    expect(primary).toHaveTextContent("Review the contract draft");
+    expect(primary).toHaveTextContent("法务");
+    expect(primary).not.toHaveTextContent("等待财务确认");
+    expect(subtasks).toHaveTextContent("等待财务确认");
+  });
+
   it("keeps the main completion button on the headline row", async () => {
     const user = userEvent.setup();
     const onToggleStatus = vi.fn(async () => undefined);
@@ -133,6 +161,12 @@ describe("TodoListItem", () => {
     );
 
     expect(screen.getByText("等待财务确认")).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("button", { name: "标记子项完成" })
+        .compareDocumentPosition(screen.getByText("等待财务确认")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "标记子项完成" }));
 
     expect(onUpdateProgress).toHaveBeenCalledWith(31, {
@@ -258,12 +292,36 @@ describe("TodoListItem", () => {
   });
 
   it("renders the expand control alongside the add-subitem row", () => {
-    renderItem();
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "已完成确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "finished",
+            completedAt: "2026-04-05T09:10:00.000Z",
+            orderIndex: 0,
+          },
+        ],
+      },
+      { allowInlineProgress: true },
+    );
 
     const expandButton = screen.getByRole("button", { name: "展开已完成子项" });
     const subitemRow = expandButton.closest(".todo-card__subitem-row");
 
     expect(subitemRow).toBeTruthy();
+    expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
+  });
+
+  it("does not render the expand control when there are no completed subitems", () => {
+    renderItem({}, { allowInlineProgress: true });
+
+    expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
   });
 
   it("hides the completion button while editing todo content", async () => {
@@ -282,9 +340,25 @@ describe("TodoListItem", () => {
   it("hides the expand button while editing a subitem", async () => {
     const user = userEvent.setup();
 
-    renderItem({}, { allowInlineProgress: true });
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "已完成确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "finished",
+            completedAt: "2026-04-05T09:10:00.000Z",
+            orderIndex: 0,
+          },
+        ],
+      },
+      { allowInlineProgress: true },
+    );
 
-    await user.click(screen.getByRole("button", { name: "点击添加子项..." }));
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
 
     expect(screen.getByRole("button", { name: "展开已完成子项" }).className).toContain(
       "todo-card__expand--hidden",
