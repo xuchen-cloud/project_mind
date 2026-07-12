@@ -59,29 +59,29 @@
 }
 
 .pm-file-icon--blue::before {
-  color: #4d8ea6;
+  color: var(--color-file-tag-teal);
 }
 
 .pm-file-icon--green::before {
-  color: #7f9b3f;
+  color: var(--color-file-tag-green);
 }
 
 .pm-file-icon--grey::before {
-  color: #7f7f7f;
+  color: var(--color-file-tag-slate);
 }
 
 .pm-file-icon--orange::before {
-  color: #b8743d;
+  color: var(--color-file-tag-orange);
 }
 
 .pm-file-icon--purple::before {
-  color: #9c6392;
+  color: var(--color-file-tag-rose);
 }
 
 .pm-file-icon--red::before {
-  color: #ac4142;
+  color: var(--color-file-tag-red);
 }
 
 .pm-file-icon--yellow::before {
-  color: #bf8c45;
+  color: var(--color-file-tag-amber);
 }

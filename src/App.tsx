@@ -20,6 +20,7 @@ import {
 } from "./lib/formatters";
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
+import { queryKeys } from "./lib/queryKeys";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
@@ -37,6 +38,7 @@ import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
+import { useResidentProjectPages } from "./hooks/useResidentProjectPages";
 import {
   ProjectSidebar,
   type ProjectSidebarDocumentItem,
@@ -59,7 +61,6 @@ function workspaceScopedQueryKeys() {
   return [
     ["projects"],
     ["project-page"],
-    ["dashboard"],
     ["search"],
     ["workspace-todos"],
     ["workspace-page"],
@@ -131,11 +132,6 @@ function buildWorkspaceOverviewRoute(searchParams: URLSearchParams) {
   return `${workspacePath()}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
-const PROJECT_OVERVIEW_RESIDENCY_MS = 30 * 60 * 1000;
-const PROJECT_OVERVIEW_RESIDENCY_PRUNE_MS = 60 * 1000;
-const WORKSPACE_OVERVIEW_RESIDENCY_MS = 30 * 60 * 1000;
-const WORKSPACE_OVERVIEW_RESIDENCY_PRUNE_MS = 60 * 1000;
-
 export function WorkspaceLayout({
   cacheProjectOverviewPages = false,
 }: {
@@ -190,19 +186,19 @@ export function WorkspaceLayout({
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
 
   const workspaceStatusQuery = useQuery({
-    queryKey: ["workspace-status"],
+    queryKey: queryKeys.workspaceStatus,
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const hasWorkspace = Boolean(currentWorkspace);
 
   const projectsQuery = useQuery({
-    queryKey: ["projects", "all"],
+    queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
     enabled: hasWorkspace,
   });
   const richTextStyleQuery = useQuery({
-    queryKey: ["rich-text-style"],
+    queryKey: queryKeys.richTextStyle,
     queryFn: projectMindApi.richTextStyleGet,
     enabled: hasWorkspace,
   });
@@ -229,7 +225,7 @@ export function WorkspaceLayout({
     [activeProjectId, projectsQuery.data],
   );
   const projectSidebarOverviewQuery = useQuery({
-    queryKey: ["project-page", activeProjectId],
+    queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () =>
       projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
@@ -264,7 +260,7 @@ export function WorkspaceLayout({
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 260);
   const searchQuery = useQuery({
-    queryKey: ["search", debouncedSearch],
+    queryKey: queryKeys.search(debouncedSearch),
     queryFn: () => projectMindApi.workspaceSearch({ query: debouncedSearch }),
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
   });
@@ -281,9 +277,6 @@ export function WorkspaceLayout({
   const [unlockPending, setUnlockPending] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
-  const projectOverviewLastActiveAtRef = useRef<Map<number, number>>(new Map());
-  const [residentProjectOverviewIds, setResidentProjectOverviewIds] = useState<number[]>([]);
-  const workspaceOverviewLastActiveAtRef = useRef<number | null>(null);
   const [workspaceOverviewResident, setWorkspaceOverviewResident] = useState(false);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
@@ -319,12 +312,12 @@ export function WorkspaceLayout({
         clearProjectRecentPaths();
         resetAiJobSync();
       }
-      queryClient.setQueryData(["workspace-status"], snapshot);
+      queryClient.setQueryData(queryKeys.workspaceStatus, snapshot);
       if (!clearScopedState) {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["workspace-status"] }),
-          queryClient.invalidateQueries({ queryKey: ["ai-settings"] }),
-          queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.workspaceStatus }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
         ]);
       }
       if (snapshot.currentWorkspace) {
@@ -504,6 +497,22 @@ export function WorkspaceLayout({
       navigate(resolveProjectNavigationPath(projectId));
     },
     [navigate, openProjectTab, projectWindow, resolveProjectNavigationPath],
+  );
+
+  const prefetchProject = useCallback(
+    (projectId: number) => {
+      void Promise.all([
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.projectPage(projectId),
+          queryFn: () => projectMindApi.projectPageGet({ projectId }),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.fileTags.project(projectId),
+          queryFn: () => projectMindApi.fileTagSettingsGet({ projectId }),
+        }),
+      ]);
+    },
+    [queryClient],
   );
 
   const openProjectInNewWindow = useCallback(
@@ -751,86 +760,15 @@ export function WorkspaceLayout({
     }
   }, [activeProjectId, openProjectTab]);
 
-  useEffect(() => {
-    if (!hasWorkspace || !cacheProjectOverviewPages) {
-      projectOverviewLastActiveAtRef.current.clear();
-      setResidentProjectOverviewIds([]);
-      return;
-    }
-
-    const openIds = new Set(openProjectIds);
-    for (const projectId of projectOverviewLastActiveAtRef.current.keys()) {
-      if (!openIds.has(projectId)) {
-        projectOverviewLastActiveAtRef.current.delete(projectId);
-      }
-    }
-
-    setResidentProjectOverviewIds((current) =>
-      current.filter((projectId) => openIds.has(projectId)),
-    );
-  }, [cacheProjectOverviewPages, hasWorkspace, openProjectIds]);
-
-  useEffect(() => {
-    if (
-      !hasWorkspace ||
-      !cacheProjectOverviewPages ||
-      activeProjectId === null
-    ) {
-      return;
-    }
-
-    projectOverviewLastActiveAtRef.current.set(activeProjectId, Date.now());
-    setResidentProjectOverviewIds((current) =>
-      current.includes(activeProjectId) ? current : [...current, activeProjectId],
-    );
-  }, [activeProjectId, cacheProjectOverviewPages, hasWorkspace]);
+  const residentProjectOverviewIds = useResidentProjectPages({
+    activeProjectId,
+    enabled: cacheProjectOverviewPages,
+    hasWorkspace,
+    openProjectIds,
+  });
 
   useEffect(() => {
     if (!hasWorkspace || !cacheProjectOverviewPages) {
-      return;
-    }
-
-    const pruneResidentProjectOverviewPages = () => {
-      const now = Date.now();
-      const openIds = new Set(openProjectIds);
-
-      setResidentProjectOverviewIds((current) =>
-        current.filter((projectId) => {
-          if (!openIds.has(projectId)) {
-            projectOverviewLastActiveAtRef.current.delete(projectId);
-            return false;
-          }
-
-          if (projectId === activeProjectId) {
-            return true;
-          }
-
-          const lastActiveAt =
-            projectOverviewLastActiveAtRef.current.get(projectId) ?? 0;
-          const keepResident =
-            now - lastActiveAt <= PROJECT_OVERVIEW_RESIDENCY_MS;
-
-          if (!keepResident) {
-            projectOverviewLastActiveAtRef.current.delete(projectId);
-          }
-
-          return keepResident;
-        }),
-      );
-    };
-
-    pruneResidentProjectOverviewPages();
-    const intervalId = window.setInterval(
-      pruneResidentProjectOverviewPages,
-      PROJECT_OVERVIEW_RESIDENCY_PRUNE_MS,
-    );
-
-    return () => window.clearInterval(intervalId);
-  }, [activeProjectId, cacheProjectOverviewPages, hasWorkspace, openProjectIds]);
-
-  useEffect(() => {
-    if (!hasWorkspace || !cacheProjectOverviewPages) {
-      workspaceOverviewLastActiveAtRef.current = null;
       setWorkspaceOverviewResident(false);
       setWorkspaceOverviewRoute(workspacePath());
       return;
@@ -840,7 +778,6 @@ export function WorkspaceLayout({
       return;
     }
 
-    workspaceOverviewLastActiveAtRef.current = Date.now();
     setWorkspaceOverviewResident(true);
     setWorkspaceOverviewRoute(`${location.pathname}${location.search}`);
   }, [
@@ -850,37 +787,6 @@ export function WorkspaceLayout({
     location.search,
     workspaceOverviewActive,
   ]);
-
-  useEffect(() => {
-    if (!hasWorkspace || !cacheProjectOverviewPages) {
-      return;
-    }
-
-    const pruneResidentWorkspaceOverviewPage = () => {
-      if (workspaceOverviewActive) {
-        return;
-      }
-
-      const lastActiveAt = workspaceOverviewLastActiveAtRef.current;
-      if (
-        lastActiveAt === null ||
-        Date.now() - lastActiveAt <= WORKSPACE_OVERVIEW_RESIDENCY_MS
-      ) {
-        return;
-      }
-
-      workspaceOverviewLastActiveAtRef.current = null;
-      setWorkspaceOverviewResident(false);
-    };
-
-    pruneResidentWorkspaceOverviewPage();
-    const intervalId = window.setInterval(
-      pruneResidentWorkspaceOverviewPage,
-      WORKSPACE_OVERVIEW_RESIDENCY_PRUNE_MS,
-    );
-
-    return () => window.clearInterval(intervalId);
-  }, [cacheProjectOverviewPages, hasWorkspace, workspaceOverviewActive]);
 
   useEffect(() => {
     if (
@@ -1024,6 +930,7 @@ export function WorkspaceLayout({
       onOpenProject={(projectId) => {
         void openProjectInTab(projectId);
       }}
+      onPrefetchProject={prefetchProject}
       onCloseProject={closeProjectTabAndMaybeNavigate}
       onOpenToday={() => navigate(workspacePath())}
       onOpenSettings={() => openSettings("file-tags", activeProjectId)}
@@ -1065,6 +972,7 @@ export function WorkspaceLayout({
         className="h-full min-h-0"
         style={{ display: workspaceOverviewActive ? undefined : "none" }}
         aria-hidden={workspaceOverviewActive ? undefined : true}
+        inert={!workspaceOverviewActive}
       >
         <WorkspacePage
           activeProjectIdOverride={null}
@@ -1108,6 +1016,7 @@ export function WorkspaceLayout({
               className="h-full min-h-0"
               style={{ display: active ? undefined : "none" }}
               aria-hidden={active ? undefined : true}
+              inert={!active}
             >
               <ProjectOverviewPage
                 projectIdOverride={project.id}

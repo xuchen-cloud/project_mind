@@ -30,6 +30,7 @@ interface WorkspaceTopBarProps {
   searchResults: WorkspaceSearchResult[];
   searching: boolean;
   onOpenProject: (projectId: number) => void;
+  onPrefetchProject?: (projectId: number) => void;
   onCloseProject?: (projectId: number) => void;
   onOpenToday: () => void;
   onOpenSettings: () => void;
@@ -64,6 +65,7 @@ export function WorkspaceTopBar({
   searchResults,
   searching,
   onOpenProject,
+  onPrefetchProject,
   onCloseProject,
   onOpenToday,
   onOpenSettings,
@@ -221,6 +223,8 @@ export function WorkspaceTopBar({
                 type="button"
                 className="workspace-topbar__tab-trigger flex h-full min-w-0 flex-1 items-center overflow-hidden rounded-[var(--radius-6)] px-2"
                 onClick={() => onOpenProject(project.id)}
+                onPointerEnter={() => onPrefetchProject?.(project.id)}
+                onFocus={() => onPrefetchProject?.(project.id)}
                 onContextMenu={(event) => {
                   if (!onDetachProject) {
                     return;

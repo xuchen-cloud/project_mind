@@ -1,4 +1,4 @@
-import { forwardRef, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Suspense, forwardRef, lazy, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Editor, JSONContent } from "@tiptap/core";
@@ -129,10 +129,23 @@ import {
 } from "./codeHighlight";
 import { RichEditorAiMenu, type RichEditorAiMenuIconAction, type RichEditorAiMenuTextAction } from "./RichEditorAiMenu";
 import { RichEditorRewriteWidget } from "./RichEditorRewriteWidget";
-import { ImageAnnotationDialog } from "./ImageAnnotationDialog";
 import { buildRichEditorExtensions, RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT } from "./extensions";
 import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
 import { normalizeRichEditorValue } from "./normalize";
+import {
+  createEditorSearchPlugin,
+  editorSearchMatchesEqual,
+  findEditorSearchMatches,
+  RICH_EDITOR_SEARCH_PLUGIN_KEY,
+  scrollSearchMatchIntoComfortView,
+  type EditorSearchMatch,
+} from "./editorSearch";
+
+const ImageAnnotationDialog = lazy(() =>
+  import("./ImageAnnotationDialog").then((module) => ({
+    default: module.ImageAnnotationDialog,
+  })),
+);
 import type {
   RichEditorAsset,
   RichEditorAssetHandlers,
@@ -164,9 +177,6 @@ export const RICH_EDITOR_FOCUS_REQUEST_EVENT =
   "project-mind-rich-editor-focus-request";
 const RICH_EDITOR_REWRITE_WIDGET_PLUGIN_KEY = new PluginKey(
   "project-mind-rich-editor-rewrite-widget",
-);
-const RICH_EDITOR_SEARCH_PLUGIN_KEY = new PluginKey(
-  "project-mind-rich-editor-search",
 );
 
 type SaveReason =
@@ -314,10 +324,6 @@ interface EditorRewriteWidgetState {
   errorMessage?: string | null;
 }
 
-interface EditorSearchMatch {
-  from: number;
-  to: number;
-}
 
 interface RichEditorProps {
   html?: string;
@@ -1163,10 +1169,15 @@ export function RichEditor({
     [flushDeferredEditorUi],
   );
 
+  const editorExtensions = useMemo(
+    () => buildRichEditorExtensions(placeholder),
+    [placeholder],
+  );
+
   const editor = useEditor({
     immediatelyRender: false,
     editable: !effectiveReadOnly,
-    extensions: buildRichEditorExtensions(placeholder),
+    extensions: editorExtensions,
     content: normalizeHtml(html ?? defaultHtml),
     editorProps: {
       attributes: {
@@ -3958,16 +3969,27 @@ export function RichEditor({
         />
       ) : null}
       {annotationDialog ? (
-        <ImageAnnotationDialog
-          open
-          readOnly={readOnly}
-          title={annotationDialog.title}
-          imageSrc={annotationDialog.imageSrc}
-          initialAnnotationState={annotationDialog.annotationState}
-          imageSize={annotationDialog.imageSize}
-          onClose={() => setAnnotationDialog(null)}
-          onSave={handleAnnotationSave}
-        />
+        <Suspense
+          fallback={
+            <div
+              className="fixed inset-0 z-[140] grid place-items-center bg-black/20 text-sm text-text-muted"
+              role="status"
+            >
+              正在加载图片标注…
+            </div>
+          }
+        >
+          <ImageAnnotationDialog
+            open
+            readOnly={readOnly}
+            title={annotationDialog.title}
+            imageSrc={annotationDialog.imageSrc}
+            initialAnnotationState={annotationDialog.annotationState}
+            imageSize={annotationDialog.imageSize}
+            onClose={() => setAnnotationDialog(null)}
+            onSave={handleAnnotationSave}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
@@ -5532,151 +5554,6 @@ function applyPlainTextCodeBlocksLanguage(editor: Editor, language: string) {
   if (tr.docChanged) {
     view.dispatch(tr.scrollIntoView());
   }
-}
-
-function findEditorSearchMatches(editor: Editor, query: string): EditorSearchMatch[] {
-  const trimmedQuery = query.trim();
-  const normalizedQuery = trimmedQuery.toLocaleLowerCase("zh-Hans-CN");
-
-  if (!normalizedQuery) {
-    return [];
-  }
-
-  const matches: EditorSearchMatch[] = [];
-  editor.state.doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) {
-      return true;
-    }
-
-    const normalizedText = node.text.toLocaleLowerCase("zh-Hans-CN");
-    let index = normalizedText.indexOf(normalizedQuery);
-
-    while (index !== -1) {
-      matches.push({
-        from: pos + index,
-        to: pos + index + trimmedQuery.length,
-      });
-      index = normalizedText.indexOf(normalizedQuery, index + Math.max(1, normalizedQuery.length));
-    }
-
-    return true;
-  });
-
-  return matches;
-}
-
-function editorSearchMatchesEqual(left: EditorSearchMatch[], right: EditorSearchMatch[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((match, index) => {
-    const other = right[index];
-    return other && match.from === other.from && match.to === other.to;
-  });
-}
-
-function scrollSearchMatchIntoComfortView(editor: Editor, position: number) {
-  if (editor.isDestroyed) {
-    return;
-  }
-
-  let coords: { top: number; bottom: number };
-  try {
-    coords = editor.view.coordsAtPos(position);
-  } catch {
-    return;
-  }
-
-  const scrollParent = findScrollableParent(editor.view.dom);
-  const comfortTopRatio = 0.28;
-  const comfortBottomRatio = 0.72;
-
-  if (scrollParent) {
-    const parentRect = scrollParent.getBoundingClientRect();
-    const comfortTop = parentRect.top + parentRect.height * comfortTopRatio;
-    const comfortBottom = parentRect.top + parentRect.height * comfortBottomRatio;
-    const matchMiddle = (coords.top + coords.bottom) / 2;
-
-    if (matchMiddle < comfortTop || matchMiddle > comfortBottom) {
-      scrollParent.scrollBy({
-        top: matchMiddle - (parentRect.top + parentRect.height * 0.42),
-        behavior: "smooth",
-      });
-    }
-    return;
-  }
-
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-  const comfortTop = viewportHeight * comfortTopRatio;
-  const comfortBottom = viewportHeight * comfortBottomRatio;
-  const matchMiddle = (coords.top + coords.bottom) / 2;
-
-  if (matchMiddle < comfortTop || matchMiddle > comfortBottom) {
-    window.scrollBy({
-      top: matchMiddle - viewportHeight * 0.42,
-      behavior: "smooth",
-    });
-  }
-}
-
-function findScrollableParent(node: HTMLElement): HTMLElement | null {
-  let parent = node.parentElement;
-
-  while (parent && parent !== document.body && parent !== document.documentElement) {
-    const style = window.getComputedStyle(parent);
-    const canScrollY =
-      /(auto|scroll|overlay)/u.test(style.overflowY) ||
-      /(auto|scroll|overlay)/u.test(style.overflow);
-
-    if (canScrollY && parent.scrollHeight > parent.clientHeight) {
-      return parent;
-    }
-
-    parent = parent.parentElement;
-  }
-
-  return null;
-}
-
-function createEditorSearchPlugin(options: {
-  getSearchState: () => {
-    open: boolean;
-    matches: EditorSearchMatch[];
-    activeIndex: number;
-  };
-}) {
-  return new Plugin({
-    key: RICH_EDITOR_SEARCH_PLUGIN_KEY,
-    state: {
-      init: () => 0,
-      apply(tr, value) {
-        return tr.getMeta(RICH_EDITOR_SEARCH_PLUGIN_KEY) ?? value;
-      },
-    },
-    props: {
-      decorations(state) {
-        const searchState = options.getSearchState();
-
-        if (!searchState.open || searchState.matches.length === 0) {
-          return null;
-        }
-
-        const decorations = searchState.matches
-          .filter((match) => match.from >= 0 && match.to <= state.doc.content.size && match.from < match.to)
-          .map((match, index) =>
-            Decoration.inline(match.from, match.to, {
-              class:
-                index === searchState.activeIndex
-                  ? "rich-editor__search-match rich-editor__search-match--active"
-                  : "rich-editor__search-match",
-            }),
-          );
-
-        return DecorationSet.create(state.doc, decorations);
-      },
-    },
-  });
 }
 
 function createEditorRewriteWidgetPlugin(options: {

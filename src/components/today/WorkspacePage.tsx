@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { parseRouteId, projectPath, recordFocusId, workspacePath } from "../../lib/formatters";
 import { pageWidthContainerClass, withPageWidthClass } from "../../lib/pageWidth";
+import { queryKeys } from "../../lib/queryKeys";
 import {
   getRenderableRichTextHtml,
   renderMarkdownToHtml,
@@ -93,24 +94,29 @@ export function WorkspacePage({
   const currentView = buttonView ?? routeView;
 
   const projectsQuery = useQuery({
-    queryKey: ["projects", "all"],
+    queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
+    enabled: visible,
   });
   const workspacePageQuery = useQuery({
-    queryKey: ["workspace-page"],
+    queryKey: queryKeys.workspacePage,
     queryFn: projectMindApi.workspacePageGet,
+    enabled: visible,
   });
   const workspaceStatusQuery = useQuery({
-    queryKey: ["workspace-status"],
+    queryKey: queryKeys.workspaceStatus,
     queryFn: projectMindApi.workspaceStatusGet,
+    enabled: visible,
   });
   const workspaceTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", "workspace"],
+    queryKey: queryKeys.fileTags.workspace,
     queryFn: () => projectMindApi.fileTagSettingsGet({}),
+    enabled: visible,
   });
   const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
+    queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
+    enabled: visible,
   });
 
   const visibleProjects = useMemo(
@@ -349,7 +355,7 @@ export function WorkspacePage({
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      ["file-tag-settings", "workspace"],
+      queryKeys.fileTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -417,8 +423,8 @@ export function WorkspacePage({
       html: "<p></p>",
       tagIds: [],
     });
-    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-    await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
     navigate(`/workspace/records/${record.id}`);
   }
 
@@ -509,8 +515,8 @@ export function WorkspacePage({
       quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
       status: project.status,
     });
-    await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
-    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 
   function deleteProject(projectId: number) {
@@ -709,8 +715,8 @@ export function WorkspacePage({
                     defaultCodeLanguage: quickNoteCodeLanguage,
                     tagIds,
                   });
-                  await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-                  await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
                 }}
               />
             </section>
@@ -739,8 +745,8 @@ export function WorkspacePage({
                     html: externalizedValue.html,
                     tagIds,
                   });
-                  await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-                  await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
                 }}
                 onUpdateRecord={async (note, input) => {
                   const externalizedValue = await externalizeEmbeddedImageDataUrls(
@@ -755,13 +761,13 @@ export function WorkspacePage({
                     html: externalizedValue.html,
                     tagIds,
                   });
-                  await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-                  await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
                 }}
                 onDeleteRecord={async (noteId) => {
                   await workspaceRecordDeleteMutation.mutateAsync({ noteId });
-                  await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-                  await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
                 }}
                 onCloseCompose={closeComposeRecord}
                 contactMentionOptions={contactMentionOptions}

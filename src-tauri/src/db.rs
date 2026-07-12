@@ -14,17 +14,16 @@ use serde_json::{json, Map, Value};
 use crate::{
     ai_provider::{self, ResolvedAiProfile},
     models::{
-        AcceptedSuggestionResult, ActivityAttributeOption, ActivityAttributeOptionUpsertInput,
-        ActivityCardData, ActivityCreateInput, ActivityDigest, ActivityStatusOption,
-        ActivityStatusOptionUpsertInput, ActivityUpdateMetaInput, AiAcceptSuggestionInput,
-        AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
+        ActivityAttributeOption, ActivityAttributeOptionUpsertInput, ActivityCardData,
+        ActivityCreateInput, ActivityDigest, ActivityStatusOption, ActivityStatusOptionUpsertInput,
+        ActivityUpdateMetaInput, AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
         AiArtifactCitationRecord, AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord,
         AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
         AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
         AiEditorRewriteActionUpsertInput, AiEditorRewriteInput, AiEditorRewriteResult,
         AiEditorSkillDeleteInput, AiEditorSkillRecord, AiEditorSkillReorderInput,
-        AiEditorSkillUpsertInput, AiExecutionSettings, AiFeatureSettings, AiGenerateInput, AiJobEnqueueInput, AiJobResult,
-        AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
+        AiEditorSkillUpsertInput, AiExecutionSettings, AiFeatureSettings, AiJobEnqueueInput,
+        AiJobResult, AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
         AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot,
         AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput, ConclusionGroup,
         ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
@@ -35,18 +34,17 @@ use crate::{
         DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
         FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput, FileTagSettingsSnapshot,
         InternalReferenceResolveInput, InternalReferenceResolveResult,
-        InternalReferenceSearchInput, InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord,
-        ProjectRecordUpsertInput, ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectDeleteInput, ProjectIdInput,
-        ProjectListItem, ProjectPageData, ProjectRecord,
-        ProjectUpdateInput, ProjectsListInput,
-        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
-        RichTextStyleUpsertInput, WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput,
-        TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
-        TodoUpdateContentInput, TodoUpdatePriorityInput,
+        InternalReferenceSearchInput, InternalReferenceSearchResult, NoteRecord,
+        ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectDeleteInput,
+        ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
+        ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput, RichTextFontSelection,
+        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
+        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
+        TodoProgressRecord, TodoRecord, TodoUpdateContentInput, TodoUpdatePriorityInput,
         TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
         WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
-        WorkspaceNoteImageImportInput, WorkspaceRecordDeleteInput, WorkspaceRecord,
-        WorkspaceRecordUpsertInput, WorkspacePageData,
+        WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput,
+        WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordUpsertInput,
         WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
@@ -1309,10 +1307,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn project_update(
-        &mut self,
-        input: ProjectUpdateInput,
-    ) -> Result<ProjectRecord> {
+    pub fn project_update(&mut self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
         let project_name = match input.name.as_deref() {
             Some(value) => {
@@ -1871,7 +1866,7 @@ impl Database {
             SELECT id
             FROM workspace_notes
             WHERE note_kind = ?1
-            ORDER BY created_at DESC, id DESC
+            ORDER BY updated_at DESC, id DESC
             "#,
         )?;
         let ids = stmt
@@ -1905,7 +1900,14 @@ impl Database {
                         updated_at = ?5
                     WHERE id = ?6
                     "#,
-                    params![input.title, input.markdown, input.html, default_code_language, timestamp, note_id],
+                    params![
+                        input.title,
+                        input.markdown,
+                        input.html,
+                        default_code_language,
+                        timestamp,
+                        note_id
+                    ],
                 )?;
                 self.replace_workspace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note_id)
@@ -1979,7 +1981,13 @@ impl Database {
                         updated_at = ?4
                     WHERE id = ?5
                     "#,
-                    params![input.markdown, input.html, default_code_language, timestamp, note.id],
+                    params![
+                        input.markdown,
+                        input.html,
+                        default_code_language,
+                        timestamp,
+                        note.id
+                    ],
                 )?;
                 self.replace_workspace_note_tags(note.id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note.id)
@@ -3005,35 +3013,6 @@ impl Database {
         Ok(current)
     }
 
-    pub fn ai_generate_note_suggestions(
-        &mut self,
-        _input: AiGenerateInput,
-    ) -> Result<Vec<AiSuggestionRecord>> {
-        Err(anyhow!("AI suggestion generation has been removed"))
-    }
-
-    pub fn ai_accept_suggestion(
-        &mut self,
-        _input: AiAcceptSuggestionInput,
-    ) -> Result<AcceptedSuggestionResult> {
-        Err(anyhow!("AI suggestion acceptance has been removed"))
-    }
-
-    pub fn ai_artifact_get(
-        &mut self,
-        _input: AiArtifactGetInput,
-    ) -> Result<Option<AiArtifactRecord>> {
-        Err(anyhow!("AI artifacts have been removed"))
-    }
-
-    pub fn ai_artifact_refresh(&mut self, _input: AiArtifactGetInput) -> Result<AiArtifactRecord> {
-        Err(anyhow!("AI artifacts have been removed"))
-    }
-
-    pub fn ai_answer_question(&mut self, _input: AiAnswerQuestionInput) -> Result<AiAnswerResult> {
-        Err(anyhow!("AI Ask has been removed"))
-    }
-
     pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
         let profiles = self.fetch_ai_profiles().unwrap_or_else(|_| {
             let _ = self.clear_ai_profiles_and_bindings();
@@ -3143,47 +3122,53 @@ impl Database {
 
         let mut skills = self.ai_editor_skills_get()?;
         let now = now_iso();
-        let saved = if let Some(skill_id) = input.id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
-            let skill = skills
-                .iter_mut()
-                .find(|skill| skill.id == skill_id)
-                .ok_or_else(|| anyhow!("AI editor skill does not exist"))?;
-            skill.name = input.name.trim().to_string();
-            skill.icon = nullable_trimmed(input.icon.as_deref());
-            skill.description = nullable_trimmed(input.description.as_deref());
-            skill.prompt = input.prompt.trim().to_string();
-            skill.result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
-            skill.show_in_text_menu = input.show_in_text_menu;
-            skill.sort_order = input.sort_order.unwrap_or(skill.sort_order);
-            skill.enabled = input.enabled;
-            skill.updated_at = now.clone();
-            skill.clone()
-        } else {
-            if skills.len() >= AI_EDITOR_SKILL_LIMIT {
-                return Err(anyhow!(
-                    "AI editor skills cannot exceed {}",
-                    AI_EDITOR_SKILL_LIMIT
-                ));
-            }
-            let sort_order = input
-                .sort_order
-                .unwrap_or_else(|| skills.iter().map(|skill| skill.sort_order).max().unwrap_or(0) + 1);
-            let skill = AiEditorSkillRecord {
-                id: next_ai_editor_skill_id(&skills),
-                name: input.name.trim().to_string(),
-                icon: nullable_trimmed(input.icon.as_deref()),
-                description: nullable_trimmed(input.description.as_deref()),
-                prompt: input.prompt.trim().to_string(),
-                result_mode: normalize_ai_editor_skill_result_mode(&input.result_mode)?,
-                show_in_text_menu: input.show_in_text_menu,
-                sort_order,
-                enabled: input.enabled,
-                created_at: now.clone(),
-                updated_at: now,
+        let saved =
+            if let Some(skill_id) = input.id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                let skill = skills
+                    .iter_mut()
+                    .find(|skill| skill.id == skill_id)
+                    .ok_or_else(|| anyhow!("AI editor skill does not exist"))?;
+                skill.name = input.name.trim().to_string();
+                skill.icon = nullable_trimmed(input.icon.as_deref());
+                skill.description = nullable_trimmed(input.description.as_deref());
+                skill.prompt = input.prompt.trim().to_string();
+                skill.result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
+                skill.show_in_text_menu = input.show_in_text_menu;
+                skill.sort_order = input.sort_order.unwrap_or(skill.sort_order);
+                skill.enabled = input.enabled;
+                skill.updated_at = now.clone();
+                skill.clone()
+            } else {
+                if skills.len() >= AI_EDITOR_SKILL_LIMIT {
+                    return Err(anyhow!(
+                        "AI editor skills cannot exceed {}",
+                        AI_EDITOR_SKILL_LIMIT
+                    ));
+                }
+                let sort_order = input.sort_order.unwrap_or_else(|| {
+                    skills
+                        .iter()
+                        .map(|skill| skill.sort_order)
+                        .max()
+                        .unwrap_or(0)
+                        + 1
+                });
+                let skill = AiEditorSkillRecord {
+                    id: next_ai_editor_skill_id(&skills),
+                    name: input.name.trim().to_string(),
+                    icon: nullable_trimmed(input.icon.as_deref()),
+                    description: nullable_trimmed(input.description.as_deref()),
+                    prompt: input.prompt.trim().to_string(),
+                    result_mode: normalize_ai_editor_skill_result_mode(&input.result_mode)?,
+                    show_in_text_menu: input.show_in_text_menu,
+                    sort_order,
+                    enabled: input.enabled,
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+                skills.push(skill.clone());
+                skill
             };
-            skills.push(skill.clone());
-            skill
-        };
 
         normalize_ai_editor_skill_sort_orders(&mut skills);
         self.persist_ai_editor_skills(&skills)?;
@@ -3219,8 +3204,14 @@ impl Database {
         let mut order_by_id = BTreeMap::new();
         for (index, skill_id) in input.skill_ids.iter().enumerate() {
             let skill_id = skill_id.trim();
-            if skill_id.is_empty() || order_by_id.insert(skill_id.to_string(), index as i64 + 1).is_some() {
-                return Err(anyhow!("AI editor skill reorder contains duplicate or empty ids"));
+            if skill_id.is_empty()
+                || order_by_id
+                    .insert(skill_id.to_string(), index as i64 + 1)
+                    .is_some()
+            {
+                return Err(anyhow!(
+                    "AI editor skill reorder contains duplicate or empty ids"
+                ));
             }
         }
 
@@ -3422,7 +3413,8 @@ impl Database {
     }
 
     fn clear_ai_bindings(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM ai_capability_bindings", [])?;
+        self.conn
+            .execute("DELETE FROM ai_capability_bindings", [])?;
         Ok(())
     }
 
@@ -4035,8 +4027,8 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&conclusion_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let content: String = row.get(3)?;
-            let activity_title: String = row.get(4)?;
+            let content: String = row.get(2)?;
+            let project_title: String = row.get(3)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "conclusion".to_string(),
@@ -4047,14 +4039,14 @@ impl Database {
                         &normalize_internal_reference_label("conclusion", &content),
                         72,
                     ),
-                    subtitle: activity_title.clone(),
+                    subtitle: project_title.clone(),
                     matched_text: query.to_string(),
                 },
                 fields: build_workspace_search_fields([
                     (WORKSPACE_SEARCH_PRIORITY_CONCLUSION_CONTENT, content),
-                    (WORKSPACE_SEARCH_PRIORITY_ACTIVITY_META, activity_title),
+                    (WORKSPACE_SEARCH_PRIORITY_ACTIVITY_META, project_title),
                 ]),
-                updated_at: row.get(5)?,
+                updated_at: row.get(4)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4082,9 +4074,10 @@ impl Database {
                     subtitle: project_title,
                     matched_text: query.to_string(),
                 },
-                fields: build_workspace_search_fields([
-                    (WORKSPACE_SEARCH_PRIORITY_TODO_CONTENT, content),
-                ]),
+                fields: build_workspace_search_fields([(
+                    WORKSPACE_SEARCH_PRIORITY_TODO_CONTENT,
+                    content,
+                )]),
                 updated_at: row.get(4)?,
             })
         })?;
@@ -4114,9 +4107,10 @@ impl Database {
                     subtitle: project_title,
                     matched_text: query.to_string(),
                 },
-                fields: build_workspace_search_fields([
-                    (WORKSPACE_SEARCH_PRIORITY_DOCUMENT_NAME, title),
-                ]),
+                fields: build_workspace_search_fields([(
+                    WORKSPACE_SEARCH_PRIORITY_DOCUMENT_NAME,
+                    title,
+                )]),
                 updated_at: row.get(4)?,
             })
         })?;
@@ -4270,12 +4264,10 @@ impl Database {
                         subtitle: project_name,
                         updated_at: row.get(5)?,
                     },
-                    fields: build_internal_reference_search_fields([
-                        (
-                            INTERNAL_REFERENCE_PRIORITY_CONCLUSION_CONTENT,
-                            row.get::<_, String>(3)?,
-                        ),
-                    ]),
+                    fields: build_internal_reference_search_fields([(
+                        INTERNAL_REFERENCE_PRIORITY_CONCLUSION_CONTENT,
+                        row.get::<_, String>(3)?,
+                    )]),
                 })
             })?;
             candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4316,12 +4308,10 @@ impl Database {
                         subtitle: project_name,
                         updated_at: row.get(5)?,
                     },
-                    fields: build_internal_reference_search_fields([
-                        (
-                            INTERNAL_REFERENCE_PRIORITY_TODO_CONTENT,
-                            row.get::<_, String>(3)?,
-                        ),
-                    ]),
+                    fields: build_internal_reference_search_fields([(
+                        INTERNAL_REFERENCE_PRIORITY_TODO_CONTENT,
+                        row.get::<_, String>(3)?,
+                    )]),
                 })
             })?;
             candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4367,12 +4357,10 @@ impl Database {
                         subtitle: project_name,
                         updated_at: row.get(5)?,
                     },
-                    fields: build_internal_reference_search_fields([
-                        (
-                            INTERNAL_REFERENCE_PRIORITY_DOCUMENT_NAME,
-                            row.get::<_, String>(3)?,
-                        ),
-                    ]),
+                    fields: build_internal_reference_search_fields([(
+                        INTERNAL_REFERENCE_PRIORITY_DOCUMENT_NAME,
+                        row.get::<_, String>(3)?,
+                    )]),
                 })
             })?;
             candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4593,11 +4581,11 @@ impl Database {
         fs::create_dir_all(&source_root)?;
 
         let catalog = self.build_demo_seed_catalog()?;
-        let project_a =
+        let _project_a =
             self.seed_demo_customer_service_project(workspace_root, &source_root, &catalog)?;
-        let project_b =
+        let _project_b =
             self.seed_demo_lead_scoring_project(workspace_root, &source_root, &catalog)?;
-        let project_c =
+        let _project_c =
             self.seed_demo_contract_review_project(workspace_root, &source_root, &catalog)?;
 
         let mock_ai_profile_created = self.ensure_demo_mock_ai_profile_if_needed()?;
@@ -4652,7 +4640,6 @@ impl Database {
             DELETE FROM activities;
             DELETE FROM projects;
             DELETE FROM file_tag_options;
-            DELETE FROM record_type_options;
             DELETE FROM activity_attribute_options;
             DELETE FROM activity_status_options;
             DELETE FROM sqlite_sequence
@@ -4669,7 +4656,6 @@ impl Database {
               'activities',
               'projects',
               'file_tag_options',
-              'record_type_options',
               'activity_attribute_options',
               'activity_status_options'
             );
@@ -4746,19 +4732,12 @@ impl Database {
             profile_id: Some(profile.id),
             model: None,
         })?;
-        for capability in [
-            "assistant",
-            "summary",
-            "suggestion_generation",
-            "editor_rewrite",
-        ] {
-            self.ai_binding_upsert(AiCapabilityBindingUpsertInput {
-                capability: capability.to_string(),
-                use_default: true,
-                profile_id: None,
-                model: None,
-            })?;
-        }
+        self.ai_binding_upsert(AiCapabilityBindingUpsertInput {
+            capability: "editor_rewrite".to_string(),
+            use_default: true,
+            profile_id: None,
+            model: None,
+        })?;
 
         Ok(true)
     }
@@ -5212,13 +5191,7 @@ impl Database {
             "lead-scoring-scope.md",
             "# Lead Scoring Copilot Scope\n\n## Phase 1\n- North America inbound demo\n- Ebook download\n- Webinar registration\n\n## Output\n- 推荐评分档位\n- 推荐动作\n- 解释字段\n",
         )?;
-        self.import_demo_document(
-            project.id,
-            None,
-            &project_scope,
-            true,
-            &["PRD", "流程清单"],
-        )?;
+        self.import_demo_document(project.id, None, &project_scope, true, &["PRD", "流程清单"])?;
 
         let feature_review = self.activity_create(ActivityCreateInput {
             project_id: project.id,
@@ -5442,13 +5415,7 @@ impl Database {
             "pilot-scope.md",
             "# 合同审阅 AI 助手试点范围\n\n## Included\n- NDA\n- Procurement Agreement\n\n## Excluded\n- Employment Contract\n- Equity Agreement\n\n## Output Fields\n- 风险等级\n- 风险依据\n- 建议修改文本\n",
         )?;
-        self.import_demo_document(
-            project.id,
-            None,
-            &scope_doc,
-            true,
-            &["PRD", "法务条款"],
-        )?;
+        self.import_demo_document(project.id, None, &scope_doc, true, &["PRD", "法务条款"])?;
 
         let prompt = self.activity_create(ActivityCreateInput {
             project_id: project.id,
@@ -7610,7 +7577,11 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn scoped_file_tag_record(&self, project_id: Option<i64>, tag_id: i64) -> Result<FileTagRecord> {
+    fn scoped_file_tag_record(
+        &self,
+        project_id: Option<i64>,
+        tag_id: i64,
+    ) -> Result<FileTagRecord> {
         let belongs_to_scope = self
             .conn
             .query_row(
@@ -9115,7 +9086,6 @@ impl Database {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
               activity_id INTEGER,
-              note_type TEXT NOT NULL,
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
@@ -9126,10 +9096,10 @@ impl Database {
               FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
             );
             INSERT INTO notes_next (
-              id, project_id, activity_id, note_type, title, content_markdown, content_html,
+              id, project_id, activity_id, title, content_markdown, content_html,
               default_code_language, created_at, updated_at
             )
-            SELECT id, project_id, activity_id, note_type, title, content_markdown, content_html,
+            SELECT id, project_id, activity_id, title, content_markdown, content_html,
               CASE WHEN EXISTS(SELECT 1 FROM pragma_table_info('notes') WHERE name = 'default_code_language')
                 THEN default_code_language ELSE NULL END,
               created_at, updated_at
@@ -9467,9 +9437,12 @@ impl Database {
             )?;
         }
 
-        self.conn.execute("UPDATE notes SET activity_id = NULL", [])?;
-        self.conn.execute("UPDATE todos SET activity_id = NULL", [])?;
-        self.conn.execute("UPDATE documents SET activity_id = NULL", [])?;
+        self.conn
+            .execute("UPDATE notes SET activity_id = NULL", [])?;
+        self.conn
+            .execute("UPDATE todos SET activity_id = NULL", [])?;
+        self.conn
+            .execute("UPDATE documents SET activity_id = NULL", [])?;
         Ok(())
     }
 
@@ -10996,7 +10969,7 @@ mod tests {
         database: &mut Database,
         project_id: i64,
         activity_id: i64,
-        note_type: &str,
+        _legacy_note_type: &str,
         markdown: &str,
     ) -> NoteRecord {
         database
@@ -11004,11 +10977,11 @@ mod tests {
                 project_id,
                 activity_id: Some(activity_id),
                 note_id: None,
-                note_type: note_type.to_string(),
                 title: Some("记录".to_string()),
                 markdown: markdown.to_string(),
                 html: format!("<p>{markdown}</p>"),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap()
     }
@@ -11017,7 +10990,7 @@ mod tests {
         database: &mut Database,
         project_id: i64,
         activity_id: i64,
-        note_type: &str,
+        _legacy_note_type: &str,
         title: &str,
         markdown: &str,
     ) -> NoteRecord {
@@ -11026,11 +10999,11 @@ mod tests {
                 project_id,
                 activity_id: Some(activity_id),
                 note_id: None,
-                note_type: note_type.to_string(),
                 title: Some(title.to_string()),
                 markdown: markdown.to_string(),
                 html: format!("<p>{markdown}</p>"),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap()
     }
@@ -11096,58 +11069,6 @@ mod tests {
     }
 
     #[test]
-    fn reference_project_is_singleton_and_disallows_activity_lifecycle() {
-        let (_harness, mut database) = setup_database();
-        let projects = database
-            .projects_list(ProjectsListInput {
-                include_archived: Some(true),
-            })
-            .unwrap();
-        let reference_projects = projects
-            .iter()
-            .filter(|project| project.kind == PROJECT_KIND_REFERENCE)
-            .collect::<Vec<_>>();
-
-        assert_eq!(reference_projects.len(), 1);
-        assert_eq!(reference_projects[0].name, REFERENCE_PROJECT_NAME);
-        assert_eq!(reference_projects[0].activity_count, 0);
-
-        let reference_project = database.project_record(reference_projects[0].id).unwrap();
-        assert_eq!(reference_project.kind, PROJECT_KIND_REFERENCE);
-        assert!(Path::new(&reference_project.root_path).exists());
-
-        let activity_error = database
-            .activity_create(ActivityCreateInput {
-                project_id: reference_project.id,
-                attribute_option_id: None,
-                title: Some("不应该创建".to_string()),
-                activity_time: "2026-04-06T08:00:00.000Z".to_string(),
-            })
-            .unwrap_err();
-        assert!(activity_error.to_string().contains("不支持创建 Activity"));
-
-        let archive_error = database
-            .project_set_archive(ProjectArchiveInput {
-                project_id: reference_project.id,
-                is_archived: true,
-            })
-            .unwrap_err();
-        assert!(archive_error.to_string().contains("不可归档"));
-
-        let rename_error = database
-            .project_update(ProjectUpdateInput {
-                project_id: reference_project.id,
-                name: Some("资料改名".to_string()),
-                summary: reference_project.summary,
-                summary_markdown: Some(reference_project.summary_markdown),
-                summary_html: Some(reference_project.summary_html),
-                status: Some(reference_project.status),
-            })
-            .unwrap_err();
-        assert!(rename_error.to_string().contains("名称不可修改"));
-    }
-
-    #[test]
     fn reset_and_seed_demo_data_replaces_existing_workspace_data_with_demo_fixture() {
         let (harness, mut database) = setup_database();
         let legacy_project = create_project(&mut database, &harness.workspace_root);
@@ -11158,7 +11079,7 @@ mod tests {
             .reset_and_seed_demo_data(&harness.workspace_root)
             .unwrap();
 
-        assert_eq!(summary.project_count, 4);
+        assert_eq!(summary.project_count, 3);
         assert!(summary.activity_count >= 9);
         assert!(summary.note_count >= 9);
         assert!(summary.conclusion_count >= 9);
@@ -11179,7 +11100,6 @@ mod tests {
         assert!(project_names.contains(&"智能客服知识库升级".to_string()));
         assert!(project_names.contains(&"海外销售线索评分 Copilot".to_string()));
         assert!(project_names.contains(&"合同审阅 AI 助手试点".to_string()));
-        assert!(project_names.contains(&REFERENCE_PROJECT_NAME.to_string()));
 
         let search_results = database
             .workspace_search(WorkspaceSearchInput {
@@ -11233,10 +11153,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(skill.name, "润色");
-        assert_eq!(
-            database.ai_settings_get().unwrap().editor_skills.len(),
-            5
-        );
+        assert_eq!(database.ai_settings_get().unwrap().editor_skills.len(), 5);
 
         let updated = database
             .ai_editor_skill_upsert(AiEditorSkillUpsertInput {
@@ -11270,9 +11187,7 @@ mod tests {
         assert_eq!(reordered.first().map(|skill| skill.sort_order), Some(1));
 
         let remaining = database
-            .ai_editor_skill_delete(AiEditorSkillDeleteInput {
-                skill_id: skill.id,
-            })
+            .ai_editor_skill_delete(AiEditorSkillDeleteInput { skill_id: skill.id })
             .unwrap();
         assert_eq!(remaining.len(), 4);
     }
@@ -11756,6 +11671,7 @@ mod tests {
                 summary: "最新项目简介".to_string(),
                 summary_markdown: Some("## 最新项目简介\n- 风险已同步".to_string()),
                 summary_html: Some("<h2>最新项目简介</h2><ul><li>风险已同步</li></ul>".to_string()),
+                summary_code_language: None,
                 status: Some("active".to_string()),
             })
             .unwrap();
@@ -11801,6 +11717,7 @@ mod tests {
                 summary: "阶段目标与关键约束".to_string(),
                 summary_markdown: Some("## 阶段目标\n- 关键约束".to_string()),
                 summary_html: Some("<h2>阶段目标</h2><ul><li>关键约束</li></ul>".to_string()),
+                summary_code_language: None,
                 status: Some(project.status.clone()),
             })
             .unwrap();
@@ -11812,6 +11729,7 @@ mod tests {
                 summary: enriched.summary.clone(),
                 summary_markdown: None,
                 summary_html: None,
+                summary_code_language: None,
                 status: Some(enriched.status.clone()),
             })
             .unwrap();
@@ -11911,11 +11829,11 @@ mod tests {
                 project_id: project.id,
                 activity_id: Some(activity.id),
                 note_id: None,
-                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("路径联动记录".to_string()),
                 markdown: "[图片] 截图\n[附件] 项目附件\n[附件] 活动附件".to_string(),
                 html: rich_html.clone(),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
         let conclusion = database
@@ -11938,6 +11856,7 @@ mod tests {
                 summary: project.summary.clone(),
                 summary_markdown: None,
                 summary_html: None,
+                summary_code_language: None,
                 status: Some(project.status.clone()),
             })
             .unwrap();
@@ -12069,6 +11988,7 @@ mod tests {
                 summary: project.summary.clone(),
                 summary_markdown: None,
                 summary_html: None,
+                summary_code_language: None,
                 status: Some(project.status.clone()),
             })
             .unwrap_err();
@@ -12089,7 +12009,7 @@ mod tests {
 
         let updated = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
+                activity_id: activity.id,
                 title: None,
                 brief_markdown: Some("## 当前背景\n- 已完成范围澄清".to_string()),
                 brief_html: Some("<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>".to_string()),
@@ -12110,7 +12030,7 @@ mod tests {
 
         let renamed = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
+                activity_id: activity.id,
                 title: Some("Kickoff Review".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -12153,7 +12073,7 @@ mod tests {
 
         let updated = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
+                activity_id: activity.id,
                 title: Some("   ".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -12489,8 +12409,13 @@ mod tests {
         assert!(all_project_documents
             .iter()
             .any(|document| document.id == root_document.id));
-        assert_eq!(project_documents.len(), 1);
-        assert_eq!(project_documents[0].id, root_document.id);
+        assert_eq!(project_documents.len(), 2);
+        assert!(project_documents
+            .iter()
+            .any(|item| item.id == root_document.id));
+        assert!(project_documents
+            .iter()
+            .any(|item| item.id == visible_document.id));
         assert_eq!(activity_card.digest.document_count, 1);
         assert!(!activity_card
             .documents
@@ -12677,7 +12602,6 @@ mod tests {
                 ("project", project_exact.id),
                 ("project", project_prefix.id),
                 ("project", project_contains.id),
-                ("activity", activity.id),
                 ("note", note.id),
                 ("conclusion", conclusion.id),
                 ("todo", todo.id),
@@ -12756,7 +12680,7 @@ mod tests {
             "正文记录",
             "预算只写在正文里",
         );
-        let todo_activity_only = create_todo(
+        create_todo(
             &mut database,
             project.id,
             Some(activity_only.id),
@@ -12788,7 +12712,6 @@ mod tests {
                 ("todo", todo.id),
                 ("document", document.id),
                 ("note", note_body.id),
-                ("todo", todo_activity_only.id),
             ]
         );
     }
@@ -12848,6 +12771,7 @@ mod tests {
             .todo_update_content(TodoUpdateContentInput {
                 todo_id: todo_recent.id,
                 content: "后续跟进".to_string(),
+                tag_ids: vec![],
             })
             .unwrap();
 
@@ -13092,24 +13016,18 @@ mod tests {
 
         assert_eq!(
             resolved_note.route,
-            format!(
-                "/projects/{}/activities/{}/notes/{}",
-                project.id, activity.id, note.id
-            )
+            format!("/projects/{}/records/{}", project.id, note.id)
         );
         assert_eq!(
             resolved_conclusion.route,
             format!(
-                "/projects/{}/activities/{}?focus=conclusion-{}",
-                project.id, activity.id, conclusion.id
+                "/projects/{}?focus=conclusion-{}",
+                project.id, conclusion.id
             )
         );
         assert_eq!(
             resolved_document.route,
-            format!(
-                "/projects/{}/activities/{}?focus=document-{}",
-                project.id, next_activity.id, document.id
-            )
+            format!("/projects/{}?focus=document-{}", project.id, document.id)
         );
     }
 
@@ -13229,11 +13147,11 @@ mod tests {
                 project_id: project.id,
                 activity_id: Some(activity.id),
                 note_id: None,
-                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("活动附件记录".to_string()),
                 markdown: "[附件] agenda".to_string(),
                 html: rich_html.clone(),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
         let conclusion = database
@@ -13251,7 +13169,7 @@ mod tests {
         let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
         let updated_activity = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
+                activity_id: activity.id,
                 title: Some("Review Final".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -13297,7 +13215,7 @@ mod tests {
 
         let error = database
             .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: Some(activity.id),
+                activity_id: activity.id,
                 title: Some("Review Final".to_string()),
                 brief_markdown: None,
                 brief_html: None,
@@ -13633,7 +13551,7 @@ mod tests {
 
         assert!(document_ids.contains(&root_document.id));
         assert!(document_ids.contains(&starred_document.id));
-        assert!(!document_ids.contains(&activity_document.id));
+        assert!(document_ids.contains(&activity_document.id));
     }
 
     #[test]
@@ -13754,7 +13672,7 @@ mod tests {
 
         let legal_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "法务".to_string(),
                 color_key: "blue".to_string(),
@@ -13762,7 +13680,7 @@ mod tests {
             .unwrap();
         let urgent_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "紧急".to_string(),
                 color_key: "red".to_string(),
@@ -13787,7 +13705,7 @@ mod tests {
             .unwrap();
         let settings = database
             .file_tag_settings_get(FileTagSettingsGetInput {
-                project_id: project.id,
+                project_id: Some(project.id),
             })
             .unwrap();
 
@@ -13828,7 +13746,7 @@ mod tests {
 
         let draft_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "草稿".to_string(),
                 color_key: "slate".to_string(),
@@ -13836,7 +13754,7 @@ mod tests {
             .unwrap();
         let review_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "待审核".to_string(),
                 color_key: "amber".to_string(),
@@ -13844,7 +13762,7 @@ mod tests {
             .unwrap();
         let final_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "定稿".to_string(),
                 color_key: "green".to_string(),
@@ -13874,7 +13792,7 @@ mod tests {
             .unwrap();
         let settings = database
             .file_tag_settings_get(FileTagSettingsGetInput {
-                project_id: project.id,
+                project_id: Some(project.id),
             })
             .unwrap();
 
@@ -13917,7 +13835,7 @@ mod tests {
 
         let tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 id: None,
                 label: "合同".to_string(),
                 color_key: "teal".to_string(),
@@ -13939,7 +13857,7 @@ mod tests {
 
         let refreshed_settings = database
             .file_tag_option_delete(FileTagOptionDeleteInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 tag_id: tag.id,
             })
             .unwrap();
@@ -13985,142 +13903,6 @@ mod tests {
     }
 
     #[test]
-    fn record_type_settings_are_seeded_with_legacy_defaults() {
-        let (_harness, mut database) = setup_database();
-
-        let snapshot = database.record_type_settings_get().unwrap();
-
-        assert_eq!(snapshot.record_types.len(), 2);
-        assert_eq!(snapshot.record_types[0].key, DEFAULT_RECORD_TYPE_KEY);
-        assert!(snapshot.record_types[0].is_default);
-        assert_eq!(snapshot.record_types[1].key, MEETING_RECORD_TYPE_KEY);
-        assert!(!snapshot.record_types[1].is_default);
-    }
-
-    #[test]
-    fn record_type_upsert_round_trips_template_color_and_default_selection() {
-        let (_harness, mut database) = setup_database();
-
-        let created = database
-            .record_type_option_upsert(RecordTypeOptionUpsertInput {
-                id: None,
-                label: "Research Note".to_string(),
-                color_key: "teal".to_string(),
-                template_html: "<h2>背景</h2><p></p>".to_string(),
-                is_default: false,
-            })
-            .unwrap();
-
-        assert_eq!(created.label, "Research Note");
-        assert_eq!(created.color_key, "teal");
-        assert_eq!(created.template_html, "<h2>背景</h2><p></p>");
-        assert_eq!(created.key, "research_note");
-
-        let updated = database
-            .record_type_option_upsert(RecordTypeOptionUpsertInput {
-                id: Some(created.id),
-                label: "Research Note".to_string(),
-                color_key: "green".to_string(),
-                template_html: "<h2>结论</h2><p></p>".to_string(),
-                is_default: true,
-            })
-            .unwrap();
-
-        assert!(updated.is_default);
-        assert_eq!(updated.color_key, "green");
-        assert_eq!(updated.template_html, "<h2>结论</h2><p></p>");
-
-        let snapshot = database.record_type_settings_get().unwrap();
-        assert_eq!(snapshot.record_types[0].id, updated.id);
-        assert!(snapshot.record_types[0].is_default);
-        assert!(
-            snapshot
-                .record_types
-                .iter()
-                .filter(|record_type| record_type.is_default)
-                .count()
-                == 1
-        );
-    }
-
-    #[test]
-    fn record_type_delete_rejects_default_and_in_use_types() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let snapshot = database.record_type_settings_get().unwrap();
-        let default_type = snapshot
-            .record_types
-            .iter()
-            .find(|record_type| record_type.is_default)
-            .cloned()
-            .unwrap();
-        let meeting_type = snapshot
-            .record_types
-            .iter()
-            .find(|record_type| record_type.key == MEETING_RECORD_TYPE_KEY)
-            .cloned()
-            .unwrap();
-
-        let default_error = database
-            .record_type_option_delete(RecordTypeOptionDeleteInput {
-                type_id: default_type.id,
-            })
-            .unwrap_err();
-        assert!(default_error
-            .to_string()
-            .contains("default record type cannot be deleted"));
-
-        create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            MEETING_RECORD_TYPE_KEY,
-            "会议结论",
-        );
-
-        let in_use_error = database
-            .record_type_option_delete(RecordTypeOptionDeleteInput {
-                type_id: meeting_type.id,
-            })
-            .unwrap_err();
-        assert!(in_use_error
-            .to_string()
-            .contains("record type in use cannot be deleted"));
-    }
-
-    #[test]
-    fn project_record_upsert_rejects_record_type_changes_after_creation() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
-            "Captured detail",
-        );
-
-        let error = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                note_type: MEETING_RECORD_TYPE_KEY.to_string(),
-                title: Some("记录".to_string()),
-                markdown: "Updated detail".to_string(),
-                html: "<p>Updated detail</p>".to_string(),
-                tag_ids: vec![],
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("note type cannot be changed after creation"));
-    }
-
-    #[test]
     fn project_record_delete_removes_note_from_activity_results() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -14129,7 +13911,7 @@ mod tests {
             &mut database,
             project.id,
             activity.id,
-            DEFAULT_RECORD_TYPE_KEY,
+            "",
             "Captured detail",
         );
 
@@ -14193,6 +13975,8 @@ mod tests {
                 title: Some("第一条".to_string()),
                 markdown: "第一条记录".to_string(),
                 html: "<p>第一条记录</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14204,6 +13988,8 @@ mod tests {
                 title: Some("第二条".to_string()),
                 markdown: "第二条记录".to_string(),
                 html: "<p>第二条记录</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14215,6 +14001,8 @@ mod tests {
                 title: Some("第一条（更新）".to_string()),
                 markdown: "第一条记录，补充判断".to_string(),
                 html: "<p>第一条记录，补充判断</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14243,12 +14031,16 @@ mod tests {
             .workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
                 markdown: "第一版今日快记".to_string(),
                 html: "<p>第一版今日快记</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
         let second = database
             .workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
                 markdown: "更新后的今日快记".to_string(),
                 html: "<p>更新后的今日快记</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
         let workspace_note = database
@@ -14257,6 +14049,8 @@ mod tests {
                 title: Some("工作区记录".to_string()),
                 markdown: "常规工作区记录".to_string(),
                 html: "<p>常规工作区记录</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14286,11 +14080,11 @@ mod tests {
                 project_id: project.id,
                 activity_id: Some(activity.id),
                 note_id: None,
-                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("带图片记录".to_string()),
                 markdown: "[图片] 截图".to_string(),
                 html: html.clone(),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14312,11 +14106,11 @@ mod tests {
                 project_id: project.id,
                 activity_id: Some(activity.id),
                 note_id: None,
-                note_type: DEFAULT_RECORD_TYPE_KEY.to_string(),
                 title: Some("带图片元数据记录".to_string()),
                 markdown: "[图片] 截图".to_string(),
                 html: html.clone(),
                 tag_ids: vec![],
+                default_code_language: None,
             })
             .unwrap();
 
@@ -14370,7 +14164,7 @@ mod tests {
             .unwrap();
 
         drop(database);
-        let reopened = Database::open(
+        let mut reopened = Database::open(
             &harness.root.join("app.sqlite3"),
             &harness.workspace_root,
             Some("test-secret".to_string()),
@@ -14378,9 +14172,13 @@ mod tests {
         .unwrap();
 
         assert!(!reopened.has_column("notes", "note_type").unwrap());
-        let project_page = reopened.project_page(project.id).unwrap();
+        let project_page = reopened
+            .project_page_get(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
         assert!(project_page
-            .project_records
+            .records
             .iter()
             .any(|record| record.content_markdown.contains("需要沉淀的简报")));
     }
@@ -15049,7 +14847,8 @@ fn default_ai_editor_skills() -> Vec<AiEditorSkillRecord> {
             name: "校对".to_string(),
             icon: Some("✅".to_string()),
             description: Some("检查错别字、语法、标点和表达问题。".to_string()),
-            prompt: "请检查这段文字中的错别字、语法、标点和表达问题，并直接返回修正后的版本。".to_string(),
+            prompt: "请检查这段文字中的错别字、语法、标点和表达问题，并直接返回修正后的版本。"
+                .to_string(),
             result_mode: "modify".to_string(),
             show_in_text_menu: true,
             sort_order: 2,
@@ -15114,7 +14913,9 @@ fn normalize_ai_editor_skill_result_mode(value: &str) -> Result<String> {
     match value.trim() {
         "modify" => Ok("modify".to_string()),
         "answer" => Ok("answer".to_string()),
-        _ => Err(anyhow!("AI editor skill result mode must be modify or answer")),
+        _ => Err(anyhow!(
+            "AI editor skill result mode must be modify or answer"
+        )),
     }
 }
 
@@ -15143,21 +14944,27 @@ fn validate_ai_editor_skill_fields(
         return Err(anyhow!("AI editor skill name cannot be empty"));
     }
     if name.chars().count() > 32 {
-        return Err(anyhow!("AI editor skill name must be 32 characters or fewer"));
+        return Err(anyhow!(
+            "AI editor skill name must be 32 characters or fewer"
+        ));
     }
     if icon
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_some_and(|value| value.chars().count() > 8)
     {
-        return Err(anyhow!("AI editor skill icon must be 8 characters or fewer"));
+        return Err(anyhow!(
+            "AI editor skill icon must be 8 characters or fewer"
+        ));
     }
     if description
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_some_and(|value| value.chars().count() > 200)
     {
-        return Err(anyhow!("AI editor skill description must be 200 characters or fewer"));
+        return Err(anyhow!(
+            "AI editor skill description must be 200 characters or fewer"
+        ));
     }
 
     let prompt = prompt.trim();
@@ -15165,7 +14972,9 @@ fn validate_ai_editor_skill_fields(
         return Err(anyhow!("AI editor skill prompt cannot be empty"));
     }
     if prompt.chars().count() > 4_000 {
-        return Err(anyhow!("AI editor skill prompt must be 4000 characters or fewer"));
+        return Err(anyhow!(
+            "AI editor skill prompt must be 4000 characters or fewer"
+        ));
     }
     normalize_ai_editor_skill_result_mode(result_mode)?;
     Ok(())

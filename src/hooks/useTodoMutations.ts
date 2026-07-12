@@ -2,202 +2,34 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
 import { refreshAll } from "./shared";
-import type {
-  ProjectListItem,
-  ProjectPageData,
-  TodoCreateInput,
-  TodoRecord,
-  WorkspacePageData,
-} from "../lib/types";
-
-type TodoListData = ProjectPageData | WorkspacePageData;
-type TodoSnapshot = {
-  projectPage?: ProjectPageData;
-  workspacePage?: WorkspacePageData;
-  workspaceTodos?: TodoRecord[];
-  projects?: ProjectListItem[];
-};
-
-function withoutTodo(todos: TodoRecord[] | undefined, todoId: number) {
-  return (todos ?? []).filter((todo) => todo.id !== todoId);
-}
-
-function mergeTodoByStatus<T extends TodoListData>(current: T | undefined, todo: TodoRecord) {
-  if (!current) {
-    return current;
-  }
-
-  const unfinishedTodos = current.unfinishedTodos ?? [];
-  const finishedTodos = current.finishedTodos ?? [];
-  const previousTodo =
-    unfinishedTodos.find((item) => item.id === todo.id) ??
-    finishedTodos.find((item) => item.id === todo.id);
-  const baseUnfinishedTodos = withoutTodo(current.unfinishedTodos, todo.id);
-  const baseFinishedTodos = withoutTodo(current.finishedTodos, todo.id);
-  const nextTodo = previousTodo ? { ...previousTodo, ...todo } : todo;
-
-  if (previousTodo?.status === nextTodo.status) {
-    return {
-      ...current,
-      unfinishedTodos:
-        nextTodo.status === "unfinished"
-          ? unfinishedTodos.map((item) => (item.id === nextTodo.id ? nextTodo : item))
-          : baseUnfinishedTodos,
-      finishedTodos:
-        nextTodo.status === "finished"
-          ? finishedTodos.map((item) => (item.id === nextTodo.id ? nextTodo : item))
-          : baseFinishedTodos,
-    };
-  }
-
-  return {
-    ...current,
-    unfinishedTodos:
-      nextTodo.status === "finished" ? baseUnfinishedTodos : [nextTodo, ...baseUnfinishedTodos],
-    finishedTodos:
-      nextTodo.status === "finished" ? [nextTodo, ...baseFinishedTodos] : baseFinishedTodos,
-  };
-}
-
-function removeTodoFromListData<T extends TodoListData>(current: T | undefined, todoId: number) {
-  if (!current) {
-    return current;
-  }
-
-  return {
-    ...current,
-    unfinishedTodos: withoutTodo(current.unfinishedTodos, todoId),
-    finishedTodos: withoutTodo(current.finishedTodos, todoId),
-  };
-}
-
-function mergeWorkspaceTodos(current: TodoRecord[] | undefined, todo: TodoRecord) {
-  if (!current) {
-    return current;
-  }
-
-  const existing = current.find((item) => item.id === todo.id);
-  const nextTodo = existing ? { ...existing, ...todo } : todo;
-  return [nextTodo, ...current.filter((item) => item.id !== todo.id)];
-}
-
-function updateProjectOpenTodoCount(
-  projects: ProjectListItem[] | undefined,
-  projectId: number,
-  delta: number,
-) {
-  if (!projects || delta === 0) {
-    return projects;
-  }
-
-  return projects.map((project) =>
-    project.id === projectId
-      ? { ...project, openTodoCount: Math.max(0, project.openTodoCount + delta) }
-      : project,
-  );
-}
-
-function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
-  const now = new Date().toISOString();
-  return {
-    id: -Date.now(),
-    projectId: input.projectId,
-    content: input.content,
-    status: "unfinished",
-    priority: input.priority,
-    tags: [],
-    createdAt: now,
-    updatedAt: now,
-    progresses: [],
-  };
-}
+import type { TodoRecord } from "../lib/types";
+import { createTodoQueryCache, optimisticTodoFromInput } from "./todo-query-cache";
 
 export function useTodoMutations(allTodos?: TodoRecord[]) {
   const queryClient = useQueryClient();
+  const todoCache = createTodoQueryCache(queryClient);
   const { pushToast, setStatus } = useFeedbackStore();
-
-  async function cancelTodoQueries(projectId: number) {
-    await Promise.all([
-      queryClient.cancelQueries({ queryKey: ["project-page", projectId] }),
-      queryClient.cancelQueries({ queryKey: ["workspace-page"] }),
-      queryClient.cancelQueries({ queryKey: ["workspace-todos"] }),
-      queryClient.cancelQueries({ queryKey: ["projects", "all"] }),
-    ]);
-  }
-
-  function snapshotTodoQueries(projectId: number): TodoSnapshot {
-    return {
-      projectPage: queryClient.getQueryData<ProjectPageData>(["project-page", projectId]),
-      workspacePage: queryClient.getQueryData<WorkspacePageData>(["workspace-page"]),
-      workspaceTodos: queryClient.getQueryData<TodoRecord[]>(["workspace-todos"]),
-      projects: queryClient.getQueryData<ProjectListItem[]>(["projects", "all"]),
-    };
-  }
-
-  function restoreTodoSnapshot(projectId: number, snapshot?: TodoSnapshot) {
-    if (!snapshot) {
-      return;
-    }
-
-    queryClient.setQueryData(["project-page", projectId], snapshot.projectPage);
-    queryClient.setQueryData(["workspace-page"], snapshot.workspacePage);
-    queryClient.setQueryData(["workspace-todos"], snapshot.workspaceTodos);
-    queryClient.setQueryData(["projects", "all"], snapshot.projects);
-  }
-
-  function upsertTodoCache(todo: TodoRecord) {
-    queryClient.setQueryData<ProjectPageData | undefined>(
-      ["project-page", todo.projectId],
-      (current) => mergeTodoByStatus(current, todo),
-    );
-    queryClient.setQueryData<WorkspacePageData | undefined>(
-      ["workspace-page"],
-      (current) => mergeTodoByStatus(current, todo),
-    );
-    queryClient.setQueryData<TodoRecord[] | undefined>(
-      ["workspace-todos"],
-      (current) => mergeWorkspaceTodos(current, todo),
-    );
-  }
-
-  function removeTodoCache(todo: TodoRecord) {
-    queryClient.setQueryData<ProjectPageData | undefined>(
-      ["project-page", todo.projectId],
-      (current) => removeTodoFromListData(current, todo.id),
-    );
-    queryClient.setQueryData<WorkspacePageData | undefined>(
-      ["workspace-page"],
-      (current) => removeTodoFromListData(current, todo.id),
-    );
-    queryClient.setQueryData<TodoRecord[] | undefined>(
-      ["workspace-todos"],
-      (current) => current?.filter((item) => item.id !== todo.id),
-    );
-  }
 
   const todoMutation = useMutation({
     mutationFn: projectMindApi.todoCreate,
     onMutate: async (variables) => {
-      await cancelTodoQueries(variables.projectId);
-      const snapshot = snapshotTodoQueries(variables.projectId);
+      await todoCache.cancel(variables.projectId);
+      const snapshot = todoCache.snapshot(variables.projectId);
       const optimisticTodo = optimisticTodoFromInput(variables);
-      upsertTodoCache(optimisticTodo);
-      queryClient.setQueryData<ProjectListItem[] | undefined>(
-        ["projects", "all"],
-        (current) => updateProjectOpenTodoCount(current, variables.projectId, 1),
-      );
+      todoCache.upsert(optimisticTodo);
+      todoCache.updateProjectOpenCount(variables.projectId, 1);
       return { snapshot, optimisticTodo };
     },
     onSuccess: async (todo, _variables, context) => {
       if (context?.optimisticTodo) {
-        removeTodoCache(context.optimisticTodo);
+        todoCache.remove(context.optimisticTodo);
       }
-      upsertTodoCache(todo);
+      todoCache.upsert(todo);
       setStatus({ tone: "success", label: "Created", message: "待办已创建" });
       await refreshAll(queryClient, todo.projectId);
     },
     onError: (error, variables, context) => {
-      restoreTodoSnapshot(variables.projectId, context?.snapshot);
+      todoCache.restore(variables.projectId, context?.snapshot);
       setStatus({ tone: "error", label: "Error", message: "新增待办失败" });
       pushToast({ tone: "error", title: "新增待办失败", detail: String(error) });
     },
@@ -223,8 +55,8 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
         return undefined;
       }
 
-      await cancelTodoQueries(source.projectId);
-      const snapshot = snapshotTodoQueries(source.projectId);
+      await todoCache.cancel(source.projectId);
+      const snapshot = todoCache.snapshot(source.projectId);
       const optimisticTodo = { ...source, status: variables.status };
       const openTodoDelta =
         source.status === variables.status
@@ -232,15 +64,12 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
           : variables.status === "finished"
             ? -1
             : 1;
-      upsertTodoCache(optimisticTodo);
-      queryClient.setQueryData<ProjectListItem[] | undefined>(
-        ["projects", "all"],
-        (current) => updateProjectOpenTodoCount(current, source.projectId, openTodoDelta),
-      );
+      todoCache.upsert(optimisticTodo);
+      todoCache.updateProjectOpenCount(source.projectId, openTodoDelta);
       return { snapshot, projectId: source.projectId };
     },
     onSuccess: async (todo) => {
-      upsertTodoCache(todo);
+      todoCache.upsert(todo);
       setStatus({
         tone: "success",
         label: todo.status === "finished" ? "Completed" : "Active",
@@ -250,7 +79,7 @@ export function useTodoMutations(allTodos?: TodoRecord[]) {
     },
     onError: (error, _variables, context) => {
       if (context?.projectId) {
-        restoreTodoSnapshot(context.projectId, context.snapshot);
+        todoCache.restore(context.projectId, context.snapshot);
       }
       setStatus({ tone: "error", label: "Error", message: "更新待办失败" });
       pushToast({ tone: "error", title: "更新待办失败", detail: String(error) });

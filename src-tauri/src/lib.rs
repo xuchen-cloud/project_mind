@@ -20,34 +20,31 @@ use ai_jobs::AiJobManager;
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
 use db::Database;
-use image::{codecs::jpeg::JpegEncoder, ExtendedColorType, ImageReader};
 pub use db::DemoSeedResult;
+use image::{codecs::jpeg::JpegEncoder, ExtendedColorType, ImageReader};
 use models::{
-    AiCapabilityBindingRecord,
-    AiCapabilityBindingUpsertInput, AiEditorSkillDeleteInput, AiEditorSkillRecord,
-    AiEditorSkillReorderInput, AiEditorSkillUpsertInput, AiExecutionSettings,
+    AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput, AiEditorSkillDeleteInput,
+    AiEditorSkillRecord, AiEditorSkillReorderInput, AiEditorSkillUpsertInput, AiExecutionSettings,
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
-    AiSettingsSnapshot, ConclusionCreateInput, ConclusionDeleteInput,
-    ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
-    ContactRecord, ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput,
-    DocumentDeleteInput, DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
-    DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput, DocumentRecord,
-    DocumentRelocateInput, DocumentUpdateMetaInput, DocumentVersionRecord,
-    FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput,
-    FileTagSettingsSnapshot,
+    AiSettingsSnapshot, ConclusionCreateInput, ConclusionDeleteInput, ConclusionListInput,
+    ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput, ContactRecord, ContactSearchInput,
+    ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
+    DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput, DocumentImportInput,
+    DocumentImportNoteImageInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
+    DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
+    FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput, FileTagSettingsSnapshot,
     InternalReferenceResolveInput, InternalReferenceResolveResult, InternalReferenceSearchInput,
-    InternalReferenceSearchResult, ProjectRecordDeleteInput, NoteRecord, ProjectRecordUpsertInput,
-    ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput, ProjectListItem,
-    ProjectPageData, ProjectRecord, ProjectUpdateInput, ProjectsListInput,
-    RichTextStyleSettings, RichTextStyleUpsertInput,
-    WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
-    WorkspaceNoteImageImportInput, WorkspaceQuickNoteUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
-    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
-    WorkspacePageData,
-    WorkspaceCreateInput, WorkspaceRecordDeleteInput,
-    WorkspaceRecord, WorkspaceRecordUpsertInput, WorkspaceOpenInput, WorkspaceSearchInput,
+    InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
+    ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
+    ProjectRecordDeleteInput, ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput,
+    RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
+    TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
+    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
+    TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput,
+    WorkspaceCreateInput, WorkspaceNoteImageAsset, WorkspaceNoteImageImportInput,
+    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
+    WorkspaceRecordDeleteInput, WorkspaceRecordUpsertInput, WorkspaceSearchInput,
     WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
@@ -428,12 +425,8 @@ fn desktop_generate_image_thumbnail(
             .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
             .map(|value| value.as_millis())
             .unwrap_or(0);
-        let cache_key = thumbnail_cache_key(
-            normalized_path,
-            metadata.len(),
-            modified_millis,
-            max_edge,
-        );
+        let cache_key =
+            thumbnail_cache_key(normalized_path, metadata.len(), modified_millis, max_edge);
         let cache_dir = runtime
             .paths
             .root_path
@@ -639,12 +632,18 @@ fn contact_delete(
 }
 
 #[tauri::command]
-fn project_record_upsert(state: State<'_, AppState>, input: ProjectRecordUpsertInput) -> CommandResult<NoteRecord> {
+fn project_record_upsert(
+    state: State<'_, AppState>,
+    input: ProjectRecordUpsertInput,
+) -> CommandResult<NoteRecord> {
     with_db(state, |db| db.project_record_upsert(input))
 }
 
 #[tauri::command]
-fn project_record_delete(state: State<'_, AppState>, input: ProjectRecordDeleteInput) -> CommandResult<NoteRecord> {
+fn project_record_delete(
+    state: State<'_, AppState>,
+    input: ProjectRecordDeleteInput,
+) -> CommandResult<NoteRecord> {
     with_db(state, |db| db.project_record_delete(input))
 }
 

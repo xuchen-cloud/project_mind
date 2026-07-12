@@ -56,6 +56,13 @@ UI 约束检查：
 npm run check:ui-standards
 ```
 
+生产分包边界检查（先执行构建）：
+
+```bash
+npm run build
+npm run check:bundle-boundaries
+```
+
 后端检查：
 
 ```bash

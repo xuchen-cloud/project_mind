@@ -42,6 +42,7 @@ import {
 } from "../../lib/project-records";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { withPageWidthClass } from "../../lib/pageWidth";
+import { queryKeys } from "../../lib/queryKeys";
 import {
   extractHashTagLabels,
   findTagByLabel,
@@ -113,8 +114,9 @@ export function ProjectOverviewPage({
   const contactMentionOptions = useContactMentionOptions();
 
   const projectsQuery = useQuery({
-    queryKey: ["projects", "all"],
+    queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
+    enabled: visible,
   });
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
@@ -132,18 +134,19 @@ export function ProjectOverviewPage({
     return buildProjectNoteImageAssetHandlers(projectId, null);
   }, [projectId]);
   const projectPageQuery = useQuery({
-    queryKey: ["project-page", projectId],
+    queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
-    enabled: projectId !== null,
+    enabled: visible && projectId !== null,
   });
   const tagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", projectId],
+    queryKey: queryKeys.fileTags.project(projectId),
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
-    enabled: projectId !== null,
+    enabled: visible && projectId !== null,
   });
   const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
+    queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
+    enabled: visible,
   });
   const { projectUpdateMutation } = useProjectMutations(visibleProjects, (path) => navigate(path));
   const allTodos = [
@@ -289,16 +292,16 @@ export function ProjectOverviewPage({
     if (!projectId) return;
 
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["project-page", projectId] }),
-      queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
-      queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(projectId) }),
       queryClient.invalidateQueries({ queryKey: ["search"] }),
     ]);
   }
 
   function upsertRecordInProjectCache(record: NoteRecord) {
     queryClient.setQueryData<ProjectPageData | undefined>(
-      ["project-page", record.projectId],
+      queryKeys.projectPage(record.projectId),
       (current) => {
         if (!current) {
           return current;
@@ -321,7 +324,7 @@ export function ProjectOverviewPage({
 
   function removeRecordFromProjectCache(noteId: number) {
     queryClient.setQueryData<ProjectPageData | undefined>(
-      ["project-page", projectId],
+      queryKeys.projectPage(projectId),
       (current) => {
         if (!current?.records) {
           return current;
@@ -359,7 +362,7 @@ export function ProjectOverviewPage({
 
   function syncProjectTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      ["file-tag-settings", projectId],
+      queryKeys.fileTags.project(projectId),
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {

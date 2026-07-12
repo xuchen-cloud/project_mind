@@ -1045,6 +1045,8 @@ describe("WorkspaceLayout", () => {
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
     await user.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+    await waitFor(() => {
+      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+    });
   });
 });

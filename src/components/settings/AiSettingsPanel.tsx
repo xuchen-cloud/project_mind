@@ -45,6 +45,7 @@ import type {
   AiSettingsSnapshot,
 } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
+import { queryKeys } from "../../lib/queryKeys";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
   Button,
@@ -105,7 +106,7 @@ export function AiSettingsPanel({
   const { pushToast, setStatus } = useFeedbackStore();
 
   const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
+    queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
     enabled: open,
   });
@@ -168,7 +169,7 @@ export function AiSettingsPanel({
       setIsCreatingProfile(false);
       setProfileDraft(variables.id ? buildProfileDraft(profile) : createAiProfileDraft());
       setTestResult(null);
-      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings });
     },
     onError: (error) => {
       const detail = getErrorMessage(error, "保存 AI 配置失败");
@@ -185,7 +186,7 @@ export function AiSettingsPanel({
       setIsCreatingProfile(false);
       setProfileDraft(createAiProfileDraft());
       setTestResult(null);
-      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings });
     },
     onError: (error) => {
       const detail = getErrorMessage(error, "删除 AI 配置失败");
@@ -218,7 +219,7 @@ export function AiSettingsPanel({
   const saveBindingMutation = useMutation({
     mutationFn: projectMindApi.aiBindingUpsert,
     onSuccess: (binding) => {
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) => {
+      queryClient.setQueryData<AiSettingsSnapshot>(queryKeys.aiSettings, (current) => {
         if (!current) {
           return current;
         }
@@ -244,7 +245,7 @@ export function AiSettingsPanel({
     mutationFn: projectMindApi.aiExecutionSettingsUpsert,
     onSuccess: (execution) => {
       setStatus({ tone: "success", label: "Saved", message: "AI 调度设置已更新" });
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+      queryClient.setQueryData<AiSettingsSnapshot>(queryKeys.aiSettings, (current) =>
         current
           ? {
               ...current,
@@ -265,7 +266,7 @@ export function AiSettingsPanel({
       setStatus({ tone: "success", label: "Saved", message: "AI 技能已保存" });
       setIsCreatingSkill(false);
       setSkillDraft(createEditorSkillDraft());
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+      queryClient.setQueryData<AiSettingsSnapshot>(queryKeys.aiSettings, (current) =>
         current
           ? {
               ...current,
@@ -278,7 +279,7 @@ export function AiSettingsPanel({
             }
           : current,
       );
-      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings });
     },
     onError: (error) => {
       const detail = getErrorMessage(error, "保存 AI 技能失败");
@@ -290,7 +291,7 @@ export function AiSettingsPanel({
     mutationFn: projectMindApi.aiEditorSkillDelete,
     onSuccess: async (skills) => {
       setStatus({ tone: "success", label: "Deleted", message: "AI 技能已删除" });
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+      queryClient.setQueryData<AiSettingsSnapshot>(queryKeys.aiSettings, (current) =>
         current
           ? {
               ...current,
@@ -298,7 +299,7 @@ export function AiSettingsPanel({
             }
           : current,
       );
-      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings });
     },
     onError: (error) => {
       const detail = getErrorMessage(error, "删除 AI 技能失败");
@@ -309,7 +310,7 @@ export function AiSettingsPanel({
   const reorderEditorSkillMutation = useMutation({
     mutationFn: projectMindApi.aiEditorSkillReorder,
     onSuccess: async (skills) => {
-      queryClient.setQueryData<AiSettingsSnapshot>(["ai-settings"], (current) =>
+      queryClient.setQueryData<AiSettingsSnapshot>(queryKeys.aiSettings, (current) =>
         current
           ? {
               ...current,
@@ -317,7 +318,7 @@ export function AiSettingsPanel({
             }
           : current,
       );
-      await queryClient.invalidateQueries({ queryKey: ["ai-settings"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiSettings });
     },
     onError: (error) => {
       const detail = getErrorMessage(error, "调整 AI 技能顺序失败");

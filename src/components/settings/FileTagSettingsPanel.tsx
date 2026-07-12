@@ -5,6 +5,7 @@ import { LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { fileTagColorValue } from "../../lib/constants";
 import type { FileTagColorKey, FileTagOptionUpsertInput, FileTagRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
+import { queryKeys } from "../../lib/queryKeys";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
   Button,
@@ -25,7 +26,7 @@ export function FileTagSettingsPanel({ open, projectId }: FileTagSettingsPanelPr
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
   const fileTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", projectId],
+    queryKey: queryKeys.fileTags.project(projectId),
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: open && projectId !== null,
   });
@@ -37,12 +38,9 @@ export function FileTagSettingsPanel({ open, projectId }: FileTagSettingsPanelPr
 
   const refreshViews = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["file-tag-settings"] }),
-      queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
-      queryClient.invalidateQueries({ queryKey: ["projects", "all"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
       queryClient.invalidateQueries({ queryKey: ["project-page"] }),
-      queryClient.invalidateQueries({ queryKey: ["activities"] }),
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
     ]);
   };
 

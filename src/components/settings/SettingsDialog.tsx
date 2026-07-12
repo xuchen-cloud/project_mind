@@ -1,16 +1,25 @@
 import { Contact, Files, Pencil, Settings2, Sparkles, StretchHorizontal } from "lucide-react";
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import type { SettingsSection } from "../../state/ui-store";
 import { useUiStore } from "../../state/ui-store";
 import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
-import { AiSettingsPanel } from "./AiSettingsPanel";
-import { ContactSettingsPanel } from "./ContactSettingsPanel";
-import { FileTagSettingsPanel } from "./FileTagSettingsPanel";
 import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
-import { RichTextStylePanel } from "./RichTextStylePanel";
+
+const AiSettingsPanel = lazy(() =>
+  import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
+);
+const ContactSettingsPanel = lazy(() =>
+  import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
+);
+const FileTagSettingsPanel = lazy(() =>
+  import("./FileTagSettingsPanel").then((module) => ({ default: module.FileTagSettingsPanel })),
+);
+const RichTextStylePanel = lazy(() =>
+  import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
+);
 
 interface SettingsDialogProps {
   open: boolean;
@@ -66,6 +75,51 @@ export function SettingsDialog({
   onUnlockAiSecrets,
   onClose,
 }: SettingsDialogProps) {
+  const activePanel = (() => {
+    switch (activeSection) {
+      case "page-width":
+        return <PageWidthSettingsPanel />;
+      case "file-tags":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <FileTagSettingsPanel open={open} projectId={projectId} />
+          </Suspense>
+        );
+      case "contacts":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <ContactSettingsPanel open={open} />
+          </Suspense>
+        );
+      case "ai-models":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <AiSettingsPanel
+              open={open}
+              section="models"
+              onUnlockAiSecrets={onUnlockAiSecrets}
+            />
+          </Suspense>
+        );
+      case "ai-rewrite":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <AiSettingsPanel
+              open={open}
+              section="rewrite"
+              onUnlockAiSecrets={onUnlockAiSecrets}
+            />
+          </Suspense>
+        );
+      case "rich-text":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <RichTextStylePanel open={open} />
+          </Suspense>
+        );
+    }
+  })();
+
   return (
     <Dialog
       open={open}
@@ -111,27 +165,20 @@ export function SettingsDialog({
         </aside>
 
         <div className="min-w-0 p-3.5 sm:p-4">
-          <section hidden={activeSection !== "page-width"} aria-label="页面宽度">
-            <PageWidthSettingsPanel />
-          </section>
-          <section hidden={activeSection !== "file-tags"} aria-label="项目标签">
-            <FileTagSettingsPanel open={open} projectId={projectId} />
-          </section>
-          <section hidden={activeSection !== "contacts"} aria-label="联系人">
-            <ContactSettingsPanel open={open} />
-          </section>
-          <section hidden={activeSection !== "ai-models"} aria-label="AI 模型配置">
-            <AiSettingsPanel open={open} section="models" onUnlockAiSecrets={onUnlockAiSecrets} />
-          </section>
-          <section hidden={activeSection !== "ai-rewrite"} aria-label="AI 技能">
-            <AiSettingsPanel open={open} section="rewrite" onUnlockAiSecrets={onUnlockAiSecrets} />
-          </section>
-          <section hidden={activeSection !== "rich-text"} aria-label="富文本样式">
-            <RichTextStylePanel open={open} />
+          <section aria-label={SETTINGS_SECTIONS.find((item) => item.value === activeSection)?.label}>
+            {activePanel}
           </section>
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function SettingsPanelFallback() {
+  return (
+    <div className="grid min-h-48 place-items-center text-sm text-text-muted" role="status">
+      正在加载设置…
+    </div>
   );
 }
 

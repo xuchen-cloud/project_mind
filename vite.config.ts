@@ -13,16 +13,18 @@ export default defineConfig({
             return undefined;
           }
 
+          // Keep the annotation canvas inside its dynamic import graph. Assigning
+          // Konva to a manual vendor chunk causes Rollup to preload it at startup.
+          if (id.includes("react-konva") || id.includes("/konva/")) {
+            return undefined;
+          }
+
           if (
             id.includes("@tiptap/") ||
             id.includes("/prosemirror-") ||
             id.includes("/orderedmap/")
           ) {
             return "editor";
-          }
-
-          if (id.includes("react-konva") || id.includes("/konva/")) {
-            return "canvas";
           }
 
           if (id.includes("react-router") || id.includes("@remix-run/router")) {

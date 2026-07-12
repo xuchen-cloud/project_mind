@@ -143,6 +143,7 @@ const CodeHighlightDecorations = Extension.create({
 export function buildRichEditorExtensions(placeholder: string) {
   return [
     StarterKit.configure({
+      link: false,
       heading: {
         levels: [1, 2, 3],
       },

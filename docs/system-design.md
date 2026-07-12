@@ -180,6 +180,20 @@ flowchart LR
 - Todo Rail 宽度
 - 项目侧边栏宽度
 
+### 3.6 项目页签驻留与缓存
+
+项目 Overview 页采用浏览器式三态模型：
+
+- `Active`：当前可见页，完整运行。
+- `Warm`：最近两个项目页保留 React 与编辑器现场，页面设置为 `inert`，并暂停页面级查询。
+- `Cold`：只保留 React Query 数据、最近路由和持久化 UI 状态，页面实例被回收。
+
+驻留顺序由 `useResidentProjectPages` 管理，使用有界 LRU，完整驻留项目页最多三个。项目页签在 pointer hover 或 keyboard focus 时预取项目聚合数据与标签设置；Cold 页切换时同步纳入当前渲染，避免等待 effect 造成空白帧。
+
+React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据新鲜期为 15 秒、GC 时间为 10 分钟；窗口聚焦、网络重连和重新挂载不会隐式刷新。详细约束见 `docs/cache-strategy.md`。
+
+图片标注、Record Focus 页面和非默认设置面板通过 dynamic import 加载。生产构建使用 `check:bundle-boundaries` 防止 Canvas 重新进入启动预加载，并限制主入口脚本不超过 250 KiB。
+
 ## 4. Service Layer
 
 ### 4.1 desktopApi

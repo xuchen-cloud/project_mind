@@ -15,6 +15,7 @@ import { useInternalReferenceNavigation } from "../../hooks/useInternalReference
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { projectMindApi } from "../../services/projectMindApi";
+import { queryKeys } from "../../lib/queryKeys";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
@@ -70,27 +71,27 @@ export function WorkspaceRecordFocusPage() {
   const editorControllerRef = useRef<RichEditorController | null>(null);
 
   const workspacePageQuery = useQuery({
-    queryKey: ["workspace-page"],
+    queryKey: queryKeys.workspacePage,
     queryFn: projectMindApi.workspacePageGet,
     enabled: noteId !== null,
   });
   const projectsQuery = useQuery({
-    queryKey: ["projects", "all"],
+    queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
     enabled: noteId !== null,
   });
   const workspaceStatusQuery = useQuery({
-    queryKey: ["workspace-status"],
+    queryKey: queryKeys.workspaceStatus,
     queryFn: projectMindApi.workspaceStatusGet,
     enabled: noteId !== null,
   });
 
   const tagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", "workspace"],
+    queryKey: queryKeys.fileTags.workspace,
     queryFn: () => projectMindApi.fileTagSettingsGet({}),
   });
   const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
+    queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
   });
 
@@ -144,7 +145,7 @@ export function WorkspaceRecordFocusPage() {
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      ["file-tag-settings", "workspace"],
+      queryKeys.fileTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -200,8 +201,8 @@ export function WorkspaceRecordFocusPage() {
           tagIds: Array.from(new Set([...nextTagIds, ...mentionedTagIds])),
         });
         await workspacePageQuery.refetch();
-        await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-        await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
         return true;
       } catch (error) {
         pushToast({ tone: "error", title: "保存失败", detail: String(error) });
@@ -245,8 +246,8 @@ export function WorkspaceRecordFocusPage() {
       defaultCodeLanguage: null,
       tagIds: [],
     });
-    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-    await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
     navigate(`/workspace/records/${record.id}`);
   }
 
@@ -377,8 +378,8 @@ export function WorkspaceRecordFocusPage() {
       quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
       status: project.status,
     });
-    await queryClient.invalidateQueries({ queryKey: ["projects", "all"] });
-    await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 
   function deleteProject(projectId: number) {

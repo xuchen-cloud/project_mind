@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
+import { queryKeys } from "../lib/queryKeys";
 import { refreshAll } from "./shared";
 
 export function useDocumentMutations() {
@@ -13,7 +14,7 @@ export function useDocumentMutations() {
       setStatus({ tone: "success", label: "Imported", message: `文件 ${document.name} 已导入` });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(document.projectId) }),
       ]);
     },
     onError: (error) => {
@@ -32,7 +33,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(document.projectId) }),
       ]);
     },
     onError: (error) => {
@@ -51,7 +52,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(document.projectId) }),
       ]);
     },
     onError: (error) => {
@@ -70,7 +71,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(document.projectId) }),
         queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
       ]);
     },
@@ -90,7 +91,7 @@ export function useDocumentMutations() {
       });
       await Promise.all([
         refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: ["file-tag-settings", document.projectId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(document.projectId) }),
         queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
       ]);
     },

@@ -14,6 +14,7 @@ import { useInternalReferenceNavigation } from "../../hooks/useInternalReference
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
+import { queryKeys } from "../../lib/queryKeys";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton, TextField } from "../../ui/components";
@@ -58,24 +59,24 @@ export function ProjectNoteFocusPage() {
   const lastSavedTitleRef = useRef("");
 
   const projectQuery = useQuery({
-    queryKey: ["projects", "all"],
+    queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
     enabled: projectId !== null,
   });
 
   const projectPageQuery = useQuery({
-    queryKey: ["project-page", projectId],
+    queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: projectId !== null && noteId !== null,
   });
 
   const tagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", projectId],
+    queryKey: queryKeys.fileTags.project(projectId),
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
   const aiSettingsQuery = useQuery({
-    queryKey: ["ai-settings"],
+    queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
   });
 
@@ -102,7 +103,7 @@ export function ProjectNoteFocusPage() {
 
   function syncProjectTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      ["file-tag-settings", projectId],
+      queryKeys.fileTags.project(projectId),
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -168,7 +169,7 @@ export function ProjectNoteFocusPage() {
           tagIds: Array.from(new Set([...nextTagIds, ...mentionedTagIds])),
         });
         await projectPageQuery.refetch();
-        await queryClient.invalidateQueries({ queryKey: ["project-page", projectId] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
         lastSavedTitleRef.current = nextTitle;
         return true;
       } catch (error) {

@@ -12,12 +12,12 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "check:ui-standards": "node scripts/check-ui-standards.mjs",
+    "check:bundle-boundaries": "node scripts/check-bundle-boundaries.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",
-    "@fontsource/fraunces": "^5.2.9",
     "@fontsource/work-sans": "^5.2.8",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "^5.95.2",

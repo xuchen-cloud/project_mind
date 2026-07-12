@@ -8,8 +8,6 @@ use reqwest::blocking::{Client, Response};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 
-use crate::models::AiEditorRewriteContext;
-
 #[derive(Debug, Clone)]
 pub struct ResolvedAiProfile {
     pub provider_family: String,
@@ -47,39 +45,6 @@ pub fn test_profile(profile: &ResolvedAiProfile) -> Result<ProviderTestOutcome> 
     })
 }
 
-pub fn rewrite_selection(
-    profile: &ResolvedAiProfile,
-    action_prompt: &str,
-    selected_text: &str,
-    expanded_markdown: &str,
-    placeholder_tokens: &[String],
-    context: Option<&AiEditorRewriteContext>,
-    mut on_stream: impl FnMut(String),
-) -> Result<EditorRewritePayload> {
-    ensure_text_support(profile)?;
-
-    let prompt = rewrite_prompt(
-        action_prompt,
-        selected_text,
-        expanded_markdown,
-        placeholder_tokens,
-        context,
-    );
-    let response =
-        request_text_streaming(profile, rewrite_system_prompt(), &prompt, &mut on_stream).or_else(
-            |_| {
-                let response = request_text(profile, rewrite_system_prompt(), &prompt)?;
-                on_stream(response.text.clone());
-                Ok::<ProviderTextResponse, anyhow::Error>(response)
-            },
-        )?;
-
-    Ok(EditorRewritePayload {
-        content: response.text,
-        resolved_model: response.resolved_model,
-    })
-}
-
 pub fn run_editor_skill(
     profile: &ResolvedAiProfile,
     skill_name: &str,
@@ -100,13 +65,17 @@ pub fn run_editor_skill(
         placeholder_tokens,
         document_context,
     );
-    let response =
-        request_text_streaming(profile, editor_skill_system_prompt(), &prompt, &mut on_stream)
-            .or_else(|_| {
-                let response = request_text(profile, editor_skill_system_prompt(), &prompt)?;
-                on_stream(response.text.clone());
-                Ok::<ProviderTextResponse, anyhow::Error>(response)
-            })?;
+    let response = request_text_streaming(
+        profile,
+        editor_skill_system_prompt(),
+        &prompt,
+        &mut on_stream,
+    )
+    .or_else(|_| {
+        let response = request_text(profile, editor_skill_system_prompt(), &prompt)?;
+        on_stream(response.text.clone());
+        Ok::<ProviderTextResponse, anyhow::Error>(response)
+    })?;
 
     Ok(EditorRewritePayload {
         content: response.text,
@@ -1189,14 +1158,6 @@ fn minimal_system_prompt() -> &'static str {
     "You are a connectivity test. Reply with a short plain-text OK only."
 }
 
-fn rewrite_system_prompt() -> &'static str {
-    concat!(
-        "You rewrite selected rich-text markdown blocks inside a local editor. ",
-        "Reply with markdown only. Do not add explanations. Do not wrap the markdown in code fences. ",
-        "Any placeholder token provided by the system must be preserved exactly, unchanged, and in the same order."
-    )
-}
-
 fn editor_skill_system_prompt() -> &'static str {
     "你是一个文本编辑器中的 AI 助手。严格遵守用户配置的技能提示词和结果模式。"
 }
@@ -1259,73 +1220,6 @@ fn editor_skill_prompt(
         placeholder_rules = placeholder_rules,
         mode_rule = mode_rule,
     )
-}
-
-fn rewrite_prompt(
-    action_prompt: &str,
-    selected_text: &str,
-    expanded_markdown: &str,
-    placeholder_tokens: &[String],
-    context: Option<&AiEditorRewriteContext>,
-) -> String {
-    let placeholder_rules = if placeholder_tokens.is_empty() {
-        "- No placeholder tokens are present.".to_string()
-    } else {
-        placeholder_tokens
-            .iter()
-            .map(|token| format!("- Preserve this token exactly: {token}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
-    let context_text = context
-        .map(render_editor_rewrite_context)
-        .unwrap_or_else(|| "scope=unknown".to_string());
-
-    format!(
-        concat!(
-            "User-configured rewrite instruction:\n",
-            "{action_prompt}\n\n",
-            "Exact original selection:\n",
-            "{selected_text}\n\n",
-            "Expanded markdown block(s) to rewrite:\n",
-            "{expanded_markdown}\n\n",
-            "Editor context:\n",
-            "{context_text}\n\n",
-            "Placeholder preservation rules:\n",
-            "{placeholder_rules}\n\n",
-            "Return only the rewritten markdown for the expanded block(s)."
-        ),
-        action_prompt = truncate_chars(action_prompt.trim(), 4000),
-        selected_text = truncate_chars(selected_text, 4000),
-        expanded_markdown = truncate_chars(expanded_markdown, 20000),
-        context_text = context_text,
-        placeholder_rules = placeholder_rules
-    )
-}
-
-fn render_editor_rewrite_context(context: &AiEditorRewriteContext) -> String {
-    let mut parts = vec![format!("scope={}", context.scope.trim())];
-
-    if let Some(project_id) = context.project_id {
-        parts.push(format!("project_id={project_id}"));
-    }
-    if let Some(note_id) = context.note_id {
-        parts.push(format!("note_id={note_id}"));
-    }
-    if let Some(workspace_record_id) = context.workspace_record_id {
-        parts.push(format!("workspace_record_id={workspace_record_id}"));
-    }
-    if let Some(source_label) = context
-        .source_label
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(format!("source_label={source_label}"));
-    }
-
-    parts.join(", ")
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {
@@ -1426,10 +1320,7 @@ fn mock_provider_text(user_prompt: &str) -> String {
                 selection.trim().chars().take(80).collect::<String>()
             );
         }
-        return format!(
-            "{}（已按技能要求优化）",
-            selection.trim()
-        );
+        return format!("{}（已按技能要求优化）", selection.trim());
     }
 
     "OK".to_string()

@@ -680,14 +680,6 @@ pub struct WorkspaceSearchResult {
     pub matched_text: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcceptedSuggestionResult {
-    pub suggestion: AiSuggestionRecord,
-    pub entity_kind: String,
-    pub entity_id: i64,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCreateInput {
@@ -1116,21 +1108,6 @@ pub struct DocumentDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiGenerateInput {
-    pub project_id: i64,
-    pub activity_id: i64,
-    pub note_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiAcceptSuggestionInput {
-    pub suggestion_id: i64,
-    pub payload_override: Option<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AiEditorRewriteInput {
     pub skill_id: Option<String>,
     pub skill_name: Option<String>,
@@ -1191,8 +1168,9 @@ impl AiJobEnqueueInput {
 
     pub fn target_key(&self) -> &str {
         match self {
-            Self::ProfileTest { target_key, .. }
-            | Self::EditorRewrite { target_key, .. } => target_key,
+            Self::ProfileTest { target_key, .. } | Self::EditorRewrite { target_key, .. } => {
+                target_key
+            }
         }
     }
 }

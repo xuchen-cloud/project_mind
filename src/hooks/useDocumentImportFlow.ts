@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { DocumentRecord } from "../lib/types";
 import { projectMindApi } from "../services/projectMindApi";
+import { queryKeys } from "../lib/queryKeys";
 import { useFeedbackStore } from "../state/feedback-store";
 import { useUiStore } from "../state/ui-store";
 import { refreshAll } from "./shared";
@@ -23,7 +24,7 @@ export function useDocumentImportFlow({
   const [pendingImportTagIds, setPendingImportTagIds] = useState<number[]>([]);
 
   const fileTagSettingsQuery = useQuery({
-    queryKey: ["file-tag-settings", projectId],
+    queryKey: queryKeys.fileTags.project(projectId),
     queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
@@ -62,7 +63,7 @@ export function useDocumentImportFlow({
 
         await Promise.all([
           refreshAll(queryClient, projectId),
-          queryClient.invalidateQueries({ queryKey: ["file-tag-settings", projectId] }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(projectId) }),
         ]);
 
         onDocumentsImported?.(documents);

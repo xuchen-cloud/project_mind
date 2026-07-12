@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
+import { queryKeys } from "../../lib/queryKeys";
 import type {
   AiSettingsSnapshot,
   FileTagRecord,
@@ -109,7 +110,7 @@ export function WorkspaceOverviewHistory({
 
   function syncWorkspaceTagCache(tag: FileTagRecord) {
     queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      ["file-tag-settings", "workspace"],
+      queryKeys.fileTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {

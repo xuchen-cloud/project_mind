@@ -5,17 +5,39 @@ import "@fontsource-variable/noto-sans-sc/wght.css";
 import "./styles/file-icons.css";
 import "./styles/app.css";
 
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
-import { ProjectNoteFocusPage } from "./components/project/ProjectNoteFocusPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/today/WorkspacePage";
-import { WorkspaceRecordFocusPage } from "./components/today/WorkspaceRecordFocusPage";
+import { createProjectMindQueryClient } from "./lib/queryClient";
+
+const ProjectNoteFocusPage = lazy(() =>
+  import("./components/project/ProjectNoteFocusPage").then((module) => ({
+    default: module.ProjectNoteFocusPage,
+  })),
+);
+const WorkspaceRecordFocusPage = lazy(() =>
+  import("./components/today/WorkspaceRecordFocusPage").then((module) => ({
+    default: module.WorkspaceRecordFocusPage,
+  })),
+);
+
+function RouteFallback() {
+  return (
+    <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
+      正在打开记录…
+    </div>
+  );
+}
+
+function deferred(element: React.ReactNode) {
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
+}
 
 const router = createHashRouter([
   {
@@ -24,9 +46,12 @@ const router = createHashRouter([
       { index: true, element: <Navigate to="/workspace" replace /> },
       { path: "projects", element: <Navigate to="/workspace" replace /> },
       { path: "workspace", element: <WorkspacePage /> },
-      { path: "workspace/records/:noteId", element: <WorkspaceRecordFocusPage /> },
+      { path: "workspace/records/:noteId", element: deferred(<WorkspaceRecordFocusPage />) },
       { path: "projects/:projectId", element: <ProjectOverviewPage /> },
-      { path: "projects/:projectId/records/:noteId", element: <ProjectNoteFocusPage /> },
+      {
+        path: "projects/:projectId/records/:noteId",
+        element: deferred(<ProjectNoteFocusPage />),
+      },
       {
         path: "settings/:section",
         element: <SettingsRouteBridge />,
@@ -35,7 +60,7 @@ const router = createHashRouter([
   },
 ]);
 
-const queryClient = new QueryClient();
+const queryClient = createProjectMindQueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

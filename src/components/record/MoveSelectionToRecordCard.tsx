@@ -68,7 +68,7 @@ export function MoveSelectionToRecordCard<TRecord extends MoveSelectionRecordOpt
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-start justify-center bg-[rgba(16,20,24,0.22)] px-4 pt-[12vh]">
+    <div className="fixed inset-0 z-[95] flex items-start justify-center bg-[var(--color-overlay)] px-4 pt-[12vh]">
       <PopoverPanel className="w-[min(34rem,calc(100vw-2rem))] p-3 shadow-[var(--shadow-lg)]">
         <div className="mb-2 flex items-center gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
