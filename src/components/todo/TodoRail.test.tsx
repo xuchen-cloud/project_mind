@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { useState } from "react";
 
-import { useUiStore } from "../../state/ui-store";
+import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
 import { TodoRail } from "./TodoRail";
 
@@ -129,13 +129,7 @@ describe("TodoRail", () => {
 
   beforeEach(() => {
     installMemoryLocalStorage();
-    useUiStore.setState({
-      createProjectOpen: false,
-      createActivityOpen: false,
-      projectComposer: null,
-      projectSidebarCollapsed: false,
-      todoRailCollapsed: false,
-    });
+    useUiStore.setState(createUiStoreState());
   });
 
   it("persists the new todo draft on window blur", async () => {
@@ -210,6 +204,25 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
     expect(useUiStore.getState().todoRailCollapsed).toBe(true);
     expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
+  });
+
+  it("creates a todo with an independent @ due date", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn();
+
+    renderRail({ onCreateTodo });
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo"),
+      "@20270315 Ship checklist",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "Ship checklist",
+      priority: "not_urgent_important",
+      dueDate: "2027-03-15",
+    });
   });
 
   it("hides expand without completed subitems and still toggles finished status", async () => {
@@ -361,6 +374,31 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "未完成" }));
     expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
+  });
+
+  it("keeps the selected tab and sort mode when the rail remounts", async () => {
+    const user = userEvent.setup();
+    const props = {
+      unfinishedTodos: [todoWithHistory, anotherTodoWithHistory],
+      finishedTodos: [
+        finishedTodo,
+        { ...finishedTodo, id: 5, content: "Another done item" },
+      ],
+    };
+
+    const firstRail = renderRail(props);
+    await user.click(screen.getByRole("button", { name: "按优先级" }));
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+
+    firstRail.unmount();
+    renderRail(props);
+
+    expect(screen.getByRole("button", { name: "已完成" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Done item")).toBeInTheDocument();
+    expect(useUiStore.getState().todoRailSortMode).toBe("priority");
   });
 
   it("renders the composer with shortcut hint and save action", async () => {

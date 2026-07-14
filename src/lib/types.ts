@@ -55,6 +55,7 @@ export interface TodoProgressRecord {
   todoId: number;
   content: string;
   progressDate: string;
+  dueDate?: string | null;
   status?: TodoStatus;
   completedAt?: string | null;
   orderIndex?: number;
@@ -67,6 +68,7 @@ export interface TodoRecord {
   content: string;
   status: TodoStatus;
   priority: TodoPriority;
+  dueDate?: string | null;
   tags?: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
@@ -113,7 +115,7 @@ export interface DocumentVersionRecord {
   createdAt: string;
 }
 
-export type FileTagColorKey =
+export type TagColorKey =
   | "slate"
   | "blue"
   | "teal"
@@ -126,13 +128,13 @@ export type FileTagColorKey =
 export interface DocumentTagRecord {
   id: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
 }
 
-export interface FileTagRecord {
+export interface ProjectTagRecord {
   id: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
   usageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -141,7 +143,7 @@ export interface FileTagRecord {
 export interface ActivityAttributeOption {
   id: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
   createdAt: string;
   updatedAt: string;
 }
@@ -149,7 +151,7 @@ export interface ActivityAttributeOption {
 export interface ActivityStatusOption {
   id: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
   isSystem: boolean;
   createdAt: string;
   updatedAt: string;
@@ -160,8 +162,8 @@ export interface ActivitySettingsSnapshot {
   activityStatusOptions: ActivityStatusOption[];
 }
 
-export interface FileTagSettingsSnapshot {
-  tags: FileTagRecord[];
+export interface ProjectTagSettingsSnapshot {
+  tags: ProjectTagRecord[];
 }
 
 export interface ProjectRecordGroup {
@@ -188,12 +190,12 @@ export interface ActivityDigest {
   projectId: number;
   attributeOptionId?: number | null;
   attributeLabel?: string | null;
-  attributeColorKey?: FileTagColorKey | null;
+  attributeColorKey?: TagColorKey | null;
   title: string;
   activityTime: string;
   statusOptionId: number;
   statusLabel: string;
-  statusColorKey: FileTagColorKey;
+  statusColorKey: TagColorKey;
   isPinned: boolean;
   noteCount: number;
   conclusionCount: number;
@@ -225,8 +227,10 @@ export interface AiProfileTestJobResult extends AiJobBase {
 
 export interface AiEditorRewriteResult {
   skillId?: string | null;
-  resultMode: AiEditorSkillResultMode;
+  resultMode: AiEditorRewriteResultMode;
   content: string;
+  replacementMarkdown?: string | null;
+  answerMarkdown?: string | null;
   resolvedModel?: string | null;
 }
 
@@ -272,7 +276,7 @@ export interface AiEditorRewriteInput {
   skillId?: string | null;
   skillName?: string | null;
   prompt?: string | null;
-  resultMode: AiEditorSkillResultMode;
+  resultMode: AiEditorRewriteResultMode;
   selectedText: string;
   expandedMarkdown?: string | null;
   placeholderTokens?: string[];
@@ -348,16 +352,32 @@ export interface InternalReferenceResolveResult {
   projectId: number;
   route: string;
   focusId?: string | null;
+  managedPath?: string | null;
 }
 
-export interface WorkspaceSearchResult {
-  kind: "project" | "note" | "conclusion" | "todo" | "document";
+interface WorkspaceSearchResultBase {
   id: number;
-  projectId: number;
   title: string;
   subtitle: string;
   matchedText: string;
 }
+
+export type WorkspaceSearchResult =
+  | (WorkspaceSearchResultBase & {
+      kind: "workspace_quick_note" | "workspace_note";
+      projectId: null;
+      activityId?: null;
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "contact";
+      projectId: null;
+      activityId?: null;
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+      projectId: number;
+      activityId?: number | null;
+    });
 
 export interface ProjectCreateInput {
   name: string;
@@ -397,18 +417,18 @@ export interface ProjectDeleteInput {
   projectId: number;
 }
 
-export interface FileTagOptionUpsertInput {
+export interface ProjectTagUpsertInput {
   projectId?: number | null;
   id?: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
 }
 
-export interface FileTagSettingsGetInput {
+export interface ProjectTagSettingsGetInput {
   projectId?: number | null;
 }
 
-export interface FileTagOptionDeleteInput {
+export interface ProjectTagDeleteInput {
   projectId?: number | null;
   tagId: number;
 }
@@ -497,12 +517,14 @@ export interface TodoCreateInput {
   projectId: number;
   content: string;
   priority: TodoPriority;
+  dueDate?: string | null;
   tagIds?: number[];
 }
 
 export interface TodoUpdateContentInput {
   todoId: number;
   content: string;
+  dueDate?: string | null;
   tagIds?: number[];
 }
 
@@ -525,12 +547,14 @@ export interface TodoAddProgressInput {
   todoId: number;
   content: string;
   progressDate: string;
+  dueDate?: string | null;
 }
 
 export interface TodoUpdateProgressInput {
   progressId: number;
   content: string;
   progressDate: string;
+  dueDate?: string | null;
   status?: TodoStatus;
 }
 
@@ -616,6 +640,7 @@ export interface DocumentDeleteInput {
 }
 
 export type AiEditorSkillResultMode = "modify" | "answer";
+export type AiEditorRewriteResultMode = AiEditorSkillResultMode | "auto";
 
 export interface AiEditorSkillRecord {
   id: string;

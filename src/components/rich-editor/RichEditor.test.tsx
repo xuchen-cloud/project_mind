@@ -4,12 +4,13 @@ import { Copy } from "lucide-react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as aiJobs from "../../lib/aiJobs";
+import { buildContactMentionHtml } from "../../lib/contactMentions";
 import { buildInternalReferenceHtml } from "../../lib/internalReferences";
 import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useAiJobStore } from "../../state/ai-job-store";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
-import { RichEditor } from "./RichEditor";
+import { RichEditor, type RichEditorController } from "./RichEditor";
 
 const intersectionObservers: Array<{
   callback: IntersectionObserverCallback;
@@ -953,6 +954,56 @@ describe("RichEditor images", () => {
     revealPathSpy.mockRestore();
   });
 
+  it("copies the original image bytes from the image context menu", async () => {
+    const user = userEvent.setup();
+    const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);
+    const clipboardItemSpy = vi.fn();
+    class ClipboardItemMock {
+      data: Record<string, Blob>;
+
+      constructor(data: Record<string, Blob>) {
+        this.data = data;
+        clipboardItemSpy(data);
+      }
+    }
+    Object.defineProperty(globalThis, "ClipboardItem", {
+      configurable: true,
+      value: ClipboardItemMock,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { write },
+    });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={
+          '<p><img src="asset:///tmp/managed/clip.png" data-path="/tmp/managed/clip.png" data-mime-type="image/png" alt="截图" /></p>'
+        }
+      />,
+    );
+
+    const image = await waitFor(() => {
+      const nextImage = container.querySelector("img.rich-editor__image");
+      expect(nextImage).toBeTruthy();
+      return nextImage as HTMLImageElement;
+    });
+
+    fireEvent.contextMenu(image, { clientX: 40, clientY: 48 });
+    const imageMenu = await screen.findByRole("menu", { name: "图片操作" });
+    await user.click(within(imageMenu).getByRole("menuitem", { name: "复制图片" }));
+
+    await waitFor(() => {
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
+        "/tmp/managed/clip.png",
+        "image/png",
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+    expect(clipboardItemSpy.mock.calls[0]?.[0]?.["image/png"]).toBeInstanceOf(Blob);
+    expect(clipboardItemSpy.mock.calls[0]?.[0]?.["text/html"]).toBeInstanceOf(Blob);
+  });
+
   it("disables reveal location when the image has no source path", async () => {
     const user = userEvent.setup();
     const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockResolvedValue("/tmp/clip.png");
@@ -1836,6 +1887,63 @@ describe("RichEditor context menus", () => {
     expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();
   });
 
+  it("keeps images, references, and contacts in the move-to-record selection payload", async () => {
+    const onMove = vi.fn();
+    const contact = buildContactMentionHtml({ contactId: 7, label: "张三" });
+    const reference = buildInternalReferenceHtml({
+      refKind: "note",
+      refId: 12,
+      label: "访谈记录",
+    });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={[
+          `<p>前文 ${contact} ${reference}</p>`,
+          '<p><img src="asset:///tmp/move.png" data-path="/tmp/move.png" data-mime-type="image/png" width="360" data-annotation-state="{}" alt="截图"></p>',
+          "<p>后文</p>",
+        ].join("")}
+        selectionActions={[
+          {
+            key: "move-to-record",
+            label: "移动到记录",
+            onSelect: onMove,
+          },
+        ]}
+      />,
+    );
+
+    const [firstText, lastText] = await waitFor(() => {
+      const paragraphs = container.querySelectorAll(".ProseMirror p");
+      const first = paragraphs[0]?.firstChild;
+      const last = paragraphs[paragraphs.length - 1]?.firstChild;
+      expect(first?.nodeType).toBe(Node.TEXT_NODE);
+      expect(last?.nodeType).toBe(Node.TEXT_NODE);
+      return [first as Text, last as Text];
+    });
+
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextRange(firstText, 0, lastText, lastText.length);
+    fireEvent.contextMenu(lastText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+
+    const menu = await screen.findByRole("menu", { name: "选区操作" });
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "移动到记录" }));
+
+    await waitFor(() => expect(onMove).toHaveBeenCalledTimes(1));
+    const payload = onMove.mock.calls[0]?.[0];
+    expect(payload.html).toContain('data-path="/tmp/move.png"');
+    expect(payload.html).toContain('data-mime-type="image/png"');
+    expect(payload.html).toContain('width="360"');
+    expect(payload.html).toContain('data-annotation-state="{}"');
+    expect(payload.html).toContain('data-type="internal-reference"');
+    expect(payload.html).toContain('data-ref-id="12"');
+    expect(payload.html).toContain('data-type="contact-mention"');
+    expect(payload.html).toContain('data-contact-id="7"');
+    expect(payload.markdown).toContain("@[contact:7|张三]");
+    expect(payload.markdown).toContain("[[note:12|访谈记录]]");
+    clearBrowserSelection();
+  });
+
   it("restores the remembered text selection when the browser clears it before right click", async () => {
     const { container } = render(
       <RichEditor
@@ -1888,8 +1996,11 @@ describe("RichEditor context menus", () => {
 
     await userEvent.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
     const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    expect(within(aiMenu).getByRole("button", { name: "润色" })).toBeInTheDocument();
     expect(within(aiMenu).getByPlaceholderText("使用 AI 编辑")).toBeInTheDocument();
+    expect(within(aiMenu).queryByRole("toolbar")).not.toBeInTheDocument();
+    expect(within(aiMenu).queryByText("技能")).not.toBeInTheDocument();
+    expect(within(aiMenu).queryByRole("button", { name: "修改原文" })).not.toBeInTheDocument();
+    expect(within(aiMenu).queryByRole("button", { name: "生成回答" })).not.toBeInTheDocument();
   });
 
   it("shows configured AI skills in the dedicated AI menu even before the capability is ready", async () => {
@@ -1941,7 +2052,7 @@ describe("RichEditor context menus", () => {
 
     await userEvent.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
     const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
-    expect(within(aiMenu).getByRole("button", { name: "翻译" })).toBeDisabled();
+    expect(within(aiMenu).queryByRole("button", { name: "翻译" })).not.toBeInTheDocument();
     expect(within(aiMenu).getByPlaceholderText("使用 AI 编辑")).toBeDisabled();
     expect(within(aiMenu).getByText("需先解锁 AI 配置")).toBeInTheDocument();
   });
@@ -2013,7 +2124,130 @@ describe("RichEditor context menus", () => {
     expect(request.input.prompt).toBe("请翻译成英文");
     expect(request.input.skillId).toBeNull();
     expect(request.input.skillName).toBe("AI 编辑");
-    expect(request.input.resultMode).toBe("modify");
+    expect(request.input.resultMode).toBe("auto");
+
+    enqueueSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("applies automatic AI edits and keeps an optional answer available", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    let targetKey = "";
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      targetKey = input.targetKey;
+      return {
+        id: 61,
+        kind: "editor_rewrite",
+        targetKey,
+        status: "queued",
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+    });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world with a much longer opening paragraph</p><p>second paragraph</p><p>last paragraph</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [],
+        }}
+      />,
+    );
+
+    const paragraphText = await waitFor(() => {
+      const textNode = container.querySelector(".ProseMirror p")?.firstChild;
+      expect(textNode?.nodeType).toBe(Node.TEXT_NODE);
+      return textNode as Text;
+    });
+    fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
+    selectTextContent(paragraphText, 0, 5);
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+    const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
+    const promptInput = within(aiMenu).getByPlaceholderText("使用 AI 编辑");
+    await user.type(promptInput, "请润色并解释");
+    fireEvent.keyDown(promptInput, { key: "Enter" });
+
+    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    useAiJobStore.getState().upsertJob({
+      id: 61,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: '{"replacementMarkdown":"better',
+      result: null,
+    });
+    expect(container.querySelector(".ProseMirror p")?.textContent).toBe(
+      "hello world with a much longer opening paragraph",
+    );
+
+    useAiJobStore.getState().upsertJob({
+      id: 61,
+      kind: "editor_rewrite",
+      targetKey,
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "",
+      result: {
+        kind: "editor_rewrite",
+        rewrite: {
+          skillId: null,
+          resultMode: "auto",
+          content: '{"replacementMarkdown":"better world","answerMarkdown":"改写说明"}',
+          replacementMarkdown: "better world",
+          answerMarkdown: "改写说明",
+          resolvedModel: "mock-model",
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror p")?.textContent).toBe("better world");
+      expect(screen.getByText("改写说明")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "复制回答" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "接受" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "插入" })).toBeInTheDocument();
+      expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "插入" }));
+    await waitFor(() => {
+      const blocks = Array.from(container.querySelectorAll(".ProseMirror > *"));
+      expect(blocks.map((block) => block.tagName)).toEqual([
+        "P",
+        "BLOCKQUOTE",
+        "P",
+        "P",
+      ]);
+      expect(blocks.map((block) => block.textContent)).toEqual([
+        "better world",
+        "改写说明",
+        "second paragraph",
+        "last paragraph",
+      ]);
+    });
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -2091,6 +2325,10 @@ describe("RichEditor context menus", () => {
     await waitFor(() => {
       expect(targetKey).toContain("editor-rewrite:");
     });
+    expect(container.querySelector("[data-ai-rewrite-protected='true']")).toBeInTheDocument();
+    const rewriteWidgetHost = container.querySelector<HTMLElement>(".rich-editor__rewrite-widget-host");
+    expect(rewriteWidgetHost?.parentElement).toBe(container.querySelector(".rich-editor__frame"));
+    expect(rewriteWidgetHost?.style.top).not.toBe("");
 
     useAiJobStore.getState().upsertJob({
       id: 41,
@@ -2156,6 +2394,7 @@ describe("RichEditor context menus", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".ProseMirror")?.textContent).toContain("a much longer rewritten paragraph");
+      expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
     });
 
     enqueueSpy.mockRestore();
@@ -2841,6 +3080,59 @@ describe("RichEditor context menus", () => {
       expect(container.querySelector(".ProseMirror")?.textContent).toContain("ab");
     });
   });
+
+  it("undoes the latest edit in one step after a saved-content echo changes metadata", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const initialHtml =
+      '<p></p><p><img src="data:image/png;base64,AAAA" alt="before-save"></p>';
+    const { container, rerender } = render(
+      <RichEditor
+        variant="bare"
+        html={initialHtml}
+        autosave={{ onChange: false, onBlur: true }}
+        onSave={onSave}
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+    const paragraph = container.querySelector(".ProseMirror p") as HTMLParagraphElement;
+
+    await user.click(paragraph);
+    await user.type(paragraph, "edit");
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    fireEvent.blur(surface);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <RichEditor
+        variant="bare"
+        autosave={{ onChange: false, onBlur: true }}
+        onSave={onSave}
+        html={
+          '<p>edit</p><p><img src="data:image/png;base64,AAAA" alt="after-save"></p>'
+        }
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("img")?.getAttribute("alt")).toBe("after-save");
+    });
+
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(surface.textContent).not.toContain("edit");
+    });
+  });
 });
 
 describe("RichEditor focus and blur persistence", () => {
@@ -2880,6 +3172,112 @@ describe("RichEditor focus and blur persistence", () => {
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
       expect(onBlurPersisted).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not duplicate a forced controller save when the editor blurs during record switching", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const controllerRef: { current: RichEditorController | null } = { current: null };
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        autoFocus
+        autosave={{ onChange: false, onBlur: true }}
+        controllerRef={controllerRef}
+        onSave={onSave}
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+      expect(nextSurface).toBeTruthy();
+      expect(controllerRef.current).not.toBeNull();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.type(surface, "Switch-safe save");
+    await controllerRef.current?.save({ force: true });
+    fireEvent.blur(surface);
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes a concurrent controller save wait for the active save cycle", async () => {
+    const user = userEvent.setup();
+    let finishSave!: () => void;
+    const onSave = vi.fn(
+      () => new Promise<void>((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    const controllerRef: { current: RichEditorController | null } = { current: null };
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        autoFocus
+        controllerRef={controllerRef}
+        onSave={onSave}
+      />,
+    );
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+      expect(nextSurface).toBeTruthy();
+      expect(controllerRef.current).not.toBeNull();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.type(surface, "Wait for save");
+    const firstSave = controllerRef.current?.save({ force: true });
+    const secondSave = controllerRef.current?.save({ force: true });
+    let secondFinished = false;
+    void secondSave?.then(() => {
+      secondFinished = true;
+    });
+    await Promise.resolve();
+    expect(secondFinished).toBe(false);
+
+    finishSave();
+    await firstSave;
+    await secondSave;
+    expect(secondFinished).toBe(true);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the undo history after autosave normalizes the saved snapshot", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        autoFocus
+        autosave={{ onChange: false, onBlur: true }}
+        onSave={onSave}
+      />,
+    );
+
+    const surface = await waitFor(() => {
+      const nextSurface = container.querySelector(".ProseMirror");
+
+      expect(nextSurface).toBeTruthy();
+      return nextSurface as HTMLElement;
+    });
+
+    await user.type(surface, "Undo survives save{Enter}");
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    fireEvent.blur(surface);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(surface.textContent).toContain("Undo survives save");
+    });
+
+    surface.focus();
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(surface.textContent).not.toContain("Undo survives save");
     });
   });
 

@@ -117,28 +117,60 @@ export function parseProgressInput(
   input: string,
   now = new Date(),
   fallbackDate?: string,
+  fallbackDueDate?: string | null,
+) {
+  const parsed = parseDueDateInput(input, now, fallbackDueDate);
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  return {
+    ...parsed,
+    progressDate: fallbackDate ?? formatLocalDate(now),
+  };
+}
+
+export function parseDueDateInput(
+  input: string,
+  now = new Date(),
+  fallbackDueDate?: string | null,
 ) {
   const trimmed = input.trim();
   if (!trimmed) {
-    return { ok: false as const, error: "进展内容不能为空。" };
+    return { ok: false as const, error: "内容不能为空。" };
   }
 
-  const match = trimmed.match(/^@(\d{2})(\d{2})(?:\s+|$)(.*)$/u);
+  const match = trimmed.match(/@(\d+)(?=\s|$)/u);
   if (!match) {
     return {
       ok: true as const,
-      progressDate: fallbackDate ?? formatLocalDate(now),
+      dueDate: fallbackDueDate ?? null,
       content: trimmed,
     };
   }
 
-  const month = Number(match[1]);
-  const day = Number(match[2]);
-  const year = now.getFullYear();
-  const content = match[3]?.trim() ?? "";
+  const dateDigits = match[1];
+  if (dateDigits.length !== 4 && dateDigits.length !== 8) {
+    return {
+      ok: false as const,
+      error: "日期格式无效，请使用 @MMDD 或 @YYYYMMDD，例如 @0315 或 @20270315。",
+    };
+  }
+
+  const hasExplicitYear = dateDigits.length === 8;
+  const year = hasExplicitYear ? Number(dateDigits.slice(0, 4)) : now.getFullYear();
+  const month = Number(dateDigits.slice(hasExplicitYear ? 4 : 0, hasExplicitYear ? 6 : 2));
+  const day = Number(dateDigits.slice(hasExplicitYear ? 6 : 2));
+  const matchIndex = match.index ?? 0;
+  const content = `${trimmed.slice(0, matchIndex)}${trimmed.slice(matchIndex + match[0].length)}`
+    .trim()
+    .replace(/\s{2,}/gu, " ");
 
   if (!isValidCalendarDate(year, month, day)) {
-    return { ok: false as const, error: "日期格式无效，请使用开头的 @MMDD，例如 @0315。" };
+    return {
+      ok: false as const,
+      error: "日期格式无效，请使用 @MMDD 或 @YYYYMMDD，例如 @0315 或 @20270315。",
+    };
   }
 
   if (!content) {
@@ -147,7 +179,7 @@ export function parseProgressInput(
 
   return {
     ok: true as const,
-    progressDate: `${year}-${`${month}`.padStart(2, "0")}-${`${day}`.padStart(2, "0")}`,
+    dueDate: `${year}-${`${month}`.padStart(2, "0")}-${`${day}`.padStart(2, "0")}`,
     content,
   };
 }

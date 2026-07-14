@@ -1,13 +1,13 @@
 import { Circle } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
-import type { FileTagColorKey } from "../../lib/types";
+import { tagColorValue } from "../../lib/constants";
+import type { TagColorKey } from "../../lib/types";
 import { cn } from "../../ui/lib/cn";
 
 export interface TagFilterOption {
   id: number;
   label: string;
-  colorKey: FileTagColorKey;
+  colorKey: TagColorKey;
   count: number;
 }
 
@@ -57,7 +57,7 @@ export function TagFilterBar({
               <Circle
                 size={10}
                 className="fill-current"
-                style={{ color: fileTagColorValue(tag.colorKey) }}
+                style={{ color: tagColorValue(tag.colorKey) }}
                 aria-hidden="true"
               />
               <span>{tag.label}</span>

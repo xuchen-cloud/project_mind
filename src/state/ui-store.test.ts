@@ -28,6 +28,13 @@ describe("useUiStore", () => {
 
     useUiStore.getState().setCreateProjectOpen(false);
     useUiStore.getState().setProjectComposer("todo");
+    useUiStore.getState().setWorkspaceSidebarTab("records");
+    useUiStore.getState().setWorkspaceProjectQuery("alpha");
+    useUiStore.getState().setProjectSidebarTab("files");
+    useUiStore.getState().setProjectFileQuery(9, "brief");
+    useUiStore.getState().setProjectDocumentTagId(9, 3);
+    useUiStore.getState().setTodoRailTab("finished");
+    useUiStore.getState().setTodoRailSortMode("priority");
     useUiStore.getState().openSettings("contacts");
     useUiStore.getState().rememberProjectRoute(9, "/projects/9/activities/11?focus=todo-3");
     useUiStore.getState().toggleProjectSidebarCollapsed();
@@ -38,6 +45,12 @@ describe("useUiStore", () => {
     const state = useUiStore.getState();
     expect(state.createProjectOpen).toBe(false);
     expect(state.projectComposer).toBe("todo");
+    expect(state.workspaceSidebarTab).toBe("records");
+    expect(state.workspaceProjectQuery).toBe("alpha");
+    expect(state.projectSidebarTab).toBe("files");
+    expect(state.projectFileFilters[9]).toEqual({ query: "brief", tagId: 3 });
+    expect(state.todoRailTab).toBe("finished");
+    expect(state.todoRailSortMode).toBe("priority");
     expect(state.settingsOpen).toBe(true);
     expect(state.settingsSection).toBe("contacts");
     expect(state.projectSidebarCollapsed).toBe(true);
@@ -49,6 +62,10 @@ describe("useUiStore", () => {
 
     useUiStore.getState().clearProjectRecentPaths();
     expect(useUiStore.getState().projectRecentPaths).toEqual({});
+
+    useUiStore.getState().clearWorkspaceScopedUiState();
+    expect(useUiStore.getState().projectFileFilters).toEqual({});
+    expect(useUiStore.getState().workspaceProjectQuery).toBe("");
   });
 
   it("clamps the persisted note editor width preference", () => {

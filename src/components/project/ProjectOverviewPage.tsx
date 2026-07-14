@@ -24,7 +24,7 @@ import {
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import type {
-  FileTagRecord,
+  ProjectTagRecord,
   NoteRecord,
   ProjectPageData,
   TodoPriority,
@@ -32,6 +32,7 @@ import type {
 import {
   parseFocusRecordId,
   parseRouteId,
+  preserveRecordFilters,
   projectPath,
   recordFocusId,
   recordPath,
@@ -65,7 +66,7 @@ import { useUiStore } from "../../state/ui-store";
 import { ActionContextMenu, Button, EmptyState, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
-import { appendMarkdownSection } from "../../lib/record-move";
+import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { RecordListItem } from "../record/RecordListItem";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
@@ -139,8 +140,8 @@ export function ProjectOverviewPage({
     enabled: visible && projectId !== null,
   });
   const tagSettingsQuery = useQuery({
-    queryKey: queryKeys.fileTags.project(projectId),
-    queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
+    queryKey: queryKeys.projectTags.project(projectId),
+    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
   });
   const aiSettingsQuery = useQuery({
@@ -218,14 +219,15 @@ export function ProjectOverviewPage({
   }, [contextMenuRecord, recordContextMenu]);
 
   useFocusTarget(
-    visible && focusedRecordId !== null && currentView === "record"
+    focusedRecordId !== null && currentView === "record"
       ? recordFocusId(focusedRecordId)
       : null,
-    [currentView, visible, visibleRecordFocusKey],
+    [currentView, visibleRecordFocusKey],
+    { enabled: visible, refocusOnEnable: false },
   );
 
   const {
-    fileTags,
+    projectTags,
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
@@ -294,7 +296,7 @@ export function ProjectOverviewPage({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(projectId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.project(projectId) }),
       queryClient.invalidateQueries({ queryKey: ["search"] }),
     ]);
   }
@@ -349,7 +351,7 @@ export function ProjectOverviewPage({
       const existing = findTagByLabel(availableTags, label);
       const tag =
         existing ??
-        (await projectMindApi.fileTagOptionUpsert({
+        (await projectMindApi.projectTagUpsert({
           projectId,
           label,
           colorKey: colorKeyForTagLabel(label),
@@ -360,9 +362,9 @@ export function ProjectOverviewPage({
     return mergeUniqueTagIds(explicitTagIds, mentionedTagIds, hashTagIds);
   }
 
-  function syncProjectTagCache(tag: FileTagRecord) {
-    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      queryKeys.fileTags.project(projectId),
+  function syncProjectTagCache(tag: ProjectTagRecord) {
+    queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
+      queryKeys.projectTags.project(projectId),
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -481,7 +483,10 @@ export function ProjectOverviewPage({
 
     try {
       const markdown = appendMarkdownSection(record.contentMarkdown, selection.markdown);
-      const html = renderMarkdownToHtml(markdown);
+      const html = appendRichTextSection(
+        { html: record.contentHtml, markdown: record.contentMarkdown },
+        selection.html,
+      );
       const tagIds = await ensureTagIdsFromText(
         markdown,
         (record.tags ?? []).map((tag) => tag.id),
@@ -516,7 +521,7 @@ export function ProjectOverviewPage({
 
     try {
       const markdown = selection.markdown.trim();
-      const html = renderMarkdownToHtml(markdown);
+      const html = selection.html.trim() || renderMarkdownToHtml(markdown);
       const tagIds = await ensureTagIdsFromText(markdown, []);
       const savedRecord = await projectMindApi.projectRecordUpsert({
         projectId,
@@ -548,7 +553,7 @@ export function ProjectOverviewPage({
     setRecordContextMenu({ x: event.clientX, y: event.clientY, noteId });
   }
 
-  async function createTodo(payload: { content: string; priority: TodoPriority }) {
+  async function createTodo(payload: { content: string; priority: TodoPriority; dueDate?: string | null }) {
     if (!projectId) return;
 
     const synced = await resolveTodoContentTagSync({
@@ -560,10 +565,10 @@ export function ProjectOverviewPage({
     await todoMutation.mutateAsync({ projectId, ...payload, content: synced.content, tagIds: synced.tagIds });
   }
 
-  async function updateTodoContent(todoId: number, content: string) {
+  async function updateTodoContent(todoId: number, content: string, dueDate?: string | null) {
     const currentTodo = allTodos.find((todo) => todo.id === todoId);
     if (!currentTodo) {
-      await todoContentMutation.mutateAsync({ todoId, content });
+      await todoContentMutation.mutateAsync({ todoId, content, dueDate });
       return;
     }
 
@@ -576,6 +581,7 @@ export function ProjectOverviewPage({
     await todoContentMutation.mutateAsync({
       todoId,
       content: synced.content,
+      dueDate,
       tagIds: synced.tagIds,
     });
   }
@@ -739,7 +745,7 @@ export function ProjectOverviewPage({
             <DocumentImportTagDialog
               projectId={projectId as number}
               paths={pendingImportPaths}
-              tags={fileTags}
+              tags={projectTags}
               selectedTagIds={pendingImportTagIds}
               onChangeSelectedTagIds={togglePendingImportTag}
               onClose={closeImportTagDialog}
@@ -755,6 +761,7 @@ export function ProjectOverviewPage({
             aria-hidden={currentView === "quick-note" ? undefined : true}
           >
             <RichEditor
+              key={`project-quick-note-${activeProject.id}`}
               html={quickNoteDraft.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={quickNoteCodeLanguage}
@@ -766,7 +773,7 @@ export function ProjectOverviewPage({
                 projectId: activeProject.id,
                 availableTags,
                 onCreateTag: async (label) => {
-                  const tag = await projectMindApi.fileTagOptionUpsert({
+                  const tag = await projectMindApi.projectTagUpsert({
                     projectId: activeProject.id,
                     label,
                     colorKey: colorKeyForTagLabel(label),
@@ -850,7 +857,7 @@ export function ProjectOverviewPage({
                         projectId: activeProject.id,
                         availableTags,
                         onCreateTag: async (label) => {
-                          const tag = await projectMindApi.fileTagOptionUpsert({
+                          const tag = await projectMindApi.projectTagUpsert({
                             projectId: activeProject.id,
                             label,
                             colorKey: colorKeyForTagLabel(label),
@@ -911,7 +918,12 @@ export function ProjectOverviewPage({
                         onSave={saveRecord}
                         onOpenContextMenu={openRecordContextMenu}
                         onOpenFocusPage={(current) =>
-                          navigate(recordPath(current.projectId, current.id))
+                          navigate(
+                            preserveRecordFilters(
+                              recordPath(current.projectId, current.id),
+                              searchParams,
+                            ),
+                          )
                         }
                         onCreatedTag={() => {
                           void refreshProject();

@@ -8,7 +8,7 @@ import "./styles/app.css";
 import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
+import { Navigate, RouterProvider, createHashRouter, useParams } from "react-router-dom";
 
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
@@ -39,6 +39,13 @@ function deferred(element: React.ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
+function ProjectNoteFocusRoute() {
+  const params = useParams();
+  return deferred(
+    <ProjectNoteFocusPage key={`${params.projectId ?? ""}:${params.noteId ?? ""}`} />,
+  );
+}
+
 const router = createHashRouter([
   {
     element: <WorkspaceLayout cacheProjectOverviewPages />,
@@ -50,7 +57,7 @@ const router = createHashRouter([
       { path: "projects/:projectId", element: <ProjectOverviewPage /> },
       {
         path: "projects/:projectId/records/:noteId",
-        element: deferred(<ProjectNoteFocusPage />),
+        element: <ProjectNoteFocusRoute />,
       },
       {
         path: "settings/:section",

@@ -13,6 +13,7 @@ interface DialogProps {
   children: ReactNode;
   widthClassName?: string;
   bodyClassName?: string;
+  layerClassName?: string;
 }
 
 export function Dialog({
@@ -24,6 +25,7 @@ export function Dialog({
   children,
   widthClassName,
   bodyClassName,
+  layerClassName = "z-40",
 }: DialogProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -49,7 +51,10 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-overlay px-4 py-6 backdrop-blur-[3px]"
+      className={cn(
+        "fixed inset-0 flex items-center justify-center bg-overlay px-4 py-6 backdrop-blur-[3px]",
+        layerClassName,
+      )}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();

@@ -27,6 +27,8 @@ pub struct ProviderTestOutcome {
 #[derive(Debug, Clone)]
 pub struct EditorRewritePayload {
     pub content: String,
+    pub replacement_markdown: Option<String>,
+    pub answer_markdown: Option<String>,
     pub resolved_model: Option<String>,
 }
 
@@ -77,8 +79,18 @@ pub fn run_editor_skill(
         Ok::<ProviderTextResponse, anyhow::Error>(response)
     })?;
 
+    let (replacement_markdown, answer_markdown) = if result_mode == "auto" {
+        parse_editor_auto_response(&response.text)?
+    } else if result_mode == "modify" {
+        (Some(response.text.clone()), None)
+    } else {
+        (None, Some(response.text.clone()))
+    };
+
     Ok(EditorRewritePayload {
         content: response.text,
+        replacement_markdown,
+        answer_markdown,
         resolved_model: response.resolved_model,
     })
 }
@@ -1159,7 +1171,7 @@ fn minimal_system_prompt() -> &'static str {
 }
 
 fn editor_skill_system_prompt() -> &'static str {
-    "你是一个文本编辑器中的 AI 助手。严格遵守用户配置的技能提示词和结果模式。"
+    "你是一个文本编辑器中的 AI 助手。严格遵守用户指令和输出格式。"
 }
 
 fn editor_skill_prompt(
@@ -1186,11 +1198,21 @@ fn editor_skill_prompt(
             "尽量保持原有 Markdown 结构、标题层级、列表层级、引用、代码块和强调标记；除非技能提示词明确要求调整结构，否则优先只修改文字内容。\n",
             "返回内容将直接用于替换原文块，所以不要加入“以下是修改结果”等前缀。"
         )
-    } else {
+    } else if result_mode == "answer" {
         concat!(
             "结果模式：生成回答。\n",
             "请返回针对选中 Markdown 的回答内容，可以使用 Markdown 表达标题、列表、引用、代码块和强调。\n",
             "不要修改原文。不要输出与问题无关的内容。不要包裹代码围栏。"
+        )
+    } else {
+        concat!(
+            "结果模式：由你根据用户指令自动判断。\n",
+            "你可以返回原文修改、针对用户的回答，或者同时返回两者；不需要的部分必须为 null。\n",
+            "只返回一个合法 JSON 对象，不要添加 Markdown 代码围栏、解释或其他前后缀。结构必须严格为：\n",
+            "{\"replacementMarkdown\": string | null, \"answerMarkdown\": string | null}\n",
+            "replacementMarkdown 是用于完整替换选中块的 Markdown。仅当用户要求改写、润色、翻译、纠错、重组或直接变更原文时返回；否则为 null。\n",
+            "answerMarkdown 是直接回答用户问题或对修改进行说明的 Markdown。仅当用户需要解释、分析、建议、问答或说明时返回；否则为 null。\n",
+            "两部分至少有一个不是 null。若返回 replacementMarkdown，必须完整保留原有 Markdown 结构和所有要求保留的占位符。"
         )
     };
     let context = document_context
@@ -1220,6 +1242,39 @@ fn editor_skill_prompt(
         placeholder_rules = placeholder_rules,
         mode_rule = mode_rule,
     )
+}
+
+fn parse_editor_auto_response(value: &str) -> Result<(Option<String>, Option<String>)> {
+    let trimmed = value.trim();
+    let json_text = if let Some(stripped) = trimmed.strip_prefix("```") {
+        let without_language = stripped.lines().skip(1).collect::<Vec<_>>().join("\n");
+        without_language
+            .strip_suffix("```")
+            .map(str::trim)
+            .unwrap_or(without_language.trim())
+            .to_string()
+    } else {
+        trimmed.to_string()
+    };
+    let json: Value = serde_json::from_str(&json_text)
+        .context("AI editor automatic result was not valid JSON")?;
+    let read_optional_markdown = |key: &str| {
+        json.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned)
+    };
+    let replacement_markdown = read_optional_markdown("replacementMarkdown");
+    let answer_markdown = read_optional_markdown("answerMarkdown");
+
+    if replacement_markdown.is_none() && answer_markdown.is_none() {
+        return Err(anyhow!(
+            "AI editor automatic result must contain replacementMarkdown or answerMarkdown"
+        ));
+    }
+
+    Ok((replacement_markdown, answer_markdown))
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {
@@ -1312,6 +1367,32 @@ fn mock_provider_text(user_prompt: &str) -> String {
         return rewritten;
     }
 
+    if user_prompt.contains("\"replacementMarkdown\"") && user_prompt.contains("\"answerMarkdown\"")
+    {
+        let instruction = extract_mock_section(user_prompt, "当前技能提示词：");
+        let selection = extract_mock_section(user_prompt, "用户选中的 Markdown：");
+        let wants_modify = ["修改", "改写", "润色", "翻译", "纠错", "优化", "重写"]
+            .iter()
+            .any(|keyword| instruction.contains(keyword));
+        let wants_answer = ["回答", "解释", "分析", "为什么", "说明", "建议"]
+            .iter()
+            .any(|keyword| instruction.contains(keyword));
+        let replacement = wants_modify.then(|| format!("{}（已按要求优化）", selection.trim()));
+        let answer = (wants_answer || !wants_modify).then(|| {
+            format!(
+                "这是基于选中文本的 AI 回答：{}",
+                selection.trim().chars().take(80).collect::<String>()
+            )
+        });
+        return serde_json::to_string(&json!({
+            "replacementMarkdown": replacement,
+            "answerMarkdown": answer,
+        }))
+        .unwrap_or_else(|_| {
+            "{\"replacementMarkdown\":null,\"answerMarkdown\":\"AI 回答\"}".to_string()
+        });
+    }
+
     if user_prompt.contains("用户选中的 Markdown：") {
         let selection = extract_mock_section(user_prompt, "用户选中的 Markdown：");
         if user_prompt.contains("结果模式：生成回答") {
@@ -1370,6 +1451,11 @@ fn extract_mock_section(user_prompt: &str, heading: &str) -> String {
         "\n\nEditor context:",
         "\n\nPlaceholder preservation rules:",
         "\n\nReturn only the rewritten markdown for the expanded block(s).",
+        "\n\n当前技能提示词：",
+        "\n\n用户选中的 Markdown：",
+        "\n\n文档上下文：",
+        "\n\n占位符保留规则：",
+        "\n\n结果模式：",
     ];
     let end = next_headings
         .iter()
@@ -1412,10 +1498,42 @@ fn ensure_text_support(profile: &ResolvedAiProfile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        describe_json_shape, extract_error_message, openai_chat_request_body, read_openai_content,
-        uses_reasoning_chat_parameters, ResolvedAiProfile,
+        describe_json_shape, extract_error_message, openai_chat_request_body,
+        parse_editor_auto_response, read_openai_content, uses_reasoning_chat_parameters,
+        ResolvedAiProfile,
     };
     use serde_json::json;
+
+    #[test]
+    fn parses_automatic_editor_result_with_both_optional_parts() {
+        let (replacement, answer) = parse_editor_auto_response(
+            "```json\n{\"replacementMarkdown\":\"改写后\",\"answerMarkdown\":\"修改说明\"}\n```",
+        )
+        .expect("automatic editor result should parse");
+
+        assert_eq!(replacement.as_deref(), Some("改写后"));
+        assert_eq!(answer.as_deref(), Some("修改说明"));
+    }
+
+    #[test]
+    fn parses_automatic_editor_result_with_only_one_part() {
+        let (replacement, answer) = parse_editor_auto_response(
+            "{\"replacementMarkdown\":null,\"answerMarkdown\":\"直接回答\"}",
+        )
+        .expect("answer-only automatic editor result should parse");
+
+        assert_eq!(replacement, None);
+        assert_eq!(answer.as_deref(), Some("直接回答"));
+    }
+
+    #[test]
+    fn rejects_empty_automatic_editor_result() {
+        let error =
+            parse_editor_auto_response("{\"replacementMarkdown\":null,\"answerMarkdown\":null}")
+                .expect_err("empty automatic editor result should fail");
+
+        assert!(error.to_string().contains("must contain"));
+    }
 
     #[test]
     fn reads_openai_chat_completion_string_content() {

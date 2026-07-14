@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { parseRouteId, projectPath, workspacePath } from "../../lib/formatters";
+import {
+  parseRouteId,
+  preserveRecordFilters,
+  projectPath,
+  workspacePath,
+} from "../../lib/formatters";
 import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
@@ -14,6 +19,7 @@ import { useContactMentionNavigation } from "../../hooks/useContactMentionNaviga
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
+import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import { desktopApi } from "../../services/desktopApi";
@@ -36,7 +42,7 @@ import {
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TodoRail } from "../todo";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
-import type { FileTagRecord, TodoPriority } from "../../lib/types";
+import type { ProjectTagRecord, TodoPriority } from "../../lib/types";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -46,6 +52,9 @@ export function WorkspaceRecordFocusPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const noteId = parseRouteId(params.noteId);
+  const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
+    `workspace-record:${noteId}`,
+  );
   const { pushToast } = useFeedbackStore();
   const {
     openSettings,
@@ -87,8 +96,8 @@ export function WorkspaceRecordFocusPage() {
   });
 
   const tagSettingsQuery = useQuery({
-    queryKey: queryKeys.fileTags.workspace,
-    queryFn: () => projectMindApi.fileTagSettingsGet({}),
+    queryKey: queryKeys.projectTags.workspace,
+    queryFn: () => projectMindApi.projectTagSettingsGet({}),
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,
@@ -143,9 +152,9 @@ export function WorkspaceRecordFocusPage() {
     todoStatusMutation,
   } = useTodoMutations(allTodos);
 
-  function syncWorkspaceTagCache(tag: FileTagRecord) {
-    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      queryKeys.fileTags.workspace,
+  function syncWorkspaceTagCache(tag: ProjectTagRecord) {
+    queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
+      queryKeys.projectTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -202,7 +211,7 @@ export function WorkspaceRecordFocusPage() {
         });
         await workspacePageQuery.refetch();
         await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
         return true;
       } catch (error) {
         pushToast({ tone: "error", title: "保存失败", detail: String(error) });
@@ -236,7 +245,9 @@ export function WorkspaceRecordFocusPage() {
   const handleBack = async () => {
     if (noteId === null) return;
     await saveCurrentRecord();
-    navigate(`${workspacePath()}?view=record&focus=record-${noteId}`);
+    navigate(
+      preserveRecordFilters(`${workspacePath()}?view=record&focus=record-${noteId}`, searchParams),
+    );
   };
 
   async function createWorkspaceRecordInFocus() {
@@ -247,8 +258,8 @@ export function WorkspaceRecordFocusPage() {
       tagIds: [],
     });
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
-    navigate(`/workspace/records/${record.id}`);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+    navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
   }
 
   function setWorkspaceRecordQuery(value: string) {
@@ -271,7 +282,7 @@ export function WorkspaceRecordFocusPage() {
     setSearchParams(nextSearchParams);
   }
 
-  async function createTodo(projectId: number, todoContent: string, priority: TodoPriority) {
+  async function createTodo(projectId: number, todoContent: string, priority: TodoPriority, dueDate?: string | null) {
     const synced = await resolveTodoContentTagSync({
       projectId,
       content: todoContent,
@@ -281,14 +292,15 @@ export function WorkspaceRecordFocusPage() {
       projectId,
       content: synced.content,
       priority,
+      dueDate,
       tagIds: synced.tagIds,
     });
   }
 
-  async function updateTodoContent(todoId: number, todoContent: string) {
+  async function updateTodoContent(todoId: number, todoContent: string, dueDate?: string | null) {
     const currentTodo = allTodos.find((todo) => todo.id === todoId);
     if (!currentTodo) {
-      await todoContentMutation.mutateAsync({ todoId, content: todoContent });
+      await todoContentMutation.mutateAsync({ todoId, content: todoContent, dueDate });
       return;
     }
 
@@ -300,6 +312,7 @@ export function WorkspaceRecordFocusPage() {
     await todoContentMutation.mutateAsync({
       todoId,
       content: synced.content,
+      dueDate,
       tagIds: synced.tagIds,
     });
   }
@@ -448,7 +461,7 @@ export function WorkspaceRecordFocusPage() {
           onRecordQueryChange={setWorkspaceRecordQuery}
           activeRecordTagId={recordFilterTagId}
           onActiveRecordTagIdChange={setWorkspaceRecordTagId}
-          onOpenOverview={() => navigate(workspacePath())}
+          onOpenOverview={() => navigate(preserveRecordFilters(workspacePath(), searchParams))}
           onOpenProject={(projectId) => {
             void openProject(projectId);
           }}
@@ -483,7 +496,7 @@ export function WorkspaceRecordFocusPage() {
                 return;
               }
 
-              navigate(`/workspace/records/${recordId}`);
+              navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams));
             })();
           }}
           onFocusRecord={(recordId) => {
@@ -501,7 +514,7 @@ export function WorkspaceRecordFocusPage() {
                 return;
               }
 
-              navigate(`/workspace/records/${recordId}`);
+              navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams));
             })();
           }}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
@@ -569,7 +582,7 @@ export function WorkspaceRecordFocusPage() {
           </div>
         </header>
 
-        <div className="project-overview-focus__scroll">
+        <div ref={scrollRef} className="project-overview-focus__scroll">
           <div className={withPageWidthClass("mx-auto w-full px-6 py-6", pageWidthMode, "focus")}>
             <div className="grid gap-4">
               <TextField
@@ -596,15 +609,16 @@ export function WorkspaceRecordFocusPage() {
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}
                 onDefaultCodeLanguageChange={setCodeLanguage}
-                variant="bare"
-                autoFocus
+                variant="page"
+                showToolbar={false}
+                autoFocus={!hasSavedPosition}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"
                 tagMentions={{
                   projectId: null,
                   availableTags,
                   onCreateTag: async (label) => {
-                    const tag = await projectMindApi.fileTagOptionUpsert({
+                    const tag = await projectMindApi.projectTagUpsert({
                       label,
                       colorKey: colorKeyForTagLabel(label),
                     });
@@ -643,7 +657,7 @@ export function WorkspaceRecordFocusPage() {
           onCreateTodo={(payload) => {
             const fallbackProjectId = visibleProjects[0]?.id;
             if (!fallbackProjectId) return;
-            void createTodo(fallbackProjectId, payload.content, payload.priority);
+            void createTodo(fallbackProjectId, payload.content, payload.priority, payload.dueDate);
           }}
           onToggleStatus={(todoId, status) => todoStatusMutation.mutateAsync({ todoId, status })}
           onUpdatePriority={(todoId, priority) =>

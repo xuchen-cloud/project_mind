@@ -14,6 +14,28 @@ function render(ui: ReactElement) {
 }
 
 describe("TodoInlineContentEditor", () => {
+  it("parses and displays an @ due date separately from the todo content", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    render(
+      <TodoInlineContentEditor value="提交方案" editable onSave={onSave} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "提交方案" }));
+    const textbox = screen.getByRole("textbox");
+    await user.clear(textbox);
+    await user.type(textbox, "提交最终方案@20270315");
+    await user.keyboard("{Enter}");
+
+    expect(onSave).toHaveBeenCalledWith("提交最终方案", "2027-03-15");
+    const dueDate = screen.getByText("3月15日").closest("time");
+    expect(dueDate).toHaveClass("todo-due-date");
+    expect(dueDate).toHaveAttribute("datetime", "2027-03-15");
+    expect(dueDate).toHaveAttribute("title", "截止日期：2027-03-15");
+    expect(screen.queryByText("@20270315")).not.toBeInTheDocument();
+  });
+
   it("returns to display mode immediately while a save is still pending", async () => {
     const user = userEvent.setup();
     let resolveSave: (() => void) | null = null;

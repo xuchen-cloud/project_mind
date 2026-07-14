@@ -9,7 +9,7 @@ describe("resolveTodoContentTagSync", () => {
   });
 
   it("merges existing tags and strips hashtag text from todo content", async () => {
-    const fileTagSpy = vi.spyOn(projectMindApi, "fileTagOptionUpsert");
+    const projectTagSpy = vi.spyOn(projectMindApi, "projectTagUpsert");
 
     const result = await resolveTodoContentTagSync({
       projectId: 7,
@@ -39,12 +39,12 @@ describe("resolveTodoContentTagSync", () => {
       content: "联系法务 并同步",
       tagIds: [3, 11, 13],
     });
-    expect(fileTagSpy).not.toHaveBeenCalled();
+    expect(projectTagSpy).not.toHaveBeenCalled();
   });
 
   it("creates missing tags and removes duplicate hashtag tokens", async () => {
-    vi.spyOn(projectMindApi, "fileTagSettingsGet").mockResolvedValue({ tags: [] });
-    vi.spyOn(projectMindApi, "fileTagOptionUpsert").mockResolvedValue({
+    vi.spyOn(projectMindApi, "projectTagSettingsGet").mockResolvedValue({ tags: [] });
+    vi.spyOn(projectMindApi, "projectTagUpsert").mockResolvedValue({
       id: 21,
       label: "法务",
       colorKey: "red",

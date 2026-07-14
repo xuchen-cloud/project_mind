@@ -1,8 +1,8 @@
-import type { FileTagColorKey, FileTagRecord } from "./types";
+import type { TagColorKey, ProjectTagRecord } from "./types";
 
 const HASH_TAG_PATTERN = /(^|\s)[#＃]([^\s#＃]+)/gu;
 const HASH_TAG_TRIGGER_TOKENS = ["#", "＃"] as const;
-const DEFAULT_TAG_COLOR_KEYS: FileTagColorKey[] = [
+const DEFAULT_TAG_COLOR_KEYS: TagColorKey[] = [
   "blue",
   "teal",
   "green",
@@ -106,7 +106,7 @@ export function mergeUniqueTagIds(...groups: Array<Array<number | undefined | nu
   return ids;
 }
 
-export function colorKeyForTagLabel(label: string): FileTagColorKey {
+export function colorKeyForTagLabel(label: string): TagColorKey {
   let hash = 0;
   for (const char of label) {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
@@ -114,7 +114,7 @@ export function colorKeyForTagLabel(label: string): FileTagColorKey {
   return DEFAULT_TAG_COLOR_KEYS[hash % DEFAULT_TAG_COLOR_KEYS.length];
 }
 
-export function findTagByLabel(tags: FileTagRecord[], label: string) {
+export function findTagByLabel(tags: ProjectTagRecord[], label: string) {
   const normalized = label.trim().toLocaleLowerCase("zh-Hans-CN");
   return tags.find((tag) => tag.label.toLocaleLowerCase("zh-Hans-CN") === normalized) ?? null;
 }

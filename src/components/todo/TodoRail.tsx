@@ -13,7 +13,7 @@ import { InternalReferencePicker, useInternalReferenceSearch } from "../internal
 import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
-import { priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS, type TodoSortMode } from "./todo-utils";
+import { parseDueDateInput, priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS } from "./todo-utils";
 import {
   clearTodoComposerDraft,
   readTodoComposerDraft,
@@ -41,18 +41,18 @@ interface TodoRailProps {
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
   createPlaceholder: string;
-  onCreateTodo: (payload: { content: string; priority: TodoPriority }) => void;
+  onCreateTodo: (payload: { content: string; priority: TodoPriority; dueDate?: string | null }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
-  onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
   onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; dueDate?: string | null },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
+    payload: { content: string; progressDate: string; dueDate?: string | null; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
@@ -91,11 +91,13 @@ export function TodoRail({
     setTodoRailCollapsed,
     setTodoRailWidthPx,
     toggleTodoRailCollapsed,
+    todoRailTab: tab,
+    setTodoRailTab: setTab,
+    todoRailSortMode: sortMode,
+    setTodoRailSortMode: setSortMode,
   } = useUiStore();
   const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
-  const [tab, setTab] = useState<"unfinished" | "finished">("unfinished");
-  const [sortMode, setSortMode] = useState<TodoSortMode>("time");
   const [isComposing, setIsComposing] = useState(
     () => Boolean(initialComposerDraft?.content.trim()),
   );
@@ -236,7 +238,16 @@ export function TodoRail({
     if (!content.trim()) {
       return;
     }
-    onCreateTodo({ content: content.trim(), priority });
+    const parsed = parseDueDateInput(content);
+    if (!parsed.ok) {
+      onError?.(parsed.error);
+      return;
+    }
+    onCreateTodo({
+      content: parsed.content,
+      priority,
+      ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
+    });
     clearTodoComposerDraft(draftStorageKey);
     setContent("");
     setPriority("not_urgent_important");

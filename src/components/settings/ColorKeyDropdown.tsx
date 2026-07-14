@@ -3,21 +3,21 @@ import { ChevronDown } from "lucide-react";
 
 import {
   FILE_TAG_COLOR_OPTIONS,
-  fileTagColorLabel,
-  fileTagColorValue,
+  tagColorLabel,
+  tagColorValue,
 } from "../../lib/constants";
-import type { FileTagColorKey } from "../../lib/types";
+import type { TagColorKey } from "../../lib/types";
 import { PopoverPanel } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 
 interface ColorKeyDropdownProps {
-  value: FileTagColorKey;
+  value: TagColorKey;
   disabled?: boolean;
   size?: "sm" | "md";
   className?: string;
   panelClassName?: string;
   ariaLabel?: string;
-  onChange: (colorKey: FileTagColorKey) => void;
+  onChange: (colorKey: TagColorKey) => void;
 }
 
 export function ColorKeyDropdown({
@@ -68,7 +68,7 @@ export function ColorKeyDropdown({
     <div ref={rootRef} className={cn("relative shrink-0", className)}>
       <button
         type="button"
-        aria-label={`${ariaLabel} ${fileTagColorLabel(value)}`}
+        aria-label={`${ariaLabel} ${tagColorLabel(value)}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
@@ -83,10 +83,10 @@ export function ColorKeyDropdown({
         <span className="flex min-w-0 items-center gap-2">
           <span
             className={cn("shrink-0 rounded-full", size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3")}
-            style={{ backgroundColor: fileTagColorValue(value) }}
+            style={{ backgroundColor: tagColorValue(value) }}
             aria-hidden="true"
           />
-          <span className="truncate">{fileTagColorLabel(value)}</span>
+          <span className="truncate">{tagColorLabel(value)}</span>
         </span>
         <ChevronDown
           size={14}
@@ -131,10 +131,10 @@ export function ColorKeyDropdown({
                 >
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: fileTagColorValue(option.value) }}
+                    style={{ backgroundColor: tagColorValue(option.value) }}
                     aria-hidden="true"
                   />
-                  <span className="truncate">{fileTagColorLabel(option.value)}</span>
+                  <span className="truncate">{tagColorLabel(option.value)}</span>
                 </button>
               );
             })}

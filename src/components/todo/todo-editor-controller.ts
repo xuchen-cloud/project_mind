@@ -15,7 +15,7 @@ import {
 import { findHashTagTextTrigger } from "../../lib/tags";
 import type {
   ContactRecord,
-  FileTagRecord,
+  ProjectTagRecord,
   InternalReferenceContext,
   InternalReferenceSearchResult,
 } from "../../lib/types";
@@ -88,7 +88,8 @@ export function getTodoEditorDerivedState({
     ? findContactMentionTextTrigger(draft, selectionStart)
     : null;
   const mentionTrigger =
-    mentionCandidate && disableMentionTrigger?.(mentionCandidate)
+    mentionCandidate &&
+    (/^\d+$/u.test(mentionCandidate.query) || disableMentionTrigger?.(mentionCandidate))
       ? null
       : mentionCandidate;
   const mentionTriggerKey = mentionTrigger
@@ -295,7 +296,7 @@ export function insertInternalReferenceToken(
 export function insertTagToken(
   draft: string,
   trigger: { start: number; end: number },
-  tag: Pick<FileTagRecord, "label">,
+  tag: Pick<ProjectTagRecord, "label">,
 ) {
   return replaceTodoTextTrigger(draft, trigger, `#${tag.label} `);
 }

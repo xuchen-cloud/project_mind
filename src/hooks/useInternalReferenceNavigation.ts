@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { InternalReferenceTarget } from "../lib/internalReferences";
+import { desktopApi } from "../services/desktopApi";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
 
@@ -24,6 +25,20 @@ export function useInternalReferenceNavigation() {
             detail: "对应的记录可能已经被删除或移动。",
           });
           return false;
+        }
+
+        if (resolved.kind === "document") {
+          if (!resolved.managedPath) {
+            pushToast({
+              tone: "error",
+              title: "打开文件失败",
+              detail: "文件引用缺少可用路径。",
+            });
+            return false;
+          }
+
+          await desktopApi.openFile(resolved.managedPath);
+          return true;
         }
 
         navigate(resolved.route);

@@ -23,9 +23,9 @@ export function useDocumentImportFlow({
   const [pendingImportPaths, setPendingImportPaths] = useState<string[] | null>(null);
   const [pendingImportTagIds, setPendingImportTagIds] = useState<number[]>([]);
 
-  const fileTagSettingsQuery = useQuery({
-    queryKey: queryKeys.fileTags.project(projectId),
-    queryFn: () => projectMindApi.fileTagSettingsGet({ projectId: projectId as number }),
+  const projectTagSettingsQuery = useQuery({
+    queryKey: queryKeys.projectTags.project(projectId),
+    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: projectId !== null,
   });
 
@@ -63,7 +63,7 @@ export function useDocumentImportFlow({
 
         await Promise.all([
           refreshAll(queryClient, projectId),
-          queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.project(projectId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.project(projectId) }),
         ]);
 
         onDocumentsImported?.(documents);
@@ -88,9 +88,9 @@ export function useDocumentImportFlow({
         return [];
       }
 
-      let availableTags = fileTagSettingsQuery.data?.tags ?? [];
-      if (!fileTagSettingsQuery.data && !fileTagSettingsQuery.isError) {
-        const result = await fileTagSettingsQuery.refetch();
+      let availableTags = projectTagSettingsQuery.data?.tags ?? [];
+      if (!projectTagSettingsQuery.data && !projectTagSettingsQuery.isError) {
+        const result = await projectTagSettingsQuery.refetch();
         availableTags = result.data?.tags ?? [];
       }
 
@@ -102,7 +102,7 @@ export function useDocumentImportFlow({
 
       return importFiles(paths, []);
     },
-    [fileTagSettingsQuery, importFiles, pushToast],
+    [projectTagSettingsQuery, importFiles, pushToast],
   );
 
   const setPendingImportTagIdsDirectly = useCallback((tagIds: number[]) => {
@@ -128,12 +128,12 @@ export function useDocumentImportFlow({
 
   const manageImportTags = useCallback(() => {
     closeImportTagDialog();
-    openSettings("file-tags", projectId);
+    openSettings("project-tags", projectId);
   }, [closeImportTagDialog, openSettings, projectId]);
 
   return {
-    fileTags: fileTagSettingsQuery.data?.tags ?? [],
-    fileTagSettingsQuery,
+    projectTags: projectTagSettingsQuery.data?.tags ?? [],
+    projectTagSettingsQuery,
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,

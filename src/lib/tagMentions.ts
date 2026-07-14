@@ -1,4 +1,4 @@
-import type { DocumentTagRecord, FileTagRecord } from "./types";
+import type { DocumentTagRecord, ProjectTagRecord } from "./types";
 
 export interface TagMentionTarget {
   tagId: number;
@@ -11,7 +11,7 @@ export function buildTagMentionToken(tag: TagMentionTarget) {
 }
 
 export function buildTagMentionTarget(
-  tag: TagMentionTarget | Pick<FileTagRecord, "id" | "label" | "colorKey"> | Pick<DocumentTagRecord, "id" | "label" | "colorKey">,
+  tag: TagMentionTarget | Pick<ProjectTagRecord, "id" | "label" | "colorKey"> | Pick<DocumentTagRecord, "id" | "label" | "colorKey">,
 ): TagMentionTarget {
   if ("tagId" in tag) {
     return {

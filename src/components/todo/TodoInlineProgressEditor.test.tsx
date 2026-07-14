@@ -65,9 +65,34 @@ describe("TodoInlineProgressEditor", () => {
 
     expect(onSave).toHaveBeenCalledWith({
       content: "已确认方案",
-      progressDate: expect.stringMatching(/^\d{4}-03-15$/u),
+      progressDate: expect.any(String),
+      dueDate: expect.stringMatching(/^\d{4}-03-15$/u),
     });
     expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
+  });
+
+  it("saves an eight-digit date prefix without opening a contact picker", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const searchSpy = vi.spyOn(projectMindApi, "contactSearch");
+
+    render(
+      <TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} onError={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
+    await user.type(screen.getByRole("textbox"), "@20270315 提交方案");
+
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    expect(onSave).toHaveBeenCalledWith({
+      content: "提交方案",
+      progressDate: expect.any(String),
+      dueDate: "2027-03-15",
+    });
+    expect(searchSpy).not.toHaveBeenCalled();
+    searchSpy.mockRestore();
   });
 
   it("uses the existing progress content as the trigger surface", async () => {
@@ -104,7 +129,8 @@ describe("TodoInlineProgressEditor", () => {
 
     expect(onSave).toHaveBeenCalledWith({
       content: "已确认 方案",
-      progressDate: expect.stringMatching(/^\d{4}-03-15$/u),
+      progressDate: expect.any(String),
+      dueDate: expect.stringMatching(/^\d{4}-03-15$/u),
     });
   });
 

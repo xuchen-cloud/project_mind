@@ -1,12 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { render as baseRender, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { act, render as baseRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteRecord, ProjectPageData, ProjectRecord } from "../../lib/types";
-import { PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT } from "../../lib/record-focus-save";
+import {
+  PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+  requestProjectRecordFocusSave,
+} from "../../lib/record-focus-save";
+import { queryKeys } from "../../lib/queryKeys";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 
 const richEditorMocks = vi.hoisted(() => ({
@@ -20,9 +24,10 @@ const noteImageAssetMocks = vi.hoisted(() => ({
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   projectPageGet: vi.fn(),
-  fileTagSettingsGet: vi.fn(),
-  fileTagOptionUpsert: vi.fn(),
+  projectTagSettingsGet: vi.fn(),
+  projectTagUpsert: vi.fn(),
   projectRecordUpsert: vi.fn(),
+  aiSettingsGet: vi.fn(),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -63,8 +68,14 @@ vi.mock("../rich-editor", () => ({
   RichEditor: ({
     html,
     controllerRef,
+    onSave,
+    variant,
+    showToolbar,
   }: {
     html?: string;
+    onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown>;
+    variant?: string;
+    showToolbar?: boolean;
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
@@ -73,7 +84,7 @@ vi.mock("../rich-editor", () => ({
       } | null;
     };
   }) => {
-    const [value] = useState(toPlainText(html ?? ""));
+    const [value, setValue] = useState(toPlainText(html ?? ""));
     const valueRef = useRef(value);
     valueRef.current = value;
 
@@ -85,15 +96,23 @@ vi.mock("../rich-editor", () => ({
       controllerRef.current = {
         getValue: () => buildMockRichValue(valueRef.current),
         focus: richEditorMocks.focus,
-        save: vi.fn(),
+        save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current)) ?? Promise.resolve()),
       };
 
       return () => {
         controllerRef.current = null;
       };
-    }, [controllerRef]);
+    }, [controllerRef, onSave]);
 
-    return <textarea aria-label="正文编辑器" value={value} readOnly />;
+    return (
+      <textarea
+        aria-label="正文编辑器"
+        data-variant={variant}
+        data-show-toolbar={String(showToolbar)}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+    );
   },
 }));
 
@@ -133,7 +152,7 @@ function render(ui: ReactElement) {
     },
   });
 
-  return baseRender(
+  const view = baseRender(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/projects/1/records/7"]}>
         <Routes>
@@ -142,6 +161,7 @@ function render(ui: ReactElement) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 function buildProjectPage(): ProjectPageData {
@@ -166,6 +186,28 @@ function toPlainText(html: string) {
   return html.replace(/<[^>]+>/gu, "");
 }
 
+function FocusSwitchHarness() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = Number.parseInt(params.projectId ?? "", 10);
+  const noteId = Number.parseInt(params.noteId ?? "", 10);
+
+  const openRecord = async (targetNoteId: number) => {
+    const result = await requestProjectRecordFocusSave({ projectId, noteId });
+    if (result === "saved") {
+      navigate(`/projects/${projectId}/records/${targetNoteId}`);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => void openRecord(70)}>打开记录 A</button>
+      <button type="button" onClick={() => void openRecord(80)}>打开记录 B</button>
+      <ProjectNoteFocusPage />
+    </>
+  );
+}
+
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
     currentNote = { ...baseNote, tags: [] };
@@ -173,14 +215,16 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     apiMocks.projectsList.mockReset();
     apiMocks.projectPageGet.mockReset();
-    apiMocks.fileTagSettingsGet.mockReset();
-    apiMocks.fileTagOptionUpsert.mockReset();
+    apiMocks.projectTagSettingsGet.mockReset();
+    apiMocks.projectTagUpsert.mockReset();
     apiMocks.projectRecordUpsert.mockReset();
+    apiMocks.aiSettingsGet.mockReset();
 
     apiMocks.projectsList.mockResolvedValue([project]);
+    apiMocks.aiSettingsGet.mockResolvedValue(null);
     apiMocks.projectPageGet.mockImplementation(async () => buildProjectPage());
-    apiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
-    apiMocks.fileTagOptionUpsert.mockImplementation(async ({ label }: { label: string }) => ({
+    apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.projectTagUpsert.mockImplementation(async ({ label }: { label: string }) => ({
       id: 22,
       label,
       colorKey: "blue",
@@ -217,6 +261,23 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalled();
   });
 
+  it("keeps the focus page height constrained so its content area can scroll", async () => {
+    render(<ProjectNoteFocusPage />);
+
+    const scroll = await screen.findByTestId("project-record-focus-scroll");
+    expect(scroll).toHaveClass("project-overview-focus__scroll");
+    expect(scroll.parentElement).toHaveClass(
+      "project-overview-focus",
+      "h-full",
+      "min-h-0",
+    );
+    expect(screen.getByLabelText("正文编辑器")).toHaveAttribute("data-variant", "page");
+    expect(screen.getByLabelText("正文编辑器")).toHaveAttribute(
+      "data-show-toolbar",
+      "false",
+    );
+  });
+
   it("saves the title with Enter and focuses the tag input", async () => {
     const user = userEvent.setup();
     render(<ProjectNoteFocusPage />);
@@ -241,7 +302,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.type(tagInput, "紧急{Enter}");
 
     await waitFor(() => {
-      expect(apiMocks.fileTagOptionUpsert).toHaveBeenCalledWith({
+      expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
         projectId: 1,
         label: "紧急",
         colorKey: expect.any(String),
@@ -277,6 +338,8 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     await screen.findByPlaceholderText("记录标题");
+    const scroll = screen.getByTestId("project-record-focus-scroll");
+    scroll.scrollTop = 184;
 
     window.dispatchEvent(
       new CustomEvent(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, {
@@ -297,5 +360,124 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         }),
       );
     });
+    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledTimes(1);
+    expect(scroll.scrollTop).toBe(184);
+  });
+
+  it("does not reinitialize the same focus editor after its query refreshes", async () => {
+    const user = userEvent.setup();
+    const { queryClient } = render(<ProjectNoteFocusPage />);
+
+    const titleInput = await screen.findByPlaceholderText("记录标题");
+    await user.clear(titleInput);
+    await user.type(titleInput, "尚未离开的本地标题");
+
+    currentNote = {
+      ...currentNote,
+      title: "服务端刷新标题",
+      contentMarkdown: "服务端刷新正文",
+      contentHtml: "<p>服务端刷新正文</p>",
+    };
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: queryKeys.projectPage(1) });
+    });
+
+    expect(titleInput).toHaveValue("尚未离开的本地标题");
+  });
+
+  it("saves edited content before switching records and restores its previous scroll position", async () => {
+    const user = userEvent.setup();
+    const notes = new Map<number, NoteRecord>([
+      [70, { ...baseNote, id: 70, title: "记录 A", contentMarkdown: "正文 A", contentHtml: "<p>正文 A</p>" }],
+      [80, { ...baseNote, id: 80, title: "记录 B", contentMarkdown: "正文 B", contentHtml: "<p>正文 B</p>" }],
+    ]);
+    apiMocks.projectPageGet.mockImplementation(async () => ({
+      project,
+      records: Array.from(notes.values()),
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    }));
+    apiMocks.projectRecordUpsert.mockImplementation(async (input: {
+      noteId: number;
+      title?: string;
+      markdown: string;
+      html: string;
+      defaultCodeLanguage?: string | null;
+      tagIds?: number[];
+    }) => {
+      const previous = notes.get(input.noteId)!;
+      const saved = {
+        ...previous,
+        title: input.title ?? null,
+        contentMarkdown: input.markdown,
+        contentHtml: input.html,
+        defaultCodeLanguage: input.defaultCodeLanguage ?? null,
+      };
+      notes.set(input.noteId, saved);
+      return saved;
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    baseRender(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+          <Routes>
+            <Route path="/projects/:projectId/records/:noteId" element={<FocusSwitchHarness />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const editorA = await screen.findByRole("textbox", { name: "正文编辑器" });
+    const scrollA = screen.getByTestId("project-record-focus-scroll");
+    scrollA.scrollTop = 160;
+    await user.clear(editorA);
+    await user.type(editorA, "修改后的正文 A");
+    await user.click(screen.getByRole("button", { name: "打开记录 B" }));
+
+    expect(await screen.findByDisplayValue("正文 B")).toBeInTheDocument();
+    expect(notes.get(70)?.contentMarkdown).toBe("修改后的正文 A");
+
+    await user.click(screen.getByRole("button", { name: "打开记录 A" }));
+    expect(await screen.findByDisplayValue("修改后的正文 A")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("project-record-focus-scroll").scrollTop).toBe(160);
+    });
+  });
+
+  it("keeps the current focus record open when the switch save fails", async () => {
+    const user = userEvent.setup();
+    apiMocks.projectPageGet.mockResolvedValue({
+      project,
+      records: [
+        { ...baseNote, id: 70, title: "记录 A", contentMarkdown: "正文 A", contentHtml: "<p>正文 A</p>" },
+        { ...baseNote, id: 80, title: "记录 B", contentMarkdown: "正文 B", contentHtml: "<p>正文 B</p>" },
+      ],
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    });
+    apiMocks.projectRecordUpsert.mockRejectedValue(new Error("save failed"));
+
+    baseRender(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+          <Routes>
+            <Route path="/projects/:projectId/records/:noteId" element={<FocusSwitchHarness />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByDisplayValue("正文 A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "打开记录 B" }));
+    await waitFor(() => expect(apiMocks.projectRecordUpsert).toHaveBeenCalledTimes(1));
+    expect(screen.getByDisplayValue("正文 A")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("正文 B")).not.toBeInTheDocument();
   });
 });

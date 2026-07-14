@@ -19,7 +19,7 @@ import {
 import type {
   DocumentRecord,
   DocumentTagRecord,
-  FileTagColorKey,
+  TagColorKey,
 } from "../../lib/types";
 import { formatDateTime } from "../../lib/formatters";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
@@ -107,8 +107,8 @@ export function ManagedDocumentSection({
   } = useDocumentMutations();
   const { pushToast } = useFeedbackStore();
   const {
-    fileTags,
-    fileTagSettingsQuery,
+    projectTags,
+    projectTagSettingsQuery,
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
@@ -119,10 +119,10 @@ export function ManagedDocumentSection({
   } = useDocumentImportFlow({
     projectId,
   });
-  const fileTagLookup = useMemo(
+  const projectTagLookup = useMemo(
     () =>
       new Map(
-        fileTags.map((tag) => [
+        projectTags.map((tag) => [
           tag.id,
           {
             id: tag.id,
@@ -131,7 +131,7 @@ export function ManagedDocumentSection({
           },
         ]),
       ),
-    [fileTags],
+    [projectTags],
   );
 
   const sortedDocuments = useMemo(
@@ -151,15 +151,15 @@ export function ManagedDocumentSection({
       new Map(
         documents.map((document) => [
           document.id,
-          buildEffectiveDocumentTags(document, pendingTagIdsByDocumentId[document.id], fileTagLookup),
+          buildEffectiveDocumentTags(document, pendingTagIdsByDocumentId[document.id], projectTagLookup),
         ]),
       ),
-    [documents, fileTagLookup, pendingTagIdsByDocumentId],
+    [documents, projectTagLookup, pendingTagIdsByDocumentId],
   );
 
   const visibleFilterTags = useMemo(() => {
     const countById = new Map<number, number>();
-    const metaById = new Map<number, { id: number; label: string; colorKey: FileTagColorKey }>();
+    const metaById = new Map<number, { id: number; label: string; colorKey: TagColorKey }>();
 
     for (const document of sortedDocuments) {
       const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
@@ -170,12 +170,12 @@ export function ManagedDocumentSection({
     }
 
     const orderedIds = [
-      ...fileTags.map((tag) => tag.id).filter((tagId) => countById.has(tagId)),
-      ...Array.from(metaById.keys()).filter((tagId) => !fileTagLookup.has(tagId)),
+      ...projectTags.map((tag) => tag.id).filter((tagId) => countById.has(tagId)),
+      ...Array.from(metaById.keys()).filter((tagId) => !projectTagLookup.has(tagId)),
     ];
 
     return orderedIds.map((tagId) => {
-      const meta = metaById.get(tagId) ?? fileTagLookup.get(tagId);
+      const meta = metaById.get(tagId) ?? projectTagLookup.get(tagId);
       return {
         id: tagId,
         label: meta?.label ?? `Tag ${tagId}`,
@@ -183,7 +183,7 @@ export function ManagedDocumentSection({
         count: countById.get(tagId) ?? 0,
       };
     });
-  }, [effectiveDocumentTagsById, fileTagLookup, fileTags, sortedDocuments]);
+  }, [effectiveDocumentTagsById, projectTagLookup, projectTags, sortedDocuments]);
 
   const filteredDocuments = useMemo(() => {
     if (selectedTagIds.length === 0) {
@@ -831,12 +831,12 @@ export function ManagedDocumentSection({
             />
           </div>
 
-          {fileTagSettingsQuery.isLoading || fileTags.length > 0 ? (
+          {projectTagSettingsQuery.isLoading || projectTags.length > 0 ? (
             <div className="mt-1 grid gap-1 border-t border-border pt-1">
-            {fileTagSettingsQuery.isLoading ? (
+            {projectTagSettingsQuery.isLoading ? (
               <p className="px-2.5 py-2 text-ui text-text-soft">标签加载中...</p>
-            ) : fileTags.length > 0 ? (
-              fileTags.map((tag) => {
+            ) : projectTags.length > 0 ? (
+              projectTags.map((tag) => {
                 const checked = (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).some(
                   (item) => item.id === tag.id,
                 );
@@ -856,11 +856,11 @@ export function ManagedDocumentSection({
             ) : null}
             </div>
           ) : null}
-          {!fileTagSettingsQuery.isLoading ? (
+          {!projectTagSettingsQuery.isLoading ? (
             <div className="mt-2 border-t border-border pt-2">
               <TagAutocompletePicker
                 projectId={projectId}
-                availableTags={fileTags}
+                availableTags={projectTags}
                 selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
                   (tag) => tag.id,
                 )}
@@ -877,7 +877,7 @@ export function ManagedDocumentSection({
         <DocumentImportTagDialog
           projectId={projectId}
           paths={pendingImportPaths}
-          tags={fileTags}
+          tags={projectTags}
           selectedTagIds={pendingImportTagIds}
           onChangeSelectedTagIds={setPendingImportTagIds}
           onClose={closeImportTagDialog}
@@ -900,13 +900,13 @@ function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
     return baseName;
   }
 
-  return `${baseName}，文件标签：${tags.map((tag) => tag.label).join("、")}`;
+  return `${baseName}，项目标签：${tags.map((tag) => tag.label).join("、")}`;
 }
 
 function buildEffectiveDocumentTags(
   document: DocumentRecord,
   pendingTagIds: number[] | undefined,
-  fileTagLookup: Map<number, { id: number; label: string; colorKey: FileTagColorKey }>,
+  projectTagLookup: Map<number, { id: number; label: string; colorKey: TagColorKey }>,
 ): DocumentTagRecord[] {
   if (!pendingTagIds) {
     return document.tags;
@@ -914,7 +914,7 @@ function buildEffectiveDocumentTags(
 
   return pendingTagIds
     .map((tagId) => {
-      const tag = fileTagLookup.get(tagId) ?? document.tags.find((item) => item.id === tagId);
+      const tag = projectTagLookup.get(tagId) ?? document.tags.find((item) => item.id === tagId);
       return tag
         ? {
             id: tag.id,

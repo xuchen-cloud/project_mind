@@ -13,6 +13,8 @@ import {
 import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import { TodoReferenceEditor } from "./TodoReferenceEditor";
 import { cn } from "../../ui/lib/cn";
+import { parseDueDateInput } from "./todo-utils";
+import { TodoDueDate } from "./TodoDueDate";
 import {
   focusTodoEditorInput,
   getTodoEditorPickerPosition,
@@ -29,16 +31,20 @@ import {
 
 export function TodoInlineContentEditor({
   value,
+  dueDate,
   editable,
   onSave,
+  onError,
   internalReferenceContext,
   onOpenInternalReference,
   onOpenContactMention,
   onEditingChange,
 }: {
   value: string;
+  dueDate?: string | null;
   editable: boolean;
-  onSave: (content: string) => Promise<unknown> | void;
+  onSave: (content: string, dueDate?: string | null) => Promise<unknown> | void;
+  onError?: (message: string) => void;
   internalReferenceContext?: InternalReferenceContext | null;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
@@ -49,11 +55,13 @@ export function TodoInlineContentEditor({
   const [saving, setSaving] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
   const [optimisticValue, setOptimisticValue] = useState<string | null>(null);
+  const [optimisticDueDate, setOptimisticDueDate] = useState<string | null | undefined>(undefined);
   const contactMentionOptions = useContactMentionOptions();
   const saveInFlightRef = useRef(false);
   const skipBlurSaveRef = useRef(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const displayValue = optimisticValue ?? value;
+  const displayDueDate = optimisticDueDate === undefined ? dueDate : optimisticDueDate;
   const controller = useTodoEditorController({
     draft,
     editing,
@@ -112,10 +120,14 @@ export function TodoInlineContentEditor({
       return;
     }
 
-    if (value.trim() === optimisticValue.trim()) {
+    if (
+      value.trim() === optimisticValue.trim() &&
+      (dueDate ?? null) === (optimisticDueDate ?? null)
+    ) {
       setOptimisticValue(null);
+      setOptimisticDueDate(undefined);
     }
-  }, [optimisticValue, value]);
+  }, [dueDate, optimisticDueDate, optimisticValue, value]);
 
   useEffect(() => {
     if (!savedPulse) {
@@ -136,19 +148,30 @@ export function TodoInlineContentEditor({
       setEditing(false);
       return;
     }
-    if (next === currentValue) {
+    const parsed = parseDueDateInput(next, new Date(), dueDate);
+    if (!parsed.ok) {
+      onError?.(parsed.error);
+      return;
+    }
+    if (parsed.content === currentValue && parsed.dueDate === (dueDate ?? null)) {
       setEditing(false);
       return;
     }
     saveInFlightRef.current = true;
     setSaving(true);
-    setOptimisticValue(next);
+    setOptimisticValue(parsed.content);
+    setOptimisticDueDate(parsed.dueDate);
     setEditing(false);
     try {
-      await onSave(next);
+      if (parsed.dueDate) {
+        await onSave(parsed.content, parsed.dueDate);
+      } else {
+        await onSave(parsed.content);
+      }
       setSavedPulse(true);
     } catch (error) {
       setOptimisticValue(null);
+      setOptimisticDueDate(undefined);
       setEditing(true);
       throw error;
     } finally {
@@ -405,6 +428,7 @@ export function TodoInlineContentEditor({
         onOpenInternalReference={onOpenInternalReference}
         onOpenContactMention={onOpenContactMention ?? contactMentionOptions.onOpenContact}
       />
+      {displayDueDate ? <TodoDueDate value={displayDueDate} /> : null}
     </div>
   );
 }

@@ -42,10 +42,97 @@ describe("WorkspaceTopBar", () => {
     expect(screen.queryByText("Project Mind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
 
+    await user.click(
+      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+    );
     await user.click(screen.getAllByRole("button", { name: /beta/i })[0]);
     expect(onSearchSelect).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "project", projectId: 2 }),
     );
+  });
+
+  it("shows localized result kinds and the matched context", () => {
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        showToday={false}
+        searchInput="预算"
+        onSearchInput={vi.fn()}
+        searchResults={[
+          {
+            kind: "activity",
+            id: 7,
+            projectId: 2,
+            activityId: 7,
+            title: "季度复盘",
+            subtitle: "Alpha",
+            matchedText: "…讨论下一季度预算和交付节奏…",
+          },
+        ]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    fireEvent.focus(
+      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+    );
+    expect(screen.getByText("活动")).toBeInTheDocument();
+    expect(screen.getByText("…讨论下一季度预算和交付节奏…")).toBeInTheDocument();
+  });
+
+  it("shows a search error instead of reporting no matches", () => {
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        showToday={false}
+        searchInput="预算"
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        searchError
+        onOpenProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    fireEvent.focus(
+      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+    );
+    expect(screen.getByText("搜索失败，请稍后重试")).toBeInTheDocument();
+    expect(screen.queryByText("没有匹配结果")).not.toBeInTheDocument();
+  });
+
+  it("shows searchable scope before the user types", () => {
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        showToday={false}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    fireEvent.focus(
+      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+    );
+    expect(
+      screen.getByText("输入关键词，搜索 Workspace、项目、活动、记录、结论、Todo、文件和联系人"),
+    ).toBeInTheDocument();
   });
 
   it("detects when a dragged tab is released outside the tab list", () => {

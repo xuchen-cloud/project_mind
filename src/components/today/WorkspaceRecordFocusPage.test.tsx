@@ -12,8 +12,8 @@ const apiMocks = vi.hoisted(() => ({
   workspacePageGet: vi.fn(),
   projectsList: vi.fn(),
   workspaceStatusGet: vi.fn(),
-  fileTagSettingsGet: vi.fn(),
-  fileTagOptionUpsert: vi.fn(),
+  projectTagSettingsGet: vi.fn(),
+  projectTagUpsert: vi.fn(),
   workspaceRecordUpsert: vi.fn(),
 }));
 
@@ -200,8 +200,8 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     apiMocks.workspacePageGet.mockReset();
     apiMocks.projectsList.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
-    apiMocks.fileTagSettingsGet.mockReset();
-    apiMocks.fileTagOptionUpsert.mockReset();
+    apiMocks.projectTagSettingsGet.mockReset();
+    apiMocks.projectTagUpsert.mockReset();
     apiMocks.workspaceRecordUpsert.mockReset();
 
     apiMocks.workspacePageGet.mockResolvedValue(buildWorkspacePage());
@@ -211,8 +211,8 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
-    apiMocks.fileTagOptionUpsert.mockImplementation(async ({ label }: { label: string }) => ({
+    apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.projectTagUpsert.mockImplementation(async ({ label }: { label: string }) => ({
       id: 22,
       label,
       colorKey: "blue",

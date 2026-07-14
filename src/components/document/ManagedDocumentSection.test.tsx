@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DocumentRecord, DocumentVersionRecord, FileTagRecord } from "../../lib/types";
+import type { DocumentRecord, DocumentVersionRecord, ProjectTagRecord } from "../../lib/types";
 
 const documentMutationMocks = vi.hoisted(() => ({
   documentImportMutation: { mutate: vi.fn(), isPending: false },
@@ -22,7 +22,7 @@ const desktopApiMocks = vi.hoisted(() => ({
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
-  fileTagSettingsGet: vi.fn(async () => ({ tags: [] as FileTagRecord[] })),
+  projectTagSettingsGet: vi.fn(async () => ({ tags: [] as ProjectTagRecord[] })),
   documentImport: vi.fn(async () => ({ id: 1 })),
   documentListVersions: vi.fn<(input: { documentId: number }) => Promise<DocumentVersionRecord[]>>(
     async () => [],
@@ -49,7 +49,7 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
-    fileTagSettingsGet: projectMindApiMocks.fileTagSettingsGet,
+    projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
     documentImport: projectMindApiMocks.documentImport,
     documentListVersions: projectMindApiMocks.documentListVersions,
   },
@@ -77,7 +77,7 @@ describe("ManagedDocumentSection", () => {
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.openFolder.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
-    projectMindApiMocks.fileTagSettingsGet.mockReset();
+    projectMindApiMocks.projectTagSettingsGet.mockReset();
     projectMindApiMocks.documentImport.mockReset();
     projectMindApiMocks.documentListVersions.mockReset();
     uiStoreMocks.openSettings.mockReset();
@@ -88,7 +88,7 @@ describe("ManagedDocumentSection", () => {
     desktopApiMocks.openFolder.mockResolvedValue(undefined);
     desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValue(buildDocument());
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    projectMindApiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
     projectMindApiMocks.documentImport.mockResolvedValue(buildDocument());
     projectMindApiMocks.documentListVersions.mockResolvedValue([]);
   });
@@ -231,8 +231,8 @@ describe("ManagedDocumentSection", () => {
   });
 
   it("renders tag dots on the card without showing the tag names inside the card body", async () => {
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
-      tags: [buildFileTag({ id: 1, label: "法务", colorKey: "blue" })],
+    projectMindApiMocks.projectTagSettingsGet.mockResolvedValue({
+      tags: [buildProjectTag({ id: 1, label: "法务", colorKey: "blue" })],
     });
 
     renderSection([
@@ -242,16 +242,16 @@ describe("ManagedDocumentSection", () => {
       }),
     ]);
 
-    const documentCard = await screen.findByRole("button", { name: /文件标签：法务/ });
+    const documentCard = await screen.findByRole("button", { name: /项目标签：法务/ });
     expect(within(documentCard).queryByText("法务")).not.toBeInTheDocument();
     expect(documentCard.querySelector(".rounded-full")).not.toBeNull();
   });
 
   it("filters documents with OR logic across multiple selected tags", async () => {
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
+    projectMindApiMocks.projectTagSettingsGet.mockResolvedValue({
       tags: [
-        buildFileTag({ id: 1, label: "法务", colorKey: "blue" }),
-        buildFileTag({ id: 2, label: "紧急", colorKey: "red" }),
+        buildProjectTag({ id: 1, label: "法务", colorKey: "blue" }),
+        buildProjectTag({ id: 2, label: "紧急", colorKey: "red" }),
       ],
     });
 
@@ -531,8 +531,8 @@ describe("ManagedDocumentSection", () => {
   });
 
   it("opens an import tag dialog when workspace tags exist and applies selected tag ids to every file", async () => {
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({
-      tags: [buildFileTag({ id: 3, label: "待审核", colorKey: "amber" })],
+    projectMindApiMocks.projectTagSettingsGet.mockResolvedValue({
+      tags: [buildProjectTag({ id: 3, label: "待审核", colorKey: "amber" })],
     });
     desktopApiMocks.pickFiles.mockResolvedValueOnce([
       "/tmp/project/brief.pdf",
@@ -613,7 +613,7 @@ function buildDocumentTag(
   };
 }
 
-function buildFileTag(partial: Partial<FileTagRecord> = {}): FileTagRecord {
+function buildProjectTag(partial: Partial<ProjectTagRecord> = {}): ProjectTagRecord {
   return {
     id: partial.id ?? 1,
     label: partial.label ?? "法务",

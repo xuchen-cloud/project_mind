@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import type { DocumentRecord, FileTagRecord } from "../../lib/types";
-import { useUiStore } from "../../state/ui-store";
+import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
+import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 const documentMutationMocks = vi.hoisted(() => ({
@@ -20,7 +20,7 @@ const desktopApiMocks = vi.hoisted(() => ({
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
-  fileTagSettingsGet: vi.fn(async () => ({ tags: [] as FileTagRecord[] })),
+  projectTagSettingsGet: vi.fn(async () => ({ tags: [] as ProjectTagRecord[] })),
   documentImport: vi.fn(async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
     buildDocument({ projectId, name: sourcePath.split("/").pop() ?? "brief.pdf", baseName: sourcePath.split("/").pop() ?? "brief.pdf" }),
   ),
@@ -40,7 +40,7 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
-    fileTagSettingsGet: projectMindApiMocks.fileTagSettingsGet,
+    projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
     documentImport: projectMindApiMocks.documentImport,
   },
 }));
@@ -65,13 +65,13 @@ describe("ProjectSidebar", () => {
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
-    projectMindApiMocks.fileTagSettingsGet.mockReset();
+    projectMindApiMocks.projectTagSettingsGet.mockReset();
     projectMindApiMocks.documentImport.mockReset();
 
     desktopApiMocks.pickFiles.mockResolvedValue([]);
     desktopApiMocks.openFile.mockResolvedValue(undefined);
     desktopApiMocks.revealInExplorer.mockResolvedValue(undefined);
-    projectMindApiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    projectMindApiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
     projectMindApiMocks.documentImport.mockImplementation(
       async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
         buildDocument({
@@ -83,21 +83,7 @@ describe("ProjectSidebar", () => {
         }),
     );
 
-    useUiStore.setState({
-      createProjectOpen: false,
-      settingsOpen: false,
-      settingsSection: "page-width",
-      settingsProjectId: null,
-      projectComposer: null,
-      projectSidebarCollapsed: false,
-      todoRailCollapsed: false,
-      openProjectIds: [],
-      projectRecentPaths: {},
-      noteEditorWidthPx: 880,
-      pageWidthMode: "adaptive",
-      todoRailWidthPx: 352,
-      projectSidebarWidthPx: 288,
-    });
+    useUiStore.setState(createUiStoreState());
   });
 
   afterEach(() => {
@@ -338,6 +324,54 @@ describe("ProjectSidebar", () => {
 
     await user.click(screen.getByRole("tab", { name: "文件" }));
     expect(screen.getByRole("button", { name: "导入文件" })).toBeInTheDocument();
+  });
+
+  it("keeps the files tab across remounts and isolates file filters by project", async () => {
+    const user = userEvent.setup();
+    const projectOneDocument = buildDocument({
+      tags: [{ id: 7, label: "预算", colorKey: "amber" }],
+    });
+    const renderProject = (projectId: number, documents: DocumentRecord[]) =>
+      renderWithProviders(
+        <ProjectSidebar
+          project={{
+            id: projectId,
+            name: projectId === 1 ? "Alpha Project" : "Beta Project",
+            rootPath: `/tmp/project-${projectId}`,
+            isArchived: false,
+          }}
+          records={[]}
+          documents={documents}
+          onOpenProject={vi.fn()}
+          onOpenRecord={vi.fn()}
+          onCreateRecord={vi.fn()}
+          onOpenDocument={vi.fn()}
+        />,
+      );
+
+    const firstProject = renderProject(1, [projectOneDocument]);
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+    await user.type(screen.getByLabelText("搜索文件"), "brief");
+    await user.click(screen.getByRole("button", { name: "预算" }));
+
+    expect(useUiStore.getState().projectFileFilters[1]).toEqual({
+      query: "brief",
+      tagId: 7,
+    });
+
+    firstProject.unmount();
+    const secondProject = renderProject(2, [
+      buildDocument({ id: 22, projectId: 2, name: "roadmap.pdf" }),
+    ]);
+
+    expect(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("搜索文件")).toHaveValue("");
+
+    secondProject.unmount();
+    renderProject(1, [projectOneDocument]);
+
+    expect(screen.getByLabelText("搜索文件")).toHaveValue("brief");
+    expect(useUiStore.getState().projectFileFilters[1]?.tagId).toBe(7);
   });
 });
 

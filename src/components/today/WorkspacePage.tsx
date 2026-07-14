@@ -3,7 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Settings2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { parseRouteId, projectPath, recordFocusId, workspacePath } from "../../lib/formatters";
+import {
+  parseRouteId,
+  preserveRecordFilters,
+  projectPath,
+  recordFocusId,
+  workspacePath,
+} from "../../lib/formatters";
 import { pageWidthContainerClass, withPageWidthClass } from "../../lib/pageWidth";
 import { queryKeys } from "../../lib/queryKeys";
 import {
@@ -17,7 +23,7 @@ import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { resolveTodoContentTagSync, todoTagIds } from "../../lib/todo-tag-sync";
 import { colorKeyForTagLabel, extractHashTagLabels, findTagByLabel, mergeUniqueTagIds } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
-import type { FileTagRecord, TodoPriority, WorkspaceRecord } from "../../lib/types";
+import type { ProjectTagRecord, TodoPriority, WorkspaceRecord } from "../../lib/types";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
@@ -37,7 +43,7 @@ import {
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import { TodoRail } from "../todo";
-import { appendMarkdownSection } from "../../lib/record-move";
+import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
@@ -109,8 +115,8 @@ export function WorkspacePage({
     enabled: visible,
   });
   const workspaceTagSettingsQuery = useQuery({
-    queryKey: queryKeys.fileTags.workspace,
-    queryFn: () => projectMindApi.fileTagSettingsGet({}),
+    queryKey: queryKeys.projectTags.workspace,
+    queryFn: () => projectMindApi.projectTagSettingsGet({}),
     enabled: visible,
   });
   const aiSettingsQuery = useQuery({
@@ -240,7 +246,7 @@ export function WorkspacePage({
     [currentView, visible, visibleRecordFocusKey],
   );
 
-  async function createTodo(projectId: number, content: string, priority: TodoPriority) {
+  async function createTodo(projectId: number, content: string, priority: TodoPriority, dueDate?: string | null) {
     const synced = await resolveTodoContentTagSync({
       projectId,
       content,
@@ -250,14 +256,15 @@ export function WorkspacePage({
       projectId,
       content: synced.content,
       priority,
+      dueDate,
       tagIds: synced.tagIds,
     });
   }
 
-  async function updateTodoContent(todoId: number, content: string) {
+  async function updateTodoContent(todoId: number, content: string, dueDate?: string | null) {
     const currentTodo = allTodos.find((todo) => todo.id === todoId);
     if (!currentTodo) {
-      await todoContentMutation.mutateAsync({ todoId, content });
+      await todoContentMutation.mutateAsync({ todoId, content, dueDate });
       return;
     }
 
@@ -269,6 +276,7 @@ export function WorkspacePage({
     await todoContentMutation.mutateAsync({
       todoId,
       content: synced.content,
+      dueDate,
       tagIds: synced.tagIds,
     });
   }
@@ -282,7 +290,7 @@ export function WorkspacePage({
       const existing = findTagByLabel(availableTags, label);
       const tag =
         existing ??
-        (await projectMindApi.fileTagOptionUpsert({
+        (await projectMindApi.projectTagUpsert({
           label,
           colorKey: colorKeyForTagLabel(label),
         }));
@@ -300,7 +308,10 @@ export function WorkspacePage({
 
     try {
       const markdown = appendMarkdownSection(record.contentMarkdown, selection.markdown);
-      const html = renderMarkdownToHtml(markdown);
+      const html = appendRichTextSection(
+        { html: record.contentHtml, markdown: record.contentMarkdown },
+        selection.html,
+      );
       const tagIds = await ensureWorkspaceTagIds(
         markdown,
         (record.tags ?? []).map((tag) => tag.id),
@@ -316,7 +327,7 @@ export function WorkspacePage({
       });
       await selection.removeSelectionAndSave();
       await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+      await queryClient.invalidateQueries({ queryKey: ["project-tag-settings", "workspace"] });
       pushToast({ tone: "success", title: "已移动到记录", detail: record.title?.trim() || "未命名记录" });
       setQuickNoteMoveSelection(null);
     } catch (error) {
@@ -333,7 +344,7 @@ export function WorkspacePage({
 
     try {
       const markdown = selection.markdown.trim();
-      const html = renderMarkdownToHtml(markdown);
+      const html = selection.html.trim() || renderMarkdownToHtml(markdown);
       const tagIds = await ensureWorkspaceTagIds(markdown, []);
       const record = await workspaceRecordMutation.mutateAsync({
         title: title?.trim() || undefined,
@@ -344,7 +355,7 @@ export function WorkspacePage({
 
       await selection.removeSelectionAndSave();
       await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-      await queryClient.invalidateQueries({ queryKey: ["file-tag-settings", "workspace"] });
+      await queryClient.invalidateQueries({ queryKey: ["project-tag-settings", "workspace"] });
       pushToast({ tone: "success", title: "已创建记录", detail: record.title?.trim() || "未命名记录" });
       setQuickNoteMoveSelection(null);
     } catch (error) {
@@ -353,9 +364,9 @@ export function WorkspacePage({
     }
   }
 
-  function syncWorkspaceTagCache(tag: FileTagRecord) {
-    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      queryKeys.fileTags.workspace,
+  function syncWorkspaceTagCache(tag: ProjectTagRecord) {
+    queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
+      queryKeys.projectTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -424,8 +435,8 @@ export function WorkspacePage({
       tagIds: [],
     });
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
-    navigate(`/workspace/records/${record.id}`);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+    navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
   }
 
   function closeComposeRecord() {
@@ -550,7 +561,7 @@ export function WorkspacePage({
         onRecordQueryChange={setWorkspaceRecordQuery}
         activeRecordTagId={recordFilterTagId}
         onActiveRecordTagIdChange={setWorkspaceRecordTagId}
-        onOpenOverview={() => navigate(workspacePath())}
+        onOpenOverview={() => navigate(preserveRecordFilters(workspacePath(), searchParams))}
         onOpenProject={(projectId) => {
           void openProject(projectId);
         }}
@@ -571,7 +582,9 @@ export function WorkspacePage({
         onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
         onDeleteProject={(project) => deleteProject(project.id)}
         onOpenRecord={openRecord}
-        onFocusRecord={(recordId) => navigate(`/workspace/records/${recordId}`)}
+        onFocusRecord={(recordId) =>
+          navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams))
+        }
         onCreateRecord={() => void createWorkspaceRecordInFocus()}
       />
 
@@ -673,7 +686,7 @@ export function WorkspacePage({
                   projectId: null,
                   availableTags,
                   onCreateTag: async (label) => {
-                    const tag = await projectMindApi.fileTagOptionUpsert({
+                    const tag = await projectMindApi.projectTagUpsert({
                       label,
                       colorKey: colorKeyForTagLabel(label),
                     });
@@ -716,7 +729,7 @@ export function WorkspacePage({
                     tagIds,
                   });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}
               />
             </section>
@@ -746,7 +759,7 @@ export function WorkspacePage({
                     tagIds,
                   });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}
                 onUpdateRecord={async (note, input) => {
                   const externalizedValue = await externalizeEmbeddedImageDataUrls(
@@ -762,18 +775,19 @@ export function WorkspacePage({
                     tagIds,
                   });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}
                 onDeleteRecord={async (noteId) => {
                   await workspaceRecordDeleteMutation.mutateAsync({ noteId });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.fileTags.workspace });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}
                 onCloseCompose={closeComposeRecord}
                 contactMentionOptions={contactMentionOptions}
                 onOpenInternalReference={openInternalReference as (reference: unknown) => Promise<boolean>}
                 assetHandlers={workspaceAssetHandlers}
                 active={visible && currentView === "record"}
+                recordFilters={searchParams}
               />
             </div>
           </div>
@@ -789,7 +803,7 @@ export function WorkspacePage({
         onCreateTodo={(payload) => {
           const fallbackProjectId = visibleProjects[0]?.id;
           if (!fallbackProjectId) return;
-          void createTodo(fallbackProjectId, payload.content, payload.priority);
+          void createTodo(fallbackProjectId, payload.content, payload.priority, payload.dueDate);
         }}
         onToggleStatus={(todoId, status) =>
           todoStatusMutation.mutateAsync({ todoId, status })

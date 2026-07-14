@@ -8,13 +8,14 @@ import { Save, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
+import { preserveRecordFilters } from "../../lib/formatters";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import type {
   AiSettingsSnapshot,
-  FileTagRecord,
+  ProjectTagRecord,
   WorkspaceRecord,
 } from "../../lib/types";
 import { useUiStore, type PageWidthMode } from "../../state/ui-store";
@@ -38,7 +39,7 @@ interface WorkspaceOverviewHistoryProps {
   focusId: string | null;
   composeRecord: boolean;
   pageWidthMode: PageWidthMode;
-  availableTags: FileTagRecord[];
+  availableTags: ProjectTagRecord[];
   aiSettings: AiSettingsSnapshot | null;
   saving?: boolean;
   onCreateRecord: (input: {
@@ -64,6 +65,7 @@ interface WorkspaceOverviewHistoryProps {
   onOpenInternalReference: (reference: unknown) => Promise<boolean> | boolean;
   assetHandlers?: RichEditorAssetHandlers;
   active?: boolean;
+  recordFilters?: URLSearchParams;
 }
 
 export function WorkspaceOverviewHistory({
@@ -83,6 +85,7 @@ export function WorkspaceOverviewHistory({
   onOpenInternalReference,
   assetHandlers,
   active = true,
+  recordFilters = new URLSearchParams(),
 }: WorkspaceOverviewHistoryProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -108,9 +111,9 @@ export function WorkspaceOverviewHistory({
     }
   }, [contextMenuNote, recordContextMenu]);
 
-  function syncWorkspaceTagCache(tag: FileTagRecord) {
-    queryClient.setQueryData<{ tags: FileTagRecord[] } | undefined>(
-      queryKeys.fileTags.workspace,
+  function syncWorkspaceTagCache(tag: ProjectTagRecord) {
+    queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
+      queryKeys.projectTags.workspace,
       (current) => {
         const tags = current?.tags ?? [];
         if (tags.some((item) => item.id === tag.id)) {
@@ -202,7 +205,7 @@ export function WorkspaceOverviewHistory({
                 projectId: null,
                 availableTags,
                 onCreateTag: async (label) => {
-                  const tag = await projectMindApi.fileTagOptionUpsert({
+                  const tag = await projectMindApi.projectTagUpsert({
                     label,
                     colorKey: colorKeyForTagLabel(label),
                   });
@@ -267,7 +270,9 @@ export function WorkspaceOverviewHistory({
               active={active}
               aiSettings={aiSettings}
               scrollParentSelector="[data-testid='workspace-overview-focus-scroll']"
-              onOpenFocusPage={(current) => navigate(`/workspace/records/${current.id}`)}
+              onOpenFocusPage={(current) =>
+                navigate(preserveRecordFilters(`/workspace/records/${current.id}`, recordFilters))
+              }
               onCreatedTag={syncWorkspaceTagCache}
               onOpenAiSettings={() => openSettings("ai-rewrite")}
             />

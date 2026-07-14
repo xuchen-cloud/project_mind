@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import type { FileTagColorKey, ProjectListItem } from "../../lib/types";
+import type { TagColorKey, ProjectListItem } from "../../lib/types";
 import { useUiStore } from "../../state/ui-store";
 import {
   ActionContextMenu,
@@ -27,11 +27,9 @@ export interface WorkspaceOverviewSidebarRecordItem {
   id: number;
   title?: string | null;
   contentMarkdown: string;
-  tags: Array<{ id: number; label: string; colorKey: FileTagColorKey }>;
+  tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
   updatedAt: string;
 }
-
-type WorkspaceOverviewSidebarTab = "projects" | "records";
 
 interface WorkspaceOverviewSidebarProps {
   workspaceRootPath: string;
@@ -87,9 +85,11 @@ export function WorkspaceOverviewSidebar({
     projectSidebarWidthPx,
     toggleProjectSidebarCollapsed,
     setProjectSidebarWidthPx,
+    workspaceSidebarTab: activeTab,
+    setWorkspaceSidebarTab: setActiveTab,
+    workspaceProjectQuery: projectQuery,
+    setWorkspaceProjectQuery: setProjectQuery,
   } = useUiStore();
-  const [activeTab, setActiveTab] = useState<WorkspaceOverviewSidebarTab>("projects");
-  const [projectQuery, setProjectQuery] = useState("");
   const [projectContextMenu, setProjectContextMenu] = useState<{
     projectId: number;
     x: number;
@@ -110,7 +110,7 @@ export function WorkspaceOverviewSidebar({
   );
   const recordTagOptions = useMemo(
     () => {
-      const tagMap = new Map<number, { id: number; label: string; colorKey: FileTagColorKey }>();
+      const tagMap = new Map<number, { id: number; label: string; colorKey: TagColorKey }>();
 
       for (const record of records) {
         for (const tag of record.tags) {

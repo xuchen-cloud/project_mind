@@ -20,6 +20,7 @@ export interface EditorRewriteSelectionPayload {
   from: number;
   to: number;
   selectedText: string;
+  selectedHtml: string;
   expandedMarkdown: string;
   placeholders: EditorRewritePlaceholder[];
   blockRanges: EditorRewriteBlockRange[];
@@ -75,10 +76,22 @@ export function buildEditorRewriteSelection(editor: Editor): EditorRewriteSelect
     from: blocks[0].from,
     to: blocks[blocks.length - 1].to,
     selectedText: serializeSelectionPlainText(editor),
+    selectedHtml: serializeSelectedBlocksHtml(editor, blocks.map((block) => block.node)),
     expandedMarkdown: segments.filter((segment) => segment.trim().length > 0).join("\n\n"),
     placeholders,
     blockRanges,
   };
+}
+
+function serializeSelectedBlocksHtml(editor: Editor, nodes: readonly ProseMirrorNode[]) {
+  if (typeof document === "undefined" || nodes.length === 0) {
+    return "";
+  }
+
+  const serializer = DOMSerializer.fromSchema(editor.state.schema);
+  const container = document.createElement("div");
+  container.appendChild(serializer.serializeFragment(Fragment.fromArray([...nodes]), { document }));
+  return container.innerHTML;
 }
 
 export function buildEditorRewriteSlice(

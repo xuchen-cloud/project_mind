@@ -23,7 +23,7 @@ function isProgressDatePrefixTrigger(
     return false;
   }
 
-  return /^@\d{0,4}$/u.test(source.slice(0, trigger.end));
+  return /^@\d{0,8}$/u.test(source.slice(0, trigger.end));
 }
 
 export function TodoInlineProgressEditor({
@@ -38,12 +38,12 @@ export function TodoInlineProgressEditor({
   onOpenContactMention,
   onEditingChange,
 }: {
-  latestProgress: { id: number; content: string; progressDate: string } | null;
+  latestProgress: { id: number; content: string; progressDate: string; dueDate?: string | null } | null;
   editable: boolean;
-  onSave: (payload: { content: string; progressDate: string }) => Promise<unknown> | void;
+  onSave: (payload: { content: string; progressDate: string; dueDate?: string | null }) => Promise<unknown> | void;
   onUpdateLatestProgress?: (
     progressId: number,
-    payload: { content: string; progressDate: string; status?: "unfinished" | "finished" },
+    payload: { content: string; progressDate: string; dueDate?: string | null; status?: "unfinished" | "finished" },
   ) => Promise<unknown> | void;
   onDeleteLatestProgress?: (progressId: number) => Promise<unknown> | void;
   onError?: (message: string) => void;
@@ -59,6 +59,7 @@ export function TodoInlineProgressEditor({
     id: number;
     content: string;
     progressDate: string;
+    dueDate?: string | null;
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contactMentionOptions = useContactMentionOptions();
@@ -93,7 +94,8 @@ export function TodoInlineProgressEditor({
 
     if (
       latestProgress.content === optimisticLatestProgress.content &&
-      latestProgress.progressDate === optimisticLatestProgress.progressDate
+      latestProgress.progressDate === optimisticLatestProgress.progressDate &&
+      (latestProgress.dueDate ?? null) === (optimisticLatestProgress.dueDate ?? null)
     ) {
       setOptimisticLatestProgress(null);
     }
@@ -104,7 +106,7 @@ export function TodoInlineProgressEditor({
       return;
     }
     const normalizedDraft = normalizeProgressDraft(draft).trim();
-    if (!normalizedDraft || /^@\d{4}$/u.test(normalizedDraft)) {
+    if (!normalizedDraft || /^@(?:\d{4}|\d{8})$/u.test(normalizedDraft)) {
       setMode(null);
       return;
     }
@@ -113,6 +115,7 @@ export function TodoInlineProgressEditor({
       normalizedDraft,
       new Date(),
       mode === "edit" ? latestProgress?.progressDate : undefined,
+      mode === "edit" ? latestProgress?.dueDate : undefined,
     );
     if (!parsed.ok) {
       onError?.(parsed.error);
@@ -125,6 +128,7 @@ export function TodoInlineProgressEditor({
         id: displayLatestProgress.id,
         content: parsed.content,
         progressDate: parsed.progressDate,
+        dueDate: parsed.dueDate,
       });
     }
     setMode(null);
@@ -133,11 +137,13 @@ export function TodoInlineProgressEditor({
         await onUpdateLatestProgress(displayLatestProgress.id, {
           content: parsed.content,
           progressDate: parsed.progressDate,
+          ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         });
       } else {
         await onSave({
           content: parsed.content,
           progressDate: parsed.progressDate,
+          ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         });
       }
     } catch (error) {

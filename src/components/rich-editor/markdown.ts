@@ -11,6 +11,7 @@ import {
   renderMarkdownToHtml,
 } from "../../lib/richTextContent";
 import { buildInternalReferenceToken } from "../../lib/internalReferences";
+import { buildContactMentionToken } from "../../lib/contactMentions";
 import { buildTagMentionToken } from "../../lib/tagMentions";
 
 export const EMPTY_RICH_EDITOR_HTML = EMPTY_RICH_TEXT_HTML;
@@ -148,6 +149,17 @@ const markdownSerializer = new MarkdownSerializer(
             typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
               ? node.attrs.label
               : "未命名引用",
+        }),
+      );
+    },
+    contactMention(state, node) {
+      state.write(
+        buildContactMentionToken({
+          contactId: Number(node.attrs.contactId) || 0,
+          label:
+            typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
+              ? node.attrs.label
+              : "未命名联系人",
         }),
       );
     },

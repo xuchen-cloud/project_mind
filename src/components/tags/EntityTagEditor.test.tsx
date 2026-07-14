@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EntityTagEditor } from "./EntityTagEditor";
 
 const apiMocks = vi.hoisted(() => ({
-  fileTagOptionUpsert: vi.fn(),
+  projectTagUpsert: vi.fn(),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -14,14 +14,14 @@ vi.mock("../../services/projectMindApi", () => ({
 
 describe("EntityTagEditor", () => {
   beforeEach(() => {
-    apiMocks.fileTagOptionUpsert.mockReset();
+    apiMocks.projectTagUpsert.mockReset();
   });
 
   it("creates workspace-scoped tags with a null project id", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const onCreated = vi.fn();
-    apiMocks.fileTagOptionUpsert.mockResolvedValueOnce({
+    apiMocks.projectTagUpsert.mockResolvedValueOnce({
       id: 7,
       label: "预算",
       colorKey: "amber",
@@ -43,7 +43,7 @@ describe("EntityTagEditor", () => {
     await user.type(screen.getByPlaceholderText("#标签"), "预算{Enter}");
 
     await waitFor(() => {
-      expect(apiMocks.fileTagOptionUpsert).toHaveBeenCalledWith({
+      expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
         projectId: null,
         label: "预算",
         colorKey: "amber",
@@ -57,7 +57,7 @@ describe("EntityTagEditor", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const onCommitNavigation = vi.fn();
-    apiMocks.fileTagOptionUpsert.mockResolvedValueOnce({
+    apiMocks.projectTagUpsert.mockResolvedValueOnce({
       id: 8,
       label: "合同",
       colorKey: "blue",
@@ -90,7 +90,7 @@ describe("EntityTagEditor", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const onCommitNavigation = vi.fn();
-    apiMocks.fileTagOptionUpsert.mockResolvedValueOnce({
+    apiMocks.projectTagUpsert.mockResolvedValueOnce({
       id: 9,
       label: "复盘",
       colorKey: "teal",

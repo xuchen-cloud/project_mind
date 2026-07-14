@@ -1,11 +1,11 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 
-import { fileTagColorValue } from "../../../lib/constants";
+import { tagColorValue } from "../../../lib/constants";
 import {
   buildTagMentionTarget,
   buildTagMentionToken,
 } from "../../../lib/tagMentions";
-import type { FileTagColorKey } from "../../../lib/types";
+import type { TagColorKey } from "../../../lib/types";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -58,7 +58,7 @@ export const TagMention = Node.create({
       label: asLabel(HTMLAttributes["data-label"]),
       colorKey: asColorKey(HTMLAttributes["data-color-key"]),
     });
-    const color = fileTagColorValue(asColorKey(tag.colorKey));
+    const color = tagColorValue(asColorKey(tag.colorKey));
 
     return [
       "span",
@@ -116,5 +116,5 @@ function asColorKey(value: unknown) {
     typeof value === "string" && value.trim().length > 0
       ? value
       : "slate"
-  ) as FileTagColorKey;
+  ) as TagColorKey;
 }

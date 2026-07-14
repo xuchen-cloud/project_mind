@@ -114,6 +114,7 @@ export function UnlockWorkspaceSecretsDialog({
       title="解锁 Workspace Secrets"
       description="输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"
       widthClassName="max-w-lg"
+      layerClassName="z-[60]"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

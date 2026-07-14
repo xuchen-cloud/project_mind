@@ -190,6 +190,8 @@ flowchart LR
 
 驻留顺序由 `useResidentProjectPages` 管理，使用有界 LRU，完整驻留项目页最多三个。项目页签在 pointer hover 或 keyboard focus 时预取项目聚合数据与标签设置；Cold 页切换时同步纳入当前渲染，避免等待 effect 造成空白帧。
 
+Workspace Overview 由 `useResidentWorkspacePage` 独立管理。它在首次访问后作为 `Pinned` 页面常驻，不参与项目 LRU 和页面数量回收；只在 workspace 作用域被清理或页面缓存被禁用时卸载。
+
 React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据新鲜期为 15 秒、GC 时间为 10 分钟；窗口聚焦、网络重连和重新挂载不会隐式刷新。详细约束见 `docs/cache-strategy.md`。
 
 图片标注、Record Focus 页面和非默认设置面板通过 dynamic import 加载。生产构建使用 `check:bundle-boundaries` 防止 Canvas 重新进入启动预加载，并限制主入口脚本不超过 250 KiB。
@@ -223,7 +225,7 @@ React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据�
 - projects / overview
 - notes / workspace notes
 - todos
-- documents / file tags
+- documents / project tags
 - contacts
 - AI artifacts / Ask / jobs / settings
 - rich text style
@@ -240,7 +242,7 @@ React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据�
 - `TodoRecord`
 - `TodoProgressRecord`
 - `DocumentRecord`
-- `FileTagRecord`
+- `ProjectTagRecord`
 - `ContactRecord`
 - `AiArtifactRecord`
 - `AiSettingsSnapshot`
@@ -288,7 +290,7 @@ React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据�
 2. 打开导入前标签对话框
 3. 调用 `document_import`
 4. 刷新项目 overview 与标签设置
-5. 在侧边栏文件标签页中继续操作
+5. 在侧边栏文件页中继续使用项目标签
 
 ## 8. AI 架构
 

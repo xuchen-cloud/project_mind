@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useUiStore } from "../../state/ui-store";
+import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -19,21 +19,7 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe("ProjectSidebar records", () => {
   beforeEach(() => {
-    useUiStore.setState({
-      createProjectOpen: false,
-      settingsOpen: false,
-      settingsSection: "page-width",
-      settingsProjectId: null,
-      projectComposer: null,
-      projectSidebarCollapsed: false,
-      todoRailCollapsed: false,
-      openProjectIds: [],
-      projectRecentPaths: {},
-      noteEditorWidthPx: 880,
-      pageWidthMode: "adaptive",
-      todoRailWidthPx: 352,
-      projectSidebarWidthPx: 288,
-    });
+    useUiStore.setState(createUiStoreState());
   });
 
   it("calls onOpenRecord when a record title is clicked", async () => {

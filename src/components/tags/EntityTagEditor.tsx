@@ -1,22 +1,22 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { Circle, Plus, X } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
+import { tagColorValue } from "../../lib/constants";
 import { colorKeyForTagLabel, findTagByLabel } from "../../lib/tags";
-import type { DocumentTagRecord, FileTagRecord } from "../../lib/types";
+import type { DocumentTagRecord, ProjectTagRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { cn } from "../../ui/lib/cn";
 
 interface EntityTagEditorProps {
   projectId?: number | null;
-  availableTags: FileTagRecord[];
+  availableTags: ProjectTagRecord[];
   tags: DocumentTagRecord[];
   busy?: boolean;
   compact?: boolean;
   mode?: "full" | "edit" | "display";
   inputRef?: Ref<HTMLInputElement>;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
-  onCreated?: (tag: FileTagRecord) => void;
+  onCreated?: (tag: ProjectTagRecord) => void;
   onCommitNavigation?: (reason: "tab" | "enter") => Promise<unknown> | void;
 }
 
@@ -67,7 +67,7 @@ export function EntityTagEditor({
   const createTag = async (label: string) => {
     try {
       setCreating(true);
-      const tag = await projectMindApi.fileTagOptionUpsert({
+      const tag = await projectMindApi.projectTagUpsert({
         projectId: projectId ?? null,
         label,
         colorKey: colorKeyForTagLabel(label),
@@ -113,8 +113,8 @@ export function EntityTagEditor({
             aria-label={`移除标签 ${tag.label}`}
             className="entity-tag-chip entity-tag-chip--interactive max-w-[12rem]"
             style={{
-              backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
-              color: fileTagColorValue(tag.colorKey),
+              backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
+              color: tagColorValue(tag.colorKey),
             }}
             disabled={busy}
             onMouseDown={(event) => event.preventDefault()}
@@ -133,8 +133,8 @@ export function EntityTagEditor({
             key={tag.id}
             className="entity-tag-chip max-w-[12rem]"
             style={{
-              backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
-              color: fileTagColorValue(tag.colorKey),
+              backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
+              color: tagColorValue(tag.colorKey),
             }}
           >
             <Circle
@@ -176,8 +176,8 @@ export function EntityTagEditor({
               type="button"
               className="entity-tag-chip entity-tag-chip--interactive w-full justify-start text-left"
               style={{
-                backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
-                color: fileTagColorValue(tag.colorKey),
+                backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
+                color: tagColorValue(tag.colorKey),
               }}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => void commitLabel(tag.label)}
@@ -209,7 +209,7 @@ function setRef<T>(ref: Ref<T> | undefined, value: T | null) {
 }
 
 export function buildTagSuggestions(
-  availableTags: FileTagRecord[],
+  availableTags: ProjectTagRecord[],
   selectedIds: Set<number>,
   query: string,
 ) {

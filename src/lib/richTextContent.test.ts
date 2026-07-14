@@ -27,6 +27,19 @@ describe("renderMarkdownToHtml", () => {
     expect(renderMarkdownToHtml("   ")).toBe(EMPTY_RICH_TEXT_HTML);
   });
 
+  it("restores contacts alongside internal references", () => {
+    const html = renderMarkdownToHtml(
+      "联系 @[contact:7|张三]，查看 [[note:12|访谈记录]]，标签 #[tag:5|客户|blue]。",
+    );
+
+    expect(html).toContain('data-type="contact-mention"');
+    expect(html).toContain('data-contact-id="7"');
+    expect(html).toContain('data-type="internal-reference"');
+    expect(html).toContain('data-ref-id="12"');
+    expect(html).toContain('data-type="tag-mention"');
+    expect(html).toContain('data-tag-id="5"');
+  });
+
   it("does not keep the fence-closing newline inside code blocks", () => {
     const html = renderMarkdownToHtml(["```ts", "const value = 1;", "```"].join("\n"));
 

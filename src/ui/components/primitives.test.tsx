@@ -67,4 +67,16 @@ describe("ui primitives", () => {
     await user.click(screen.getByLabelText("关闭对话框"));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("supports raising a dialog above another modal layer", () => {
+    render(
+      <Dialog open title="Nested Dialog" onClose={() => undefined} layerClassName="z-[60]">
+        <div>Nested dialog body</div>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "Nested Dialog" }).parentElement).toHaveClass(
+      "z-[60]",
+    );
+  });
 });

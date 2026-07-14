@@ -9,7 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   workspacePageGet: vi.fn(),
   workspaceStatusGet: vi.fn(),
-  fileTagSettingsGet: vi.fn(),
+  projectTagSettingsGet: vi.fn(),
   aiSettingsGet: vi.fn(),
 }));
 
@@ -97,7 +97,7 @@ function LocationDisplay() {
 }
 
 function renderPage(initialEntries: string[] = ["/"]) {
-  render(
+  return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={initialEntries}>
         <WorkspacePage />
@@ -112,7 +112,7 @@ describe("WorkspacePage", () => {
     apiMocks.projectsList.mockReset();
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
-    apiMocks.fileTagSettingsGet.mockReset();
+    apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.projectsList.mockResolvedValue([]);
     apiMocks.workspacePageGet.mockResolvedValue({
@@ -129,7 +129,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
     apiMocks.aiSettingsGet.mockResolvedValue(null);
     desktopApiMocks.openProjectWindow.mockClear();
     desktopApiMocks.focusProjectWindow.mockClear();
@@ -181,7 +181,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -206,7 +206,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -248,7 +248,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
     useUiStore.setState({
       ...createUiStoreState(),
       projectRecentPaths: {
@@ -305,7 +305,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -357,7 +357,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
     useUiStore.setState({
       ...createUiStoreState(),
       openProjectIds: [1],
@@ -411,7 +411,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
     desktopApiMocks.focusProjectWindow.mockResolvedValueOnce(true);
 
     renderPage();
@@ -454,7 +454,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -514,7 +514,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -559,7 +559,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -602,7 +602,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -633,7 +633,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage();
 
@@ -681,7 +681,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({
       tags: [
         { id: 3, label: "预算", colorKey: "amber" },
         { id: 4, label: "招聘", colorKey: "blue" },
@@ -705,7 +705,7 @@ describe("WorkspacePage", () => {
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
   });
 
-  it("opens a workspace record focus page when a sidebar record is double clicked", async () => {
+  it("opens a workspace record focus page without resetting the sidebar tab", async () => {
     const user = userEvent.setup();
 
     apiMocks.projectsList.mockResolvedValueOnce([]);
@@ -733,16 +733,28 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage(["/?view=record"]);
+    const page = renderPage(["/?view=record&recordQuery=budget"]);
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
 
     fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /预算复盘/ }));
 
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7");
+    expect(screen.getByTestId("location-display")).toHaveTextContent(
+      "/workspace/records/7?recordQuery=budget",
+    );
+    expect(useUiStore.getState().workspaceSidebarTab).toBe("records");
+
+    page.unmount();
+    renderPage(["/workspace/records/7?recordQuery=budget"]);
+
+    const remountedSidebar = await screen.findByLabelText("工作区导航侧边栏");
+    expect(within(remountedSidebar).getByRole("tab", { name: "记录" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("creates a workspace record from the sidebar and opens its focus page", async () => {
@@ -763,7 +775,7 @@ describe("WorkspacePage", () => {
       recentWorkspaces: [],
       aiSecretsUnlocked: true,
     });
-    apiMocks.fileTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
     renderPage(["/?view=record"]);
 

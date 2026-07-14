@@ -2,7 +2,7 @@ import { Check, Clipboard, LoaderCircle, RotateCcw, Sparkles, X } from "lucide-r
 
 interface RichEditorRewriteWidgetProps {
   skillName: string;
-  resultMode: "modify" | "answer";
+  resultMode: "modify" | "answer" | "auto";
   status: "queued" | "running" | "succeeded" | "failed";
   answer?: string | null;
   answerHtml?: string | null;
@@ -43,13 +43,13 @@ export function RichEditorRewriteWidget({
   const isFailed = status === "failed";
 
   if (isPending && !(resultMode === "answer" && answer) && !hasModifyPreview) {
-    if (resultMode === "modify") {
+    if (resultMode !== "answer") {
       return (
         <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify rich-editor__rewrite-widget--loading">
           <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
             <div className="rich-editor__rewrite-widget-status">
               <AiBadge loading />
-              <span>AI 正在修改...</span>
+              <span>{resultMode === "auto" ? "AI 正在处理..." : "AI 正在修改..."}</span>
               <span className="rich-editor__rewrite-widget-compat-text">AI 正在处理...</span>
             </div>
             <button
@@ -92,7 +92,7 @@ export function RichEditorRewriteWidget({
   }
 
   if (isFailed) {
-    if (resultMode === "modify") {
+    if (resultMode !== "answer") {
       return (
         <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify rich-editor__rewrite-widget--error">
           <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
@@ -148,7 +148,7 @@ export function RichEditorRewriteWidget({
     );
   }
 
-  if (resultMode === "answer") {
+  if (answer && !hasModifyPreview) {
     return (
       <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--answer">
         <div className="rich-editor__rewrite-widget-card">
@@ -184,12 +184,32 @@ export function RichEditorRewriteWidget({
 
   return (
     <div className="rich-editor__rewrite-widget rich-editor__rewrite-widget--modify">
-      <div className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+      <div
+        className={[
+          "rich-editor__rewrite-widget-card",
+          "rich-editor__rewrite-widget-card--line",
+          answer ? "rich-editor__rewrite-widget-card--combined" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="rich-editor__rewrite-widget-status">
           <AiBadge />
           <span>{isPending ? "AI 正在修改..." : "我已完成更新。"}</span>
         </div>
+        {answer ? (
+          <div
+            className="rich-editor__rewrite-widget-combined-answer rich-editor__surface"
+            dangerouslySetInnerHTML={{ __html: answerHtml || "" }}
+          />
+        ) : null}
         <div className="rich-editor__rewrite-widget-actions rich-editor__rewrite-widget-actions--row">
+          {answer ? (
+            <button type="button" className="rich-editor__rewrite-widget-action" onMouseDown={(event) => event.preventDefault()} onClick={onCopyAnswer}>
+              <Clipboard size={13} />
+              复制回答
+            </button>
+          ) : null}
           <button
             type="button"
             className={["rich-editor__rewrite-widget-action", showingOriginal ? "is-active" : ""].filter(Boolean).join(" ")}

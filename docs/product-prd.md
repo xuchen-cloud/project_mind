@@ -26,7 +26,7 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - `Todo`
 - `Todo Progress`
 - `Document`
-- `File Tag`
+- `Project Tag`
 - `Contact`
 - `AI Artifact`
 
@@ -103,7 +103,7 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 页面左侧挂载项目侧边栏，提供：
 
 - 记录标签页
-- 文件标签页
+- 文件页的项目标签筛选
 - 搜索与标签筛选
 - 文件拖拽导入与受管文件操作
 

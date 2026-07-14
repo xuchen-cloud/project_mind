@@ -1,22 +1,22 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Circle, Plus, X } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
+import { tagColorValue } from "../../lib/constants";
 import { colorKeyForTagLabel, findTagByLabel } from "../../lib/tags";
-import type { DocumentTagRecord, FileTagRecord } from "../../lib/types";
+import type { DocumentTagRecord, ProjectTagRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { cn } from "../../ui/lib/cn";
 import { buildTagSuggestions } from "./EntityTagEditor";
 
 interface TagAutocompletePickerProps {
   projectId: number;
-  availableTags: FileTagRecord[];
+  availableTags: ProjectTagRecord[];
   selectedTagIds: number[];
   busy?: boolean;
   compact?: boolean;
   placeholder?: string;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
-  onCreated?: (tag: FileTagRecord) => void;
+  onCreated?: (tag: ProjectTagRecord) => void;
 }
 
 export function TagAutocompletePicker({
@@ -36,7 +36,7 @@ export function TagAutocompletePicker({
     () =>
       selectedTagIds
         .map((tagId) => availableTags.find((tag) => tag.id === tagId))
-        .filter((tag): tag is FileTagRecord => tag !== undefined)
+        .filter((tag): tag is ProjectTagRecord => tag !== undefined)
         .map(
           (tag): DocumentTagRecord => ({
             id: tag.id,
@@ -55,7 +55,7 @@ export function TagAutocompletePicker({
   const createTag = async (label: string) => {
     try {
       setCreating(true);
-      const tag = await projectMindApi.fileTagOptionUpsert({
+      const tag = await projectMindApi.projectTagUpsert({
         projectId,
         label,
         colorKey: colorKeyForTagLabel(label),
@@ -110,7 +110,7 @@ export function TagAutocompletePicker({
             <Circle
               size={8}
               className="shrink-0 fill-current"
-              style={{ color: fileTagColorValue(tag.colorKey) }}
+              style={{ color: tagColorValue(tag.colorKey) }}
               aria-hidden="true"
             />
             <span className="truncate">{tag.label}</span>
@@ -150,7 +150,7 @@ export function TagAutocompletePicker({
               <Circle
                 size={8}
                 className="fill-current"
-                style={{ color: fileTagColorValue(tag.colorKey) }}
+                style={{ color: tagColorValue(tag.colorKey) }}
               />
               <span className="truncate">{tag.label}</span>
             </button>

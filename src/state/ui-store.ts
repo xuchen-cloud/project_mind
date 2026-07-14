@@ -7,12 +7,21 @@ import {
 
 export type SettingsSection =
   | "page-width"
-  | "file-tags"
+  | "project-tags"
   | "contacts"
   | "ai-models"
   | "ai-rewrite"
   | "rich-text";
 export type PageWidthMode = "adaptive" | "narrow" | "wide" | "full";
+export type WorkspaceSidebarTab = "projects" | "records";
+export type ProjectSidebarTab = "records" | "files";
+export type TodoRailTab = "unfinished" | "finished";
+export type TodoRailSortMode = "time" | "priority";
+
+interface ProjectFileFilterState {
+  query: string;
+  tagId: number | null;
+}
 
 export const UI_STORE_STORAGE_KEY = "project-mind-ui";
 export const NOTE_EDITOR_WIDTH_DEFAULT_PX = 880;
@@ -47,8 +56,14 @@ interface UiStoreState {
   settingsSection: SettingsSection;
   settingsProjectId: number | null;
   projectComposer: "conclusion" | "todo" | null;
+  workspaceSidebarTab: WorkspaceSidebarTab;
+  workspaceProjectQuery: string;
+  projectSidebarTab: ProjectSidebarTab;
+  projectFileFilters: Record<number, ProjectFileFilterState>;
   projectSidebarCollapsed: boolean;
   todoRailCollapsed: boolean;
+  todoRailTab: TodoRailTab;
+  todoRailSortMode: TodoRailSortMode;
   openProjectIds: number[];
   projectRecentPaths: Record<number, string>;
   noteEditorWidthPx: number;
@@ -65,8 +80,15 @@ interface UiStore extends UiStoreState {
   openSettings: (section?: SettingsSection, projectId?: number | null) => void;
   closeSettings: () => void;
   setProjectComposer: (value: "conclusion" | "todo" | null) => void;
+  setWorkspaceSidebarTab: (tab: WorkspaceSidebarTab) => void;
+  setWorkspaceProjectQuery: (query: string) => void;
+  setProjectSidebarTab: (tab: ProjectSidebarTab) => void;
+  setProjectFileQuery: (projectId: number, query: string) => void;
+  setProjectDocumentTagId: (projectId: number, tagId: number | null) => void;
   setProjectSidebarCollapsed: (collapsed: boolean) => void;
   setTodoRailCollapsed: (collapsed: boolean) => void;
+  setTodoRailTab: (tab: TodoRailTab) => void;
+  setTodoRailSortMode: (mode: TodoRailSortMode) => void;
   setPageWidthMode: (width: PageWidthMode) => void;
   setTodoRailWidthPx: (width: number) => void;
   setProjectSidebarWidthPx: (width: number) => void;
@@ -76,6 +98,7 @@ interface UiStore extends UiStoreState {
   closeProjectTab: (projectId: number) => void;
   rememberProjectRoute: (projectId: number, path: string) => void;
   clearProjectRecentPaths: () => void;
+  clearWorkspaceScopedUiState: () => void;
   toggleProjectSidebarCollapsed: () => void;
   toggleTodoRailCollapsed: () => void;
 }
@@ -91,8 +114,14 @@ export function createUiStoreState(): UiStoreState {
     settingsSection: "page-width",
     settingsProjectId: null,
     projectComposer: null,
+    workspaceSidebarTab: "projects",
+    workspaceProjectQuery: "",
+    projectSidebarTab: "records",
+    projectFileFilters: {},
     projectSidebarCollapsed: false,
     todoRailCollapsed: false,
+    todoRailTab: "unfinished",
+    todoRailSortMode: "time",
     openProjectIds: [],
     projectRecentPaths: {},
     noteEditorWidthPx: NOTE_EDITOR_WIDTH_DEFAULT_PX,
@@ -150,8 +179,33 @@ export const createUiStore = () =>
           set({ settingsOpen: true, settingsSection, settingsProjectId }),
         closeSettings: () => set({ settingsOpen: false, settingsProjectId: null }),
         setProjectComposer: (projectComposer) => set({ projectComposer }),
+        setWorkspaceSidebarTab: (workspaceSidebarTab) => set({ workspaceSidebarTab }),
+        setWorkspaceProjectQuery: (workspaceProjectQuery) => set({ workspaceProjectQuery }),
+        setProjectSidebarTab: (projectSidebarTab) => set({ projectSidebarTab }),
+        setProjectFileQuery: (projectId, query) =>
+          set((state) => ({
+            projectFileFilters: {
+              ...state.projectFileFilters,
+              [projectId]: {
+                query,
+                tagId: state.projectFileFilters[projectId]?.tagId ?? null,
+              },
+            },
+          })),
+        setProjectDocumentTagId: (projectId, tagId) =>
+          set((state) => ({
+            projectFileFilters: {
+              ...state.projectFileFilters,
+              [projectId]: {
+                query: state.projectFileFilters[projectId]?.query ?? "",
+                tagId,
+              },
+            },
+          })),
         setProjectSidebarCollapsed: (projectSidebarCollapsed) => set({ projectSidebarCollapsed }),
         setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
+        setTodoRailTab: (todoRailTab) => set({ todoRailTab }),
+        setTodoRailSortMode: (todoRailSortMode) => set({ todoRailSortMode }),
         setPageWidthMode: (pageWidthMode) => set({ pageWidthMode }),
         setTodoRailWidthPx: (todoRailWidthPx) =>
           set({
@@ -193,6 +247,12 @@ export const createUiStore = () =>
                   },
           })),
         clearProjectRecentPaths: () => set({ projectRecentPaths: {} }),
+        clearWorkspaceScopedUiState: () =>
+          set({
+            projectRecentPaths: {},
+            projectFileFilters: {},
+            workspaceProjectQuery: "",
+          }),
         toggleProjectSidebarCollapsed: () =>
           set((state) => ({ projectSidebarCollapsed: !state.projectSidebarCollapsed })),
         toggleTodoRailCollapsed: () =>

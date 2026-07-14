@@ -9,10 +9,10 @@ export const queryKeys = {
   aiArtifacts: ["ai-artifact"] as const,
   aiSettings: ["ai-settings"] as const,
   richTextStyle: ["rich-text-style"] as const,
-  fileTags: {
-    all: ["file-tag-settings"] as const,
-    workspace: ["file-tag-settings", "workspace"] as const,
-    project: (projectId: number | null) => ["file-tag-settings", projectId] as const,
+  projectTags: {
+    all: ["project-tag-settings"] as const,
+    workspace: ["project-tag-settings", "workspace"] as const,
+    project: (projectId: number | null) => ["project-tag-settings", projectId] as const,
   },
   contacts: {
     all: ["contacts"] as const,

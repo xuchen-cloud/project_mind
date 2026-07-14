@@ -15,6 +15,10 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
+import {
+  PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+  type ProjectRecordFocusSaveRequestDetail,
+} from "./lib/record-focus-save";
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
@@ -188,7 +192,7 @@ vi.mock("./services/projectMindApi", () => ({
         },
       ],
     })),
-    fileTagSettingsGet: vi.fn(async () => ({
+    projectTagSettingsGet: vi.fn(async () => ({
       tags: [],
     })),
     recordTypeSettingsGet: vi.fn(async () => ({
@@ -241,27 +245,72 @@ vi.mock("./services/projectMindApi", () => ({
   },
 }));
 
-import { WorkspaceLayout } from "./App";
+import { WorkspaceLayout, workspaceSearchResultRoute } from "./App";
 import { getCurrentWindowLabel, isProjectWindow } from "./lib/project-window";
 import { desktopApi } from "./services/desktopApi";
 import { projectMindApi } from "./services/projectMindApi";
-import { useUiStore } from "./state/ui-store";
+import { createUiStoreState, useUiStore } from "./state/ui-store";
+
+describe("workspaceSearchResultRoute", () => {
+  const baseResult = {
+    projectId: 3,
+    title: "Result",
+    subtitle: "Project",
+    matchedText: "Result",
+  };
+
+  it("builds routes for every navigable search result kind", () => {
+    expect(
+      workspaceSearchResultRoute({
+        ...baseResult,
+        kind: "workspace_quick_note",
+        id: 1,
+        projectId: null,
+      }),
+    ).toBe("/workspace");
+    expect(
+      workspaceSearchResultRoute({
+        ...baseResult,
+        kind: "workspace_note",
+        id: 6,
+        projectId: null,
+      }),
+    ).toBe("/workspace/records/6");
+    expect(
+      workspaceSearchResultRoute({
+        ...baseResult,
+        kind: "contact",
+        id: 12,
+        projectId: null,
+      }),
+    ).toBeNull();
+    expect(
+      workspaceSearchResultRoute({ ...baseResult, kind: "activity", id: 7 }),
+    ).toBe("/projects/3/activities/7");
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe(
+      "/projects/3?focus=record-8",
+    );
+    expect(
+      workspaceSearchResultRoute({ ...baseResult, kind: "conclusion", id: 9 }),
+    ).toBe("/projects/3?focus=conclusion-9");
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "todo", id: 10 })).toBe(
+      "/projects/3?focus=todo-10",
+    );
+    expect(
+      workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 }),
+    ).toBe("/projects/3?focus=document-11");
+    expect(
+      workspaceSearchResultRoute({ ...baseResult, kind: "project", id: 3 }),
+    ).toBeNull();
+  });
+});
 
 describe("WorkspaceLayout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(isProjectWindow).mockReturnValue(false);
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
-    useUiStore.setState({
-      createProjectOpen: false,
-      settingsOpen: false,
-      settingsSection: "page-width",
-      projectComposer: null,
-      projectSidebarCollapsed: false,
-      todoRailCollapsed: false,
-      openProjectIds: [],
-      projectRecentPaths: {},
-    });
+    useUiStore.setState(createUiStoreState());
   });
 
   it("creates a project immediately from the empty state", async () => {
@@ -343,7 +392,7 @@ describe("WorkspaceLayout", () => {
     expect(
       await screen.findByRole("dialog", { name: "设置" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /项目标签/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 模型配置/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 技能/ })).toBeInTheDocument();
   });
@@ -381,7 +430,7 @@ describe("WorkspaceLayout", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens file tag settings from the route bridge", async () => {
+  it("opens workspace tag settings from a workspace route", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -394,7 +443,7 @@ describe("WorkspaceLayout", () => {
           ],
         },
       ],
-      { initialEntries: ["/settings/file-tags"] },
+      { initialEntries: ["/settings/project-tags"] },
     );
 
     render(
@@ -406,12 +455,8 @@ describe("WorkspaceLayout", () => {
     expect(
       await screen.findByRole("dialog", { name: "设置" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /项目标签/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "项目标签" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Workspace 标签" })).toBeInTheDocument();
   });
 
   it("returns to the remembered project route when switching back by top tabs", async () => {
@@ -926,7 +971,7 @@ describe("WorkspaceLayout", () => {
           ],
         },
       ],
-      { initialEntries: ["/projects/1"] },
+      { initialEntries: ["/projects/1?recordQuery=kickoff"] },
     );
 
     render(
@@ -939,7 +984,9 @@ describe("WorkspaceLayout", () => {
     fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
 
     expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7");
+    expect(screen.getByTestId("location-display")).toHaveTextContent(
+      "/projects/1/records/7?recordQuery=kickoff",
+    );
   });
 
   it("keeps single-click record navigation inside the project focus page", async () => {
@@ -1042,11 +1089,17 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
+    const handleSaveRequest = (event: Event) => {
+      (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail.respond(true);
+    };
+    window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
     await user.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
     await waitFor(() => {
       expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
     });
+    window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
+
 });

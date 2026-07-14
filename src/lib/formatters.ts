@@ -144,6 +144,25 @@ export function recordFocusId(noteId: number) {
   return `record-${noteId}`;
 }
 
+export function preserveRecordFilters(path: string, currentSearch: string | URLSearchParams) {
+  const [pathname, targetSearch = ""] = path.split("?", 2);
+  const targetParams = new URLSearchParams(targetSearch);
+  const currentParams =
+    typeof currentSearch === "string"
+      ? new URLSearchParams(currentSearch)
+      : currentSearch;
+
+  for (const key of ["recordQuery", "recordTag"] as const) {
+    const value = currentParams.get(key);
+    if (value !== null) {
+      targetParams.set(key, value);
+    }
+  }
+
+  const nextSearch = targetParams.toString();
+  return nextSearch ? `${pathname}?${nextSearch}` : pathname;
+}
+
 export function parseFocusRecordId(focus: string | null) {
   const match = focus?.match(/^record-(\d+)$/u);
   return match ? Number(match[1]) : null;

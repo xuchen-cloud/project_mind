@@ -1,11 +1,11 @@
-import type { FileTagRecord } from "../../lib/types";
+import type { ProjectTagRecord } from "../../lib/types";
 import { Button, Dialog } from "../../ui/components";
 import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
 
 interface DocumentImportTagDialogProps {
   projectId: number;
   paths: string[];
-  tags: FileTagRecord[];
+  tags: ProjectTagRecord[];
   selectedTagIds: number[];
   onChangeSelectedTagIds: (tagIds: number[]) => void;
   onClose: () => void;

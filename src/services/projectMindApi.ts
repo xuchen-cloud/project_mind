@@ -35,11 +35,11 @@ import type {
   DocumentRelocateInput,
   DocumentUpdateMetaInput,
   DocumentVersionRecord,
-  FileTagOptionDeleteInput,
-  FileTagSettingsGetInput,
-  FileTagOptionUpsertInput,
-  FileTagRecord,
-  FileTagSettingsSnapshot,
+  ProjectTagDeleteInput,
+  ProjectTagSettingsGetInput,
+  ProjectTagUpsertInput,
+  ProjectTagRecord,
+  ProjectTagSettingsSnapshot,
   InternalReferenceResolveInput,
   InternalReferenceResolveResult,
   InternalReferenceSearchInput,
@@ -110,12 +110,12 @@ export const projectMindApi = {
     desktopApi.command<ProjectRecord>("project_set_archive", { input }),
   projectDelete: (input: ProjectDeleteInput) =>
     desktopApi.command<ProjectRecord>("project_delete", { input }),
-  fileTagSettingsGet: (input: FileTagSettingsGetInput) =>
-    desktopApi.command<FileTagSettingsSnapshot>("file_tag_settings_get", { input }),
-  fileTagOptionUpsert: (input: FileTagOptionUpsertInput) =>
-    desktopApi.command<FileTagRecord>("file_tag_option_upsert", { input }),
-  fileTagOptionDelete: (input: FileTagOptionDeleteInput) =>
-    desktopApi.command<FileTagSettingsSnapshot>("file_tag_option_delete", {
+  projectTagSettingsGet: (input: ProjectTagSettingsGetInput) =>
+    desktopApi.command<ProjectTagSettingsSnapshot>("file_tag_settings_get", { input }),
+  projectTagUpsert: (input: ProjectTagUpsertInput) =>
+    desktopApi.command<ProjectTagRecord>("file_tag_option_upsert", { input }),
+  projectTagDelete: (input: ProjectTagDeleteInput) =>
+    desktopApi.command<ProjectTagSettingsSnapshot>("file_tag_option_delete", {
       input,
     }),
   contactList: () => desktopApi.command<ContactRecord[]>("contact_list"),

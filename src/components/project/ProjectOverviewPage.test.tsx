@@ -61,10 +61,10 @@ vi.mock("../../services/projectMindApi", () => ({
       finishedTodos: [],
       documents: [],
     })),
-    fileTagSettingsGet: vi.fn(async () => ({
+    projectTagSettingsGet: vi.fn(async () => ({
       tags: [{ id: 3, label: "预算", colorKey: "amber" }],
     })),
-    fileTagOptionUpsert: vi.fn(async ({ label }: { label: string }) => ({
+    projectTagUpsert: vi.fn(async ({ label }: { label: string }) => ({
       id: 9,
       label,
       colorKey: "blue",
@@ -242,7 +242,7 @@ vi.mock("../todo", () => ({
 
 vi.mock("../../hooks/useDocumentImportFlow", () => ({
   useDocumentImportFlow: () => ({
-    fileTags: [],
+    projectTags: [],
     pendingImportPaths: null,
     pendingImportTagIds: [],
     requestImportPaths: vi.fn(async () => undefined),

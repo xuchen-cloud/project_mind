@@ -3,7 +3,7 @@ import { Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
-import type { FileTagRecord, TodoPriority, TodoRecord } from "../../lib/types";
+import type { ProjectTagRecord, TodoPriority, TodoRecord } from "../../lib/types";
 import { ActionContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
@@ -47,15 +47,15 @@ export function TodoList({
   emptyText: string;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
-  onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
   onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; dueDate?: string | null },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
+    payload: { content: string; progressDate: string; dueDate?: string | null; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
@@ -63,7 +63,7 @@ export function TodoList({
   onEmptyClick?: () => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
-  availableTags?: FileTagRecord[];
+  availableTags?: ProjectTagRecord[];
 }) {
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;

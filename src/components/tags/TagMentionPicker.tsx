@@ -2,8 +2,8 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Circle, Hash } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
-import type { FileTagRecord } from "../../lib/types";
+import { tagColorValue } from "../../lib/constants";
+import type { ProjectTagRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { PopoverPanel } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -15,7 +15,7 @@ interface UseTagMentionSearchOptions {
   open: boolean;
   query: string;
   projectId: number | null | undefined;
-  availableTags?: FileTagRecord[];
+  availableTags?: ProjectTagRecord[];
   selectedTagIds?: number[];
   limit?: number;
 }
@@ -28,7 +28,7 @@ export function useTagMentionSearch({
   selectedTagIds = EMPTY_SELECTED_TAG_IDS,
   limit = 8,
 }: UseTagMentionSearchOptions) {
-  const [results, setResults] = useState<FileTagRecord[]>([]);
+  const [results, setResults] = useState<ProjectTagRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const selectedTagIdsKey = selectedTagIds.join(",");
 
@@ -53,8 +53,8 @@ export function useTagMentionSearch({
       try {
         const snapshot =
           typeof projectId === "number"
-            ? await projectMindApi.fileTagSettingsGet({ projectId })
-            : await projectMindApi.fileTagSettingsGet({});
+            ? await projectMindApi.projectTagSettingsGet({ projectId })
+            : await projectMindApi.projectTagSettingsGet({});
         const suggestions = buildTagSuggestions(
           snapshot.tags,
           new Set(selectedTagIds),
@@ -99,7 +99,7 @@ export function TagMentionPicker({
 }: {
   open: boolean;
   loading: boolean;
-  results: FileTagRecord[];
+  results: ProjectTagRecord[];
   activeIndex: number;
   query: string;
   canCreate: boolean;
@@ -107,7 +107,7 @@ export function TagMentionPicker({
   style?: CSSProperties;
   portal?: boolean;
   onHoverIndex?: (index: number) => void;
-  onSelect: (tag: FileTagRecord) => void;
+  onSelect: (tag: ProjectTagRecord) => void;
   onCreate?: (label: string) => void;
 }) {
   if (!open) {
@@ -154,7 +154,7 @@ export function TagMentionPicker({
                     <Circle
                       size={8}
                       className="fill-current"
-                      style={{ color: fileTagColorValue(tag.colorKey) }}
+                      style={{ color: tagColorValue(tag.colorKey) }}
                     />
                   </span>
                   <div className="min-w-0 flex-1">

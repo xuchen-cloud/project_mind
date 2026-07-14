@@ -25,8 +25,8 @@ import {
   Upload,
 } from "lucide-react";
 
-import type { DocumentRecord, DocumentTagRecord, FileTagColorKey } from "../../lib/types";
-import { fileTagColorValue } from "../../lib/constants";
+import type { DocumentRecord, DocumentTagRecord, TagColorKey } from "../../lib/types";
+import { tagColorValue } from "../../lib/constants";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
@@ -56,7 +56,7 @@ export interface ProjectSidebarRecordItem {
   contentMarkdown: string;
   contentHtml?: string;
   defaultCodeLanguage?: string | null;
-  tags: Array<{ id: number; label: string; colorKey: FileTagColorKey }>;
+  tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
   updatedAt: string;
 }
 
@@ -73,7 +73,7 @@ export interface ProjectSidebarDocumentItem {
   currentVersionNumber: number;
   versionCount: number;
   health: "normal" | "missing";
-  tags: Array<{ id: number; label: string; colorKey: FileTagColorKey }>;
+  tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
 }
 
 interface ProjectSidebarProps {
@@ -99,8 +99,6 @@ interface ProjectSidebarProps {
   onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
 }
-
-type ProjectSidebarTab = "records" | "files";
 
 interface ContextMenuState {
   documentId: number;
@@ -136,7 +134,17 @@ export function ProjectSidebar({
   onDeleteRecord,
   onOpenDocument,
 }: ProjectSidebarProps) {
-  const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
+  const {
+    projectSidebarCollapsed,
+    projectSidebarWidthPx,
+    toggleProjectSidebarCollapsed,
+    setProjectSidebarWidthPx,
+    projectSidebarTab: activeTab,
+    setProjectSidebarTab: setActiveTab,
+    projectFileFilters,
+    setProjectFileQuery,
+    setProjectDocumentTagId,
+  } = useUiStore();
   const { pushToast } = useFeedbackStore();
   const {
     documentMetaMutation,
@@ -144,8 +152,8 @@ export function ProjectSidebar({
     documentDeleteMutation,
   } = useDocumentMutations();
   const {
-    fileTags,
-    fileTagSettingsQuery,
+    projectTags,
+    projectTagSettingsQuery,
     pendingImportPaths,
     pendingImportTagIds,
     requestImportPaths,
@@ -162,11 +170,12 @@ export function ProjectSidebar({
   const openRecord = onOpenRecord ?? (() => undefined);
 
   // UI State
-  const [activeTab, setActiveTab] = useState<ProjectSidebarTab>("records");
   const [localRecordQuery, setLocalRecordQuery] = useState("");
   const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
-  const [fileQuery, setFileQuery] = useState("");
-  const [fileTagId, setFileTagId] = useState<number | null>(null);
+  const fileQuery = projectFileFilters[project.id]?.query ?? "";
+  const documentTagId = projectFileFilters[project.id]?.tagId ?? null;
+  const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
+  const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
   const [dragActive, setDragActive] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -190,10 +199,10 @@ export function ProjectSidebar({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragActiveRef = useRef(false);
 
-  const fileTagLookup = useMemo(
+  const projectTagLookup = useMemo(
     () =>
       new Map(
-        fileTags.map((tag) => [
+        projectTags.map((tag) => [
           tag.id,
           {
             id: tag.id,
@@ -202,11 +211,11 @@ export function ProjectSidebar({
           },
         ]),
       ),
-    [fileTags],
+    [projectTags],
   );
 
   const recordTagOptions = useMemo(() => {
-    const map = new Map<number, { id: number; label: string; colorKey: FileTagColorKey; count: number }>();
+    const map = new Map<number, { id: number; label: string; colorKey: TagColorKey; count: number }>();
 
     for (const record of records) {
       for (const tag of record.tags) {
@@ -220,8 +229,8 @@ export function ProjectSidebar({
     );
   }, [records]);
 
-  const fileTagOptions = useMemo(() => {
-    const map = new Map<number, { id: number; label: string; colorKey: FileTagColorKey; count: number }>();
+  const documentTagOptions = useMemo(() => {
+    const map = new Map<number, { id: number; label: string; colorKey: TagColorKey; count: number }>();
 
     for (const document of documents) {
       for (const tag of document.tags) {
@@ -253,10 +262,10 @@ export function ProjectSidebar({
       new Map(
         sortedDocuments.map((document) => [
           document.id,
-          buildEffectiveDocumentTags(document, pendingTagIdsByDocumentId[document.id], fileTagLookup),
+          buildEffectiveDocumentTags(document, pendingTagIdsByDocumentId[document.id], projectTagLookup),
         ]),
       ),
-    [sortedDocuments, fileTagLookup, pendingTagIdsByDocumentId],
+    [sortedDocuments, projectTagLookup, pendingTagIdsByDocumentId],
   );
 
   const normalizedRecordQuery = recordQuery.trim().toLowerCase();
@@ -281,8 +290,8 @@ export function ProjectSidebar({
         tag.label.toLowerCase().includes(normalizedFileQuery),
       );
     const matchesTag =
-      fileTagId === null ||
-      (effectiveDocumentTagsById.get(document.id) ?? document.tags).some((tag) => tag.id === fileTagId);
+      documentTagId === null ||
+      (effectiveDocumentTagsById.get(document.id) ?? document.tags).some((tag) => tag.id === documentTagId);
     return matchesQuery && matchesTag;
   });
 
@@ -402,7 +411,7 @@ export function ProjectSidebar({
 
   const activateFileDropTarget = useCallback(() => {
     clearPendingDragDeactivate();
-    setActiveTab((current) => (current === "files" ? current : "files"));
+    setActiveTab("files");
     setDragActiveStable(true);
   }, [clearPendingDragDeactivate, setDragActiveStable]);
 
@@ -862,26 +871,26 @@ export function ProjectSidebar({
                   </IconButton>
                 ) : null}
               </div>
-              {(activeTab === "records" ? recordTagOptions : fileTagOptions).length > 0 ? (
+              {(activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   <FilterPill
-                    active={activeTab === "records" ? selectedRecordTagId === null : fileTagId === null}
+                    active={activeTab === "records" ? selectedRecordTagId === null : documentTagId === null}
                     onClick={() =>
                       activeTab === "records"
                         ? setSelectedRecordTagId(null)
-                        : setFileTagId(null)
+                        : setDocumentTagId(null)
                     }
                   >
                     全部
                   </FilterPill>
-                  {(activeTab === "records" ? recordTagOptions : fileTagOptions).map((tag) => (
+                  {(activeTab === "records" ? recordTagOptions : documentTagOptions).map((tag) => (
                     <FilterPill
                       key={tag.id}
-                      active={activeTab === "records" ? selectedRecordTagId === tag.id : fileTagId === tag.id}
+                      active={activeTab === "records" ? selectedRecordTagId === tag.id : documentTagId === tag.id}
                       onClick={() =>
                         activeTab === "records"
                           ? setSelectedRecordTagId(selectedRecordTagId === tag.id ? null : tag.id)
-                          : setFileTagId(fileTagId === tag.id ? null : tag.id)
+                          : setDocumentTagId(documentTagId === tag.id ? null : tag.id)
                       }
                     >
                       {tag.label}
@@ -1174,12 +1183,12 @@ export function ProjectSidebar({
             />
           </div>
 
-          {fileTagSettingsQuery.isLoading || fileTags.length > 0 ? (
+          {projectTagSettingsQuery.isLoading || projectTags.length > 0 ? (
             <div className="mt-1 grid gap-1 border-t border-border pt-1">
-              {fileTagSettingsQuery.isLoading ? (
+              {projectTagSettingsQuery.isLoading ? (
                 <p className="px-2.5 py-2 text-ui text-text-soft">标签加载中...</p>
-              ) : fileTags.length > 0 ? (
-                fileTags.map((tag) => {
+              ) : projectTags.length > 0 ? (
+                projectTags.map((tag) => {
                   const checked = (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).some(
                     (item) => item.id === tag.id,
                   );
@@ -1209,7 +1218,7 @@ export function ProjectSidebar({
                       <Circle
                         size={10}
                         className="fill-current"
-                        style={{ color: fileTagColorValue(tag.colorKey) }}
+                        style={{ color: tagColorValue(tag.colorKey) }}
                         aria-hidden="true"
                       />
                       <span className="min-w-0 flex-1 truncate">{tag.label}</span>
@@ -1219,11 +1228,11 @@ export function ProjectSidebar({
               ) : null}
             </div>
           ) : null}
-          {!fileTagSettingsQuery.isLoading ? (
+          {!projectTagSettingsQuery.isLoading ? (
             <div className="mt-2 border-t border-border pt-2">
               <TagAutocompletePicker
                 projectId={project.id}
-                availableTags={fileTags}
+                availableTags={projectTags}
                 selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
                   (tag) => tag.id,
                 )}
@@ -1241,7 +1250,7 @@ export function ProjectSidebar({
         <DocumentImportTagDialog
           projectId={project.id}
           paths={pendingImportPaths}
-          tags={fileTags}
+          tags={projectTags}
           selectedTagIds={pendingImportTagIds}
           onChangeSelectedTagIds={setPendingImportTagIds}
           onClose={closeImportTagDialog}
@@ -1433,13 +1442,13 @@ function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
     return baseName;
   }
 
-  return `${baseName}，文件标签：${tags.map((tag) => tag.label).join("、")}`;
+  return `${baseName}，项目标签：${tags.map((tag) => tag.label).join("、")}`;
 }
 
 function buildEffectiveDocumentTags(
   document: ProjectSidebarDocumentItem,
   pendingTagIds: number[] | undefined,
-  fileTagLookup: Map<number, { id: number; label: string; colorKey: FileTagColorKey }>,
+  projectTagLookup: Map<number, { id: number; label: string; colorKey: TagColorKey }>,
 ): DocumentTagRecord[] {
   if (!pendingTagIds) {
     return document.tags;
@@ -1447,7 +1456,7 @@ function buildEffectiveDocumentTags(
 
   return pendingTagIds
     .map((tagId) => {
-      const tag = fileTagLookup.get(tagId) ?? document.tags.find((item) => item.id === tagId);
+      const tag = projectTagLookup.get(tagId) ?? document.tags.find((item) => item.id === tagId);
       return tag
         ? {
             id: tag.id,

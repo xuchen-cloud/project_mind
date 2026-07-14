@@ -14,8 +14,8 @@ const AiSettingsPanel = lazy(() =>
 const ContactSettingsPanel = lazy(() =>
   import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
 );
-const FileTagSettingsPanel = lazy(() =>
-  import("./FileTagSettingsPanel").then((module) => ({ default: module.FileTagSettingsPanel })),
+const ProjectTagSettingsPanel = lazy(() =>
+  import("./ProjectTagSettingsPanel").then((module) => ({ default: module.ProjectTagSettingsPanel })),
 );
 const RichTextStylePanel = lazy(() =>
   import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
@@ -41,7 +41,7 @@ const SETTINGS_SECTIONS: Array<{
     icon: StretchHorizontal,
   },
   {
-    value: "file-tags",
+    value: "project-tags",
     label: "项目标签",
     icon: Files,
   },
@@ -75,14 +75,20 @@ export function SettingsDialog({
   onUnlockAiSecrets,
   onClose,
 }: SettingsDialogProps) {
+  const availableSections = SETTINGS_SECTIONS.map((section) =>
+    section.value === "project-tags"
+      ? { ...section, label: projectId === null ? "Workspace 标签" : "项目标签" }
+      : section,
+  );
+
   const activePanel = (() => {
     switch (activeSection) {
       case "page-width":
         return <PageWidthSettingsPanel />;
-      case "file-tags":
+      case "project-tags":
         return (
           <Suspense fallback={<SettingsPanelFallback />}>
-            <FileTagSettingsPanel open={open} projectId={projectId} />
+            <ProjectTagSettingsPanel open={open} projectId={projectId} />
           </Suspense>
         );
       case "contacts":
@@ -126,9 +132,9 @@ export function SettingsDialog({
       onClose={onClose}
       title="设置"
       description={
-        activeSection === "file-tags"
+        activeSection === "project-tags"
           ? projectId === null
-            ? "标签字典需要在具体项目里管理。"
+            ? "当前更改只作用于这个 Workspace。"
             : "当前更改只作用于这个项目。"
           : "当前更改只作用于本地 workspace。"
       }
@@ -138,7 +144,7 @@ export function SettingsDialog({
       <div className="grid min-h-[34rem] gap-0 lg:grid-cols-[12rem_minmax(0,1fr)]">
         <aside className="border-b border-border bg-bg-subtle/70 p-2.5 lg:border-b-0 lg:border-r">
           <nav className="grid gap-1.5" aria-label="设置分区">
-            {SETTINGS_SECTIONS.map((section) => {
+            {availableSections.map((section) => {
               const Icon = section.icon;
               const active = section.value === activeSection;
 
@@ -165,7 +171,11 @@ export function SettingsDialog({
         </aside>
 
         <div className="min-w-0 p-3.5 sm:p-4">
-          <section aria-label={SETTINGS_SECTIONS.find((item) => item.value === activeSection)?.label}>
+          <section
+            aria-label={availableSections.find(
+              (item) => item.value === activeSection,
+            )?.label}
+          >
             {activePanel}
           </section>
         </div>
@@ -202,8 +212,8 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   if (section === "rich-text") {
     return "rich-text";
   }
-  if (section === "file-tags") {
-    return "file-tags";
+  if (section === "project-tags" || section === "file-tags") {
+    return "project-tags";
   }
   if (section === "contacts") {
     return "contacts";

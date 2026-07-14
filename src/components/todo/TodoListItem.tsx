@@ -14,7 +14,7 @@ import {
 } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
-  FileTagRecord,
+  ProjectTagRecord,
   TodoPriority,
   TodoProgressRecord,
   TodoRecord,
@@ -28,15 +28,12 @@ import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import {
-  parseProgressInput,
-  priorityColorValue,
-  sortTodoProgresses,
-} from "./todo-utils";
+import { parseProgressInput, priorityColorValue, sortTodoProgresses } from "./todo-utils";
+import { TodoDueDate } from "./TodoDueDate";
 
 const PROGRESS_STATUS_TRANSITION_MS = 420;
-const SUBITEM_CONTROLS_HOT_ZONE_PX = 28;
-const SUBITEM_CONTROLS_REVEAL_DELAY_MS = 180;
+const SUBITEM_CONTROLS_HOT_ZONE_PX = 14;
+const SUBITEM_CONTROLS_REVEAL_DELAY_MS = 400;
 
 type ProgressVisualState = "completing" | "restoring" | null;
 
@@ -71,15 +68,15 @@ export function TodoListItem({
   statusTransition?: "completing" | "restoring" | null;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
-  onUpdateContent: (todoId: number, content: string) => Promise<unknown> | void;
+  onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
   onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
   onAddProgress: (
     todoId: number,
-    payload: { content: string; progressDate: string },
+    payload: { content: string; progressDate: string; dueDate?: string | null },
   ) => Promise<unknown> | void;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
+    payload: { content: string; progressDate: string; dueDate?: string | null; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onToggleExpanded: (todoId: number, nextExpanded?: boolean) => void;
@@ -87,7 +84,7 @@ export function TodoListItem({
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
-  availableTags?: FileTagRecord[];
+  availableTags?: ProjectTagRecord[];
 }) {
   const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
@@ -224,6 +221,7 @@ export function TodoListItem({
       await onUpdateProgress(progressId, {
         content: currentProgress.content,
         progressDate: currentProgress.progressDate,
+        ...(currentProgress.dueDate ? { dueDate: currentProgress.dueDate } : {}),
         status: nextStatus,
       });
     } catch (error) {
@@ -280,6 +278,14 @@ export function TodoListItem({
     setSubitemControlsVisible(false);
   }
 
+  function handleSubitemControlsPointerLeave() {
+    if (progressEditing || expanded) {
+      return;
+    }
+
+    setSubitemControlsVisible(false);
+  }
+
   return (
     <article
       id={`todo-${todo.id}`}
@@ -308,12 +314,14 @@ export function TodoListItem({
               <div className="todo-card__content">
                 <TodoInlineContentEditor
                   value={todo.content}
+                  dueDate={todo.dueDate}
                   editable={allowInlineEdit}
+                  onError={onError}
                   internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
                   onOpenInternalReference={onOpenInternalReference}
                   onOpenContactMention={onOpenContactMention}
                   onEditingChange={setContentEditing}
-                  onSave={(content) => onUpdateContent(todo.id, content)}
+                  onSave={(content, dueDate) => onUpdateContent(todo.id, content, dueDate)}
                 />
               </div>
               <button
@@ -362,6 +370,7 @@ export function TodoListItem({
                     "todo-card__subitem-row",
                     shouldShowSubitemControls && "todo-card__subitem-row--visible",
                   )}
+                  onPointerLeave={handleSubitemControlsPointerLeave}
                 >
                   <div className="todo-card__add-subtask">
                     <TodoInlineProgressEditor
@@ -435,7 +444,7 @@ function TodoHistoryProgressItem({
   visualState?: ProgressVisualState;
   onUpdateProgress: (
     progressId: number,
-    payload: { content: string; progressDate: string; status?: TodoRecord["status"] },
+    payload: { content: string; progressDate: string; dueDate?: string | null; status?: TodoRecord["status"] },
   ) => Promise<unknown> | void;
   onToggleStatus?: (
     progressId: number,
@@ -490,6 +499,7 @@ function TodoHistoryProgressItem({
     if (
       progress.content === optimisticProgress.content &&
       progress.progressDate === optimisticProgress.progressDate &&
+      (progress.dueDate ?? null) === (optimisticProgress.dueDate ?? null) &&
       progress.status === optimisticProgress.status
     ) {
       setOptimisticProgress(null);
@@ -503,12 +513,17 @@ function TodoHistoryProgressItem({
 
     const normalizedDraft = normalizeProgressDraft(draft).trim();
     const currentContent = displayProgress.content.trim();
-    if (!normalizedDraft || /^@\d{4}$/u.test(normalizedDraft)) {
+    if (!normalizedDraft || /^@(?:\d{4}|\d{8})$/u.test(normalizedDraft)) {
       setEditing(false);
       return;
     }
 
-    const parsed = parseProgressInput(normalizedDraft, new Date(), displayProgress.progressDate);
+    const parsed = parseProgressInput(
+      normalizedDraft,
+      new Date(),
+      displayProgress.progressDate,
+      displayProgress.dueDate,
+    );
     if (!parsed.ok) {
       onError?.(parsed.error);
       return;
@@ -517,6 +532,7 @@ function TodoHistoryProgressItem({
     if (
       parsed.content === currentContent &&
       parsed.progressDate === displayProgress.progressDate
+      && parsed.dueDate === (displayProgress.dueDate ?? null)
     ) {
       setEditing(false);
       return;
@@ -528,6 +544,7 @@ function TodoHistoryProgressItem({
       ...displayProgress,
       content: parsed.content,
       progressDate: parsed.progressDate,
+      dueDate: parsed.dueDate,
       status: progress.status ?? "unfinished",
     });
     setEditing(false);
@@ -535,6 +552,7 @@ function TodoHistoryProgressItem({
       await onUpdateProgress(progress.id, {
         content: parsed.content,
         progressDate: parsed.progressDate,
+        ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         status: progress.status ?? "unfinished",
       });
     } catch (error) {
@@ -557,6 +575,7 @@ function TodoHistoryProgressItem({
         await onUpdateProgress(progress.id, {
           content: progress.content,
           progressDate: progress.progressDate,
+          ...(progress.dueDate ? { dueDate: progress.dueDate } : {}),
           status: nextStatus,
         });
       }
@@ -637,6 +656,7 @@ function TodoHistoryProgressItem({
         <p
           role={editable ? "button" : undefined}
           tabIndex={editable ? 0 : undefined}
+          aria-label={editable ? displayProgress.content : undefined}
           className={cn(
             "todo-progress-item__text min-w-0 flex-1",
             displayProgress.status === "finished" && "text-text-soft line-through",
@@ -665,6 +685,7 @@ function TodoHistoryProgressItem({
               onOpenInternalReference={onOpenInternalReference}
               onOpenContactMention={onOpenContactMention}
             />
+            {displayProgress.dueDate ? <TodoDueDate value={displayProgress.dueDate} /> : null}
           </span>
         </p>
       </div>

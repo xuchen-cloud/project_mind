@@ -1,5 +1,5 @@
 import { projectMindApi } from "../services/projectMindApi";
-import type { DocumentTagRecord, FileTagRecord } from "./types";
+import type { DocumentTagRecord, ProjectTagRecord } from "./types";
 import {
   colorKeyForTagLabel,
   extractHashTagLabels,
@@ -17,7 +17,7 @@ export async function resolveTodoContentTagSync({
   projectId: number;
   content: string;
   explicitTagIds: number[];
-  availableTags?: FileTagRecord[];
+  availableTags?: ProjectTagRecord[];
 }) {
   const hashLabels = extractHashTagLabels(content);
   if (hashLabels.length === 0) {
@@ -29,7 +29,7 @@ export async function resolveTodoContentTagSync({
 
   let knownTags = availableTags;
   if (knownTags.length === 0) {
-    const snapshot = await projectMindApi.fileTagSettingsGet({ projectId });
+    const snapshot = await projectMindApi.projectTagSettingsGet({ projectId });
     knownTags = snapshot.tags;
   }
 
@@ -39,7 +39,7 @@ export async function resolveTodoContentTagSync({
     const existing = findTagByLabel(knownTags, label);
     const tag =
       existing ??
-      (await projectMindApi.fileTagOptionUpsert({
+      (await projectMindApi.projectTagUpsert({
         projectId,
         label,
         colorKey: colorKeyForTagLabel(label),

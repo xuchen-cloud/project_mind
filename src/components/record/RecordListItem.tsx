@@ -9,7 +9,7 @@ import {
 } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
 
-import { fileTagColorValue } from "../../lib/constants";
+import { tagColorValue } from "../../lib/constants";
 import { formatDateTime } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -31,7 +31,7 @@ import {
 import type {
   AiSettingsSnapshot,
   DocumentTagRecord,
-  FileTagRecord,
+  ProjectTagRecord,
   InternalReferenceContext,
 } from "../../lib/types";
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
@@ -67,7 +67,7 @@ interface RecordListItemProps<TRecord extends RecordListItemRecord> {
   record: TRecord;
   scope: RecordListItemScope;
   focused: boolean;
-  availableTags: FileTagRecord[];
+  availableTags: ProjectTagRecord[];
   busy: boolean;
   active: boolean;
   aiSettings: AiSettingsSnapshot | null;
@@ -83,7 +83,7 @@ interface RecordListItemProps<TRecord extends RecordListItemRecord> {
   onOpenFocusPage: (record: TRecord) => Promise<void> | void;
   onOpenContextMenu: (event: ReactMouseEvent, recordId: number) => void;
   onOpenInternalReference: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
-  onCreatedTag?: (tag: FileTagRecord) => void;
+  onCreatedTag?: (tag: ProjectTagRecord) => void;
   onOpenAiSettings: () => void;
 }
 
@@ -351,7 +351,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   }
 
   async function createMentionTag(label: string) {
-    const tag = await projectMindApi.fileTagOptionUpsert({
+    const tag = await projectMindApi.projectTagUpsert({
       projectId,
       label,
       colorKey: colorKeyForTagLabel(label),
@@ -498,13 +498,13 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               key={tag.id}
               className="project-history-record__tag"
               style={{
-                backgroundColor: `color-mix(in srgb, ${fileTagColorValue(tag.colorKey)} 12%, transparent)`,
-                color: fileTagColorValue(tag.colorKey),
+                backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
+                color: tagColorValue(tag.colorKey),
               }}
             >
               <span
                 className="project-history-record__tag-dot"
-                style={{ backgroundColor: fileTagColorValue(tag.colorKey) }}
+                style={{ backgroundColor: tagColorValue(tag.colorKey) }}
                 aria-hidden="true"
               />
               {tag.label}

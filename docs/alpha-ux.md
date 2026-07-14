@@ -44,7 +44,7 @@ flowchart TD
   E --> S["Project Sidebar"]
   E --> T["Project Todo Rail"]
   S --> U["记录标签页"]
-  S --> V["文件标签页"]
+  S --> V["文件页的项目标签筛选"]
 ```
 
 ## 3. 当前页面职责

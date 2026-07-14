@@ -12,8 +12,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react";
 
 import { formatDateTime } from "../../lib/formatters";
-import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, FileTagColorKey } from "../../lib/types";
-import { fileTagColorValue } from "../../lib/constants";
+import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, TagColorKey } from "../../lib/types";
+import { tagColorValue } from "../../lib/constants";
 import { projectMindApi } from "../../services/projectMindApi";
 import { PopoverPanel, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -99,13 +99,13 @@ export function DocumentTagDots({ tags }: { tags: DocumentTagRecord[] }) {
     <div
       className="inline-flex items-center gap-1"
       title={tags.map((tag) => tag.label).join(" / ")}
-      aria-label={`文件标签：${tags.map((tag) => tag.label).join("、")}`}
+      aria-label={`项目标签：${tags.map((tag) => tag.label).join("、")}`}
     >
       {visibleTags.map((tag) => (
         <span
           key={tag.id}
           className="h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: fileTagColorValue(tag.colorKey) }}
+          style={{ backgroundColor: tagColorValue(tag.colorKey) }}
           aria-hidden="true"
         />
       ))}

@@ -1,4 +1,4 @@
-import type { FileTagColorKey } from "./types";
+import type { TagColorKey } from "./types";
 import { TODO_PRIORITY_META, todoPriorityLabel } from "./todo-priority";
 
 export const PROJECT_STATUS_OPTIONS = [
@@ -48,7 +48,7 @@ export const AI_CAPABILITY_OPTIONS = [
 ] as const;
 
 export const FILE_TAG_COLOR_OPTIONS: Array<{
-  value: FileTagColorKey;
+  value: TagColorKey;
   label: string;
   colorValue: string;
 }> = [
@@ -108,21 +108,21 @@ export function aiCapabilityLabel(value: string) {
   return AI_CAPABILITY_OPTIONS.find((option) => option.value === value)?.label ?? value;
 }
 
-export function fileTagColorValue(value: FileTagColorKey) {
+export function tagColorValue(value: TagColorKey) {
   return (
     FILE_TAG_COLOR_OPTIONS.find((option) => option.value === value)?.colorValue ??
     "var(--color-file-tag-slate)"
   );
 }
 
-export function colorKeyBadgeStyle(value: FileTagColorKey) {
-  const colorValue = fileTagColorValue(value);
+export function colorKeyBadgeStyle(value: TagColorKey) {
+  const colorValue = tagColorValue(value);
   return {
     backgroundColor: `color-mix(in srgb, ${colorValue} 12%, transparent)`,
     color: colorValue,
   };
 }
 
-export function fileTagColorLabel(value: FileTagColorKey) {
+export function tagColorLabel(value: TagColorKey) {
   return FILE_TAG_COLOR_OPTIONS.find((option) => option.value === value)?.label ?? value;
 }

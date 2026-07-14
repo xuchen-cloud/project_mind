@@ -3,27 +3,27 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { FileTagSettingsSnapshot } from "../../lib/types";
+import type { ProjectTagSettingsSnapshot } from "../../lib/types";
 
 const {
-  mockFileTagSettingsGet,
-  mockFileTagOptionUpsert,
-  mockFileTagOptionDelete,
+  mockProjectTagSettingsGet,
+  mockProjectTagUpsert,
+  mockProjectTagDelete,
   mockSetStatus,
   mockPushToast,
 } = vi.hoisted(() => ({
-  mockFileTagSettingsGet: vi.fn(),
-  mockFileTagOptionUpsert: vi.fn(),
-  mockFileTagOptionDelete: vi.fn(),
+  mockProjectTagSettingsGet: vi.fn(),
+  mockProjectTagUpsert: vi.fn(),
+  mockProjectTagDelete: vi.fn(),
   mockSetStatus: vi.fn(),
   mockPushToast: vi.fn(),
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
-    fileTagSettingsGet: mockFileTagSettingsGet,
-    fileTagOptionUpsert: mockFileTagOptionUpsert,
-    fileTagOptionDelete: mockFileTagOptionDelete,
+    projectTagSettingsGet: mockProjectTagSettingsGet,
+    projectTagUpsert: mockProjectTagUpsert,
+    projectTagDelete: mockProjectTagDelete,
   },
 }));
 
@@ -34,19 +34,19 @@ vi.mock("../../state/feedback-store", () => ({
   }),
 }));
 
-import { FileTagSettingsPanel } from "./FileTagSettingsPanel";
+import { ProjectTagSettingsPanel } from "./ProjectTagSettingsPanel";
 
-let fileTagSettingsSnapshot: FileTagSettingsSnapshot;
+let projectTagSettingsSnapshot: ProjectTagSettingsSnapshot;
 
-describe("FileTagSettingsPanel", () => {
+describe("ProjectTagSettingsPanel", () => {
   beforeEach(() => {
-    mockFileTagSettingsGet.mockReset();
-    mockFileTagOptionUpsert.mockReset();
-    mockFileTagOptionDelete.mockReset();
+    mockProjectTagSettingsGet.mockReset();
+    mockProjectTagUpsert.mockReset();
+    mockProjectTagDelete.mockReset();
     mockSetStatus.mockReset();
     mockPushToast.mockReset();
 
-    fileTagSettingsSnapshot = {
+    projectTagSettingsSnapshot = {
       tags: [
         {
           id: 1,
@@ -59,16 +59,16 @@ describe("FileTagSettingsPanel", () => {
       ],
     };
 
-    mockFileTagSettingsGet.mockImplementation(async () => fileTagSettingsSnapshot);
-    mockFileTagOptionUpsert.mockImplementation(async (input) => {
+    mockProjectTagSettingsGet.mockImplementation(async () => projectTagSettingsSnapshot);
+    mockProjectTagUpsert.mockImplementation(async (input) => {
       if (input.id) {
         const nextTag = {
-          ...(fileTagSettingsSnapshot.tags.find((tag) => tag.id === input.id)!),
+          ...(projectTagSettingsSnapshot.tags.find((tag) => tag.id === input.id)!),
           label: input.label,
           colorKey: input.colorKey,
         };
-        fileTagSettingsSnapshot = {
-          tags: fileTagSettingsSnapshot.tags.map((tag) => (tag.id === input.id ? nextTag : tag)),
+        projectTagSettingsSnapshot = {
+          tags: projectTagSettingsSnapshot.tags.map((tag) => (tag.id === input.id ? nextTag : tag)),
         };
         return nextTag;
       }
@@ -81,12 +81,12 @@ describe("FileTagSettingsPanel", () => {
         createdAt: "",
         updatedAt: "",
       };
-      fileTagSettingsSnapshot = {
-        tags: [...fileTagSettingsSnapshot.tags, nextTag],
+      projectTagSettingsSnapshot = {
+        tags: [...projectTagSettingsSnapshot.tags, nextTag],
       };
       return nextTag;
     });
-    mockFileTagOptionDelete.mockResolvedValue(undefined);
+    mockProjectTagDelete.mockResolvedValue(undefined);
   });
 
   it("keeps the create composer collapsed until the user clicks new", async () => {
@@ -103,7 +103,7 @@ describe("FileTagSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "创建标签" }));
 
     await waitFor(() =>
-      expect(mockFileTagOptionUpsert.mock.calls[0]?.[0]).toEqual({
+      expect(mockProjectTagUpsert.mock.calls[0]?.[0]).toEqual({
         projectId: 7,
         label: "待审核",
         colorKey: "rose",
@@ -112,6 +112,25 @@ describe("FileTagSettingsPanel", () => {
 
     await waitFor(() =>
       expect(screen.queryByPlaceholderText("例如：法务 / 合同 / 待审核")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("loads and creates tags in the workspace scope", async () => {
+    const user = userEvent.setup();
+
+    renderPanel(null);
+
+    expect(await screen.findByText("Workspace Tags")).toBeInTheDocument();
+    expect(mockProjectTagSettingsGet).toHaveBeenCalledWith({ projectId: null });
+
+    await user.click(screen.getByRole("button", { name: "新建标签" }));
+    await user.type(screen.getByPlaceholderText("例如：法务 / 合同 / 待审核"), "稍后处理");
+    await user.click(screen.getByRole("button", { name: "创建标签" }));
+
+    await waitFor(() =>
+      expect(mockProjectTagUpsert.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ projectId: null, label: "稍后处理" }),
+      ),
     );
   });
 
@@ -133,7 +152,7 @@ describe("FileTagSettingsPanel", () => {
 
     await waitFor(
       () =>
-        expect(mockFileTagOptionUpsert.mock.calls[0]?.[0]).toEqual({
+        expect(mockProjectTagUpsert.mock.calls[0]?.[0]).toEqual({
           projectId: 7,
           id: 1,
           label: "待审核",
@@ -151,7 +170,7 @@ describe("FileTagSettingsPanel", () => {
     await waitFor(
       () =>
         expect(
-          mockFileTagOptionUpsert.mock.calls[mockFileTagOptionUpsert.mock.calls.length - 1]?.[0],
+          mockProjectTagUpsert.mock.calls[mockProjectTagUpsert.mock.calls.length - 1]?.[0],
         ).toEqual({
           projectId: 7,
           id: 1,
@@ -163,7 +182,7 @@ describe("FileTagSettingsPanel", () => {
   });
 });
 
-function renderPanel() {
+function renderPanel(projectId: number | null = 7) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -174,7 +193,7 @@ function renderPanel() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <FileTagSettingsPanel open projectId={7} />
+      <ProjectTagSettingsPanel open projectId={projectId} />
     </QueryClientProvider>,
   );
 }

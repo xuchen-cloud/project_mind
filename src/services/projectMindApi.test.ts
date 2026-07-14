@@ -320,12 +320,12 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_settings_get");
   });
 
-  it("maps file tag settings fetch with project payload", async () => {
+  it("maps project tag settings fetch with project payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       tags: [],
     });
 
-    await projectMindApi.fileTagSettingsGet({ projectId: 7 });
+    await projectMindApi.projectTagSettingsGet({ projectId: 7 });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith(
       "file_tag_settings_get",
@@ -380,7 +380,7 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps file tag save to the correct command", async () => {
+  it("maps project tag save to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 4,
       label: "法务",
@@ -390,7 +390,7 @@ describe("projectMindApi", () => {
       updatedAt: "",
     });
 
-    await projectMindApi.fileTagOptionUpsert({
+    await projectMindApi.projectTagUpsert({
       projectId: 7,
       id: 4,
       label: "法务",

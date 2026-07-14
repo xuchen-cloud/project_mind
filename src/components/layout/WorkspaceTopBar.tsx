@@ -29,6 +29,7 @@ interface WorkspaceTopBarProps {
   onSearchInput: (value: string) => void;
   searchResults: WorkspaceSearchResult[];
   searching: boolean;
+  searchError?: boolean;
   onOpenProject: (projectId: number) => void;
   onPrefetchProject?: (projectId: number) => void;
   onCloseProject?: (projectId: number) => void;
@@ -64,6 +65,7 @@ export function WorkspaceTopBar({
   onSearchInput,
   searchResults,
   searching,
+  searchError = false,
   onOpenProject,
   onPrefetchProject,
   onCloseProject,
@@ -73,6 +75,7 @@ export function WorkspaceTopBar({
   onDetachProject,
 }: WorkspaceTopBarProps) {
   const tabListRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
     projectId: number;
     pointerId: number;
@@ -86,6 +89,7 @@ export function WorkspaceTopBar({
     y: number;
   } | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<number | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const dragEnabled = Boolean(onDetachProject);
 
   useEffect(() => {
@@ -276,21 +280,46 @@ export function WorkspaceTopBar({
       </div>
 
       <div className="workspace-topbar__actions flex shrink-0 items-center gap-2">
-        <div className="workspace-topbar__search relative">
+        <div
+          ref={searchRef}
+          className="workspace-topbar__search relative"
+          onFocus={() => setSearchFocused(true)}
+          onBlur={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (nextTarget instanceof Node && searchRef.current?.contains(nextTarget)) {
+              return;
+            }
+            setSearchFocused(false);
+          }}
+        >
           <SearchField
             value={searchInput}
             onChange={(event) => onSearchInput(event.target.value)}
-            placeholder="搜索项目、活动、记录、结论、Todo、文件"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchFocused(false);
+                event.currentTarget.blur();
+              }
+            }}
+            placeholder="搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"
             className="w-64"
             loading={searching}
           />
 
-          {searchInput.trim() ? (
+          {searchFocused ? (
             <PopoverPanel className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-96 w-80 overflow-auto">
-              {searching ? (
-                <div className="flex items-center gap-2 px-2 py-2 text-ui text-text-soft">
+              {!searchInput.trim() ? (
+                <div role="status" className="p-3 text-ui leading-5 text-text-soft">
+                  输入关键词，搜索 Workspace、项目、活动、记录、结论、Todo、文件和联系人
+                </div>
+              ) : searching ? (
+                <div role="status" className="flex items-center gap-2 px-2 py-2 text-ui text-text-soft">
                   <LoaderCircle className="spin" size={14} />
                   搜索中...
+                </div>
+              ) : searchError ? (
+                <div role="status" className="p-3 text-center text-ui text-danger">
+                  搜索失败，请稍后重试
                 </div>
               ) : searchResults.length > 0 ? (
                 <div className="py-1">
@@ -299,22 +328,34 @@ export function WorkspaceTopBar({
                       key={`${result.kind}-${result.id}`}
                       type="button"
                       className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left transition-colors hover:bg-bg-hover"
-                      onClick={() => onSearchSelect(result)}
+                      onClick={() => {
+                        setSearchFocused(false);
+                        onSearchSelect(result);
+                      }}
                     >
                       <div className="mb-1 flex items-center gap-2">
                         <p className="truncate text-body font-medium text-text">
                           {result.title || "Untitled"}
                         </p>
-                        <StatusBadge tone="neutral">{result.kind}</StatusBadge>
+                        <StatusBadge tone="neutral">{getSearchKindLabel(result.kind)}</StatusBadge>
                       </div>
-                      <p className="truncate text-ui text-text-soft">
-                        {result.subtitle || result.matchedText}
-                      </p>
+                      {result.subtitle ? (
+                        <p className="truncate text-ui text-text-soft">{result.subtitle}</p>
+                      ) : null}
+                      {result.matchedText &&
+                      result.matchedText !== result.title &&
+                      result.matchedText !== result.subtitle ? (
+                        <p className="mt-1 truncate text-ui text-text-muted">
+                          {result.matchedText}
+                        </p>
+                      ) : null}
                     </button>
                   ))}
                 </div>
               ) : (
-                <div className="p-3 text-center text-ui text-text-soft">没有匹配结果</div>
+                <div role="status" className="p-3 text-center text-ui text-text-soft">
+                  没有匹配结果
+                </div>
               )}
             </PopoverPanel>
           ) : null}
@@ -334,4 +375,27 @@ export function WorkspaceTopBar({
       {projectTabContextMenuPortal}
     </header>
   );
+}
+
+function getSearchKindLabel(kind: WorkspaceSearchResult["kind"]) {
+  switch (kind) {
+    case "workspace_quick_note":
+      return "Workspace 快速笔记";
+    case "workspace_note":
+      return "Workspace 记录";
+    case "contact":
+      return "联系人";
+    case "project":
+      return "项目";
+    case "activity":
+      return "活动";
+    case "note":
+      return "记录";
+    case "conclusion":
+      return "结论";
+    case "todo":
+      return "Todo";
+    case "document":
+      return "文件";
+  }
 }

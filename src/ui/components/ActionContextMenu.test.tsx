@@ -270,6 +270,36 @@ describe("ActionContextMenu", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("stays open when a scroll action group is scrolled", () => {
+    const onClose = vi.fn();
+
+    render(
+      <ActionContextMenu
+        x={24}
+        y={32}
+        ariaLabel="测试菜单"
+        onClose={onClose}
+        actions={[
+          {
+            type: "scroll-actions",
+            key: "skills",
+            ariaLabel: "AI 技能列表",
+            maxVisibleItems: 3,
+            actions: Array.from({ length: 6 }, (_, index) => ({
+              key: `skill-${index}`,
+              label: `技能 ${index + 1}`,
+              onSelect: vi.fn(),
+            })),
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.scroll(screen.getByRole("group", { name: "AI 技能列表" }));
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("does not steal focus when autoFocus is disabled", () => {
     render(
       <ActionContextMenu

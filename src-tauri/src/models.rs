@@ -86,6 +86,7 @@ pub struct TodoProgressRecord {
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
+    pub due_date: Option<String>,
     pub status: String,
     pub completed_at: Option<String>,
     pub order_index: i64,
@@ -102,6 +103,7 @@ pub struct TodoRecord {
     pub content: String,
     pub status: String,
     pub priority: String,
+    pub due_date: Option<String>,
     pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
     pub updated_at: String,
@@ -464,6 +466,8 @@ pub struct AiEditorRewriteResult {
     pub skill_id: Option<String>,
     pub result_mode: String,
     pub content: String,
+    pub replacement_markdown: Option<String>,
+    pub answer_markdown: Option<String>,
     pub resolved_model: Option<String>,
 }
 
@@ -666,6 +670,7 @@ pub struct InternalReferenceResolveResult {
     pub activity_id: Option<i64>,
     pub route: String,
     pub focus_id: Option<String>,
+    pub managed_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -673,7 +678,7 @@ pub struct InternalReferenceResolveResult {
 pub struct WorkspaceSearchResult {
     pub kind: String,
     pub id: i64,
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub title: String,
     pub subtitle: String,
@@ -944,6 +949,7 @@ pub struct TodoCreateInput {
     pub activity_id: Option<i64>,
     pub content: String,
     pub priority: String,
+    pub due_date: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }
@@ -953,6 +959,7 @@ pub struct TodoCreateInput {
 pub struct TodoUpdateContentInput {
     pub todo_id: i64,
     pub content: String,
+    pub due_date: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }
@@ -985,6 +992,7 @@ pub struct TodoAddProgressInput {
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
+    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -993,6 +1001,7 @@ pub struct TodoUpdateProgressInput {
     pub progress_id: i64,
     pub content: String,
     pub progress_date: String,
+    pub due_date: Option<String>,
     pub status: Option<String>,
 }
 

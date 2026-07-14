@@ -1,4 +1,4 @@
-import { fireEvent, render as baseRender, screen } from "@testing-library/react";
+import { act, fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -272,7 +272,7 @@ describe("TodoListItem", () => {
     );
   });
 
-  it("does not render the sub item date text", () => {
+  it("renders only the @ due date, not the sub item creation date", () => {
     renderItem({
       progresses: [
         {
@@ -280,6 +280,7 @@ describe("TodoListItem", () => {
           todoId: todo.id,
           content: "等待财务确认",
           progressDate: "2026-04-05",
+          dueDate: "2027-03-15",
           createdAt: "2026-04-05T09:00:00.000Z",
           status: "unfinished",
           completedAt: null,
@@ -288,6 +289,9 @@ describe("TodoListItem", () => {
       ],
     });
 
+    const dueDate = screen.getByText("3月15日").closest("time");
+    expect(dueDate).toHaveClass("todo-due-date");
+    expect(dueDate).toHaveAttribute("datetime", "2027-03-15");
     expect(screen.queryByText("4月5日")).not.toBeInTheDocument();
   });
 
@@ -322,6 +326,49 @@ describe("TodoListItem", () => {
 
     expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
+  });
+
+  it("reveals subitem controls only after dwelling in the narrow bottom hot zone", () => {
+    vi.useFakeTimers();
+
+    try {
+      renderItem({}, { allowInlineProgress: true });
+
+      const card = document.getElementById("todo-7") as HTMLElement;
+      const subitemRow = card.querySelector(".todo-card__subitem-row") as HTMLElement;
+      vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+        bottom: 100,
+        height: 100,
+        left: 0,
+        right: 300,
+        top: 0,
+        width: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+      const movePointerTo = (clientY: number) => {
+        const event = new Event("pointermove", { bubbles: true });
+        Object.defineProperty(event, "clientY", { value: clientY });
+        fireEvent(card, event);
+      };
+
+      movePointerTo(85);
+      act(() => vi.advanceTimersByTime(500));
+      expect(subitemRow).not.toHaveClass("todo-card__subitem-row--visible");
+
+      movePointerTo(90);
+      act(() => vi.advanceTimersByTime(399));
+      expect(subitemRow).not.toHaveClass("todo-card__subitem-row--visible");
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(subitemRow).toHaveClass("todo-card__subitem-row--visible");
+
+      fireEvent.pointerLeave(subitemRow);
+      expect(subitemRow).not.toHaveClass("todo-card__subitem-row--visible");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides the completion button while editing todo content", async () => {

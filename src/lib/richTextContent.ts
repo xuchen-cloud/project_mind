@@ -3,6 +3,7 @@ import {
   buildInternalReferenceHtml,
   splitInternalReferenceText,
 } from "./internalReferences";
+import { buildContactMentionHtml, splitContactMentionText } from "./contactMentions";
 import { repairRichTextAssetHtml } from "./richTextAssets";
 import { buildTagMentionHtml, splitTagMentionText } from "./tagMentions";
 
@@ -59,14 +60,18 @@ export function renderMarkdownToHtml(markdown?: string | null) {
     return EMPTY_RICH_TEXT_HTML;
   }
 
-  const normalizedWithReferences = replaceInternalReferenceTokensWithHtml(normalized);
-  const rendered = containsMarkdownTable(normalizedWithReferences)
-    ? renderMarkdownWithTables(normalizedWithReferences)
-    : defaultMarkdownParser.tokenizer.render(normalizedWithReferences).trim();
+  const tokenized = replaceRichTextTokensWithPlaceholders(normalized);
+  const rendered = containsMarkdownTable(tokenized.markdown)
+    ? renderMarkdownWithTables(tokenized.markdown)
+    : defaultMarkdownParser.tokenizer.render(tokenized.markdown).trim();
 
   const normalizedCodeBlocks = trimTrailingCodeBlockNewline(rendered);
+  const restoredRichTextNodes = tokenized.replacements.reduce(
+    (html, replacement) => html.replaceAll(replacement.placeholder, replacement.html),
+    normalizedCodeBlocks,
+  );
 
-  return normalizedCodeBlocks.length > 0 ? normalizedCodeBlocks : EMPTY_RICH_TEXT_HTML;
+  return restoredRichTextNodes.length > 0 ? restoredRichTextNodes : EMPTY_RICH_TEXT_HTML;
 }
 
 export function trimTrailingCodeBlockNewline(html: string) {
@@ -163,20 +168,37 @@ export function richTextHtmlToPlainText(
   return collapseWhitespace(segments.join(" "));
 }
 
-function replaceInternalReferenceTokensWithHtml(markdown: string) {
-  return splitInternalReferenceText(markdown)
+function replaceRichTextTokensWithPlaceholders(markdown: string) {
+  const replacements: Array<{ placeholder: string; html: string }> = [];
+  const stash = (html: string) => {
+    const placeholder = `PMRICHTEXTTOKEN${replacements.length}END`;
+    replacements.push({ placeholder, html });
+    return placeholder;
+  };
+
+  const tokenizedMarkdown = splitInternalReferenceText(markdown)
     .map((segment) => {
       if (segment.type !== "text") {
-        return buildInternalReferenceHtml(segment.reference);
+        return stash(buildInternalReferenceHtml(segment.reference));
       }
 
-      return splitTagMentionText(segment.text)
-        .map((tagSegment) =>
-          tagSegment.type === "text" ? tagSegment.text : buildTagMentionHtml(tagSegment.tag),
-        )
+      return splitContactMentionText(segment.text)
+        .map((contactSegment) => {
+          if (contactSegment.type === "mention") {
+            return stash(buildContactMentionHtml(contactSegment.mention));
+          }
+
+          return splitTagMentionText(contactSegment.text)
+            .map((tagSegment) =>
+              tagSegment.type === "text" ? tagSegment.text : stash(buildTagMentionHtml(tagSegment.tag)),
+            )
+            .join("");
+        })
         .join("");
     })
     .join("");
+
+  return { markdown: tokenizedMarkdown, replacements };
 }
 
 function containsMarkdownTable(markdown: string) {
