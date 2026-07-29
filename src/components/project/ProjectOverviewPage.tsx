@@ -31,6 +31,7 @@ import type {
 } from "../../lib/types";
 import {
   parseFocusRecordId,
+  parseFocusTodoId,
   parseRouteId,
   preserveRecordFilters,
   projectPath,
@@ -101,6 +102,7 @@ export function ProjectOverviewPage({
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
+  const focusedTodoId = parseFocusTodoId(focusId);
   const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const explicitView = parseProjectPageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
@@ -977,6 +979,7 @@ export function ProjectOverviewPage({
 
       <TodoRail
         projectId={activeProject.id}
+        focusTodoId={focusedTodoId}
         title="Todo List"
         scopeLabel={activeProject.name}
         unfinishedTodos={projectPage.unfinishedTodos}

@@ -321,6 +321,7 @@ export function TodoListItem({
   return (
     <article
       id={`todo-${todo.id}`}
+      data-todo-id={todo.id}
       ref={expanded ? expandedItemRef : undefined}
       className="todo-card group"
       data-state={todoState}

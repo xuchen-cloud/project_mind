@@ -85,6 +85,59 @@ describe("WorkspaceTopBar", () => {
     expect(screen.getByText("…讨论下一季度预算和交付节奏…")).toBeInTheDocument();
   });
 
+  it("keeps Workspace and Project Todo results distinct and shows their sources", async () => {
+    const user = userEvent.setup();
+    const onSearchSelect = vi.fn();
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        searchInput="同名 Todo"
+        onSearchInput={vi.fn()}
+        searchResults={[
+          {
+            kind: "todo",
+            id: 7,
+            scope: "workspace",
+            projectId: null,
+            source: "Workspace",
+            title: "同名 Todo",
+            subtitle: "Workspace",
+            matchedText: "同名 Todo",
+          },
+          {
+            kind: "todo",
+            id: 7,
+            scope: "project",
+            projectId: 3,
+            source: "Alpha",
+            title: "同名 Todo",
+            subtitle: "Alpha",
+            matchedText: "同名 Todo",
+          },
+        ]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={onSearchSelect}
+      />,
+    );
+
+    fireEvent.focus(
+      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+    );
+    expect(screen.getAllByText("Workspace")).toHaveLength(2);
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+
+    const results = screen.getAllByRole("button", { name: /同名 Todo/ });
+    expect(results).toHaveLength(2);
+    await user.click(results[0]);
+    expect(onSearchSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "todo", scope: "workspace", projectId: null }),
+    );
+  });
+
   it("shows a search error instead of reporting no matches", () => {
     render(
       <WorkspaceTopBar

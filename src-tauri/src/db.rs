@@ -4005,8 +4005,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "project".to_string(),
                     id: row.get(0)?,
+                    scope: None,
                     project_id: Some(row.get(0)?),
                     activity_id: None,
+                    source: None,
                     title: title.clone(),
                     subtitle: summary.clone(),
                     matched_text: workspace_search_match_excerpt(
@@ -4050,8 +4052,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "activity".to_string(),
                     id: activity_id,
+                    scope: None,
                     project_id: Some(row.get(1)?),
                     activity_id: Some(activity_id),
+                    source: None,
                     title: normalize_activity_title(&title, activity_id),
                     subtitle: row.get(4)?,
                     matched_text: workspace_search_match_excerpt(
@@ -4116,8 +4120,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: kind.to_string(),
                     id: note_id,
+                    scope: None,
                     project_id: None,
                     activity_id: None,
+                    source: None,
                     title: display_title,
                     subtitle: "Workspace".to_string(),
                     matched_text: workspace_search_match_excerpt(
@@ -4174,8 +4180,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "contact".to_string(),
                     id: row.get(0)?,
+                    scope: None,
                     project_id: None,
                     activity_id: None,
+                    source: None,
                     title: name.clone(),
                     subtitle,
                     matched_text: workspace_search_match_excerpt(
@@ -4261,8 +4269,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "note".to_string(),
                     id: row.get(0)?,
+                    scope: None,
                     project_id: Some(row.get(1)?),
                     activity_id: row.get(2)?,
+                    source: None,
                     title: truncate_text(&normalize_internal_reference_label("note", &title), 72),
                     subtitle: project_name,
                     matched_text: workspace_search_match_excerpt(
@@ -4309,8 +4319,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "conclusion".to_string(),
                     id: row.get(0)?,
+                    scope: None,
                     project_id: Some(row.get(1)?),
                     activity_id: row.get(2)?,
+                    source: None,
                     title: truncate_text(
                         &normalize_internal_reference_label("conclusion", &content),
                         72,
@@ -4331,6 +4343,7 @@ impl Database {
             r#"
             SELECT
               t.id,
+              t.scope,
               t.project_id,
               t.activity_id,
               t.content,
@@ -4345,10 +4358,10 @@ impl Database {
                 INNER JOIN file_tag_options ft ON ft.id = ttl.tag_id
                 WHERE ttl.todo_id = t.id
               ), '') AS tag_match_text,
-              p.name,
+              COALESCE(p.name, 'Workspace'),
               t.updated_at
             FROM todos t
-            INNER JOIN projects p ON p.id = t.project_id
+            LEFT JOIN projects p ON p.id = t.project_id
             WHERE (
               t.content LIKE ?1
               OR EXISTS (
@@ -4361,24 +4374,31 @@ impl Database {
                 INNER JOIN file_tag_options ft ON ft.id = ttl.tag_id
                 WHERE ttl.todo_id = t.id AND ft.label LIKE ?1
               )
-            ) {}
+            )
+            AND (
+              t.scope = 'workspace'
+              OR (t.scope = 'project' {})
+            )
             "#,
             project_filter
         );
         let mut stmt = self.conn.prepare(&todo_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let content: String = row.get(3)?;
-            let progress_text: String = row.get(4)?;
-            let tag_match_text: String = row.get(5)?;
-            let project_title: String = row.get(6)?;
+            let scope: String = row.get(1)?;
+            let content: String = row.get(4)?;
+            let progress_text: String = row.get(5)?;
+            let tag_match_text: String = row.get(6)?;
+            let source: String = row.get(7)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "todo".to_string(),
                     id: row.get(0)?,
-                    project_id: Some(row.get(1)?),
-                    activity_id: row.get(2)?,
+                    scope: Some(scope),
+                    project_id: row.get(2)?,
+                    activity_id: row.get(3)?,
+                    source: Some(source.clone()),
                     title: truncate_text(&normalize_internal_reference_label("todo", &content), 72),
-                    subtitle: project_title,
+                    subtitle: String::new(),
                     matched_text: workspace_search_match_excerpt(
                         &[
                             content.as_str(),
@@ -4393,7 +4413,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_TODO_PROGRESS, progress_text),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
                 ]),
-                updated_at: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4451,8 +4471,10 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "document".to_string(),
                     id: row.get(0)?,
+                    scope: None,
                     project_id: Some(row.get(1)?),
                     activity_id: row.get(2)?,
+                    source: None,
                     title: title.clone(),
                     subtitle: project_title,
                     matched_text: workspace_search_match_excerpt(
@@ -4478,6 +4500,14 @@ impl Database {
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+
+        if let Some(project_id) = input.project_id {
+            candidates.retain(|candidate| {
+                candidate.result.kind == "todo"
+                    && candidate.result.scope.as_deref() == Some("project")
+                    && candidate.result.project_id == Some(project_id)
+            });
+        }
 
         let mut ranked = candidates
             .into_iter()
@@ -11733,6 +11763,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "法务".to_string(),
                 include_archived: Some(true),
+                project_id: None,
             })
             .unwrap();
         assert!(!search_results.is_empty());
@@ -13405,6 +13436,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "embedded-diagram".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
 
@@ -13601,6 +13633,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "预算".to_string(),
                 include_archived: Some(true),
+                project_id: None,
             })
             .unwrap();
 
@@ -13649,6 +13682,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "现金流".to_string(),
                 include_archived: Some(true),
+                project_id: None,
             })
             .unwrap();
         let brief_activity = brief_results
@@ -13759,6 +13793,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "跨域关键词".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
         let quick_result = quick_results
@@ -13771,6 +13806,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "搜索记录".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
         assert!(title_results
@@ -13781,6 +13817,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "zhangsan".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
         assert!(contact_results
@@ -13791,6 +13828,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "独有检索词".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
         let progress_result = progress_results
@@ -13803,6 +13841,7 @@ mod tests {
             .workspace_search(WorkspaceSearchInput {
                 query: "专项检索标签".to_string(),
                 include_archived: None,
+                project_id: None,
             })
             .unwrap();
         assert!(tag_results
@@ -13817,6 +13856,221 @@ mod tests {
         assert!(tag_results
             .iter()
             .any(|result| result.kind == "document" && result.id == document.id));
+    }
+
+    #[test]
+    fn workspace_search_distinguishes_todo_scopes_and_applies_archive_semantics() {
+        let (harness, mut database) = setup_database();
+        let active_project =
+            create_project_named(&mut database, &harness.workspace_root, "Active", None);
+        let archived_project =
+            create_project_named(&mut database, &harness.workspace_root, "Archived", None);
+        database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: archived_project.id,
+                is_archived: true,
+            })
+            .unwrap();
+
+        let workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "共同检索词 Workspace Todo".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let active_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Project),
+                project_id: Some(active_project.id),
+                activity_id: None,
+                content: "共同检索词 Project Todo".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let archived_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Project),
+                project_id: Some(archived_project.id),
+                activity_id: None,
+                content: "共同检索词 Archived Todo".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+
+        let active_results = database
+            .workspace_search(WorkspaceSearchInput {
+                query: "共同检索词".to_string(),
+                include_archived: None,
+                project_id: None,
+            })
+            .unwrap();
+        let workspace_result = active_results
+            .iter()
+            .find(|result| result.kind == "todo" && result.id == workspace_todo.id)
+            .unwrap();
+        assert_eq!(workspace_result.scope.as_deref(), Some("workspace"));
+        assert_eq!(workspace_result.project_id, None);
+        assert_eq!(workspace_result.subtitle, "");
+        assert_eq!(workspace_result.source.as_deref(), Some("Workspace"));
+        let active_result = active_results
+            .iter()
+            .find(|result| result.kind == "todo" && result.id == active_todo.id)
+            .unwrap();
+        assert_eq!(active_result.scope.as_deref(), Some("project"));
+        assert_eq!(active_result.project_id, Some(active_project.id));
+        assert_eq!(active_result.subtitle, "");
+        assert_eq!(active_result.source.as_deref(), Some("Active"));
+        assert!(!active_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == archived_todo.id));
+
+        let archived_results = database
+            .workspace_search(WorkspaceSearchInput {
+                query: "共同检索词".to_string(),
+                include_archived: Some(true),
+                project_id: None,
+            })
+            .unwrap();
+        assert!(archived_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == workspace_todo.id));
+        assert!(archived_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == archived_todo.id));
+
+        let exact_workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "统一排序".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let prefix_project_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Project),
+                project_id: Some(active_project.id),
+                activity_id: None,
+                content: "统一排序 Project Todo".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let sorted_results = database
+            .workspace_search(WorkspaceSearchInput {
+                query: "统一排序".to_string(),
+                include_archived: None,
+                project_id: None,
+            })
+            .unwrap();
+        let sorted_todo_ids = sorted_results
+            .iter()
+            .filter(|result| result.kind == "todo")
+            .map(|result| result.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sorted_todo_ids,
+            vec![exact_workspace_todo.id, prefix_project_todo.id]
+        );
+    }
+
+    #[test]
+    fn project_search_returns_only_current_project_todos_with_scoped_matches() {
+        let (harness, mut database) = setup_database();
+        let project = create_project_named(&mut database, &harness.workspace_root, "Current", None);
+        let other_project =
+            create_project_named(&mut database, &harness.workspace_root, "Other", None);
+        let workspace_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
+                id: None,
+                label: "同名标签".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+        let project_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: Some(project.id),
+                id: None,
+                label: "同名标签".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+
+        let workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "Workspace 专属正文".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![workspace_tag.id],
+            })
+            .unwrap();
+        let project_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Project),
+                project_id: Some(project.id),
+                activity_id: None,
+                content: "Current 专属正文".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![project_tag.id],
+            })
+            .unwrap();
+        database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: project_todo.id,
+                content: "Current 独有 Subtask".to_string(),
+                progress_date: "2026-07-30".to_string(),
+                due_date: None,
+            })
+            .unwrap();
+        let other_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Project),
+                project_id: Some(other_project.id),
+                activity_id: None,
+                content: "Current 专属正文也出现在其他 Project".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+
+        for query in ["Current 专属正文", "Current 独有 Subtask", "同名标签"] {
+            let results = database
+                .workspace_search(WorkspaceSearchInput {
+                    query: query.to_string(),
+                    include_archived: None,
+                    project_id: Some(project.id),
+                })
+                .unwrap();
+            assert!(results
+                .iter()
+                .any(|result| result.kind == "todo" && result.id == project_todo.id));
+            assert!(!results
+                .iter()
+                .any(|result| result.kind == "todo" && result.id == workspace_todo.id));
+            assert!(!results
+                .iter()
+                .any(|result| result.kind == "todo" && result.id == other_todo.id));
+            assert!(results.iter().all(|result| result.kind == "todo"));
+        }
     }
 
     #[test]

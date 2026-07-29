@@ -60,10 +60,10 @@ describe("projectMindApi", () => {
   it("maps workspace search to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce([]);
 
-    await projectMindApi.workspaceSearch({ query: "todo" });
+    await projectMindApi.workspaceSearch({ query: "todo", projectId: 3 });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_search", {
-      input: { query: "todo" },
+      input: { query: "todo", projectId: 3 },
     });
   });
 

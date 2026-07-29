@@ -687,8 +687,10 @@ pub struct InternalReferenceResolveResult {
 pub struct WorkspaceSearchResult {
     pub kind: String,
     pub id: i64,
+    pub scope: Option<String>,
     pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
+    pub source: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub matched_text: String,
@@ -755,6 +757,7 @@ pub struct ProjectsListInput {
 pub struct WorkspaceSearchInput {
     pub query: String,
     pub include_archived: Option<bool>,
+    pub project_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

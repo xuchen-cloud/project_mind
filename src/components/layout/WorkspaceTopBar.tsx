@@ -325,7 +325,12 @@ export function WorkspaceTopBar({
                 <div className="py-1">
                   {searchResults.map((result) => (
                     <button
-                      key={`${result.kind}-${result.id}`}
+                      key={[
+                        result.kind,
+                        result.kind === "todo" ? result.scope : "default",
+                        result.projectId ?? "workspace",
+                        result.id,
+                      ].join("-")}
                       type="button"
                       className="w-full rounded-[var(--radius-6)] bg-transparent px-2 py-2 text-left transition-colors hover:bg-bg-hover"
                       onClick={() => {
@@ -339,12 +344,15 @@ export function WorkspaceTopBar({
                         </p>
                         <StatusBadge tone="neutral">{getSearchKindLabel(result.kind)}</StatusBadge>
                       </div>
-                      {result.subtitle ? (
-                        <p className="truncate text-ui text-text-soft">{result.subtitle}</p>
+                      {(result.kind === "todo" ? result.source : result.subtitle) ? (
+                        <p className="truncate text-ui text-text-soft">
+                          {result.kind === "todo" ? result.source : result.subtitle}
+                        </p>
                       ) : null}
                       {result.matchedText &&
                       result.matchedText !== result.title &&
-                      result.matchedText !== result.subtitle ? (
+                      result.matchedText !==
+                        (result.kind === "todo" ? result.source : result.subtitle) ? (
                         <p className="mt-1 truncate text-ui text-text-muted">
                           {result.matchedText}
                         </p>

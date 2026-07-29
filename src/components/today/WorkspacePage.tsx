@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   parseRouteId,
+  parseFocusTodoId,
   preserveRecordFilters,
   projectPath,
   recordFocusId,
@@ -92,6 +93,7 @@ export function WorkspacePage({
 
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
+  const focusedTodoId = parseFocusTodoId(focusId);
   const explicitView = parseWorkspacePageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
   const routeView = explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
@@ -759,6 +761,7 @@ export function WorkspacePage({
       </div>
 
       <TodoRail
+        focusTodoId={focusedTodoId}
         title="Todo List"
         scopeLabel="整个工作区"
         unfinishedTodos={workspacePage.unfinishedTodos}
