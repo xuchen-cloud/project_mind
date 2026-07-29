@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   useEffect,
   useRef,
@@ -9,6 +10,8 @@ import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-re
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
+import { queryKeys } from "../../lib/queryKeys";
+import { projectMindApi } from "../../services/projectMindApi";
 import {
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
@@ -61,7 +64,10 @@ export function TodoListItem({
   onOpenInternalReference,
   onOpenContactMention,
   availableTags = [],
+  availableTagScopeProjectId = null,
   allowTagCreation = true,
+  showSource = false,
+  onOpenProject,
 }: {
   todo: TodoRecord;
   isFirst?: boolean;
@@ -89,7 +95,10 @@ export function TodoListItem({
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
   availableTags?: ProjectTagRecord[];
+  availableTagScopeProjectId?: number | null;
   allowTagCreation?: boolean;
+  showSource?: boolean;
+  onOpenProject?: (projectId: number) => Promise<unknown> | void;
 }) {
   const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
@@ -103,6 +112,18 @@ export function TodoListItem({
   const progressTimersRef = useRef(new Map<number, number>());
   const subitemControlsTimerRef = useRef<number | null>(null);
   const createdTagsRef = useRef<ProjectTagRecord[]>([]);
+  const needsProjectTagOptions =
+    todo.scope === "project" &&
+    todo.projectId != null &&
+    availableTagScopeProjectId !== todo.projectId;
+  const projectTagSettingsQuery = useQuery({
+    queryKey: queryKeys.projectTags.project(todo.projectId),
+    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: todo.projectId! }),
+    enabled: needsProjectTagOptions,
+  });
+  const scopedAvailableTags = needsProjectTagOptions
+    ? (projectTagSettingsQuery.data?.tags ?? [])
+    : availableTags;
   const todoState = [
     todo.status === "finished" ? "finished" : "unfinished",
     expanded ? "expanded" : "",
@@ -353,6 +374,24 @@ export function TodoListItem({
               </button>
             </div>
 
+            {showSource ? (
+              <div className="todo-card__source">
+                {todo.scope === "project" && todo.projectId != null ? (
+                  <button
+                    type="button"
+                    aria-label={`打开 Project ${todo.projectName ?? ""}`.trim()}
+                    onClick={() => {
+                      void onOpenProject?.(todo.projectId!);
+                    }}
+                  >
+                    {todo.projectName ?? "Project"}
+                  </button>
+                ) : (
+                  <span>Workspace</span>
+                )}
+              </div>
+            ) : null}
+
             {(todo.tags ?? []).length > 0 ||
             (allowTagCreation &&
               (contentEditing || tagEditing) &&
@@ -369,7 +408,7 @@ export function TodoListItem({
               >
                 <EntityTagEditor
                   projectId={todo.projectId}
-                  availableTags={availableTags}
+                  availableTags={scopedAvailableTags}
                   tags={todo.tags ?? []}
                   compact
                   mode={
@@ -388,7 +427,7 @@ export function TodoListItem({
                   onChange={(tagIds) => {
                     const tagRecords = [
                       ...(todo.tags ?? []),
-                      ...availableTags,
+                      ...scopedAvailableTags,
                       ...createdTagsRef.current,
                     ];
                     const optimisticTags = tagIds

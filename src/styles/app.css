@@ -3148,6 +3148,26 @@
   opacity: 0.82;
 }
 
+.todo-card__source {
+  display: flex;
+  min-width: 0;
+  color: var(--color-text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.todo-card__source button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 160ms var(--ease-soft);
+}
+
+.todo-card__source button:hover,
+.todo-card__source button:focus-visible {
+  color: var(--color-accent);
+}
+
 .todo-card__tag-row .entity-tag-chip {
   filter: saturate(0.78);
 }

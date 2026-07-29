@@ -47,6 +47,8 @@ interface TodoRailProps {
   finishedTodos: TodoRecord[];
   availableTags?: ProjectTagRecord[];
   canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
+  showTodoSources?: boolean;
+  onOpenProject?: (projectId: number) => Promise<unknown> | void;
   createPlaceholder: string;
   onCreateTodo: (payload: { content: string; priority: TodoPriority; dueDate?: string | null }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
@@ -78,6 +80,8 @@ export function TodoRail({
   finishedTodos,
   availableTags = [],
   canCreateTagsForTodo,
+  showTodoSources = false,
+  onOpenProject,
   createPlaceholder,
   onCreateTodo,
   onToggleStatus,
@@ -637,7 +641,7 @@ export function TodoRail({
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <TodoList
+        <TodoList
             todos={todos}
             compact
             allowInlineEdit={tab === "unfinished"}
@@ -656,8 +660,11 @@ export function TodoRail({
             onError={onError}
             onOpenInternalReference={onOpenInternalReference}
             onOpenContactMention={onOpenContactMention}
-            availableTags={availableTags}
-            canCreateTagsForTodo={canCreateTagsForTodo}
+          availableTags={availableTags}
+          availableTagScopeProjectId={projectId ?? null}
+          canCreateTagsForTodo={canCreateTagsForTodo}
+          showTodoSources={showTodoSources}
+          onOpenProject={onOpenProject}
             onEmptyClick={
               tab === "unfinished"
                 ? () => {

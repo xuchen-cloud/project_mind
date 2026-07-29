@@ -4,7 +4,7 @@ import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { queryKeys } from "../lib/queryKeys";
-import type { TodoRecord, WorkspacePageData } from "../lib/types";
+import type { ProjectPageData, TodoRecord, WorkspacePageData } from "../lib/types";
 
 const apiMocks = vi.hoisted(() => ({
   todoCreate: vi.fn(),
@@ -47,6 +47,91 @@ const workspaceTodo: TodoRecord = {
 };
 
 describe("useTodoMutations", () => {
+  it("keeps the same Project Todo synchronized across Workspace and Project Rails", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        mutations: { retry: false },
+        queries: { retry: false },
+      },
+    });
+    const projectTodo: TodoRecord = {
+      ...workspaceTodo,
+      id: 11,
+      scope: "project",
+      projectId: 1,
+      projectName: "Alpha",
+      content: "推进 Alpha 发布",
+    };
+    const workspacePage: WorkspacePageData = {
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [projectTodo],
+      finishedTodos: [],
+    };
+    const projectPage = {
+      unfinishedTodos: [projectTodo],
+      finishedTodos: [],
+    } as ProjectPageData;
+    queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result, rerender } = renderHook(
+      ({ todos }) => useTodoMutations(todos),
+      { wrapper, initialProps: { todos: [projectTodo] } },
+    );
+
+    const finishedTodo = { ...projectTodo, status: "finished" as const };
+    apiMocks.todoUpdateStatus.mockResolvedValueOnce(finishedTodo);
+    await act(async () => {
+      await result.current.todoStatusMutation.mutateAsync({
+        todoId: projectTodo.id,
+        status: "finished",
+      });
+    });
+    expect(
+      queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)
+        ?.finishedTodos[0],
+    ).toMatchObject({ id: 11, status: "finished" });
+    expect(
+      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))
+        ?.finishedTodos[0],
+    ).toMatchObject({ id: 11, status: "finished" });
+
+    const editedTodo = { ...finishedTodo, content: "发布 Alpha 正式版" };
+    rerender({ todos: [finishedTodo] });
+    apiMocks.todoUpdateContent.mockResolvedValueOnce(editedTodo);
+    await act(async () => {
+      await result.current.todoContentMutation.mutateAsync({
+        todoId: projectTodo.id,
+        content: editedTodo.content,
+      });
+    });
+    expect(
+      queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)
+        ?.finishedTodos[0].content,
+    ).toBe("发布 Alpha 正式版");
+    expect(
+      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))
+        ?.finishedTodos[0].content,
+    ).toBe("发布 Alpha 正式版");
+
+    rerender({ todos: [editedTodo] });
+    apiMocks.todoDelete.mockResolvedValueOnce(editedTodo);
+    await act(async () => {
+      await result.current.todoDeleteMutation.mutateAsync({ todoId: projectTodo.id });
+    });
+    expect(
+      queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)
+        ?.finishedTodos,
+    ).toEqual([]);
+    expect(
+      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))
+        ?.finishedTodos,
+    ).toEqual([]);
+  });
+
   it("shows a Workspace Todo immediately and removes it when creation fails", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

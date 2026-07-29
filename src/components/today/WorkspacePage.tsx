@@ -764,7 +764,9 @@ export function WorkspacePage({
         unfinishedTodos={workspacePage.unfinishedTodos}
         finishedTodos={workspacePage.finishedTodos}
         availableTags={availableTags}
-        canCreateTagsForTodo={(todo) => todo.scope === "workspace"}
+        canCreateTagsForTodo={() => true}
+        showTodoSources
+        onOpenProject={openProject}
         createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
         onCreateTodo={(payload) => {
           void createWorkspaceTodo(payload.content, payload.priority, payload.dueDate);

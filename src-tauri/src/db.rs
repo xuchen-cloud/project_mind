@@ -7157,8 +7157,9 @@ impl Database {
         let base = self.conn.query_row(
             r#"
             SELECT
-              t.id, t.scope, t.project_id, t.activity_id, a.title, t.content, t.status, t.priority, t.due_date, t.created_at, t.updated_at
+              t.id, t.scope, t.project_id, p.name, t.activity_id, a.title, t.content, t.status, t.priority, t.due_date, t.created_at, t.updated_at
             FROM todos t
+            LEFT JOIN projects p ON p.id = t.project_id
             LEFT JOIN activities a ON a.id = t.activity_id
             WHERE t.id = ?1
             "#,
@@ -7168,14 +7169,15 @@ impl Database {
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, String>(9)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                     row.get::<_, String>(10)?,
+                    row.get::<_, String>(11)?,
                 ))
             },
         )?;
@@ -7190,15 +7192,16 @@ impl Database {
             id: base.0,
             scope,
             project_id: base.2,
-            activity_id: base.3,
-            source_activity_title: base.4,
-            content: base.5,
-            status: base.6,
-            priority: base.7,
-            due_date: base.8,
+            project_name: base.3,
+            activity_id: base.4,
+            source_activity_title: base.5,
+            content: base.6,
+            status: base.7,
+            priority: base.8,
+            due_date: base.9,
             tags,
-            created_at: base.9,
-            updated_at: base.10,
+            created_at: base.10,
+            updated_at: base.11,
             progresses,
         })
     }
@@ -15255,6 +15258,13 @@ mod tests {
             "跟进预算",
             "urgent_important",
         );
+        let finished_project_todo = create_todo(
+            &mut database,
+            active_project.id,
+            None,
+            "完成发布复盘",
+            "not_urgent_important",
+        );
         create_todo(
             &mut database,
             archived_project.id,
@@ -15273,6 +15283,29 @@ mod tests {
                 tag_ids: vec![],
             })
             .unwrap();
+        let finished_workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: format!("回顾 Project {}", active_project.name),
+                priority: "not_urgent_not_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        database
+            .todo_update_status(TodoUpdateStatusInput {
+                todo_id: finished_project_todo.id,
+                status: "finished".to_string(),
+            })
+            .unwrap();
+        database
+            .todo_update_status(TodoUpdateStatusInput {
+                todo_id: finished_workspace_todo.id,
+                status: "finished".to_string(),
+            })
+            .unwrap();
         database
             .project_set_archive(ProjectArchiveInput {
                 project_id: archived_project.id,
@@ -15282,9 +15315,17 @@ mod tests {
 
         let todos = database.workspace_todo_list().unwrap();
 
-        assert_eq!(todos.len(), 2);
-        assert!(todos.iter().any(|todo| todo.id == workspace_todo.id));
+        assert_eq!(todos.len(), 4);
+        let listed_workspace_todo = todos
+            .iter()
+            .find(|todo| todo.id == workspace_todo.id)
+            .unwrap();
+        assert_eq!(listed_workspace_todo.project_name, None);
         let listed_project_todo = todos.iter().find(|todo| todo.id == active_todo.id).unwrap();
+        assert_eq!(
+            listed_project_todo.project_name.as_deref(),
+            Some(active_project.name.as_str())
+        );
         assert_eq!(
             listed_project_todo.source_activity_title.as_deref(),
             Some("Kickoff")
@@ -15297,7 +15338,32 @@ mod tests {
             .unwrap();
         assert_eq!(project_page.unfinished_todos.len(), 1);
         assert_eq!(project_page.unfinished_todos[0].id, active_todo.id);
-        assert!(project_page.finished_todos.is_empty());
+        assert_eq!(project_page.finished_todos.len(), 1);
+        assert_eq!(project_page.finished_todos[0].id, finished_project_todo.id);
+        assert!(project_page
+            .unfinished_todos
+            .iter()
+            .chain(project_page.finished_todos.iter())
+            .all(|todo| todo.scope == TodoScope::Project
+                && todo.project_id == Some(active_project.id)));
+
+        let workspace_page = database.workspace_page_get().unwrap();
+        assert!(workspace_page
+            .unfinished_todos
+            .iter()
+            .any(|todo| todo.id == workspace_todo.id));
+        assert!(workspace_page
+            .unfinished_todos
+            .iter()
+            .any(|todo| todo.id == active_todo.id));
+        assert!(workspace_page
+            .finished_todos
+            .iter()
+            .any(|todo| todo.id == finished_workspace_todo.id));
+        assert!(workspace_page
+            .finished_todos
+            .iter()
+            .any(|todo| todo.id == finished_project_todo.id));
 
         let active_project_list_item = database
             .projects_list(ProjectsListInput {
