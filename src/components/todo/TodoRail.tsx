@@ -114,6 +114,10 @@ export function TodoRail({
   const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
   const railRef = useRef<HTMLElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
+  const internalReferenceContext =
+    projectId === undefined
+      ? { scope: "workspace" as const, projectId: null }
+      : { scope: "project" as const, projectId };
   const [isComposing, setIsComposing] = useState(
     () => Boolean(initialComposerDraft?.content.trim()),
   );
@@ -139,17 +143,13 @@ export function TodoRail({
   const controller = useTodoEditorController({
     draft: content,
     editing: isComposing,
-    internalReferenceContext:
-      projectId === undefined ? null : { scope: "project", projectId },
+    internalReferenceContext,
     canCreateMentions: Boolean(contactMentionOptions.onCreateContact),
   });
   const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
     open: controller.referencePickerOpen,
     query: controller.referenceTrigger?.query ?? "",
-    context:
-      projectId === undefined
-        ? null
-        : { scope: "project", projectId },
+    context: internalReferenceContext,
     limit: 8,
   });
   const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
@@ -182,6 +182,7 @@ export function TodoRail({
       return;
     }
 
+    setTodoRailCollapsed(false);
     setTab(focusedTodo.status === "finished" ? "finished" : "unfinished");
     const frameId = window.requestAnimationFrame(() => {
       railRef.current
@@ -189,7 +190,13 @@ export function TodoRail({
         ?.scrollIntoView({ block: "nearest" });
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [finishedTodos, focusTodoId, setTab, unfinishedTodos]);
+  }, [
+    finishedTodos,
+    focusTodoId,
+    setTab,
+    setTodoRailCollapsed,
+    unfinishedTodos,
+  ]);
 
   useSyncTodoEditorPickerState({
     referencePickerOpen: controller.referencePickerOpen,

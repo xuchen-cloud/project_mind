@@ -2199,6 +2199,7 @@ impl Database {
 
     pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
         let scope = input.scope.unwrap_or(TodoScope::Project);
+        self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
         let scope_value = match scope {
             TodoScope::Workspace => "workspace",
             TodoScope::Project => "project",
@@ -2236,6 +2237,12 @@ impl Database {
 
     pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
+        self.validate_todo_internal_references(
+            current.scope,
+            current.project_id,
+            &input.content,
+            Some(&current.content),
+        )?;
         let tag_ids = self.validated_todo_tag_ids(current.project_id, &input.tag_ids)?;
         let timestamp = now_iso();
         self.conn.execute(
@@ -2283,6 +2290,7 @@ impl Database {
     pub fn todo_add_progress(&mut self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
+        self.validate_todo_internal_references(todo.scope, todo.project_id, &input.content, None)?;
         let order_index = self.next_todo_subitem_order_index(input.todo_id)?;
         self.conn.execute(
             r#"
@@ -2313,6 +2321,12 @@ impl Database {
     ) -> Result<TodoProgressRecord> {
         let current = self.todo_progress_record(input.progress_id)?;
         let todo = self.todo_record(current.todo_id)?;
+        self.validate_todo_internal_references(
+            todo.scope,
+            todo.project_id,
+            &input.content,
+            Some(&current.content),
+        )?;
         let timestamp = now_iso();
         let next_status = input.status.unwrap_or_else(|| current.status.clone());
         if !matches!(next_status.as_str(), "unfinished" | "finished") {
@@ -2344,6 +2358,51 @@ impl Database {
         )?;
         self.touch_todo_owners(&todo)?;
         self.todo_progress_record(input.progress_id)
+    }
+
+    fn validate_todo_internal_references(
+        &mut self,
+        source_scope: TodoScope,
+        source_project_id: Option<i64>,
+        content: &str,
+        existing_content: Option<&str>,
+    ) -> Result<()> {
+        let existing_references = existing_content
+            .map(parse_internal_reference_tokens)
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        for (kind, id) in parse_internal_reference_tokens(content) {
+            let Some(target) = self.internal_reference_resolve(InternalReferenceResolveInput {
+                kind: kind.clone(),
+                id,
+            })?
+            else {
+                return Err(anyhow!(
+                    "Internal Reference 已失效，请移除或重新选择后再提交"
+                ));
+            };
+
+            if source_scope == TodoScope::Project {
+                if target.scope == TodoScope::Workspace {
+                    return Err(anyhow!("Project Todo 不能引用 Workspace 内容"));
+                }
+                if target.project_id != source_project_id {
+                    return Err(anyhow!("Project Todo 不能引用其他 Project 的内容"));
+                }
+            } else if let Some(target_project_id) = target.project_id {
+                let target_is_archived = self.conn.query_row(
+                    "SELECT is_archived FROM projects WHERE id = ?1",
+                    [target_project_id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if target_is_archived && !existing_references.contains(&(kind, id)) {
+                    return Err(anyhow!("Workspace Todo 不能新增指向已归档 Project 的引用"));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn todo_delete_progress(
@@ -4584,7 +4643,8 @@ impl Database {
               n.updated_at
             FROM notes n
             INNER JOIN projects p ON p.id = n.project_id
-            WHERE (?1 IS NULL OR n.project_id = ?1)
+            WHERE p.is_archived = 0
+              AND (?1 IS NULL OR n.project_id = ?1)
             ORDER BY n.updated_at DESC
             "#
             .to_string();
@@ -4595,7 +4655,8 @@ impl Database {
                     result: InternalReferenceSearchResult {
                         kind: "note".to_string(),
                         id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        scope: TodoScope::Project,
+                        project_id: Some(row.get(1)?),
                         activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label("note", &row.get::<_, String>(2)?),
@@ -4634,7 +4695,8 @@ impl Database {
               c.updated_at
             FROM conclusions c
             INNER JOIN projects p ON p.id = c.project_id
-            WHERE (?1 IS NULL OR c.project_id = ?1)
+            WHERE p.is_archived = 0
+              AND (?1 IS NULL OR c.project_id = ?1)
             ORDER BY c.updated_at DESC
             "#
             .to_string();
@@ -4645,7 +4707,8 @@ impl Database {
                     result: InternalReferenceSearchResult {
                         kind: "conclusion".to_string(),
                         id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        scope: TodoScope::Project,
+                        project_id: Some(row.get(1)?),
                         activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label(
@@ -4674,36 +4737,45 @@ impl Database {
             let todo_sql = r#"
             SELECT
               t.id,
+              t.scope,
               t.project_id,
               COALESCE(NULLIF(TRIM(t.content), ''), 'Todo') AS label,
               COALESCE(NULLIF(TRIM(t.content), ''), '') AS content_match_text,
-              p.name AS project_name,
+              COALESCE(p.name, 'Workspace') AS scope_name,
               t.updated_at
             FROM todos t
-            INNER JOIN projects p ON p.id = t.project_id
-            WHERE (?1 IS NULL OR t.project_id = ?1)
+            LEFT JOIN projects p ON p.id = t.project_id
+            WHERE (
+              (?1 IS NOT NULL AND t.scope = 'project' AND t.project_id = ?1)
+              OR
+              (?1 IS NULL AND (
+                t.scope = 'workspace'
+                OR (t.scope = 'project' AND p.is_archived = 0)
+              ))
+            )
             ORDER BY t.updated_at DESC
             "#
             .to_string();
             let mut stmt = self.conn.prepare(&todo_sql)?;
             let rows = stmt.query_map(params![project_id], |row| {
-                let project_name: String = row.get(4)?;
+                let scope_name: String = row.get(5)?;
                 Ok(InternalReferenceSearchCandidate {
                     result: InternalReferenceSearchResult {
                         kind: "todo".to_string(),
                         id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        scope: todo_scope_from_sql(row.get(1)?, 1)?,
+                        project_id: row.get(2)?,
                         activity_id: None,
                         label: truncate_text(
-                            &normalize_internal_reference_label("todo", &row.get::<_, String>(2)?),
+                            &normalize_internal_reference_label("todo", &row.get::<_, String>(3)?),
                             72,
                         ),
-                        subtitle: project_name,
-                        updated_at: row.get(5)?,
+                        subtitle: scope_name,
+                        updated_at: row.get(6)?,
                     },
                     fields: build_internal_reference_search_fields([(
                         INTERNAL_REFERENCE_PRIORITY_TODO_CONTENT,
-                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
                     )]),
                 })
             })?;
@@ -4727,6 +4799,7 @@ impl Database {
             FROM documents d
             INNER JOIN projects p ON p.id = d.project_id
             WHERE d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}'
+              AND p.is_archived = 0
               AND (?1 IS NULL OR d.project_id = ?1)
             ORDER BY d.updated_at DESC
             "#
@@ -4738,7 +4811,8 @@ impl Database {
                     result: InternalReferenceSearchResult {
                         kind: "document".to_string(),
                         id: row.get(0)?,
-                        project_id: row.get(1)?,
+                        scope: TodoScope::Project,
+                        project_id: Some(row.get(1)?),
                         activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label(
@@ -4832,7 +4906,8 @@ impl Database {
                             kind: "note".to_string(),
                             id,
                             label,
-                            project_id,
+                            scope: TodoScope::Project,
+                            project_id: Some(project_id),
                             activity_id: None,
                             route: format!("/projects/{project_id}/records/{id}"),
                             focus_id: None,
@@ -4867,7 +4942,8 @@ impl Database {
                                 ),
                                 72,
                             ),
-                            project_id,
+                            scope: TodoScope::Project,
+                            project_id: Some(project_id),
                             activity_id: None,
                             route: build_internal_reference_route(project_id, None, &format!("conclusion-{id}")),
                             focus_id: Some(format!("conclusion-{id}")),
@@ -4883,6 +4959,7 @@ impl Database {
                     r#"
                     SELECT
                       t.id,
+                      t.scope,
                       t.project_id,
                       COALESCE(NULLIF(TRIM(t.content), ''), 'Todo')
                     FROM todos t
@@ -4891,20 +4968,31 @@ impl Database {
                     [input.id],
                     |row| {
                         let id: i64 = row.get(0)?;
-                        let project_id: i64 = row.get(1)?;
+                        let scope = todo_scope_from_sql(row.get(1)?, 1)?;
+                        let project_id: Option<i64> = row.get(2)?;
+                        let route = if scope == TodoScope::Workspace {
+                            format!("/?focus=todo-{id}")
+                        } else {
+                            build_internal_reference_route(
+                                project_id.expect("Project Todo must have project_id"),
+                                None,
+                                &format!("todo-{id}"),
+                            )
+                        };
                         Ok(InternalReferenceResolveResult {
                             kind: "todo".to_string(),
                             id,
                             label: truncate_text(
                                 &normalize_internal_reference_label(
                                     "todo",
-                                    &row.get::<_, String>(2)?,
+                                    &row.get::<_, String>(3)?,
                                 ),
                                 72,
                             ),
+                            scope,
                             project_id,
                             activity_id: None,
-                            route: build_internal_reference_route(project_id, None, &format!("todo-{id}")),
+                            route,
                             focus_id: Some(format!("todo-{id}")),
                             managed_path: None,
                         })
@@ -4943,7 +5031,8 @@ impl Database {
                             &normalize_internal_reference_label("document", &name),
                             72,
                         ),
-                        project_id,
+                        scope: TodoScope::Project,
+                        project_id: Some(project_id),
                         activity_id: None,
                         route: build_internal_reference_route(
                             project_id,
@@ -10486,6 +10575,46 @@ fn parse_internal_reference_search_query(raw: &str) -> ParsedInternalReferenceSe
     }
 }
 
+fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
+    let mut references = Vec::new();
+    let mut remaining = content;
+
+    while let Some(start) = remaining.find("[[") {
+        remaining = &remaining[start + 2..];
+        let Some(end) = remaining.find("]]") else {
+            break;
+        };
+        let token = &remaining[..end];
+        remaining = &remaining[end + 2..];
+
+        let Some((target, _label)) = token.split_once('|') else {
+            continue;
+        };
+        let Some((kind, id)) = target.split_once(':') else {
+            continue;
+        };
+        if matches!(kind, "note" | "conclusion" | "todo" | "document") {
+            if let Ok(id) = id.parse::<i64>() {
+                references.push((kind.to_string(), id));
+            }
+        }
+    }
+
+    references
+}
+
+fn todo_scope_from_sql(value: String, column_index: usize) -> rusqlite::Result<TodoScope> {
+    match value.as_str() {
+        "workspace" => Ok(TodoScope::Workspace),
+        "project" => Ok(TodoScope::Project),
+        _ => Err(rusqlite::Error::InvalidColumnType(
+            column_index,
+            value,
+            rusqlite::types::Type::Text,
+        )),
+    }
+}
+
 fn split_internal_reference_search_prefix(value: &str) -> Option<(&str, &str)> {
     let half = value.find(':');
     let full = value.find('：');
@@ -13528,6 +13657,17 @@ mod tests {
             "跨项目事项",
             "not_urgent_important",
         );
+        let workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "工作区预算统筹".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: Vec::new(),
+            })
+            .unwrap();
 
         let project_results = database
             .internal_reference_search(InternalReferenceSearchInput {
@@ -13564,6 +13704,153 @@ mod tests {
         assert!(workspace_results
             .iter()
             .any(|result| result.kind == "todo" && result.id == other_todo.id));
+        let workspace_todo_result = workspace_results
+            .iter()
+            .find(|result| result.kind == "todo" && result.id == workspace_todo.id)
+            .unwrap();
+        assert_eq!(workspace_todo_result.scope, TodoScope::Workspace);
+        assert_eq!(workspace_todo_result.project_id, None);
+
+        database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: other_project.id,
+                is_archived: true,
+            })
+            .unwrap();
+        let active_workspace_results = database
+            .internal_reference_search(InternalReferenceSearchInput {
+                query: "".to_string(),
+                project_id: None,
+                scope: "workspace".to_string(),
+                limit: 20,
+            })
+            .unwrap();
+        assert!(!active_workspace_results
+            .iter()
+            .any(|result| result.kind == "todo" && result.id == other_todo.id));
+        let resolved_archived_todo = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "todo".to_string(),
+                id: other_todo.id,
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved_archived_todo.scope, TodoScope::Project);
+        assert_eq!(resolved_archived_todo.project_id, Some(other_project.id));
+    }
+
+    #[test]
+    fn todo_content_rejects_internal_references_outside_its_scope() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let other_project = database
+            .project_create(ProjectCreateInput {
+                name: "Beta".to_string(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "Workspace target".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: Vec::new(),
+            })
+            .unwrap();
+        let other_todo = create_todo(
+            &mut database,
+            other_project.id,
+            None,
+            "Other Project target",
+            "not_urgent_important",
+        );
+
+        let workspace_reference = format!("[[todo:{}|Workspace target]]", workspace_todo.id);
+        let other_project_reference = format!("[[todo:{}|Other Project target]]", other_todo.id);
+
+        let workspace_with_reference = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: other_project_reference.clone(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(workspace_with_reference.content, other_project_reference);
+
+        let project_to_workspace = database.todo_create(TodoCreateInput {
+            scope: Some(TodoScope::Project),
+            project_id: Some(project.id),
+            activity_id: None,
+            content: workspace_reference,
+            priority: "not_urgent_important".to_string(),
+            due_date: None,
+            tag_ids: Vec::new(),
+        });
+        assert!(project_to_workspace
+            .unwrap_err()
+            .to_string()
+            .contains("Project Todo 不能引用 Workspace 内容"));
+
+        let project_to_other_project = database.todo_create(TodoCreateInput {
+            scope: Some(TodoScope::Project),
+            project_id: Some(project.id),
+            activity_id: None,
+            content: other_project_reference.clone(),
+            priority: "not_urgent_important".to_string(),
+            due_date: None,
+            tag_ids: Vec::new(),
+        });
+        assert!(project_to_other_project
+            .unwrap_err()
+            .to_string()
+            .contains("Project Todo 不能引用其他 Project 的内容"));
+
+        database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: other_project.id,
+                is_archived: true,
+            })
+            .unwrap();
+        let new_archived_reference = database.todo_create(TodoCreateInput {
+            scope: Some(TodoScope::Workspace),
+            project_id: None,
+            activity_id: None,
+            content: other_project_reference.clone(),
+            priority: "not_urgent_important".to_string(),
+            due_date: None,
+            tag_ids: Vec::new(),
+        });
+        assert!(new_archived_reference
+            .unwrap_err()
+            .to_string()
+            .contains("Workspace Todo 不能新增指向已归档 Project 的引用"));
+
+        let preserved = database
+            .todo_update_content(TodoUpdateContentInput {
+                todo_id: workspace_with_reference.id,
+                content: format!("{} 继续跟进", other_project_reference),
+                due_date: None,
+                tag_ids: Vec::new(),
+            })
+            .unwrap();
+        assert!(preserved.content.contains(&other_project_reference));
+        let legacy_token_target = database
+            .internal_reference_resolve(InternalReferenceResolveInput {
+                kind: "todo".to_string(),
+                id: other_todo.id,
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(legacy_token_target.id, other_todo.id);
+        assert_eq!(legacy_token_target.project_id, Some(other_project.id));
     }
 
     #[test]
@@ -14358,7 +14645,10 @@ mod tests {
             &mut database,
             project.id,
             Some(activity.id),
-            "[[document:2|预算材料.pdf]] 联系财务安排评审并确认后续计划时间",
+            &format!(
+                "[[note:{}|预算记录]] 联系财务安排评审并确认后续计划时间",
+                note.id
+            ),
             "not_urgent_important",
         );
 
