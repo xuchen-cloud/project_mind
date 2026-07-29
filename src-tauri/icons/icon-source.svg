@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Project Mind app icon source</title>
+  <defs>
+    <linearGradient id="shell" x1="88" y1="72" x2="424" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48433C"/>
+      <stop offset="1" stop-color="#2F2D28"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="167" y1="190" x2="167" y2="310" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3396F3"/>
+      <stop offset="1" stop-color="#1E72CC"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#shell)"/>
+  <rect x="32.75" y="32.75" width="446.5" height="446.5" rx="107.25" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1.5"/>
+  <path d="M144 126C144 107.222 159.222 92 178 92H316C334.778 92 350 107.222 350 126V328C350 346.778 334.778 362 316 362H178C159.222 362 144 346.778 144 328V126Z" fill="#D8CCB8" fill-opacity="0.22"/>
+  <path d="M118 154C118 137.431 131.431 124 148 124H332C348.569 124 362 137.431 362 154V350C362 366.569 348.569 380 332 380H148C131.431 380 118 366.569 118 350V154Z" fill="#F7F3EB"/>
+  <path d="M118 154C118 137.431 131.431 124 148 124H332C348.569 124 362 137.431 362 154V350C362 366.569 348.569 380 332 380H148C131.431 380 118 366.569 118 350V154Z" stroke="#E7DFD2" stroke-width="2"/>
+  <path d="M154 190C154 182.82 159.82 177 167 177H179C186.18 177 192 182.82 192 190V310C192 317.18 186.18 323 179 323H167C159.82 323 154 317.18 154 310V190Z" fill="url(#accent)"/>
+  <rect x="206" y="196" width="104" height="18" rx="9" fill="#4A463F" fill-opacity="0.84"/>
+  <rect x="206" y="232" width="126" height="18" rx="9" fill="#4A463F" fill-opacity="0.5"/>
+  <rect x="206" y="268" width="90" height="18" rx="9" fill="#4A463F" fill-opacity="0.26"/>
+  <path d="M154 392C154 381.507 162.507 373 173 373H307C317.493 373 326 381.507 326 392C326 402.493 317.493 411 307 411H173C162.507 411 154 402.493 154 392Z" fill="#C9B9A0" fill-opacity="0.22"/>
+</svg>

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.xuchen.projectmind.alpha",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
@@ -13,21 +13,47 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Project Mind Alpha",
         "width": 1540,
         "height": 980,
-        "minWidth": 1180,
+        "minWidth": 736,
         "minHeight": 760,
-        "resizable": true
+        "resizable": true,
+        "dragDropEnabled": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            "$HOME/**",
+            "$TEMP/**",
+            "$DOWNLOAD/**",
+            "$DESKTOP/**",
+            "$DOCUMENT/**",
+            "$PICTURE/**",
+            "$VIDEO/**",
+            "$AUDIO/**",
+            "$PUBLIC/**",
+            "/Volumes/**"
+          ],
+          "deny": []
+        }
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }

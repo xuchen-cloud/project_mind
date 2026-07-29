@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Alpha desktop workspace for project context, decisions, and actions."
 authors = ["Codex"]
 edition = "2021"
+default-run = "project_mind_alpha"
 
 [lib]
 name = "project_mind_alpha_lib"
@@ -13,13 +14,26 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
+aes-gcm = "0.10.3"
 anyhow = "1.0.100"
+argon2 = "0.5.3"
+base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
+image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 mime_guess = "2.0.5"
+rand = "0.8.5"
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tauri = { version = "2.10.3", features = [] }
+tauri = { version = "2.10.3", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-opener = "2.5.3"
+trash = "5.2.5"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+font-kit = "0.14.3"
+winreg = "0.55.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+font-kit = "0.14.3"

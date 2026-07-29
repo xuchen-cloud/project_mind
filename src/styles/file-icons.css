@@ -1,0 +1,87 @@
+/*
+ * File type glyphs from file-icons/atom.
+ * Source: https://github.com/file-icons/atom
+ * License: MIT
+ */
+
+@font-face {
+  font-family: "file-icons";
+  font-style: normal;
+  font-weight: normal;
+  src: url("../assets/vendor/file-icons/file-icons.woff2") format("woff2");
+}
+
+.pm-file-icon {
+  align-items: center;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  width: 24px;
+}
+
+.pm-file-icon::before {
+  display: inline-block;
+  font-family: "file-icons";
+  font-size: 17px;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  text-align: center;
+  transform: translateY(-3px);
+  -webkit-font-smoothing: antialiased;
+}
+
+.pm-file-icon--default::before {
+  content: "\1f5cc";
+  font-size: 16px;
+}
+
+.pm-file-icon--excel::before {
+  content: "\e9ee";
+}
+
+.pm-file-icon--image::before {
+  content: "\eaab";
+}
+
+.pm-file-icon--outlook::before {
+  content: "\eada";
+  font-size: 18px;
+}
+
+.pm-file-icon--powerpoint::before {
+  content: "\e9ec";
+}
+
+.pm-file-icon--word::before {
+  content: "\e9ed";
+}
+
+.pm-file-icon--blue::before {
+  color: var(--color-file-tag-teal);
+}
+
+.pm-file-icon--green::before {
+  color: var(--color-file-tag-green);
+}
+
+.pm-file-icon--grey::before {
+  color: var(--color-file-tag-slate);
+}
+
+.pm-file-icon--orange::before {
+  color: var(--color-file-tag-orange);
+}
+
+.pm-file-icon--purple::before {
+  color: var(--color-file-tag-rose);
+}
+
+.pm-file-icon--red::before {
+  color: var(--color-file-tag-red);
+}
+
+.pm-file-icon--yellow::before {
+  color: var(--color-file-tag-amber);
+}

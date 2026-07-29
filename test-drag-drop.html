@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拖拽测试</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .drop-zone {
+            border: 3px dashed #ccc;
+            border-radius: 8px;
+            padding: 60px;
+            text-align: center;
+            background: #f9f9f9;
+            margin: 20px 0;
+            min-height: 200px;
+        }
+        .drop-zone.active {
+            border-color: #4CAF50;
+            background: #e8f5e9;
+        }
+        .log {
+            background: #333;
+            color: #0f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 4px 0;
+            word-break: break-all;
+        }
+        h1 {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 拖拽文件测试工具</h1>
+    <p>从文件管理器拖拽文件到下面的区域，查看提取的文件路径：</p>
+
+    <div class="drop-zone" id="dropZone">
+        <p style="font-size: 24px; margin: 0;">📁 拖拽文件到这里</p>
+        <p style="color: #666; margin-top: 10px;">支持单个或多个文件</p>
+    </div>
+
+    <div class="log" id="log">
+        <div class="log-entry">等待拖拽文件...</div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const log = document.getElementById('log');
+
+        function addLog(message, data = null) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            if (data) {
+                entry.textContent += ': ' + JSON.stringify(data, null, 2);
+            }
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function extractDroppedFilePaths(dataTransfer) {
+            // Method 1: Try native file.path property (Electron/Tauri)
+            const nativeFiles = Array.from(dataTransfer.files);
+            const nativePaths = nativeFiles
+                .map((file) => file.path?.trim())
+                .filter((path) => Boolean(path));
+
+            addLog('Method 1 - Native file.path', { count: nativePaths.length, paths: nativePaths });
+
+            if (nativePaths.length > 0) {
+                return nativePaths;
+            }
+
+            // Method 2: Try text/uri-list
+            const fileUriList = dataTransfer
+                .getData("text/uri-list")
+                .split("\n")
+                .map((item) => item.trim())
+                .filter((item) => item.startsWith("file://"));
+
+            addLog('Method 2 - text/uri-list', { count: fileUriList.length, uris: fileUriList });
+
+            const paths = fileUriList.map((fileUri) => {
+                // Simple file URI to path conversion
+                let path = fileUri.replace(/^file:\/\//, '');
+                path = decodeURIComponent(path);
+                return path;
+            }).filter(Boolean);
+
+            return paths;
+        }
+
+        dropZone.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+            addLog('onDragEnter');
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            if (!dropZone.contains(e.relatedTarget)) {
+                dropZone.classList.remove('active');
+                addLog('onDragLeave');
+            }
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+
+            addLog('onDrop triggered');
+
+            // Log raw data
+            addLog('DataTransfer.files.length', e.dataTransfer.files.length);
+            addLog('DataTransfer.items.length', e.dataTransfer.items.length);
+
+            // Try to extract file paths
+            const paths = extractDroppedFilePaths(e.dataTransfer);
+
+            if (paths.length > 0) {
+                addLog('✅ 成功提取文件路径', { count: paths.length, paths });
+            } else {
+                addLog('❌ 无法提取文件路径');
+                addLog('可能原因：浏览器不支持 file.path 属性，或安全限制');
+            }
+
+            // Show file info
+            Array.from(e.dataTransfer.files).forEach((file, index) => {
+                addLog(`File ${index + 1}`, {
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    path: file.path || 'undefined'
+                });
+            });
+        });
+    </script>
+</body>
+</html>

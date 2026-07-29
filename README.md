@@ -1,41 +1,121 @@
 # Project Mind Alpha
 
-本仓库实现了“项目资料管理系统”Alpha 版本的本地优先桌面应用原型，技术栈为 `Tauri + React + TypeScript + SQLite`。
+Project Mind Alpha 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并在本地工作区内提供 AI 总结与 Ask 问答。
 
-## 当前能力
-- 创建项目，并在指定工作目录下生成同名文件夹与 `documents/` 受控目录
-- 在项目内创建活动时间线，支持折叠/展开、固定展开、整理状态切换
-- 在活动内追加 quick note、编辑 meeting minutes
-- 手动沉淀 Conclusion / Todo，并在项目首页汇总关键结论与未完成待办
-- 更新 Todo 状态与进展记录
-- 导入文件并复制到项目目录，支持角色区分、标星、失效检测与重新定位
-- 使用本地 Mock AI 生成标题 / 结论 / 待办候选，并由用户确认采纳
+## 当前产品基线
+
+- 通过 `Workspace Gate` 打开或创建工作区，并把数据库、配置、AI 缓存、日志与临时文件统一保存在工作区根目录下的 `.project-mind/`
+- 提供始终可访问的 `Workspace / 工作区` 页面，作为工作区级入口
+- 在工作区页维护一份固定单例的 `Workspace QuickNote`
+- 在工作区页维护工作区级Record列表，并支持新建、编辑、删除记录
+- 在工作区页维护跨项目 Todo 视图，支持创建、状态切换、优先级、进展、引用、联系人提及与标签
+- 在项目页维护项目名称、QuickNote与项目级Record
+- 在项目Record中支持富文本正文、标题、`#标签` 自动同步、内部引用 `[[...]]`、联系人提及 `@...`
+- 在项目侧边栏浏览记录与文件，支持搜索、标签筛选、文件导入、重命名、标星、版本切换、删除与拖拽导入
+- 提供顶栏全局搜索、项目页签、归档项目入口、Ask 入口、设置入口与工作区菜单
+- 提供 `Project Brief` 与 `Daily Brief` 两类 AI artifact，以及基于当前范围的单轮 Ask
+- 提供项目标签、联系人、AI 设置、富文本样式、页面宽度等设置能力
+
+## 当前主路由
+
+- `/workspace`：工作区
+- `/projects/:projectId`：项目Workspace与项目Record
+- `/projects/:projectId/records/:noteId`：记录焦点页
+- `/settings/:section`：设置路由桥接
 
 ## 运行方式
+
+需要本地可用的 `Node.js`、`Rust` 和 Tauri 桌面依赖。
+
 ```bash
 npm install
-npm run tauri dev
+npm run dev:tauri
 ```
 
-仅构建前端：
+仅启动前端：
+
+```bash
+npm run dev
+```
+
+构建：
 
 ```bash
 npm run build
 ```
 
-仅检查 Rust/Tauri 后端：
+前端单元测试：
+
+```bash
+npm run test:unit
+```
+
+UI 约束检查：
+
+```bash
+npm run check:ui-standards
+```
+
+生产分包边界检查（先执行构建）：
+
+```bash
+npm run build
+npm run check:bundle-boundaries
+```
+
+后端检查：
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+## Workspace 结构
+
+```text
+<workspace-root>/
+  .project-mind/
+    workspace.json
+    workspace.sqlite3
+    cache/ai/
+    logs/
+    tmp/
+  <Project A>/
+    .project-mind/embedded-note-assets/
+  <Project B>/
+```
+
+说明：
+
+- `workspace.sqlite3` 是当前业务主库
+- 项目实体对应工作区根目录下的真实项目文件夹
+- 项目导入文件默认落到对应项目目录
+- 记录中托管的图片资源落在 `<project-root>/.project-mind/embedded-note-assets/`
+
+## 生成演示 Workspace
+
+```bash
+npm run seed:demo -- --password "demo-password"
+```
+
+默认会在 `~/Documents/Project Mind Alpha Demo Workspace` 下生成演示数据。也可以直接调用 Rust bin：
+
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --password "demo-password" --force
+```
+
 ## 目录结构
-- `src/`：React 前端、页面布局、编辑器组件、状态管理、Tauri API 封装
-- `src-tauri/`：Tauri 宿主、SQLite 数据层、文件系统能力、AI Mock、命令接口
-- `docs/alpha-ux.md`：信息架构、核心用户流、低保真说明与状态清单
-- `.impeccable.md`：项目设计上下文
+
+- `src/`：React 前端、页面、编辑器、状态管理、Tauri API 封装
+- `src-tauri/`：Tauri 宿主、SQLite 数据层、工作区运行时、文件与 AI 命令
+- `docs/product-prd.md`：当前产品基线
+- `docs/system-design.md`：当前系统架构与模块边界
+- `docs/alpha-ux.md`：当前信息架构与主用户流
+- `docs/design-system.md`：当前设计与交互约束
+- `.impeccable.md`：设计上下文与产品气质
 
 ## 当前限制
-- AI 仍为 Mock 适配器，尚未接入真实模型
-- 不包含搜索、标签体系、归档、导出、云同步和多人协作
-- 当前只验证了 macOS 构建；Windows 兼容按代码层和路径层预留，但未做真机打包验收
+
+- 当前正式主路由以工作区和项目Workspace为主，仓库中仍有部分旧 Activity 代码与测试遗留，尚未作为当前主产品面暴露
+- Ask 当前只保留最新一条回答，不提供多轮历史
+- AI artifact 当前只保留 `project_brief` 与 `daily_brief`
+- 当前只明确验证了 macOS 桌面工作流，其他平台仍需补完整验收
