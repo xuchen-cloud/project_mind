@@ -42,7 +42,10 @@ export function TodoList({
   onOpenInternalReference,
   onOpenContactMention,
   availableTags = [],
+  availableTagScopeProjectId = null,
   canCreateTagsForTodo,
+  showTodoSources = false,
+  onOpenProject,
 }: {
   todos: TodoRecord[];
   compact?: boolean;
@@ -70,7 +73,10 @@ export function TodoList({
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
   availableTags?: ProjectTagRecord[];
+  availableTagScopeProjectId?: number | null;
   canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
+  showTodoSources?: boolean;
+  onOpenProject?: (projectId: number) => Promise<unknown> | void;
 }) {
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;
@@ -193,7 +199,10 @@ export function TodoList({
               onOpenInternalReference={onOpenInternalReference}
               onOpenContactMention={onOpenContactMention}
               availableTags={availableTags}
+              availableTagScopeProjectId={availableTagScopeProjectId}
               allowTagCreation={canCreateTagsForTodo?.(todo) ?? true}
+              showSource={showTodoSources}
+              onOpenProject={onOpenProject}
             />
           ))}
         </div>

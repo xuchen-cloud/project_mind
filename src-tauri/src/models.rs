@@ -106,6 +106,7 @@ pub struct TodoRecord {
     pub id: i64,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
+    pub project_name: Option<String>,
     pub activity_id: Option<i64>,
     pub source_activity_title: Option<String>,
     pub content: String,

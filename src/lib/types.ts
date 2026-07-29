@@ -67,6 +67,7 @@ export interface TodoRecord {
   id: number;
   scope: TodoScope;
   projectId: number | null;
+  projectName?: string | null;
   activityId?: number | null;
   sourceActivityTitle?: string | null;
   content: string;
