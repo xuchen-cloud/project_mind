@@ -12,26 +12,46 @@ export function useWorkspaceTodoActions(
 ) {
   const mutations = useTodoMutations(allTodos);
 
-  async function createWorkspaceTodo(
+  async function createTodo(
+    ownership: { scope: "workspace" } | { scope: "project"; projectId: number },
     content: string,
     priority: TodoPriority,
     dueDate?: string | null,
   ) {
     const synced = await resolveTodoContentTagSync({
-      tagScope: { scope: "workspace" },
+      tagScope: ownership,
       content,
       explicitTagIds: [],
-      availableTags: availableWorkspaceTags,
+      availableTags:
+        ownership.scope === "workspace" ? availableWorkspaceTags : [],
     });
     await mutations.todoMutation.mutateAsync({
-      scope: "workspace",
-      projectId: null,
+      ...(ownership.scope === "workspace"
+        ? { scope: "workspace" as const, projectId: null }
+        : { scope: "project" as const, projectId: ownership.projectId }),
       activityId: null,
       content: synced.content,
       priority,
       dueDate,
       tagIds: synced.tagIds,
     });
+  }
+
+  async function createWorkspaceTodo(
+    content: string,
+    priority: TodoPriority,
+    dueDate?: string | null,
+  ) {
+    await createTodo({ scope: "workspace" }, content, priority, dueDate);
+  }
+
+  async function createProjectTodo(
+    projectId: number,
+    content: string,
+    priority: TodoPriority,
+    dueDate?: string | null,
+  ) {
+    await createTodo({ scope: "project", projectId }, content, priority, dueDate);
   }
 
   async function updateWorkspaceRailTodoContent(
@@ -69,6 +89,7 @@ export function useWorkspaceTodoActions(
   return {
     ...mutations,
     createWorkspaceTodo,
+    createProjectTodo,
     updateWorkspaceRailTodoContent,
   };
 }
