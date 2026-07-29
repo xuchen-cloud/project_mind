@@ -41,6 +41,7 @@ describe("useInternalReferenceNavigation", () => {
       id: 51,
       label: "brief.pdf",
       projectId: 7,
+      scope: "project",
       route: "/projects/7?focus=document-51",
       focusId: "document-51",
       managedPath: "/workspace/project/brief.pdf",
@@ -62,6 +63,7 @@ describe("useInternalReferenceNavigation", () => {
       id: 18,
       label: "推进审批",
       projectId: 7,
+      scope: "project",
       route: "/projects/7?focus=todo-18",
       focusId: "todo-18",
     });
@@ -73,5 +75,24 @@ describe("useInternalReferenceNavigation", () => {
 
     expect(mocks.navigate).toHaveBeenCalledWith("/projects/7?focus=todo-18");
     expect(mocks.openFile).not.toHaveBeenCalled();
+  });
+
+  it("navigates Workspace Todo references to the Workspace Rail", async () => {
+    mocks.resolveReference.mockResolvedValue({
+      kind: "todo",
+      id: 19,
+      label: "跨项目复盘",
+      scope: "workspace",
+      projectId: null,
+      route: "/?focus=todo-19",
+      focusId: "todo-19",
+    });
+    const { result } = renderHook(() => useInternalReferenceNavigation());
+
+    await expect(
+      result.current({ refKind: "todo", refId: 19, label: "跨项目复盘" }),
+    ).resolves.toBe(true);
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/?focus=todo-19");
   });
 });

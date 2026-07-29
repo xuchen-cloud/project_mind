@@ -13,6 +13,7 @@ import { useState } from "react";
 
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
+import { projectMindApi } from "../../services/projectMindApi";
 import { TodoRail } from "./TodoRail";
 
 // TodoRail now uses useContactMentionOptions(), which needs a QueryClient.
@@ -146,6 +147,7 @@ describe("TodoRail", () => {
       value: scrollIntoView,
     });
 
+    useUiStore.setState({ todoRailCollapsed: true });
     renderRail({ focusTodoId: finishedTodo.id });
 
     await waitFor(() =>
@@ -155,6 +157,7 @@ describe("TodoRail", () => {
       ),
     );
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+    expect(useUiStore.getState().todoRailCollapsed).toBe(false);
     expect(screen.getByText(finishedTodo.content)).toBeInTheDocument();
   });
 
@@ -178,6 +181,31 @@ describe("TodoRail", () => {
       content: "锁屏前未提交的 Todo",
       priority: "not_urgent_important",
     });
+  });
+
+  it("searches Workspace Internal References from the Workspace Todo creator", async () => {
+    const user = userEvent.setup();
+    const search = vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([]);
+
+    renderRail({ finishedTodos: [] });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    fireEvent.change(composer, {
+      target: { value: "[[budget", selectionStart: 8 },
+    });
+    fireEvent.select(composer, {
+      target: { selectionStart: 8 },
+    });
+
+    await waitFor(() =>
+      expect(search).toHaveBeenCalledWith({
+        query: "budget",
+        projectId: null,
+        scope: "workspace",
+        limit: 8,
+      }),
+    );
   });
 
   it("calls the optional refresh handler from the header", async () => {

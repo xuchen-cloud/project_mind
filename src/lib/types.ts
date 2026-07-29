@@ -340,7 +340,8 @@ export interface InternalReferenceSearchResult {
   kind: InternalReferenceKind;
   id: number;
   label: string;
-  projectId: number;
+  scope: InternalReferenceScope;
+  projectId: number | null;
   subtitle: string;
   updatedAt: string;
 }
@@ -354,7 +355,8 @@ export interface InternalReferenceResolveResult {
   kind: InternalReferenceKind;
   id: number;
   label: string;
-  projectId: number;
+  scope: InternalReferenceScope;
+  projectId: number | null;
   route: string;
   focusId?: string | null;
   managedPath?: string | null;
