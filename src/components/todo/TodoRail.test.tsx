@@ -1,4 +1,10 @@
-import { fireEvent, render as baseRender, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render as baseRender,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -131,6 +137,25 @@ describe("TodoRail", () => {
   beforeEach(() => {
     installMemoryLocalStorage();
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("selects and scrolls to the focused Todo in the correct Rail tab", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    renderRail({ focusTodoId: finishedTodo.id });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "已完成" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+    expect(screen.getByText(finishedTodo.content)).toBeInTheDocument();
   });
 
   it("persists the new todo draft on window blur", async () => {

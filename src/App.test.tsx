@@ -293,9 +293,25 @@ describe("workspaceSearchResultRoute", () => {
     expect(
       workspaceSearchResultRoute({ ...baseResult, kind: "conclusion", id: 9 }),
     ).toBe("/projects/3?focus=conclusion-9");
-    expect(workspaceSearchResultRoute({ ...baseResult, kind: "todo", id: 10 })).toBe(
+    expect(workspaceSearchResultRoute({
+      ...baseResult,
+      kind: "todo",
+      id: 10,
+      scope: "project",
+      source: "Project",
+    })).toBe(
       "/projects/3?focus=todo-10",
     );
+    expect(
+      workspaceSearchResultRoute({
+        ...baseResult,
+        kind: "todo",
+        id: 10,
+        scope: "workspace",
+        source: "Workspace",
+        projectId: null,
+      }),
+    ).toBe("/workspace?focus=todo-10");
     expect(
       workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 }),
     ).toBe("/projects/3?focus=document-11");

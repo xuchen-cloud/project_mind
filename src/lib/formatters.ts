@@ -168,6 +168,11 @@ export function parseFocusRecordId(focus: string | null) {
   return match ? Number(match[1]) : null;
 }
 
+export function parseFocusTodoId(focus: string | null) {
+  const match = /^todo-(\d+)$/u.exec(focus ?? "");
+  return match ? Number.parseInt(match[1] ?? "", 10) : null;
+}
+
 export function workspacePath() {
   return "/workspace";
 }

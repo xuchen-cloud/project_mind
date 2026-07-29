@@ -379,9 +379,23 @@ export type WorkspaceSearchResult =
       activityId?: null;
     })
   | (WorkspaceSearchResultBase & {
-      kind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+      kind: "project" | "activity" | "note" | "conclusion" | "document";
       projectId: number;
       activityId?: number | null;
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "todo";
+      scope: "workspace";
+      projectId: null;
+      activityId?: null;
+      source: "Workspace";
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "todo";
+      scope: "project";
+      projectId: number;
+      activityId?: number | null;
+      source: string;
     });
 
 export interface ProjectCreateInput {
@@ -411,6 +425,7 @@ export interface ProjectsListInput {
 export interface WorkspaceSearchInput {
   query: string;
   includeArchived?: boolean;
+  projectId?: number | null;
 }
 
 export interface ProjectArchiveInput {

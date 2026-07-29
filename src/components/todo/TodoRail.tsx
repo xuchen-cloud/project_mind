@@ -41,6 +41,7 @@ import {
 
 interface TodoRailProps {
   projectId?: number;
+  focusTodoId?: number | null;
   title: string;
   scopeLabel: string;
   unfinishedTodos: TodoRecord[];
@@ -74,6 +75,7 @@ interface TodoRailProps {
 
 export function TodoRail({
   projectId,
+  focusTodoId = null,
   title,
   scopeLabel: _scopeLabel,
   unfinishedTodos,
@@ -110,6 +112,7 @@ export function TodoRail({
     setTodoRailSortMode: setSortMode,
   } = useUiStore();
   const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
+  const railRef = useRef<HTMLElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const [isComposing, setIsComposing] = useState(
     () => Boolean(initialComposerDraft?.content.trim()),
@@ -166,6 +169,27 @@ export function TodoRail({
     return sortTodos(tabTodos, sortMode);
   }, [sortMode, tabTodos]);
   const showSortSwitch = todos.length > 1;
+
+  useEffect(() => {
+    if (focusTodoId === null) {
+      return;
+    }
+
+    const focusedTodo =
+      unfinishedTodos.find((todo) => todo.id === focusTodoId) ??
+      finishedTodos.find((todo) => todo.id === focusTodoId);
+    if (!focusedTodo) {
+      return;
+    }
+
+    setTab(focusedTodo.status === "finished" ? "finished" : "unfinished");
+    const frameId = window.requestAnimationFrame(() => {
+      railRef.current
+        ?.querySelector<HTMLElement>(`[data-todo-id="${focusTodoId}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [finishedTodos, focusTodoId, setTab, unfinishedTodos]);
 
   useSyncTodoEditorPickerState({
     referencePickerOpen: controller.referencePickerOpen,
@@ -380,6 +404,7 @@ export function TodoRail({
 
   return (
     <aside
+      ref={railRef}
       className="todo-rail relative flex shrink-0 flex-col transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
       style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
