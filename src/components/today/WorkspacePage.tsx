@@ -20,14 +20,13 @@ import {
 } from "../rich-editor";
 import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
-import { resolveTodoContentTagSync, todoTagIds } from "../../lib/todo-tag-sync";
 import { colorKeyForTagLabel, extractHashTagLabels, findTagByLabel, mergeUniqueTagIds } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
-import type { ProjectTagRecord, TodoPriority, WorkspaceRecord } from "../../lib/types";
+import type { ProjectTagRecord, WorkspaceRecord } from "../../lib/types";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
-import { useTodoMutations } from "../../hooks/useTodoMutations";
+import { useWorkspaceTodoActions } from "../../hooks/useWorkspaceTodoActions";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
@@ -166,8 +165,6 @@ export function WorkspacePage({
     (path, options) => navigate(path, options),
   );
   const {
-    todoMutation,
-    todoContentMutation,
     todoDeleteMutation,
     todoPriorityMutation,
     todoTagMutation,
@@ -175,7 +172,9 @@ export function WorkspacePage({
     todoProgressUpdateMutation,
     todoProgressDeleteMutation,
     todoStatusMutation,
-  } = useTodoMutations(allTodos);
+    createWorkspaceTodo,
+    updateWorkspaceRailTodoContent,
+  } = useWorkspaceTodoActions(allTodos, availableTags);
 
   useEffect(() => {
     if (buttonView === null || buttonView === routeView) {
@@ -245,50 +244,6 @@ export function WorkspacePage({
       : null,
     [currentView, visible, visibleRecordFocusKey],
   );
-
-  async function createTodo(projectId: number, content: string, priority: TodoPriority, dueDate?: string | null) {
-    const synced = await resolveTodoContentTagSync({
-      projectId,
-      content,
-      explicitTagIds: [],
-    });
-    await todoMutation.mutateAsync({
-      projectId,
-      content: synced.content,
-      priority,
-      dueDate,
-      tagIds: synced.tagIds,
-    });
-  }
-
-  async function updateTodoContent(todoId: number, content: string, dueDate?: string | null) {
-    const currentTodo = allTodos.find((todo) => todo.id === todoId);
-    if (!currentTodo) {
-      await todoContentMutation.mutateAsync({ todoId, content, dueDate });
-      return;
-    }
-    if (currentTodo.projectId == null) {
-      await todoContentMutation.mutateAsync({
-        todoId,
-        content,
-        dueDate,
-        tagIds: todoTagIds(currentTodo.tags),
-      });
-      return;
-    }
-
-    const synced = await resolveTodoContentTagSync({
-      projectId: currentTodo.projectId,
-      content,
-      explicitTagIds: todoTagIds(currentTodo.tags),
-    });
-    await todoContentMutation.mutateAsync({
-      todoId,
-      content: synced.content,
-      dueDate,
-      tagIds: synced.tagIds,
-    });
-  }
 
   async function ensureWorkspaceTagIds(markdown: string, explicitTagIds: number[]) {
     const mentionedTagIds = extractTagMentionIds(markdown);
@@ -808,11 +763,11 @@ export function WorkspacePage({
         scopeLabel="整个工作区"
         unfinishedTodos={workspacePage.unfinishedTodos}
         finishedTodos={workspacePage.finishedTodos}
+        availableTags={availableTags}
+        canCreateTagsForTodo={(todo) => todo.scope === "workspace"}
         createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
         onCreateTodo={(payload) => {
-          const fallbackProjectId = visibleProjects[0]?.id;
-          if (!fallbackProjectId) return;
-          void createTodo(fallbackProjectId, payload.content, payload.priority, payload.dueDate);
+          void createWorkspaceTodo(payload.content, payload.priority, payload.dueDate);
         }}
         onToggleStatus={(todoId, status) =>
           todoStatusMutation.mutateAsync({ todoId, status })
@@ -820,10 +775,8 @@ export function WorkspacePage({
         onUpdatePriority={(todoId, priority) =>
           todoPriorityMutation.mutateAsync({ todoId, priority })
         }
-        onUpdateContent={updateTodoContent}
-        onUpdateTags={(todoId, tagIds) =>
-          todoTagMutation.mutateAsync({ todoId, tagIds })
-        }
+        onUpdateContent={updateWorkspaceRailTodoContent}
+        onUpdateTags={(payload) => todoTagMutation.mutateAsync(payload)}
         onAddProgress={(todoId, payload) =>
           todoProgressMutation.mutateAsync({ todoId, ...payload })
         }

@@ -557,7 +557,7 @@ export function ProjectOverviewPage({
     if (!projectId) return;
 
     const synced = await resolveTodoContentTagSync({
-      projectId,
+      tagScope: { scope: "project", projectId },
       content: payload.content,
       explicitTagIds: [],
       availableTags,
@@ -582,7 +582,7 @@ export function ProjectOverviewPage({
     }
 
     const synced = await resolveTodoContentTagSync({
-      projectId: currentTodo.projectId,
+      tagScope: { scope: "project", projectId: currentTodo.projectId },
       content,
       explicitTagIds: todoTagIds(currentTodo.tags),
       availableTags,
@@ -981,6 +981,7 @@ export function ProjectOverviewPage({
         scopeLabel={activeProject.name}
         unfinishedTodos={projectPage.unfinishedTodos}
         finishedTodos={projectPage.finishedTodos}
+        availableTags={availableTags}
         createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
         onCreateTodo={(payload) => void createTodo(payload)}
         onToggleStatus={(todoId, status) =>
@@ -990,9 +991,7 @@ export function ProjectOverviewPage({
           todoPriorityMutation.mutateAsync({ todoId, priority })
         }
         onUpdateContent={updateTodoContent}
-        onUpdateTags={(todoId, tagIds) =>
-          todoTagMutation.mutateAsync({ todoId, tagIds })
-        }
+        onUpdateTags={(payload) => todoTagMutation.mutateAsync(payload)}
         onAddProgress={(todoId, payload) =>
           todoProgressMutation.mutateAsync({ todoId, ...payload })
         }

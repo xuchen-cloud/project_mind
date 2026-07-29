@@ -3,7 +3,12 @@ import { Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
-import type { ProjectTagRecord, TodoPriority, TodoRecord } from "../../lib/types";
+import type {
+  ProjectTagRecord,
+  TodoPriority,
+  TodoRecord,
+  TodoTagUpdateHandler,
+} from "../../lib/types";
 import { ActionContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
@@ -37,6 +42,7 @@ export function TodoList({
   onOpenInternalReference,
   onOpenContactMention,
   availableTags = [],
+  canCreateTagsForTodo,
 }: {
   todos: TodoRecord[];
   compact?: boolean;
@@ -48,7 +54,7 @@ export function TodoList({
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
-  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
+  onUpdateTags?: TodoTagUpdateHandler;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string; dueDate?: string | null },
@@ -64,6 +70,7 @@ export function TodoList({
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
   availableTags?: ProjectTagRecord[];
+  canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
 }) {
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;
@@ -186,6 +193,7 @@ export function TodoList({
               onOpenInternalReference={onOpenInternalReference}
               onOpenContactMention={onOpenContactMention}
               availableTags={availableTags}
+              allowTagCreation={canCreateTagsForTodo?.(todo) ?? true}
             />
           ))}
         </div>

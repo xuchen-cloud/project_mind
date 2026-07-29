@@ -10,7 +10,12 @@ const apiMocks = vi.hoisted(() => ({
   workspacePageGet: vi.fn(),
   workspaceStatusGet: vi.fn(),
   projectTagSettingsGet: vi.fn(),
+  projectTagUpsert: vi.fn(),
   aiSettingsGet: vi.fn(),
+}));
+
+const todoMutationMocks = vi.hoisted(() => ({
+  createMutateAsync: vi.fn(async () => undefined),
 }));
 
 const projectMutationMocks = vi.hoisted(() => ({
@@ -29,7 +34,10 @@ vi.mock("../../services/projectMindApi", () => ({
 
 vi.mock("../../hooks/useTodoMutations", () => ({
   useTodoMutations: () => ({
-    todoMutation: { mutate: vi.fn(), mutateAsync: vi.fn(async () => undefined) },
+    todoMutation: {
+      mutate: vi.fn(),
+      mutateAsync: todoMutationMocks.createMutateAsync,
+    },
     todoContentMutation: { mutateAsync: vi.fn() },
     todoActivityMutation: { mutateAsync: vi.fn() },
     todoDeleteMutation: { mutateAsync: vi.fn() },
@@ -113,6 +121,7 @@ describe("WorkspacePage", () => {
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
     apiMocks.projectTagSettingsGet.mockReset();
+    apiMocks.projectTagUpsert.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.projectsList.mockResolvedValue([]);
     apiMocks.workspacePageGet.mockResolvedValue({
@@ -130,7 +139,16 @@ describe("WorkspacePage", () => {
       aiSecretsUnlocked: true,
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.projectTagUpsert.mockResolvedValue({
+      id: 41,
+      label: "跨项目",
+      colorKey: "teal",
+      usageCount: 0,
+      createdAt: "2026-07-30T08:00:00.000Z",
+      updatedAt: "2026-07-30T08:00:00.000Z",
+    });
     apiMocks.aiSettingsGet.mockResolvedValue(null);
+    todoMutationMocks.createMutateAsync.mockClear();
     desktopApiMocks.openProjectWindow.mockClear();
     desktopApiMocks.focusProjectWindow.mockClear();
     desktopApiMocks.openFolder.mockClear();
@@ -214,6 +232,36 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("Todo List")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("AI")).not.toBeInTheDocument();
+    });
+  });
+
+  it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await screen.findByText("Todo List");
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      "整理复盘 #跨项目",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
+        label: "跨项目",
+        colorKey: expect.any(String),
+      });
+      expect(todoMutationMocks.createMutateAsync).toHaveBeenCalledWith({
+        scope: "workspace",
+        projectId: null,
+        activityId: null,
+        content: "整理复盘",
+        priority: "not_urgent_important",
+        dueDate: undefined,
+        tagIds: [41],
+      });
     });
   });
 

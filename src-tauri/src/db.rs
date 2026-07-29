@@ -2203,6 +2203,11 @@ impl Database {
             TodoScope::Workspace => "workspace",
             TodoScope::Project => "project",
         };
+        let tag_scope = match scope {
+            TodoScope::Workspace => None,
+            TodoScope::Project => input.project_id,
+        };
+        let tag_ids = self.validated_todo_tag_ids(tag_scope, &input.tag_ids)?;
         let timestamp = now_iso();
         self.conn.execute(
             r#"
@@ -2223,19 +2228,21 @@ impl Database {
             ],
         )?;
         let id = self.conn.last_insert_rowid();
-        self.replace_todo_tags(id, &input.tag_ids, &timestamp)?;
+        self.write_todo_tags(id, &tag_ids, &timestamp)?;
         let record = self.todo_record(id)?;
         self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
     pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+        let current = self.todo_record(input.todo_id)?;
+        let tag_ids = self.validated_todo_tag_ids(current.project_id, &input.tag_ids)?;
         let timestamp = now_iso();
         self.conn.execute(
             "UPDATE todos SET content = ?1, due_date = ?2, updated_at = ?3 WHERE id = ?4",
             params![input.content, input.due_date, timestamp, input.todo_id],
         )?;
-        self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
+        self.write_todo_tags(input.todo_id, &tag_ids, &timestamp)?;
         let record = self.todo_record(input.todo_id)?;
         self.touch_todo_owners(&record)?;
         Ok(record)
@@ -8133,17 +8140,30 @@ impl Database {
             [todo_id],
             |row| row.get::<_, Option<i64>>(0),
         )?;
+        let normalized_tag_ids = self.validated_todo_tag_ids(project_id, tag_ids)?;
+        self.write_todo_tags(todo_id, &normalized_tag_ids, timestamp)
+    }
+
+    fn validated_todo_tag_ids(&self, project_id: Option<i64>, tag_ids: &[i64]) -> Result<Vec<i64>> {
         let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
         for &tag_id in &normalized_tag_ids {
             self.scoped_file_tag_record(project_id, tag_id)?;
         }
+        Ok(normalized_tag_ids)
+    }
 
+    fn write_todo_tags(
+        &mut self,
+        todo_id: i64,
+        normalized_tag_ids: &[i64],
+        timestamp: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "DELETE FROM todo_tag_links WHERE todo_id = ?1",
             params![todo_id],
         )?;
 
-        for tag_id in normalized_tag_ids {
+        for &tag_id in normalized_tag_ids {
             self.conn.execute(
                 r#"
                 INSERT INTO todo_tag_links (todo_id, tag_id, created_at)
@@ -11952,8 +11972,16 @@ mod tests {
     #[test]
     fn workspace_todo_can_be_created_without_project_or_activity_ownership() {
         let (_harness, mut database) = setup_database();
+        let workspace_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
+                id: None,
+                label: "跨项目".to_string(),
+                color_key: "teal".to_string(),
+            })
+            .unwrap();
 
-        let todo = database
+        let created = database
             .todo_create(TodoCreateInput {
                 scope: Some(TodoScope::Workspace),
                 project_id: None,
@@ -11961,15 +11989,139 @@ mod tests {
                 content: "整理跨项目复盘模板".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: Some("2026-08-01".to_string()),
-                tag_ids: vec![],
+                tag_ids: vec![workspace_tag.id],
             })
             .unwrap();
 
-        assert_eq!(todo.scope, TodoScope::Workspace);
-        assert_eq!(todo.project_id, None);
-        assert_eq!(todo.activity_id, None);
-        assert_eq!(todo.content, "整理跨项目复盘模板");
-        assert_eq!(todo.due_date.as_deref(), Some("2026-08-01"));
+        assert_eq!(created.scope, TodoScope::Workspace);
+        assert_eq!(created.project_id, None);
+        assert_eq!(created.activity_id, None);
+        assert_eq!(created.content, "整理跨项目复盘模板");
+        assert_eq!(created.due_date.as_deref(), Some("2026-08-01"));
+        assert_eq!(created.tags[0].id, workspace_tag.id);
+
+        let updated = database
+            .todo_update_content(TodoUpdateContentInput {
+                todo_id: created.id,
+                content: "完成跨项目复盘模板".to_string(),
+                due_date: Some("2026-08-05".to_string()),
+                tag_ids: vec![workspace_tag.id],
+            })
+            .unwrap();
+        assert_eq!(updated.content, "完成跨项目复盘模板");
+        assert_eq!(updated.due_date.as_deref(), Some("2026-08-05"));
+
+        let prioritized = database
+            .todo_update_priority(TodoUpdatePriorityInput {
+                todo_id: created.id,
+                priority: "urgent_important".to_string(),
+            })
+            .unwrap();
+        assert_eq!(prioritized.priority, "urgent_important");
+
+        let subtask = database
+            .todo_add_progress(TodoAddProgressInput {
+                todo_id: created.id,
+                content: "整理访谈材料".to_string(),
+                progress_date: "2026-07-30".to_string(),
+                due_date: Some("2026-08-02".to_string()),
+            })
+            .unwrap();
+        database
+            .todo_update_progress(TodoUpdateProgressInput {
+                progress_id: subtask.id,
+                content: subtask.content,
+                progress_date: subtask.progress_date,
+                due_date: subtask.due_date,
+                status: Some("finished".to_string()),
+            })
+            .unwrap();
+
+        let finished = database
+            .todo_update_status(TodoUpdateStatusInput {
+                todo_id: created.id,
+                status: "finished".to_string(),
+            })
+            .unwrap();
+        assert_eq!(finished.status, "finished");
+        assert_eq!(finished.progresses[0].status, "finished");
+
+        let page = database.workspace_page_get().unwrap();
+        assert!(page.unfinished_todos.is_empty());
+        assert_eq!(page.finished_todos[0].id, created.id);
+
+        database
+            .todo_delete(TodoDeleteInput {
+                todo_id: created.id,
+            })
+            .unwrap();
+        assert!(database.workspace_todo_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn workspace_todo_rejects_project_tags_without_partially_persisting() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let project_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: Some(project.id),
+                id: None,
+                label: "复盘".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+
+        let result = database.todo_create(TodoCreateInput {
+            scope: Some(TodoScope::Workspace),
+            project_id: None,
+            activity_id: None,
+            content: "整理跨项目复盘".to_string(),
+            priority: "not_urgent_important".to_string(),
+            due_date: None,
+            tag_ids: vec![project_tag.id],
+        });
+
+        assert!(result.is_err());
+        assert!(database
+            .workspace_todo_list()
+            .unwrap()
+            .iter()
+            .all(|todo| todo.content != "整理跨项目复盘"));
+
+        let workspace_tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
+                id: None,
+                label: "复盘".to_string(),
+                color_key: "teal".to_string(),
+            })
+            .unwrap();
+        assert_ne!(workspace_tag.id, project_tag.id);
+        let todo = database
+            .todo_create(TodoCreateInput {
+                scope: Some(TodoScope::Workspace),
+                project_id: None,
+                activity_id: None,
+                content: "整理 Workspace 复盘".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![workspace_tag.id],
+            })
+            .unwrap();
+
+        let update_result = database.todo_update_content(TodoUpdateContentInput {
+            todo_id: todo.id,
+            content: "不应保存的修改".to_string(),
+            due_date: Some("2026-08-10".to_string()),
+            tag_ids: vec![project_tag.id],
+        });
+
+        assert!(update_result.is_err());
+        let unchanged = database.todo_record(todo.id).unwrap();
+        assert_eq!(unchanged.content, "整理 Workspace 复盘");
+        assert_eq!(unchanged.due_date, None);
+        assert_eq!(unchanged.tags.len(), 1);
+        assert_eq!(unchanged.tags[0].id, workspace_tag.id);
     }
 
     #[test]
@@ -15137,6 +15289,25 @@ mod tests {
             listed_project_todo.source_activity_title.as_deref(),
             Some("Kickoff")
         );
+
+        let project_page = database
+            .project_page_get(ProjectIdInput {
+                project_id: active_project.id,
+            })
+            .unwrap();
+        assert_eq!(project_page.unfinished_todos.len(), 1);
+        assert_eq!(project_page.unfinished_todos[0].id, active_todo.id);
+        assert!(project_page.finished_todos.is_empty());
+
+        let active_project_list_item = database
+            .projects_list(ProjectsListInput {
+                include_archived: Some(false),
+            })
+            .unwrap()
+            .into_iter()
+            .find(|project| project.id == active_project.id)
+            .unwrap();
+        assert_eq!(active_project_list_item.open_todo_count, 1);
     }
 
     #[test]

@@ -12,7 +12,7 @@ describe("resolveTodoContentTagSync", () => {
     const projectTagSpy = vi.spyOn(projectMindApi, "projectTagUpsert");
 
     const result = await resolveTodoContentTagSync({
-      projectId: 7,
+      tagScope: { scope: "project", projectId: 7 },
       content: "联系法务 #审批 并同步 #预算",
       explicitTagIds: [3],
       availableTags: [
@@ -54,7 +54,7 @@ describe("resolveTodoContentTagSync", () => {
     });
 
     const result = await resolveTodoContentTagSync({
-      projectId: 9,
+      tagScope: { scope: "project", projectId: 9 },
       content: "#法务 跟进合同，再找 #法务",
       explicitTagIds: [],
       availableTags: [],

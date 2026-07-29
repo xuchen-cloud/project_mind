@@ -139,6 +139,69 @@ describe("TodoListItem", () => {
     expect(screen.getByLabelText("移除标签 法务")).toBeInTheDocument();
   });
 
+  it("adds an explicit Workspace Tag while editing an untagged Workspace Todo", async () => {
+    const user = userEvent.setup();
+    const onUpdateTags = vi.fn(async () => undefined);
+    const workspaceTag = {
+      id: 22,
+      label: "复盘",
+      colorKey: "teal" as const,
+      usageCount: 0,
+      createdAt: "2026-07-30T08:00:00.000Z",
+      updatedAt: "2026-07-30T08:00:00.000Z",
+    };
+
+    renderItem(
+      {
+        scope: "workspace",
+        projectId: null,
+        activityId: null,
+        tags: [],
+      },
+      {
+        allowInlineEdit: true,
+        onUpdateTags,
+        availableTags: [workspaceTag],
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+    await user.type(screen.getByPlaceholderText("#标签"), "复盘{Enter}");
+
+    expect(onUpdateTags).toHaveBeenCalledWith({
+      todoId: 7,
+      tagIds: [22],
+      optimisticTags: [expect.objectContaining({ id: 22, label: "复盘" })],
+    });
+  });
+
+  it("does not offer Workspace Tags while editing a Project Todo in the Workspace Rail", async () => {
+    const user = userEvent.setup();
+
+    renderItem(
+      { tags: [] },
+      {
+        allowInlineEdit: true,
+        allowTagCreation: false,
+        onUpdateTags: vi.fn(),
+        availableTags: [
+          {
+            id: 22,
+            label: "复盘",
+            colorKey: "teal",
+            usageCount: 0,
+            createdAt: "2026-07-30T08:00:00.000Z",
+            updatedAt: "2026-07-30T08:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+
+    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
+  });
+
   it("marks an unfinished sub item as finished", async () => {
     const user = userEvent.setup();
     const onUpdateProgress = vi.fn(async () => undefined);
