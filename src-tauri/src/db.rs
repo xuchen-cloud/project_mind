@@ -2224,13 +2224,9 @@ impl Database {
         )?;
         let id = self.conn.last_insert_rowid();
         self.replace_todo_tags(id, &input.tag_ids, &timestamp)?;
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        if let Some(project_id) = input.project_id {
-            self.touch_project(project_id)?;
-        }
-        self.todo_record(id)
+        let record = self.todo_record(id)?;
+        self.touch_todo_owners(&record)?;
+        Ok(record)
     }
 
     pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
@@ -2241,12 +2237,7 @@ impl Database {
         )?;
         self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
         let record = self.todo_record(input.todo_id)?;
-        if let Some(project_id) = record.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = record.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
@@ -2258,12 +2249,7 @@ impl Database {
             "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
             params![timestamp, input.todo_id],
         )?;
-        if let Some(project_id) = current.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&current)?;
         self.todo_record(input.todo_id)
     }
 
@@ -2273,12 +2259,7 @@ impl Database {
             params![input.status, now_iso(), input.todo_id],
         )?;
         let record = self.todo_record(input.todo_id)?;
-        if let Some(project_id) = record.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = record.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
@@ -2288,12 +2269,7 @@ impl Database {
             params![input.priority, now_iso(), input.todo_id],
         )?;
         let record = self.todo_record(input.todo_id)?;
-        if let Some(project_id) = record.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = record.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
@@ -2320,12 +2296,7 @@ impl Database {
             params![now_iso(), input.todo_id],
         )?;
         let progress_id = self.conn.last_insert_rowid();
-        if let Some(project_id) = todo.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = todo.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&todo)?;
         self.todo_progress_record(progress_id)
     }
 
@@ -2364,12 +2335,7 @@ impl Database {
             "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
             params![timestamp, current.todo_id],
         )?;
-        if let Some(project_id) = todo.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = todo.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&todo)?;
         self.todo_progress_record(input.progress_id)
     }
 
@@ -2388,12 +2354,7 @@ impl Database {
             "UPDATE todos SET updated_at = ?1 WHERE id = ?2",
             params![now_iso(), current.todo_id],
         )?;
-        if let Some(project_id) = todo.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = todo.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&todo)?;
         Ok(current)
     }
 
@@ -2401,12 +2362,7 @@ impl Database {
         let current = self.todo_record(input.todo_id)?;
         self.conn
             .execute("DELETE FROM todos WHERE id = ?1", [input.todo_id])?;
-        if let Some(project_id) = current.project_id {
-            self.touch_project(project_id)?;
-        }
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
+        self.touch_todo_owners(&current)?;
         Ok(current)
     }
 
@@ -9196,6 +9152,16 @@ impl Database {
         Ok(())
     }
 
+    fn touch_todo_owners(&self, todo: &TodoRecord) -> Result<()> {
+        if let Some(project_id) = todo.project_id {
+            self.touch_project(project_id)?;
+        }
+        if let Some(activity_id) = todo.activity_id {
+            self.touch_activity(activity_id)?;
+        }
+        Ok(())
+    }
+
     fn mark_project_artifacts_stale(&self, _project_id: i64) -> Result<()> {
         Ok(())
     }
@@ -9483,8 +9449,22 @@ impl Database {
               id, scope, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
             )
             SELECT
-              id, 'project', project_id, activity_id, content, status, priority, due_date, created_at, updated_at
-            FROM todos;
+              todo.id,
+              'project',
+              todo.project_id,
+              CASE
+                WHEN todo.activity_id IS NULL THEN NULL
+                WHEN activity.project_id = todo.project_id THEN todo.activity_id
+                ELSE NULL
+              END,
+              todo.content,
+              todo.status,
+              todo.priority,
+              todo.due_date,
+              todo.created_at,
+              todo.updated_at
+            FROM todos todo
+            LEFT JOIN activities activity ON activity.id = todo.activity_id;
 
             DROP TABLE todos;
             ALTER TABLE todos_with_ownership RENAME TO todos;
@@ -11548,6 +11528,48 @@ mod tests {
             .unwrap()
     }
 
+    fn downgrade_todos_to_legacy_schema(database: &Database) {
+        database
+            .conn
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = OFF;
+                PRAGMA legacy_alter_table = ON;
+                BEGIN IMMEDIATE;
+
+                CREATE TABLE todos_legacy (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  project_id INTEGER NOT NULL,
+                  activity_id INTEGER,
+                  content TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'unfinished',
+                  priority TEXT NOT NULL,
+                  due_date TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                  FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+                );
+                INSERT INTO todos_legacy (
+                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
+                )
+                SELECT
+                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
+                FROM todos;
+                DROP TABLE todos;
+                ALTER TABLE todos_legacy RENAME TO todos;
+
+                COMMIT;
+                PRAGMA legacy_alter_table = OFF;
+                PRAGMA foreign_keys = ON;
+                "#,
+            )
+            .unwrap();
+        database
+            .set_schema_version(TODO_DUE_DATE_SCHEMA_VERSION)
+            .unwrap();
+    }
+
     fn create_note(
         database: &mut Database,
         project_id: i64,
@@ -12040,45 +12062,7 @@ mod tests {
             })
             .unwrap();
 
-        database
-            .conn
-            .execute_batch(
-                r#"
-                PRAGMA foreign_keys = OFF;
-                PRAGMA legacy_alter_table = ON;
-                BEGIN IMMEDIATE;
-
-                CREATE TABLE todos_legacy (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  project_id INTEGER NOT NULL,
-                  activity_id INTEGER,
-                  content TEXT NOT NULL,
-                  status TEXT NOT NULL DEFAULT 'unfinished',
-                  priority TEXT NOT NULL,
-                  due_date TEXT,
-                  created_at TEXT NOT NULL,
-                  updated_at TEXT NOT NULL,
-                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                  FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
-                );
-                INSERT INTO todos_legacy (
-                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
-                )
-                SELECT
-                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
-                FROM todos;
-                DROP TABLE todos;
-                ALTER TABLE todos_legacy RENAME TO todos;
-
-                COMMIT;
-                PRAGMA legacy_alter_table = OFF;
-                PRAGMA foreign_keys = ON;
-                "#,
-            )
-            .unwrap();
-        database
-            .set_schema_version(TODO_DUE_DATE_SCHEMA_VERSION)
-            .unwrap();
+        downgrade_todos_to_legacy_schema(&database);
         let db_path = harness.root.join("app.sqlite3");
         drop(database);
 
@@ -12106,6 +12090,47 @@ mod tests {
         assert_eq!(migrated.progresses[0].id, progress.id);
         assert_eq!(migrated.progresses[0].content, progress.content);
         assert_eq!(migrated.progresses[0].due_date, progress.due_date);
+    }
+
+    #[test]
+    fn legacy_todo_with_cross_project_activity_migrates_without_invalid_activity() {
+        let (harness, mut database) = setup_database();
+        let first_project =
+            create_project_named(&mut database, &harness.workspace_root, "First", None);
+        let second_project =
+            create_project_named(&mut database, &harness.workspace_root, "Second", None);
+        let second_activity = create_activity(&mut database, second_project.id, "Second Activity");
+        let todo = create_todo(
+            &mut database,
+            first_project.id,
+            None,
+            "旧 Todo 的 Activity 归属已损坏",
+            "not_urgent_important",
+        );
+
+        downgrade_todos_to_legacy_schema(&database);
+        database
+            .conn
+            .execute(
+                "UPDATE todos SET activity_id = ?1 WHERE id = ?2",
+                params![second_activity.id, todo.id],
+            )
+            .unwrap();
+        let db_path = harness.root.join("app.sqlite3");
+        drop(database);
+
+        let reopened = Database::open(
+            &db_path,
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        let migrated = reopened.todo_record(todo.id).unwrap();
+
+        assert_eq!(migrated.scope, TodoScope::Project);
+        assert_eq!(migrated.project_id, Some(first_project.id));
+        assert_eq!(migrated.activity_id, None);
+        assert_eq!(migrated.content, todo.content);
     }
 
     #[test]

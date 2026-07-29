@@ -303,6 +303,15 @@ export function WorkspaceRecordFocusPage() {
       await todoContentMutation.mutateAsync({ todoId, content: todoContent, dueDate });
       return;
     }
+    if (currentTodo.projectId == null) {
+      await todoContentMutation.mutateAsync({
+        todoId,
+        content: todoContent,
+        dueDate,
+        tagIds: todoTagIds(currentTodo.tags),
+      });
+      return;
+    }
 
     const synced = await resolveTodoContentTagSync({
       projectId: currentTodo.projectId,

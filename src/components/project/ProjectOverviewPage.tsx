@@ -571,6 +571,15 @@ export function ProjectOverviewPage({
       await todoContentMutation.mutateAsync({ todoId, content, dueDate });
       return;
     }
+    if (currentTodo.projectId == null) {
+      await todoContentMutation.mutateAsync({
+        todoId,
+        content,
+        dueDate,
+        tagIds: todoTagIds(currentTodo.tags),
+      });
+      return;
+    }
 
     const synced = await resolveTodoContentTagSync({
       projectId: currentTodo.projectId,
