@@ -25,7 +25,11 @@ export function readTodoComposerDraft(
     const projectId =
       typeof parsed.projectId === "number" ? parsed.projectId : null;
 
-    if (!content.trim() && priority === DEFAULT_TODO_PRIORITY) {
+    if (
+      !content.trim() &&
+      priority === DEFAULT_TODO_PRIORITY &&
+      projectId === null
+    ) {
       return null;
     }
 
@@ -42,7 +46,8 @@ export function writeTodoComposerDraft(
   try {
     if (
       !snapshot.content.trim() &&
-      snapshot.priority === DEFAULT_TODO_PRIORITY
+      snapshot.priority === DEFAULT_TODO_PRIORITY &&
+      snapshot.projectId == null
     ) {
       window.localStorage.removeItem(storageKey);
       return;

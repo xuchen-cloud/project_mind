@@ -117,6 +117,7 @@ function renderPage(initialEntries: string[] = ["/"]) {
 
 describe("WorkspacePage", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     apiMocks.projectsList.mockReset();
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
@@ -261,6 +262,76 @@ describe("WorkspacePage", () => {
         priority: "not_urgent_important",
         dueDate: undefined,
         tagIds: [41],
+      });
+    });
+  });
+
+  it("creates a Project Todo only after the user explicitly selects its Project", async () => {
+    const user = userEvent.setup();
+    apiMocks.projectsList.mockResolvedValueOnce([
+      {
+        id: 7,
+        name: "Alpha",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        quickNote: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 0,
+        unorganizedCount: 0,
+        openTodoCount: 0,
+      },
+    ]);
+    apiMocks.projectTagSettingsGet.mockImplementation(async (input = {}) => ({
+      tags:
+        "projectId" in input
+          ? [
+              {
+                id: 71,
+                label: "同名",
+                colorKey: "teal",
+                usageCount: 0,
+                createdAt: "",
+                updatedAt: "",
+              },
+            ]
+          : [
+              {
+                id: 41,
+                label: "同名",
+                colorKey: "blue",
+                usageCount: 0,
+                createdAt: "",
+                updatedAt: "",
+              },
+            ],
+    }));
+
+    renderPage();
+
+    await screen.findByText("Todo List");
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const ownership = screen.getByRole("combobox", { name: "Todo 归属" });
+    expect(ownership).toHaveValue("workspace");
+
+    await user.selectOptions(ownership, "7");
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      "推进里程碑 #同名",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(todoMutationMocks.createMutateAsync).toHaveBeenCalledWith({
+        scope: "project",
+        projectId: 7,
+        activityId: null,
+        content: "推进里程碑",
+        priority: "not_urgent_important",
+        dueDate: undefined,
+        tagIds: [71],
       });
     });
   });

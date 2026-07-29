@@ -175,6 +175,7 @@ export function WorkspacePage({
     todoProgressDeleteMutation,
     todoStatusMutation,
     createWorkspaceTodo,
+    createProjectTodo,
     updateWorkspaceRailTodoContent,
   } = useWorkspaceTodoActions(allTodos, availableTags);
 
@@ -771,8 +772,21 @@ export function WorkspacePage({
         showTodoSources
         onOpenProject={openProject}
         createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
+        createOwnershipOptions={visibleProjects.map((project) => ({
+          projectId: project.id,
+          name: project.name,
+        }))}
         onCreateTodo={(payload) => {
-          void createWorkspaceTodo(payload.content, payload.priority, payload.dueDate);
+          if (payload.projectId == null) {
+            void createWorkspaceTodo(payload.content, payload.priority, payload.dueDate);
+            return;
+          }
+          void createProjectTodo(
+            payload.projectId,
+            payload.content,
+            payload.priority,
+            payload.dueDate,
+          );
         }}
         onToggleStatus={(todoId, status) =>
           todoStatusMutation.mutateAsync({ todoId, status })

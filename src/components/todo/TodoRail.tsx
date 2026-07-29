@@ -51,7 +51,13 @@ interface TodoRailProps {
   showTodoSources?: boolean;
   onOpenProject?: (projectId: number) => Promise<unknown> | void;
   createPlaceholder: string;
-  onCreateTodo: (payload: { content: string; priority: TodoPriority; dueDate?: string | null }) => void;
+  createOwnershipOptions?: Array<{ projectId: number; name: string }>;
+  onCreateTodo: (payload: {
+    content: string;
+    priority: TodoPriority;
+    dueDate?: string | null;
+    projectId?: number | null;
+  }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
@@ -85,6 +91,7 @@ export function TodoRail({
   showTodoSources = false,
   onOpenProject,
   createPlaceholder,
+  createOwnershipOptions,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
@@ -127,6 +134,13 @@ export function TodoRail({
   const [priority, setPriority] = useState<TodoPriority>(
     () => initialComposerDraft?.priority ?? "not_urgent_important",
   );
+  const [createProjectId, setCreateProjectId] = useState<number | null>(
+    () => initialComposerDraft?.projectId ?? null,
+  );
+  const composerInternalReferenceContext =
+    createOwnershipOptions && createProjectId !== null
+      ? { scope: "project" as const, projectId: createProjectId }
+      : internalReferenceContext;
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDraftRef = useRef<{
@@ -137,19 +151,20 @@ export function TodoRail({
     snapshot: {
       content: initialComposerDraft?.content ?? "",
       priority: initialComposerDraft?.priority ?? "not_urgent_important",
+      projectId: initialComposerDraft?.projectId ?? null,
     },
   });
   const contactMentionOptions = useContactMentionOptions();
   const controller = useTodoEditorController({
     draft: content,
     editing: isComposing,
-    internalReferenceContext,
+    internalReferenceContext: composerInternalReferenceContext,
     canCreateMentions: Boolean(contactMentionOptions.onCreateContact),
   });
   const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
     open: controller.referencePickerOpen,
     query: controller.referenceTrigger?.query ?? "",
-    context: internalReferenceContext,
+    context: composerInternalReferenceContext,
     limit: 8,
   });
   const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
@@ -161,7 +176,7 @@ export function TodoRail({
   const { results: tagResults, loading: tagLoading } = useTagMentionSearch({
     open: controller.tagPickerOpen,
     query: controller.tagTrigger?.query ?? "",
-    projectId: projectId,
+    projectId: createOwnershipOptions ? createProjectId : projectId,
     limit: 8,
   });
   const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
@@ -226,6 +241,7 @@ export function TodoRail({
     const snapshot = readTodoComposerDraft(draftStorageKey);
     setContent(snapshot?.content ?? "");
     setPriority(snapshot?.priority ?? "not_urgent_important");
+    setCreateProjectId(snapshot?.projectId ?? null);
     setIsComposing(Boolean(snapshot?.content.trim()));
     controller.setControllerState((current) => ({
       ...current,
@@ -234,10 +250,10 @@ export function TodoRail({
   }, [controller.setControllerState, draftStorageKey]);
 
   useEffect(() => {
-    const snapshot = { content, priority };
+    const snapshot = { content, priority, projectId: createProjectId };
     composerDraftRef.current = { key: draftStorageKey, snapshot };
     writeTodoComposerDraft(draftStorageKey, snapshot);
-  }, [content, draftStorageKey, priority]);
+  }, [content, createProjectId, draftStorageKey, priority]);
 
   useEffect(() => {
     const flushDraft = () => {
@@ -282,6 +298,14 @@ export function TodoRail({
     if (!content.trim()) {
       return;
     }
+    if (
+      createOwnershipOptions &&
+      createProjectId !== null &&
+      !createOwnershipOptions.some((option) => option.projectId === createProjectId)
+    ) {
+      onError?.("所选 Project 已不可用，请重新选择归属。");
+      return;
+    }
     const parsed = parseDueDateInput(content);
     if (!parsed.ok) {
       onError?.(parsed.error);
@@ -290,11 +314,15 @@ export function TodoRail({
     onCreateTodo({
       content: parsed.content,
       priority,
+      ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
       ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
     });
     clearTodoComposerDraft(draftStorageKey);
     setContent("");
     setPriority("not_urgent_important");
+    if (createOwnershipOptions) {
+      setCreateProjectId(null);
+    }
     setIsComposing(false);
     controller.setControllerState((current) => ({
       ...current,
@@ -649,6 +677,42 @@ export function TodoRail({
               />
             </div>
             <div className="todo-rail__composer-meta">
+              {createOwnershipOptions ? (
+                <label className="flex w-full items-center gap-2 text-ui text-text-soft">
+                  <span>归属</span>
+                  <select
+                    aria-label="Todo 归属"
+                    className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
+                    value={createProjectId === null ? "workspace" : String(createProjectId)}
+                    onChange={(event) => {
+                      setCreateProjectId(
+                        event.target.value === "workspace"
+                          ? null
+                          : Number.parseInt(event.target.value, 10),
+                      );
+                      controller.setControllerState((current) => ({
+                        ...current,
+                        ...resetTodoEditorControllerState(),
+                      }));
+                    }}
+                  >
+                    <option value="workspace">Workspace</option>
+                    {createProjectId !== null &&
+                    !createOwnershipOptions.some(
+                      (option) => option.projectId === createProjectId,
+                    ) ? (
+                      <option value={String(createProjectId)} disabled>
+                        Project 已不可用
+                      </option>
+                    ) : null}
+                    {createOwnershipOptions.map((option) => (
+                      <option key={option.projectId} value={String(option.projectId)}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
                   <PriorityPillButton

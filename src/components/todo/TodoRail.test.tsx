@@ -183,6 +183,94 @@ describe("TodoRail", () => {
     });
   });
 
+  it("persists an explicitly selected Project before content is entered", async () => {
+    const user = userEvent.setup();
+
+    renderRail({
+      createOwnershipOptions: [
+        { projectId: 7, name: "Alpha" },
+        { projectId: 8, name: "Beta" },
+      ],
+      finishedTodos: [],
+    });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Todo 归属" }), "7");
+    window.dispatchEvent(new Event("blur"));
+
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("project-mind:todo-rail-draft:workspace") ?? "{}",
+      ),
+    ).toMatchObject({
+      content: "",
+      priority: "not_urgent_important",
+      projectId: 7,
+    });
+  });
+
+  it("switches Tag and Internal Reference searches with composer ownership", async () => {
+    const user = userEvent.setup();
+    const referenceSearch = vi
+      .spyOn(projectMindApi, "internalReferenceSearch")
+      .mockResolvedValue([]);
+    const tagSearch = vi
+      .spyOn(projectMindApi, "projectTagSettingsGet")
+      .mockResolvedValue({ tags: [] });
+
+    renderRail({
+      createOwnershipOptions: [
+        { projectId: 7, name: "Alpha" },
+        { projectId: 8, name: "Beta" },
+      ],
+      finishedTodos: [],
+    });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    fireEvent.change(composer, {
+      target: { value: "[[budget", selectionStart: 8 },
+    });
+    fireEvent.select(composer, { target: { selectionStart: 8 } });
+    await waitFor(() =>
+      expect(referenceSearch).toHaveBeenCalledWith({
+        query: "budget",
+        projectId: null,
+        scope: "workspace",
+        limit: 8,
+      }),
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Todo 归属" }), "7");
+    fireEvent.select(composer, { target: { selectionStart: 8 } });
+    await waitFor(() =>
+      expect(referenceSearch).toHaveBeenCalledWith({
+        query: "budget",
+        projectId: 7,
+        scope: "project",
+        limit: 8,
+      }),
+    );
+
+    fireEvent.change(composer, {
+      target: { value: "#同名", selectionStart: 3 },
+    });
+    fireEvent.select(composer, { target: { selectionStart: 3 } });
+    await waitFor(() =>
+      expect(tagSearch).toHaveBeenCalledWith({ projectId: 7 }),
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Todo 归属" }),
+      "8",
+    );
+    await user.clear(composer);
+    await user.type(composer, "#另");
+    await waitFor(() =>
+      expect(tagSearch).toHaveBeenCalledWith({ projectId: 8 }),
+    );
+  });
+
   it("searches Workspace Internal References from the Workspace Todo creator", async () => {
     const user = userEvent.setup();
     const search = vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([]);
@@ -206,6 +294,65 @@ describe("TodoRail", () => {
         limit: 8,
       }),
     );
+  });
+
+  it("restores Workspace composer content, priority, due date text, and Project ownership", async () => {
+    window.localStorage.setItem(
+      "project-mind:todo-rail-draft:workspace",
+      JSON.stringify({
+        content: "准备发布 @20260801",
+        priority: "urgent_important",
+        projectId: 7,
+      }),
+    );
+    const onCreateTodo = vi.fn();
+
+    renderRail({
+      createOwnershipOptions: [{ projectId: 7, name: "Alpha" }],
+      onCreateTodo,
+    });
+
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("7");
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue(
+      "准备发布 @20260801",
+    );
+    expect(screen.getByTitle("P1 · 紧急且重要")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "准备发布",
+      priority: "urgent_important",
+      dueDate: "2026-08-01",
+      projectId: 7,
+    });
+  });
+
+  it("keeps an unavailable draft Project explicit and blocks submission", async () => {
+    window.localStorage.setItem(
+      "project-mind:todo-rail-draft:workspace",
+      JSON.stringify({
+        content: "不能静默改归属",
+        priority: "not_urgent_important",
+        projectId: 99,
+      }),
+    );
+    const onCreateTodo = vi.fn();
+    const onError = vi.fn();
+
+    renderRail({
+      createOwnershipOptions: [{ projectId: 7, name: "Alpha" }],
+      onCreateTodo,
+      onError,
+    });
+
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("99");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("所选 Project 已不可用，请重新选择归属。");
   });
 
   it("calls the optional refresh handler from the header", async () => {
