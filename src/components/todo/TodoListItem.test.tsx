@@ -15,6 +15,7 @@ function render(ui: ReactElement) {
 
 const todo: TodoRecord = {
   id: 7,
+  scope: "project",
   projectId: 9,
   activityId: 11,
   content: "Review the contract draft",

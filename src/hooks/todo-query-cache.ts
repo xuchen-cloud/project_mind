@@ -78,7 +78,9 @@ export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
   const now = new Date().toISOString();
   return {
     id: -Date.now(),
-    projectId: input.projectId,
+    scope: input.scope ?? "project",
+    projectId: input.projectId ?? null,
+    activityId: input.activityId ?? null,
     content: input.content,
     status: "unfinished",
     priority: input.priority,
@@ -92,31 +94,40 @@ export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
 
 export function createTodoQueryCache(queryClient: QueryClient) {
   return {
-    cancel: (projectId: number) =>
+    cancel: (projectId?: number | null) =>
       Promise.all([
-        queryClient.cancelQueries({ queryKey: queryKeys.projectPage(projectId) }),
+        ...(projectId == null
+          ? []
+          : [queryClient.cancelQueries({ queryKey: queryKeys.projectPage(projectId) })]),
         queryClient.cancelQueries({ queryKey: queryKeys.workspacePage }),
         queryClient.cancelQueries({ queryKey: queryKeys.workspaceTodos }),
         queryClient.cancelQueries({ queryKey: queryKeys.projects.all }),
       ]),
-    snapshot: (projectId: number): TodoQuerySnapshot => ({
-      projectPage: queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId)),
+    snapshot: (projectId?: number | null): TodoQuerySnapshot => ({
+      projectPage:
+        projectId == null
+          ? undefined
+          : queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId)),
       workspacePage: queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage),
       workspaceTodos: queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos),
       projects: queryClient.getQueryData<ProjectListItem[]>(queryKeys.projects.all),
     }),
-    restore: (projectId: number, snapshot?: TodoQuerySnapshot) => {
+    restore: (projectId?: number | null, snapshot?: TodoQuerySnapshot) => {
       if (!snapshot) return;
-      queryClient.setQueryData(queryKeys.projectPage(projectId), snapshot.projectPage);
+      if (projectId != null) {
+        queryClient.setQueryData(queryKeys.projectPage(projectId), snapshot.projectPage);
+      }
       queryClient.setQueryData(queryKeys.workspacePage, snapshot.workspacePage);
       queryClient.setQueryData(queryKeys.workspaceTodos, snapshot.workspaceTodos);
       queryClient.setQueryData(queryKeys.projects.all, snapshot.projects);
     },
     upsert: (todo: TodoRecord) => {
-      queryClient.setQueryData<ProjectPageData | undefined>(
-        queryKeys.projectPage(todo.projectId),
-        (current) => mergeTodoByStatus(current, todo),
-      );
+      if (todo.projectId != null) {
+        queryClient.setQueryData<ProjectPageData | undefined>(
+          queryKeys.projectPage(todo.projectId),
+          (current) => mergeTodoByStatus(current, todo),
+        );
+      }
       queryClient.setQueryData<WorkspacePageData | undefined>(queryKeys.workspacePage, (current) =>
         mergeTodoByStatus(current, todo),
       );
@@ -125,10 +136,12 @@ export function createTodoQueryCache(queryClient: QueryClient) {
       );
     },
     remove: (todo: TodoRecord) => {
-      queryClient.setQueryData<ProjectPageData | undefined>(
-        queryKeys.projectPage(todo.projectId),
-        (current) => removeTodoFromListData(current, todo.id),
-      );
+      if (todo.projectId != null) {
+        queryClient.setQueryData<ProjectPageData | undefined>(
+          queryKeys.projectPage(todo.projectId),
+          (current) => removeTodoFromListData(current, todo.id),
+        );
+      }
       queryClient.setQueryData<WorkspacePageData | undefined>(queryKeys.workspacePage, (current) =>
         removeTodoFromListData(current, todo.id),
       );
@@ -136,8 +149,8 @@ export function createTodoQueryCache(queryClient: QueryClient) {
         current?.filter((item) => item.id !== todo.id),
       );
     },
-    updateProjectOpenCount: (projectId: number, delta: number) => {
-      if (delta === 0) return;
+    updateProjectOpenCount: (projectId: number | null | undefined, delta: number) => {
+      if (projectId == null || delta === 0) return;
       queryClient.setQueryData<ProjectListItem[] | undefined>(queryKeys.projects.all, (projects) =>
         projects?.map((project) =>
           project.id === projectId

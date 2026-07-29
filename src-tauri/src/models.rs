@@ -93,11 +93,19 @@ pub struct TodoProgressRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoScope {
+    Workspace,
+    Project,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoRecord {
     pub id: i64,
-    pub project_id: i64,
+    pub scope: TodoScope,
+    pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub source_activity_title: Option<String>,
     pub content: String,
@@ -945,7 +953,9 @@ pub struct ConclusionDeleteInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoCreateInput {
-    pub project_id: i64,
+    #[serde(default)]
+    pub scope: Option<TodoScope>,
+    pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub content: String,
     pub priority: String,

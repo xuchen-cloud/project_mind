@@ -18,6 +18,7 @@ function render(ui: ReactElement) {
 
 const todoWithHistory: TodoRecord = {
   id: 1,
+  scope: "project",
   projectId: 1,
   activityId: 11,
   content: "Prepare demo notes",

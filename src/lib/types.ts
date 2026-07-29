@@ -44,6 +44,7 @@ export interface ConclusionRecord {
 }
 
 export type TodoStatus = "unfinished" | "finished";
+export type TodoScope = "workspace" | "project";
 export type TodoPriority =
   | "urgent_important"
   | "urgent_not_important"
@@ -64,7 +65,10 @@ export interface TodoProgressRecord {
 
 export interface TodoRecord {
   id: number;
-  projectId: number;
+  scope: TodoScope;
+  projectId: number | null;
+  activityId?: number | null;
+  sourceActivityTitle?: string | null;
   content: string;
   status: TodoStatus;
   priority: TodoPriority;
@@ -513,13 +517,24 @@ export interface ConclusionDeleteInput {
   conclusionId: number;
 }
 
-export interface TodoCreateInput {
-  projectId: number;
+interface TodoCreateFields {
   content: string;
   priority: TodoPriority;
   dueDate?: string | null;
   tagIds?: number[];
 }
+
+export type TodoCreateInput =
+  | (TodoCreateFields & {
+      scope?: "project";
+      projectId: number;
+      activityId?: number | null;
+    })
+  | (TodoCreateFields & {
+      scope: "workspace";
+      projectId?: null;
+      activityId?: null;
+    });
 
 export interface TodoUpdateContentInput {
   todoId: number;

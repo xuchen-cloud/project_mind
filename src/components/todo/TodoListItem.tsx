@@ -14,6 +14,7 @@ import {
 } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
+  InternalReferenceContext,
   ProjectTagRecord,
   TodoPriority,
   TodoProgressRecord,
@@ -111,6 +112,10 @@ export function TodoListItem({
       .filter(([progressId]) => !todo.progresses.some((progress) => progress.id === Number(progressId)))
       .map(([, transition]) => transition.progress),
   ]);
+  const internalReferenceContext: InternalReferenceContext =
+    todo.scope === "project" && todo.projectId != null
+      ? { scope: "project", projectId: todo.projectId }
+      : { scope: "workspace", projectId: null };
   const sortedProgresses = mergedProgresses;
   const unfinishedSubItems = sortedProgresses.filter(
     (progress) => progress.status !== "finished",
@@ -235,7 +240,7 @@ export function TodoListItem({
       <TodoHistoryProgressItem
         key={progress.id}
         progress={progress}
-        projectId={todo.projectId}
+        internalReferenceContext={internalReferenceContext}
         editable={allowInlineProgress}
         bordered={bordered}
         showCheckbox
@@ -317,7 +322,7 @@ export function TodoListItem({
                   dueDate={todo.dueDate}
                   editable={allowInlineEdit}
                   onError={onError}
-                  internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+                  internalReferenceContext={internalReferenceContext}
                   onOpenInternalReference={onOpenInternalReference}
                   onOpenContactMention={onOpenContactMention}
                   onEditingChange={setContentEditing}
@@ -377,7 +382,7 @@ export function TodoListItem({
                       latestProgress={null}
                       editable={allowInlineProgress}
                       onError={onError}
-                      internalReferenceContext={{ scope: "project", projectId: todo.projectId }}
+                      internalReferenceContext={internalReferenceContext}
                       onOpenInternalReference={onOpenInternalReference}
                       onOpenContactMention={onOpenContactMention}
                       onEditingChange={setProgressEditing}
@@ -424,7 +429,7 @@ export function TodoListItem({
 
 function TodoHistoryProgressItem({
   progress,
-  projectId,
+  internalReferenceContext,
   editable,
   bordered,
   showCheckbox = false,
@@ -437,7 +442,7 @@ function TodoHistoryProgressItem({
   onOpenContactMention,
 }: {
   progress: TodoProgressRecord;
-  projectId: number;
+  internalReferenceContext: InternalReferenceContext;
   editable: boolean;
   bordered: boolean;
   showCheckbox?: boolean;
@@ -598,7 +603,7 @@ function TodoHistoryProgressItem({
             autoFocus
             disabled={saving}
             placeholder="@0315 已与财务确认方案"
-            internalReferenceContext={{ scope: "project", projectId }}
+            internalReferenceContext={internalReferenceContext}
             onChange={setDraft}
             onCommit={() => {
               void handleSave();

@@ -14,7 +14,7 @@ export async function resolveTodoContentTagSync({
   explicitTagIds,
   availableTags = [],
 }: {
-  projectId: number;
+  projectId: number | null;
   content: string;
   explicitTagIds: number[];
   availableTags?: ProjectTagRecord[];
