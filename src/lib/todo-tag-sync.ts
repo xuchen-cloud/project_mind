@@ -8,13 +8,17 @@ import {
   stripHashTagText,
 } from "./tags";
 
+export type TodoTagScope =
+  | { scope: "workspace" }
+  | { scope: "project"; projectId: number };
+
 export async function resolveTodoContentTagSync({
-  projectId,
+  tagScope,
   content,
   explicitTagIds,
   availableTags = [],
 }: {
-  projectId: number;
+  tagScope: TodoTagScope;
   content: string;
   explicitTagIds: number[];
   availableTags?: ProjectTagRecord[];
@@ -29,7 +33,9 @@ export async function resolveTodoContentTagSync({
 
   let knownTags = availableTags;
   if (knownTags.length === 0) {
-    const snapshot = await projectMindApi.projectTagSettingsGet({ projectId });
+    const snapshot = await projectMindApi.projectTagSettingsGet(
+      tagScope.scope === "workspace" ? {} : { projectId: tagScope.projectId },
+    );
     knownTags = snapshot.tags;
   }
 
@@ -40,7 +46,9 @@ export async function resolveTodoContentTagSync({
     const tag =
       existing ??
       (await projectMindApi.projectTagUpsert({
-        projectId,
+        ...(tagScope.scope === "workspace"
+          ? {}
+          : { projectId: tagScope.projectId }),
         label,
         colorKey: colorKeyForTagLabel(label),
       }));

@@ -548,6 +548,16 @@ export interface TodoUpdateTagsInput {
   tagIds?: number[];
 }
 
+export interface TodoTagUpdatePayload {
+  todoId: number;
+  tagIds: number[];
+  optimisticTags: DocumentTagRecord[];
+}
+
+export type TodoTagUpdateHandler = (
+  payload: TodoTagUpdatePayload,
+) => Promise<unknown> | void;
+
 export interface TodoUpdateStatusInput {
   todoId: number;
   status: TodoStatus;

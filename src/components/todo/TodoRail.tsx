@@ -3,7 +3,12 @@ import { ChevronLeft, ChevronRight, ListTodo, Plus, RefreshCw } from "lucide-rea
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
-import type { TodoPriority, TodoRecord } from "../../lib/types";
+import type {
+  ProjectTagRecord,
+  TodoPriority,
+  TodoRecord,
+  TodoTagUpdateHandler,
+} from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton } from "../../ui/components";
@@ -40,12 +45,14 @@ interface TodoRailProps {
   scopeLabel: string;
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
+  availableTags?: ProjectTagRecord[];
+  canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
   createPlaceholder: string;
   onCreateTodo: (payload: { content: string; priority: TodoPriority; dueDate?: string | null }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
-  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
+  onUpdateTags?: TodoTagUpdateHandler;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string; dueDate?: string | null },
@@ -69,6 +76,8 @@ export function TodoRail({
   scopeLabel: _scopeLabel,
   unfinishedTodos,
   finishedTodos,
+  availableTags = [],
+  canCreateTagsForTodo,
   createPlaceholder,
   onCreateTodo,
   onToggleStatus,
@@ -647,6 +656,8 @@ export function TodoRail({
             onError={onError}
             onOpenInternalReference={onOpenInternalReference}
             onOpenContactMention={onOpenContactMention}
+            availableTags={availableTags}
+            canCreateTagsForTodo={canCreateTagsForTodo}
             onEmptyClick={
               tab === "unfinished"
                 ? () => {

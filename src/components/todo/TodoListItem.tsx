@@ -14,11 +14,13 @@ import {
 } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
 import type {
+  DocumentTagRecord,
   InternalReferenceContext,
   ProjectTagRecord,
   TodoPriority,
   TodoProgressRecord,
   TodoRecord,
+  TodoTagUpdateHandler,
 } from "../../lib/types";
 import { ActionContextMenu, IconButton, type ContextMenuAction } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -59,6 +61,7 @@ export function TodoListItem({
   onOpenInternalReference,
   onOpenContactMention,
   availableTags = [],
+  allowTagCreation = true,
 }: {
   todo: TodoRecord;
   isFirst?: boolean;
@@ -70,7 +73,7 @@ export function TodoListItem({
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
-  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
+  onUpdateTags?: TodoTagUpdateHandler;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string; dueDate?: string | null },
@@ -86,9 +89,11 @@ export function TodoListItem({
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
   availableTags?: ProjectTagRecord[];
+  allowTagCreation?: boolean;
 }) {
   const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
+  const [tagEditing, setTagEditing] = useState(false);
   const [progressEditing, setProgressEditing] = useState(false);
   const [subitemControlsVisible, setSubitemControlsVisible] = useState(false);
   const [progressTransitions, setProgressTransitions] = useState<
@@ -97,6 +102,7 @@ export function TodoListItem({
   const expandButtonRef = useRef<HTMLButtonElement | null>(null);
   const progressTimersRef = useRef(new Map<number, number>());
   const subitemControlsTimerRef = useRef<number | null>(null);
+  const createdTagsRef = useRef<ProjectTagRecord[]>([]);
   const todoState = [
     todo.status === "finished" ? "finished" : "unfinished",
     expanded ? "expanded" : "",
@@ -347,15 +353,53 @@ export function TodoListItem({
               </button>
             </div>
 
-            {(todo.tags ?? []).length > 0 ? (
-              <div className="todo-card__tag-row">
+            {(todo.tags ?? []).length > 0 ||
+            (allowTagCreation &&
+              (contentEditing || tagEditing) &&
+              onUpdateTags) ? (
+              <div
+                className="todo-card__tag-row"
+                onMouseDownCapture={() => setTagEditing(true)}
+                onFocusCapture={() => setTagEditing(true)}
+                onBlurCapture={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setTagEditing(false);
+                  }
+                }}
+              >
                 <EntityTagEditor
                   projectId={todo.projectId}
                   availableTags={availableTags}
                   tags={todo.tags ?? []}
                   compact
-                  mode={contentEditing && onUpdateTags ? "edit" : "display"}
-                  onChange={(tagIds) => onUpdateTags?.(todo.id, tagIds)}
+                  mode={
+                    (contentEditing || tagEditing) && onUpdateTags
+                      ? allowTagCreation
+                        ? "full"
+                        : "edit"
+                      : "display"
+                  }
+                  onCreated={(tag) => {
+                    createdTagsRef.current = [
+                      ...createdTagsRef.current.filter((item) => item.id !== tag.id),
+                      tag,
+                    ];
+                  }}
+                  onChange={(tagIds) => {
+                    const tagRecords = [
+                      ...(todo.tags ?? []),
+                      ...availableTags,
+                      ...createdTagsRef.current,
+                    ];
+                    const optimisticTags = tagIds
+                      .map((tagId) => tagRecords.find((tag) => tag.id === tagId))
+                      .filter((tag): tag is DocumentTagRecord => Boolean(tag));
+                    return onUpdateTags?.({
+                      todoId: todo.id,
+                      tagIds,
+                      optimisticTags,
+                    });
+                  }}
                 />
               </div>
             ) : null}
