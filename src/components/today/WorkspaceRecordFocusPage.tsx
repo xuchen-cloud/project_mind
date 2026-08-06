@@ -585,7 +585,6 @@ export function WorkspaceRecordFocusPage() {
         <TodoModuleRail
           scope={{ kind: "workspace" }}
           availableTags={availableTags}
-          onOpenProject={openProject}
           onOpenInternalReference={openInternalReference}
           onOpenContactMention={openContactMention}
         />

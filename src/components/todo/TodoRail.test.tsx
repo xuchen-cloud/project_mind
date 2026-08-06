@@ -169,9 +169,8 @@ describe("TodoRail", () => {
     expect(screen.getByText(finishedTodo.content)).toBeInTheDocument();
   });
 
-  it("groups Workspace View by Workspace then Project sidebar order and can switch flat", async () => {
+  it("groups Workspace View and keeps flat Todo cards free of repeated Project names", async () => {
     const user = userEvent.setup();
-    const openProject = vi.fn();
     const workspaceTodo = {
       ...todoWithoutHistory,
       id: 20,
@@ -210,7 +209,6 @@ describe("TodoRail", () => {
         { projectId: 3, name: "Empty" },
         { projectId: 1, name: "Alpha" },
       ],
-      onOpenProject: openProject,
     });
 
     expect(
@@ -223,10 +221,13 @@ describe("TodoRail", () => {
       within(betaGroup!).getAllByText(/Beta action$/u).map((item) => item.textContent),
     ).toEqual(["Beta action", "Older Beta action"]);
 
-    await user.click(screen.getByRole("button", { name: "平铺" }));
-    await user.click(screen.getAllByRole("button", { name: "打开 Project Beta" })[0]);
+    const groupToggle = screen.getByRole("button", { name: "分组显示" });
+    expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+    expect(groupToggle.closest(".todo-rail__toolbar")).not.toBeNull();
+    await user.click(groupToggle);
+    expect(groupToggle).toHaveAttribute("aria-pressed", "false");
 
-    expect(openProject).toHaveBeenCalledWith(2);
+    expect(screen.queryByRole("button", { name: "打开 Project Beta" })).not.toBeInTheDocument();
     expect(useUiStore.getState().todoRailDisplayMode).toBe("flat");
   });
 
@@ -277,7 +278,10 @@ describe("TodoRail", () => {
       onViewModeChange,
     });
 
-    await user.click(screen.getByRole("button", { name: "Workspace View" }));
+    const workspaceViewToggle = screen.getByRole("button", { name: "Workspace View" });
+    expect(workspaceViewToggle).toHaveAttribute("aria-pressed", "false");
+    expect(workspaceViewToggle.closest(".todo-rail__header")).not.toBeNull();
+    await user.click(workspaceViewToggle);
     expect(onViewModeChange).toHaveBeenCalledWith("workspace");
   });
 

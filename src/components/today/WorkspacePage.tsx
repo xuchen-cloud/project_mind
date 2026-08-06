@@ -735,7 +735,6 @@ export function WorkspacePage({
         enabled={visible}
         focusTodoId={focusedTodoId}
         availableTags={availableTags}
-        onOpenProject={openProject}
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />

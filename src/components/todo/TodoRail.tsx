@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ListTodo, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Earth, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
@@ -50,12 +50,10 @@ interface TodoRailProps {
   finishedTodos: TodoRecord[];
   availableTags?: ProjectTagRecord[];
   canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
-  showTodoSources?: boolean;
   viewMode?: "workspace" | "current-project";
   showViewModeSwitch?: boolean;
   canCreateTodo?: boolean;
   onViewModeChange?: (mode: "workspace" | "current-project") => void;
-  onOpenProject?: (projectId: number) => Promise<unknown> | void;
   createPlaceholder: string;
   createOwnershipOptions?: Array<{ projectId: number; name: string }>;
   onCreateTodo: (payload: {
@@ -94,12 +92,10 @@ export function TodoRail({
   finishedTodos,
   availableTags = [],
   canCreateTagsForTodo,
-  showTodoSources = false,
   viewMode,
   showViewModeSwitch = false,
   canCreateTodo = true,
   onViewModeChange,
-  onOpenProject,
   createPlaceholder,
   createOwnershipOptions,
   onCreateTodo,
@@ -483,7 +479,7 @@ export function TodoRail({
     });
   }
 
-  function renderTodoList(todoList: TodoRecord[], showSources: boolean, allowEmptyClick = false) {
+  function renderTodoList(todoList: TodoRecord[], allowEmptyClick = false) {
     return (
       <TodoList
         todos={todoList}
@@ -507,8 +503,6 @@ export function TodoRail({
         availableTags={availableTags}
         availableTagScopeProjectId={projectId ?? null}
         canCreateTagsForTodo={canCreateTagsForTodo}
-        showTodoSources={showSources}
-        onOpenProject={onOpenProject}
         onEmptyClick={
           allowEmptyClick && tab === "unfinished"
             ? () => {
@@ -567,6 +561,26 @@ export function TodoRail({
           <h2 className="text-title font-medium text-text">{title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {showViewModeSwitch ? (
+            <IconButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="todo-rail__icon-toggle"
+              aria-label="Workspace View"
+              aria-pressed={workspaceView}
+              title={
+                workspaceView
+                  ? "Workspace View（点击切换到 Current Project View）"
+                  : "Current Project View（点击切换到 Workspace View）"
+              }
+              onClick={() =>
+                onViewModeChange?.(workspaceView ? "current-project" : "workspace")
+              }
+            >
+              <Earth size={14} />
+            </IconButton>
+          ) : null}
           {onRefresh ? (
             <IconButton
               type="button"
@@ -602,37 +616,9 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        {showViewModeSwitch ? (
-          <div className="project-overview-focus__view-switch mb-3" aria-label="Todo View">
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                viewMode === "current-project" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={viewMode === "current-project"}
-              onClick={() => onViewModeChange?.("current-project")}
-            >
-              Current Project View
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                viewMode === "workspace" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={viewMode === "workspace"}
-              onClick={() => onViewModeChange?.("workspace")}
-            >
-              Workspace View
-            </button>
-          </div>
-        ) : null}
-        <div className="todo-rail__toolbar mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="todo-rail__toolbar mb-3 flex flex-nowrap items-center justify-between gap-2">
           <div
-            className="project-overview-focus__view-switch"
+            className="todo-rail__segmented-control project-overview-focus__view-switch"
             data-testid="todo-rail-view-switch"
           >
             <button
@@ -661,37 +647,32 @@ export function TodoRail({
             </button>
           </div>
 
-          {showSortSwitch ? <TodoSortSwitch value={sortMode} onChange={setSortMode} /> : null}
-        </div>
-
-        {workspaceView ? (
-          <div className="project-overview-focus__view-switch mb-3" aria-label="Workspace View 展示方式">
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                displayMode === "grouped" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={displayMode === "grouped"}
-              onClick={() => setDisplayMode("grouped")}
-            >
-              分组
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                displayMode === "flat" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={displayMode === "flat"}
-              onClick={() => setDisplayMode("flat")}
-            >
-              平铺
-            </button>
+          <div className="flex items-center gap-1.5">
+            {workspaceView ? (
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="todo-rail__icon-toggle"
+                aria-label="分组显示"
+                aria-pressed={displayMode === "grouped"}
+                title={
+                  displayMode === "grouped"
+                    ? "分组显示（点击切换为平铺）"
+                    : "平铺显示（点击切换为分组）"
+                }
+                onClick={() =>
+                  setDisplayMode(displayMode === "grouped" ? "flat" : "grouped")
+                }
+              >
+                <ListTree size={14} />
+              </IconButton>
+            ) : null}
+            {showSortSwitch ? (
+              <TodoSortSwitch value={sortMode} onChange={setSortMode} />
+            ) : null}
           </div>
-        ) : null}
+        </div>
 
         {isComposing ? (
           <div className="todo-rail__composer mb-3">
@@ -948,19 +929,15 @@ export function TodoRail({
                 {todoGroups.map((group) => (
                   <section key={group.key} className="grid gap-2">
                     <h3 className="text-ui font-semibold text-text-muted">{group.title}</h3>
-                    {renderTodoList(group.todos, false)}
+                    {renderTodoList(group.todos)}
                   </section>
                 ))}
               </div>
             ) : (
-              renderTodoList([], false, true)
+              renderTodoList([], true)
             )
           ) : (
-            renderTodoList(
-              todos,
-              workspaceView && displayMode === "flat" ? true : showTodoSources,
-              true,
-            )
+            renderTodoList(todos, true)
           )}
         </div>
       </div>
