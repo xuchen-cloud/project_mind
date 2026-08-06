@@ -2626,6 +2626,23 @@
   color: var(--color-bg);
 }
 
+.todo-rail__icon-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-border-strong) 72%, transparent);
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+.todo-rail__segmented-control {
+  gap: 0.125rem;
+  padding: 0.125rem;
+  box-shadow: none;
+}
+
+.todo-rail__segmented-control .project-overview-focus__view-switch-button {
+  padding: 0.32rem 0.5rem;
+}
+
 .project-overview-focus__status {
   color: var(--color-text-soft);
   font-size: var(--text-ui);
@@ -3146,26 +3163,6 @@
 
 .todo-card__tag-row {
   opacity: 0.82;
-}
-
-.todo-card__source {
-  display: flex;
-  min-width: 0;
-  color: var(--color-text-soft);
-  font-size: var(--font-size-caption);
-}
-
-.todo-card__source button {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 160ms var(--ease-soft);
-}
-
-.todo-card__source button:hover,
-.todo-card__source button:focus-visible {
-  color: var(--color-accent);
 }
 
 .todo-card__tag-row .entity-tag-chip {

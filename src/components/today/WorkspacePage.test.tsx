@@ -243,7 +243,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await screen.findByText("Todo List");
-    expect(screen.getByRole("button", { name: "分组" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "分组显示" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -353,7 +353,7 @@ describe("WorkspacePage", () => {
     });
   });
 
-  it("shows both Todo sources and opens a Project from its source label", async () => {
+  it("keeps flat Todo cards free of Workspace and Project source labels", async () => {
     const user = userEvent.setup();
 
     apiMocks.projectsList.mockResolvedValueOnce([
@@ -416,10 +416,13 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await screen.findByText("整理跨项目复盘");
-    await user.click(screen.getByRole("button", { name: "平铺" }));
+    await user.click(screen.getByRole("button", { name: "分组显示" }));
     const workspaceTodoCard = screen.getByText("整理跨项目复盘").closest("article");
-    expect(within(workspaceTodoCard!).getByText("Workspace")).toBeInTheDocument();
+    expect(within(workspaceTodoCard!).queryByText("Workspace")).not.toBeInTheDocument();
     const projectTodoCard = screen.getByText("推进 Alpha 发布").closest("article");
+    expect(
+      within(projectTodoCard!).queryByRole("button", { name: "打开 Project Alpha" }),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "按优先级" }));
     expect(
       Array.from(document.querySelectorAll(".todo-list__collection > article")).map(
@@ -429,11 +432,6 @@ describe("WorkspacePage", () => {
     await user.click(within(projectTodoCard!).getByRole("button", { name: "推进 Alpha 发布" }));
     expect(await within(projectTodoCard!).findByPlaceholderText("#标签")).toBeInTheDocument();
     expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 1 });
-    await user.click(screen.getByRole("button", { name: "打开 Project Alpha" }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1");
-    });
   });
 
   it("opens a project in a new window from the sidebar context menu", async () => {

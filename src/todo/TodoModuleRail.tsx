@@ -14,7 +14,6 @@ export function TodoModuleRail({
   showViewModeSwitch = false,
   canCreateTodo = true,
   onViewModeChange,
-  onOpenProject,
   onOpenInternalReference,
   onOpenContactMention,
 }: {
@@ -25,7 +24,6 @@ export function TodoModuleRail({
   showViewModeSwitch?: boolean;
   canCreateTodo?: boolean;
   onViewModeChange?: (mode: "workspace" | "current-project") => void;
-  onOpenProject?: (projectId: number) => Promise<unknown> | void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
 }) {
@@ -47,7 +45,6 @@ export function TodoModuleRail({
       finishedTodos={todo.view.finishedTodos}
       availableTags={availableTags}
       canCreateTagsForTodo={() => true}
-      onOpenProject={onOpenProject}
       createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
       createOwnershipOptions={
         scope.kind === "workspace"

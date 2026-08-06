@@ -66,8 +66,6 @@ export function TodoListItem({
   availableTags = [],
   availableTagScopeProjectId = null,
   allowTagCreation = true,
-  showSource = false,
-  onOpenProject,
 }: {
   todo: TodoRecord;
   isFirst?: boolean;
@@ -97,8 +95,6 @@ export function TodoListItem({
   availableTags?: ProjectTagRecord[];
   availableTagScopeProjectId?: number | null;
   allowTagCreation?: boolean;
-  showSource?: boolean;
-  onOpenProject?: (projectId: number) => Promise<unknown> | void;
 }) {
   const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
@@ -374,24 +370,6 @@ export function TodoListItem({
                 </span>
               </button>
             </div>
-
-            {showSource ? (
-              <div className="todo-card__source">
-                {todo.scope === "project" && todo.projectId != null ? (
-                  <button
-                    type="button"
-                    aria-label={`打开 Project ${todo.projectName ?? ""}`.trim()}
-                    onClick={() => {
-                      void onOpenProject?.(todo.projectId!);
-                    }}
-                  >
-                    {todo.projectName ?? "Project"}
-                  </button>
-                ) : (
-                  <span>Workspace</span>
-                )}
-              </div>
-            ) : null}
 
             {(todo.tags ?? []).length > 0 ||
             (allowTagCreation &&

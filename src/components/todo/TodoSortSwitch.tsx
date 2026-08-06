@@ -10,14 +10,14 @@ export function TodoSortSwitch({
 }) {
   return (
     <div
-      className="inline-flex items-center gap-1 rounded-full bg-bg-muted p-1"
+      className="inline-flex items-center gap-0.5 rounded-full bg-bg-muted p-0.5"
       role="tablist"
       aria-label="Todo 排序方式"
     >
       <button
         type="button"
         className={cn(
-          "h-7 rounded-full px-2.5 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+          "h-7 rounded-full px-2 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
           value === "time"
             ? "bg-bg text-text"
             : "text-text-soft hover:text-text",
@@ -29,7 +29,7 @@ export function TodoSortSwitch({
       <button
         type="button"
         className={cn(
-          "h-7 rounded-full px-2.5 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+          "h-7 rounded-full px-2 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
           value === "priority"
             ? "bg-bg text-text"
             : "text-text-soft hover:text-text",

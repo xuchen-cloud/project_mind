@@ -33,7 +33,6 @@ import {
   parseFocusTodoId,
   parseRouteId,
   preserveRecordFilters,
-  projectPath,
   recordFocusId,
   recordPath,
 } from "../../lib/formatters";
@@ -936,7 +935,6 @@ export function ProjectOverviewPage({
         availableTags={projectTodoViewMode === "current-project" ? availableTags : []}
         showViewModeSwitch
         onViewModeChange={setProjectTodoViewMode}
-        onOpenProject={(targetProjectId) => navigate(projectPath(targetProjectId))}
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />
