@@ -18,6 +18,7 @@ import { useContactMentionNavigation } from "../../hooks/useContactMentionNaviga
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useWorkspaceTodoActions } from "../../hooks/useWorkspaceTodoActions";
+import { fetchWorkspacePageWithTodoCollections } from "../../hooks/todo-query-cache";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
@@ -80,7 +81,7 @@ export function WorkspaceRecordFocusPage() {
 
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
-    queryFn: projectMindApi.workspacePageGet,
+    queryFn: () => fetchWorkspacePageWithTodoCollections(queryClient),
     enabled: noteId !== null,
   });
   const projectsQuery = useQuery({

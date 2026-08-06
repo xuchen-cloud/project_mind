@@ -97,14 +97,6 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps workspace todo list to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce([]);
-
-    await projectMindApi.workspaceTodoList();
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_todo_list");
-  });
-
   it("maps workspace overview to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       overviewNote: null,

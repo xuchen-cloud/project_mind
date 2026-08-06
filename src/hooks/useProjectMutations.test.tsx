@@ -97,7 +97,7 @@ describe("useProjectMutations", () => {
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     queryClient.setQueryData(queryKeys.projectPage(project.id), projectPage);
     queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
-    queryClient.setQueryData(queryKeys.workspaceTodos, [projectTodo, workspaceTodo]);
+    queryClient.setQueryData(queryKeys.todoCollections.workspaceRail, [projectTodo, workspaceTodo]);
     apiMocks.projectSetArchive.mockImplementation(async (input) => ({
       ...project,
       isArchived: input.isArchived,
@@ -134,7 +134,7 @@ describe("useProjectMutations", () => {
     expect(
       queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)?.unfinishedTodos,
     ).toEqual([projectTodo, workspaceTodo]);
-    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos)).toEqual([
+    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail)).toEqual([
       projectTodo,
       workspaceTodo,
     ]);

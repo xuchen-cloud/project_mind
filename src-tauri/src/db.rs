@@ -1179,7 +1179,7 @@ impl Database {
     pub fn workspace_page_get(&mut self) -> Result<WorkspacePageData> {
         let quick_note = self.workspace_quick_note_get()?;
         let records = self.workspace_record_list()?;
-        let all_todos = self.workspace_todo_list()?;
+        let all_todos = self.workspace_todo_rail_list()?;
         let (unfinished_todos, finished_todos): (Vec<_>, Vec<_>) = all_todos
             .into_iter()
             .partition(|todo| todo.status == "unfinished");
@@ -2198,7 +2198,7 @@ impl Database {
     }
 
     pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
-        let scope = input.scope.unwrap_or(TodoScope::Project);
+        let scope = input.scope;
         self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
         let scope_value = match scope {
             TodoScope::Workspace => "workspace",
@@ -2446,7 +2446,7 @@ impl Database {
         ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
 
-    pub fn workspace_todo_list(&mut self) -> Result<Vec<TodoRecord>> {
+    pub fn workspace_todo_rail_list(&mut self) -> Result<Vec<TodoRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT t.id
@@ -5290,7 +5290,7 @@ impl Database {
         finished: bool,
     ) -> Result<TodoRecord> {
         let todo = self.todo_create(TodoCreateInput {
-            scope: None,
+            scope: TodoScope::Project,
             project_id: Some(project_id),
             activity_id,
             content: content.to_string(),
@@ -11699,7 +11699,7 @@ mod tests {
     ) -> TodoRecord {
         database
             .todo_create(TodoCreateInput {
-                scope: None,
+                scope: TodoScope::Project,
                 project_id: Some(project_id),
                 activity_id,
                 content: content.to_string(),
@@ -11708,6 +11708,20 @@ mod tests {
                 tag_ids: vec![],
             })
             .unwrap()
+    }
+
+    #[test]
+    fn todo_creation_contract_requires_explicit_scope() {
+        let input = serde_json::json!({
+            "projectId": 1,
+            "activityId": null,
+            "content": "Legacy implicit Project Todo",
+            "priority": "not_urgent_important",
+            "dueDate": null,
+            "tagIds": []
+        });
+
+        assert!(serde_json::from_value::<TodoCreateInput>(input).is_err());
     }
 
     fn downgrade_todos_to_legacy_schema(database: &Database) {
@@ -12146,7 +12160,7 @@ mod tests {
 
         let created = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "整理跨项目复盘模板".to_string(),
@@ -12218,7 +12232,7 @@ mod tests {
                 todo_id: created.id,
             })
             .unwrap();
-        assert!(database.workspace_todo_list().unwrap().is_empty());
+        assert!(database.workspace_todo_rail_list().unwrap().is_empty());
     }
 
     #[test]
@@ -12235,7 +12249,7 @@ mod tests {
             .unwrap();
 
         let result = database.todo_create(TodoCreateInput {
-            scope: Some(TodoScope::Workspace),
+            scope: TodoScope::Workspace,
             project_id: None,
             activity_id: None,
             content: "整理跨项目复盘".to_string(),
@@ -12246,7 +12260,7 @@ mod tests {
 
         assert!(result.is_err());
         assert!(database
-            .workspace_todo_list()
+            .workspace_todo_rail_list()
             .unwrap()
             .iter()
             .all(|todo| todo.content != "整理跨项目复盘"));
@@ -12262,7 +12276,7 @@ mod tests {
         assert_ne!(workspace_tag.id, project_tag.id);
         let todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "整理 Workspace 复盘".to_string(),
@@ -12298,25 +12312,25 @@ mod tests {
 
         let cases = [
             (
-                Some(TodoScope::Workspace),
+                TodoScope::Workspace,
                 Some(first_project.id),
                 None,
                 "Workspace Todo with Project",
             ),
             (
-                Some(TodoScope::Workspace),
+                TodoScope::Workspace,
                 None,
                 Some(second_activity.id),
                 "Workspace Todo with Activity",
             ),
             (
-                Some(TodoScope::Project),
+                TodoScope::Project,
                 None,
                 None,
                 "Project Todo without Project",
             ),
             (
-                Some(TodoScope::Project),
+                TodoScope::Project,
                 Some(first_project.id),
                 Some(second_activity.id),
                 "Project Todo with another Project's Activity",
@@ -12353,7 +12367,7 @@ mod tests {
             .unwrap();
         let todo = database
             .todo_create(TodoCreateInput {
-                scope: None,
+                scope: TodoScope::Project,
                 project_id: Some(project.id),
                 activity_id: Some(activity.id),
                 content: "曾从 Workspace 入口创建的旧 Todo".to_string(),
@@ -12708,7 +12722,7 @@ mod tests {
         let project = create_project(&mut database, &harness.workspace_root);
         let todo = database
             .todo_create(TodoCreateInput {
-                scope: None,
+                scope: TodoScope::Project,
                 project_id: Some(project.id),
                 activity_id: None,
                 content: "提交方案".to_string(),
@@ -13659,7 +13673,7 @@ mod tests {
         );
         let workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "工作区预算统筹".to_string(),
@@ -13752,7 +13766,7 @@ mod tests {
             .unwrap();
         let workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "Workspace target".to_string(),
@@ -13774,7 +13788,7 @@ mod tests {
 
         let workspace_with_reference = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: other_project_reference.clone(),
@@ -13786,7 +13800,7 @@ mod tests {
         assert_eq!(workspace_with_reference.content, other_project_reference);
 
         let project_to_workspace = database.todo_create(TodoCreateInput {
-            scope: Some(TodoScope::Project),
+            scope: TodoScope::Project,
             project_id: Some(project.id),
             activity_id: None,
             content: workspace_reference,
@@ -13800,7 +13814,7 @@ mod tests {
             .contains("Project Todo 不能引用 Workspace 内容"));
 
         let project_to_other_project = database.todo_create(TodoCreateInput {
-            scope: Some(TodoScope::Project),
+            scope: TodoScope::Project,
             project_id: Some(project.id),
             activity_id: None,
             content: other_project_reference.clone(),
@@ -13820,7 +13834,7 @@ mod tests {
             })
             .unwrap();
         let new_archived_reference = database.todo_create(TodoCreateInput {
-            scope: Some(TodoScope::Workspace),
+            scope: TodoScope::Workspace,
             project_id: None,
             activity_id: None,
             content: other_project_reference.clone(),
@@ -14046,7 +14060,7 @@ mod tests {
             .unwrap();
         let todo = database
             .todo_create(TodoCreateInput {
-                scope: None,
+                scope: TodoScope::Project,
                 project_id: Some(project.id),
                 activity_id: Some(activity.id),
                 content: "跟进搜索覆盖".to_string(),
@@ -14161,7 +14175,7 @@ mod tests {
 
         let workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "共同检索词 Workspace Todo".to_string(),
@@ -14172,7 +14186,7 @@ mod tests {
             .unwrap();
         let active_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Project),
+                scope: TodoScope::Project,
                 project_id: Some(active_project.id),
                 activity_id: None,
                 content: "共同检索词 Project Todo".to_string(),
@@ -14183,7 +14197,7 @@ mod tests {
             .unwrap();
         let archived_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Project),
+                scope: TodoScope::Project,
                 project_id: Some(archived_project.id),
                 activity_id: None,
                 content: "共同检索词 Archived Todo".to_string(),
@@ -14236,7 +14250,7 @@ mod tests {
 
         let exact_workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "统一排序".to_string(),
@@ -14247,7 +14261,7 @@ mod tests {
             .unwrap();
         let prefix_project_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Project),
+                scope: TodoScope::Project,
                 project_id: Some(active_project.id),
                 activity_id: None,
                 content: "统一排序 Project Todo".to_string(),
@@ -14299,7 +14313,7 @@ mod tests {
 
         let workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "Workspace 专属正文".to_string(),
@@ -14310,7 +14324,7 @@ mod tests {
             .unwrap();
         let project_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Project),
+                scope: TodoScope::Project,
                 project_id: Some(project.id),
                 activity_id: None,
                 content: "Current 专属正文".to_string(),
@@ -14329,7 +14343,7 @@ mod tests {
             .unwrap();
         let other_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Project),
+                scope: TodoScope::Project,
                 project_id: Some(other_project.id),
                 activity_id: None,
                 content: "Current 专属正文也出现在其他 Project".to_string(),
@@ -15584,7 +15598,7 @@ mod tests {
 
         let project_error = database
             .todo_create(TodoCreateInput {
-                scope: None,
+                scope: TodoScope::Project,
                 project_id: Some(first_project.id),
                 activity_id: None,
                 content: "跨项目标签".to_string(),
@@ -15831,7 +15845,7 @@ mod tests {
             .unwrap();
         let workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: "跨项目复盘".to_string(),
@@ -15842,7 +15856,7 @@ mod tests {
             .unwrap();
         let finished_workspace_todo = database
             .todo_create(TodoCreateInput {
-                scope: Some(TodoScope::Workspace),
+                scope: TodoScope::Workspace,
                 project_id: None,
                 activity_id: None,
                 content: format!("回顾 Project {}", active_project.name),
@@ -15863,7 +15877,7 @@ mod tests {
                 status: "finished".to_string(),
             })
             .unwrap();
-        let before_archive = database.workspace_todo_list().unwrap();
+        let before_archive = database.workspace_todo_rail_list().unwrap();
         assert!(before_archive
             .iter()
             .any(|todo| todo.id == archived_open_todo.id));
@@ -15877,7 +15891,7 @@ mod tests {
             })
             .unwrap();
 
-        let todos = database.workspace_todo_list().unwrap();
+        let todos = database.workspace_todo_rail_list().unwrap();
 
         assert_eq!(todos.len(), 4);
         let listed_workspace_todo = todos
@@ -15962,7 +15976,7 @@ mod tests {
                 is_archived: false,
             })
             .unwrap();
-        let restored = database.workspace_todo_list().unwrap();
+        let restored = database.workspace_todo_rail_list().unwrap();
         assert!(restored.iter().any(|todo| todo.id == workspace_todo.id));
         assert!(restored
             .iter()

@@ -18,4 +18,25 @@ describe("search query keys", () => {
     ]);
     expect(queryKeys.search("todo", 4)).not.toEqual(queryKeys.search("todo", 3));
   });
+
+  it("names Todo ownership collections separately from the Workspace Rail aggregate", () => {
+    expect(queryKeys.todoCollections.all).toEqual(["todos"]);
+    expect(queryKeys.todoCollections.workspaceOwned).toEqual([
+      "todos",
+      "workspace-owned",
+    ]);
+    expect(queryKeys.todoCollections.projectOwned(3)).toEqual([
+      "todos",
+      "project-owned",
+      3,
+    ]);
+    expect(queryKeys.todoCollections.workspaceRail).toEqual([
+      "todos",
+      "workspace-rail",
+    ]);
+
+    expect(queryKeys.todoCollections.workspaceOwned).not.toEqual(
+      queryKeys.todoCollections.workspaceRail,
+    );
+  });
 });

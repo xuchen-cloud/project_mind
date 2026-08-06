@@ -5,7 +5,12 @@ export const queryKeys = {
   },
   projectPage: (projectId: number | null) => ["project-page", projectId] as const,
   workspacePage: ["workspace-page"] as const,
-  workspaceTodos: ["workspace-todos"] as const,
+  todoCollections: {
+    all: ["todos"] as const,
+    workspaceOwned: ["todos", "workspace-owned"] as const,
+    projectOwned: (projectId: number) => ["todos", "project-owned", projectId] as const,
+    workspaceRail: ["todos", "workspace-rail"] as const,
+  },
   aiArtifacts: ["ai-artifact"] as const,
   aiSettings: ["ai-settings"] as const,
   richTextStyle: ["rich-text-style"] as const,

@@ -60,6 +60,7 @@ import { useContactMentionNavigation } from "../../hooks/useContactMentionNaviga
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
+import { fetchProjectPageWithTodoCollection } from "../../hooks/todo-query-cache";
 import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
@@ -138,7 +139,7 @@ export function ProjectOverviewPage({
   }, [projectId]);
   const projectPageQuery = useQuery({
     queryKey: queryKeys.projectPage(projectId),
-    queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
+    queryFn: () => fetchProjectPageWithTodoCollection(queryClient, projectId as number),
     enabled: visible && projectId !== null,
   });
   const tagSettingsQuery = useQuery({
@@ -564,7 +565,13 @@ export function ProjectOverviewPage({
       explicitTagIds: [],
       availableTags,
     });
-    await todoMutation.mutateAsync({ projectId, ...payload, content: synced.content, tagIds: synced.tagIds });
+    await todoMutation.mutateAsync({
+      scope: "project",
+      projectId,
+      ...payload,
+      content: synced.content,
+      tagIds: synced.tagIds,
+    });
   }
 
   async function updateTodoContent(todoId: number, content: string, dueDate?: string | null) {

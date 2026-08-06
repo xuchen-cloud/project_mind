@@ -20,6 +20,7 @@ import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
 import { parseDueDateInput, priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS } from "./todo-utils";
 import {
+  buildTodoComposerDraftStorageKey,
   clearTodoComposerDraft,
   readTodoComposerDraft,
   writeTodoComposerDraft,
@@ -118,7 +119,7 @@ export function TodoRail({
     todoRailSortMode: sortMode,
     setTodoRailSortMode: setSortMode,
   } = useUiStore();
-  const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
+  const draftStorageKey = buildTodoComposerDraftStorageKey(projectId);
   const railRef = useRef<HTMLElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const internalReferenceContext =
@@ -773,10 +774,6 @@ export function TodoRail({
       </div>
     </aside>
   );
-}
-
-function buildTodoRailDraftStorageKey(projectId: number | undefined) {
-  return `project-mind:todo-rail-draft:${projectId ?? "workspace"}`;
 }
 
 function PriorityPillButton({

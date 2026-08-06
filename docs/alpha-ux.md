@@ -68,7 +68,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 - 回到整个工作区层面的视角
 - 记录今天最重要的上下文
 - 浏览工作区级Record
-- 跟踪整个工作区范围的 Todo
+- 在 Workspace Todo Rail 中统一处理 Workspace Todo 与活跃 Project 的 Project Todo
 
 当前设计关键点：
 
@@ -76,6 +76,9 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 - 左侧有工作区导航侧边栏
 - 中间主区在 `QuickNote` 与 `Record` 间切换
 - 右侧固定为工作区 Todo Rail
+- Workspace 创建器默认创建 Workspace Todo；只有当次显式选择 Project 才创建 Project Todo
+- Workspace Todo 使用 Workspace Tag；Project Todo 使用所属 Project 的 Project Tag
+- 每条 Project Todo 显示来源 Project，Workspace Todo 显示 Workspace
 
 ### 3.3 项目页
 
@@ -84,7 +87,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 - 一个可以持续维护的QuickNote
 - 一个可以检索和编辑的项目Record区
 - 一个承载记录与文件的项目侧边栏
-- 一个固定可达的项目 Todo Rail
+- 一个固定可达、只显示当前 Project Todo 的 Project Todo Rail
 
 ### 3.4 Record Focus Page
 
@@ -144,10 +147,11 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 
 ### 4.6 管理 Todo
 
-1. 用户在Workspace右侧或项目右侧看到 Todo Rail。
-2. 新建 Todo。
-3. 用优先级、进展、标签与引用推进处理。
-4. 通过跳转回到对应项目或记录。
+1. 用户在 Workspace Todo Rail 中统一查看 Workspace Todo 与活跃 Project 的 Project Todo，并通过来源标识理解真实归属。
+2. Workspace 创建器默认创建 Workspace Todo；需要推进特定 Project 时，用户当次显式选择该 Project 创建 Project Todo。
+3. 用户在 Project Todo Rail 中只查看和创建当前 Project 的 Project Todo。
+4. Workspace Todo 使用 Workspace Tag，Project Todo 使用所属 Project 的 Project Tag；两类 Tag 即使同名也保持独立。
+5. 用户用优先级、Subtask、Tag 与 Internal Reference 推进处理，并可从 Project Todo 的来源进入对应 Project。
 
 ### 4.7 管理文件
 
@@ -163,7 +167,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 Workspace 优先级是：
 
 1. 今天最值得先抓住的判断
-2. 工作区范围的重要 Todo
+2. Workspace Todo 与活跃 Project 的 Project Todo 聚合队列
 3. 工作区记录回看
 
 因此：

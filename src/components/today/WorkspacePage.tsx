@@ -28,6 +28,7 @@ import { useContactMentionNavigation } from "../../hooks/useContactMentionNaviga
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
 import { useWorkspaceTodoActions } from "../../hooks/useWorkspaceTodoActions";
+import { fetchWorkspacePageWithTodoCollections } from "../../hooks/todo-query-cache";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
@@ -107,7 +108,7 @@ export function WorkspacePage({
   });
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
-    queryFn: projectMindApi.workspacePageGet,
+    queryFn: () => fetchWorkspacePageWithTodoCollections(queryClient),
     enabled: visible,
   });
   const workspaceStatusQuery = useQuery({
