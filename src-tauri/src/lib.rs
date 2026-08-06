@@ -405,6 +405,23 @@ fn desktop_read_file_as_data_url(path: String, mime_type: Option<String>) -> Com
 }
 
 #[tauri::command]
+fn desktop_read_clipboard_html() -> CommandResult<Option<String>> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
+    normalize_clipboard_html_result(clipboard.get().html())
+}
+
+fn normalize_clipboard_html_result(
+    result: Result<String, arboard::Error>,
+) -> CommandResult<Option<String>> {
+    match result {
+        Ok(html) if html.trim().is_empty() => Ok(None),
+        Ok(html) => Ok(Some(html)),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
 fn desktop_generate_image_thumbnail(
     state: State<'_, AppState>,
     path: String,
@@ -1014,6 +1031,7 @@ fn internal_reference_resolve(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             ensure_main_window(app)?;
@@ -1041,6 +1059,7 @@ pub fn run() {
             desktop_open_folder,
             desktop_reveal_in_explorer,
             desktop_read_file_as_data_url,
+            desktop_read_clipboard_html,
             desktop_generate_image_thumbnail,
             desktop_list_system_font_families,
             workspace_status_get,
@@ -1114,4 +1133,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::normalize_clipboard_html_result;
+
+    #[test]
+    fn clipboard_html_normalization_distinguishes_empty_content_from_failures() {
+        assert_eq!(
+            normalize_clipboard_html_result(Ok("  <p>Rich</p>  ".to_owned())).unwrap(),
+            Some("  <p>Rich</p>  ".to_owned())
+        );
+        assert_eq!(
+            normalize_clipboard_html_result(Ok("  ".to_owned())).unwrap(),
+            None
+        );
+        assert_eq!(
+            normalize_clipboard_html_result(Err(arboard::Error::ContentNotAvailable)).unwrap(),
+            None
+        );
+        assert!(normalize_clipboard_html_result(Err(arboard::Error::ClipboardOccupied)).is_err());
+    }
 }
