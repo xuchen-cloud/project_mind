@@ -74,6 +74,22 @@ function mergeWorkspaceTodos(current: TodoRecord[] | undefined, todo: TodoRecord
   return [nextTodo, ...current.filter((item) => item.id !== todo.id)];
 }
 
+function projectIsArchived(queryClient: QueryClient, projectId: number) {
+  const projectPage = queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId));
+  if (projectPage) return projectPage.project.isArchived;
+
+  return queryClient
+    .getQueryData<ProjectListItem[]>(queryKeys.projects.all)
+    ?.find((project) => project.id === projectId)?.isArchived;
+}
+
+function todoIsVisibleInWorkspace(queryClient: QueryClient, todo: TodoRecord) {
+  return (
+    todo.scope === "workspace" ||
+    (todo.projectId != null && projectIsArchived(queryClient, todo.projectId) !== true)
+  );
+}
+
 export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
   const now = new Date().toISOString();
   return {
@@ -128,11 +144,16 @@ export function createTodoQueryCache(queryClient: QueryClient) {
           (current) => mergeTodoByStatus(current, todo),
         );
       }
+      const visibleInWorkspace = todoIsVisibleInWorkspace(queryClient, todo);
       queryClient.setQueryData<WorkspacePageData | undefined>(queryKeys.workspacePage, (current) =>
-        mergeTodoByStatus(current, todo),
+        visibleInWorkspace
+          ? mergeTodoByStatus(current, todo)
+          : removeTodoFromListData(current, todo.id),
       );
       queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.workspaceTodos, (current) =>
-        mergeWorkspaceTodos(current, todo),
+        visibleInWorkspace
+          ? mergeWorkspaceTodos(current, todo)
+          : current?.filter((item) => item.id !== todo.id),
       );
     },
     remove: (todo: TodoRecord) => {

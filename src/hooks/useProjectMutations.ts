@@ -4,6 +4,7 @@ import { useFeedbackStore } from "../state/feedback-store";
 import { useUiStore } from "../state/ui-store";
 import type { ProjectListItem } from "../lib/types";
 import { queryKeys } from "../lib/queryKeys";
+import { syncProjectArchiveCaches } from "./project-archive-query-cache";
 
 function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, projectId: number) {
   return Promise.all([
@@ -53,6 +54,7 @@ export function useProjectMutations(
   const archiveMutation = useMutation({
     mutationFn: projectMindApi.projectSetArchive,
     onSuccess: async (project) => {
+      syncProjectArchiveCaches(queryClient, project);
       setStatus({
         tone: "success",
         label: project.isArchived ? "Archived" : "Restored",
@@ -65,8 +67,9 @@ export function useProjectMutations(
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(project.id) });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
-      await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaceTodos });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiArtifacts });
       if (project.isArchived) {
         const nextProject = visibleProjects.find((item) => item.id !== project.id);
         if (nextProject) navigate(`/projects/${nextProject.id}`);

@@ -1062,7 +1062,7 @@ impl Database {
               p.quick_note_code_language, p.is_archived, p.created_at, p.updated_at,
               0 AS activity_count,
               0 AS unorganized_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
+              (SELECT COUNT(*) FROM todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
             ORDER BY p.created_at DESC, p.id DESC
@@ -15085,7 +15085,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_todo_list_returns_workspace_and_unarchived_project_todos() {
+    fn project_archive_only_changes_workspace_todo_visibility() {
         let (harness, mut database) = setup_database();
         let active_project = create_project(&mut database, &harness.workspace_root);
         let archived_project = database
@@ -15103,13 +15103,26 @@ mod tests {
             "跟进预算",
             "urgent_important",
         );
-        create_todo(
+        let archived_open_todo = create_todo(
             &mut database,
             archived_project.id,
             None,
-            "归档项目待办",
+            "归档项目未完成 Todo",
             "not_urgent_not_important",
         );
+        let archived_finished_todo = create_todo(
+            &mut database,
+            archived_project.id,
+            None,
+            "归档项目已完成 Todo",
+            "not_urgent_important",
+        );
+        database
+            .todo_update_status(TodoUpdateStatusInput {
+                todo_id: archived_finished_todo.id,
+                status: "finished".to_string(),
+            })
+            .unwrap();
         let workspace_todo = database
             .todo_create(TodoCreateInput {
                 scope: Some(TodoScope::Workspace),
@@ -15121,6 +15134,14 @@ mod tests {
                 tag_ids: vec![],
             })
             .unwrap();
+        let before_archive = database.workspace_todo_list().unwrap();
+        assert!(before_archive
+            .iter()
+            .any(|todo| todo.id == archived_open_todo.id));
+        assert!(before_archive
+            .iter()
+            .any(|todo| todo.id == archived_finished_todo.id));
+
         database
             .project_set_archive(ProjectArchiveInput {
                 project_id: archived_project.id,
@@ -15132,10 +15153,66 @@ mod tests {
 
         assert_eq!(todos.len(), 2);
         assert!(todos.iter().any(|todo| todo.id == workspace_todo.id));
+        assert!(!todos.iter().any(|todo| todo.id == archived_open_todo.id));
+        assert!(!todos
+            .iter()
+            .any(|todo| todo.id == archived_finished_todo.id));
         let listed_project_todo = todos.iter().find(|todo| todo.id == active_todo.id).unwrap();
         assert_eq!(
             listed_project_todo.source_activity_title.as_deref(),
             Some("Kickoff")
+        );
+
+        let archived_page = database
+            .project_page_get(ProjectIdInput {
+                project_id: archived_project.id,
+            })
+            .unwrap();
+        assert_eq!(archived_page.unfinished_todos[0].id, archived_open_todo.id);
+        assert_eq!(archived_page.unfinished_todos[0].status, "unfinished");
+        assert_eq!(
+            archived_page.finished_todos[0].id,
+            archived_finished_todo.id
+        );
+        assert_eq!(archived_page.finished_todos[0].status, "finished");
+
+        database
+            .project_set_archive(ProjectArchiveInput {
+                project_id: archived_project.id,
+                is_archived: false,
+            })
+            .unwrap();
+        let restored = database.workspace_todo_list().unwrap();
+        assert!(restored.iter().any(|todo| todo.id == workspace_todo.id));
+        assert_eq!(
+            restored
+                .iter()
+                .find(|todo| todo.id == archived_open_todo.id)
+                .unwrap()
+                .status,
+            "unfinished"
+        );
+        assert_eq!(
+            restored
+                .iter()
+                .find(|todo| todo.id == archived_finished_todo.id)
+                .unwrap()
+                .status,
+            "finished"
+        );
+
+        let projects = database
+            .projects_list(ProjectsListInput {
+                include_archived: Some(true),
+            })
+            .unwrap();
+        assert_eq!(
+            projects
+                .iter()
+                .find(|project| project.id == archived_project.id)
+                .unwrap()
+                .open_todo_count,
+            1
         );
     }
 
