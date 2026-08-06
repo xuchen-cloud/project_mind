@@ -93,6 +93,11 @@ describe("syncProjectArchiveCaches", () => {
       unfinishedTodos: [projectOpenTodo],
       finishedTodos: [projectFinishedTodo],
     });
+    expect(queryClient.getQueryData<ProjectListItem[]>(queryKeys.projects.all)?.[0]).toMatchObject({
+      id: activeProject.id,
+      isArchived: true,
+      openTodoCount: 1,
+    });
   });
 
   it("restores cached Project Todos with their original status without duplicating Workspace Todos", () => {
@@ -106,8 +111,8 @@ describe("syncProjectArchiveCaches", () => {
     expect(workspacePage?.finishedTodos).toEqual([projectFinishedTodo]);
     expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos)).toEqual([
       projectOpenTodo,
-      projectFinishedTodo,
       workspaceTodo,
+      projectFinishedTodo,
     ]);
   });
 });

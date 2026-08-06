@@ -15,9 +15,23 @@ function withoutProjectTodos(todos: TodoRecord[] | undefined, projectId: number)
   );
 }
 
-function mergeTodos(current: TodoRecord[] | undefined, additions: TodoRecord[]) {
+function compareTodoRecency(left: TodoRecord, right: TodoRecord) {
+  const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
+  return createdAtOrder !== 0 ? createdAtOrder : right.id - left.id;
+}
+
+function compareWorkspaceTodos(left: TodoRecord, right: TodoRecord) {
+  if (left.status !== right.status) return left.status === "unfinished" ? -1 : 1;
+  return compareTodoRecency(left, right);
+}
+
+function mergeTodos(
+  current: TodoRecord[] | undefined,
+  additions: TodoRecord[],
+  compare: (left: TodoRecord, right: TodoRecord) => number = compareTodoRecency,
+) {
   const additionIds = new Set(additions.map((todo) => todo.id));
-  return [...additions, ...(current ?? []).filter((todo) => !additionIds.has(todo.id))];
+  return [...additions, ...(current ?? []).filter((todo) => !additionIds.has(todo.id))].sort(compare);
 }
 
 export function syncProjectArchiveCaches(queryClient: QueryClient, project: ProjectRecord) {
@@ -60,6 +74,6 @@ export function syncProjectArchiveCaches(queryClient: QueryClient, project: Proj
     if (!current) return current;
     return project.isArchived
       ? withoutProjectTodos(current, project.id)
-      : mergeTodos(current, projectTodos);
+      : mergeTodos(current, projectTodos, compareWorkspaceTodos);
   });
 }
