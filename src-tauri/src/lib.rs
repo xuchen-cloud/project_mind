@@ -754,11 +754,6 @@ fn todo_list_open(
 }
 
 #[tauri::command]
-fn workspace_todo_list(state: State<'_, AppState>) -> CommandResult<Vec<TodoRecord>> {
-    with_db(state, |db| db.workspace_todo_list())
-}
-
-#[tauri::command]
 fn workspace_record_list(state: State<'_, AppState>) -> CommandResult<Vec<WorkspaceRecord>> {
     with_db(state, |db| db.workspace_record_list())
 }
@@ -1083,7 +1078,6 @@ pub fn run() {
             todo_delete_progress,
             todo_delete,
             todo_list_open,
-            workspace_todo_list,
             workspace_quick_note_get,
             workspace_quick_note_upsert,
             workspace_record_list,

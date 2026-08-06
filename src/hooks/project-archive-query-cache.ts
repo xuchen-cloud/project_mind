@@ -70,7 +70,7 @@ export function syncProjectArchiveCaches(queryClient: QueryClient, project: Proj
       ),
     };
   });
-  queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.workspaceTodos, (current) => {
+  queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.todoCollections.workspaceRail, (current) => {
     if (!current) return current;
     return project.isArchived
       ? withoutProjectTodos(current, project.id)

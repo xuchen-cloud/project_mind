@@ -23,9 +23,11 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - `Project`
 - `QuickNote`
 - `Record`
-- `Todo`
-- `Todo Progress`
+- `Workspace Todo`
+- `Project Todo`
+- `Subtask`
 - `Document`
+- `Workspace Tag`
 - `Project Tag`
 - `Contact`
 - `AI Artifact`
@@ -71,7 +73,7 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - 记录搜索
 - 新建、编辑、删除工作区记录
 
-页面右侧始终挂载工作区级 `Todo Rail`，用于查看与处理跨项目 Todo。
+页面右侧始终挂载 `Workspace Todo Rail`，统一展示 Workspace Todo 与未归档 Project 的 Project Todo，并明确标注每条 Todo 的来源。
 
 左侧为工作区侧边栏，提供：
 
@@ -107,7 +109,7 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - 搜索与标签筛选
 - 文件拖拽导入与受管文件操作
 
-页面右侧挂载项目级 `Todo Rail`。
+页面右侧挂载 `Project Todo Rail`，只展示直接归属于当前 Project 的 Project Todo。
 
 ### 3.4 Record Focus Page
 
@@ -166,13 +168,13 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 
 当前 Todo 能力包括：
 
-- 工作区中按项目创建 Todo
-- 项目页中创建项目级 Todo
+- Workspace 中默认创建 Workspace Todo，并可显式选择未归档 Project 创建 Project Todo
+- Project 页面创建当前 Project 的 Project Todo
 - 状态切换
 - 优先级调整
 - 正文内联编辑
 - 进展新增、编辑、删除
-- 标签同步
+- Workspace Todo 使用 Workspace Tag；Project Todo 使用所属 Project 的 Project Tag
 - 内部引用与联系人提及
 
 ### 4.5 文件
@@ -192,14 +194,15 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 
 ### 4.6 标签与联系人
 
-当前提供两类轻量结构化工具：
+当前提供三类轻量结构化工具：
 
-- 项目标签
+- Workspace Tag
+- Project Tag
 - 联系人
 
 用途：
 
-- 标签用于记录、Todo、文件的分类与筛选
+- Workspace Tag 只分类 Workspace 范围对象；Project Tag 只分类所属 Project 内的对象
 - 联系人用于正文与 Todo 中的提及
 
 ### 4.7 AI

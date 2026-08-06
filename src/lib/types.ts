@@ -544,7 +544,7 @@ interface TodoCreateFields {
 
 export type TodoCreateInput =
   | (TodoCreateFields & {
-      scope?: "project";
+      scope: "project";
       projectId: number;
       activityId?: number | null;
     })

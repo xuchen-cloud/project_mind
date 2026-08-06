@@ -137,7 +137,6 @@ vi.mock("./services/projectMindApi", () => ({
       todos: [],
       documents: [],
     })),
-    workspaceTodoList: vi.fn(async () => []),
     workspaceRecordList: vi.fn(async () => []),
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),

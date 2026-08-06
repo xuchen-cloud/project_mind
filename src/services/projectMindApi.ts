@@ -157,8 +157,6 @@ export const projectMindApi = {
     desktopApi.command<TodoRecord>("todo_delete", { input }),
   todoListOpen: (input: ProjectIdInput) =>
     desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
-  workspaceTodoList: () =>
-    desktopApi.command<TodoRecord[]>("workspace_todo_list"),
   workspaceQuickNoteGet: () =>
     desktopApi.command<WorkspaceRecord | null>("workspace_quick_note_get"),
   workspaceQuickNoteUpsert: (input: WorkspaceQuickNoteUpsertInput) =>

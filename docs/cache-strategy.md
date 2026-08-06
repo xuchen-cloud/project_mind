@@ -28,6 +28,7 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - 不在窗口聚焦、网络重连或重新挂载时自动刷新。
 - mutation 应优先精确更新缓存；确实影响聚合结果时才失效对应 query family。
 - query key 必须从 `src/lib/queryKeys.ts` 获取，禁止新增散落的同义 key。
+- Todo 集合 key 显式区分 Workspace 自有集合、Project 自有集合和 Workspace Rail 聚合集合；聚合结果不得使用含义模糊的 Workspace Todo key。
 
 项目页签在鼠标移入或键盘聚焦时预取 `project-page` 与项目标签设置。预取不得阻塞点击导航。
 
@@ -36,7 +37,7 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - Zustand persistence 只保存跨会话 UI 偏好。
 - Todo 未提交草稿使用其独立 localStorage key。
 - 页面临时状态应尽量可以从路由、React Query 数据或草稿恢复，不能依赖页面永久驻留。
-- workspace 切换必须清理所有 workspace-scoped query 和临时同步任务。
+- workspace 切换必须清理所有 workspace-scoped query、搜索结果、Todo 草稿和临时同步任务。
 
 ## 富文本与图片缓存
 

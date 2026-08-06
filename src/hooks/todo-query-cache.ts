@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "../lib/queryKeys";
+import { projectMindApi } from "../services/projectMindApi";
 import type {
   ProjectListItem,
   ProjectPageData,
@@ -14,7 +15,9 @@ type TodoListData = ProjectPageData | WorkspacePageData;
 export interface TodoQuerySnapshot {
   projectPage?: ProjectPageData;
   workspacePage?: WorkspacePageData;
-  workspaceTodos?: TodoRecord[];
+  workspaceOwnedTodos?: TodoRecord[];
+  projectOwnedTodos?: TodoRecord[];
+  workspaceRailTodos?: TodoRecord[];
   projects?: ProjectListItem[];
 }
 
@@ -67,7 +70,7 @@ function removeTodoFromListData<T extends TodoListData>(current: T | undefined, 
     : current;
 }
 
-function mergeWorkspaceTodos(current: TodoRecord[] | undefined, todo: TodoRecord) {
+function upsertTodoInCollection(current: TodoRecord[] | undefined, todo: TodoRecord) {
   if (!current) return current;
   const existing = current.find((item) => item.id === todo.id);
   const nextTodo = existing ? { ...existing, ...todo } : todo;
@@ -90,11 +93,60 @@ function todoIsVisibleInWorkspace(queryClient: QueryClient, todo: TodoRecord) {
   );
 }
 
+export function cacheWorkspaceTodoCollections(
+  queryClient: QueryClient,
+  workspacePage: WorkspacePageData,
+) {
+  const workspaceRailTodos = [
+    ...workspacePage.unfinishedTodos,
+    ...workspacePage.finishedTodos,
+  ];
+  queryClient.setQueryData(
+    queryKeys.todoCollections.workspaceOwned,
+    workspaceRailTodos.filter((todo) => todo.scope === "workspace"),
+  );
+  queryClient.setQueryData(queryKeys.todoCollections.workspaceRail, workspaceRailTodos);
+
+  const projectTodos = new Map<number, TodoRecord[]>();
+  for (const todo of workspaceRailTodos) {
+    if (todo.scope !== "project" || todo.projectId == null) continue;
+    projectTodos.set(todo.projectId, [...(projectTodos.get(todo.projectId) ?? []), todo]);
+  }
+  for (const [projectId, todos] of projectTodos) {
+    queryClient.setQueryData(queryKeys.todoCollections.projectOwned(projectId), todos);
+  }
+}
+
+export function cacheProjectTodoCollection(
+  queryClient: QueryClient,
+  projectPage: ProjectPageData,
+) {
+  queryClient.setQueryData(queryKeys.todoCollections.projectOwned(projectPage.project.id), [
+    ...projectPage.unfinishedTodos,
+    ...projectPage.finishedTodos,
+  ]);
+}
+
+export async function fetchWorkspacePageWithTodoCollections(queryClient: QueryClient) {
+  const workspacePage = await projectMindApi.workspacePageGet();
+  cacheWorkspaceTodoCollections(queryClient, workspacePage);
+  return workspacePage;
+}
+
+export async function fetchProjectPageWithTodoCollection(
+  queryClient: QueryClient,
+  projectId: number,
+) {
+  const projectPage = await projectMindApi.projectPageGet({ projectId });
+  cacheProjectTodoCollection(queryClient, projectPage);
+  return projectPage;
+}
+
 export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
   const now = new Date().toISOString();
   return {
     id: -Date.now(),
-    scope: input.scope ?? "project",
+    scope: input.scope,
     projectId: input.projectId ?? null,
     activityId: input.activityId ?? null,
     content: input.content,
@@ -114,9 +166,15 @@ export function createTodoQueryCache(queryClient: QueryClient) {
       Promise.all([
         ...(projectId == null
           ? []
-          : [queryClient.cancelQueries({ queryKey: queryKeys.projectPage(projectId) })]),
+          : [
+              queryClient.cancelQueries({ queryKey: queryKeys.projectPage(projectId) }),
+              queryClient.cancelQueries({
+                queryKey: queryKeys.todoCollections.projectOwned(projectId),
+              }),
+            ]),
         queryClient.cancelQueries({ queryKey: queryKeys.workspacePage }),
-        queryClient.cancelQueries({ queryKey: queryKeys.workspaceTodos }),
+        queryClient.cancelQueries({ queryKey: queryKeys.todoCollections.workspaceOwned }),
+        queryClient.cancelQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
         queryClient.cancelQueries({ queryKey: queryKeys.projects.all }),
       ]),
     snapshot: (projectId?: number | null): TodoQuerySnapshot => ({
@@ -125,20 +183,52 @@ export function createTodoQueryCache(queryClient: QueryClient) {
           ? undefined
           : queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId)),
       workspacePage: queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage),
-      workspaceTodos: queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos),
+      workspaceOwnedTodos: queryClient.getQueryData<TodoRecord[]>(
+        queryKeys.todoCollections.workspaceOwned,
+      ),
+      projectOwnedTodos:
+        projectId == null
+          ? undefined
+          : queryClient.getQueryData<TodoRecord[]>(
+              queryKeys.todoCollections.projectOwned(projectId),
+            ),
+      workspaceRailTodos: queryClient.getQueryData<TodoRecord[]>(
+        queryKeys.todoCollections.workspaceRail,
+      ),
       projects: queryClient.getQueryData<ProjectListItem[]>(queryKeys.projects.all),
     }),
     restore: (projectId?: number | null, snapshot?: TodoQuerySnapshot) => {
       if (!snapshot) return;
       if (projectId != null) {
         queryClient.setQueryData(queryKeys.projectPage(projectId), snapshot.projectPage);
+        queryClient.setQueryData(
+          queryKeys.todoCollections.projectOwned(projectId),
+          snapshot.projectOwnedTodos,
+        );
       }
       queryClient.setQueryData(queryKeys.workspacePage, snapshot.workspacePage);
-      queryClient.setQueryData(queryKeys.workspaceTodos, snapshot.workspaceTodos);
+      queryClient.setQueryData(
+        queryKeys.todoCollections.workspaceOwned,
+        snapshot.workspaceOwnedTodos,
+      );
+      queryClient.setQueryData(
+        queryKeys.todoCollections.workspaceRail,
+        snapshot.workspaceRailTodos,
+      );
       queryClient.setQueryData(queryKeys.projects.all, snapshot.projects);
     },
     upsert: (todo: TodoRecord) => {
+      if (todo.scope === "workspace") {
+        queryClient.setQueryData<TodoRecord[] | undefined>(
+          queryKeys.todoCollections.workspaceOwned,
+          (current) => upsertTodoInCollection(current, todo),
+        );
+      }
       if (todo.projectId != null) {
+        queryClient.setQueryData<TodoRecord[] | undefined>(
+          queryKeys.todoCollections.projectOwned(todo.projectId),
+          (current) => upsertTodoInCollection(current, todo),
+        );
         queryClient.setQueryData<ProjectPageData | undefined>(
           queryKeys.projectPage(todo.projectId),
           (current) => mergeTodoByStatus(current, todo),
@@ -150,14 +240,24 @@ export function createTodoQueryCache(queryClient: QueryClient) {
           ? mergeTodoByStatus(current, todo)
           : removeTodoFromListData(current, todo.id),
       );
-      queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.workspaceTodos, (current) =>
+      queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.todoCollections.workspaceRail, (current) =>
         visibleInWorkspace
-          ? mergeWorkspaceTodos(current, todo)
+          ? upsertTodoInCollection(current, todo)
           : current?.filter((item) => item.id !== todo.id),
       );
     },
     remove: (todo: TodoRecord) => {
+      if (todo.scope === "workspace") {
+        queryClient.setQueryData<TodoRecord[] | undefined>(
+          queryKeys.todoCollections.workspaceOwned,
+          (current) => current?.filter((item) => item.id !== todo.id),
+        );
+      }
       if (todo.projectId != null) {
+        queryClient.setQueryData<TodoRecord[] | undefined>(
+          queryKeys.todoCollections.projectOwned(todo.projectId),
+          (current) => current?.filter((item) => item.id !== todo.id),
+        );
         queryClient.setQueryData<ProjectPageData | undefined>(
           queryKeys.projectPage(todo.projectId),
           (current) => removeTodoFromListData(current, todo.id),
@@ -166,7 +266,7 @@ export function createTodoQueryCache(queryClient: QueryClient) {
       queryClient.setQueryData<WorkspacePageData | undefined>(queryKeys.workspacePage, (current) =>
         removeTodoFromListData(current, todo.id),
       );
-      queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.workspaceTodos, (current) =>
+      queryClient.setQueryData<TodoRecord[] | undefined>(queryKeys.todoCollections.workspaceRail, (current) =>
         current?.filter((item) => item.id !== todo.id),
       );
     },

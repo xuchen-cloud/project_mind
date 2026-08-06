@@ -959,8 +959,7 @@ pub struct ConclusionDeleteInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoCreateInput {
-    #[serde(default)]
-    pub scope: Option<TodoScope>,
+    pub scope: TodoScope,
     pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub content: String,

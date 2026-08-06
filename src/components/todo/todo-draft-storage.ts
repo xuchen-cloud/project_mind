@@ -7,6 +7,11 @@ export interface TodoComposerDraftSnapshot {
 }
 
 const DEFAULT_TODO_PRIORITY: TodoPriority = "not_urgent_important";
+const TODO_COMPOSER_DRAFT_STORAGE_PREFIX = "project-mind:todo-rail-draft:";
+
+export function buildTodoComposerDraftStorageKey(projectId?: number) {
+  return `${TODO_COMPOSER_DRAFT_STORAGE_PREFIX}${projectId ?? "workspace"}`;
+}
 
 export function readTodoComposerDraft(
   storageKey: string,
@@ -64,6 +69,20 @@ export function clearTodoComposerDraft(storageKey: string) {
     window.localStorage.removeItem(storageKey);
   } catch {
     // Ignore storage errors; clearing is best-effort.
+  }
+}
+
+export function clearAllTodoComposerDrafts() {
+  try {
+    const draftKeys = Array.from({ length: window.localStorage.length }, (_, index) =>
+      window.localStorage.key(index),
+    ).filter((key): key is string => key?.startsWith(TODO_COMPOSER_DRAFT_STORAGE_PREFIX) === true);
+
+    for (const key of draftKeys) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Workspace switching must continue even when localStorage is unavailable.
   }
 }
 

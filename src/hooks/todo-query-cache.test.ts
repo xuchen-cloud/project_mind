@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { queryKeys } from "../lib/queryKeys";
 import type { ProjectPageData, TodoRecord, WorkspacePageData } from "../lib/types";
-import { createTodoQueryCache } from "./todo-query-cache";
+import {
+  cacheProjectTodoCollection,
+  cacheWorkspaceTodoCollections,
+  createTodoQueryCache,
+} from "./todo-query-cache";
 
 const archivedProjectPage: ProjectPageData = {
   project: {
@@ -40,6 +44,42 @@ const workspaceTodo: TodoRecord = {
 };
 
 describe("createTodoQueryCache", () => {
+  it("initializes the three ownership collections from public page results", () => {
+    const queryClient = new QueryClient();
+    const projectTodo: TodoRecord = {
+      ...workspaceTodo,
+      id: 2,
+      scope: "project",
+      projectId: archivedProjectPage.project.id,
+      content: "Project Todo",
+    };
+    const workspacePage: WorkspacePageData = {
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [workspaceTodo, projectTodo],
+      finishedTodos: [],
+    };
+    const projectPage = {
+      ...archivedProjectPage,
+      unfinishedTodos: [projectTodo],
+    };
+
+    cacheWorkspaceTodoCollections(queryClient, workspacePage);
+    cacheProjectTodoCollection(queryClient, projectPage);
+
+    expect(
+      queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceOwned),
+    ).toEqual([workspaceTodo]);
+    expect(
+      queryClient.getQueryData<TodoRecord[]>(
+        queryKeys.todoCollections.projectOwned(archivedProjectPage.project.id),
+      ),
+    ).toEqual([projectTodo]);
+    expect(
+      queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail),
+    ).toEqual([workspaceTodo, projectTodo]);
+  });
+
   it("keeps archived Project Todo mutations out of Workspace aggregates", () => {
     const queryClient = new QueryClient();
     const archivedTodo: TodoRecord = {
@@ -60,7 +100,12 @@ describe("createTodoQueryCache", () => {
       unfinishedTodos: [archivedTodo],
     });
     queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
-    queryClient.setQueryData(queryKeys.workspaceTodos, [workspaceTodo, archivedTodo]);
+    queryClient.setQueryData(queryKeys.todoCollections.workspaceOwned, [workspaceTodo]);
+    queryClient.setQueryData(
+      queryKeys.todoCollections.projectOwned(archivedProjectPage.project.id),
+      [archivedTodo],
+    );
+    queryClient.setQueryData(queryKeys.todoCollections.workspaceRail, [workspaceTodo, archivedTodo]);
 
     createTodoQueryCache(queryClient).upsert({
       ...archivedTodo,
@@ -75,8 +120,16 @@ describe("createTodoQueryCache", () => {
     expect(
       queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)?.unfinishedTodos,
     ).toEqual([workspaceTodo]);
-    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos)).toEqual([
+    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail)).toEqual([
       workspaceTodo,
     ]);
+    expect(
+      queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceOwned),
+    ).toEqual([workspaceTodo]);
+    expect(
+      queryClient.getQueryData<TodoRecord[]>(
+        queryKeys.todoCollections.projectOwned(archivedProjectPage.project.id),
+      )?.[0].content,
+    ).toBe("Edited while archived");
   });
 });

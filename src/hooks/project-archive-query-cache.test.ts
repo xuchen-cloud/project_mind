@@ -65,7 +65,7 @@ function seedClient() {
   queryClient.setQueryData(queryKeys.projects.all, [activeProject]);
   queryClient.setQueryData(queryKeys.projectPage(activeProject.id), projectPage);
   queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
-  queryClient.setQueryData(queryKeys.workspaceTodos, [
+  queryClient.setQueryData(queryKeys.todoCollections.workspaceRail, [
     workspaceTodo,
     projectOpenTodo,
     projectFinishedTodo,
@@ -83,7 +83,7 @@ describe("syncProjectArchiveCaches", () => {
     const workspacePage = queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage);
     expect(workspacePage?.unfinishedTodos).toEqual([workspaceTodo]);
     expect(workspacePage?.finishedTodos).toEqual([]);
-    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos)).toEqual([
+    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail)).toEqual([
       workspaceTodo,
     ]);
     expect(
@@ -109,7 +109,7 @@ describe("syncProjectArchiveCaches", () => {
     const workspacePage = queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage);
     expect(workspacePage?.unfinishedTodos).toEqual([projectOpenTodo, workspaceTodo]);
     expect(workspacePage?.finishedTodos).toEqual([projectFinishedTodo]);
-    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.workspaceTodos)).toEqual([
+    expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail)).toEqual([
       projectOpenTodo,
       workspaceTodo,
       projectFinishedTodo,

@@ -41,6 +41,7 @@ import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
 import { useResidentProjectPages } from "./hooks/useResidentProjectPages";
 import { useResidentWorkspacePage } from "./hooks/useResidentWorkspacePage";
+import { fetchProjectPageWithTodoCollection } from "./hooks/todo-query-cache";
 import {
   ProjectSidebar,
   type ProjectSidebarDocumentItem,
@@ -53,6 +54,7 @@ import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/today/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
+import { clearAllTodoComposerDrafts } from "./components/todo/todo-draft-storage";
 import {
   CreateWorkspaceDialog,
   UnlockWorkspaceSecretsDialog,
@@ -64,7 +66,7 @@ function workspaceScopedQueryKeys() {
     ["projects"],
     ["project-page"],
     ["search"],
-    ["workspace-todos"],
+    queryKeys.todoCollections.all,
     ["workspace-page"],
     ["ai-settings"],
     ["ai-artifact"],
@@ -255,7 +257,7 @@ export function WorkspaceLayout({
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () =>
-      projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
+      fetchProjectPageWithTodoCollection(queryClient, activeProjectId as number),
     enabled: hasWorkspace && activeProjectId !== null,
   });
   const projectSidebarRecords = useMemo(
@@ -346,6 +348,7 @@ export function WorkspaceLayout({
           queryClient.removeQueries({ queryKey: key });
         }
         clearWorkspaceScopedUiState();
+        clearAllTodoComposerDrafts();
         resetAiJobSync();
       }
       queryClient.setQueryData(queryKeys.workspaceStatus, snapshot);
@@ -567,7 +570,7 @@ export function WorkspaceLayout({
       void Promise.all([
         queryClient.prefetchQuery({
           queryKey: queryKeys.projectPage(projectId),
-          queryFn: () => projectMindApi.projectPageGet({ projectId }),
+          queryFn: () => fetchProjectPageWithTodoCollection(queryClient, projectId),
         }),
         queryClient.prefetchQuery({
           queryKey: queryKeys.projectTags.project(projectId),
