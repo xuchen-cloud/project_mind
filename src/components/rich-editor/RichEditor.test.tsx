@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Copy } from "lucide-react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as aiJobs from "../../lib/aiJobs";
 import { buildContactMentionHtml } from "../../lib/contactMentions";
@@ -9,6 +9,7 @@ import { buildInternalReferenceHtml } from "../../lib/internalReferences";
 import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useAiJobStore } from "../../state/ai-job-store";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
 
@@ -234,6 +235,7 @@ beforeAll(() => {
 beforeEach(() => {
   clearManagedImageThumbnailCacheForTests();
   useAiJobStore.getState().reset();
+  useFeedbackStore.setState({ toasts: [] });
   defaultIntersectionState = true;
   intersectionObservers.length = 0;
 });
@@ -271,6 +273,15 @@ async function getEditorSurface(container: HTMLElement) {
     expect(nextSurface).toBeTruthy();
     return nextSurface as HTMLElement;
   });
+}
+
+async function clickContextMenuPaste(user: ReturnType<typeof userEvent.setup>, surface: HTMLElement) {
+  fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
+  await user.click(
+    within(await screen.findByRole("menu", { name: "文本操作" })).getByRole("button", {
+      name: "粘贴",
+    }),
+  );
 }
 
 function triggerIntersection(isIntersecting: boolean) {
@@ -323,10 +334,7 @@ function clearBrowserSelection() {
 describe("RichEditor links", () => {
   it("keeps hyperlinks in editor content and applies the rich editor link class", async () => {
     const { container } = render(
-      <RichEditor
-        variant="bare"
-        defaultHtml='<p>参考 <a href="https://example.com">Example</a></p>'
-      />,
+      <RichEditor variant="bare" defaultHtml='<p>参考 <a href="https://example.com">Example</a></p>' />,
     );
 
     const link = await waitFor(() => {
@@ -559,9 +567,7 @@ describe("RichEditor images", () => {
     });
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/clip.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png.960.thumb.jpg");
     });
 
     await waitFor(() => {
@@ -734,9 +740,7 @@ describe("RichEditor images", () => {
         expect(image.style.width).toBe("240px");
       });
 
-      expect(
-        setAttributeSpy.mock.calls.filter(([name]) => name === "src"),
-      ).toHaveLength(0);
+      expect(setAttributeSpy.mock.calls.filter(([name]) => name === "src")).toHaveLength(0);
 
       setAttributeSpy.mockRestore();
     } finally {
@@ -851,9 +855,7 @@ describe("RichEditor images", () => {
     });
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/clip.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clip.png.960.thumb.jpg");
     });
     pickFileSpy.mockRestore();
   });
@@ -899,9 +901,7 @@ describe("RichEditor images", () => {
     });
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/clipboard.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/clipboard.png.960.thumb.jpg");
     });
   });
 
@@ -994,10 +994,7 @@ describe("RichEditor images", () => {
     await user.click(within(imageMenu).getByRole("menuitem", { name: "复制图片" }));
 
     await waitFor(() => {
-      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
-        "/tmp/managed/clip.png",
-        "image/png",
-      );
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith("/tmp/managed/clip.png", "image/png");
       expect(write).toHaveBeenCalledTimes(1);
     });
     expect(clipboardItemSpy.mock.calls[0]?.[0]?.["image/png"]).toBeInstanceOf(Blob);
@@ -1145,7 +1142,11 @@ describe("RichEditor images", () => {
       }),
     });
 
-    fireEvent.mouseDown(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
+    fireEvent.mouseDown(stageSurface, {
+      clientX: 180,
+      clientY: 160,
+      buttons: 1,
+    });
     fireEvent.mouseUp(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
     fireEvent.click(stageSurface, { clientX: 180, clientY: 160, buttons: 1 });
 
@@ -1194,7 +1195,9 @@ describe("RichEditor images", () => {
       />,
     );
     const surface = await getEditorSurface(container);
-    const pastedFile = new File(["fake"], "pasted-image.png", { type: "image/png" });
+    const pastedFile = new File(["fake"], "pasted-image.png", {
+      type: "image/png",
+    });
 
     await user.click(surface);
     fireEvent.paste(surface, {
@@ -1240,7 +1243,9 @@ describe("RichEditor images", () => {
       />,
     );
     const surface = await getEditorSurface(container);
-    const pastedFile = new File(["fake"], "empty-editor.png", { type: "image/png" });
+    const pastedFile = new File(["fake"], "empty-editor.png", {
+      type: "image/png",
+    });
 
     await user.click(surface);
     fireEvent.paste(surface, {
@@ -1286,9 +1291,7 @@ describe("RichEditor images", () => {
         files: [],
         items: [],
         getData: (type: string) =>
-          type === "text/html"
-            ? '<img src="data:image/png;base64,QUFBQQ==" alt="截图" />'
-            : "",
+          type === "text/html" ? '<img src="data:image/png;base64,QUFBQQ==" alt="截图" />' : "",
       },
     });
 
@@ -1330,10 +1333,7 @@ describe("RichEditor images", () => {
       clipboardData: {
         files: [],
         items: [],
-        getData: (type: string) =>
-          type === "text/html"
-            ? '<img src="data:image/heic;base64,QUFBQQ==" />'
-            : "",
+        getData: (type: string) => (type === "text/html" ? '<img src="data:image/heic;base64,QUFBQQ==" />' : ""),
       },
     });
 
@@ -1349,25 +1349,92 @@ describe("RichEditor images", () => {
       expect(getLatestHtml(onChange)).toContain('data-path="/tmp/managed/html-paste.heic"');
     });
   });
+
+  it("prefers meaningful keyboard-paste HTML over a flattened bitmap representation", async () => {
+    const user = userEvent.setup();
+    const insertPastedImage = vi.fn(async () => ({
+      kind: "image" as const,
+      title: "flattened.png",
+      path: "/tmp/managed/flattened.png",
+      mimeType: "image/png",
+    }));
+    const { container } = render(<RichEditor variant="toolbar" assetHandlers={{ insertPastedImage }} />);
+    const surface = await getEditorSurface(container);
+    const flattenedImage = new File(["bitmap"], "flattened.png", {
+      type: "image/png",
+    });
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [flattenedImage],
+        items: [],
+        getData: (type: string) =>
+          type === "text/html"
+            ? "<p>Rich <strong>composition</strong></p>"
+            : type === "text/plain"
+              ? "Rich composition"
+              : "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("Rich composition");
+      expect(surface.querySelector("strong")).toHaveTextContent("composition");
+    });
+    expect(insertPastedImage).not.toHaveBeenCalled();
+    expect(surface.querySelector("img")).toBeNull();
+  });
+
+  it("preserves safe keyboard-paste text when an HTML image cannot be persisted", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const insertPastedImage = vi.fn(async () => {
+      throw new Error("managed storage unavailable");
+    });
+    const { container } = render(
+      <RichEditor variant="toolbar" onChange={onChange} assetHandlers={{ insertPastedImage }} />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.click(surface);
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [],
+        items: [],
+        getData: (type: string) =>
+          type === "text/html"
+            ? '<p>safe text</p><img src="data:image/png;base64,QUFBQQ==" alt="unsafe image" />'
+            : type === "text/plain"
+              ? "safe text"
+              : "",
+      },
+    });
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("safe text");
+      expect(insertPastedImage).toHaveBeenCalledTimes(1);
+    });
+    expect(surface.querySelector("img")).toBeNull();
+    expect(getLatestHtml(onChange) ?? "").not.toContain("data:image/");
+  });
 });
 
 describe("RichEditor internal references", () => {
   it("opens the picker on [[ and inserts an internal reference token", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const searchSpy = vi
-      .spyOn(projectMindApi, "internalReferenceSearch")
-      .mockResolvedValue([
-        {
-          kind: "todo",
-          id: 18,
-          label: "推进预算审批",
-          projectId: 1,
-          activityId: 2,
-          subtitle: "Alpha · Kickoff",
-          updatedAt: "2026-04-06T10:00:00.000Z",
-        },
-      ]);
+    const searchSpy = vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([
+      {
+        kind: "todo",
+        id: 18,
+        label: "推进预算审批",
+        projectId: 1,
+        activityId: 2,
+        subtitle: "Alpha · Kickoff",
+        updatedAt: "2026-04-06T10:00:00.000Z",
+      },
+    ]);
     const { container } = render(
       <RichEditor
         variant="toolbar"
@@ -1400,19 +1467,17 @@ describe("RichEditor internal references", () => {
   it("opens the picker on fullwidth 【【 and still inserts the normalized internal reference token", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const searchSpy = vi
-      .spyOn(projectMindApi, "internalReferenceSearch")
-      .mockResolvedValue([
-        {
-          kind: "document",
-          id: 51,
-          label: "project-brief.pdf",
-          projectId: 1,
-          activityId: 2,
-          subtitle: "Alpha · Kickoff",
-          updatedAt: "2026-04-06T10:00:00.000Z",
-        },
-      ]);
+    const searchSpy = vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([
+      {
+        kind: "document",
+        id: 51,
+        label: "project-brief.pdf",
+        projectId: 1,
+        activityId: 2,
+        subtitle: "Alpha · Kickoff",
+        updatedAt: "2026-04-06T10:00:00.000Z",
+      },
+    ]);
     const { container } = render(
       <RichEditor
         variant="toolbar"
@@ -1486,7 +1551,16 @@ describe("RichEditor tag mentions", () => {
         onChange={onChange}
         tagMentions={{
           projectId: null,
-          availableTags: [{ id: 11, label: "预算", colorKey: "amber", usageCount: 0, createdAt: "", updatedAt: "" }],
+          availableTags: [
+            {
+              id: 11,
+              label: "预算",
+              colorKey: "amber",
+              usageCount: 0,
+              createdAt: "",
+              updatedAt: "",
+            },
+          ],
         }}
       />,
     );
@@ -1525,7 +1599,16 @@ describe("RichEditor tag mentions", () => {
         onChange={onChange}
         tagMentions={{
           projectId: null,
-          availableTags: [{ id: 11, label: "预算", colorKey: "amber", usageCount: 0, createdAt: "", updatedAt: "" }],
+          availableTags: [
+            {
+              id: 11,
+              label: "预算",
+              colorKey: "amber",
+              usageCount: 0,
+              createdAt: "",
+              updatedAt: "",
+            },
+          ],
           onCreateTag,
         }}
       />,
@@ -1550,12 +1633,697 @@ describe("RichEditor tag mentions", () => {
 });
 
 describe("RichEditor context menus", () => {
+  const tauriWindow = window as Window & { __TAURI_INTERNALS__?: unknown };
+  let previousTauriInternals: unknown;
+
+  beforeEach(() => {
+    previousTauriInternals = tauriWindow.__TAURI_INTERNALS__;
+    tauriWindow.__TAURI_INTERNALS__ = {};
+  });
+
+  afterEach(() => {
+    for (const method of ["readClipboardHtml", "readClipboardText", "readClipboardImage"] as const) {
+      const candidate = desktopApi[method];
+
+      if (vi.isMockFunction(candidate)) {
+        candidate.mockRestore();
+      }
+    }
+
+    if (previousTauriInternals === undefined) {
+      delete tauriWindow.__TAURI_INTERNALS__;
+    } else {
+      tauriWindow.__TAURI_INTERNALS__ = previousTauriInternals;
+    }
+  });
+
+  it("does nothing quietly for an empty desktop clipboard", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue(null);
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>unchanged</p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+    onChange.mockClear();
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(readClipboardImage).toHaveBeenCalledTimes(1);
+    });
+    expect(surface).toHaveTextContent("unchanged");
+    expect(onChange.mock.calls.every(([value]) => value.html === "<p>unchanged</p>")).toBe(true);
+    expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("treats semantically empty HTML as an empty clipboard without feedback", async () => {
+    const user = userEvent.setup();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue("<p><br></p>");
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue(null);
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>unchanged</p>" />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(readClipboardImage).toHaveBeenCalledTimes(1);
+    });
+    expect(surface).toHaveTextContent("unchanged");
+    expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("falls back to text when clipboard HTML cannot be read", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async (value: unknown) => value);
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockRejectedValue(new Error("HTML unavailable"));
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("safe fallback");
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue(null);
+
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p></p>" autosave={{ onChange: false, onBlur: true }} onSave={onSave} />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("safe fallback");
+    });
+    expect(readClipboardImage).toHaveBeenCalledTimes(1);
+    expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+
+    fireEvent.blur(surface);
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ html: expect.stringContaining("safe fallback") }));
+    });
+  });
+
+  it("keeps Paste disabled in a read-only RichEditor", async () => {
+    const user = userEvent.setup();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("must not paste");
+
+    const { container } = render(<RichEditor variant="bare" readOnly defaultHtml="<p>read only</p>" />);
+    const surface = await getEditorSurface(container);
+
+    fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
+    const pasteButton = within(await screen.findByRole("menu", { name: "文本操作" })).getByRole("button", {
+      name: "粘贴",
+    });
+    expect(pasteButton).toBeDisabled();
+    await user.click(pasteButton);
+
+    expect(surface).toHaveTextContent("read only");
+    expect(readClipboardHtml).not.toHaveBeenCalled();
+    expect(readClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("aborts with feedback when the captured paste target is replaced before completion", async () => {
+    const user = userEvent.setup();
+    let resolveHtml!: (html: string | null) => void;
+    const htmlResult = new Promise<string | null>((resolve) => {
+      resolveHtml = resolve;
+    });
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockReturnValue(htmlResult);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+
+    const { container, rerender } = render(<RichEditor variant="bare" html="<p>alpha omega</p>" />);
+    const surface = await getEditorSurface(container);
+    const textNode = surface.querySelector("p")?.firstChild as Text;
+
+    fireEvent.focus(surface);
+    selectTextContent(textNode, 0, 5);
+    fireEvent.contextMenu(textNode.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
+    await user.click(
+      within(await screen.findByRole("menu", { name: "文本操作" })).getByRole("button", {
+        name: "粘贴",
+      }),
+    );
+
+    rerender(<RichEditor variant="bare" html="<p>replacement</p>" />);
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("replacement");
+    });
+    resolveHtml("<strong>PASTE</strong>");
+
+    await waitFor(() => {
+      expect(useFeedbackStore.getState().toasts).toMatchObject([{ tone: "error", title: "粘贴失败" }]);
+    });
+    expect(surface).toHaveTextContent("replacement");
+    expect(surface).not.toHaveTextContent("PASTE");
+  });
+
+  it("shows one failure message for a native image read failure on an otherwise empty clipboard", async () => {
+    const user = userEvent.setup();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi
+      .spyOn(desktopApi, "readClipboardImage")
+      .mockRejectedValue(new Error("image unavailable"));
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(useFeedbackStore.getState().toasts).toMatchObject([{ tone: "error", title: "粘贴失败" }]);
+    });
+    expect(useFeedbackStore.getState().toasts).toHaveLength(1);
+  });
+
+  it("rejects an ephemeral blob image instead of treating it as a successful paste", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue('<img src="data:image/png;base64,QUFBQQ==" alt="temporary" />');
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi
+      .spyOn(desktopApi, "readClipboardImage")
+      .mockRejectedValue(new Error("no native image"));
+    const insertPastedImage = vi.fn(async () => ({
+      kind: "image" as const,
+      title: "temporary.png",
+      src: "blob:temporary-only",
+      mimeType: "image/png",
+    }));
+
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} assetHandlers={{ insertPastedImage }} />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(insertPastedImage).toHaveBeenCalledTimes(1);
+      expect(useFeedbackStore.getState().toasts).toMatchObject([{ tone: "error", title: "粘贴失败" }]);
+    });
+    expect(surface.querySelector("img")).toBeNull();
+    expect(getLatestHtml(onChange) ?? "").not.toContain("blob:");
+  });
+
+  it("keeps an asynchronous paste bound to the selection captured at invocation", async () => {
+    const user = userEvent.setup();
+    const controllerRef: { current: RichEditorController | null } = {
+      current: null,
+    };
+    let resolveHtml!: (html: string | null) => void;
+    const htmlResult = new Promise<string | null>((resolve) => {
+      resolveHtml = resolve;
+    });
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockReturnValue(htmlResult);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p>alpha omega</p>" controllerRef={controllerRef} />,
+    );
+    const surface = await getEditorSurface(container);
+    const textNode = surface.querySelector("p")?.firstChild as Text;
+
+    fireEvent.focus(surface);
+    selectTextContent(textNode, 0, 5);
+    fireEvent.contextMenu(textNode.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
+    await user.click(
+      within(await screen.findByRole("menu", { name: "文本操作" })).getByRole("button", {
+        name: "粘贴",
+      }),
+    );
+
+    controllerRef.current?.focus("end");
+    resolveHtml("<strong>PASTE</strong>");
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("PASTE omega");
+    });
+    expect(surface).not.toHaveTextContent("alpha");
+  });
+
+  it("inserts at the right-click position when it is outside the current selection", async () => {
+    const user = userEvent.setup();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("PASTE");
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>alpha</p><p>omega</p>" />);
+    const surface = await getEditorSurface(container);
+    const paragraphs = surface.querySelectorAll("p");
+    const selectedText = paragraphs[0]?.firstChild as Text;
+
+    fireEvent.focus(surface);
+    selectTextContent(selectedText, 0, 5);
+    fireEvent.contextMenu(paragraphs[1] as HTMLParagraphElement, {
+      clientX: 20,
+      clientY: 40,
+    });
+    await user.click(
+      within(await screen.findByRole("menu", { name: "文本操作" })).getByRole("button", {
+        name: "粘贴",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(paragraphs[0]).toHaveTextContent("alpha");
+      expect(paragraphs[1]).toHaveTextContent("PASTEomega");
+    });
+  });
+
+  it("reports a native image paste when managed persistence fails", async () => {
+    const user = userEvent.setup();
+    const previousImageData = globalThis.ImageData;
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue({
+      rgba: new Uint8Array([255, 0, 0, 255]),
+      width: 1,
+      height: 1,
+    });
+    const insertPastedImage = vi.fn(async () => {
+      throw new Error("managed storage unavailable");
+    });
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback) => callback(new Blob(["png"], { type: "image/png" })));
+
+    Object.defineProperty(globalThis, "ImageData", {
+      configurable: true,
+      value: class ImageData {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number,
+        ) {}
+      },
+    });
+    try {
+      const { container } = render(
+        <RichEditor variant="bare" defaultHtml="<p></p>" assetHandlers={{ insertPastedImage }} />,
+      );
+      const surface = await getEditorSurface(container);
+
+      await clickContextMenuPaste(user, surface);
+
+      await waitFor(() => {
+        expect(insertPastedImage).toHaveBeenCalledTimes(1);
+        expect(useFeedbackStore.getState().toasts).toMatchObject([{ tone: "error", title: "粘贴失败" }]);
+      });
+      const importedFile = insertPastedImage.mock.calls[0]?.[0] as File;
+      expect(importedFile.name).toBe("clipboard-image.png");
+      expect(importedFile.type).toBe("image/png");
+      expect(surface.querySelector("img")).toBeNull();
+    } finally {
+      toBlob.mockRestore();
+      Object.defineProperty(globalThis, "ImageData", {
+        configurable: true,
+        value: previousImageData,
+      });
+    }
+  });
+
+  it("persists a native RGBA image with stable metadata that survives reopening", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const previousImageData = globalThis.ImageData;
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockRejectedValue(new Error("HTML unavailable"));
+    const readClipboardText = vi
+      .spyOn(desktopApi, "readClipboardText")
+      .mockRejectedValue(new Error("text unavailable"));
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue({
+      rgba: new Uint8Array([0, 128, 255, 255]),
+      width: 1,
+      height: 1,
+    });
+    const insertPastedImage = vi.fn(async (file: File) => ({
+      kind: "image" as const,
+      title: "screenshot.png",
+      path: "C:\\Workspace\\.project-mind\\images\\screenshot.png",
+      mimeType: file.type,
+      documentId: 73,
+    }));
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback) => callback(new Blob(["png"], { type: "image/png" })));
+
+    Object.defineProperty(globalThis, "ImageData", {
+      configurable: true,
+      value: class ImageData {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number,
+        ) {}
+      },
+    });
+    try {
+      const rendered = render(
+        <RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} assetHandlers={{ insertPastedImage }} />,
+      );
+      const surface = await getEditorSurface(rendered.container);
+
+      await clickContextMenuPaste(user, surface);
+
+      const savedHtml = await waitFor(() => {
+        const html = getLatestHtml(onChange) ?? "";
+        expect(html).toContain('data-path="C:\\Workspace\\.project-mind\\images\\screenshot.png"');
+        expect(html).toContain('data-mime-type="image/png"');
+        expect(html).toContain('data-document-id="73"');
+        return html;
+      });
+      expect(insertPastedImage.mock.calls[0]?.[0]).toMatchObject({
+        name: "clipboard-image.png",
+        type: "image/png",
+      });
+      expect(savedHtml).not.toContain("blob:");
+      expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+
+      rendered.unmount();
+      const reopened = render(<RichEditor variant="bare" defaultHtml={savedHtml} />);
+      const reopenedImage = await waitFor(() => {
+        const image = reopened.container.querySelector("img.rich-editor__image");
+        expect(image).toBeTruthy();
+        return image as HTMLImageElement;
+      });
+      expect(reopenedImage.getAttribute("data-path")).toBe("C:\\Workspace\\.project-mind\\images\\screenshot.png");
+      expect(reopenedImage.getAttribute("data-document-id")).toBe("73");
+    } finally {
+      toBlob.mockRestore();
+      Object.defineProperty(globalThis, "ImageData", {
+        configurable: true,
+        value: previousImageData,
+      });
+    }
+  });
+
+  it.each([
+    {
+      source: "clipboard HTML is image-only",
+      html: '<img src="https://example.com/clipboard.png" alt="remote image" />',
+    },
+    { source: "clipboard HTML is unavailable", html: null },
+  ])("prefers a native bitmap over text when $source", async ({ html }) => {
+    const user = userEvent.setup();
+    const previousImageData = globalThis.ImageData;
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(html);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("remote image fallback text");
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue({
+      rgba: new Uint8Array([0, 0, 0, 255]),
+      width: 1,
+      height: 1,
+    });
+    const insertPastedImage = vi.fn(async () => ({
+      kind: "image" as const,
+      title: "clipboard.png",
+      path: "C:\\Workspace\\managed\\clipboard.png",
+      mimeType: "image/png",
+      documentId: 74,
+    }));
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback) => callback(new Blob(["png"], { type: "image/png" })));
+
+    Object.defineProperty(globalThis, "ImageData", {
+      configurable: true,
+      value: class ImageData {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number,
+        ) {}
+      },
+    });
+    try {
+      const { container } = render(
+        <RichEditor variant="bare" defaultHtml="<p></p>" assetHandlers={{ insertPastedImage }} />,
+      );
+      const surface = await getEditorSurface(container);
+
+      await clickContextMenuPaste(user, surface);
+
+      await waitFor(() => {
+        expect(surface.querySelector("img")).toBeTruthy();
+      });
+      expect(surface).not.toHaveTextContent("remote image fallback text");
+      expect(readClipboardImage).toHaveBeenCalledTimes(1);
+      expect(insertPastedImage).toHaveBeenCalledTimes(1);
+      expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+    } finally {
+      toBlob.mockRestore();
+      Object.defineProperty(globalThis, "ImageData", {
+        configurable: true,
+        value: previousImageData,
+      });
+    }
+  });
+
+  it("preserves safe rich HTML when an embedded image import throws", async () => {
+    const user = userEvent.setup();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        '<p>safe <strong>rich text</strong></p><img src="data:image/png;base64,QUFBQQ==" alt="failed" />',
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage").mockResolvedValue(null);
+    const insertPastedImage = vi.fn(async () => {
+      throw new Error("managed storage unavailable");
+    });
+
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p></p>" assetHandlers={{ insertPastedImage }} />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface.querySelector("strong")).toHaveTextContent("rich text");
+    });
+    expect(surface.querySelector("img")).toBeNull();
+    expect(readClipboardText).not.toHaveBeenCalled();
+    expect(readClipboardImage).not.toHaveBeenCalled();
+    expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("imports ordered HTML images as one undoable and redoable paste", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        '<p>before</p><img src="data:image/png;base64,QUFBQQ==" alt="first.png" /><p>between</p><img src="data:image/jpeg;base64,QkJCQg==" alt="second.jpg" />',
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+    const readClipboardImage = vi.spyOn(desktopApi, "readClipboardImage");
+    let importedIndex = 0;
+    const insertPastedImage = vi.fn(async (file: File) => {
+      importedIndex += 1;
+      return {
+        kind: "image" as const,
+        title: file.name,
+        path: `C:\\Workspace\\managed\\${file.name}`,
+        mimeType: file.type,
+        documentId: 40 + importedIndex,
+      };
+    });
+
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} assetHandlers={{ insertPastedImage }} />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface.querySelectorAll("img")).toHaveLength(2);
+    });
+    const images = Array.from(surface.querySelectorAll("img"));
+    expect(images.map((image) => image.getAttribute("alt"))).toEqual(["first.png", "second.jpg"]);
+    await waitFor(() => {
+      const html = getLatestHtml(onChange) ?? "";
+      expect(html).toContain('data-path="C:\\Workspace\\managed\\first.png"');
+      expect(html).toContain('data-mime-type="image/jpeg"');
+      expect(html).toContain('data-document-id="42"');
+    });
+    expect(readClipboardImage).not.toHaveBeenCalled();
+    expect(useFeedbackStore.getState().toasts).toHaveLength(0);
+
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true });
+    await waitFor(() => {
+      expect(surface.querySelectorAll("img")).toHaveLength(0);
+    });
+
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(surface.querySelectorAll("img")).toHaveLength(2);
+    });
+  });
+
+  it("prefers meaningful rich HTML and keeps its Markdown semantics", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        '<h2 style="color: red">Heading</h2><p><strong>Bold</strong> and <a href="https://example.com">link</a></p>',
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("flattened fallback");
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    expect(readClipboardHtml).not.toHaveBeenCalled();
+    expect(readClipboardText).not.toHaveBeenCalled();
+    fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    expect(readClipboardHtml).not.toHaveBeenCalled();
+    expect(readClipboardText).not.toHaveBeenCalled();
+    await user.click(within(menu).getByRole("button", { name: "粘贴" }));
+
+    await waitFor(() => {
+      expect(surface.querySelector("h2")).toHaveTextContent("Heading");
+      expect(surface.querySelector("strong")).toHaveTextContent("Bold");
+      expect(surface.querySelector('a[href="https://example.com"]')).toHaveTextContent("link");
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.markdown).toBe("## Heading\n\n**Bold** and [link](https://example.com)");
+    });
+    expect(surface).not.toHaveTextContent("flattened fallback");
+    expect(readClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("normalizes external checkbox-list HTML into semantic task items", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" checked disabled>Done</li><li class="task-list-item"><input type="checkbox">Later</li></ul>',
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("- [x] Done\n- [ ] Later");
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface.querySelector('ul[data-type="taskList"]')).toBeTruthy();
+      expect(surface.querySelector('li[data-checked="true"]')).toHaveTextContent("Done");
+      expect(surface.querySelector('li[data-checked="false"]')).toHaveTextContent("Later");
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.markdown).toContain("- [x] Done");
+      expect(latestValue?.markdown).toContain("- [ ] Later");
+    });
+    expect(readClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("pastes an HTML table through the supported table model", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        "<table><tbody><tr><th>Key</th><th>Value</th></tr><tr><td>OS</td><td>Windows</td></tr></tbody></table>",
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("flattened table");
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface.querySelectorAll("table tr")).toHaveLength(2);
+      expect(surface.querySelectorAll("table th")).toHaveLength(2);
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.markdown).toBe("| Key | Value |\n| --- | --- |\n| OS | Windows |");
+    });
+    expect(readClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("normalizes Windows CRLF Markdown through the existing paste rules", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi
+      .spyOn(desktopApi, "readClipboardText")
+      .mockResolvedValue("# Windows\r\n\r\n- first\r\n- second");
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface.querySelector("h1")).toHaveTextContent("Windows");
+      expect(Array.from(surface.querySelectorAll("li")).map((item) => item.textContent)).toEqual(["first", "second"]);
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.markdown).toBe("# Windows\n\n* first\n\n* second");
+    });
+  });
+
+  it("normalizes unsupported rich HTML styling without losing semantic text", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const readClipboardHtml = vi
+      .spyOn(desktopApi, "readClipboardHtml")
+      .mockResolvedValue(
+        '<p style="font-family: Comic Sans MS; color: red; font-size: 48px"><u>Under</u> <mark>Marked</mark> <strong style="background: blue">Bold</strong> <a href="javascript:alert(1)" style="color: green">Unsafe</a></p>',
+      );
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue(null);
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" onChange={onChange} />);
+    const surface = await getEditorSurface(container);
+
+    await clickContextMenuPaste(user, surface);
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("Under Marked Bold Unsafe");
+      const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(latestValue?.html).not.toMatch(/style=|<u|<mark|javascript:/u);
+      expect(latestValue?.markdown).toBe("Under Marked **Bold** Unsafe");
+    });
+  });
+
+  it("pastes directly through the desktop clipboard bridge without opening the native Paste prompt", async () => {
+    const user = userEvent.setup();
+    const execCommand = document.execCommand as unknown as ReturnType<typeof vi.fn>;
+    const readClipboardHtml = vi.spyOn(desktopApi, "readClipboardHtml").mockResolvedValue(null);
+    const readClipboardText = vi.spyOn(desktopApi, "readClipboardText").mockResolvedValue("直接粘贴");
+
+    execCommand.mockClear();
+
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p></p>" />);
+    const surface = await getEditorSurface(container);
+
+    fireEvent.contextMenu(surface, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    await user.click(within(menu).getByRole("button", { name: "粘贴" }));
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("直接粘贴");
+    });
+    expect(readClipboardText).toHaveBeenCalledTimes(1);
+    expect(execCommand).not.toHaveBeenCalledWith("paste");
+  });
+
   it("shows the redesigned text menu for a non-collapsed text selection", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const { container } = render(
-      <RichEditor variant="bare" defaultHtml="<p>hello world</p>" onChange={onChange} />,
-    );
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>hello world</p>" onChange={onChange} />);
 
     const paragraphText = await waitFor(() => {
       const textNode = container.querySelector(".ProseMirror p")?.firstChild;
@@ -1566,7 +2334,10 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextContent(paragraphText, 0, 5);
-    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
 
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
@@ -1574,20 +2345,24 @@ describe("RichEditor context menus", () => {
     expect(within(menu).getByRole("button", { name: "复制" })).toBeInTheDocument();
     expect(within(menu).getByRole("button", { name: "粘贴" })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "普通文本" })).toBeInTheDocument();
-    const inlineFormatGroup = within(menu).getByRole("group", { name: "行内文本格式" });
-    expect(within(inlineFormatGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "着重",
-      "加粗",
-      "斜体",
-      "删除线",
-      "代码",
-    ]);
-    within(inlineFormatGroup).getAllByRole("button").forEach((button) => {
-      expect(button).toHaveTextContent("");
+    const inlineFormatGroup = within(menu).getByRole("group", {
+      name: "行内文本格式",
     });
+    expect(
+      within(inlineFormatGroup)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["着重", "加粗", "斜体", "删除线", "代码"]);
+    within(inlineFormatGroup)
+      .getAllByRole("button")
+      .forEach((button) => {
+        expect(button).toHaveTextContent("");
+      });
     expect(within(menu).getByRole("group", { name: "常用块样式" })).toBeInTheDocument();
     expect(within(menu).getByText("技能")).toBeInTheDocument();
-    const aiSkillGroup = within(menu).getByRole("group", { name: "AI 技能列表" });
+    const aiSkillGroup = within(menu).getByRole("group", {
+      name: "AI 技能列表",
+    });
     expect(aiSkillGroup).toHaveStyle({ maxHeight: "84px" });
     expect(within(aiSkillGroup).getByRole("menuitem", { name: "暂无启用技能" })).toBeDisabled();
     expect(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ })).toBeInTheDocument();
@@ -1615,16 +2390,18 @@ describe("RichEditor context menus", () => {
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     expect(within(menu).getByRole("menuitem", { name: "普通文本" })).toBeInTheDocument();
     expect(within(menu).getByRole("group", { name: "行内文本格式" })).toBeInTheDocument();
-    const blockShortcutGroup = within(menu).getByRole("group", { name: "常用块样式" });
-    expect(within(blockShortcutGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "标题 1",
-      "标题 2",
-      "标题 3",
-      "引用",
-      "待办",
-    ]);
+    const blockShortcutGroup = within(menu).getByRole("group", {
+      name: "常用块样式",
+    });
+    expect(
+      within(blockShortcutGroup)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["标题 1", "标题 2", "标题 3", "引用", "待办"]);
     expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
-    const insertBlockGroup = within(menu).getByRole("group", { name: "新增区块" });
+    const insertBlockGroup = within(menu).getByRole("group", {
+      name: "新增区块",
+    });
     ["引用", "表格", "图片", "文件", "代码块", "待办", "分隔线", "更多"].forEach((label) => {
       expect(within(insertBlockGroup).getByRole("button", { name: label })).toBeInTheDocument();
     });
@@ -1653,12 +2430,7 @@ describe("RichEditor context menus", () => {
       meta: "application/pdf",
     }));
     const { container } = render(
-      <RichEditor
-        variant="bare"
-        defaultHtml="<p>hello world</p>"
-        onChange={onChange}
-        assetHandlers={{ insertFile }}
-      />,
+      <RichEditor variant="bare" defaultHtml="<p>hello world</p>" onChange={onChange} assetHandlers={{ insertFile }} />,
     );
 
     const paragraph = await waitFor(() => {
@@ -1748,19 +2520,23 @@ describe("RichEditor context menus", () => {
     const revealSpy = vi.spyOn(desktopApi, "revealPath").mockResolvedValue(undefined);
     const updateMetaSpy = vi
       .spyOn(projectMindApi, "documentUpdateMeta")
-      .mockResolvedValueOnce(buildDocumentRecord({
-        name: "renamed.pdf",
-        baseName: "renamed.pdf",
-        managedPath: "/tmp/project/renamed.pdf",
-        updatedAt: "2026-01-01T00:01:00.000Z",
-      }))
-      .mockResolvedValueOnce(buildDocumentRecord({
-        name: "renamed.pdf",
-        baseName: "renamed.pdf",
-        managedPath: "/tmp/project/renamed.pdf",
-        isStarred: true,
-        updatedAt: "2026-01-01T00:02:00.000Z",
-      }));
+      .mockResolvedValueOnce(
+        buildDocumentRecord({
+          name: "renamed.pdf",
+          baseName: "renamed.pdf",
+          managedPath: "/tmp/project/renamed.pdf",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildDocumentRecord({
+          name: "renamed.pdf",
+          baseName: "renamed.pdf",
+          managedPath: "/tmp/project/renamed.pdf",
+          isStarred: true,
+          updatedAt: "2026-01-01T00:02:00.000Z",
+        }),
+      );
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("renamed.pdf");
     const { container } = render(
       <RichEditor
@@ -1780,7 +2556,10 @@ describe("RichEditor context menus", () => {
     const attachmentTitle = attachment.querySelector<HTMLElement>(".rich-editor__attachment-title");
     expect(attachmentTitle).toBeTruthy();
 
-    fireEvent.contextMenu(attachmentTitle as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(attachmentTitle as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
     const menu = await screen.findByRole("menu", { name: "文件操作" });
     expect(within(menu).getByRole("menuitem", { name: "打开文件" })).toBeEnabled();
 
@@ -1796,15 +2575,15 @@ describe("RichEditor context menus", () => {
         documentId: 42,
         baseName: "renamed.pdf",
       });
-      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute(
-        "data-title",
-        "renamed.pdf",
-      );
+      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute("data-title", "renamed.pdf");
     });
 
     const renamedAttachment = container.querySelector<HTMLElement>('[data-type="attachment"]');
     expect(renamedAttachment).toBeTruthy();
-    fireEvent.contextMenu(renamedAttachment as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(renamedAttachment as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
     const starMenu = await screen.findByRole("menu", { name: "文件操作" });
     await user.click(within(starMenu).getByRole("menuitem", { name: "标星" }));
 
@@ -1813,10 +2592,7 @@ describe("RichEditor context menus", () => {
         documentId: 42,
         isStarred: true,
       });
-      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute(
-        "data-is-starred",
-        "true",
-      );
+      expect(container.querySelector('[data-type="attachment"]')).toHaveAttribute("data-is-starred", "true");
     });
 
     revealSpy.mockRestore();
@@ -1842,7 +2618,9 @@ describe("RichEditor context menus", () => {
 
     await user.hover(featured);
     const submenu = await screen.findByRole("menu", { name: "标题 2 子菜单" });
-    const selectedItem = within(submenu).getByRole("menuitem", { name: "标题 2" });
+    const selectedItem = within(submenu).getByRole("menuitem", {
+      name: "标题 2",
+    });
     expect(selectedItem.dataset.selected).toBe("true");
     expect(within(submenu).getByRole("menuitem", { name: "文本" })).toBeInTheDocument();
     expect(within(submenu).getByRole("menuitem", { name: "代码" })).toBeInTheDocument();
@@ -1874,11 +2652,16 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextContent(paragraphText, 0, 5);
-    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
 
     const menu = await screen.findByRole("menu", { name: "选区操作" });
     const menuText = menu.textContent ?? "";
-    const menuItems = within(menu).getAllByRole("menuitem").map((item) => item.textContent ?? "");
+    const menuItems = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent ?? "");
     expect(menuText.indexOf("剪切")).toBeLessThan(menuText.indexOf("移动到记录"));
     expect(menuText.indexOf("复制")).toBeLessThan(menuText.indexOf("移动到记录"));
     expect(menuText.indexOf("粘贴")).toBeLessThan(menuText.indexOf("移动到记录"));
@@ -1924,7 +2707,10 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextRange(firstText, 0, lastText, lastText.length);
-    fireEvent.contextMenu(lastText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(lastText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
 
     const menu = await screen.findByRole("menu", { name: "选区操作" });
     await userEvent.click(within(menu).getByRole("menuitem", { name: "移动到记录" }));
@@ -2060,20 +2846,18 @@ describe("RichEditor context menus", () => {
   it("submits prompt overrides from the AI menu with Enter", async () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
-    const enqueueSpy = vi
-      .spyOn(projectMindApi, "aiJobEnqueue")
-      .mockResolvedValue({
-        id: 11,
-        kind: "editor_rewrite",
-        targetKey: "editor-rewrite:test",
-        status: "queued",
-        queuedAt: "",
-        startedAt: null,
-        finishedAt: null,
-        errorMessage: null,
-        streamText: null,
-        result: null,
-      });
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockResolvedValue({
+      id: 11,
+      kind: "editor_rewrite",
+      targetKey: "editor-rewrite:test",
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    });
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -2172,7 +2956,10 @@ describe("RichEditor context menus", () => {
     });
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextContent(paragraphText, 0, 5);
-    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     await user.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
     const aiMenu = await screen.findByRole("dialog", { name: "AI 编辑菜单" });
@@ -2235,12 +3022,7 @@ describe("RichEditor context menus", () => {
     await user.click(screen.getByRole("button", { name: "插入" }));
     await waitFor(() => {
       const blocks = Array.from(container.querySelectorAll(".ProseMirror > *"));
-      expect(blocks.map((block) => block.tagName)).toEqual([
-        "P",
-        "BLOCKQUOTE",
-        "P",
-        "P",
-      ]);
+      expect(blocks.map((block) => block.tagName)).toEqual(["P", "BLOCKQUOTE", "P", "P"]);
       expect(blocks.map((block) => block.textContent)).toEqual([
         "better world",
         "改写说明",
@@ -2257,23 +3039,21 @@ describe("RichEditor context menus", () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
-    const enqueueSpy = vi
-      .spyOn(projectMindApi, "aiJobEnqueue")
-      .mockImplementation(async (input) => {
-        targetKey = input.targetKey;
-        return {
-          id: 41,
-          kind: "editor_rewrite",
-          targetKey,
-          status: "queued",
-          queuedAt: "",
-          startedAt: null,
-          finishedAt: null,
-          errorMessage: null,
-          streamText: null,
-          result: null,
-        };
-      });
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      targetKey = input.targetKey;
+      return {
+        id: 41,
+        kind: "editor_rewrite",
+        targetKey,
+        status: "queued",
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+    });
     const onChange = vi.fn();
     const { container } = render(
       <RichEditor
@@ -2405,23 +3185,21 @@ describe("RichEditor context menus", () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
-    const enqueueSpy = vi
-      .spyOn(projectMindApi, "aiJobEnqueue")
-      .mockImplementation(async (input) => {
-        targetKey = input.targetKey;
-        return {
-          id: 51,
-          kind: "editor_rewrite",
-          targetKey,
-          status: "queued",
-          queuedAt: "",
-          startedAt: null,
-          finishedAt: null,
-          errorMessage: null,
-          streamText: null,
-          result: null,
-        };
-      });
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      targetKey = input.targetKey;
+      return {
+        id: 51,
+        kind: "editor_rewrite",
+        targetKey,
+        status: "queued",
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+    });
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -2460,7 +3238,10 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextContent(strongText, 0, 5);
-    fireEvent.contextMenu(strongText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(strongText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
 
@@ -2526,23 +3307,21 @@ describe("RichEditor context menus", () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
-    const enqueueSpy = vi
-      .spyOn(projectMindApi, "aiJobEnqueue")
-      .mockImplementation(async (input) => {
-        targetKey = input.targetKey;
-        return {
-          id: 52,
-          kind: "editor_rewrite",
-          targetKey,
-          status: "queued",
-          queuedAt: "",
-          startedAt: null,
-          finishedAt: null,
-          errorMessage: null,
-          streamText: null,
-          result: null,
-        };
-      });
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      targetKey = input.targetKey;
+      return {
+        id: 52,
+        kind: "editor_rewrite",
+        targetKey,
+        status: "queued",
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+    });
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -2581,7 +3360,10 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextContent(paragraphText, 0, 5);
-    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+    fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, {
+      clientX: 20,
+      clientY: 20,
+    });
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     await user.click(within(menu).getByRole("menuitem", { name: "解释" }));
 
@@ -2702,10 +3484,7 @@ describe("RichEditor context menus", () => {
     const writeText = vi.fn(async () => undefined);
     const execCommand = document.execCommand as unknown as ReturnType<typeof vi.fn>;
     const { container } = render(
-      <RichEditor
-        variant="bare"
-        defaultHtml="<ol><li><p>第一项</p></li><li><p>第二项</p></li></ol>"
-      />,
+      <RichEditor variant="bare" defaultHtml="<ol><li><p>第一项</p></li><li><p>第二项</p></li></ol>" />,
     );
 
     Object.defineProperty(navigator, "clipboard", {
@@ -2726,7 +3505,10 @@ describe("RichEditor context menus", () => {
 
     fireEvent.focus(container.querySelector(".ProseMirror") as HTMLElement);
     selectTextRange(textNodes[0], 0, textNodes[1], textNodes[1].textContent?.length ?? 0);
-    fireEvent.contextMenu(textNodes[0].parentElement as HTMLElement, { clientX: 24, clientY: 24 });
+    fireEvent.contextMenu(textNodes[0].parentElement as HTMLElement, {
+      clientX: 24,
+      clientY: 24,
+    });
 
     execCommand.mockReturnValueOnce(false);
     const menu = await screen.findByRole("menu", { name: "文本操作" });
@@ -2777,14 +3559,8 @@ describe("RichEditor context menus", () => {
 
     expect(setData).toHaveBeenCalledWith("text/plain", expect.stringContaining("前文"));
     expect(setData).toHaveBeenCalledWith("text/plain", expect.stringContaining("后文"));
-    expect(setData).toHaveBeenCalledWith(
-      "text/html",
-      expect.stringContaining('src="data:image/png;base64,AAAA"'),
-    );
-    expect(setData).toHaveBeenCalledWith(
-      "text/html",
-      expect.stringContaining('alt="截图"'),
-    );
+    expect(setData).toHaveBeenCalledWith("text/html", expect.stringContaining('src="data:image/png;base64,AAAA"'));
+    expect(setData).toHaveBeenCalledWith("text/html", expect.stringContaining('alt="截图"'));
   });
 
   it("upgrades native copy events to original image bytes when async clipboard is available", async () => {
@@ -2846,16 +3622,10 @@ describe("RichEditor context menus", () => {
       },
     });
 
-    expect(setData).toHaveBeenCalledWith(
-      "text/html",
-      expect.stringContaining('src="data:image/png;base64,AAAA"'),
-    );
+    expect(setData).toHaveBeenCalledWith("text/html", expect.stringContaining('src="data:image/png;base64,AAAA"'));
 
     await waitFor(() => {
-      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
-        "/tmp/managed/clip.png",
-        "image/png",
-      );
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith("/tmp/managed/clip.png", "image/png");
       expect(write).toHaveBeenCalledTimes(1);
     });
 
@@ -2928,10 +3698,7 @@ describe("RichEditor context menus", () => {
     await user.click(within(reopenedMenu).getByRole("button", { name: "复制" }));
 
     await waitFor(() => {
-      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith(
-        "/tmp/managed/clip.png",
-        "image/png",
-      );
+      expect(desktopApi.readFileAsDataUrl).toHaveBeenCalledWith("/tmp/managed/clip.png", "image/png");
       expect(write).toHaveBeenCalledTimes(1);
     });
 
@@ -2969,9 +3736,7 @@ describe("RichEditor context menus", () => {
     triggerIntersection(true);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/lazy.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy.png.960.thumb.jpg");
       expect(image.dataset.lazyMounted).toBe("true");
     });
   });
@@ -2997,18 +3762,14 @@ describe("RichEditor context menus", () => {
     triggerIntersection(true);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/lazy-stable.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png.960.thumb.jpg");
       expect(image.dataset.lazyMounted).toBe("true");
     });
 
     triggerIntersection(false);
 
     await waitFor(() => {
-      expect(image.getAttribute("src")).toBe(
-        "asset:///tmp/managed/lazy-stable.png.960.thumb.jpg",
-      );
+      expect(image.getAttribute("src")).toBe("asset:///tmp/managed/lazy-stable.png.960.thumb.jpg");
       expect(image.dataset.lazyMounted).toBe("true");
     });
   });
@@ -3016,10 +3777,7 @@ describe("RichEditor context menus", () => {
   it("captures tab inside list items so focus stays in the editor", async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <RichEditor
-        variant="bare"
-        defaultHtml="<ul><li><p>第一项</p></li><li><p>第二项</p></li></ul>"
-      />,
+      <RichEditor variant="bare" defaultHtml="<ul><li><p>第一项</p></li><li><p>第二项</p></li></ul>" />,
     );
 
     const surface = await waitFor(() => {
@@ -3052,9 +3810,7 @@ describe("RichEditor context menus", () => {
   it("does not let a stale controlled html echo overwrite newer typing", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const { container, rerender } = render(
-      <RichEditor variant="bare" html="<p></p>" onChange={onChange} />,
-    );
+    const { container, rerender } = render(<RichEditor variant="bare" html="<p></p>" onChange={onChange} />);
 
     const surface = await waitFor(() => {
       const nextSurface = container.querySelector(".ProseMirror");
@@ -3084,15 +3840,9 @@ describe("RichEditor context menus", () => {
   it("undoes the latest edit in one step after a saved-content echo changes metadata", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async (value: unknown) => value);
-    const initialHtml =
-      '<p></p><p><img src="data:image/png;base64,AAAA" alt="before-save"></p>';
+    const initialHtml = '<p></p><p><img src="data:image/png;base64,AAAA" alt="before-save"></p>';
     const { container, rerender } = render(
-      <RichEditor
-        variant="bare"
-        html={initialHtml}
-        autosave={{ onChange: false, onBlur: true }}
-        onSave={onSave}
-      />,
+      <RichEditor variant="bare" html={initialHtml} autosave={{ onChange: false, onBlur: true }} onSave={onSave} />,
     );
 
     const surface = await waitFor(() => {
@@ -3117,9 +3867,7 @@ describe("RichEditor context menus", () => {
         variant="bare"
         autosave={{ onChange: false, onBlur: true }}
         onSave={onSave}
-        html={
-          '<p>edit</p><p><img src="data:image/png;base64,AAAA" alt="after-save"></p>'
-        }
+        html={'<p>edit</p><p><img src="data:image/png;base64,AAAA" alt="after-save"></p>'}
       />,
     );
 
@@ -3178,7 +3926,9 @@ describe("RichEditor focus and blur persistence", () => {
   it("does not duplicate a forced controller save when the editor blurs during record switching", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async (value: unknown) => value);
-    const controllerRef: { current: RichEditorController | null } = { current: null };
+    const controllerRef: { current: RichEditorController | null } = {
+      current: null,
+    };
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -3208,19 +3958,15 @@ describe("RichEditor focus and blur persistence", () => {
     const user = userEvent.setup();
     let finishSave!: () => void;
     const onSave = vi.fn(
-      () => new Promise<void>((resolve) => {
-        finishSave = resolve;
-      }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
     );
-    const controllerRef: { current: RichEditorController | null } = { current: null };
-    const { container } = render(
-      <RichEditor
-        variant="bare"
-        autoFocus
-        controllerRef={controllerRef}
-        onSave={onSave}
-      />,
-    );
+    const controllerRef: { current: RichEditorController | null } = {
+      current: null,
+    };
+    const { container } = render(<RichEditor variant="bare" autoFocus controllerRef={controllerRef} onSave={onSave} />);
     const surface = await waitFor(() => {
       const nextSurface = container.querySelector(".ProseMirror");
       expect(nextSurface).toBeTruthy();
@@ -3249,12 +3995,7 @@ describe("RichEditor focus and blur persistence", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async (value: unknown) => value);
     const { container } = render(
-      <RichEditor
-        variant="bare"
-        autoFocus
-        autosave={{ onChange: false, onBlur: true }}
-        onSave={onSave}
-      />,
+      <RichEditor variant="bare" autoFocus autosave={{ onChange: false, onBlur: true }} onSave={onSave} />,
     );
 
     const surface = await waitFor(() => {
@@ -3340,9 +4081,9 @@ describe("RichEditor focus and blur persistence", () => {
   it("skips window-blur persistence while an image picker is in flight", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async (value: unknown) => value);
-    const pickFileSpy = vi.spyOn(desktopApi, "pickFile").mockImplementation(
-      () => new Promise<string | null>(() => undefined),
-    );
+    const pickFileSpy = vi
+      .spyOn(desktopApi, "pickFile")
+      .mockImplementation(() => new Promise<string | null>(() => undefined));
     const { container } = render(
       <RichEditor
         variant="toolbar"
@@ -3429,9 +4170,7 @@ describe("RichEditor focus and blur persistence", () => {
 
   it("opens in-editor search with Ctrl/Cmd+F and navigates matches", async () => {
     const user = userEvent.setup();
-    const { container } = render(
-      <RichEditor variant="bare" html="<p>Alpha beta alpha gamma ALPHA.</p>" />,
-    );
+    const { container } = render(<RichEditor variant="bare" html="<p>Alpha beta alpha gamma ALPHA.</p>" />);
 
     const surface = await waitFor(() => {
       const nextSurface = container.querySelector(".ProseMirror");
@@ -3477,9 +4216,7 @@ describe("RichEditor focus and blur persistence", () => {
   it("replaces the current match and all remaining matches", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const { container } = render(
-      <RichEditor variant="bare" html="<p>alpha beta alpha</p>" onChange={onChange} />,
-    );
+    const { container } = render(<RichEditor variant="bare" html="<p>alpha beta alpha</p>" onChange={onChange} />);
 
     const surface = await waitFor(() => {
       const nextSurface = container.querySelector(".ProseMirror");
@@ -3511,9 +4248,7 @@ describe("RichEditor focus and blur persistence", () => {
 
   it("allows search in read-only editors without replacement controls", async () => {
     const user = userEvent.setup();
-    const { container } = render(
-      <RichEditor variant="bare" readOnly html="<p>alpha beta alpha</p>" />,
-    );
+    const { container } = render(<RichEditor variant="bare" readOnly html="<p>alpha beta alpha</p>" />);
 
     const surface = await waitFor(() => {
       const nextSurface = container.querySelector(".ProseMirror");

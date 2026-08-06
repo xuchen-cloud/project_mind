@@ -5,6 +5,7 @@ import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
 import { DOMSerializer, type Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
+import { Mapping } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import {
@@ -639,7 +640,10 @@ export function RichEditor({
   }, []);
 
   const handlePastedImages = useCallback(
-    async (view: EditorView, files: File[]) => {
+    async (view: EditorView, files: File[], restoreTarget?: () => boolean) => {
+      let inserted = false;
+      const preparedImages: Record<string, unknown>[] = [];
+
       for (const file of files) {
         const imageAttrs = await buildPastedImageAttrs(file, assetHandlers);
 
@@ -647,24 +651,36 @@ export function RichEditor({
           continue;
         }
 
+        preparedImages.push(imageAttrs);
+      }
+
+      if (preparedImages.length === 0 || (restoreTarget && !restoreTarget())) {
+        return false;
+      }
+
+      for (const imageAttrs of preparedImages) {
         focusEmptyEditorSelection(view);
         insertImageAtSelection(view, imageAttrs);
+        inserted = true;
       }
+
+      return inserted;
     },
     [assetHandlers],
   );
 
   const handlePastedHtml = useCallback(
-    async (view: EditorView, rawHtml: string) => {
+    async (view: EditorView, rawHtml: string, restoreTarget?: () => boolean) => {
       const nextHtml = await buildPastedHtml(rawHtml, assetHandlers);
 
-      if (!nextHtml) {
-        return;
+      if (!nextHtml || (restoreTarget && !restoreTarget())) {
+        return false;
       }
 
       focusEmptyEditorSelection(view);
       syntheticPasteRef.current = true;
       view.pasteHTML(nextHtml, createSyntheticPasteEvent());
+      return true;
     },
     [assetHandlers],
   );
@@ -1215,7 +1231,30 @@ export function RichEditor({
           return false;
         }
 
+        const rawHtml = event.clipboardData?.getData("text/html") ?? "";
+        const rawText = event.clipboardData?.getData("text/plain") ?? "";
         const imageFiles = extractClipboardImageFiles(event.clipboardData);
+
+        if (hasMeaningfulPastedHtml(rawHtml)) {
+          event.preventDefault();
+
+          if (shouldHandlePastedHtml(rawHtml, { allowTables: enableTables })) {
+            void handlePastedHtml(view, rawHtml).catch(() => {
+              const fallbackHtml = buildImageFreePastedHtmlFallback(rawHtml);
+
+              if (!fallbackHtml) {
+                return;
+              }
+
+              syntheticPasteRef.current = true;
+              view.pasteHTML(fallbackHtml, createSyntheticPasteEvent());
+            });
+          } else {
+            syntheticPasteRef.current = true;
+            view.pasteHTML(sanitizePastedHtml(rawHtml), createSyntheticPasteEvent());
+          }
+          return true;
+        }
 
         if (imageFiles.length > 0) {
           event.preventDefault();
@@ -1224,9 +1263,6 @@ export function RichEditor({
           });
           return true;
         }
-
-        const rawHtml = event.clipboardData?.getData("text/html") ?? "";
-        const rawText = event.clipboardData?.getData("text/plain") ?? "";
 
         if (!rawHtml && shouldHandlePastedMarkdown(rawText)) {
           event.preventDefault();
@@ -1241,7 +1277,7 @@ export function RichEditor({
 
         event.preventDefault();
         void handlePastedHtml(view, rawHtml).catch(() => {
-          const fallbackHtml = sanitizePastedHtml(rawHtml);
+          const fallbackHtml = buildImageFreePastedHtmlFallback(rawHtml);
 
           if (!fallbackHtml) {
             return;
@@ -3256,6 +3292,25 @@ export function RichEditor({
     };
   }, [editor, pushToast]);
 
+  const handleContextMenuPaste = useCallback(() => {
+    if (!editor) {
+      return;
+    }
+
+    return runEditorPasteCommand(editor, {
+      onPasteHtml: (html, restoreTarget) =>
+        handlePastedHtml(editor.view, html, restoreTarget),
+      onPasteImages: (files, restoreTarget) =>
+        handlePastedImages(editor.view, files, restoreTarget),
+      onFailure: () =>
+        pushToast({
+          tone: "error",
+          title: "粘贴失败",
+          detail: "剪贴板内容无法安全插入。",
+        }),
+    });
+  }, [editor, handlePastedHtml, handlePastedImages, pushToast]);
+
   const handleEditorContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       if (!editor) {
@@ -3292,16 +3347,22 @@ export function RichEditor({
         return;
       }
 
+      const contextMenuAnchorPos = resolveContextMenuAnchorPos(editor, target, {
+        left: event.clientX,
+        top: event.clientY,
+      });
       const hasTextSelection =
-        syncDomTextSelectionToEditor(editor) ||
+        syncDomTextSelectionToEditor(editor, contextMenuAnchorPos) ||
         syncStoredTextSelectionToEditor(editor, storedTextSelectionRef.current, {
-          coords: {
-            left: event.clientX,
-            top: event.clientY,
-          },
-          target,
+          anchorPos: contextMenuAnchorPos,
         }) ||
-        hasExpandedTextSelection(editor);
+        (hasExpandedTextSelection(editor) &&
+          (contextMenuAnchorPos === null ||
+            isPosWithinSelection(editor, contextMenuAnchorPos)));
+
+      if (!hasTextSelection && contextMenuAnchorPos !== null) {
+        setContextMenuInsertionTarget(editor, contextMenuAnchorPos);
+      }
 
       const imageTarget = !hasTextSelection ? resolveImageContextMenuTarget(editor, target) : null;
 
@@ -3392,6 +3453,7 @@ export function RichEditor({
                   title,
                   detail: "能力建设中",
                 }),
+              onPaste: handleContextMenuPaste,
             }),
             autoFocus: false,
           });
@@ -3431,6 +3493,7 @@ export function RichEditor({
                 title,
                 detail: "能力建设中",
               }),
+            onPaste: handleContextMenuPaste,
           }),
           autoFocus: false,
         });
@@ -3452,6 +3515,7 @@ export function RichEditor({
       assetHandlers?.insertImage,
       handleInsertFile,
       handleInsertImage,
+      handleContextMenuPaste,
       insertTable,
       pushToast,
       removeSelectionAndSave,
@@ -4700,37 +4764,62 @@ function sanitizePastedHtml(rawHtml: string) {
 
   const doc = new DOMParser().parseFromString(rawHtml, "text/html");
 
+  normalizePastedTaskLists(doc);
+
+  doc.querySelectorAll("script, style, iframe, object, embed, form, input, button").forEach((element) => {
+    element.remove();
+  });
+
+  doc.querySelectorAll("u, mark, font").forEach((element) => {
+    element.replaceWith(...Array.from(element.childNodes));
+  });
+
   doc.querySelectorAll("*").forEach((element) => {
     const className = element.getAttribute("class");
 
-    if (className?.includes("Mso")) {
+    if (className && (!element.matches("code[class^='language-']") || className.includes("Mso"))) {
       element.removeAttribute("class");
     }
 
-    const style = element.getAttribute("style");
-
-    if (!style) {
-      return;
-    }
-
-    const filtered = style
-      .split(";")
-      .map((rule) => rule.trim())
-      .filter((rule) => rule.length > 0)
-      .filter((rule) => !rule.startsWith("mso-"))
-      .filter((rule) => !rule.includes("tab-stops"))
-      .filter((rule) => !rule.includes("layout-grid"))
-      .join("; ");
-
-    if (filtered.length > 0) {
-      element.setAttribute("style", filtered);
-      return;
-    }
-
     element.removeAttribute("style");
+    element.removeAttribute("id");
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.toLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
   });
 
   return trimTrailingCodeBlockNewline(doc.body.innerHTML);
+}
+
+function normalizePastedTaskLists(doc: Document) {
+  const checkboxes = Array.from(
+    doc.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  );
+
+  for (const checkbox of checkboxes) {
+    const item = checkbox.closest("li");
+    const sourceList = item?.parentElement;
+
+    if (!item || !sourceList || !sourceList.matches("ul, ol")) {
+      checkbox.remove();
+      continue;
+    }
+
+    let taskList = sourceList;
+
+    if (sourceList.tagName === "OL") {
+      taskList = doc.createElement("ul");
+      taskList.replaceChildren(...Array.from(sourceList.childNodes));
+      sourceList.replaceWith(taskList);
+    }
+
+    taskList.setAttribute("data-type", "taskList");
+    item.setAttribute("data-type", "taskItem");
+    item.setAttribute("data-checked", String(checkbox.checked));
+    checkbox.remove();
+  }
 }
 
 function replaceEditorContentWithoutHistory(editor: Editor, nextHtml: string) {
@@ -4951,6 +5040,7 @@ function buildSelectionContextMenuActions({
   onOpenAiEdit,
   onRunEditorSkill,
   onUnavailableAction,
+  onPaste,
 }: {
   editor: Editor;
   readOnly: boolean;
@@ -4963,6 +5053,7 @@ function buildSelectionContextMenuActions({
   onOpenAiEdit: () => void;
   onRunEditorSkill: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
   onUnavailableAction: (title: string) => void;
+  onPaste?: () => void | Promise<void>;
 }) {
   const customActions: ContextMenuAction[] = selectionActions.map((action) => ({
     key: action.key,
@@ -4985,6 +5076,7 @@ function buildSelectionContextMenuActions({
     onOpenAiEdit,
     onRunEditorSkill,
     onUnavailableAction,
+    onPaste,
   });
   const clipboardActions = textActions.slice(0, 2);
   const remainingTextActions = textActions.slice(2);
@@ -5014,6 +5106,7 @@ function buildTextContextMenuActions({
   onOpenAiEdit,
   onRunEditorSkill,
   onUnavailableAction,
+  onPaste,
 }: {
   editor: Editor;
   readOnly: boolean;
@@ -5031,6 +5124,7 @@ function buildTextContextMenuActions({
   onOpenAiEdit?: () => void;
   onRunEditorSkill?: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
   onUnavailableAction?: (title: string) => void;
+  onPaste?: () => void | Promise<void>;
 }) {
   const canRun = (callback: (chain: any) => { run: () => boolean }) =>
     !readOnly && editor.isEditable && callback(editor.can().chain().focus()).run();
@@ -5067,7 +5161,7 @@ function buildTextContextMenuActions({
         icon: Paperclip,
         disabled: readOnly || !editor.isEditable,
         onSelect: () => {
-          void runEditorPasteCommand(editor);
+          void (onPaste?.() ?? runEditorPasteCommand(editor));
         },
       },
     ],
@@ -6088,9 +6182,13 @@ function readDomTextSelection(editor: Editor): StoredTextSelection | null {
   }
 }
 
-function syncDomTextSelectionToEditor(editor: Editor) {
+function syncDomTextSelectionToEditor(editor: Editor, anchorPos: number | null) {
   const domSelection = readDomTextSelection(editor);
-  if (!domSelection) {
+  if (
+    !domSelection ||
+    (anchorPos !== null &&
+      (anchorPos < domSelection.from || anchorPos > domSelection.to))
+  ) {
     return false;
   }
 
@@ -6106,26 +6204,21 @@ function syncStoredTextSelectionToEditor(
   editor: Editor,
   storedSelection: StoredTextSelection | null,
   options: {
-    coords?: { left: number; top: number };
-    target?: Element | null;
+    anchorPos: number | null;
   },
 ) {
   if (!storedSelection) {
     return false;
   }
 
-  const anchorPos = resolveContextMenuAnchorPos(editor, options.target ?? null, options.coords);
+  const anchorPos = options.anchorPos;
 
   if (anchorPos === null) {
     return false;
   }
 
-  const sameTextBlock = isPosWithinSameTextBlock(editor, anchorPos, storedSelection);
-
   if (anchorPos < storedSelection.from || anchorPos > storedSelection.to) {
-    if (!sameTextBlock) {
-      return false;
-    }
+    return false;
   }
 
   try {
@@ -6137,6 +6230,24 @@ function syncStoredTextSelectionToEditor(
     return true;
   } catch {
     return false;
+  }
+}
+
+function isPosWithinSelection(editor: Editor, pos: number) {
+  const { from, to } = editor.state.selection;
+  return from !== to && pos >= from && pos <= to;
+}
+
+function setContextMenuInsertionTarget(editor: Editor, pos: number) {
+  try {
+    const selection = TextSelection.near(editor.state.doc.resolve(pos), 1);
+    editor.view.dispatch(
+      editor.state.tr
+        .setSelection(selection)
+        .setMeta("addToHistory", false),
+    );
+  } catch {
+    // Keep the current selection when the click cannot be mapped safely.
   }
 }
 
@@ -6192,36 +6303,6 @@ function findFirstTextDescendant(node: Node | null) {
 
   const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
   return walker.nextNode() as Text | null;
-}
-
-function isPosWithinSameTextBlock(
-  editor: Editor,
-  pos: number,
-  storedSelection: StoredTextSelection,
-) {
-  const range = resolveTextBlockRange(editor, pos);
-
-  if (!range) {
-    return false;
-  }
-
-  return storedSelection.from >= range.from && storedSelection.to <= range.to;
-}
-
-function resolveTextBlockRange(editor: Editor, pos: number) {
-  const clampedPos = Math.max(1, Math.min(pos, editor.state.doc.content.size));
-  const resolvedPos = editor.state.doc.resolve(clampedPos);
-
-  for (let depth = resolvedPos.depth; depth > 0; depth -= 1) {
-    if (resolvedPos.node(depth).isTextblock) {
-      return {
-        from: resolvedPos.start(depth),
-        to: resolvedPos.end(depth),
-      };
-    }
-  }
-
-  return null;
 }
 
 function resolveImageContextMenuTarget(
@@ -6640,28 +6721,226 @@ async function toggleAttachmentStar(
   });
 }
 
-async function runEditorPasteCommand(editor: Editor) {
+async function runEditorPasteCommand(
+  editor: Editor,
+  options: {
+    onPasteHtml?: (
+      html: string,
+      restoreTarget: () => boolean,
+    ) => boolean | void | Promise<boolean | void>;
+    onPasteImages?: (
+      files: File[],
+      restoreTarget: () => boolean,
+    ) => boolean | void | Promise<boolean | void>;
+    onFailure?: () => void;
+  } = {},
+) {
+  const pasteTarget = captureEditorPasteTarget(editor);
   editor.commands.focus();
 
-  try {
-    const execCommand = document.execCommand?.("paste");
+  if (isTauriRuntime()) {
+    let formatFailures = 0;
+    let fallbackText: string | null = null;
 
-    if (execCommand) {
+    if (options.onPasteHtml) {
+      let html: string | null = null;
+
+      try {
+        html = await desktopApi.readClipboardHtml();
+      } catch {
+        formatFailures += 1;
+      }
+
+      if (html && (hasMeaningfulPastedHtml(html) || isImageOnlyPastedHtml(html))) {
+        try {
+          const inserted = await options.onPasteHtml(html, pasteTarget.restore);
+          if (inserted !== false) {
+            pasteTarget.release();
+            return;
+          }
+          if (!pasteTarget.isActive()) {
+            options.onFailure?.();
+            return;
+          }
+          formatFailures += 1;
+        } catch {
+          if (!pasteTarget.isActive()) {
+            options.onFailure?.();
+            return;
+          }
+          formatFailures += 1;
+        }
+      }
+    }
+
+    try {
+      const text = await desktopApi.readClipboardText();
+
+      if (text) {
+        fallbackText = text;
+      }
+    } catch {
+      formatFailures += 1;
+      // Non-text clipboard contents are handled below.
+    }
+
+    if (options.onPasteImages) {
+      try {
+        const image = await desktopApi.readClipboardImage();
+
+        if (image) {
+          const file = await clipboardRgbaToPngFile(image);
+          const inserted = await options.onPasteImages([file], pasteTarget.restore);
+          if (inserted !== false) {
+            pasteTarget.release();
+            return;
+          }
+          if (!pasteTarget.isActive()) {
+            options.onFailure?.();
+            return;
+          }
+          formatFailures += 1;
+        }
+      } catch {
+        if (!pasteTarget.isActive()) {
+          options.onFailure?.();
+          return;
+        }
+        formatFailures += 1;
+      }
+    }
+
+    if (fallbackText) {
+      if (!pasteTarget.restore()) {
+        options.onFailure?.();
+        return;
+      }
+      pastePlainClipboardText(editor, fallbackText);
       return;
     }
-  } catch {
-    // Fall through to best-effort clipboard APIs.
+
+    if (formatFailures > 0) {
+      options.onFailure?.();
+    }
+    pasteTarget.release();
+    return;
   }
 
   try {
     const text = await navigator.clipboard?.readText?.();
 
     if (text) {
-      editor.chain().focus().insertContent(text).run();
+      if (!pasteTarget.restore()) {
+        options.onFailure?.();
+        return;
+      }
+      pastePlainClipboardText(editor, text);
     }
   } catch {
-    // Clipboard read permissions vary by webview/browser; fail silently.
+    // Browser clipboard permissions vary; desktop builds use the native bridge above.
+  } finally {
+    pasteTarget.release();
   }
+}
+
+function captureEditorPasteTarget(editor: Editor) {
+  const initialSelection = editor.state.selection;
+  const bookmark = initialSelection.getBookmark();
+  const mapping = new Mapping();
+  let active = true;
+
+  const handleTransaction = ({ transaction }: { transaction: Editor["state"]["tr"] }) => {
+    if (active) {
+      mapping.appendMapping(transaction.mapping);
+    }
+  };
+  const release = () => {
+    if (!active) {
+      return;
+    }
+
+    active = false;
+    editor.off("transaction", handleTransaction);
+  };
+  const restore = () => {
+    if (!active) {
+      return false;
+    }
+
+    release();
+    const mappedFrom = mapping.mapResult(initialSelection.from, 1);
+    const mappedTo = mapping.mapResult(initialSelection.to, -1);
+
+    if (mappedFrom.deletedAcross || mappedTo.deletedAcross) {
+      return false;
+    }
+
+    try {
+      const selection = bookmark.map(mapping).resolve(editor.state.doc);
+      editor.view.dispatch(
+        editor.state.tr
+          .setSelection(selection)
+          .setMeta("addToHistory", false),
+      );
+      editor.view.focus();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  editor.on("transaction", handleTransaction);
+
+  return {
+    isActive: () => active,
+    release,
+    restore,
+  };
+}
+
+function pastePlainClipboardText(editor: Editor, text: string) {
+  if (shouldHandlePastedMarkdown(text)) {
+    editor.view.pasteHTML(renderMarkdownToHtml(text), createSyntheticPasteEvent());
+    return;
+  }
+
+  editor.view.pasteText(text, createSyntheticPasteEvent());
+}
+
+async function clipboardRgbaToPngFile(image: {
+  rgba: Uint8Array;
+  width: number;
+  height: number;
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("无法转换剪贴板图片");
+  }
+
+  context.putImageData(
+    new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height),
+    0,
+    0,
+  );
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((nextBlob) => {
+      if (nextBlob) {
+        resolve(nextBlob);
+      } else {
+        reject(new Error("无法编码剪贴板图片"));
+      }
+    }, "image/png");
+  });
+
+  return new File([blob], "clipboard-image.png", { type: "image/png" });
+}
+
+function isTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut") {
@@ -7049,6 +7328,8 @@ async function buildPastedImageAttrs(
         documentId: asset.documentId,
       };
     }
+
+    return null;
   }
 
   const nativePath = (file as File & { path?: string }).path?.trim();
@@ -7069,19 +7350,11 @@ async function buildPastedImageAttrs(
         };
       }
     } catch {
-      // Fall through to a data URL so pasted screenshots still work.
+      return null;
     }
   }
 
-  const src = await readFileAsDataUrl(file);
-  const title = file.name?.trim() || "粘贴图片";
-
-  return {
-    src,
-    alt: title,
-    title,
-    mimeType: file.type || undefined,
-  };
+  return null;
 }
 
 function insertImageAtSelection(view: EditorView, attrs: Record<string, unknown>) {
@@ -7145,15 +7418,19 @@ async function readFileAsDataUrl(file: File) {
 }
 
 async function resolveStoredImageSrc(asset: RichEditorAsset, file?: File) {
+  const normalizedSrc = typeof asset.src === "string" ? asset.src.trim() : "";
+
+  if (normalizedSrc.startsWith("blob:")) {
+    return null;
+  }
+
   const fallbackSrc = resolveRichTextImageSrc(asset.path, asset.src);
 
   if (fallbackSrc) {
     return fallbackSrc;
   }
 
-  const normalizedSrc = typeof asset.src === "string" ? asset.src.trim() : "";
-
-  if (normalizedSrc.startsWith("data:") || normalizedSrc.startsWith("blob:")) {
+  if (normalizedSrc.startsWith("data:")) {
     return normalizedSrc;
   }
 
@@ -7219,6 +7496,46 @@ function shouldHandlePastedHtml(rawHtml: string, options: { allowTables: boolean
   return options.allowTables && normalized.includes("<table");
 }
 
+function hasMeaningfulPastedHtml(rawHtml: string) {
+  if (!rawHtml.trim() || typeof DOMParser === "undefined") {
+    return false;
+  }
+
+  const sanitizedHtml = sanitizePastedHtml(rawHtml);
+  const doc = new DOMParser().parseFromString(sanitizedHtml, "text/html");
+
+  return Boolean(
+    doc.body.textContent?.trim() ||
+      doc.body.querySelector(
+        "table, hr, blockquote, pre, ul, ol, h1, h2, h3, h4, h5, h6",
+      ),
+  );
+}
+
+function isImageOnlyPastedHtml(rawHtml: string) {
+  if (!rawHtml.trim() || typeof DOMParser === "undefined") {
+    return false;
+  }
+
+  const doc = new DOMParser().parseFromString(sanitizePastedHtml(rawHtml), "text/html");
+  return Boolean(doc.body.querySelector("img")) && !hasMeaningfulPastedHtml(rawHtml);
+}
+
+function buildImageFreePastedHtmlFallback(rawHtml: string) {
+  if (!rawHtml.trim() || typeof DOMParser === "undefined") {
+    return null;
+  }
+
+  const doc = new DOMParser().parseFromString(sanitizePastedHtml(rawHtml), "text/html");
+  doc.body.querySelectorAll("img").forEach((image) => image.remove());
+
+  if (!doc.body.textContent?.trim() && !doc.body.querySelector("table, hr")) {
+    return null;
+  }
+
+  return doc.body.innerHTML.trim();
+}
+
 function shouldHandlePastedMarkdown(rawText: string) {
   const normalized = rawText.trim();
 
@@ -7247,18 +7564,25 @@ async function buildPastedHtml(
   const sanitizedHtml = sanitizePastedHtml(rawHtml);
   const doc = new DOMParser().parseFromString(sanitizedHtml, "text/html");
   const images = Array.from(doc.body.querySelectorAll("img"));
-  const hasTable = doc.body.querySelector("table") !== null;
-
-  if (images.length === 0 && !hasTable) {
-    return null;
-  }
 
   for (const [index, image] of images.entries()) {
-    const replacement = await buildPastedImageElement(doc, image, index, assetHandlers);
+    let replacement: Element | null = null;
+
+    try {
+      replacement = await buildPastedImageElement(doc, image, index, assetHandlers);
+    } catch {
+      // Preserve the safe non-image portion of mixed clipboard HTML.
+    }
 
     if (replacement) {
       image.replaceWith(replacement);
+    } else {
+      image.remove();
     }
+  }
+
+  if (!doc.body.textContent?.trim() && !doc.body.querySelector("img, table, hr")) {
+    return null;
   }
 
   appendTrailingParagraphIfNeeded(doc);
@@ -7306,17 +7630,11 @@ async function buildPastedImageElement(
         });
       }
     } catch {
-      // Fall through to a best-effort local image reference.
+      return null;
     }
   }
 
-  return createPastedImageElement(doc, {
-    src: resolveRichTextImageSrc(nativePath, source) ?? source,
-    alt: title,
-    title,
-    path: nativePath ?? undefined,
-    mimeType: mimeType ?? undefined,
-  });
+  return null;
 }
 
 function resolvePastedImageTitle(image: Element, index: number, source: string) {

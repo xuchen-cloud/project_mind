@@ -3,6 +3,8 @@ const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
   openMock: vi.fn(),
+  readClipboardTextMock: vi.fn(),
+  readClipboardImageMock: vi.fn(),
   getCurrentWindowMock: vi.fn(() => ({
     innerSize: vi.fn(async () => ({
       width: 3360,
@@ -37,6 +39,11 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: tauriMocks.openMock,
+}));
+
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
+  readText: tauriMocks.readClipboardTextMock,
+  readImage: tauriMocks.readClipboardImageMock,
 }));
 
 vi.mock("@tauri-apps/api", () => {
@@ -79,6 +86,8 @@ describe("desktopApi", () => {
   beforeEach(() => {
     tauriMocks.invokeMock.mockReset();
     tauriMocks.openMock.mockReset();
+    tauriMocks.readClipboardTextMock.mockReset();
+    tauriMocks.readClipboardImageMock.mockReset();
     tauriMocks.convertFileSrcMock.mockClear();
     tauriMocks.getCurrentWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
@@ -93,6 +102,64 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("projects_list", {
       input: { includeArchived: true },
     });
+  });
+
+  it("reads clipboard HTML and text through their native adapter boundaries", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce("<p>Rich clipboard</p>");
+    tauriMocks.readClipboardTextMock.mockResolvedValueOnce("Rich clipboard");
+
+    await expect(desktopApi.readClipboardHtml()).resolves.toBe("<p>Rich clipboard</p>");
+    await expect(desktopApi.readClipboardText()).resolves.toBe("Rich clipboard");
+
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_read_clipboard_html");
+    expect(tauriMocks.readClipboardTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes an empty native text clipboard without hiding real failures", async () => {
+    tauriMocks.readClipboardTextMock.mockRejectedValueOnce(
+      "The clipboard contents were not available in the requested format or the clipboard is empty.",
+    );
+    await expect(desktopApi.readClipboardText()).resolves.toBeNull();
+
+    tauriMocks.readClipboardTextMock.mockRejectedValueOnce("clipboard access denied");
+    await expect(desktopApi.readClipboardText()).rejects.toBe("clipboard access denied");
+  });
+
+  it("reads normalized clipboard image pixels and always closes the native resource", async () => {
+    tauriMocks.readClipboardImageMock.mockRejectedValueOnce(
+      "The clipboard contents were not available in the requested format or the clipboard is empty.",
+    );
+    await expect(desktopApi.readClipboardImage()).resolves.toBeNull();
+
+    tauriMocks.readClipboardImageMock.mockRejectedValueOnce("native clipboard is unavailable");
+    await expect(desktopApi.readClipboardImage()).rejects.toBe("native clipboard is unavailable");
+
+    const close = vi.fn(async () => undefined);
+    const rgba = new Uint8Array([255, 0, 0, 255]);
+    tauriMocks.readClipboardImageMock.mockResolvedValueOnce({
+      rgba: vi.fn(async () => rgba),
+      size: vi.fn(async () => ({ width: 1, height: 1 })),
+      close,
+    });
+
+    await expect(desktopApi.readClipboardImage()).resolves.toEqual({
+      rgba,
+      width: 1,
+      height: 1,
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+
+    const failedClose = vi.fn(async () => undefined);
+    tauriMocks.readClipboardImageMock.mockResolvedValueOnce({
+      rgba: vi.fn(async () => {
+        throw new Error("RGBA unavailable");
+      }),
+      size: vi.fn(async () => ({ width: 1, height: 1 })),
+      close: failedClose,
+    });
+
+    await expect(desktopApi.readClipboardImage()).rejects.toThrow("RGBA unavailable");
+    expect(failedClose).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes invoke failures into readable Error messages", async () => {

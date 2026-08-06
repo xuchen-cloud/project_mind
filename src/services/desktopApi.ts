@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
 import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
 import {
@@ -107,6 +108,43 @@ export const desktopApi = {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
   },
 
+  async readClipboardText() {
+    try {
+      return await readText();
+    } catch (error) {
+      if (isClipboardContentUnavailableError(error)) {
+        return null;
+      }
+
+      throw error;
+    }
+  },
+
+  readClipboardHtml() {
+    return invoke<string | null>("desktop_read_clipboard_html");
+  },
+
+  async readClipboardImage() {
+    let image: Awaited<ReturnType<typeof readImage>>;
+
+    try {
+      image = await readImage();
+    } catch (error) {
+      if (isClipboardContentUnavailableError(error)) {
+        return null;
+      }
+
+      throw error;
+    }
+
+    try {
+      const [rgba, size] = await Promise.all([image.rgba(), image.size()]);
+      return { rgba, ...size };
+    } finally {
+      await image.close();
+    }
+  },
+
   generateImageThumbnail(path: string, maxEdge = 960) {
     return invoke<string>("desktop_generate_image_thumbnail", { path, maxEdge });
   },
@@ -188,3 +226,9 @@ export const desktopApi = {
 
   getCurrentWindowLabel,
 };
+
+function isClipboardContentUnavailableError(error: unknown) {
+  return getErrorMessage(error).includes(
+    "The clipboard contents were not available in the requested format or the clipboard is empty.",
+  );
+}
