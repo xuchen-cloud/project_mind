@@ -3,6 +3,7 @@ import { webviewWindow } from "@tauri-apps/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getErrorMessage } from "../lib/errors";
 import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
 import {
@@ -80,6 +81,10 @@ export const desktopApi = {
     }
 
     return Array.isArray(selected) ? selected : [selected];
+  },
+
+  openExternalUrl(url: string) {
+    return openUrl(url);
   },
 
   openFile(path: string) {

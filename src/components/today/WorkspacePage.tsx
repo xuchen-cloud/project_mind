@@ -27,8 +27,6 @@ import type { ProjectTagRecord, WorkspaceRecord } from "../../lib/types";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
-import { useWorkspaceTodoActions } from "../../hooks/useWorkspaceTodoActions";
-import { fetchWorkspacePageWithTodoCollections } from "../../hooks/todo-query-cache";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
@@ -43,7 +41,7 @@ import {
   buildWorkspaceNoteImageAssetHandlers,
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
-import { TodoRail } from "../todo";
+import { TodoModuleRail } from "../../todo";
 import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
@@ -108,7 +106,7 @@ export function WorkspacePage({
   });
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
-    queryFn: () => fetchWorkspacePageWithTodoCollections(queryClient),
+    queryFn: projectMindApi.workspacePageGet,
     enabled: visible,
   });
   const workspaceStatusQuery = useQuery({
@@ -154,31 +152,12 @@ export function WorkspacePage({
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : null;
   }, [searchParams]);
-  const allTodos = useMemo(
-    () => [
-      ...(workspacePage?.unfinishedTodos ?? []),
-      ...(workspacePage?.finishedTodos ?? []),
-    ],
-    [workspacePage?.finishedTodos, workspacePage?.unfinishedTodos],
-  );
   const { workspaceQuickNoteMutation } = useWorkspaceQuickNoteMutations();
   const { workspaceRecordMutation, workspaceRecordDeleteMutation } = useWorkspaceRecordMutations();
   const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
     visibleProjects,
     (path, options) => navigate(path, options),
   );
-  const {
-    todoDeleteMutation,
-    todoPriorityMutation,
-    todoTagMutation,
-    todoProgressMutation,
-    todoProgressUpdateMutation,
-    todoProgressDeleteMutation,
-    todoStatusMutation,
-    createWorkspaceTodo,
-    createProjectTodo,
-    updateWorkspaceRailTodoContent,
-  } = useWorkspaceTodoActions(allTodos, availableTags);
 
   useEffect(() => {
     if (buttonView === null || buttonView === routeView) {
@@ -450,17 +429,6 @@ export function WorkspacePage({
     }
 
     navigate(projectPath(projectId));
-  }
-
-  async function refreshWorkspaceTodos() {
-    try {
-      await Promise.all([
-        workspacePageQuery.refetch(),
-        projectsQuery.refetch(),
-      ]);
-    } catch (error) {
-      pushToast({ tone: "error", title: "刷新 Todo 失败", detail: String(error) });
-    }
   }
 
   async function createProjectQuickly() {
@@ -762,56 +730,12 @@ export function WorkspacePage({
         </div>
       </div>
 
-      <TodoRail
+      <TodoModuleRail
+        scope={{ kind: "workspace" }}
+        enabled={visible}
         focusTodoId={focusedTodoId}
-        title="Todo List"
-        scopeLabel="整个工作区"
-        unfinishedTodos={workspacePage.unfinishedTodos}
-        finishedTodos={workspacePage.finishedTodos}
         availableTags={availableTags}
-        canCreateTagsForTodo={() => true}
-        showTodoSources
         onOpenProject={openProject}
-        createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
-        createOwnershipOptions={visibleProjects.map((project) => ({
-          projectId: project.id,
-          name: project.name,
-        }))}
-        onCreateTodo={(payload) => {
-          if (payload.projectId == null) {
-            void createWorkspaceTodo(payload.content, payload.priority, payload.dueDate);
-            return;
-          }
-          void createProjectTodo(
-            payload.projectId,
-            payload.content,
-            payload.priority,
-            payload.dueDate,
-          );
-        }}
-        onToggleStatus={(todoId, status) =>
-          todoStatusMutation.mutateAsync({ todoId, status })
-        }
-        onUpdatePriority={(todoId, priority) =>
-          todoPriorityMutation.mutateAsync({ todoId, priority })
-        }
-        onUpdateContent={updateWorkspaceRailTodoContent}
-        onUpdateTags={(payload) => todoTagMutation.mutateAsync(payload)}
-        onAddProgress={(todoId, payload) =>
-          todoProgressMutation.mutateAsync({ todoId, ...payload })
-        }
-        onUpdateProgress={(progressId, payload) =>
-          todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
-        }
-        onDeleteProgress={(progressId) =>
-          todoProgressDeleteMutation.mutateAsync({ progressId })
-        }
-        onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
-        onRefresh={refreshWorkspaceTodos}
-        refreshing={workspacePageQuery.isFetching || projectsQuery.isFetching}
-        onError={(message) => {
-          pushToast({ tone: "error", title: "Todo 处理失败", detail: message });
-        }}
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />

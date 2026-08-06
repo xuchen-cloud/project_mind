@@ -12,6 +12,7 @@ import {
   type InternalReferenceTarget,
 } from "../../lib/internalReferences";
 import { cn } from "../../ui/lib/cn";
+import { openTodoUrl, splitTodoUrlText } from "../todo/todo-urls";
 
 export function InternalReferenceInlineText({
   value,
@@ -52,6 +53,7 @@ export function InternalReferenceInlineText({
                 brokenKeys,
                 markBroken,
                 onOpenContactMention,
+                variant === "todo-inline",
               )}
             </Fragment>
           );
@@ -107,17 +109,20 @@ function renderContactMentions(
   brokenKeys: Set<string>,
   markBroken: (key: string, opened: boolean) => void,
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean,
+  linkUrls = false,
 ) {
   const segments = splitContactMentionText(text);
 
   if (segments.length === 1 && segments[0].type === "text") {
-    return text;
+    return linkUrls ? renderTodoUrls(text) : text;
   }
 
-  return segments.map((segment) => {
+  return segments.map((segment, index) => {
     if (segment.type === "text") {
       return (
-        <Fragment key={`mention-text:${segment.text}`}>{segment.text}</Fragment>
+        <Fragment key={`mention-text:${index}:${segment.text}`}>
+          {linkUrls ? renderTodoUrls(segment.text) : segment.text}
+        </Fragment>
       );
     }
 
@@ -154,4 +159,29 @@ function renderContactMentions(
       </a>
     );
   });
+}
+
+function renderTodoUrls(text: string) {
+  return splitTodoUrlText(text).map((segment, index) =>
+    segment.type === "text" ? (
+      <Fragment key={`url-text:${index}:${segment.text}`}>{segment.text}</Fragment>
+    ) : (
+      <a
+        key={`url:${index}:${segment.href}`}
+        href={segment.href}
+        className="todo-inline-url"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void openTodoUrl(segment.href);
+        }}
+      >
+        {segment.text}
+      </a>
+    ),
+  );
 }

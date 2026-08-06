@@ -126,6 +126,22 @@ describe("TodoListItem", () => {
     expect(screen.queryByLabelText("移除标签 法务")).not.toBeInTheDocument();
   });
 
+  it("round-trips original URL text through inline editing and restores the link", async () => {
+    const user = userEvent.setup();
+    const content = "Review https://example.com/a?x=1。";
+
+    renderItem({ content }, { allowInlineEdit: true });
+    expect(screen.getByRole("link", { name: "https://example.com/a?x=1" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: content }));
+
+    const editor = screen.getByRole("textbox");
+    expect(editor).toHaveTextContent(content);
+    await user.type(editor, "{Enter}");
+
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "https://example.com/a?x=1" })).toBeInTheDocument();
+  });
+
   it("shows removable tags while inline content is editing", async () => {
     const user = userEvent.setup();
     renderItem(

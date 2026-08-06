@@ -3421,6 +3421,18 @@
   box-shadow: none;
 }
 
+.todo-inline-url {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  text-underline-offset: 0.16em;
+}
+
+.todo-inline-url:hover,
+.todo-inline-url:focus-visible {
+  text-decoration-color: currentColor;
+}
+
 .todo-inline-content--saved {
   box-shadow: 0 0 0 4px var(--color-accent-ring);
 }

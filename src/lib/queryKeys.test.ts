@@ -20,6 +20,9 @@ describe("search query keys", () => {
   });
 
   it("names Todo ownership collections separately from the Workspace Rail aggregate", () => {
+    expect(queryKeys.todoViews.all).toEqual(["todo-views"]);
+    expect(queryKeys.todoViews.workspace).toEqual(["todo-views", "workspace"]);
+    expect(queryKeys.todoViews.project(3)).toEqual(["todo-views", "current-project", 3]);
     expect(queryKeys.todoCollections.all).toEqual(["todos"]);
     expect(queryKeys.todoCollections.workspaceOwned).toEqual([
       "todos",

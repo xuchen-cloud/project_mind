@@ -66,6 +66,14 @@ _Avoid_：Workspace Todo、跨项目 Todo
 直接归属于 Workspace、不依赖任何 Project 的 Todo，用于个人事务、跨项目事项或不需要建立 Project 的行动。
 _Avoid_：Project Todo、未归类 Project Todo
 
+**Workspace View**：
+以 Workspace 当前工作范围为尺度查看 Todo 的集合，包含 Workspace Todo，以及归属于未进入 Archive 的 Project 的 Project Todo；它可以在 Workspace 或任一 Project 中查看，不改变其中任何 Todo 的归属。
+_Avoid_：Workspace Todo、仅 Workspace Todo、Todo 归属
+
+**Current Project View**：
+以当前 Project 为尺度查看 Todo 的集合，只包含归属于当前 Project 的 Project Todo，不包含 Workspace Todo 或其他 Project 的 Project Todo。
+_Avoid_：Workspace View、Workspace Todo、跨 Project Todo
+
 **Subtask**：
 Todo 下可独立安排和完成的较小行动单元，可以有自己的完成状态、截止日期和顺序。
 _Avoid_：Todo Progress、进展、子项

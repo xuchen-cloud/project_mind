@@ -27,7 +27,6 @@ import type {
   ProjectTagRecord,
   NoteRecord,
   ProjectPageData,
-  TodoPriority,
 } from "../../lib/types";
 import {
   parseFocusRecordId,
@@ -52,15 +51,12 @@ import {
   colorKeyForTagLabel,
 } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
-import { resolveTodoContentTagSync, todoTagIds } from "../../lib/todo-tag-sync";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
-import { useTodoMutations } from "../../hooks/useTodoMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
-import { fetchProjectPageWithTodoCollection } from "../../hooks/todo-query-cache";
 import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
@@ -72,7 +68,7 @@ import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-m
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { RecordListItem } from "../record/RecordListItem";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import { TodoRail } from "../todo";
+import { TodoModuleRail } from "../../todo";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -112,7 +108,14 @@ export function ProjectOverviewPage({
   const [buttonView, setButtonView] = useState<ProjectPageView | null>(null);
   const currentView = buttonView ?? routeView;
   const { pushToast } = useFeedbackStore();
-  const { openSettings, pageWidthMode, projectSidebarCollapsed, todoRailCollapsed } = useUiStore();
+  const {
+    openSettings,
+    pageWidthMode,
+    projectSidebarCollapsed,
+    todoRailCollapsed,
+    projectTodoViewMode,
+    setProjectTodoViewMode,
+  } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
@@ -139,7 +142,7 @@ export function ProjectOverviewPage({
   }, [projectId]);
   const projectPageQuery = useQuery({
     queryKey: queryKeys.projectPage(projectId),
-    queryFn: () => fetchProjectPageWithTodoCollection(queryClient, projectId as number),
+    queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
   });
   const tagSettingsQuery = useQuery({
@@ -153,21 +156,6 @@ export function ProjectOverviewPage({
     enabled: visible,
   });
   const { projectUpdateMutation } = useProjectMutations(visibleProjects, (path) => navigate(path));
-  const allTodos = [
-    ...(projectPageQuery.data?.unfinishedTodos ?? []),
-    ...(projectPageQuery.data?.finishedTodos ?? []),
-  ];
-  const {
-    todoMutation,
-    todoContentMutation,
-    todoStatusMutation,
-    todoPriorityMutation,
-    todoTagMutation,
-    todoProgressMutation,
-    todoProgressUpdateMutation,
-    todoProgressDeleteMutation,
-    todoDeleteMutation,
-  } = useTodoMutations(allTodos);
 
   const [nameDraft, setNameDraft] = useState("");
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
@@ -556,54 +544,6 @@ export function ProjectOverviewPage({
     setRecordContextMenu({ x: event.clientX, y: event.clientY, noteId });
   }
 
-  async function createTodo(payload: { content: string; priority: TodoPriority; dueDate?: string | null }) {
-    if (!projectId) return;
-
-    const synced = await resolveTodoContentTagSync({
-      tagScope: { scope: "project", projectId },
-      content: payload.content,
-      explicitTagIds: [],
-      availableTags,
-    });
-    await todoMutation.mutateAsync({
-      scope: "project",
-      projectId,
-      ...payload,
-      content: synced.content,
-      tagIds: synced.tagIds,
-    });
-  }
-
-  async function updateTodoContent(todoId: number, content: string, dueDate?: string | null) {
-    const currentTodo = allTodos.find((todo) => todo.id === todoId);
-    if (!currentTodo) {
-      await todoContentMutation.mutateAsync({ todoId, content, dueDate });
-      return;
-    }
-    if (currentTodo.projectId == null) {
-      await todoContentMutation.mutateAsync({
-        todoId,
-        content,
-        dueDate,
-        tagIds: todoTagIds(currentTodo.tags),
-      });
-      return;
-    }
-
-    const synced = await resolveTodoContentTagSync({
-      tagScope: { scope: "project", projectId: currentTodo.projectId },
-      content,
-      explicitTagIds: todoTagIds(currentTodo.tags),
-      availableTags,
-    });
-    await todoContentMutation.mutateAsync({
-      todoId,
-      content: synced.content,
-      dueDate,
-      tagIds: synced.tagIds,
-    });
-  }
-
   function setProjectPageView(nextView: ProjectPageView) {
     setButtonView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -984,37 +924,19 @@ export function ProjectOverviewPage({
         </div>
       </div>
 
-      <TodoRail
-        projectId={activeProject.id}
+      <TodoModuleRail
+        scope={
+          projectTodoViewMode === "workspace"
+            ? { kind: "workspace" }
+            : { kind: "current-project", projectId: activeProject.id }
+        }
         focusTodoId={focusedTodoId}
-        title="Todo List"
-        scopeLabel={activeProject.name}
-        unfinishedTodos={projectPage.unfinishedTodos}
-        finishedTodos={projectPage.finishedTodos}
-        availableTags={availableTags}
-        createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
-        onCreateTodo={(payload) => void createTodo(payload)}
-        onToggleStatus={(todoId, status) =>
-          todoStatusMutation.mutateAsync({ todoId, status })
-        }
-        onUpdatePriority={(todoId, priority) =>
-          todoPriorityMutation.mutateAsync({ todoId, priority })
-        }
-        onUpdateContent={updateTodoContent}
-        onUpdateTags={(payload) => todoTagMutation.mutateAsync(payload)}
-        onAddProgress={(todoId, payload) =>
-          todoProgressMutation.mutateAsync({ todoId, ...payload })
-        }
-        onUpdateProgress={(progressId, payload) =>
-          todoProgressUpdateMutation.mutateAsync({ progressId, ...payload })
-        }
-        onDeleteProgress={(progressId) =>
-          todoProgressDeleteMutation.mutateAsync({ progressId })
-        }
-        onDeleteTodo={(todoId) => todoDeleteMutation.mutateAsync({ todoId })}
-        onError={(message) =>
-          pushToast({ tone: "error", title: "进展保存失败", detail: message })
-        }
+        enabled={visible}
+        canCreateTodo={projectTodoViewMode === "workspace" || !activeProject.isArchived}
+        availableTags={projectTodoViewMode === "current-project" ? availableTags : []}
+        showViewModeSwitch
+        onViewModeChange={setProjectTodoViewMode}
+        onOpenProject={(targetProjectId) => navigate(projectPath(targetProjectId))}
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />

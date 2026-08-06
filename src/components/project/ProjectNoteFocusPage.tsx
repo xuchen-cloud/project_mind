@@ -12,7 +12,6 @@ import {
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
-import { fetchProjectPageWithTodoCollection } from "../../hooks/todo-query-cache";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -73,7 +72,7 @@ export function ProjectNoteFocusPage() {
 
   const projectPageQuery = useQuery({
     queryKey: queryKeys.projectPage(projectId),
-    queryFn: () => fetchProjectPageWithTodoCollection(queryClient, projectId as number),
+    queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: projectId !== null && noteId !== null,
   });
 
