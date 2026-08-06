@@ -12302,6 +12302,51 @@ mod tests {
     }
 
     #[test]
+    fn deleting_project_removes_only_its_project_todos() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let project_todo = create_todo(
+            &mut database,
+            project.id,
+            None,
+            "随 Project 删除",
+            "not_urgent_important",
+        );
+        let workspace_todo = database
+            .todo_create(TodoCreateInput {
+                scope: TodoScope::Workspace,
+                project_id: None,
+                activity_id: None,
+                content: "保留 Workspace Todo".to_string(),
+                priority: "urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+
+        database
+            .project_delete(ProjectDeleteInput {
+                project_id: project.id,
+            })
+            .unwrap();
+
+        assert!(database.todo_record(project_todo.id).is_err());
+        assert_eq!(
+            database.todo_record(workspace_todo.id).unwrap().id,
+            workspace_todo.id
+        );
+        assert_eq!(
+            database
+                .workspace_todo_rail_list()
+                .unwrap()
+                .into_iter()
+                .map(|todo| todo.id)
+                .collect::<Vec<_>>(),
+            vec![workspace_todo.id]
+        );
+    }
+
+    #[test]
     fn todo_creation_rejects_invalid_scope_ownership_combinations() {
         let (harness, mut database) = setup_database();
         let first_project =
