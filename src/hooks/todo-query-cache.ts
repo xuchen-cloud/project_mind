@@ -76,7 +76,7 @@ function mergeWorkspaceTodos(current: TodoRecord[] | undefined, todo: TodoRecord
 
 function projectIsArchived(queryClient: QueryClient, projectId: number) {
   const projectPage = queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId));
-  if (projectPage) return projectPage.project.isArchived;
+  if (projectPage?.project) return projectPage.project.isArchived;
 
   return queryClient
     .getQueryData<ProjectListItem[]>(queryKeys.projects.all)

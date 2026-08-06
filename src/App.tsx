@@ -151,7 +151,9 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
     case "conclusion":
       return projectPath(result.projectId, `conclusion-${result.id}`);
     case "todo":
-      return projectPath(result.projectId, `todo-${result.id}`);
+      return result.scope === "workspace"
+        ? `${workspacePath()}?focus=todo-${result.id}`
+        : projectPath(result.projectId, `todo-${result.id}`);
     case "document":
       return projectPath(result.projectId, `document-${result.id}`);
   }
@@ -207,6 +209,7 @@ export function WorkspaceLayout({
     rememberProjectRoute,
     clearWorkspaceScopedUiState,
     todoRailCollapsed,
+    setTodoRailCollapsed,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
 
@@ -285,8 +288,12 @@ export function WorkspaceLayout({
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 260);
   const searchQuery = useQuery({
-    queryKey: queryKeys.search(debouncedSearch),
-    queryFn: () => projectMindApi.workspaceSearch({ query: debouncedSearch }),
+    queryKey: queryKeys.search(debouncedSearch, activeProjectId),
+    queryFn: () =>
+      projectMindApi.workspaceSearch({
+        query: debouncedSearch,
+        projectId: activeProjectId,
+      }),
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
   });
   const normalizedSearchInput = searchInput.trim();
@@ -755,15 +762,22 @@ export function WorkspaceLayout({
         openSettings("contacts", activeProjectId);
       } else if (
         result.kind === "workspace_quick_note" ||
-        result.kind === "workspace_note"
+        result.kind === "workspace_note" ||
+        (result.kind === "todo" && result.scope === "workspace")
       ) {
         const route = workspaceSearchResultRoute(result);
         if (route && (await saveActiveProjectFocusRecord())) {
+          if (result.kind === "todo") {
+            setTodoRailCollapsed(false);
+          }
           navigate(route);
         }
       } else if (result.projectId !== null) {
         const route = workspaceSearchResultRoute(result);
         if (route && (await saveActiveProjectFocusRecord())) {
+          if (result.kind === "todo") {
+            setTodoRailCollapsed(false);
+          }
           openProjectTab(result.projectId);
           navigate(route);
         }
@@ -776,6 +790,7 @@ export function WorkspaceLayout({
       openProjectTab,
       openSettings,
       saveActiveProjectFocusRecord,
+      setTodoRailCollapsed,
     ],
   );
 

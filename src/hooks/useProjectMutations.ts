@@ -10,7 +10,8 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }),
-    queryClient.invalidateQueries({ queryKey: ["workspace-todos"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.workspaceTodos }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
 }
@@ -30,7 +31,6 @@ export function useProjectMutations(
       pushToast({ tone: "success", title: "项目已创建", detail: project.name });
       setCreateProjectOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
       navigate(`/projects/${project.id}?renameProject=1`);
     },
     onError: (error) => {
@@ -90,7 +90,7 @@ export function useProjectMutations(
       pushToast({ tone: "success", title: "项目已删除", detail: project.name });
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-todos"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaceTodos });
       await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       navigate("/workspace");
     },

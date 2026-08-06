@@ -106,6 +106,7 @@ pub struct TodoRecord {
     pub id: i64,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
+    pub project_name: Option<String>,
     pub activity_id: Option<i64>,
     pub source_activity_title: Option<String>,
     pub content: String,
@@ -662,7 +663,8 @@ pub struct InternalReferenceSearchResult {
     pub kind: String,
     pub id: i64,
     pub label: String,
-    pub project_id: i64,
+    pub scope: TodoScope,
+    pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub subtitle: String,
     pub updated_at: String,
@@ -674,7 +676,8 @@ pub struct InternalReferenceResolveResult {
     pub kind: String,
     pub id: i64,
     pub label: String,
-    pub project_id: i64,
+    pub scope: TodoScope,
+    pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
     pub route: String,
     pub focus_id: Option<String>,
@@ -686,8 +689,10 @@ pub struct InternalReferenceResolveResult {
 pub struct WorkspaceSearchResult {
     pub kind: String,
     pub id: i64,
+    pub scope: Option<String>,
     pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
+    pub source: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub matched_text: String,
@@ -754,6 +759,7 @@ pub struct ProjectsListInput {
 pub struct WorkspaceSearchInput {
     pub query: String,
     pub include_archived: Option<bool>,
+    pub project_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

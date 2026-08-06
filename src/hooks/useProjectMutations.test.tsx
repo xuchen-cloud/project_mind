@@ -1,17 +1,39 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PropsWithChildren } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { queryKeys } from "../lib/queryKeys";
 import type {
   ProjectListItem,
   ProjectPageData,
-  ProjectRecord,
   TodoRecord,
   WorkspacePageData,
 } from "../lib/types";
-import { projectMindApi } from "../services/projectMindApi";
+
+const apiMocks = vi.hoisted(() => ({
+  projectSetArchive: vi.fn(),
+}));
+
+vi.mock("../services/projectMindApi", () => ({
+  projectMindApi: {
+    projectSetArchive: apiMocks.projectSetArchive,
+  },
+}));
+
+vi.mock("../state/feedback-store", () => ({
+  useFeedbackStore: () => ({
+    pushToast: vi.fn(),
+    setStatus: vi.fn(),
+  }),
+}));
+
+vi.mock("../state/ui-store", () => ({
+  useUiStore: () => ({
+    setCreateProjectOpen: vi.fn(),
+  }),
+}));
+
 import { useProjectMutations } from "./useProjectMutations";
 
 const project: ProjectListItem = {
@@ -51,12 +73,12 @@ const projectTodo: TodoRecord = {
   content: "Project Todo",
 };
 
-afterEach(() => {
-  vi.restoreAllMocks();
+beforeEach(() => {
+  apiMocks.projectSetArchive.mockReset();
 });
 
-describe("useProjectMutations Archive cache integration", () => {
-  it("keeps Project and Workspace page caches consistent through Archive and Restore", async () => {
+describe("useProjectMutations", () => {
+  it("keeps shared page caches consistent through Archive and Restore", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const projectPage: ProjectPageData = {
       project,
@@ -76,12 +98,12 @@ describe("useProjectMutations Archive cache integration", () => {
     queryClient.setQueryData(queryKeys.projectPage(project.id), projectPage);
     queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
     queryClient.setQueryData(queryKeys.workspaceTodos, [projectTodo, workspaceTodo]);
-
-    vi.spyOn(projectMindApi, "projectSetArchive").mockImplementation(async (input) =>
-      ({ ...project, isArchived: input.isArchived }) satisfies ProjectRecord,
-    );
+    apiMocks.projectSetArchive.mockImplementation(async (input) => ({
+      ...project,
+      isArchived: input.isArchived,
+    }));
     const navigate = vi.fn();
-    const wrapper = ({ children }: { children: ReactNode }) => (
+    const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const { result } = renderHook(() => useProjectMutations([project], navigate), { wrapper });
@@ -103,6 +125,7 @@ describe("useProjectMutations Archive cache integration", () => {
     expect(
       queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)?.unfinishedTodos,
     ).toEqual([workspaceTodo]);
+    expect(queryClient.getQueryState(queryKeys.workspacePage)?.isInvalidated).toBe(true);
 
     await act(() =>
       result.current.archiveMutation.mutateAsync({ projectId: project.id, isArchived: false }),
@@ -116,5 +139,33 @@ describe("useProjectMutations Archive cache integration", () => {
       workspaceTodo,
     ]);
     expect(navigate).toHaveBeenLastCalledWith(`/projects/${project.id}`);
+  });
+
+  it("invalidates the Workspace Page when a Project is archived without cached Project data", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.workspacePage, {
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [{ id: 7, projectId: 1 }],
+      finishedTodos: [],
+    });
+    apiMocks.projectSetArchive.mockResolvedValueOnce({
+      id: 1,
+      name: "Alpha",
+      isArchived: true,
+    });
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useProjectMutations([], vi.fn()), { wrapper });
+
+    await act(async () => {
+      await result.current.archiveMutation.mutateAsync({
+        projectId: 1,
+        isArchived: true,
+      });
+    });
+
+    expect(queryClient.getQueryState(queryKeys.workspacePage)?.isInvalidated).toBe(true);
   });
 });

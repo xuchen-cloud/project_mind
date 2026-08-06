@@ -3,7 +3,12 @@ import { ChevronLeft, ChevronRight, ListTodo, Plus, RefreshCw } from "lucide-rea
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
-import type { TodoPriority, TodoRecord } from "../../lib/types";
+import type {
+  ProjectTagRecord,
+  TodoPriority,
+  TodoRecord,
+  TodoTagUpdateHandler,
+} from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton } from "../../ui/components";
@@ -36,16 +41,27 @@ import {
 
 interface TodoRailProps {
   projectId?: number;
+  focusTodoId?: number | null;
   title: string;
   scopeLabel: string;
   unfinishedTodos: TodoRecord[];
   finishedTodos: TodoRecord[];
+  availableTags?: ProjectTagRecord[];
+  canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
+  showTodoSources?: boolean;
+  onOpenProject?: (projectId: number) => Promise<unknown> | void;
   createPlaceholder: string;
-  onCreateTodo: (payload: { content: string; priority: TodoPriority; dueDate?: string | null }) => void;
+  createOwnershipOptions?: Array<{ projectId: number; name: string }>;
+  onCreateTodo: (payload: {
+    content: string;
+    priority: TodoPriority;
+    dueDate?: string | null;
+    projectId?: number | null;
+  }) => void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
-  onUpdateTags?: (todoId: number, tagIds: number[]) => Promise<unknown> | void;
+  onUpdateTags?: TodoTagUpdateHandler;
   onAddProgress: (
     todoId: number,
     payload: { content: string; progressDate: string; dueDate?: string | null },
@@ -65,11 +81,17 @@ interface TodoRailProps {
 
 export function TodoRail({
   projectId,
+  focusTodoId = null,
   title,
   scopeLabel: _scopeLabel,
   unfinishedTodos,
   finishedTodos,
+  availableTags = [],
+  canCreateTagsForTodo,
+  showTodoSources = false,
+  onOpenProject,
   createPlaceholder,
+  createOwnershipOptions,
   onCreateTodo,
   onToggleStatus,
   onUpdatePriority,
@@ -97,7 +119,12 @@ export function TodoRail({
     setTodoRailSortMode: setSortMode,
   } = useUiStore();
   const draftStorageKey = buildTodoRailDraftStorageKey(projectId);
+  const railRef = useRef<HTMLElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
+  const internalReferenceContext =
+    projectId === undefined
+      ? { scope: "workspace" as const, projectId: null }
+      : { scope: "project" as const, projectId };
   const [isComposing, setIsComposing] = useState(
     () => Boolean(initialComposerDraft?.content.trim()),
   );
@@ -107,6 +134,13 @@ export function TodoRail({
   const [priority, setPriority] = useState<TodoPriority>(
     () => initialComposerDraft?.priority ?? "not_urgent_important",
   );
+  const [createProjectId, setCreateProjectId] = useState<number | null>(
+    () => initialComposerDraft?.projectId ?? null,
+  );
+  const composerInternalReferenceContext =
+    createOwnershipOptions && createProjectId !== null
+      ? { scope: "project" as const, projectId: createProjectId }
+      : internalReferenceContext;
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDraftRef = useRef<{
@@ -117,23 +151,20 @@ export function TodoRail({
     snapshot: {
       content: initialComposerDraft?.content ?? "",
       priority: initialComposerDraft?.priority ?? "not_urgent_important",
+      projectId: initialComposerDraft?.projectId ?? null,
     },
   });
   const contactMentionOptions = useContactMentionOptions();
   const controller = useTodoEditorController({
     draft: content,
     editing: isComposing,
-    internalReferenceContext:
-      projectId === undefined ? null : { scope: "project", projectId },
+    internalReferenceContext: composerInternalReferenceContext,
     canCreateMentions: Boolean(contactMentionOptions.onCreateContact),
   });
   const { results: referenceResults, loading: referenceLoading } = useInternalReferenceSearch({
     open: controller.referencePickerOpen,
     query: controller.referenceTrigger?.query ?? "",
-    context:
-      projectId === undefined
-        ? null
-        : { scope: "project", projectId },
+    context: composerInternalReferenceContext,
     limit: 8,
   });
   const { results: mentionResults, loading: mentionLoading } = useContactMentionSearch({
@@ -145,7 +176,7 @@ export function TodoRail({
   const { results: tagResults, loading: tagLoading } = useTagMentionSearch({
     open: controller.tagPickerOpen,
     query: controller.tagTrigger?.query ?? "",
-    projectId: projectId,
+    projectId: createOwnershipOptions ? createProjectId : projectId,
     limit: 8,
   });
   const tabTodos = tab === "unfinished" ? unfinishedTodos : finishedTodos;
@@ -153,6 +184,34 @@ export function TodoRail({
     return sortTodos(tabTodos, sortMode);
   }, [sortMode, tabTodos]);
   const showSortSwitch = todos.length > 1;
+
+  useEffect(() => {
+    if (focusTodoId === null) {
+      return;
+    }
+
+    const focusedTodo =
+      unfinishedTodos.find((todo) => todo.id === focusTodoId) ??
+      finishedTodos.find((todo) => todo.id === focusTodoId);
+    if (!focusedTodo) {
+      return;
+    }
+
+    setTodoRailCollapsed(false);
+    setTab(focusedTodo.status === "finished" ? "finished" : "unfinished");
+    const frameId = window.requestAnimationFrame(() => {
+      railRef.current
+        ?.querySelector<HTMLElement>(`[data-todo-id="${focusTodoId}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    finishedTodos,
+    focusTodoId,
+    setTab,
+    setTodoRailCollapsed,
+    unfinishedTodos,
+  ]);
 
   useSyncTodoEditorPickerState({
     referencePickerOpen: controller.referencePickerOpen,
@@ -182,6 +241,7 @@ export function TodoRail({
     const snapshot = readTodoComposerDraft(draftStorageKey);
     setContent(snapshot?.content ?? "");
     setPriority(snapshot?.priority ?? "not_urgent_important");
+    setCreateProjectId(snapshot?.projectId ?? null);
     setIsComposing(Boolean(snapshot?.content.trim()));
     controller.setControllerState((current) => ({
       ...current,
@@ -190,10 +250,10 @@ export function TodoRail({
   }, [controller.setControllerState, draftStorageKey]);
 
   useEffect(() => {
-    const snapshot = { content, priority };
+    const snapshot = { content, priority, projectId: createProjectId };
     composerDraftRef.current = { key: draftStorageKey, snapshot };
     writeTodoComposerDraft(draftStorageKey, snapshot);
-  }, [content, draftStorageKey, priority]);
+  }, [content, createProjectId, draftStorageKey, priority]);
 
   useEffect(() => {
     const flushDraft = () => {
@@ -238,6 +298,14 @@ export function TodoRail({
     if (!content.trim()) {
       return;
     }
+    if (
+      createOwnershipOptions &&
+      createProjectId !== null &&
+      !createOwnershipOptions.some((option) => option.projectId === createProjectId)
+    ) {
+      onError?.("所选 Project 已不可用，请重新选择归属。");
+      return;
+    }
     const parsed = parseDueDateInput(content);
     if (!parsed.ok) {
       onError?.(parsed.error);
@@ -246,11 +314,15 @@ export function TodoRail({
     onCreateTodo({
       content: parsed.content,
       priority,
+      ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
       ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
     });
     clearTodoComposerDraft(draftStorageKey);
     setContent("");
     setPriority("not_urgent_important");
+    if (createOwnershipOptions) {
+      setCreateProjectId(null);
+    }
     setIsComposing(false);
     controller.setControllerState((current) => ({
       ...current,
@@ -367,6 +439,7 @@ export function TodoRail({
 
   return (
     <aside
+      ref={railRef}
       className="todo-rail relative flex shrink-0 flex-col transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
       style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
@@ -604,6 +677,42 @@ export function TodoRail({
               />
             </div>
             <div className="todo-rail__composer-meta">
+              {createOwnershipOptions ? (
+                <label className="flex w-full items-center gap-2 text-ui text-text-soft">
+                  <span>归属</span>
+                  <select
+                    aria-label="Todo 归属"
+                    className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
+                    value={createProjectId === null ? "workspace" : String(createProjectId)}
+                    onChange={(event) => {
+                      setCreateProjectId(
+                        event.target.value === "workspace"
+                          ? null
+                          : Number.parseInt(event.target.value, 10),
+                      );
+                      controller.setControllerState((current) => ({
+                        ...current,
+                        ...resetTodoEditorControllerState(),
+                      }));
+                    }}
+                  >
+                    <option value="workspace">Workspace</option>
+                    {createProjectId !== null &&
+                    !createOwnershipOptions.some(
+                      (option) => option.projectId === createProjectId,
+                    ) ? (
+                      <option value={String(createProjectId)} disabled>
+                        Project 已不可用
+                      </option>
+                    ) : null}
+                    {createOwnershipOptions.map((option) => (
+                      <option key={option.projectId} value={String(option.projectId)}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div className="flex flex-1 flex-wrap items-center gap-1.5">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
                   <PriorityPillButton
@@ -628,7 +737,7 @@ export function TodoRail({
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <TodoList
+        <TodoList
             todos={todos}
             compact
             allowInlineEdit={tab === "unfinished"}
@@ -647,6 +756,11 @@ export function TodoRail({
             onError={onError}
             onOpenInternalReference={onOpenInternalReference}
             onOpenContactMention={onOpenContactMention}
+          availableTags={availableTags}
+          availableTagScopeProjectId={projectId ?? null}
+          canCreateTagsForTodo={canCreateTagsForTodo}
+          showTodoSources={showTodoSources}
+          onOpenProject={onOpenProject}
             onEmptyClick={
               tab === "unfinished"
                 ? () => {

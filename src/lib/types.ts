@@ -67,6 +67,7 @@ export interface TodoRecord {
   id: number;
   scope: TodoScope;
   projectId: number | null;
+  projectName?: string | null;
   activityId?: number | null;
   sourceActivityTitle?: string | null;
   content: string;
@@ -339,7 +340,8 @@ export interface InternalReferenceSearchResult {
   kind: InternalReferenceKind;
   id: number;
   label: string;
-  projectId: number;
+  scope: InternalReferenceScope;
+  projectId: number | null;
   subtitle: string;
   updatedAt: string;
 }
@@ -353,7 +355,8 @@ export interface InternalReferenceResolveResult {
   kind: InternalReferenceKind;
   id: number;
   label: string;
-  projectId: number;
+  scope: InternalReferenceScope;
+  projectId: number | null;
   route: string;
   focusId?: string | null;
   managedPath?: string | null;
@@ -378,9 +381,23 @@ export type WorkspaceSearchResult =
       activityId?: null;
     })
   | (WorkspaceSearchResultBase & {
-      kind: "project" | "activity" | "note" | "conclusion" | "todo" | "document";
+      kind: "project" | "activity" | "note" | "conclusion" | "document";
       projectId: number;
       activityId?: number | null;
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "todo";
+      scope: "workspace";
+      projectId: null;
+      activityId?: null;
+      source: "Workspace";
+    })
+  | (WorkspaceSearchResultBase & {
+      kind: "todo";
+      scope: "project";
+      projectId: number;
+      activityId?: number | null;
+      source: string;
     });
 
 export interface ProjectCreateInput {
@@ -410,6 +427,7 @@ export interface ProjectsListInput {
 export interface WorkspaceSearchInput {
   query: string;
   includeArchived?: boolean;
+  projectId?: number | null;
 }
 
 export interface ProjectArchiveInput {
@@ -547,6 +565,16 @@ export interface TodoUpdateTagsInput {
   todoId: number;
   tagIds?: number[];
 }
+
+export interface TodoTagUpdatePayload {
+  todoId: number;
+  tagIds: number[];
+  optimisticTags: DocumentTagRecord[];
+}
+
+export type TodoTagUpdateHandler = (
+  payload: TodoTagUpdatePayload,
+) => Promise<unknown> | void;
 
 export interface TodoUpdateStatusInput {
   todoId: number;

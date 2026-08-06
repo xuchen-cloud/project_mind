@@ -31,6 +31,7 @@ import type {
 } from "../../lib/types";
 import {
   parseFocusRecordId,
+  parseFocusTodoId,
   parseRouteId,
   preserveRecordFilters,
   projectPath,
@@ -101,6 +102,7 @@ export function ProjectOverviewPage({
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
+  const focusedTodoId = parseFocusTodoId(focusId);
   const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const explicitView = parseProjectPageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
@@ -557,7 +559,7 @@ export function ProjectOverviewPage({
     if (!projectId) return;
 
     const synced = await resolveTodoContentTagSync({
-      projectId,
+      tagScope: { scope: "project", projectId },
       content: payload.content,
       explicitTagIds: [],
       availableTags,
@@ -582,7 +584,7 @@ export function ProjectOverviewPage({
     }
 
     const synced = await resolveTodoContentTagSync({
-      projectId: currentTodo.projectId,
+      tagScope: { scope: "project", projectId: currentTodo.projectId },
       content,
       explicitTagIds: todoTagIds(currentTodo.tags),
       availableTags,
@@ -977,10 +979,12 @@ export function ProjectOverviewPage({
 
       <TodoRail
         projectId={activeProject.id}
+        focusTodoId={focusedTodoId}
         title="Todo List"
         scopeLabel={activeProject.name}
         unfinishedTodos={projectPage.unfinishedTodos}
         finishedTodos={projectPage.finishedTodos}
+        availableTags={availableTags}
         createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
         onCreateTodo={(payload) => void createTodo(payload)}
         onToggleStatus={(todoId, status) =>
@@ -990,9 +994,7 @@ export function ProjectOverviewPage({
           todoPriorityMutation.mutateAsync({ todoId, priority })
         }
         onUpdateContent={updateTodoContent}
-        onUpdateTags={(todoId, tagIds) =>
-          todoTagMutation.mutateAsync({ todoId, tagIds })
-        }
+        onUpdateTags={(payload) => todoTagMutation.mutateAsync(payload)}
         onAddProgress={(todoId, payload) =>
           todoProgressMutation.mutateAsync({ todoId, ...payload })
         }

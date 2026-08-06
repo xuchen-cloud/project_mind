@@ -10,7 +10,12 @@ const apiMocks = vi.hoisted(() => ({
   workspacePageGet: vi.fn(),
   workspaceStatusGet: vi.fn(),
   projectTagSettingsGet: vi.fn(),
+  projectTagUpsert: vi.fn(),
   aiSettingsGet: vi.fn(),
+}));
+
+const todoMutationMocks = vi.hoisted(() => ({
+  createMutateAsync: vi.fn(async () => undefined),
 }));
 
 const projectMutationMocks = vi.hoisted(() => ({
@@ -29,7 +34,10 @@ vi.mock("../../services/projectMindApi", () => ({
 
 vi.mock("../../hooks/useTodoMutations", () => ({
   useTodoMutations: () => ({
-    todoMutation: { mutate: vi.fn(), mutateAsync: vi.fn(async () => undefined) },
+    todoMutation: {
+      mutate: vi.fn(),
+      mutateAsync: todoMutationMocks.createMutateAsync,
+    },
     todoContentMutation: { mutateAsync: vi.fn() },
     todoActivityMutation: { mutateAsync: vi.fn() },
     todoDeleteMutation: { mutateAsync: vi.fn() },
@@ -109,10 +117,12 @@ function renderPage(initialEntries: string[] = ["/"]) {
 
 describe("WorkspacePage", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     apiMocks.projectsList.mockReset();
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
     apiMocks.projectTagSettingsGet.mockReset();
+    apiMocks.projectTagUpsert.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.projectsList.mockResolvedValue([]);
     apiMocks.workspacePageGet.mockResolvedValue({
@@ -130,7 +140,16 @@ describe("WorkspacePage", () => {
       aiSecretsUnlocked: true,
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.projectTagUpsert.mockResolvedValue({
+      id: 41,
+      label: "跨项目",
+      colorKey: "teal",
+      usageCount: 0,
+      createdAt: "2026-07-30T08:00:00.000Z",
+      updatedAt: "2026-07-30T08:00:00.000Z",
+    });
     apiMocks.aiSettingsGet.mockResolvedValue(null);
+    todoMutationMocks.createMutateAsync.mockClear();
     desktopApiMocks.openProjectWindow.mockClear();
     desktopApiMocks.focusProjectWindow.mockClear();
     desktopApiMocks.openFolder.mockClear();
@@ -214,6 +233,187 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("Todo List")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("AI")).not.toBeInTheDocument();
+    });
+  });
+
+  it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await screen.findByText("Todo List");
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      "整理复盘 #跨项目",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
+        label: "跨项目",
+        colorKey: expect.any(String),
+      });
+      expect(todoMutationMocks.createMutateAsync).toHaveBeenCalledWith({
+        scope: "workspace",
+        projectId: null,
+        activityId: null,
+        content: "整理复盘",
+        priority: "not_urgent_important",
+        dueDate: undefined,
+        tagIds: [41],
+      });
+    });
+  });
+
+  it("creates a Project Todo only after the user explicitly selects its Project", async () => {
+    const user = userEvent.setup();
+    apiMocks.projectsList.mockResolvedValueOnce([
+      {
+        id: 7,
+        name: "Alpha",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        quickNote: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        activityCount: 0,
+        unorganizedCount: 0,
+        openTodoCount: 0,
+      },
+    ]);
+    apiMocks.projectTagSettingsGet.mockImplementation(async (input = {}) => ({
+      tags:
+        "projectId" in input
+          ? [
+              {
+                id: 71,
+                label: "同名",
+                colorKey: "teal",
+                usageCount: 0,
+                createdAt: "",
+                updatedAt: "",
+              },
+            ]
+          : [
+              {
+                id: 41,
+                label: "同名",
+                colorKey: "blue",
+                usageCount: 0,
+                createdAt: "",
+                updatedAt: "",
+              },
+            ],
+    }));
+
+    renderPage();
+
+    await screen.findByText("Todo List");
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const ownership = screen.getByRole("combobox", { name: "Todo 归属" });
+    expect(ownership).toHaveValue("workspace");
+
+    await user.selectOptions(ownership, "7");
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      "推进里程碑 #同名",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(todoMutationMocks.createMutateAsync).toHaveBeenCalledWith({
+        scope: "project",
+        projectId: 7,
+        activityId: null,
+        content: "推进里程碑",
+        priority: "not_urgent_important",
+        dueDate: undefined,
+        tagIds: [71],
+      });
+    });
+  });
+
+  it("shows both Todo sources and opens a Project from its source label", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.projectsList.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "Alpha",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        quickNote: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        openTodoCount: 1,
+      },
+    ]);
+    apiMocks.workspacePageGet.mockResolvedValueOnce({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [
+        {
+          id: 7,
+          scope: "workspace",
+          projectId: null,
+          projectName: null,
+          content: "整理跨项目复盘",
+          status: "unfinished",
+          priority: "not_urgent_important",
+          createdAt: "2026-04-06T08:00:00.000Z",
+          updatedAt: "2026-04-06T08:00:00.000Z",
+          progresses: [],
+          tags: [],
+        },
+        {
+          id: 8,
+          scope: "project",
+          projectId: 1,
+          projectName: "Alpha",
+          content: "推进 Alpha 发布",
+          status: "unfinished",
+          priority: "urgent_important",
+          createdAt: "2026-04-06T09:00:00.000Z",
+          updatedAt: "2026-04-06T09:00:00.000Z",
+          progresses: [],
+          tags: [],
+        },
+      ],
+      finishedTodos: [],
+    });
+    apiMocks.workspaceStatusGet.mockResolvedValueOnce({
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
+
+    renderPage();
+
+    const workspaceTodoCard = (await screen.findByText("整理跨项目复盘")).closest("article");
+    expect(within(workspaceTodoCard!).getByText("Workspace")).toBeInTheDocument();
+    const projectTodoCard = screen.getByText("推进 Alpha 发布").closest("article");
+    await user.click(screen.getByRole("button", { name: "按优先级" }));
+    expect(
+      Array.from(document.querySelectorAll(".todo-list__collection > article")).map(
+        (card) => card.id,
+      ),
+    ).toEqual(["todo-8", "todo-7"]);
+    await user.click(within(projectTodoCard!).getByRole("button", { name: "推进 Alpha 发布" }));
+    expect(await within(projectTodoCard!).findByPlaceholderText("#标签")).toBeInTheDocument();
+    expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 1 });
+    await user.click(screen.getByRole("button", { name: "打开 Project Alpha" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1");
     });
   });
 

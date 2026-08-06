@@ -18,5 +18,6 @@ export const queryKeys = {
     all: ["contacts"] as const,
   },
   documentVersions: (documentId: number) => ["documentVersions", documentId] as const,
-  search: (query: string) => ["search", query] as const,
+  search: (query: string, projectId: number | null = null) =>
+    ["search", projectId === null ? "workspace" : "project", projectId, query] as const,
 } as const;
