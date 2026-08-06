@@ -135,6 +135,14 @@ describe("TodoRail", () => {
     );
   }
 
+  async function selectOwnership(user: ReturnType<typeof userEvent.setup>, name: string) {
+    const input = screen.getByRole("combobox", { name: "Todo 归属" });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, name);
+    await user.click(screen.getByRole("option", { name }));
+  }
+
   beforeEach(() => {
     installMemoryLocalStorage();
     useUiStore.setState(createUiStoreState());
@@ -159,6 +167,118 @@ describe("TodoRail", () => {
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
     expect(useUiStore.getState().todoRailCollapsed).toBe(false);
     expect(screen.getByText(finishedTodo.content)).toBeInTheDocument();
+  });
+
+  it("groups Workspace View by Workspace then Project sidebar order and can switch flat", async () => {
+    const user = userEvent.setup();
+    const openProject = vi.fn();
+    const workspaceTodo = {
+      ...todoWithoutHistory,
+      id: 20,
+      scope: "workspace" as const,
+      projectId: null,
+      projectName: null,
+      content: "Workspace action",
+    };
+    const betaTodo = {
+      ...todoWithoutHistory,
+      id: 21,
+      projectId: 2,
+      projectName: "Beta",
+      content: "Beta action",
+    };
+    const olderBetaTodo = {
+      ...betaTodo,
+      id: 23,
+      content: "Older Beta action",
+      createdAt: "2026-04-05T08:00:00.000Z",
+    };
+    const alphaTodo = {
+      ...todoWithoutHistory,
+      id: 22,
+      projectId: 1,
+      projectName: "Alpha",
+      content: "Alpha action",
+    };
+
+    renderRail({
+      viewMode: "workspace",
+      unfinishedTodos: [alphaTodo, olderBetaTodo, workspaceTodo, betaTodo],
+      finishedTodos: [],
+      createOwnershipOptions: [
+        { projectId: 2, name: "Beta" },
+        { projectId: 3, name: "Empty" },
+        { projectId: 1, name: "Alpha" },
+      ],
+      onOpenProject: openProject,
+    });
+
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
+    ).toEqual(["Workspace", "Beta", "Alpha"]);
+    expect(screen.queryByRole("heading", { name: "Empty" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开 Project Beta" })).not.toBeInTheDocument();
+    const betaGroup = screen.getByRole("heading", { name: "Beta" }).closest("section");
+    expect(
+      within(betaGroup!).getAllByText(/Beta action$/u).map((item) => item.textContent),
+    ).toEqual(["Beta action", "Older Beta action"]);
+
+    await user.click(screen.getByRole("button", { name: "平铺" }));
+    await user.click(screen.getAllByRole("button", { name: "打开 Project Beta" })[0]);
+
+    expect(openProject).toHaveBeenCalledWith(2);
+    expect(useUiStore.getState().todoRailDisplayMode).toBe("flat");
+  });
+
+  it.each([
+    ["beta", "Beta"],
+    ["xiangmuhui", "项目会"],
+    ["xmh", "项目会"],
+  ])(
+    "searches Todo ownership with %s while keeping Workspace fixed",
+    async (query, projectName) => {
+      const user = userEvent.setup();
+      renderRail({
+        viewMode: "workspace",
+        finishedTodos: [],
+        createOwnershipOptions: [
+          { projectId: 7, name: "项目会" },
+          { projectId: 8, name: "Beta" },
+        ],
+      });
+
+      await user.click(screen.getByRole("button", { name: "新增代办" }));
+      const ownershipSearch = screen.getByRole("combobox", { name: "Todo 归属" });
+      await user.type(ownershipSearch, query);
+
+      expect(screen.getByRole("option", { name: "Workspace" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: projectName })).toBeInTheDocument();
+      const hiddenProject = projectName === "Beta" ? "项目会" : "Beta";
+      expect(screen.queryByRole("option", { name: hiddenProject })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("option", { name: projectName }));
+      expect(ownershipSearch).toHaveValue(projectName);
+    },
+  );
+
+  it("does not offer creation when the current Project is archived", () => {
+    renderRail({ canCreateTodo: false, viewMode: "current-project" });
+
+    expect(screen.getByRole("button", { name: "新增代办" })).toBeDisabled();
+  });
+
+  it("switches between Workspace View and Current Project View", async () => {
+    const user = userEvent.setup();
+    const onViewModeChange = vi.fn();
+    renderRail({
+      projectId: 1,
+      viewMode: "current-project",
+      showViewModeSwitch: true,
+      onViewModeChange,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Workspace View" }));
+    expect(onViewModeChange).toHaveBeenCalledWith("workspace");
   });
 
   it("persists the new todo draft on window blur", async () => {
@@ -195,7 +315,7 @@ describe("TodoRail", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Todo 归属" }), "7");
+    await selectOwnership(user, "Alpha");
     window.dispatchEvent(new Event("blur"));
 
     expect(
@@ -241,7 +361,7 @@ describe("TodoRail", () => {
       }),
     );
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Todo 归属" }), "7");
+    await selectOwnership(user, "Alpha");
     fireEvent.select(composer, { target: { selectionStart: 8 } });
     await waitFor(() =>
       expect(referenceSearch).toHaveBeenCalledWith({
@@ -260,10 +380,7 @@ describe("TodoRail", () => {
       expect(tagSearch).toHaveBeenCalledWith({ projectId: 7 }),
     );
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Todo 归属" }),
-      "8",
-    );
+    await selectOwnership(user, "Beta");
     await user.clear(composer);
     await user.type(composer, "#另");
     await waitFor(() =>
@@ -312,7 +429,7 @@ describe("TodoRail", () => {
       onCreateTodo,
     });
 
-    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("7");
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("Alpha");
     expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue(
       "准备发布 @20260801",
     );
@@ -348,11 +465,14 @@ describe("TodoRail", () => {
       onError,
     });
 
-    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("99");
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue(
+      "Project 已不可用",
+    );
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(onCreateTodo).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith("所选 Project 已不可用，请重新选择归属。");
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("calls the optional refresh handler from the header", async () => {
@@ -611,6 +731,24 @@ describe("TodoRail", () => {
 
     expect(screen.getByText("Cmd/Ctrl + Enter 保存")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+  });
+
+  it("keeps the complete draft visible when creation fails", async () => {
+    const user = userEvent.setup();
+    const onError = vi.fn();
+    renderRail({
+      finishedTodos: [],
+      onCreateTodo: vi.fn().mockRejectedValue(new Error("Internal Reference 不兼容")),
+      onError,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    fireEvent.change(composer, { target: { value: "保留 [[todo:99|引用]]" } });
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(composer).toHaveValue("保留 [[todo:99|引用]]");
+    expect(onError).toHaveBeenCalledWith("Error: Internal Reference 不兼容");
   });
 
   it("updates a completed sub item from its context menu", async () => {

@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, type Ref } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { projectMindApi } from "../../services/projectMindApi";
+import type { ProjectPageData } from "../../lib/types";
 
 import { ProjectOverviewPage } from "./ProjectOverviewPage";
 
@@ -17,6 +21,7 @@ const noteImageAssetMocks = vi.hoisted(() => ({
     eagerManagedImages?: boolean;
   }>,
 }));
+const todoModuleRailProps = vi.hoisted(() => [] as Array<Record<string, any>>);
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
@@ -106,20 +111,6 @@ vi.mock("../../hooks/useContactMentionOptions", () => ({
 vi.mock("../../hooks/useProjectMutations", () => ({
   useProjectMutations: () => ({
     projectUpdateMutation: { mutateAsync: vi.fn(async () => undefined) },
-  }),
-}));
-
-vi.mock("../../hooks/useTodoMutations", () => ({
-  useTodoMutations: () => ({
-    todoMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoContentMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoStatusMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoPriorityMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoTagMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressUpdateMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressDeleteMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoDeleteMutation: { mutateAsync: vi.fn(async () => undefined) },
   }),
 }));
 
@@ -236,8 +227,15 @@ vi.mock("../tags/EntityTagEditor", () => ({
   ),
 }));
 
-vi.mock("../todo", () => ({
-  TodoRail: () => <div>TodoRail</div>,
+vi.mock("../../todo", () => ({
+  TodoModuleRail: (props: Record<string, any>) => {
+    todoModuleRailProps.push(props);
+    return (
+      <button type="button" onClick={() => props.onViewModeChange?.("workspace")}>
+        Mock Todo View
+      </button>
+    );
+  },
 }));
 
 vi.mock("../../hooks/useDocumentImportFlow", () => ({
@@ -255,6 +253,8 @@ vi.mock("../../hooks/useDocumentImportFlow", () => ({
 
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
+    useUiStore.setState(createUiStoreState());
+    todoModuleRailProps.length = 0;
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     noteImageAssetMocks.richTextViewerProps.length = 0;
     scrollIntoViewMock.mockReset();
@@ -267,6 +267,94 @@ describe("ProjectOverviewPage", () => {
       configurable: true,
       value: scrollToMock,
     });
+  });
+
+  it("defaults to Current Project View and persists a switch to Workspace View", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("textbox", { name: "项目名称" });
+    expect(todoModuleRailProps.at(-1)?.scope).toEqual({
+      kind: "current-project",
+      projectId: 1,
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mock Todo View" }));
+    expect(useUiStore.getState().projectTodoViewMode).toBe("workspace");
+    expect(todoModuleRailProps.at(-1)?.scope).toEqual({ kind: "workspace" });
+  });
+
+  it("pauses the Todo module while the resident Project page is hidden", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = (visible: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes>
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectOverviewPage visible={visible} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(page(true));
+    await screen.findByRole("textbox", { name: "项目名称" });
+
+    view.rerender(page(false));
+
+    expect(todoModuleRailProps.at(-1)?.enabled).toBe(false);
+  });
+
+  it("disables Current Project Todo creation after the Project enters Archive", async () => {
+    const archivedProject = {
+      id: 1,
+      name: "Archived Project",
+      rootPath: "/tmp/archived-project",
+      isArchived: true,
+      kind: "normal" as const,
+      quickNote: "",
+      quickNoteMarkdown: "",
+      quickNoteHtml: "",
+      status: "active",
+      unorganizedCount: 0,
+      openTodoCount: 0,
+      createdAt: "2026-08-06T00:00:00.000Z",
+      updatedAt: "2026-08-06T00:00:00.000Z",
+    };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValueOnce([archivedProject]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(
+      {
+        project: archivedProject,
+        records: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+        projectDocuments: [],
+        conclusionGroups: [],
+      } satisfies ProjectPageData,
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("textbox", { name: "项目名称" });
+    expect(todoModuleRailProps.at(-1)?.canCreateTodo).toBe(false);
   });
 
   it("switches to history and focuses the matching record from focus query", async () => {

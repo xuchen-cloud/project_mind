@@ -41,7 +41,7 @@ import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
 import { useResidentProjectPages } from "./hooks/useResidentProjectPages";
 import { useResidentWorkspacePage } from "./hooks/useResidentWorkspacePage";
-import { fetchProjectPageWithTodoCollection } from "./hooks/todo-query-cache";
+import { createTodoModule, productionTodoTransport } from "./todo/todo-module";
 import {
   ProjectSidebar,
   type ProjectSidebarDocumentItem,
@@ -66,6 +66,7 @@ function workspaceScopedQueryKeys() {
     ["projects"],
     ["project-page"],
     ["search"],
+    queryKeys.todoViews.all,
     queryKeys.todoCollections.all,
     ["workspace-page"],
     ["ai-settings"],
@@ -170,6 +171,10 @@ export function WorkspaceLayout({
   const location = useLocation();
   const params = useParams();
   const queryClient = useQueryClient();
+  const todoModule = useMemo(
+    () => createTodoModule({ queryClient, transport: productionTodoTransport }),
+    [queryClient],
+  );
   const projectWindow = isProjectWindow();
   const currentWindowLabel = getCurrentWindowLabel();
   const currentProjectWindowId = parseProjectWindowProjectId(currentWindowLabel);
@@ -256,8 +261,7 @@ export function WorkspaceLayout({
   );
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),
-    queryFn: () =>
-      fetchProjectPageWithTodoCollection(queryClient, activeProjectId as number),
+    queryFn: () => projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
   });
   const projectSidebarRecords = useMemo(
@@ -568,17 +572,16 @@ export function WorkspaceLayout({
   const prefetchProject = useCallback(
     (projectId: number) => {
       void Promise.all([
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.projectPage(projectId),
-          queryFn: () => fetchProjectPageWithTodoCollection(queryClient, projectId),
-        }),
+        todoModule.load({ kind: "current-project", projectId }),
         queryClient.prefetchQuery({
           queryKey: queryKeys.projectTags.project(projectId),
           queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
         }),
-      ]);
+      ]).catch(() => {
+        // Prefetch failures are surfaced by the destination page query.
+      });
     },
-    [queryClient],
+    [queryClient, todoModule],
   );
 
   const openProjectInNewWindow = useCallback(

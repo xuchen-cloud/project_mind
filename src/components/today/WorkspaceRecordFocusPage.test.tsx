@@ -48,20 +48,6 @@ vi.mock("../../hooks/useProjectMutations", () => ({
   }),
 }));
 
-vi.mock("../../hooks/useTodoMutations", () => ({
-  useTodoMutations: () => ({
-    todoMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoContentMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoDeleteMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoPriorityMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoTagMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressUpdateMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoProgressDeleteMutation: { mutateAsync: vi.fn(async () => undefined) },
-    todoStatusMutation: { mutateAsync: vi.fn(async () => undefined) },
-  }),
-}));
-
 vi.mock("../../state/feedback-store", () => ({
   useFeedbackStore: () => ({
     pushToast: vi.fn(),

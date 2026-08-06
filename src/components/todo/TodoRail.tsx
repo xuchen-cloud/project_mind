@@ -10,6 +10,7 @@ import type {
   TodoTagUpdateHandler,
 } from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { deriveContactPinyin } from "../../lib/pinyin";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -50,6 +51,10 @@ interface TodoRailProps {
   availableTags?: ProjectTagRecord[];
   canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
   showTodoSources?: boolean;
+  viewMode?: "workspace" | "current-project";
+  showViewModeSwitch?: boolean;
+  canCreateTodo?: boolean;
+  onViewModeChange?: (mode: "workspace" | "current-project") => void;
   onOpenProject?: (projectId: number) => Promise<unknown> | void;
   createPlaceholder: string;
   createOwnershipOptions?: Array<{ projectId: number; name: string }>;
@@ -58,7 +63,7 @@ interface TodoRailProps {
     priority: TodoPriority;
     dueDate?: string | null;
     projectId?: number | null;
-  }) => void;
+  }) => Promise<unknown> | void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
   onUpdateContent: (todoId: number, content: string, dueDate?: string | null) => Promise<unknown> | void;
@@ -90,6 +95,10 @@ export function TodoRail({
   availableTags = [],
   canCreateTagsForTodo,
   showTodoSources = false,
+  viewMode,
+  showViewModeSwitch = false,
+  canCreateTodo = true,
+  onViewModeChange,
   onOpenProject,
   createPlaceholder,
   createOwnershipOptions,
@@ -118,6 +127,8 @@ export function TodoRail({
     setTodoRailTab: setTab,
     todoRailSortMode: sortMode,
     setTodoRailSortMode: setSortMode,
+    todoRailDisplayMode: displayMode,
+    setTodoRailDisplayMode: setDisplayMode,
   } = useUiStore();
   const draftStorageKey = buildTodoComposerDraftStorageKey(projectId);
   const railRef = useRef<HTMLElement | null>(null);
@@ -138,6 +149,9 @@ export function TodoRail({
   const [createProjectId, setCreateProjectId] = useState<number | null>(
     () => initialComposerDraft?.projectId ?? null,
   );
+  const [ownershipPickerOpen, setOwnershipPickerOpen] = useState(false);
+  const [ownershipQuery, setOwnershipQuery] = useState("");
+  const [createPending, setCreatePending] = useState(false);
   const composerInternalReferenceContext =
     createOwnershipOptions && createProjectId !== null
       ? { scope: "project" as const, projectId: createProjectId }
@@ -184,6 +198,46 @@ export function TodoRail({
   const todos = useMemo(() => {
     return sortTodos(tabTodos, sortMode);
   }, [sortMode, tabTodos]);
+  const workspaceView = viewMode === "workspace";
+  const selectedOwnershipName =
+    createProjectId === null
+      ? "Workspace"
+      : createOwnershipOptions?.find((option) => option.projectId === createProjectId)?.name ??
+        "Project 已不可用";
+  const ownershipUnavailable = Boolean(
+    createOwnershipOptions &&
+      createProjectId !== null &&
+      !createOwnershipOptions.some((option) => option.projectId === createProjectId),
+  );
+  const filteredOwnershipOptions = useMemo(() => {
+    const normalizedQuery = ownershipQuery.trim().toLowerCase();
+    if (!normalizedQuery) return createOwnershipOptions ?? [];
+    return (createOwnershipOptions ?? []).filter((option) => {
+      const pinyin = deriveContactPinyin(option.name);
+      return (
+        option.name.toLowerCase().includes(normalizedQuery) ||
+        pinyin.pinyinFull.includes(normalizedQuery) ||
+        pinyin.pinyinAbbr.includes(normalizedQuery)
+      );
+    });
+  }, [createOwnershipOptions, ownershipQuery]);
+  const todoGroups = useMemo(() => {
+    if (!workspaceView || displayMode !== "grouped") return [];
+    const groups: Array<{ key: string; title: string; todos: TodoRecord[] }> = [];
+    const workspaceTodos = todos.filter((todo) => todo.scope === "workspace");
+    if (workspaceTodos.length > 0) {
+      groups.push({ key: "workspace", title: "Workspace", todos: workspaceTodos });
+    }
+    for (const project of createOwnershipOptions ?? []) {
+      const projectTodos = todos.filter(
+        (todo) => todo.scope === "project" && todo.projectId === project.projectId,
+      );
+      if (projectTodos.length > 0) {
+        groups.push({ key: `project:${project.projectId}`, title: project.name, todos: projectTodos });
+      }
+    }
+    return groups;
+  }, [createOwnershipOptions, displayMode, todos, workspaceView]);
   const showSortSwitch = todos.length > 1;
 
   useEffect(() => {
@@ -295,14 +349,16 @@ export function TodoRail({
     };
   }, [setTodoRailWidthPx]);
 
-  function submitCreate() {
+  async function submitCreate() {
+    if (!canCreateTodo) {
+      onError?.("当前 Project 已归档，无法新建 Todo。");
+      return;
+    }
     if (!content.trim()) {
       return;
     }
     if (
-      createOwnershipOptions &&
-      createProjectId !== null &&
-      !createOwnershipOptions.some((option) => option.projectId === createProjectId)
+      ownershipUnavailable
     ) {
       onError?.("所选 Project 已不可用，请重新选择归属。");
       return;
@@ -312,23 +368,30 @@ export function TodoRail({
       onError?.(parsed.error);
       return;
     }
-    onCreateTodo({
-      content: parsed.content,
-      priority,
-      ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
-      ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
-    });
-    clearTodoComposerDraft(draftStorageKey);
-    setContent("");
-    setPriority("not_urgent_important");
-    if (createOwnershipOptions) {
-      setCreateProjectId(null);
+    setCreatePending(true);
+    try {
+      await onCreateTodo({
+        content: parsed.content,
+        priority,
+        ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
+        ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
+      });
+      clearTodoComposerDraft(draftStorageKey);
+      setContent("");
+      setPriority("not_urgent_important");
+      if (createOwnershipOptions) {
+        setCreateProjectId(null);
+      }
+      setIsComposing(false);
+      controller.setControllerState((current) => ({
+        ...current,
+        ...resetTodoEditorControllerState(),
+      }));
+    } catch (error) {
+      onError?.(String(error));
+    } finally {
+      setCreatePending(false);
     }
-    setIsComposing(false);
-    controller.setControllerState((current) => ({
-      ...current,
-      ...resetTodoEditorControllerState(),
-    }));
   }
 
   function handleReferenceInsert(reference: Parameters<typeof insertInternalReferenceToken>[2]) {
@@ -420,6 +483,43 @@ export function TodoRail({
     });
   }
 
+  function renderTodoList(todoList: TodoRecord[], showSources: boolean, allowEmptyClick = false) {
+    return (
+      <TodoList
+        todos={todoList}
+        compact
+        allowInlineEdit={tab === "unfinished"}
+        allowInlineProgress={tab === "unfinished"}
+        expandedTodoIds={expandedTodoIds}
+        onToggleExpanded={toggleExpanded}
+        emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
+        onToggleStatus={onToggleStatus}
+        onUpdatePriority={onUpdatePriority}
+        onUpdateContent={onUpdateContent}
+        onUpdateTags={onUpdateTags}
+        onAddProgress={onAddProgress}
+        onUpdateProgress={onUpdateProgress}
+        onDeleteProgress={onDeleteProgress}
+        onDeleteTodo={onDeleteTodo}
+        onError={onError}
+        onOpenInternalReference={onOpenInternalReference}
+        onOpenContactMention={onOpenContactMention}
+        availableTags={availableTags}
+        availableTagScopeProjectId={projectId ?? null}
+        canCreateTagsForTodo={canCreateTagsForTodo}
+        showTodoSources={showSources}
+        onOpenProject={onOpenProject}
+        onEmptyClick={
+          allowEmptyClick && tab === "unfinished"
+            ? () => {
+                setIsComposing(true);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+
   if (todoRailCollapsed) {
     return (
       <aside className="sidebar-dock sidebar-dock--right" aria-label={`${title} 侧边栏`}>
@@ -485,6 +585,7 @@ export function TodoRail({
             size="sm"
             variant="secondary"
             aria-label="新增代办"
+            disabled={!canCreateTodo}
             onClick={() => setIsComposing((value) => !value)}
           >
             <Plus size={14} />
@@ -501,6 +602,34 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+        {showViewModeSwitch ? (
+          <div className="project-overview-focus__view-switch mb-3" aria-label="Todo View">
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                viewMode === "current-project" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={viewMode === "current-project"}
+              onClick={() => onViewModeChange?.("current-project")}
+            >
+              Current Project View
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                viewMode === "workspace" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={viewMode === "workspace"}
+              onClick={() => onViewModeChange?.("workspace")}
+            >
+              Workspace View
+            </button>
+          </div>
+        ) : null}
         <div className="todo-rail__toolbar mb-3 flex flex-wrap items-center justify-between gap-2">
           <div
             className="project-overview-focus__view-switch"
@@ -534,6 +663,35 @@ export function TodoRail({
 
           {showSortSwitch ? <TodoSortSwitch value={sortMode} onChange={setSortMode} /> : null}
         </div>
+
+        {workspaceView ? (
+          <div className="project-overview-focus__view-switch mb-3" aria-label="Workspace View 展示方式">
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                displayMode === "grouped" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={displayMode === "grouped"}
+              onClick={() => setDisplayMode("grouped")}
+            >
+              分组
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "project-overview-focus__view-switch-button",
+                displayMode === "flat" &&
+                  "project-overview-focus__view-switch-button--active",
+              )}
+              aria-pressed={displayMode === "flat"}
+              onClick={() => setDisplayMode("flat")}
+            >
+              平铺
+            </button>
+          </div>
+        ) : null}
 
         {isComposing ? (
           <div className="todo-rail__composer mb-3">
@@ -629,7 +787,7 @@ export function TodoRail({
 
                   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                     event.preventDefault();
-                    submitCreate();
+                    void submitCreate();
                   }
                 }}
                 placeholder={createPlaceholder}
@@ -679,39 +837,79 @@ export function TodoRail({
             </div>
             <div className="todo-rail__composer-meta">
               {createOwnershipOptions ? (
-                <label className="flex w-full items-center gap-2 text-ui text-text-soft">
+                <label className="relative flex w-full items-center gap-2 text-ui text-text-soft">
                   <span>归属</span>
-                  <select
+                  <input
+                    role="combobox"
                     aria-label="Todo 归属"
+                    aria-expanded={ownershipPickerOpen}
+                    aria-controls="todo-ownership-options"
+                    aria-autocomplete="list"
+                    aria-invalid={
+                      createProjectId !== null &&
+                      !createOwnershipOptions.some(
+                        (option) => option.projectId === createProjectId,
+                      )
+                    }
                     className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
-                    value={createProjectId === null ? "workspace" : String(createProjectId)}
-                    onChange={(event) => {
-                      setCreateProjectId(
-                        event.target.value === "workspace"
-                          ? null
-                          : Number.parseInt(event.target.value, 10),
-                      );
-                      controller.setControllerState((current) => ({
-                        ...current,
-                        ...resetTodoEditorControllerState(),
-                      }));
+                    value={ownershipPickerOpen ? ownershipQuery : selectedOwnershipName}
+                    onFocus={() => {
+                      setOwnershipPickerOpen(true);
+                      setOwnershipQuery("");
                     }}
-                  >
-                    <option value="workspace">Workspace</option>
-                    {createProjectId !== null &&
-                    !createOwnershipOptions.some(
-                      (option) => option.projectId === createProjectId,
-                    ) ? (
-                      <option value={String(createProjectId)} disabled>
-                        Project 已不可用
-                      </option>
-                    ) : null}
-                    {createOwnershipOptions.map((option) => (
-                      <option key={option.projectId} value={String(option.projectId)}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(event) => {
+                      setOwnershipPickerOpen(true);
+                      setOwnershipQuery(event.target.value);
+                    }}
+                    onBlur={() => window.setTimeout(() => setOwnershipPickerOpen(false), 0)}
+                  />
+                  {ownershipPickerOpen ? (
+                    <div
+                      id="todo-ownership-options"
+                      role="listbox"
+                      className="absolute left-12 right-0 top-[calc(100%+4px)] z-30 grid max-h-52 overflow-y-auto rounded-md border border-border bg-bg p-1 shadow-lg"
+                    >
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={createProjectId === null}
+                        className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setCreateProjectId(null);
+                          setOwnershipPickerOpen(false);
+                          setOwnershipQuery("");
+                          controller.setControllerState((current) => ({
+                            ...current,
+                            ...resetTodoEditorControllerState(),
+                          }));
+                        }}
+                      >
+                        Workspace
+                      </button>
+                      {filteredOwnershipOptions.map((option) => (
+                        <button
+                          key={option.projectId}
+                          type="button"
+                          role="option"
+                          aria-selected={createProjectId === option.projectId}
+                          className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setCreateProjectId(option.projectId);
+                            setOwnershipPickerOpen(false);
+                            setOwnershipQuery("");
+                            controller.setControllerState((current) => ({
+                              ...current,
+                              ...resetTodoEditorControllerState(),
+                            }));
+                          }}
+                        >
+                          {option.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </label>
               ) : null}
               <div className="flex flex-1 flex-wrap items-center gap-1.5">
@@ -730,7 +928,13 @@ export function TodoRail({
               <div className="todo-rail__composer-hint">Cmd/Ctrl + Enter 保存</div>
             </div>
             <div className="todo-rail__composer-footer">
-              <Button type="button" size="sm" variant="primary" onClick={submitCreate}>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                disabled={createPending || !canCreateTodo || ownershipUnavailable}
+                onClick={() => void submitCreate()}
+              >
                 保存
               </Button>
             </div>
@@ -738,38 +942,26 @@ export function TodoRail({
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-        <TodoList
-            todos={todos}
-            compact
-            allowInlineEdit={tab === "unfinished"}
-            allowInlineProgress={tab === "unfinished"}
-            expandedTodoIds={expandedTodoIds}
-            onToggleExpanded={toggleExpanded}
-            emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
-            onToggleStatus={onToggleStatus}
-            onUpdatePriority={onUpdatePriority}
-            onUpdateContent={onUpdateContent}
-            onUpdateTags={onUpdateTags}
-            onAddProgress={onAddProgress}
-            onUpdateProgress={onUpdateProgress}
-            onDeleteProgress={onDeleteProgress}
-            onDeleteTodo={onDeleteTodo}
-            onError={onError}
-            onOpenInternalReference={onOpenInternalReference}
-            onOpenContactMention={onOpenContactMention}
-          availableTags={availableTags}
-          availableTagScopeProjectId={projectId ?? null}
-          canCreateTagsForTodo={canCreateTagsForTodo}
-          showTodoSources={showTodoSources}
-          onOpenProject={onOpenProject}
-            onEmptyClick={
-              tab === "unfinished"
-                ? () => {
-                    setIsComposing(true);
-                  }
-                : undefined
-            }
-          />
+          {workspaceView && displayMode === "grouped" ? (
+            todoGroups.length > 0 ? (
+              <div className="grid gap-4">
+                {todoGroups.map((group) => (
+                  <section key={group.key} className="grid gap-2">
+                    <h3 className="text-ui font-semibold text-text-muted">{group.title}</h3>
+                    {renderTodoList(group.todos, false)}
+                  </section>
+                ))}
+              </div>
+            ) : (
+              renderTodoList([], false, true)
+            )
+          ) : (
+            renderTodoList(
+              todos,
+              workspaceView && displayMode === "flat" ? true : showTodoSources,
+              true,
+            )
+          )}
         </div>
       </div>
     </aside>

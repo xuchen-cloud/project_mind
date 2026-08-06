@@ -5,6 +5,11 @@ export const queryKeys = {
   },
   projectPage: (projectId: number | null) => ["project-page", projectId] as const,
   workspacePage: ["workspace-page"] as const,
+  todoViews: {
+    all: ["todo-views"] as const,
+    workspace: ["todo-views", "workspace"] as const,
+    project: (projectId: number) => ["todo-views", "current-project", projectId] as const,
+  },
   todoCollections: {
     all: ["todos"] as const,
     workspaceOwned: ["todos", "workspace-owned"] as const,
