@@ -1550,6 +1550,114 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it("keeps a streamed image answer insertable when the enqueue snapshot arrives late", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    let targetKey = "";
+    let releaseEnqueue: (() => void) | null = null;
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      targetKey = input.targetKey;
+      await new Promise<void>((resolve) => {
+        releaseEnqueue = resolve;
+      });
+      return {
+        id: 220,
+        kind: "editor_skill",
+        targetKey,
+        status: "queued",
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+    });
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/answer-race.png" data-path="/tmp/answer-race.png" data-mime-type="image/png"></p><p>结尾</p>'}
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "explain-image-race",
+            name: "图片问答",
+            icon: null,
+            description: null,
+            prompt: "解释图片",
+            resultMode: "answer",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "图片问答" }));
+    await waitFor(() => expect(targetKey).toContain("editor-skill:"));
+
+    useAiJobStore.getState().upsertJob({
+      id: 220,
+      kind: "editor_skill",
+      targetKey,
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "正在识别图片内容",
+      result: null,
+    });
+    await waitFor(() => expect(screen.getByText("正在识别图片内容")).toBeInTheDocument());
+    useAiJobStore.getState().upsertJob({
+      id: 220,
+      kind: "editor_skill",
+      targetKey,
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "最终图片回答",
+      result: {
+        kind: "editor_skill",
+        rewrite: {
+          skillId: "explain-image-race",
+          resultMode: "answer",
+          content: "最终图片回答",
+          answerMarkdown: "最终图片回答",
+          usedDefaultFallback: false,
+        },
+      },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "插入" })).toBeEnabled());
+
+    releaseEnqueue?.();
+    await waitFor(() => expect(enqueueSpy).toHaveReturned());
+    const insertButton = await screen.findByRole("button", { name: "插入" });
+    expect(insertButton).toBeEnabled();
+    await user.click(insertButton);
+    await waitFor(() => expect(container.querySelector(".ProseMirror blockquote")?.textContent).toBe("最终图片回答"));
+    expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
   it("copies the original image bytes from the image context menu", async () => {
     const user = userEvent.setup();
     const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);
