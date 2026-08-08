@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Earth, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Earth, FolderKanban, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
@@ -128,6 +128,8 @@ export function TodoRail({
   } = useUiStore();
   const draftStorageKey = buildTodoComposerDraftStorageKey(projectId);
   const railRef = useRef<HTMLElement | null>(null);
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  const addTodoButtonRef = useRef<HTMLButtonElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const internalReferenceContext =
     projectId === undefined
@@ -235,6 +237,8 @@ export function TodoRail({
     return groups;
   }, [createOwnershipOptions, displayMode, todos, workspaceView]);
   const showSortSwitch = todos.length > 1;
+  const createDisabled =
+    createPending || !canCreateTodo || ownershipUnavailable || !content.trim();
 
   useEffect(() => {
     if (focusTodoId === null) {
@@ -279,6 +283,7 @@ export function TodoRail({
 
   useEffect(() => {
     if (isComposing) {
+      composerInputRef.current?.focus();
       return;
     }
 
@@ -286,7 +291,59 @@ export function TodoRail({
       ...current,
       ...resetTodoEditorControllerState(),
     }));
-  }, [controller.setControllerState, isComposing]);
+  }, [isComposing]);
+
+  useEffect(() => {
+    if (!isComposing || !composerInputRef.current) return;
+    const input = composerInputRef.current;
+    const styles = window.getComputedStyle(input);
+    const fontSize = Number.parseFloat(styles.fontSize) || 16;
+    const rawLineHeight = Number.parseFloat(styles.lineHeight);
+    const lineHeight = rawLineHeight > 4 ? rawLineHeight : (rawLineHeight || 1.55) * fontSize;
+    const verticalPadding =
+      (Number.parseFloat(styles.paddingTop) || 0) +
+      (Number.parseFloat(styles.paddingBottom) || 0);
+    const maxHeight = lineHeight * 6 + verticalPadding;
+    input.style.height = "auto";
+    input.style.maxHeight = `${maxHeight}px`;
+    input.style.height = `${Math.max(lineHeight + verticalPadding, Math.min(input.scrollHeight, maxHeight))}px`;
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [content, isComposing]);
+
+  useEffect(() => {
+    if (!isComposing) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || createPending) return;
+      event.preventDefault();
+      resetComposer(true);
+    };
+    document.addEventListener("keydown", handleEscape, true);
+    return () => document.removeEventListener("keydown", handleEscape, true);
+  });
+
+  useEffect(() => {
+    if (!isComposing) return;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (createPending) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        composerRef.current?.contains(target) ||
+        target.closest(
+          ".contact-mention-picker, .tag-mention-picker, .internal-reference-picker, #todo-ownership-options",
+        )
+      ) {
+        return;
+      }
+      if (content.trim()) {
+        void submitCreate();
+      } else {
+        resetComposer(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
+  });
 
   useEffect(() => {
     const snapshot = readTodoComposerDraft(draftStorageKey);
@@ -372,21 +429,28 @@ export function TodoRail({
         ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
         ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
       });
-      clearTodoComposerDraft(draftStorageKey);
-      setContent("");
-      setPriority("not_urgent_important");
-      if (createOwnershipOptions) {
-        setCreateProjectId(null);
-      }
-      setIsComposing(false);
-      controller.setControllerState((current) => ({
-        ...current,
-        ...resetTodoEditorControllerState(),
-      }));
+      resetComposer(false);
     } catch (error) {
       onError?.(String(error));
     } finally {
       setCreatePending(false);
+    }
+  }
+
+  function resetComposer(restoreFocus: boolean) {
+    clearTodoComposerDraft(draftStorageKey);
+    setContent("");
+    setPriority("not_urgent_important");
+    if (createOwnershipOptions) setCreateProjectId(null);
+    setOwnershipPickerOpen(false);
+    setOwnershipQuery("");
+    setIsComposing(false);
+    controller.setControllerState((current) => ({
+      ...current,
+      ...resetTodoEditorControllerState(),
+    }));
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => addTodoButtonRef.current?.focus());
     }
   }
 
@@ -595,12 +659,13 @@ export function TodoRail({
             </IconButton>
           ) : null}
           <IconButton
+            ref={addTodoButtonRef}
             type="button"
             size="sm"
             variant="secondary"
             aria-label="新增代办"
-            disabled={!canCreateTodo}
-            onClick={() => setIsComposing((value) => !value)}
+            disabled={!canCreateTodo || isComposing}
+            onClick={() => setIsComposing(true)}
           >
             <Plus size={14} />
           </IconButton>
@@ -675,12 +740,18 @@ export function TodoRail({
         </div>
 
         {isComposing ? (
-          <div className="todo-rail__composer mb-3">
+          <div
+            ref={composerRef}
+            className={cn("todo-rail__composer mb-3", createPending && "todo-rail__composer--pending")}
+            aria-busy={createPending}
+          >
             <div className="relative">
               <textarea
                 ref={composerInputRef}
-                rows={3}
-                className="todo-rail__composer-input w-full resize-y text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft"
+                rows={1}
+                data-max-lines="6"
+                disabled={createPending}
+                className="todo-rail__composer-input w-full resize-none text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft"
                 value={content}
                 onChange={(event) => {
                   const nextSelectionStart = event.target.selectionStart;
@@ -712,6 +783,7 @@ export function TodoRail({
                   }));
                 }}
                 onKeyDown={(event) => {
+                  if (createPending) return;
                   if (
                     handleTodoEditorMentionKeyDown({
                       event,
@@ -766,7 +838,11 @@ export function TodoRail({
                     return;
                   }
 
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
                     event.preventDefault();
                     void submitCreate();
                   }
@@ -774,7 +850,7 @@ export function TodoRail({
                 placeholder={createPlaceholder}
               />
               <InternalReferencePicker
-                open={controller.referencePickerOpen}
+                open={controller.referencePickerOpen && !createPending}
                 loading={referenceLoading}
                 results={referenceResults}
                 activeIndex={controller.controllerState.referenceActiveIndex}
@@ -785,7 +861,7 @@ export function TodoRail({
                 onSelect={handleReferenceInsert}
               />
               <ContactMentionPicker
-                open={controller.mentionPickerOpen}
+                open={controller.mentionPickerOpen && !createPending}
                 loading={mentionLoading}
                 results={mentionResults}
                 activeIndex={controller.controllerState.mentionActiveIndex}
@@ -801,7 +877,7 @@ export function TodoRail({
                 onCreate={handleMentionCreate}
               />
               <TagMentionPicker
-                open={controller.tagPickerOpen}
+                open={controller.tagPickerOpen && !createPending}
                 loading={tagLoading}
                 results={tagResults}
                 activeIndex={controller.controllerState.tagActiveIndex}
@@ -818,8 +894,8 @@ export function TodoRail({
             </div>
             <div className="todo-rail__composer-meta">
               {createOwnershipOptions ? (
-                <label className="relative flex w-full items-center gap-2 text-ui text-text-soft">
-                  <span>归属</span>
+                <label className="todo-rail__ownership relative flex w-full basis-full items-center gap-2 text-ui text-text-soft">
+                  <FolderKanban aria-hidden="true" size={14} />
                   <input
                     role="combobox"
                     aria-label="Todo 归属"
@@ -833,6 +909,7 @@ export function TodoRail({
                       )
                     }
                     className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
+                    disabled={createPending}
                     value={ownershipPickerOpen ? ownershipQuery : selectedOwnershipName}
                     onFocus={() => {
                       setOwnershipPickerOpen(true);
@@ -852,6 +929,7 @@ export function TodoRail({
                     >
                       <button
                         type="button"
+                        disabled={createPending}
                         role="option"
                         aria-selected={createProjectId === null}
                         className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
@@ -872,6 +950,7 @@ export function TodoRail({
                         <button
                           key={option.projectId}
                           type="button"
+                          disabled={createPending}
                           role="option"
                           aria-selected={createProjectId === option.projectId}
                           className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
@@ -893,30 +972,26 @@ export function TodoRail({
                   ) : null}
                 </label>
               ) : null}
-              <div className="flex flex-1 flex-wrap items-center gap-1.5">
+              <div className="todo-rail__priority-options" aria-label="Todo 优先级">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
-                  <PriorityPillButton
+                  <PriorityDotButton
                     key={option.value}
                     priority={option.value}
                     active={priority === option.value}
                     title={option.optionLabel}
                     onClick={() => setPriority(option.value)}
-                  >
-                    {option.code}
-                  </PriorityPillButton>
+                    disabled={createPending}
+                  />
                 ))}
               </div>
-              <div className="todo-rail__composer-hint">Cmd/Ctrl + Enter 保存</div>
-            </div>
-            <div className="todo-rail__composer-footer">
               <Button
                 type="button"
                 size="sm"
                 variant="primary"
-                disabled={createPending || !canCreateTodo || ownershipUnavailable}
+                disabled={createDisabled}
                 onClick={() => void submitCreate()}
               >
-                保存
+                {createPending ? "创建中…" : "创建"}
               </Button>
             </div>
           </div>
@@ -945,38 +1020,35 @@ export function TodoRail({
   );
 }
 
-function PriorityPillButton({
+function PriorityDotButton({
   active,
-  children,
   priority,
   title,
   onClick,
+  disabled,
 }: {
   active: boolean;
-  children: string;
   priority: TodoPriority;
   title?: string;
   onClick: () => void;
+  disabled: boolean;
 }) {
   const colorValue = priorityColorValue(priority);
 
   return (
     <button
       type="button"
+      aria-label={title}
       aria-pressed={active}
       title={title}
-      className="h-7 rounded-full border px-2.5 text-caption font-medium tracking-[0.1em] transition-[background-color,border-color,color,opacity] duration-[160ms] ease-[var(--ease-soft)] hover:opacity-100"
-      style={{
-        borderColor: `color-mix(in srgb, ${colorValue} ${active ? 28 : 18}%, var(--color-border))`,
-        backgroundColor: active
-          ? `color-mix(in srgb, ${colorValue} 16%, var(--color-bg))`
-          : `color-mix(in srgb, ${colorValue} 6%, var(--color-bg))`,
-        color: priority === "urgent_not_important" ? "var(--color-text)" : colorValue,
-        opacity: active ? 1 : 0.82,
-      }}
+      disabled={disabled}
+      className="todo-rail__priority-button"
       onClick={onClick}
     >
-      {children}
+      <span
+        className={cn("todo-rail__priority-dot", active && "todo-rail__priority-dot--active")}
+        style={{ backgroundColor: colorValue }}
+      />
     </button>
   );
 }

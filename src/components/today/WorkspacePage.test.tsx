@@ -261,7 +261,7 @@ describe("WorkspacePage", () => {
       screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
       "整理复盘 #跨项目",
     );
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
 
     await waitFor(() => {
       expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
@@ -338,7 +338,7 @@ describe("WorkspacePage", () => {
       screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
       "推进里程碑 #同名",
     );
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
 
     await waitFor(() => {
       expect(apiMocks.todoCreate).toHaveBeenCalledWith({
