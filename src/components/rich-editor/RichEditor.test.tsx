@@ -244,6 +244,16 @@ function getLatestHtml(onChange: ReturnType<typeof vi.fn>) {
   return onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]?.html as string | undefined;
 }
 
+function getBlockImmediatelyAfterImage(controller: RichEditorController | null) {
+  const blocks = controller?.getDocumentJson().content ?? [];
+  const imageBlockIndex = blocks.findIndex((block) =>
+    block.type === "image" || block.content?.some((child) => child.type === "image"),
+  );
+
+  expect(imageBlockIndex).toBeGreaterThanOrEqual(0);
+  return blocks[imageBlockIndex + 1];
+}
+
 function buildDocumentRecord(overrides: Partial<Awaited<ReturnType<typeof projectMindApi.documentUpdateMeta>>> = {}) {
   return {
     id: 42,
@@ -940,7 +950,7 @@ describe("RichEditor images", () => {
     const imageMenu = await screen.findByRole("menu", { name: "图片操作" });
     expect(within(imageMenu).getByRole("menuitem", { name: /打开图片所在位置/i })).toBeEnabled();
 
-    await user.click(within(imageMenu).getByRole("menuitem", { name: /中图/i }));
+    await user.click(within(imageMenu).getByRole("menuitem", { name: /小图/i }));
 
     await waitFor(() => {
       expect(getLatestHtml(onChange)).toContain('width="360"');
@@ -1015,15 +1025,47 @@ describe("RichEditor images", () => {
             enabled: true,
             createdAt: "",
             updatedAt: "",
-          }],
+          }, ...["总结图片", "识别表格", "检查细节"].map((name, index) => ({
+            id: `image-skill-${index}`,
+            name,
+            icon: null,
+            description: null,
+            prompt: name,
+            resultMode: "answer" as const,
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: index + 2,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }))],
         }}
       />,
     );
     const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
     fireEvent.contextMenu(image, { clientX: 40, clientY: 48 });
-    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-    const submenu = await screen.findByRole("menu", { name: "AI 解读图片 子菜单" });
-    await user.click(within(submenu).getByRole("menuitem", { name: /文字提取/ }));
+    const imageMenu = await screen.findByRole("menu", { name: "图片操作" });
+    expect(within(imageMenu).queryByRole("menuitem", { name: "浏览图片" })).not.toBeInTheDocument();
+    expect(within(imageMenu).queryByRole("menuitem", { name: "在系统中打开原图" })).not.toBeInTheDocument();
+    expect(within(imageMenu).getByText("技能")).toBeInTheDocument();
+    const skillGroup = within(imageMenu).getByRole("group", { name: "图片 AI 技能列表" });
+    expect(skillGroup).toHaveStyle({ maxHeight: "84px" });
+    expect(within(skillGroup).getAllByRole("menuitem")).toHaveLength(4);
+    expect(within(imageMenu).getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+      "复制图片",
+      "打开图片所在位置",
+      "OCR 文字提取",
+      "总结图片",
+      "识别表格",
+      "检查细节",
+      "使用 AI 解读",
+      "小图（360px）",
+      "大图（520px）",
+      "自适应宽度",
+      "删除图片",
+    ]);
+    await user.click(within(skillGroup).getByRole("menuitem", { name: /文字提取/ }));
 
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
     const request = enqueueSpy.mock.calls[0]?.[0];
@@ -1057,9 +1099,6 @@ describe("RichEditor images", () => {
     await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).toContain("图中提取的文字"));
     await controllerRef.current?.save({ force: true });
     expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("图中提取的文字");
-    await user.click(await screen.findByRole("button", { name: "撤销" }));
-    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("图中提取的文字"));
-    expect(cancelSpy).toHaveBeenCalledWith(81);
     useAiJobStore.getState().upsertJob({
       id: 81,
       kind: "editor_skill",
@@ -1069,11 +1108,53 @@ describe("RichEditor images", () => {
       startedAt: "",
       finishedAt: "",
       errorMessage: null,
-      streamText: "迟到内容",
-      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "迟到内容", usedDefaultFallback: false } },
+      streamText: "图中提取的文字",
+      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "图中提取的文字", usedDefaultFallback: false } },
     });
-    expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("迟到内容");
+    const paragraphs = container.querySelectorAll<HTMLParagraphElement>(".ProseMirror p");
+    const trailingParagraph = paragraphs[paragraphs.length - 1];
+    await user.click(trailingParagraph as HTMLParagraphElement);
+    await user.type(trailingParagraph as HTMLParagraphElement, " 已移动光标");
+    const frame = container.querySelector(".rich-editor__frame") as HTMLElement;
+    const widgetHost = container.querySelector(".rich-editor__rewrite-widget-host") as HTMLElement;
+    await new Promise((resolve) => window.setTimeout(resolve, 260));
+    frame.scrollTop = 320;
+    let disturbViewport = true;
+    const viewportDisturbance = new MutationObserver((mutations) => {
+      if (disturbViewport && mutations.some((mutation) => widgetHost.contains(mutation.target))) {
+        disturbViewport = false;
+        frame.scrollTop = 0;
+      }
+    });
+    viewportDisturbance.observe(widgetHost, { childList: true, subtree: true, characterData: true });
+    const acceptButton = await screen.findByRole("button", { name: "接受" });
+    expect(controllerRef.current?.getActiveAiProtectionCount()).toBe(1);
+    fireEvent.pointerDown(acceptButton);
+    fireEvent.mouseDown(acceptButton);
+    fireEvent.click(acceptButton);
+    await waitFor(() => expect(frame.scrollTop).toBe(320));
+    viewportDisturbance.disconnect();
+    expect(controllerRef.current?.getActiveAiProtectionCount()).toBe(0);
+    expect(getBlockImmediatelyAfterImage(controllerRef.current)).toMatchObject({
+      type: "paragraph",
+      content: [{ type: "text", text: "图中提取的文字" }],
+    });
+    await controllerRef.current?.save({ force: true });
+    const committed = onSave.mock.calls.at(-1)?.[0];
+    expect(committed?.markdown).toContain("[图片] 架构图\n\n图中提取的文字\n\n后文 已移动光标");
+    expect(committed?.html.indexOf("图中提取的文字")).toBeGreaterThan(committed?.html.indexOf("rich-editor__image") ?? -1);
     expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+
+    const surface = container.querySelector(".ProseMirror") as HTMLElement;
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true });
+    await waitFor(() => expect(surface.textContent).not.toContain("图中提取的文字"));
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(surface.textContent).toContain("图中提取的文字"));
+
+    const reopened = render(<RichEditor variant="bare" defaultHtml={committed?.html} />);
+    expect(reopened.container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+    expect(reopened.container.querySelector(".ProseMirror")?.textContent).toContain("图中提取的文字");
+    reopened.unmount();
     cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
@@ -1149,8 +1230,7 @@ describe("RichEditor images", () => {
 
     for (const image of images) {
       fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
-      await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-      await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "文字提取" }));
+      await user.click(within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", { name: "文字提取" }));
     }
 
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(2));
@@ -1233,8 +1313,7 @@ describe("RichEditor images", () => {
     );
     const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
     fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
-    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "自定义解读…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "使用 AI 解读" }));
     const prompt = await screen.findByPlaceholderText("使用 AI 解读图片");
     await user.type(prompt, "判断图中风险");
     fireEvent.keyDown(prompt, { key: "Enter" });
@@ -1298,8 +1377,7 @@ describe("RichEditor images", () => {
 
     const currentImage = container.querySelector("img.rich-editor__image") as HTMLImageElement;
     fireEvent.contextMenu(currentImage, { clientX: 30, clientY: 30 });
-    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "自定义解读…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "使用 AI 解读" }));
     const nextPrompt = await screen.findByPlaceholderText("使用 AI 解读图片");
     await user.type(nextPrompt, "再次解读");
     fireEvent.keyDown(nextPrompt, { key: "Enter" });
@@ -1374,8 +1452,7 @@ describe("RichEditor images", () => {
     );
     const image = await waitFor(() => rendered.container.querySelector("img.rich-editor__image") as HTMLImageElement);
     fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
-    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "文字提取" }));
+    await user.click(within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", { name: "文字提取" }));
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
     const request = enqueueSpy.mock.calls[0]?.[0];
     useAiJobStore.getState().upsertJob({
@@ -1488,8 +1565,7 @@ describe("RichEditor images", () => {
     const openAnswerSkill = async () => {
       const image = rendered.container.querySelector("img.rich-editor__image") as HTMLImageElement;
       fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
-      await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-      await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "图片问答" }));
+      await user.click(within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", { name: "图片问答" }));
     };
 
     await openAnswerSkill();
@@ -1552,6 +1628,8 @@ describe("RichEditor images", () => {
 
   it("keeps a streamed image answer insertable when the enqueue snapshot arrives late", async () => {
     const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     let targetKey = "";
@@ -1577,7 +1655,9 @@ describe("RichEditor images", () => {
     const { container } = render(
       <RichEditor
         variant="bare"
-        defaultHtml={'<p><img src="asset:///tmp/answer-race.png" data-path="/tmp/answer-race.png" data-mime-type="image/png"></p><p>结尾</p>'}
+        onSave={onSave}
+        controllerRef={controllerRef}
+        html={'<p><img src="asset:///tmp/answer-race.png" data-path="/tmp/answer-race.png" data-mime-type="image/png"></p><p>结尾</p>'}
         aiSettings={{
           profiles: [],
           bindings: [],
@@ -1605,11 +1685,30 @@ describe("RichEditor images", () => {
       />,
     );
     const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    const frame = container.querySelector(".rich-editor__frame") as HTMLElement;
+    const widgetHost = container.querySelector(".rich-editor__rewrite-widget-host") as HTMLElement;
+    const outerScroller = container;
+    frame.scrollTop = 320;
+    outerScroller.scrollTop = 640;
+    let disturbViewportOnNextWidgetMutation = true;
+    const viewportDisturbance = new MutationObserver((mutations) => {
+      if (
+        disturbViewportOnNextWidgetMutation
+        && mutations.some((mutation) => widgetHost.contains(mutation.target))
+      ) {
+        disturbViewportOnNextWidgetMutation = false;
+        frame.scrollTop = 0;
+        outerScroller.scrollTop = 0;
+      }
+    });
+    viewportDisturbance.observe(widgetHost, { childList: true, subtree: true, characterData: true });
     fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
-    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
-    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "图片问答" }));
+    await user.click(within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", { name: "图片问答" }));
     await waitFor(() => expect(targetKey).toContain("editor-skill:"));
+    await waitFor(() => expect(frame.scrollTop).toBe(320));
+    await waitFor(() => expect(outerScroller.scrollTop).toBe(640));
 
+    disturbViewportOnNextWidgetMutation = true;
     useAiJobStore.getState().upsertJob({
       id: 220,
       kind: "editor_skill",
@@ -1623,6 +1722,13 @@ describe("RichEditor images", () => {
       result: null,
     });
     await waitFor(() => expect(screen.getByText("正在识别图片内容")).toBeInTheDocument());
+    await waitFor(() => expect(frame.scrollTop).toBe(320));
+    await waitFor(() => expect(outerScroller.scrollTop).toBe(640));
+    frame.scrollTop = 420;
+    outerScroller.scrollTop = 760;
+    fireEvent.scroll(frame);
+    fireEvent.scroll(outerScroller);
+    disturbViewportOnNextWidgetMutation = true;
     useAiJobStore.getState().upsertJob({
       id: 220,
       kind: "editor_skill",
@@ -1645,14 +1751,51 @@ describe("RichEditor images", () => {
       },
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "插入" })).toBeEnabled());
+    await waitFor(() => expect(frame.scrollTop).toBe(420));
+    await waitFor(() => expect(outerScroller.scrollTop).toBe(760));
+    await controllerRef.current?.save({ force: true });
+    expect(onSave.mock.calls.at(-1)?.[0].markdown).not.toContain("最终图片回答");
 
     releaseEnqueue?.();
     await waitFor(() => expect(enqueueSpy).toHaveReturned());
     const insertButton = await screen.findByRole("button", { name: "插入" });
     expect(insertButton).toBeEnabled();
+    expect(controllerRef.current?.getActiveAiProtectionCount()).toBe(1);
+    const trailingParagraph = container.querySelector(".ProseMirror p:last-child") as HTMLParagraphElement;
+    await user.click(trailingParagraph);
+    await user.type(trailingParagraph, " 已移动光标");
+    frame.scrollTop = 420;
+    outerScroller.scrollTop = 760;
+    disturbViewportOnNextWidgetMutation = true;
     await user.click(insertButton);
     await waitFor(() => expect(container.querySelector(".ProseMirror blockquote")?.textContent).toBe("最终图片回答"));
+    await waitFor(() => expect(frame.scrollTop).toBe(420));
+    await waitFor(() => expect(outerScroller.scrollTop).toBe(760));
+    expect(controllerRef.current?.getActiveAiProtectionCount()).toBe(0);
+    expect(getBlockImmediatelyAfterImage(controllerRef.current)).toMatchObject({
+      type: "blockquote",
+      content: [{
+        type: "paragraph",
+        content: [{ type: "text", text: "最终图片回答" }],
+      }],
+    });
+    await controllerRef.current?.save({ force: true });
+    const committed = onSave.mock.calls.at(-1)?.[0];
+    expect(committed?.markdown).toContain("[图片] 图片\n\n> 最终图片回答\n\n结尾 已移动光标");
+    expect(committed?.html.indexOf("最终图片回答")).toBeGreaterThan(committed?.html.indexOf("rich-editor__image") ?? -1);
     expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+
+    const surface = container.querySelector(".ProseMirror") as HTMLElement;
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true });
+    await waitFor(() => expect(surface.textContent).not.toContain("最终图片回答"));
+    fireEvent.keyDown(surface, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(surface.textContent).toContain("最终图片回答"));
+
+    const reopened = render(<RichEditor variant="bare" defaultHtml={committed?.html} />);
+    expect(reopened.container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+    expect(reopened.container.querySelector(".ProseMirror blockquote")?.textContent).toBe("最终图片回答");
+    reopened.unmount();
+    viewportDisturbance.disconnect();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -1879,6 +2022,154 @@ describe("RichEditor images", () => {
     });
 
     pickFileSpy.mockRestore();
+  });
+
+  it("falls back to the displayed thumbnail when the image browser cannot load the original asset", async () => {
+    const requestedSources: string[] = [];
+    const DefaultImage = window.Image;
+
+    class FailingOriginalImage {
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+      naturalWidth = 960;
+      naturalHeight = 540;
+      width = 960;
+      height = 540;
+      decoding = "async";
+      #src = "";
+
+      get src() {
+        return this.#src;
+      }
+
+      set src(value: string) {
+        this.#src = value;
+        requestedSources.push(value);
+        queueMicrotask(() => {
+          if (value.endsWith(".960.thumb.jpg")) {
+            this.onload?.();
+          } else {
+            this.onerror?.();
+          }
+        });
+      }
+    }
+
+    Object.defineProperty(window, "Image", {
+      configurable: true,
+      writable: true,
+      value: FailingOriginalImage,
+    });
+
+    try {
+      const { container } = render(
+        <RichEditor
+          variant="bare"
+          defaultHtml='<p><img src="asset:///tmp/managed/browser.png" data-path="/tmp/managed/browser.png" data-mime-type="image/png" alt="浏览回退" /></p>'
+        />,
+      );
+
+      const image = await waitFor(() => {
+        const nextImage = container.querySelector("img.rich-editor__image");
+
+        expect(nextImage?.getAttribute("src")).toBe(
+          "asset:///tmp/managed/browser.png.960.thumb.jpg",
+        );
+        return nextImage as HTMLImageElement;
+      });
+
+      fireEvent.doubleClick(image);
+
+      const canvas = await screen.findByTestId("image-annotation-canvas");
+      await waitFor(() => expect(canvas).toHaveAttribute("data-image-load-state", "loaded"));
+      expect(requestedSources).toEqual([
+        "asset:///tmp/managed/browser.png",
+        "asset:///tmp/managed/browser.png.960.thumb.jpg",
+      ]);
+    } finally {
+      Object.defineProperty(window, "Image", {
+        configurable: true,
+        writable: true,
+        value: DefaultImage,
+      });
+    }
+  });
+
+  it("shows an explicit image browser failure when both original and thumbnail fail", async () => {
+    const DefaultImage = window.Image;
+
+    class AlwaysFailingImage {
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      decoding = "async";
+      #src = "";
+
+      get src() {
+        return this.#src;
+      }
+
+      set src(value: string) {
+        this.#src = value;
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+
+    Object.defineProperty(window, "Image", {
+      configurable: true,
+      writable: true,
+      value: AlwaysFailingImage,
+    });
+
+    try {
+      const { container } = render(
+        <RichEditor
+          variant="bare"
+          defaultHtml='<p><img src="asset:///tmp/managed/missing.png" data-path="/tmp/managed/missing.png" data-mime-type="image/png" alt="缺失图片" /></p>'
+        />,
+      );
+      const image = await waitFor(() => {
+        const nextImage = container.querySelector("img.rich-editor__image");
+        expect(nextImage).toBeTruthy();
+        return nextImage as HTMLImageElement;
+      });
+
+      fireEvent.doubleClick(image);
+
+      const canvas = await screen.findByTestId("image-annotation-canvas");
+      await waitFor(() => expect(canvas).toHaveAttribute("data-image-load-state", "failed"));
+      expect(screen.getByText("图片加载失败，请确认原图片文件仍然存在。")).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "Image", {
+        configurable: true,
+        writable: true,
+        value: DefaultImage,
+      });
+    }
+  });
+
+  it("normalizes mixed inline image HTML into explicit Markdown block boundaries", async () => {
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
+    render(
+      <RichEditor
+        variant="bare"
+        controllerRef={controllerRef}
+        onSave={onSave}
+        defaultHtml='<p>前文<img src="data:image/png;base64,AA==" alt="插图" />后文</p>'
+      />,
+    );
+
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    await controllerRef.current?.save({ force: true });
+
+    expect(controllerRef.current?.getDocumentJson().content?.map((node) => node.type)).toEqual([
+      "paragraph",
+      "image",
+      "paragraph",
+    ]);
+    expect(onSave.mock.calls.at(-1)?.[0].markdown).toBe("前文\n\n[图片] 插图\n\n后文");
   });
 
   it("reads pasted images from clipboard items when files are empty", async () => {

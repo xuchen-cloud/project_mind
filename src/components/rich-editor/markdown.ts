@@ -80,6 +80,7 @@ const markdownSerializer = new MarkdownSerializer(
       const label = alt || title || "图片";
 
       state.write(`[图片] ${state.esc(label)}`);
+      state.closeBlock(node);
     },
     hardBreak(state, node, parent, index) {
       for (let nextIndex = index + 1; nextIndex < parent.childCount; nextIndex += 1) {
