@@ -850,7 +850,7 @@ export function TodoRail({
                 placeholder={createPlaceholder}
               />
               <InternalReferencePicker
-                open={controller.referencePickerOpen}
+                open={controller.referencePickerOpen && !createPending}
                 loading={referenceLoading}
                 results={referenceResults}
                 activeIndex={controller.controllerState.referenceActiveIndex}
@@ -861,7 +861,7 @@ export function TodoRail({
                 onSelect={handleReferenceInsert}
               />
               <ContactMentionPicker
-                open={controller.mentionPickerOpen}
+                open={controller.mentionPickerOpen && !createPending}
                 loading={mentionLoading}
                 results={mentionResults}
                 activeIndex={controller.controllerState.mentionActiveIndex}
@@ -877,7 +877,7 @@ export function TodoRail({
                 onCreate={handleMentionCreate}
               />
               <TagMentionPicker
-                open={controller.tagPickerOpen}
+                open={controller.tagPickerOpen && !createPending}
                 loading={tagLoading}
                 results={tagResults}
                 activeIndex={controller.controllerState.tagActiveIndex}

@@ -877,12 +877,19 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
-    await user.type(composer, "等待创建");
+    fireEvent.change(composer, {
+      target: { value: "等待 [[bud", selectionStart: 8 },
+    });
+    fireEvent.select(composer, { target: { selectionStart: 8 } });
+    await waitFor(() =>
+      expect(document.querySelector(".internal-reference-picker")).not.toBeNull(),
+    );
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(screen.getByRole("button", { name: "创建中…" })).toBeDisabled();
     expect(composer).toBeDisabled();
     expect(screen.getByRole("button", { name: "P1 · 紧急且重要" })).toBeDisabled();
+    expect(document.querySelector(".internal-reference-picker")).toBeNull();
     fireEvent.keyDown(composer, { key: "Escape" });
     fireEvent.pointerDown(document.body);
     expect(composer).toBeInTheDocument();
