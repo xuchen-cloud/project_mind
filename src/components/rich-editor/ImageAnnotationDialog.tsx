@@ -48,6 +48,7 @@ interface ImageAnnotationDialogProps {
   readOnly: boolean;
   title: string;
   imageSrc: string;
+  fallbackImageSrc?: string;
   initialAnnotationState?: string | null;
   imageSize?: Partial<ImageAnnotationImageSize> | null;
   onClose: () => void;
@@ -78,6 +79,7 @@ export function ImageAnnotationDialog({
   readOnly,
   title,
   imageSrc,
+  fallbackImageSrc,
   initialAnnotationState,
   imageSize,
   onClose,
@@ -98,6 +100,7 @@ export function ImageAnnotationDialog({
   const [textEditor, setTextEditor] = useState<TextEditorState | null>(null);
   const [panState, setPanState] = useState<DragPanState | null>(null);
   const [imageElement, setImageElement] = useState<HTMLImageElement | null>(null);
+  const [imageLoadState, setImageLoadState] = useState<"loading" | "loaded" | "failed">("loading");
   const [viewportSize, setViewportSize] = useState(DIALOG_VIEWPORT_FALLBACK);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -121,6 +124,7 @@ export function ImageAnnotationDialog({
     setTextEditor(null);
     setPanState(null);
     setImageElement(null);
+    setImageLoadState("loading");
     initialSerializedRef.current = serializeImageAnnotationState(nextDocument);
   }, [imageSize, initialAnnotationState, open]);
 
@@ -130,10 +134,16 @@ export function ImageAnnotationDialog({
     }
 
     const nextImage = new window.Image();
+    let cancelled = false;
+    let attemptedFallback = false;
 
     nextImage.decoding = "async";
     nextImage.onload = () => {
+      if (cancelled) {
+        return;
+      }
       setImageElement(nextImage);
+      setImageLoadState("loaded");
       setDocumentState((current) => {
         if (current.items.length > 0) {
           return current;
@@ -158,8 +168,26 @@ export function ImageAnnotationDialog({
         };
       });
     };
+    nextImage.onerror = () => {
+      if (cancelled) {
+        return;
+      }
+      if (!attemptedFallback && fallbackImageSrc && fallbackImageSrc !== imageSrc) {
+        attemptedFallback = true;
+        nextImage.src = fallbackImageSrc;
+        return;
+      }
+
+      setImageLoadState("failed");
+    };
     nextImage.src = imageSrc;
-  }, [imageSrc, open]);
+
+    return () => {
+      cancelled = true;
+      nextImage.onload = null;
+      nextImage.onerror = null;
+    };
+  }, [fallbackImageSrc, imageSrc, open]);
 
   useLayoutEffect(() => {
     if (!open || !containerRef.current) {
@@ -922,6 +950,7 @@ export function ImageAnnotationDialog({
             .filter(Boolean)
             .join(" ")}
           data-testid="image-annotation-canvas"
+          data-image-load-state={imageLoadState}
         >
           <Stage
             ref={stageRef}
@@ -993,6 +1022,15 @@ export function ImageAnnotationDialog({
               </Group>
             </Layer>
           </Stage>
+
+          {imageLoadState === "failed" ? (
+            <div
+              className="pointer-events-none absolute inset-0 grid place-items-center px-6 text-center text-sm text-text-muted"
+              role="status"
+            >
+              图片加载失败，请确认原图片文件仍然存在。
+            </div>
+          ) : null}
 
           {textareaStyle && textEditor ? (
             <textarea

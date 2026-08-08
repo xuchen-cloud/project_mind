@@ -16,6 +16,7 @@ interface RichEditorRewriteWidgetProps {
   onRetry: () => void;
   onCopyAnswer: () => void;
   onInsertAnswer: () => void;
+  onPreserveViewport: () => void;
   onClose: () => void;
   onOpenAiSettings?: () => void;
   resolvedModel?: string | null;
@@ -41,6 +42,7 @@ export function RichEditorRewriteWidget({
   onRetry,
   onCopyAnswer,
   onInsertAnswer,
+  onPreserveViewport,
   onClose,
   onOpenAiSettings,
   resolvedModel,
@@ -179,7 +181,17 @@ export function RichEditorRewriteWidget({
                 <Clipboard size={13} />
                 复制
               </button>
-              <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending || Boolean(parseError)} onMouseDown={(event) => event.preventDefault()} onClick={onInsertAnswer}>
+              <button
+                type="button"
+                className="rich-editor__rewrite-widget-action is-accept"
+                disabled={isPending || Boolean(parseError)}
+                onPointerDown={onPreserveViewport}
+                onMouseDown={(event) => event.preventDefault()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") onPreserveViewport();
+                }}
+                onClick={onInsertAnswer}
+              >
                 <Check size={13} />
                 {isPending ? "生成中" : "插入"}
               </button>
@@ -261,7 +273,17 @@ export function RichEditorRewriteWidget({
             <X size={13} />
             撤销
           </button>
-          <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending} onMouseDown={(event) => event.preventDefault()} onClick={onAccept}>
+          <button
+            type="button"
+            className="rich-editor__rewrite-widget-action is-accept"
+            disabled={isPending}
+            onPointerDown={onPreserveViewport}
+            onMouseDown={(event) => event.preventDefault()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") onPreserveViewport();
+            }}
+            onClick={onAccept}
+          >
             <Check size={13} />
             {isPending ? "生成中" : "接受"}
           </button>
