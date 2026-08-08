@@ -26,7 +26,7 @@ export function createAiProfileDraft(
     apiKey: "",
     defaultModel: defaults.defaultModel,
     supportsText: true,
-    supportsImage: providerFamily !== "anthropic_compatible",
+    supportsImage: true,
     supportsFile: false,
     enabled: true,
   };
@@ -39,7 +39,7 @@ export function bindingForCapability(
   return (
     snapshot.bindings.find((binding) => binding.capability === capability) ?? {
       capability,
-      useDefault: capability !== "default",
+      useDefault: false,
       profileId: null,
       model: null,
       updatedAt: "",
@@ -61,10 +61,12 @@ export function isAiCapabilityConfigured(
 ) {
   if (!snapshot) return false;
   const binding = bindingForCapability(snapshot, capability);
-  if (capability !== "default" && binding.useDefault) {
-    return snapshot.hasUsableDefault;
-  }
-
   const profile = findAiProfile(snapshot.profiles, binding.profileId);
-  return Boolean(profile && profile.enabled && profile.hasStoredKey && profile.supportsText);
+  return Boolean(
+    profile &&
+      profile.enabled &&
+      profile.hasStoredKey &&
+      profile.supportsText &&
+      (capability !== "image_default" || profile.supportsImage),
+  );
 }

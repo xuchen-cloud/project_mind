@@ -2,7 +2,7 @@ import { Suspense, forwardRef, lazy, startTransition, useCallback, useEffect, us
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
-import { DOMSerializer, type Slice } from "@tiptap/pm/model";
+import { DOMSerializer, Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import { Mapping } from "@tiptap/pm/transform";
@@ -71,11 +71,10 @@ import {
   setContactMentionElementBroken,
 } from "../../lib/contactMentions";
 import {
-  aiEditorRewriteJobTargetKey,
-  editorRewriteJobInput,
+  aiEditorSkillJobTargetKey,
+  editorSkillJobInput,
   ensureAiJobSync,
-  readEditorRewriteJobResult,
-  useAiJobTarget,
+  readEditorSkillJobResult,
 } from "../../lib/aiJobs";
 import { fileUriToPath } from "../../lib/formatters";
 import {
@@ -93,8 +92,8 @@ import {
   trimTrailingCodeBlockNewline,
 } from "../../lib/richTextContent";
 import type {
-  AiEditorRewriteContext,
-  AiEditorRewriteResultMode,
+  AiEditorSkillContext,
+  AiEditorSkillResultMode,
   AiSettingsSnapshot,
   ContactRecord,
   ProjectTagRecord,
@@ -139,7 +138,11 @@ import {
 import { RichEditorAiMenu } from "./RichEditorAiMenu";
 import { RichEditorRewriteWidget } from "./RichEditorRewriteWidget";
 import { buildRichEditorExtensions, RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT } from "./extensions";
-import { EMPTY_RICH_EDITOR_HTML, serializeEditorMarkdown } from "./markdown";
+import {
+  EMPTY_RICH_EDITOR_HTML,
+  serializeEditorMarkdown,
+  serializeRichTextNodesMarkdown,
+} from "./markdown";
 import { normalizeRichEditorValue } from "./normalize";
 import {
   createEditorSearchPlugin,
@@ -225,6 +228,8 @@ interface EditorContextMenuState {
 interface EditorAiMenuState {
   x: number;
   y: number;
+  targetType: "text" | "image";
+  imageTarget?: ImageContextMenuTarget;
 }
 
 interface TableToolbarPosition {
@@ -298,7 +303,7 @@ interface EditorAiSkillSnapshot {
   id?: string | null;
   name: string;
   prompt: string;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
 }
 
 interface EditorAiModifyPreview {
@@ -311,7 +316,7 @@ interface EditorAiModifyPreview {
   showing: "original" | "modified";
 }
 
-interface EditorRewriteSessionState {
+interface EditorSkillSessionState {
   targetKey: string;
   skill: EditorAiSkillSnapshot;
   selectionSnapshot: EditorAiSelectionSnapshot;
@@ -319,19 +324,33 @@ interface EditorRewriteSessionState {
   modifyPreview?: EditorAiModifyPreview | null;
   answer?: string | null;
   modificationResolved?: boolean;
+  targetType: "text" | "image";
+  imageTarget?: ImageContextMenuTarget;
+  resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback?: boolean;
+  jobId?: number | null;
+  contextKey: string;
+  contextStale?: boolean;
+  parseError?: string | null;
 }
 
-type EditorRewriteDisplayStatus = "queued" | "running" | "succeeded" | "failed";
+type EditorSkillDisplayStatus = "queued" | "running" | "succeeded" | "failed";
 
-interface EditorRewriteWidgetState {
+interface EditorSkillWidgetState {
   skillName: string;
   anchorPos: number;
-  resultMode: AiEditorRewriteResultMode;
-  status: EditorRewriteDisplayStatus;
+  resultMode: AiEditorSkillResultMode;
+  status: EditorSkillDisplayStatus;
   answer?: string | null;
   answerHtml?: string | null;
   modifyPreview?: EditorAiModifyPreview | null;
   errorMessage?: string | null;
+  resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback?: boolean;
+  contextStale?: boolean;
+  parseError?: string | null;
 }
 
 
@@ -368,7 +387,7 @@ interface RichEditorProps {
   contactMentions?: RichEditorContactMentionOptions;
   tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot | null;
-  aiRewriteContext?: AiEditorRewriteContext;
+  aiRewriteContext?: AiEditorSkillContext;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -439,7 +458,28 @@ export function RichEditor({
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
   const [aiMenu, setAiMenu] = useState<EditorAiMenuState | null>(null);
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
-  const [rewriteSession, setRewriteSession] = useState<EditorRewriteSessionState | null>(null);
+  const [rewriteSessions, setRewriteSessions] = useState<EditorSkillSessionState[]>([]);
+  const rewriteSession = rewriteSessions[rewriteSessions.length - 1] ?? null;
+  const setRewriteSession = useCallback((
+    update: EditorSkillSessionState | null | ((current: EditorSkillSessionState | null) => EditorSkillSessionState | null),
+  ) => {
+    setRewriteSessions((current) => {
+      const active = current[current.length - 1] ?? null;
+      const next = typeof update === "function" ? update(active) : update;
+      if (!next) return active ? current.slice(0, -1) : current;
+      return active ? [...current.slice(0, -1), next] : [next];
+    });
+  }, []);
+  const updateRewriteSessionByTarget = useCallback((
+    targetKey: string,
+    update: (session: EditorSkillSessionState) => EditorSkillSessionState | null,
+  ) => {
+    setRewriteSessions((current) => current.flatMap((session) => {
+      if (session.targetKey !== targetKey) return [session];
+      const next = update(session);
+      return next ? [next] : [];
+    }));
+  }, []);
   const [uiTick, setUiTick] = useState(0);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<TableToolbarPosition | null>(null);
   const [codeToolbarPosition, setCodeToolbarPosition] = useState<CodeToolbarPosition | null>(null);
@@ -549,8 +589,11 @@ export function RichEditor({
   }>(null);
   const tagActiveIndexRef = useRef(0);
   const tagResultsRef = useRef<ProjectTagRecord[]>([]);
-  const rewriteSessionRef = useRef<EditorRewriteSessionState | null>(null);
-  const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
+  const rewriteSessionRef = useRef<EditorSkillSessionState | null>(null);
+  const rewriteSessionsRef = useRef<EditorSkillSessionState[]>([]);
+  const editorSkillJobIdsRef = useRef(new Map<string, number>());
+  const abandonedEditorSkillTargetsRef = useRef(new Set<string>());
+  const rewriteWidgetStateRef = useRef<EditorSkillWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
     onReject: () => void;
@@ -573,6 +616,7 @@ export function RichEditor({
     onOpenAiSettings: undefined,
   });
   rewriteSessionRef.current = rewriteSession;
+  rewriteSessionsRef.current = rewriteSessions;
   const searchStateRef = useRef<{
     open: boolean;
     matches: EditorSearchMatch[];
@@ -582,7 +626,10 @@ export function RichEditor({
     matches: [],
     activeIndex: 0,
   });
-  const rewriteJob = useAiJobTarget(rewriteSession?.targetKey ?? "__rich-editor-rewrite-idle__");
+  const aiJobsById = useAiJobStore((state) => state.jobsById);
+  const latestAiJobIdByTarget = useAiJobStore((state) => state.latestJobIdByTarget);
+  const rewriteJobId = rewriteSession ? latestAiJobIdByTarget[rewriteSession.targetKey] : null;
+  const rewriteJob = rewriteJobId ? aiJobsById[rewriteJobId] ?? null : null;
   const enabledEditorSkills = useMemo(
     () =>
       (aiSettings?.editorSkills ?? [])
@@ -590,11 +637,20 @@ export function RichEditor({
         .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN")),
     [aiSettings?.editorSkills],
   );
+  const enabledImageSkills = useMemo(
+    () =>
+      (aiSettings?.editorSkills ?? [])
+        .filter((skill) => skill.enabled && skill.showInImageMenu)
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN")),
+    [aiSettings?.editorSkills],
+  );
   const editorRewriteVisible = Boolean(aiSettings);
   const editorRewriteReady =
-    Boolean(aiSettings) && isAiCapabilityConfigured(aiSettings ?? undefined, "editor_rewrite");
+    Boolean(aiSettings) && (aiSettings?.hasUsableDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "default"));
+  const imageInterpretationReady =
+    Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
   const aiModifySessionActive =
-    rewriteSession?.skill.resultMode === "modify" || rewriteSession?.skill.resultMode === "auto";
+    rewriteSessions.some((session) => session.skill.resultMode === "modify" || session.skill.resultMode === "auto");
   const effectiveReadOnly = readOnly;
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
@@ -1483,8 +1539,14 @@ export function RichEditor({
       isFocusedRef.current = false;
       setIsFocused(false);
       clearChangePublishTimer();
-      if ((onChange || onSnapshot) && !rewriteSessionRef.current?.modifyPreview) {
-        const snapshot = serializeEditor(nextEditor);
+      if (onChange || onSnapshot) {
+        aiPreviewMutationRef.current = true;
+        let snapshot: RichEditorValue;
+        try {
+          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
+        } finally {
+          aiPreviewMutationRef.current = false;
+        }
         lastResolvedHtmlRef.current = snapshot.html;
         publishChangeSnapshot(snapshot, { immediate: true, sync: true });
       }
@@ -1505,29 +1567,33 @@ export function RichEditor({
       scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
     },
     onTransaction: ({ transaction }) => {
-      const session = rewriteSessionRef.current;
-      if (!transaction.docChanged || !session?.answer || session.modifyPreview) {
+      const sessions = rewriteSessionsRef.current;
+      if (!transaction.docChanged || sessions.length === 0 || aiPreviewMutationRef.current) {
         return;
       }
-
-      const nextAnchorPos = transaction.mapping.map(session.anchorPos, -1);
-      if (nextAnchorPos === session.anchorPos) {
-        return;
-      }
-
-      const nextSession = {
+      const nextSessions = sessions.map((session) => ({
         ...session,
-        anchorPos: nextAnchorPos,
-      };
-      rewriteSessionRef.current = nextSession;
-      setRewriteSession((current) =>
-        current?.targetKey === session.targetKey
+        contextStale: true,
+        anchorPos: transaction.mapping.map(session.anchorPos, -1),
+        selectionSnapshot: {
+          ...session.selectionSnapshot,
+          from: transaction.mapping.map(session.selectionSnapshot.from, 1),
+          to: transaction.mapping.map(session.selectionSnapshot.to, -1),
+        },
+        imageTarget: session.imageTarget
+          ? { ...session.imageTarget, nodePos: transaction.mapping.map(session.imageTarget.nodePos, 1) }
+          : undefined,
+        modifyPreview: session.modifyPreview
           ? {
-              ...current,
-              anchorPos: nextAnchorPos,
+              ...session.modifyPreview,
+              currentFrom: transaction.mapping.map(session.modifyPreview.currentFrom, 1),
+              currentTo: transaction.mapping.map(session.modifyPreview.currentTo, -1),
             }
-          : current,
-      );
+          : session.modifyPreview,
+      }));
+      rewriteSessionsRef.current = nextSessions;
+      rewriteSessionRef.current = nextSessions[nextSessions.length - 1] ?? null;
+      setRewriteSessions(nextSessions);
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (aiPreviewMutationRef.current) {
@@ -1536,6 +1602,15 @@ export function RichEditor({
       }
       if (rewriteSessionRef.current?.modifyPreview) {
         clearChangePublishTimer();
+        aiPreviewMutationRef.current = true;
+        let snapshot: RichEditorValue;
+        try {
+          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
+        } finally {
+          aiPreviewMutationRef.current = false;
+        }
+        lastResolvedHtmlRef.current = snapshot.html;
+        publishChangeSnapshot(snapshot, { immediate: true, sync: true });
         scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
         if (persistStateRef.current !== "saving") {
           updatePersistState("dirty");
@@ -1705,14 +1780,19 @@ export function RichEditor({
     );
   }, [activeSearchIndex, editor, searchMatches, searchOpen]);
 
-  const rewriteDisplayStatus: EditorRewriteDisplayStatus = rewriteSession
-    ? rewriteJob?.status ?? "queued"
+  const rewriteDisplayStatus: EditorSkillDisplayStatus = rewriteSession
+    ? rewriteJob?.status === "cancelled"
+      ? "failed"
+      : rewriteJob?.status ?? "queued"
     : "queued";
-  const rewriteWidgetState = useMemo<EditorRewriteWidgetState | null>(() => {
+  const rewriteWidgetState = useMemo<EditorSkillWidgetState | null>(() => {
     if (!rewriteSession) {
       return null;
     }
 
+    const completedResult = rewriteJob?.status === "succeeded"
+      ? readEditorSkillJobResult(rewriteJob)
+      : null;
     return {
       skillName: rewriteSession.skill.name,
       anchorPos: rewriteSession.anchorPos,
@@ -1722,8 +1802,13 @@ export function RichEditor({
       answerHtml: rewriteSession.answer ? renderMarkdownToHtml(rewriteSession.answer) : null,
       modifyPreview: rewriteSession.modifyPreview ?? null,
       errorMessage: rewriteJob?.errorMessage ?? null,
+      resolvedModel: completedResult?.resolvedModel ?? rewriteSession.resolvedModel ?? null,
+      resolvedProfileName: completedResult?.resolvedProfileName ?? rewriteSession.resolvedProfileName ?? null,
+      usedDefaultFallback: completedResult?.usedDefaultFallback ?? rewriteSession.usedDefaultFallback ?? false,
+      contextStale: rewriteSession.contextStale ?? false,
+      parseError: completedResult?.parseError ?? rewriteSession.parseError ?? null,
     };
-  }, [rewriteDisplayStatus, rewriteJob?.errorMessage, rewriteSession]);
+  }, [rewriteDisplayStatus, rewriteJob, rewriteSession]);
 
   rewriteWidgetStateRef.current = rewriteWidgetState;
 
@@ -1769,7 +1854,7 @@ export function RichEditor({
 
   const persistEditor = useCallback(
     async (reason: SaveReason, options?: { force?: boolean }) => {
-      if (!editor || !onSave || readOnly || rewriteSessionRef.current?.modifyPreview) {
+      if (!editor || !onSave || readOnly) {
         return undefined;
       }
 
@@ -1777,7 +1862,14 @@ export function RichEditor({
       clearPersistTimer();
       clearBlurPersistTimer();
 
-      const snapshot = normalizeRichEditorValue(serializeEditor(editor));
+      aiPreviewMutationRef.current = true;
+      let committedSnapshot: RichEditorValue;
+      try {
+        committedSnapshot = serializeCommittedEditor(editor, rewriteSessionsRef.current);
+      } finally {
+        aiPreviewMutationRef.current = false;
+      }
+      const snapshot = normalizeRichEditorValue(committedSnapshot);
       publishChangeSnapshot(snapshot, { immediate: true, sync: true });
 
       // Persistence must not rewrite the live document: even a visually empty
@@ -1835,7 +1927,13 @@ export function RichEditor({
               reason === "visibility-hidden"))
         ) {
           saveQueuedRef.current = false;
-          const latestSnapshot = serializeEditor(editor);
+          aiPreviewMutationRef.current = true;
+          let latestSnapshot: RichEditorValue;
+          try {
+            latestSnapshot = serializeCommittedEditor(editor, rewriteSessionsRef.current);
+          } finally {
+            aiPreviewMutationRef.current = false;
+          }
 
           if (latestSnapshot.html !== lastPersistedHtmlRef.current) {
             void persistEditor("queued").catch(() => {
@@ -1909,15 +2007,38 @@ export function RichEditor({
       return;
     }
 
-    if (getEditorRewriteProtectedRange(editor)) {
-      return;
-    }
-
     const nextHtml = normalizeHtml(html ?? defaultHtml);
-    const currentHtml = normalizeHtml(editor.getHTML());
+    let currentHtml = normalizeHtml(editor.getHTML());
 
     if (nextHtml === lastResolvedHtmlRef.current) {
       return;
+    }
+
+    if (rewriteSessionsRef.current.length > 0 || getEditorRewriteProtectedRange(editor)) {
+      for (const session of [...rewriteSessionsRef.current].reverse()) {
+        if (session.modifyPreview) {
+          aiPreviewMutationRef.current = true;
+          try {
+            replaceEditorRangeWithSlice(
+              editor,
+              session.modifyPreview.currentFrom,
+              session.modifyPreview.currentTo,
+              session.modifyPreview.originalSlice,
+            );
+          } finally {
+            aiPreviewMutationRef.current = false;
+          }
+        }
+        const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+        if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+        if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+        editorSkillJobIdsRef.current.delete(session.targetKey);
+      }
+      setEditorRewriteProtectedRange(editor, null);
+      rewriteSessionRef.current = null;
+      rewriteSessionsRef.current = [];
+      setRewriteSessions([]);
+      currentHtml = normalizeHtml(editor.getHTML());
     }
 
     if (nextHtml === currentHtml) {
@@ -2729,53 +2850,164 @@ export function RichEditor({
     editor.commands.focus();
   }, [activeCodeBlockInfo, editor]);
 
-  const closeRewriteSession = useCallback(() => {
-    if (editor) {
-      setEditorRewriteProtectedRange(editor, null);
+  const rollbackRewritePreview = useCallback((session: EditorSkillSessionState | null) => {
+    if (!editor || !session?.modifyPreview) {
+      return;
     }
-    setRewriteSession(null);
+    aiPreviewMutationRef.current = true;
+    try {
+      replaceEditorRangeWithSlice(
+        editor,
+        session.modifyPreview.currentFrom,
+        session.modifyPreview.currentTo,
+        session.modifyPreview.originalSlice,
+      );
+    } finally {
+      aiPreviewMutationRef.current = false;
+    }
   }, [editor]);
+
+  const closeRewriteSession = useCallback(() => {
+    const session = rewriteSessionRef.current;
+    rollbackRewritePreview(session);
+    const jobId = session?.jobId ?? (session ? editorSkillJobIdsRef.current.get(session.targetKey) : null);
+    if (session && !jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+    if (jobId) {
+      const currentJob = useAiJobStore.getState().jobsById[jobId];
+      editorSkillJobIdsRef.current.delete(session?.targetKey ?? "");
+      void projectMindApi.aiJobCancel(jobId).then((snapshot) => {
+        if (snapshot) useAiJobStore.getState().upsertJob(snapshot);
+      }).catch(() => undefined);
+      if (currentJob?.status === "queued" || currentJob?.status === "running") {
+        pushToast({
+          tone: "info",
+          title: "已取消 AI 请求",
+          detail: "请求已尽力取消；外部模型若已开始处理，仍可能产生费用。",
+        });
+      }
+    }
+    if (editor) {
+      setEditorRewriteProtectedRange(editor, null, session?.targetKey);
+    }
+    rewriteSessionRef.current = null;
+    setRewriteSession(null);
+  }, [editor, pushToast, rollbackRewritePreview]);
 
   const closeAiMenu = useCallback(() => {
     setAiMenu(null);
   }, []);
 
-  const startEditorRewrite = useCallback(
+  const activateEditorSkillSession = useCallback((targetKey: string) => {
+    setRewriteSessions((current) => {
+      const session = current.find((item) => item.targetKey === targetKey);
+      if (!session || current[current.length - 1]?.targetKey === targetKey) return current;
+      return [...current.filter((item) => item.targetKey !== targetKey), session];
+    });
+  }, []);
+
+  const closeEditorSkillSession = useCallback((targetKey: string) => {
+    const session = rewriteSessionsRef.current.find((item) => item.targetKey === targetKey);
+    if (!session) return;
+    rollbackRewritePreview(session);
+    const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(targetKey);
+    if (!jobId) abandonedEditorSkillTargetsRef.current.add(targetKey);
+    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+    editorSkillJobIdsRef.current.delete(targetKey);
+    if (editor) setEditorRewriteProtectedRange(editor, null, targetKey);
+    setRewriteSessions((current) => current.filter((item) => item.targetKey !== targetKey));
+  }, [editor, rollbackRewritePreview]);
+
+  useEffect(() => () => {
+    const sessions = rewriteSessionsRef.current;
+    for (const session of [...sessions].reverse()) {
+      rollbackRewritePreview(session);
+      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (jobId) {
+        void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+      }
+      editorSkillJobIdsRef.current.delete(session.targetKey);
+    }
+    if (editor) setEditorRewriteProtectedRange(editor, null);
+    rewriteSessionRef.current = null;
+    rewriteSessionsRef.current = [];
+  }, [editor, rollbackRewritePreview]);
+
+  useEffect(() => {
+    const contextKey = JSON.stringify(aiRewriteContext ?? null);
+    const sessions = rewriteSessionsRef.current;
+    if (sessions.length === 0 || sessions.every((session) => session.contextKey === contextKey)) {
+      return;
+    }
+    for (const session of [...sessions].reverse()) {
+      rollbackRewritePreview(session);
+      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+      editorSkillJobIdsRef.current.delete(session.targetKey);
+    }
+    if (editor) setEditorRewriteProtectedRange(editor, null);
+    rewriteSessionRef.current = null;
+    rewriteSessionsRef.current = [];
+    setRewriteSessions([]);
+  }, [aiRewriteContext, editor, rollbackRewritePreview]);
+
+  const startEditorSkill = useCallback(
     async (options: {
       skillId?: string | null;
       skillName: string;
       prompt: string;
-      resultMode: AiEditorRewriteResultMode;
+      resultMode: AiEditorSkillResultMode;
       selectionSnapshot?: EditorAiSelectionSnapshot;
       replaceExistingSession?: boolean;
+      targetType?: "text" | "image";
+      imageTarget?: ImageContextMenuTarget;
     }) => {
       if (!editor) {
         return;
       }
 
-      if (rewriteSession && !rewriteSession.answer && !options.replaceExistingSession) {
-        pushToast({
-          tone: "info",
-          title: "请先处理当前 AI 修改",
-          detail: "请先接受或撤销当前 AI 修改。",
-        });
-        return;
-      }
+      const targetType = options.targetType ?? "text";
 
-      if (rewriteUnavailableReason) {
+      const unavailableReason = targetType === "image"
+        ? (aiSettings?.aiSecretsUnlocked === false
+            ? "需先解锁 AI 配置"
+            : !imageInterpretationReady
+              ? "需先配置支持图片的 AI 模型"
+              : null)
+        : rewriteUnavailableReason;
+      if (unavailableReason) {
         onOpenAiSettings?.();
         pushToast({
           tone: "error",
           title: "AI 编辑暂不可用",
           detail:
-            rewriteUnavailableReason === "需先解锁 AI 配置"
+            unavailableReason === "需先解锁 AI 配置"
               ? "请先解锁 AI 配置，再运行编辑 AI。"
-              : "请先在 AI 设置里完成编辑 AI 能力绑定。",
+              : targetType === "image"
+                ? "请先在 AI 设置里配置支持文字与图片的图片默认模型。"
+                : "请先在 AI 设置里完成编辑 AI 能力绑定。",
         });
         return;
       }
 
       let selectionSnapshot = options.selectionSnapshot;
+      if (targetType === "image" && !selectionSnapshot) {
+        const imageTarget = options.imageTarget;
+        const imageNode = imageTarget ? editor.state.doc.nodeAt(imageTarget.nodePos) : null;
+        if (!imageTarget || !imageNode || imageNode.type.name !== "image") {
+          pushToast({ tone: "error", title: "图片已发生变化", detail: "请重新右键选择图片。" });
+          return;
+        }
+        selectionSnapshot = {
+          from: imageTarget.nodePos,
+          to: imageTarget.nodePos + imageNode.nodeSize,
+          text: "[single image target]",
+          markdown: "[single image target]",
+          placeholders: [],
+          originalSlice: editor.state.doc.slice(imageTarget.nodePos, imageTarget.nodePos + imageNode.nodeSize),
+        };
+      }
       if (!selectionSnapshot) {
         restoreStoredTextSelection(editor);
         const selection = editor.state.selection;
@@ -2800,11 +3032,25 @@ export function RichEditor({
         return;
       }
 
-      const targetKey = aiEditorRewriteJobTargetKey(
+      const overlappingSession = rewriteSessionsRef.current.find((session) =>
+        selectionSnapshot.from < session.selectionSnapshot.to
+        && selectionSnapshot.to > session.selectionSnapshot.from
+        && (!options.replaceExistingSession || session.targetKey !== rewriteSessionRef.current?.targetKey)
+      );
+      if (overlappingSession) {
+        pushToast({
+          tone: "info",
+          title: "该目标正在由 AI 处理",
+          detail: "同一图片或重叠文字范围不能重复运行；请选择不重叠的目标。",
+        });
+        return;
+      }
+
+      const targetKey = aiEditorSkillJobTargetKey(
         `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       );
 
-      setRewriteSession({
+      const nextSession: EditorSkillSessionState = {
         targetKey,
         skill: {
           id: options.skillId ?? null,
@@ -2816,20 +3062,40 @@ export function RichEditor({
         anchorPos: selectionSnapshot.to,
         modifyPreview: null,
         answer: null,
-      });
-      if (options.resultMode !== "answer") {
+        targetType,
+        imageTarget: options.imageTarget,
+        jobId: null,
+        contextKey: JSON.stringify(aiRewriteContext ?? null),
+        contextStale: false,
+      };
+      if (options.replaceExistingSession) setRewriteSession(nextSession);
+      else setRewriteSessions((current) => [...current, nextSession]);
+      if (options.resultMode !== "answer" || targetType === "image") {
         setEditorRewriteProtectedRange(editor, {
           from: selectionSnapshot.from,
           to: selectionSnapshot.to,
-        });
+        }, targetKey);
       }
       setAiMenu(null);
       setContextMenu(null);
 
       try {
         await ensureAiJobSync();
+        const imagePath = targetType === "image"
+          ? resolveImageTargetPath(options.imageTarget?.attrs)
+          : null;
+        if (targetType === "image" && !imagePath) {
+          throw new Error("图片没有可读取的本地原图路径。");
+        }
+        const annotationState = options.imageTarget?.attrs.annotationState ?? null;
+        const signature = imagePath
+          ? await projectMindApi.aiImageTargetSignature({ path: imagePath, annotationState })
+          : null;
+        const nearby = targetType === "image" && options.imageTarget
+          ? buildImageEditorContext(editor, options.imageTarget.nodePos)
+          : null;
         const queuedJob = await projectMindApi.aiJobEnqueue(
-          editorRewriteJobInput(targetKey, {
+          editorSkillJobInput(targetKey, {
             skillId: options.skillId ?? null,
             skillName: options.skillName,
             prompt: options.prompt,
@@ -2839,12 +3105,36 @@ export function RichEditor({
             placeholderTokens: selectionSnapshot.placeholders.map((placeholder) => placeholder.token),
             documentContext: null,
             context: aiRewriteContext,
+            targetType,
+            imageTarget: imagePath && signature
+              ? {
+                  path: imagePath,
+                  mimeType: resolveImageTargetMimeType(options.imageTarget?.attrs, imagePath),
+                  signature,
+                  annotationState,
+                  beforeMarkdown: nearby?.beforeMarkdown ?? null,
+                  afterMarkdown: nearby?.afterMarkdown ?? null,
+                }
+              : null,
           }),
         );
+        editorSkillJobIdsRef.current.set(targetKey, queuedJob.id);
         useAiJobStore.getState().upsertJob(queuedJob);
+        if (abandonedEditorSkillTargetsRef.current.delete(targetKey)) {
+          const cancelled = await projectMindApi.aiJobCancel(queuedJob.id).catch(() => null);
+          editorSkillJobIdsRef.current.delete(targetKey);
+          if (cancelled) useAiJobStore.getState().upsertJob(cancelled);
+          return;
+        }
+        updateRewriteSessionByTarget(targetKey, (current) => ({
+          ...current,
+          jobId: queuedJob.id,
+        }));
       } catch (error) {
-        setEditorRewriteProtectedRange(editor, null);
-        setRewriteSession(null);
+        editorSkillJobIdsRef.current.delete(targetKey);
+        rollbackRewritePreview(nextSession);
+        setEditorRewriteProtectedRange(editor, null, targetKey);
+        updateRewriteSessionByTarget(targetKey, () => null);
         pushToast({
           tone: "error",
           title: "AI 改写失败",
@@ -2854,38 +3144,70 @@ export function RichEditor({
     },
     [
       aiRewriteContext,
+      aiSettings?.aiSecretsUnlocked,
       editor,
+      imageInterpretationReady,
       onOpenAiSettings,
       pushToast,
       restoreStoredTextSelection,
-      rewriteSession,
+      rollbackRewritePreview,
+      updateRewriteSessionByTarget,
       rewriteUnavailableReason,
     ],
   );
 
   const runEditorRewriteAction = useCallback(
-    (skill: { id: string; name: string; prompt: string; resultMode: "modify" | "answer" }) => {
-      void startEditorRewrite({
+    (skill: AiSettingsSnapshot["editorSkills"][number]) => {
+      void startEditorSkill({
         skillId: skill.id,
         skillName: skill.name,
         prompt: skill.prompt,
         resultMode: skill.resultMode,
       });
     },
-    [startEditorRewrite],
+    [startEditorSkill],
   );
 
   const runEditorRewritePrompt = useCallback(
     (prompt: string) => {
-      void startEditorRewrite({
+      void startEditorSkill({
         skillId: null,
         skillName: "AI 编辑",
         prompt,
         resultMode: "auto",
       });
     },
-    [startEditorRewrite],
+    [startEditorSkill],
   );
+
+  const runImageInterpretationAction = useCallback(
+    (skill: AiSettingsSnapshot["editorSkills"][number], imageTarget: ImageContextMenuTarget) => {
+      void startEditorSkill({
+        skillId: skill.id,
+        skillName: skill.name,
+        prompt: skill.prompt,
+        resultMode: skill.resultMode,
+        targetType: "image",
+        imageTarget,
+      });
+    },
+    [startEditorSkill],
+  );
+
+  const runAiMenuPrompt = useCallback((prompt: string) => {
+    if (aiMenu?.targetType === "image" && aiMenu.imageTarget) {
+      void startEditorSkill({
+        skillId: null,
+        skillName: "AI 解读图片",
+        prompt,
+        resultMode: "auto",
+        targetType: "image",
+        imageTarget: aiMenu.imageTarget,
+      });
+      return;
+    }
+    runEditorRewritePrompt(prompt);
+  }, [aiMenu, runEditorRewritePrompt, startEditorSkill]);
 
   const replaceAiPreviewMarkdown = useCallback(
     (markdown: string, showing: "original" | "modified") => {
@@ -2900,7 +3222,7 @@ export function RichEditor({
       }
 
       try {
-        const protectedRange = getEditorRewriteProtectedRange(editor);
+        const protectedRange = getEditorRewriteProtectedRange(editor, session.targetKey);
         if (!protectedRange) {
           throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
         }
@@ -2914,13 +3236,15 @@ export function RichEditor({
               : buildEditorRewriteSlice(editor, markdown, preview.placeholders);
           nextTo = replaceEditorRangeWithSlice(
             editor,
-            protectedRange.from,
-            protectedRange.to,
+            preview.currentFrom,
+            preview.currentTo,
             slice,
           );
-          const nextProtectedRange = getEditorRewriteProtectedRange(editor);
-          nextFrom = nextProtectedRange?.from ?? protectedRange.from;
-          nextTo = nextProtectedRange?.to ?? nextTo;
+          nextFrom = preview.currentFrom;
+          setEditorRewriteProtectedRange(editor, {
+            from: session.targetType === "image" ? session.selectionSnapshot.from : nextFrom,
+            to: nextTo,
+          }, session.targetKey);
         } finally {
           aiPreviewMutationRef.current = false;
         }
@@ -2932,7 +3256,7 @@ export function RichEditor({
           currentTo: nextTo,
           showing,
         };
-        const nextSession: EditorRewriteSessionState = {
+        const nextSession: EditorSkillSessionState = {
           ...session,
           anchorPos: nextTo,
           modifyPreview: nextPreview,
@@ -2957,7 +3281,7 @@ export function RichEditor({
           );
         });
       } catch (error) {
-        setEditorRewriteProtectedRange(editor, null);
+        setEditorRewriteProtectedRange(editor, null, session.targetKey);
         rewriteSessionRef.current = null;
         setRewriteSession(null);
         pushToast({
@@ -2981,10 +3305,26 @@ export function RichEditor({
   }, [editor, publishChangeSnapshot, updatePersistState]);
 
   const acceptModifyPreview = useCallback(() => {
-    publishAiEditorSnapshot();
-    if (editor) {
-      setEditorRewriteProtectedRange(editor, null);
+    const session = rewriteSessionRef.current;
+    if (!editor || !session?.modifyPreview) return;
+    const preview = session.modifyPreview;
+    rollbackRewritePreview(session);
+    setEditorRewriteProtectedRange(editor, null, session.targetKey);
+    const modifiedSlice = buildEditorRewriteSlice(editor, preview.modifiedMarkdown, preview.placeholders);
+    const originalTo = preview.currentFrom + preview.originalSlice.size;
+    rewriteSessionRef.current = session.answer
+      ? { ...session, modifyPreview: null, modificationResolved: true }
+      : null;
+    const transaction = markEditorRewriteTransaction(
+      editor.state.tr.replaceRange(preview.currentFrom, originalTo, modifiedSlice),
+    );
+    aiPreviewMutationRef.current = true;
+    try {
+      editor.view.dispatch(transaction);
+    } finally {
+      aiPreviewMutationRef.current = false;
     }
+    publishAiEditorSnapshot();
     setRewriteSession((current) =>
       current?.answer
         ? {
@@ -2994,12 +3334,16 @@ export function RichEditor({
           }
         : null,
     );
-  }, [editor, publishAiEditorSnapshot]);
+  }, [editor, publishAiEditorSnapshot, rollbackRewritePreview]);
 
   const rejectModifyPreview = useCallback(() => {
+    if (rewriteJob?.status === "queued" || rewriteJob?.status === "running") {
+      closeRewriteSession();
+      return;
+    }
     if (!rewriteSession?.modifyPreview) {
       if (editor) {
-        setEditorRewriteProtectedRange(editor, null);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession?.targetKey);
       }
       setRewriteSession(null);
       return;
@@ -3007,7 +3351,7 @@ export function RichEditor({
     replaceAiPreviewMarkdown(rewriteSession.modifyPreview.originalMarkdown, "original");
     publishAiEditorSnapshot();
     if (editor) {
-      setEditorRewriteProtectedRange(editor, null);
+      setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
     }
     setRewriteSession((current) =>
       current?.answer
@@ -3018,7 +3362,7 @@ export function RichEditor({
           }
         : null,
     );
-  }, [editor, publishAiEditorSnapshot, replaceAiPreviewMarkdown, rewriteSession]);
+  }, [closeRewriteSession, editor, publishAiEditorSnapshot, replaceAiPreviewMarkdown, rewriteJob?.status, rewriteSession]);
 
   const copyAiAnswer = useCallback(() => {
     const answer = rewriteSession?.answer?.trim();
@@ -3032,11 +3376,11 @@ export function RichEditor({
   }, [rewriteSession?.answer]);
 
   const insertAiAnswer = useCallback(() => {
-    if (!editor || !rewriteSession?.answer) {
+    if (!editor || !rewriteSession?.answer || rewriteSession.parseError) {
       return;
     }
 
-    const protectedRange = getEditorRewriteProtectedRange(editor);
+    const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
     const insertPosition = getInsertPositionAfterSelectedBlock(
       editor,
       protectedRange?.to ?? rewriteSession.anchorPos,
@@ -3046,7 +3390,8 @@ export function RichEditor({
       insertPosition,
       wrapMarkdownAsBlockquote(rewriteSession.answer),
     );
-    setEditorRewriteProtectedRange(editor, null);
+    setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
     setRewriteSession(null);
     publishAiEditorSnapshot();
   }, [editor, publishAiEditorSnapshot, rewriteSession]);
@@ -3055,15 +3400,27 @@ export function RichEditor({
     if (!rewriteSession) {
       return;
     }
+    rollbackRewritePreview(rewriteSession);
     const protectedRange = editor
-      ? getEditorRewriteProtectedRange(editor)
+      ? getEditorRewriteProtectedRange(editor, rewriteSession.targetKey)
       : null;
-    void startEditorRewrite({
+    const jobId = rewriteSession.jobId ?? editorSkillJobIdsRef.current.get(rewriteSession.targetKey);
+    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+    if (editor) setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
+    void startEditorSkill({
       skillId: rewriteSession.skill.id ?? null,
       skillName: rewriteSession.skill.name,
       prompt: rewriteSession.skill.prompt,
       resultMode: rewriteSession.skill.resultMode,
       replaceExistingSession: true,
+      targetType: rewriteSession.targetType,
+      imageTarget: rewriteSession.imageTarget
+        ? {
+            ...rewriteSession.imageTarget,
+            nodePos: protectedRange?.from ?? rewriteSession.imageTarget.nodePos,
+          }
+        : undefined,
       selectionSnapshot: protectedRange
         ? {
             ...rewriteSession.selectionSnapshot,
@@ -3072,7 +3429,7 @@ export function RichEditor({
           }
         : rewriteSession.selectionSnapshot,
     });
-  }, [editor, rewriteSession, startEditorRewrite]);
+  }, [editor, rewriteSession, rollbackRewritePreview, startEditorSkill]);
 
   useEffect(() => {
     if (!editor || !rewriteSession) {
@@ -3093,11 +3450,23 @@ export function RichEditor({
 
       const result =
         rewriteJob.status === "succeeded"
-          ? readEditorRewriteJobResult(rewriteJob)
+          ? readEditorSkillJobResult(rewriteJob)
           : null;
       const automaticAnswer = isAutomatic
         ? result?.answerMarkdown?.trim() || null
         : null;
+      if (result?.parseError) {
+        rollbackRewritePreview(rewriteSession);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          answer: result.answerMarkdown?.trim() || result.content,
+          modifyPreview: null,
+          modificationResolved: true,
+          parseError: result.parseError,
+        });
+        return;
+      }
       const content = isAutomatic
         ? result?.replacementMarkdown?.trim() || ""
         : result?.content.trim() || rewriteJob.streamText?.trim() || "";
@@ -3106,21 +3475,17 @@ export function RichEditor({
         if (!automaticAnswer) {
           throw new Error("AI 未返回原文修改或回答内容。");
         }
-        const protectedRange = getEditorRewriteProtectedRange(editor);
-        setEditorRewriteProtectedRange(editor, null);
+        const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
         if (rewriteSession.answer === automaticAnswer && !rewriteSession.modifyPreview) {
           return;
         }
-        setRewriteSession((current) =>
-          current?.targetKey === rewriteSession.targetKey
-            ? {
-                ...current,
-                anchorPos: protectedRange?.to ?? current.anchorPos,
-                answer: automaticAnswer,
-                modifyPreview: null,
-              }
-            : current,
-        );
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          anchorPos: protectedRange?.to ?? current.anchorPos,
+          answer: automaticAnswer,
+          modifyPreview: null,
+        });
         return;
       }
       if (!content) {
@@ -3130,14 +3495,10 @@ export function RichEditor({
         if (rewriteSession.answer === content) {
           return;
         }
-        setRewriteSession((current) =>
-          current?.targetKey === rewriteSession.targetKey
-            ? {
-                ...current,
-                answer: content,
-              }
-            : current,
-        );
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          answer: content,
+        });
         return;
       }
 
@@ -3164,49 +3525,58 @@ export function RichEditor({
         return;
       }
       const snapshot = rewriteSession.selectionSnapshot;
-      const protectedRange = getEditorRewriteProtectedRange(editor);
+      const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
       if (!protectedRange) {
         throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
       }
-      let currentFrom = protectedRange.from;
-      const currentTo = protectedRange.to;
+      let currentFrom = rewriteSession.modifyPreview?.currentFrom ?? protectedRange.from;
+      const currentTo = rewriteSession.modifyPreview?.currentTo ?? protectedRange.to;
 
       aiPreviewMutationRef.current = true;
       let nextTo = currentTo;
       try {
         if (rewriteSession.modifyPreview?.showing === "original") {
           nextTo = currentTo;
+        } else if (rewriteSession.targetType === "image" && !rewriteSession.modifyPreview) {
+          const slice = buildEditorRewriteSlice(editor, content, []);
+          const insertPosition = getInsertPositionAfterSelectedBlock(editor, snapshot.to);
+          setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+          const inserted = insertEditorPreviewSlice(editor, insertPosition, slice);
+          currentFrom = inserted.from;
+          nextTo = inserted.to;
+          setEditorRewriteProtectedRange(editor, {
+            from: snapshot.from,
+            to: nextTo,
+          }, rewriteSession.targetKey);
         } else {
           const slice = buildEditorRewriteSlice(editor, content, snapshot.placeholders);
           nextTo = replaceEditorRangeWithSlice(editor, currentFrom, currentTo, slice);
-          const nextProtectedRange = getEditorRewriteProtectedRange(editor);
-          currentFrom = nextProtectedRange?.from ?? currentFrom;
-          nextTo = nextProtectedRange?.to ?? nextTo;
+          setEditorRewriteProtectedRange(editor, {
+            from: rewriteSession.targetType === "image" ? snapshot.from : currentFrom,
+            to: nextTo,
+          }, rewriteSession.targetKey);
         }
       } finally {
         aiPreviewMutationRef.current = false;
       }
 
-      setRewriteSession((current) =>
-        current?.targetKey === rewriteSession.targetKey
-          ? {
-              ...current,
-              anchorPos: nextTo,
-              answer: automaticAnswer ?? current.answer,
-              modifyPreview: {
-                originalMarkdown: snapshot.markdown,
-                modifiedMarkdown: content,
-                placeholders: snapshot.placeholders,
-                originalSlice: snapshot.originalSlice,
-                currentFrom,
-                currentTo: nextTo,
-                showing: rewriteSession.modifyPreview?.showing ?? "modified",
-              },
-            }
-          : current,
-      );
+      setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+        ...current,
+        anchorPos: nextTo,
+        answer: automaticAnswer ?? current.answer,
+        modifyPreview: {
+          originalMarkdown: snapshot.markdown,
+          modifiedMarkdown: content,
+          placeholders: snapshot.placeholders,
+          originalSlice: rewriteSession.targetType === "image" ? Slice.empty : snapshot.originalSlice,
+          currentFrom,
+          currentTo: nextTo,
+          showing: rewriteSession.modifyPreview?.showing ?? "modified",
+        },
+      });
     } catch (error) {
-      setEditorRewriteProtectedRange(editor, null);
+      rollbackRewritePreview(rewriteSession);
+      setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
       rewriteSessionRef.current = null;
       setRewriteSession(null);
       pushToast({
@@ -3215,7 +3585,23 @@ export function RichEditor({
         detail: error instanceof Error ? error.message : "AI 结果无法写回编辑器",
       });
     }
-  }, [editor, pushToast, rewriteJob, rewriteSession]);
+  }, [editor, pushToast, rewriteJob, rewriteSession, rollbackRewritePreview]);
+
+  useEffect(() => {
+    if (!editor || !rewriteSession || (rewriteJob?.status !== "failed" && rewriteJob?.status !== "cancelled")) {
+      return;
+    }
+    if (rewriteSession.modifyPreview) {
+      rollbackRewritePreview(rewriteSession);
+      setEditorRewriteProtectedRange(editor, {
+        from: rewriteSession.selectionSnapshot.from,
+        to: rewriteSession.selectionSnapshot.to,
+      }, rewriteSession.targetKey);
+      setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey
+        ? current
+        : { ...current, modifyPreview: null });
+    }
+  }, [editor, rewriteJob?.status, rewriteSession, rollbackRewritePreview]);
 
   useEffect(() => {
     if (!rewriteSession?.modifyPreview || rewriteSession.modifyPreview.showing !== "original") {
@@ -3280,7 +3666,10 @@ export function RichEditor({
     });
     const plugin = createEditorRewriteWidgetPlugin({
       getWidgetState: () => rewriteWidgetStateRef.current,
-      getProtectedRange: () => getEditorRewriteProtectedRange(editor),
+      getProtectedRange: () => {
+        const session = rewriteSessionRef.current;
+        return session ? getEditorRewriteProtectedRange(editor, session.targetKey) : null;
+      },
       getCallbacks: () => rewriteWidgetCallbacksRef.current,
     });
 
@@ -3388,6 +3777,25 @@ export function RichEditor({
               });
             },
             readOnly: effectiveReadOnly,
+            editorSkills: enabledImageSkills,
+            showAiInterpretation: imageInterpretationReady,
+            unavailableReason: imageInterpretationFormatUnavailableReason(imageTarget)
+              ?? (aiSettings?.aiSecretsUnlocked === false
+              ? "需先解锁 AI 配置"
+              : !imageInterpretationReady
+                ? "需先配置支持图片的 AI 模型"
+                : null),
+            onOpenAiSettings,
+            onRunEditorSkill: (skill) => runImageInterpretationAction(skill, imageTarget),
+            onOpenAiPrompt: () => {
+              setContextMenu(null);
+              setAiMenu({
+                x: event.clientX,
+                y: event.clientY,
+                targetType: "image",
+                imageTarget,
+              });
+            },
           }),
           autoFocus: false,
         });
@@ -3444,6 +3852,7 @@ export function RichEditor({
                 setAiMenu({
                   x: event.clientX,
                   y: event.clientY,
+                  targetType: "text",
                 });
               },
               onRunEditorSkill: runEditorRewriteAction,
@@ -3484,6 +3893,7 @@ export function RichEditor({
               setAiMenu({
                 x: event.clientX,
                 y: event.clientY,
+                targetType: "text",
               });
             },
             onRunEditorSkill: runEditorRewriteAction,
@@ -3508,6 +3918,9 @@ export function RichEditor({
       effectiveReadOnly,
       enableTables,
       enabledEditorSkills,
+      enabledImageSkills,
+      aiSettings?.aiSecretsUnlocked,
+      imageInterpretationReady,
       onOpenAiSettings,
       openImageAnnotationDialog,
       assetBusy,
@@ -3520,6 +3933,7 @@ export function RichEditor({
       pushToast,
       removeSelectionAndSave,
       runEditorRewriteAction,
+      runImageInterpretationAction,
       selectionActions,
       rewriteUnavailableReason,
     ],
@@ -4003,6 +4417,26 @@ export function RichEditor({
 
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
 
+        {rewriteSessions.length > 1 ? (
+          <div className="rich-editor__skill-session-stack" role="list" aria-label="其他 AI 会话">
+            {rewriteSessions.slice(0, -1).map((session) => {
+              const jobId = latestAiJobIdByTarget[session.targetKey];
+              const job = jobId ? aiJobsById[jobId] : null;
+              return (
+                <div key={session.targetKey} role="listitem" className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+                  <span>{session.skill.name} · {job?.status === "succeeded" ? "待审阅" : job?.status === "failed" ? "失败" : "处理中"}</span>
+                  <button type="button" className="rich-editor__rewrite-widget-action" onClick={() => activateEditorSkillSession(session.targetKey)}>
+                    查看
+                  </button>
+                  <button type="button" className="rich-editor__rewrite-widget-action" aria-label={`关闭 ${session.skill.name} AI 会话`} onClick={() => closeEditorSkillSession(session.targetKey)}>
+                    关闭
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         {referencePicker && internalReferences?.context && !effectiveReadOnly ? (
           <InternalReferencePicker
             open
@@ -4082,9 +4516,16 @@ export function RichEditor({
         <RichEditorAiMenu
           x={aiMenu.x}
           y={aiMenu.y}
-          disabledReason={rewriteUnavailableReason}
+          disabledReason={aiMenu.targetType === "image"
+            ? (aiSettings?.aiSecretsUnlocked === false
+                ? "需先解锁 AI 配置"
+                : !imageInterpretationReady
+                  ? "需先配置支持图片的 AI 模型"
+                  : null)
+            : rewriteUnavailableReason}
+          targetType={aiMenu.targetType}
           onClose={closeAiMenu}
-          onSubmitPrompt={runEditorRewritePrompt}
+          onSubmitPrompt={runAiMenuPrompt}
         />
       ) : null}
       {annotationDialog ? (
@@ -4876,6 +5317,32 @@ function serializeEditor(editor: Editor): RichEditorValue {
   };
 }
 
+function serializeCommittedEditor(
+  editor: Editor,
+  sessions: readonly EditorSkillSessionState[],
+): RichEditorValue {
+  const previews = sessions
+    .flatMap((session) => session.modifyPreview && session.modifyPreview.showing !== "original"
+      ? [{ session, preview: session.modifyPreview }]
+      : [])
+    .sort((left, right) => right.preview.currentFrom - left.preview.currentFrom);
+  if (previews.length === 0) {
+    return serializeEditor(editor);
+  }
+  let projection = editor.state.tr;
+  for (const { preview } of previews) {
+    projection = projection.replaceRange(preview.currentFrom, preview.currentTo, preview.originalSlice);
+  }
+  const projectedDoc = projection.doc;
+  const container = document.createElement("div");
+  container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(projectedDoc.content));
+  return {
+    html: normalizeHtml(container.innerHTML),
+    text: projectedDoc.textBetween(0, projectedDoc.content.size, "\n\n"),
+    markdown: serializeRichTextNodesMarkdown(editor, projectedDoc.content.content),
+  };
+}
+
 function buildTableToolbarGroups(editor: Editor, readOnly: boolean) {
   const editorDisabled = () => readOnly || !editor.isEditable;
 
@@ -5619,11 +6086,21 @@ function replaceEditorRangeWithSlice(editor: Editor, from: number, to: number, s
 
   const transaction = markEditorRewriteTransaction(
     editor.state.tr.replaceRange(from, to, slice),
-  );
+  ).setMeta("addToHistory", false);
   const nextTo = transaction.mapping.map(to, -1);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return nextTo;
+}
+
+function insertEditorPreviewSlice(editor: Editor, position: number, slice: Slice) {
+  const safePosition = clampNumber(position, 0, editor.state.doc.content.size);
+  if (!slice.content.size) return { from: safePosition, to: safePosition };
+  const transaction = markEditorRewriteTransaction(
+    editor.state.tr.insert(safePosition, slice.content),
+  ).setMeta("addToHistory", false);
+  editor.view.dispatch(transaction);
+  return { from: safePosition, to: safePosition + slice.content.size };
 }
 
 function insertMarkdownAtPosition(editor: Editor, position: number, markdown: string) {
@@ -5771,7 +6248,7 @@ function applyPlainTextCodeBlocksLanguage(editor: Editor, language: string) {
 }
 
 function createEditorRewriteWidgetPlugin(options: {
-  getWidgetState: () => EditorRewriteWidgetState | null;
+  getWidgetState: () => EditorSkillWidgetState | null;
   getProtectedRange: () => { from: number; to: number } | null;
   getCallbacks: () => {
     onAccept: () => void;
@@ -5871,6 +6348,11 @@ function createEditorRewriteWidgetPlugin(options: {
         onInsertAnswer={options.getCallbacks().onInsertAnswer}
         onClose={options.getCallbacks().onClose}
         onOpenAiSettings={options.getCallbacks().onOpenAiSettings}
+        resolvedModel={widgetState.resolvedModel}
+        resolvedProfileName={widgetState.resolvedProfileName}
+        usedDefaultFallback={widgetState.usedDefaultFallback}
+        contextStale={widgetState.contextStale}
+        parseError={widgetState.parseError}
       />,
     );
   };
@@ -5929,12 +6411,24 @@ function buildImageContextMenuActions({
   onBrowseImage,
   onCopyImage,
   readOnly,
+  editorSkills,
+  showAiInterpretation,
+  unavailableReason,
+  onOpenAiSettings,
+  onRunEditorSkill,
+  onOpenAiPrompt,
 }: {
   editor: Editor;
   imageTarget: ImageContextMenuTarget;
   onBrowseImage: (target?: Element | null) => void;
   onCopyImage: () => void;
   readOnly: boolean;
+  editorSkills: AiSettingsSnapshot["editorSkills"];
+  showAiInterpretation: boolean;
+  unavailableReason?: string | null;
+  onOpenAiSettings?: () => void;
+  onRunEditorSkill: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
+  onOpenAiPrompt: () => void;
 }) {
   const canBrowseImage = Boolean(imageTarget.attrs.path || imageTarget.attrs.src);
   const canCopyImage = Boolean(imageTarget.attrs.path || imageTarget.attrs.src);
@@ -5943,6 +6437,39 @@ function buildImageContextMenuActions({
   const canEditImage = !readOnly && editor.isEditable;
 
   return [
+    ...(showAiInterpretation ? [{
+      type: "submenu",
+      key: "image-ai-interpretation",
+      label: "AI 解读图片",
+      icon: Sparkles,
+      actions: [
+        ...editorSkills.map((skill) => ({
+          key: `image-ai-skill-${skill.id}`,
+          label: `${skill.icon?.trim() ? `${skill.icon.trim()} ` : ""}${skill.name}`,
+          icon: skill.resultMode === "answer" ? Lightbulb : Sparkles,
+          disabled: Boolean(unavailableReason),
+          onSelect: () => onRunEditorSkill(skill),
+        } satisfies ContextMenuAction)),
+        ...(editorSkills.length > 0
+          ? [{ type: "separator", key: "image-ai-free-prompt-separator" } satisfies ContextMenuAction]
+          : []),
+        {
+          key: "image-ai-free-prompt",
+          label: "自定义解读…",
+          icon: WandSparkles,
+          disabled: Boolean(unavailableReason),
+          onSelect: onOpenAiPrompt,
+        },
+        {
+          key: "image-ai-settings",
+          label: unavailableReason ?? "AI 设置",
+          icon: Settings2,
+          disabled: !onOpenAiSettings,
+          onSelect: () => onOpenAiSettings?.(),
+        },
+      ],
+    } satisfies ContextMenuAction,
+    { type: "separator", key: "image-separator-ai" } satisfies ContextMenuAction] : []),
     {
       key: "image-browse",
       label: "浏览图片",
@@ -6020,6 +6547,106 @@ function buildImageContextMenuActions({
       onSelect: () => removeNodeAtPos(editor, imageTarget.nodePos),
     },
   ] satisfies ContextMenuAction[];
+}
+
+function resolveImageTargetPath(attrs: ImageContextMenuTarget["attrs"] | undefined) {
+  const direct = attrs?.path?.trim();
+  if (direct) return direct;
+  const source = attrs?.src?.trim();
+  if (!source) return null;
+  const filePath = fileUriToPath(source);
+  return filePath || null;
+}
+
+function resolveImageTargetMimeType(
+  attrs: ImageContextMenuTarget["attrs"] | undefined,
+  path: string,
+) {
+  const declared = attrs?.mimeType?.trim().toLowerCase();
+  if (declared) return declared;
+  const extension = path.split(/[./\\]/u).pop()?.toLowerCase();
+  return ({
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    avif: "image/avif",
+    heic: "image/heic",
+    heif: "image/heif",
+  } as Record<string, string>)[extension ?? ""] ?? "application/octet-stream";
+}
+
+function imageInterpretationFormatUnavailableReason(imageTarget: ImageContextMenuTarget) {
+  const path = resolveImageTargetPath(imageTarget.attrs);
+  if (!path) return "图片没有可读取的本地原图";
+  const mimeType = resolveImageTargetMimeType(imageTarget.attrs, path);
+  if (["image/svg+xml", "image/avif", "image/heic", "image/heif"].includes(mimeType)) {
+    return `暂不支持 ${mimeType.replace("image/", "").toUpperCase()} 图片`;
+  }
+  if (!["image/png", "image/jpeg", "image/webp", "image/bmp", "image/gif"].includes(mimeType)) {
+    return "无法识别或不支持该图片格式";
+  }
+  return null;
+}
+
+function buildImageEditorContext(editor: Editor, nodePos: number) {
+  const beforeBlocks: string[] = [];
+  const afterBlocks: string[] = [];
+  editor.state.doc.forEach((node, offset) => {
+    const blockEnd = offset + node.nodeSize;
+    if (offset <= nodePos && nodePos < blockEnd) return;
+    const markdown = serializeContextBlock(editor, node);
+    if (!markdown) return;
+    if (blockEnd <= nodePos) beforeBlocks.push(markdown);
+    else if (offset > nodePos) afterBlocks.push(markdown);
+  });
+
+  const before = takeCompleteContextBlocks(beforeBlocks, 2000, "before");
+  const after = takeCompleteContextBlocks(afterBlocks, 2000, "after");
+  return {
+    beforeMarkdown: before || null,
+    afterMarkdown: after || null,
+  };
+}
+
+function serializeContextBlock(editor: Editor, node: Parameters<typeof serializeRichTextNodesMarkdown>[1][number]) {
+  let neutralPlaceholder: string | null = null;
+  node.descendants((child) => {
+    if (child.type.name === "image") {
+      const label = typeof child.attrs.alt === "string" && child.attrs.alt.trim()
+        ? `：${child.attrs.alt.trim()}`
+        : "";
+      neutralPlaceholder = `[相邻图片${label}]`;
+      return false;
+    }
+    if (child.type.name === "attachment") {
+      neutralPlaceholder = "[相邻附件]";
+      return false;
+    }
+    return neutralPlaceholder === null;
+  });
+  return neutralPlaceholder ?? serializeRichTextNodesMarkdown(editor, [node]);
+}
+
+function takeCompleteContextBlocks(
+  blocks: readonly string[],
+  budget: number,
+  direction: "before" | "after",
+) {
+  const selected: string[] = [];
+  const candidates = direction === "before" ? [...blocks].reverse() : [...blocks];
+  let length = 0;
+  for (const block of candidates) {
+    const addition = block.length + (selected.length > 0 ? 2 : 0);
+    if (length + addition > budget) break;
+    selected.push(block);
+    length += addition;
+  }
+  if (direction === "before") selected.reverse();
+  return selected.join("\n\n");
 }
 
 async function copyImageToClipboard(

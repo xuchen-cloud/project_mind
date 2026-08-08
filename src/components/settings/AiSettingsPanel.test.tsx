@@ -145,14 +145,15 @@ describe("AiSettingsPanel", () => {
           updatedAt: "",
         },
         {
-          capability: "editor_rewrite",
-          useDefault: true,
+          capability: "image_default",
+          useDefault: false,
           profileId: null,
           model: null,
           updatedAt: "",
         },
       ],
       hasUsableDefault: true,
+      hasUsableImageDefault: false,
       securityMode: "workspace_password_encrypted",
       aiSecretsUnlocked: true,
       execution: {
@@ -209,6 +210,8 @@ describe("AiSettingsPanel", () => {
         prompt: input.prompt,
         resultMode: input.resultMode,
         showInTextMenu: input.showInTextMenu,
+        showInImageMenu: input.showInImageMenu,
+        profileId: input.profileId ?? null,
         sortOrder: input.sortOrder ?? aiSettingsSnapshot.editorSkills.length + 1,
         enabled: input.enabled,
         createdAt: "",
@@ -283,7 +286,7 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(screen.queryByLabelText("名称")).not.toBeInTheDocument());
   });
 
-  it("renders only default and editor AI model bindings", async () => {
+  it("renders only general and image default model bindings", async () => {
     const user = userEvent.setup();
 
     renderPanel();
@@ -297,10 +300,10 @@ describe("AiSettingsPanel", () => {
     await waitFor(
       () =>
         expect(mockAiBindingUpsert.mock.calls[0]?.[0]).toEqual({
-          capability: "editor_rewrite",
+          capability: "image_default",
           useDefault: false,
           profileId: 2,
-          model: "gpt-5.4-mini",
+          model: undefined,
         }),
       { timeout: 1500 },
     );
@@ -346,6 +349,8 @@ describe("AiSettingsPanel", () => {
           prompt: "请翻译成自然英文",
           resultMode: "modify",
           showInTextMenu: true,
+          showInImageMenu: false,
+          profileId: null,
           sortOrder: undefined,
           enabled: true,
         },

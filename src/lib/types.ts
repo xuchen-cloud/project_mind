@@ -213,9 +213,9 @@ export interface ActivityDigest {
 
 export type AiJobKind =
   | "profile_test"
-  | "editor_rewrite";
+  | "editor_skill";
 
-export type AiJobStatus = "queued" | "running" | "succeeded" | "failed";
+export type AiJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface AiExecutionSettings {
   maxConcurrency: 1 | 2 | 3 | 4;
@@ -230,23 +230,26 @@ export interface AiProfileTestJobResult extends AiJobBase {
   testResult: AiProfileTestResult;
 }
 
-export interface AiEditorRewriteResult {
+export interface AiEditorSkillResult {
   skillId?: string | null;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
   content: string;
   replacementMarkdown?: string | null;
   answerMarkdown?: string | null;
   resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback: boolean;
+  parseError?: string | null;
 }
 
-export interface AiEditorRewriteJobResult extends AiJobBase {
-  kind: "editor_rewrite";
-  rewrite: AiEditorRewriteResult;
+export interface AiEditorSkillJobResult extends AiJobBase {
+  kind: "editor_skill";
+  rewrite: AiEditorSkillResult;
 }
 
 export type AiJobResult =
   | AiProfileTestJobResult
-  | AiEditorRewriteJobResult;
+  | AiEditorSkillJobResult;
 
 export interface AiJobSnapshot {
   id: number;
@@ -267,37 +270,39 @@ export interface AiProfileTestJobInput {
   input: AiProfileTestInput;
 }
 
-export type AiEditorRewriteScope = "project_note" | "workspace_note";
+export type AiEditorSkillScope = "project_note" | "workspace_note";
 
-export interface AiEditorRewriteContext {
-  scope: AiEditorRewriteScope;
+export interface AiEditorSkillContext {
+  scope: AiEditorSkillScope;
   projectId?: number | null;
   noteId?: number | null;
   workspaceNoteId?: number | null;
   sourceLabel?: string | null;
 }
 
-export interface AiEditorRewriteInput {
+export interface AiEditorSkillInput {
   skillId?: string | null;
   skillName?: string | null;
   prompt?: string | null;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
   selectedText: string;
   expandedMarkdown?: string | null;
   placeholderTokens?: string[];
   documentContext?: string | null;
-  context?: AiEditorRewriteContext;
+  context?: AiEditorSkillContext;
+  targetType?: "text" | "image";
+  imageTarget?: AiEditorImageTarget | null;
 }
 
-export interface AiEditorRewriteJobInput {
-  kind: "editor_rewrite";
+export interface AiEditorSkillJobInput {
+  kind: "editor_skill";
   targetKey: string;
-  input: AiEditorRewriteInput;
+  input: AiEditorSkillInput;
 }
 
 export type AiJobEnqueueInput =
   | AiProfileTestJobInput
-  | AiEditorRewriteJobInput;
+  | AiEditorSkillJobInput;
 
 export interface ConclusionGroup {
   activityTitle: string;
@@ -682,8 +687,7 @@ export interface DocumentDeleteInput {
   documentId: number;
 }
 
-export type AiEditorSkillResultMode = "modify" | "answer";
-export type AiEditorRewriteResultMode = AiEditorSkillResultMode | "auto";
+export type AiEditorSkillResultMode = "modify" | "answer" | "auto";
 
 export interface AiEditorSkillRecord {
   id: string;
@@ -693,6 +697,8 @@ export interface AiEditorSkillRecord {
   prompt: string;
   resultMode: AiEditorSkillResultMode;
   showInTextMenu: boolean;
+  showInImageMenu: boolean;
+  profileId?: number | null;
   sortOrder: number;
   enabled: boolean;
   createdAt: string;
@@ -706,7 +712,7 @@ export type AiProviderFamily =
 
 export type AiCapability =
   | "default"
-  | "editor_rewrite";
+  | "image_default";
 
 export interface AiProviderProfileRecord {
   id: number;
@@ -736,6 +742,7 @@ export interface AiSettingsSnapshot {
   profiles: AiProviderProfileRecord[];
   bindings: AiCapabilityBindingRecord[];
   hasUsableDefault: boolean;
+  hasUsableImageDefault: boolean;
   securityMode: string;
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
@@ -836,6 +843,7 @@ export interface AiProfileTestInput {
   supportsImage: boolean;
   supportsFile: boolean;
   enabled: boolean;
+  testImage?: boolean;
 }
 
 export interface AiProfileTestResult {
@@ -860,8 +868,19 @@ export interface AiEditorSkillUpsertInput {
   prompt: string;
   resultMode: AiEditorSkillResultMode;
   showInTextMenu: boolean;
+  showInImageMenu: boolean;
+  profileId?: number | null;
   sortOrder?: number;
   enabled: boolean;
+}
+
+export interface AiEditorImageTarget {
+  path: string;
+  mimeType: string;
+  signature: string;
+  annotationState?: string | null;
+  beforeMarkdown?: string | null;
+  afterMarkdown?: string | null;
 }
 
 export interface AiEditorSkillDeleteInput {

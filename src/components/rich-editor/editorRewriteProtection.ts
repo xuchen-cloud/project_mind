@@ -9,10 +9,13 @@ export interface EditorRewriteProtectedRange {
 }
 
 type EditorRewriteProtectionMeta =
-  | { type: "set"; range: EditorRewriteProtectedRange }
+  | { type: "set"; key: string; range: EditorRewriteProtectedRange }
+  | { type: "remove"; key: string }
   | { type: "clear" };
 
-export const EDITOR_REWRITE_PROTECTION_PLUGIN_KEY = new PluginKey<EditorRewriteProtectedRange | null>(
+type EditorRewriteProtectedRanges = Record<string, EditorRewriteProtectedRange>;
+
+export const EDITOR_REWRITE_PROTECTION_PLUGIN_KEY = new PluginKey<EditorRewriteProtectedRanges>(
   "project-mind-editor-rewrite-protection",
 );
 
@@ -42,42 +45,51 @@ export function createEditorRewriteProtectionPlugin(options?: {
     });
   };
 
-  return new Plugin<EditorRewriteProtectedRange | null>({
+  return new Plugin<EditorRewriteProtectedRanges>({
     key: EDITOR_REWRITE_PROTECTION_PLUGIN_KEY,
     state: {
-      init: () => null,
-      apply(transaction, protectedRange) {
+      init: () => ({}),
+      apply(transaction, protectedRanges) {
         const meta = transaction.getMeta(
           EDITOR_REWRITE_PROTECTION_PLUGIN_KEY,
         ) as EditorRewriteProtectionMeta | undefined;
 
         if (meta?.type === "set") {
-          return normalizeProtectedRange(transaction.doc, meta.range);
+          const range = normalizeProtectedRange(transaction.doc, meta.range);
+          if (!range) return protectedRanges;
+          return { ...protectedRanges, [meta.key ?? "active"]: range };
+        }
+        if (meta?.type === "remove") {
+          const next = { ...protectedRanges };
+          delete next[meta.key];
+          return next;
         }
         if (meta?.type === "clear") {
-          return null;
+          return {};
         }
-        if (!protectedRange || !transaction.docChanged) {
-          return protectedRange;
+        if (!transaction.docChanged) {
+          return protectedRanges;
         }
-
-        return normalizeProtectedRange(transaction.doc, {
-          from: transaction.mapping.map(protectedRange.from, 1),
-          to: transaction.mapping.map(protectedRange.to, -1),
-        });
+        return Object.fromEntries(Object.entries(protectedRanges).flatMap(([key, range]) => {
+          const mapped = normalizeProtectedRange(transaction.doc, {
+            from: transaction.mapping.map(range.from, 1),
+            to: transaction.mapping.map(range.to, -1),
+          });
+          return mapped ? [[key, mapped]] : [];
+        }));
       },
     },
     filterTransaction(transaction, state) {
-      const protectedRange = EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(state);
+      const protectedRanges = Object.values(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(state) ?? {});
       if (
-        !protectedRange ||
+        protectedRanges.length === 0 ||
         !transaction.docChanged ||
         transaction.getMeta(EDITOR_REWRITE_INTERNAL_TRANSACTION_META)
       ) {
         return true;
       }
 
-      if (transactionPreservesProtectedRange(transaction, state.doc, protectedRange)) {
+      if (protectedRanges.every((range) => transactionPreservesProtectedRange(transaction, state.doc, range))) {
         return true;
       }
 
@@ -86,15 +98,15 @@ export function createEditorRewriteProtectionPlugin(options?: {
     },
     props: {
       decorations(state) {
-        const protectedRange = EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(state);
-        if (!protectedRange) {
+        const protectedRanges = Object.values(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(state) ?? {});
+        if (protectedRanges.length === 0) {
           return null;
         }
 
         const decorations: Decoration[] = [];
         state.doc.forEach((node, offset) => {
           const nodeTo = offset + node.nodeSize;
-          if (offset < protectedRange.to && nodeTo > protectedRange.from) {
+          if (protectedRanges.some((range) => offset < range.to && nodeTo > range.from)) {
             decorations.push(
               Decoration.node(offset, nodeTo, {
                 class: "rich-editor__rewrite-protected-block",
@@ -112,17 +124,20 @@ export function createEditorRewriteProtectionPlugin(options?: {
 
 export function getEditorRewriteProtectedRange(
   editor: Editor,
+  key?: string,
 ): EditorRewriteProtectedRange | null {
-  return EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? null;
+  const ranges = EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {};
+  return key ? ranges[key] ?? null : Object.values(ranges)[0] ?? null;
 }
 
 export function setEditorRewriteProtectedRange(
   editor: Editor,
   range: EditorRewriteProtectedRange | null,
+  key?: string,
 ) {
   const meta: EditorRewriteProtectionMeta = range
-    ? { type: "set", range }
-    : { type: "clear" };
+    ? { type: "set", key: key ?? "active", range }
+    : key ? { type: "remove", key } : { type: "clear" };
   editor.view.dispatch(
     editor.state.tr.setMeta(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY, meta),
   );

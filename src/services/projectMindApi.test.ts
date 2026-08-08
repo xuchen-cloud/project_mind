@@ -715,7 +715,7 @@ describe("projectMindApi", () => {
   it("maps ai job enqueue to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 1,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey: "editor-rewrite:test",
       status: "queued",
       queuedAt: "",
@@ -726,7 +726,7 @@ describe("projectMindApi", () => {
     });
 
     await projectMindApi.aiJobEnqueue({
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey: "editor-rewrite:test",
       input: {
         skillId: "proofread",
@@ -739,7 +739,7 @@ describe("projectMindApi", () => {
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_enqueue", {
       input: {
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         targetKey: "editor-rewrite:test",
         input: {
           skillId: "proofread",

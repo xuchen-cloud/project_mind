@@ -117,8 +117,12 @@ _Avoid_：Assignee、任务分配、权限授予
 ### AI 编辑
 
 **AI Editor Skill**：
-归属于 Workspace、可在 QuickNote 和 Record 编辑器中复用的用户自定义编辑能力，由名称、说明和提示词表达意图；AI 在每次执行时自行决定生成修改、回答或两者。
+归属于 Workspace、可在 QuickNote 和 Record 编辑器中复用的用户自定义编辑能力，由名称、说明和提示词表达意图，并可分别适用于文字和图片菜单。
 _Avoid_：AI Artifact、Ask、固定结果模式
+
+**Image Interpretation**：
+AI Editor Skill 对编辑器中一张图片的内容进行理解并生成文字结果，图片本身始终保持不变。
+_Avoid_：图片编辑、图片修改、像素编辑
 
 **AI Modification**：
 AI 针对选中内容提出的替换建议，只有在用户明确接受后才成为正文。
@@ -127,3 +131,11 @@ _Avoid_：自动改写、已保存内容
 **AI Answer**：
 AI 根据选中内容生成的补充回答，只有在用户明确插入后才成为正文。
 _Avoid_：Ask、AI Artifact、已保存内容
+
+**Editor Skill Job**：
+AI Editor Skill 针对一个显式文字选区或一张图片运行的一次临时会话，承载待确认的 AI Modification 与 AI Answer。
+_Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
+
+**Committed Content**：
+编辑器中已经由用户确认、允许保存的正文视图，不包含任何仍待确认的 AI Modification 或 AI Answer。
+_Avoid_：实时预览内容、编辑器 DOM 快照

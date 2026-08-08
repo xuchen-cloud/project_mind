@@ -238,6 +238,13 @@ export const projectMindApi = {
     desktopApi.command<AiJobSnapshot>("ai_job_enqueue", { input }),
   aiJobGet: (jobId: number) =>
     desktopApi.command<AiJobSnapshot | null>("ai_job_get", { jobId }),
+  aiJobCancel: (jobId: number) =>
+    desktopApi.command<AiJobSnapshot | null>("ai_job_cancel", { jobId }),
+  aiImageTargetSignature: (input: { path: string; annotationState?: string | null }) =>
+    desktopApi.command<string>("ai_image_target_signature", {
+      path: input.path,
+      annotationState: input.annotationState ?? null,
+    }),
   aiJobsListActive: () =>
     desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
   aiExecutionSettingsUpsert: (input: AiExecutionSettings) =>

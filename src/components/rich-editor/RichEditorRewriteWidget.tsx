@@ -18,6 +18,11 @@ interface RichEditorRewriteWidgetProps {
   onInsertAnswer: () => void;
   onClose: () => void;
   onOpenAiSettings?: () => void;
+  resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback?: boolean;
+  contextStale?: boolean;
+  parseError?: string | null;
 }
 
 export function RichEditorRewriteWidget({
@@ -38,6 +43,11 @@ export function RichEditorRewriteWidget({
   onInsertAnswer,
   onClose,
   onOpenAiSettings,
+  resolvedModel,
+  resolvedProfileName,
+  usedDefaultFallback = false,
+  contextStale = false,
+  parseError,
 }: RichEditorRewriteWidgetProps) {
   const isPending = status === "queued" || status === "running";
   const isFailed = status === "failed";
@@ -154,7 +164,12 @@ export function RichEditorRewriteWidget({
         <div className="rich-editor__rewrite-widget-card">
           <AiBadge />
           <div className="rich-editor__rewrite-widget-answer-stack">
-            <div className="rich-editor__rewrite-widget-meta">{skillName}</div>
+            <div className="rich-editor__rewrite-widget-meta">
+              {skillName}{resolvedModel ? ` · ${resolvedProfileName ? `${resolvedProfileName} / ` : ""}${resolvedModel}` : ""}
+              {usedDefaultFallback ? " · 技能模型不可用，已使用默认模型" : ""}
+              {contextStale ? " · 附近内容已变化，请复核结果" : ""}
+            </div>
+            {parseError ? <p className="rich-editor__rewrite-widget-error-detail">响应格式无法解析，只能复制原始内容，不能写入正文。</p> : null}
             <div
               className="rich-editor__rewrite-widget-answer rich-editor__surface"
               dangerouslySetInnerHTML={{ __html: answerHtml || "" }}
@@ -164,7 +179,7 @@ export function RichEditorRewriteWidget({
                 <Clipboard size={13} />
                 复制
               </button>
-              <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending} onMouseDown={(event) => event.preventDefault()} onClick={onInsertAnswer}>
+              <button type="button" className="rich-editor__rewrite-widget-action is-accept" disabled={isPending || Boolean(parseError)} onMouseDown={(event) => event.preventDefault()} onClick={onInsertAnswer}>
                 <Check size={13} />
                 {isPending ? "生成中" : "插入"}
               </button>
@@ -195,7 +210,12 @@ export function RichEditorRewriteWidget({
       >
         <div className="rich-editor__rewrite-widget-status">
           <AiBadge />
-          <span>{isPending ? "AI 正在修改..." : "我已完成更新。"}</span>
+          <span>
+            {isPending ? "AI 正在修改..." : "我已完成更新。"}
+            {!isPending && resolvedModel ? ` · ${resolvedProfileName ? `${resolvedProfileName} / ` : ""}${resolvedModel}` : ""}
+            {!isPending && usedDefaultFallback ? " · 已回退默认模型" : ""}
+            {contextStale ? " · 附近内容已变化，请复核结果" : ""}
+          </span>
         </div>
         {answer ? (
           <div

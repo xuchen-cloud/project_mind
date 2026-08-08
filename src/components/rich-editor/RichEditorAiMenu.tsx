@@ -11,6 +11,7 @@ interface RichEditorAiMenuProps {
   disabledReason?: string | null;
   onClose: () => void;
   onSubmitPrompt: (prompt: string) => void;
+  targetType?: "text" | "image";
 }
 
 export function RichEditorAiMenu({
@@ -19,6 +20,7 @@ export function RichEditorAiMenu({
   disabledReason,
   onClose,
   onSubmitPrompt,
+  targetType = "text",
 }: RichEditorAiMenuProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -80,7 +82,7 @@ export function RichEditorAiMenu({
       <div className="rich-editor__ai-menu-prompt">
         <textarea
           className="rich-editor__ai-menu-input"
-          placeholder="使用 AI 编辑"
+          placeholder={targetType === "image" ? "使用 AI 解读图片" : "使用 AI 编辑"}
           value={prompt}
           disabled={Boolean(disabledReason)}
           rows={2}

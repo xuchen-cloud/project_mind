@@ -1,8 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 
 import type {
-  AiEditorRewriteInput,
-  AiEditorRewriteResult,
+  AiEditorSkillInput,
+  AiEditorSkillResult,
   AiJobEnqueueInput,
   AiJobSnapshot,
   AiJobStatus,
@@ -20,8 +20,8 @@ export function aiProfileTestJobTargetKey(profileId?: number | null) {
   return `profile-test:${profileId ?? "draft"}`;
 }
 
-export function aiEditorRewriteJobTargetKey(seed: string) {
-  return `editor-rewrite:${seed}`;
+export function aiEditorSkillJobTargetKey(seed: string) {
+  return `editor-skill:${seed}`;
 }
 
 export function isAiJobActive(job: AiJobSnapshot | null | undefined) {
@@ -29,7 +29,7 @@ export function isAiJobActive(job: AiJobSnapshot | null | undefined) {
 }
 
 export function isAiJobTerminal(job: AiJobSnapshot | null | undefined) {
-  return job ? job.status === "succeeded" || job.status === "failed" : false;
+  return job ? job.status === "succeeded" || job.status === "failed" || job.status === "cancelled" : false;
 }
 
 export function aiJobStatusLabel(status: AiJobStatus) {
@@ -42,6 +42,8 @@ export function aiJobStatusLabel(status: AiJobStatus) {
       return "已完成";
     case "failed":
       return "失败";
+    case "cancelled":
+      return "已取消";
     default:
       return "处理中";
   }
@@ -94,12 +96,12 @@ export function profileTestJobInput(input: AiProfileTestInput): AiJobEnqueueInpu
   };
 }
 
-export function editorRewriteJobInput(
+export function editorSkillJobInput(
   targetKey: string,
-  input: AiEditorRewriteInput,
+  input: AiEditorSkillInput,
 ): AiJobEnqueueInput {
   return {
-    kind: "editor_rewrite",
+    kind: "editor_skill",
     targetKey,
     input,
   };
@@ -113,8 +115,8 @@ export function readProfileTestJobResult(job: AiJobSnapshot): AiProfileTestResul
   return job.result.testResult;
 }
 
-export function readEditorRewriteJobResult(job: AiJobSnapshot): AiEditorRewriteResult {
-  if (job.result?.kind !== "editor_rewrite") {
+export function readEditorSkillJobResult(job: AiJobSnapshot): AiEditorSkillResult {
+  if (job.result?.kind !== "editor_skill") {
     throw new Error("AI editor rewrite job did not return a rewrite result");
   }
 
