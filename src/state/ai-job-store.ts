@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { AiJobSnapshot } from "../lib/types";
+import type { AiJobSnapshot, AiJobStatus } from "../lib/types";
 
 interface AiJobStore {
   jobsById: Record<number, AiJobSnapshot>;
@@ -8,6 +8,28 @@ interface AiJobStore {
   upsertJob: (job: AiJobSnapshot) => void;
   upsertJobs: (jobs: AiJobSnapshot[]) => void;
   reset: () => void;
+}
+
+const AI_JOB_STATUS_RANK: Record<AiJobStatus, number> = {
+  queued: 0,
+  running: 1,
+  succeeded: 2,
+  failed: 2,
+  cancelled: 2,
+};
+
+function mergeJobSnapshot(previous: AiJobSnapshot | undefined, incoming: AiJobSnapshot) {
+  if (!previous) return incoming;
+  const previousRank = AI_JOB_STATUS_RANK[previous.status];
+  const incomingRank = AI_JOB_STATUS_RANK[incoming.status];
+  if (incomingRank < previousRank) return previous;
+  if (previousRank === 2 && incoming.status !== previous.status) return previous;
+  return {
+    ...previous,
+    ...incoming,
+    streamText: incoming.streamText ?? previous.streamText,
+    result: incoming.result ?? previous.result,
+  };
 }
 
 function mergeJobs(
@@ -20,7 +42,7 @@ function mergeJobs(
 
   for (const job of incomingJobs) {
     const previous = jobsById[job.id];
-    jobsById[job.id] = previous ? { ...previous, ...job } : job;
+    jobsById[job.id] = mergeJobSnapshot(previous, job);
 
     const latestJobId = latestJobIdByTarget[job.targetKey];
     const latestJob = latestJobId ? jobsById[latestJobId] : null;
