@@ -482,11 +482,12 @@ pub struct ProviderTestOutcome {
 }
 
 #[derive(Debug, Clone)]
-pub struct EditorRewritePayload {
+pub struct EditorSkillPayload {
     pub content: String,
     pub replacement_markdown: Option<String>,
     pub answer_markdown: Option<String>,
     pub resolved_model: Option<String>,
+    pub parse_error: Option<String>,
 }
 
 pub fn test_profile(profile: &ResolvedAiProfile, test_image: bool) -> Result<ProviderTestOutcome> {
@@ -537,7 +538,7 @@ pub fn run_editor_skill(
     document_context: Option<&str>,
     image: Option<&ProviderImage>,
     mut on_stream: impl FnMut(String),
-) -> Result<EditorRewritePayload> {
+) -> Result<EditorSkillPayload> {
     ensure_text_support(profile)?;
     if image.is_some() && !profile.supports_image {
         return Err(anyhow!(
@@ -562,19 +563,23 @@ pub fn run_editor_skill(
         &mut on_stream,
     )?;
 
-    let (replacement_markdown, answer_markdown) = if result_mode == "auto" {
-        parse_editor_auto_response(&response.text)?
+    let (replacement_markdown, answer_markdown, parse_error) = if result_mode == "auto" {
+        match parse_editor_auto_response(&response.text) {
+            Ok((replacement, answer)) => (replacement, answer, None),
+            Err(error) => (None, Some(response.text.clone()), Some(error.to_string())),
+        }
     } else if result_mode == "modify" {
-        (Some(response.text.clone()), None)
+        (Some(response.text.clone()), None, None)
     } else {
-        (None, Some(response.text.clone()))
+        (None, Some(response.text.clone()), None)
     };
 
-    Ok(EditorRewritePayload {
+    Ok(EditorSkillPayload {
         content: response.text,
         replacement_markdown,
         answer_markdown,
         resolved_model: response.resolved_model,
+        parse_error,
     })
 }
 

@@ -4218,6 +4218,7 @@ impl Database {
             resolved_model: payload.resolved_model,
             resolved_profile_name: Some(profile.profile_name),
             used_default_fallback,
+            parse_error: payload.parse_error,
         })
     }
 

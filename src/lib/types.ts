@@ -239,6 +239,7 @@ export interface AiEditorSkillResult {
   resolvedModel?: string | null;
   resolvedProfileName?: string | null;
   usedDefaultFallback: boolean;
+  parseError?: string | null;
 }
 
 export interface AiEditorSkillJobResult extends AiJobBase {

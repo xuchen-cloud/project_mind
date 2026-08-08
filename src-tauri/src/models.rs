@@ -496,6 +496,7 @@ pub struct AiEditorSkillResult {
     pub resolved_model: Option<String>,
     pub resolved_profile_name: Option<String>,
     pub used_default_fallback: bool,
+    pub parse_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

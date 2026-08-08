@@ -959,6 +959,7 @@ describe("RichEditor images", () => {
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 81,
@@ -1058,7 +1059,22 @@ describe("RichEditor images", () => {
     expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("图中提取的文字");
     await user.click(await screen.findByRole("button", { name: "撤销" }));
     await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("图中提取的文字"));
+    expect(cancelSpy).toHaveBeenCalledWith(81);
+    useAiJobStore.getState().upsertJob({
+      id: 81,
+      kind: "editor_skill",
+      targetKey: request?.targetKey ?? "",
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "迟到内容",
+      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "迟到内容", usedDefaultFallback: false } },
+    });
+    expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("迟到内容");
     expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+    cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -1066,6 +1082,8 @@ describe("RichEditor images", () => {
 
   it("runs non-overlapping image targets concurrently and protects both anchors", async () => {
     const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     let jobId = 100;
@@ -1084,6 +1102,8 @@ describe("RichEditor images", () => {
     const { container } = render(
       <RichEditor
         variant="bare"
+        onSave={onSave}
+        controllerRef={controllerRef}
         defaultHtml={'<p><img src="asset:///tmp/one.png" data-path="/tmp/one.png" data-mime-type="image/png"></p><p>中间可编辑</p><p><img src="asset:///tmp/two.png" data-path="/tmp/two.png" data-mime-type="image/png"></p>'}
         aiSettings={{
           profiles: [],
@@ -1129,6 +1149,24 @@ describe("RichEditor images", () => {
       "/tmp/two.png",
     ]);
     expect(container.querySelectorAll("[data-ai-rewrite-protected='true']")).toHaveLength(2);
+    const firstRequest = enqueueSpy.mock.calls[0]?.[0];
+    useAiJobStore.getState().upsertJob({
+      id: 101,
+      kind: "editor_skill",
+      targetKey: firstRequest?.targetKey ?? "",
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "第一张图片结果",
+      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "第一张图片结果", resolvedModel: "vision", usedDefaultFallback: false } },
+    });
+    await waitFor(() => expect(screen.getByRole("list", { name: "其他 AI 会话" })).toHaveTextContent("待审阅"));
+    await user.click(within(screen.getByRole("list", { name: "其他 AI 会话" })).getByRole("button", { name: "查看" }));
+    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).toContain("第一张图片结果"));
+    await controllerRef.current?.save({ force: true });
+    expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("第一张图片结果");
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
     ensureSyncSpy.mockRestore();

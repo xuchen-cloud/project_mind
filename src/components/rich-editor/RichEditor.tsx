@@ -75,7 +75,6 @@ import {
   editorSkillJobInput,
   ensureAiJobSync,
   readEditorSkillJobResult,
-  useAiJobTarget,
 } from "../../lib/aiJobs";
 import { fileUriToPath } from "../../lib/formatters";
 import {
@@ -317,7 +316,7 @@ interface EditorAiModifyPreview {
   showing: "original" | "modified";
 }
 
-interface EditorRewriteSessionState {
+interface EditorSkillSessionState {
   targetKey: string;
   skill: EditorAiSkillSnapshot;
   selectionSnapshot: EditorAiSelectionSnapshot;
@@ -331,15 +330,18 @@ interface EditorRewriteSessionState {
   resolvedProfileName?: string | null;
   usedDefaultFallback?: boolean;
   jobId?: number | null;
+  contextKey: string;
+  contextStale?: boolean;
+  parseError?: string | null;
 }
 
-type EditorRewriteDisplayStatus = "queued" | "running" | "succeeded" | "failed";
+type EditorSkillDisplayStatus = "queued" | "running" | "succeeded" | "failed";
 
-interface EditorRewriteWidgetState {
+interface EditorSkillWidgetState {
   skillName: string;
   anchorPos: number;
   resultMode: AiEditorSkillResultMode;
-  status: EditorRewriteDisplayStatus;
+  status: EditorSkillDisplayStatus;
   answer?: string | null;
   answerHtml?: string | null;
   modifyPreview?: EditorAiModifyPreview | null;
@@ -347,6 +349,8 @@ interface EditorRewriteWidgetState {
   resolvedModel?: string | null;
   resolvedProfileName?: string | null;
   usedDefaultFallback?: boolean;
+  contextStale?: boolean;
+  parseError?: string | null;
 }
 
 
@@ -454,10 +458,10 @@ export function RichEditor({
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
   const [aiMenu, setAiMenu] = useState<EditorAiMenuState | null>(null);
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
-  const [rewriteSessions, setRewriteSessions] = useState<EditorRewriteSessionState[]>([]);
+  const [rewriteSessions, setRewriteSessions] = useState<EditorSkillSessionState[]>([]);
   const rewriteSession = rewriteSessions[rewriteSessions.length - 1] ?? null;
   const setRewriteSession = useCallback((
-    update: EditorRewriteSessionState | null | ((current: EditorRewriteSessionState | null) => EditorRewriteSessionState | null),
+    update: EditorSkillSessionState | null | ((current: EditorSkillSessionState | null) => EditorSkillSessionState | null),
   ) => {
     setRewriteSessions((current) => {
       const active = current[current.length - 1] ?? null;
@@ -575,9 +579,9 @@ export function RichEditor({
   }>(null);
   const tagActiveIndexRef = useRef(0);
   const tagResultsRef = useRef<ProjectTagRecord[]>([]);
-  const rewriteSessionRef = useRef<EditorRewriteSessionState | null>(null);
-  const rewriteSessionsRef = useRef<EditorRewriteSessionState[]>([]);
-  const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
+  const rewriteSessionRef = useRef<EditorSkillSessionState | null>(null);
+  const rewriteSessionsRef = useRef<EditorSkillSessionState[]>([]);
+  const rewriteWidgetStateRef = useRef<EditorSkillWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
     onReject: () => void;
@@ -610,7 +614,10 @@ export function RichEditor({
     matches: [],
     activeIndex: 0,
   });
-  const rewriteJob = useAiJobTarget(rewriteSession?.targetKey ?? "__rich-editor-rewrite-idle__");
+  const aiJobsById = useAiJobStore((state) => state.jobsById);
+  const latestAiJobIdByTarget = useAiJobStore((state) => state.latestJobIdByTarget);
+  const rewriteJobId = rewriteSession ? latestAiJobIdByTarget[rewriteSession.targetKey] : null;
+  const rewriteJob = rewriteJobId ? aiJobsById[rewriteJobId] ?? null : null;
   const enabledEditorSkills = useMemo(
     () =>
       (aiSettings?.editorSkills ?? [])
@@ -1524,7 +1531,7 @@ export function RichEditor({
         aiPreviewMutationRef.current = true;
         let snapshot: RichEditorValue;
         try {
-          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionRef.current);
+          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
         } finally {
           aiPreviewMutationRef.current = false;
         }
@@ -1554,6 +1561,7 @@ export function RichEditor({
       }
       const nextSessions = sessions.map((session) => ({
         ...session,
+        contextStale: true,
         anchorPos: transaction.mapping.map(session.anchorPos, -1),
         selectionSnapshot: {
           ...session.selectionSnapshot,
@@ -1585,7 +1593,7 @@ export function RichEditor({
         aiPreviewMutationRef.current = true;
         let snapshot: RichEditorValue;
         try {
-          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionRef.current);
+          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
         } finally {
           aiPreviewMutationRef.current = false;
         }
@@ -1760,12 +1768,12 @@ export function RichEditor({
     );
   }, [activeSearchIndex, editor, searchMatches, searchOpen]);
 
-  const rewriteDisplayStatus: EditorRewriteDisplayStatus = rewriteSession
+  const rewriteDisplayStatus: EditorSkillDisplayStatus = rewriteSession
     ? rewriteJob?.status === "cancelled"
       ? "failed"
       : rewriteJob?.status ?? "queued"
     : "queued";
-  const rewriteWidgetState = useMemo<EditorRewriteWidgetState | null>(() => {
+  const rewriteWidgetState = useMemo<EditorSkillWidgetState | null>(() => {
     if (!rewriteSession) {
       return null;
     }
@@ -1785,6 +1793,8 @@ export function RichEditor({
       resolvedModel: completedResult?.resolvedModel ?? rewriteSession.resolvedModel ?? null,
       resolvedProfileName: completedResult?.resolvedProfileName ?? rewriteSession.resolvedProfileName ?? null,
       usedDefaultFallback: completedResult?.usedDefaultFallback ?? rewriteSession.usedDefaultFallback ?? false,
+      contextStale: rewriteSession.contextStale ?? false,
+      parseError: completedResult?.parseError ?? rewriteSession.parseError ?? null,
     };
   }, [rewriteDisplayStatus, rewriteJob, rewriteSession]);
 
@@ -1843,7 +1853,7 @@ export function RichEditor({
       aiPreviewMutationRef.current = true;
       let committedSnapshot: RichEditorValue;
       try {
-        committedSnapshot = serializeCommittedEditor(editor, rewriteSessionRef.current);
+        committedSnapshot = serializeCommittedEditor(editor, rewriteSessionsRef.current);
       } finally {
         aiPreviewMutationRef.current = false;
       }
@@ -1908,7 +1918,7 @@ export function RichEditor({
           aiPreviewMutationRef.current = true;
           let latestSnapshot: RichEditorValue;
           try {
-            latestSnapshot = serializeCommittedEditor(editor, rewriteSessionRef.current);
+            latestSnapshot = serializeCommittedEditor(editor, rewriteSessionsRef.current);
           } finally {
             aiPreviewMutationRef.current = false;
           }
@@ -2813,7 +2823,7 @@ export function RichEditor({
     editor.commands.focus();
   }, [activeCodeBlockInfo, editor]);
 
-  const rollbackRewritePreview = useCallback((session: EditorRewriteSessionState | null) => {
+  const rollbackRewritePreview = useCallback((session: EditorSkillSessionState | null) => {
     if (!editor || !session?.modifyPreview) {
       return;
     }
@@ -2857,6 +2867,23 @@ export function RichEditor({
     setAiMenu(null);
   }, []);
 
+  const activateEditorSkillSession = useCallback((targetKey: string) => {
+    setRewriteSessions((current) => {
+      const session = current.find((item) => item.targetKey === targetKey);
+      if (!session || current[current.length - 1]?.targetKey === targetKey) return current;
+      return [...current.filter((item) => item.targetKey !== targetKey), session];
+    });
+  }, []);
+
+  const closeEditorSkillSession = useCallback((targetKey: string) => {
+    const session = rewriteSessionsRef.current.find((item) => item.targetKey === targetKey);
+    if (!session) return;
+    rollbackRewritePreview(session);
+    if (session.jobId) void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+    if (editor) setEditorRewriteProtectedRange(editor, null, targetKey);
+    setRewriteSessions((current) => current.filter((item) => item.targetKey !== targetKey));
+  }, [editor, rollbackRewritePreview]);
+
   useEffect(() => () => {
     const sessions = rewriteSessionsRef.current;
     for (const session of [...sessions].reverse()) {
@@ -2870,7 +2897,23 @@ export function RichEditor({
     rewriteSessionsRef.current = [];
   }, [editor, rollbackRewritePreview]);
 
-  const startEditorRewrite = useCallback(
+  useEffect(() => {
+    const contextKey = JSON.stringify(aiRewriteContext ?? null);
+    const sessions = rewriteSessionsRef.current;
+    if (sessions.length === 0 || sessions.every((session) => session.contextKey === contextKey)) {
+      return;
+    }
+    for (const session of [...sessions].reverse()) {
+      rollbackRewritePreview(session);
+      if (session.jobId) void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+    }
+    if (editor) setEditorRewriteProtectedRange(editor, null);
+    rewriteSessionRef.current = null;
+    rewriteSessionsRef.current = [];
+    setRewriteSessions([]);
+  }, [aiRewriteContext, editor, rollbackRewritePreview]);
+
+  const startEditorSkill = useCallback(
     async (options: {
       skillId?: string | null;
       skillName: string;
@@ -2968,7 +3011,7 @@ export function RichEditor({
         `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       );
 
-      const nextSession: EditorRewriteSessionState = {
+      const nextSession: EditorSkillSessionState = {
         targetKey,
         skill: {
           id: options.skillId ?? null,
@@ -2983,6 +3026,8 @@ export function RichEditor({
         targetType,
         imageTarget: options.imageTarget,
         jobId: null,
+        contextKey: JSON.stringify(aiRewriteContext ?? null),
+        contextStale: false,
       };
       if (options.replaceExistingSession) setRewriteSession(nextSession);
       else setRewriteSessions((current) => [...current, nextSession]);
@@ -3064,31 +3109,31 @@ export function RichEditor({
 
   const runEditorRewriteAction = useCallback(
     (skill: AiSettingsSnapshot["editorSkills"][number]) => {
-      void startEditorRewrite({
+      void startEditorSkill({
         skillId: skill.id,
         skillName: skill.name,
         prompt: skill.prompt,
         resultMode: skill.resultMode,
       });
     },
-    [startEditorRewrite],
+    [startEditorSkill],
   );
 
   const runEditorRewritePrompt = useCallback(
     (prompt: string) => {
-      void startEditorRewrite({
+      void startEditorSkill({
         skillId: null,
         skillName: "AI 编辑",
         prompt,
         resultMode: "auto",
       });
     },
-    [startEditorRewrite],
+    [startEditorSkill],
   );
 
   const runImageInterpretationAction = useCallback(
     (skill: AiSettingsSnapshot["editorSkills"][number], imageTarget: ImageContextMenuTarget) => {
-      void startEditorRewrite({
+      void startEditorSkill({
         skillId: skill.id,
         skillName: skill.name,
         prompt: skill.prompt,
@@ -3097,12 +3142,12 @@ export function RichEditor({
         imageTarget,
       });
     },
-    [startEditorRewrite],
+    [startEditorSkill],
   );
 
   const runAiMenuPrompt = useCallback((prompt: string) => {
     if (aiMenu?.targetType === "image" && aiMenu.imageTarget) {
-      void startEditorRewrite({
+      void startEditorSkill({
         skillId: null,
         skillName: "AI 解读图片",
         prompt,
@@ -3113,7 +3158,7 @@ export function RichEditor({
       return;
     }
     runEditorRewritePrompt(prompt);
-  }, [aiMenu, runEditorRewritePrompt, startEditorRewrite]);
+  }, [aiMenu, runEditorRewritePrompt, startEditorSkill]);
 
   const replaceAiPreviewMarkdown = useCallback(
     (markdown: string, showing: "original" | "modified") => {
@@ -3162,7 +3207,7 @@ export function RichEditor({
           currentTo: nextTo,
           showing,
         };
-        const nextSession: EditorRewriteSessionState = {
+        const nextSession: EditorSkillSessionState = {
           ...session,
           anchorPos: nextTo,
           modifyPreview: nextPreview,
@@ -3243,6 +3288,10 @@ export function RichEditor({
   }, [editor, publishAiEditorSnapshot, rollbackRewritePreview]);
 
   const rejectModifyPreview = useCallback(() => {
+    if (rewriteJob?.status === "queued" || rewriteJob?.status === "running") {
+      closeRewriteSession();
+      return;
+    }
     if (!rewriteSession?.modifyPreview) {
       if (editor) {
         setEditorRewriteProtectedRange(editor, null, rewriteSession?.targetKey);
@@ -3264,7 +3313,7 @@ export function RichEditor({
           }
         : null,
     );
-  }, [editor, publishAiEditorSnapshot, replaceAiPreviewMarkdown, rewriteSession]);
+  }, [closeRewriteSession, editor, publishAiEditorSnapshot, replaceAiPreviewMarkdown, rewriteJob?.status, rewriteSession]);
 
   const copyAiAnswer = useCallback(() => {
     const answer = rewriteSession?.answer?.trim();
@@ -3278,7 +3327,7 @@ export function RichEditor({
   }, [rewriteSession?.answer]);
 
   const insertAiAnswer = useCallback(() => {
-    if (!editor || !rewriteSession?.answer) {
+    if (!editor || !rewriteSession?.answer || rewriteSession.parseError) {
       return;
     }
 
@@ -3308,7 +3357,7 @@ export function RichEditor({
     if (rewriteSession.jobId) {
       void projectMindApi.aiJobCancel(rewriteSession.jobId).catch(() => undefined);
     }
-    void startEditorRewrite({
+    void startEditorSkill({
       skillId: rewriteSession.skill.id ?? null,
       skillName: rewriteSession.skill.name,
       prompt: rewriteSession.skill.prompt,
@@ -3329,7 +3378,7 @@ export function RichEditor({
           }
         : rewriteSession.selectionSnapshot,
     });
-  }, [editor, rewriteSession, rollbackRewritePreview, startEditorRewrite]);
+  }, [editor, rewriteSession, rollbackRewritePreview, startEditorSkill]);
 
   useEffect(() => {
     if (!editor || !rewriteSession) {
@@ -3355,6 +3404,18 @@ export function RichEditor({
       const automaticAnswer = isAutomatic
         ? result?.answerMarkdown?.trim() || null
         : null;
+      if (result?.parseError) {
+        rollbackRewritePreview(rewriteSession);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          answer: result.answerMarkdown?.trim() || result.content,
+          modifyPreview: null,
+          modificationResolved: true,
+          parseError: result.parseError,
+        });
+        return;
+      }
       const content = isAutomatic
         ? result?.replacementMarkdown?.trim() || ""
         : result?.content.trim() || rewriteJob.streamText?.trim() || "";
@@ -4305,6 +4366,26 @@ export function RichEditor({
 
         <EditorContent editor={editor} onBlur={(event) => void handleBlur(event.relatedTarget)} />
 
+        {rewriteSessions.length > 1 ? (
+          <div className="rich-editor__skill-session-stack" role="list" aria-label="其他 AI 会话">
+            {rewriteSessions.slice(0, -1).map((session) => {
+              const jobId = latestAiJobIdByTarget[session.targetKey];
+              const job = jobId ? aiJobsById[jobId] : null;
+              return (
+                <div key={session.targetKey} role="listitem" className="rich-editor__rewrite-widget-card rich-editor__rewrite-widget-card--line">
+                  <span>{session.skill.name} · {job?.status === "succeeded" ? "待审阅" : job?.status === "failed" ? "失败" : "处理中"}</span>
+                  <button type="button" className="rich-editor__rewrite-widget-action" onClick={() => activateEditorSkillSession(session.targetKey)}>
+                    查看
+                  </button>
+                  <button type="button" className="rich-editor__rewrite-widget-action" aria-label={`关闭 ${session.skill.name} AI 会话`} onClick={() => closeEditorSkillSession(session.targetKey)}>
+                    关闭
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         {referencePicker && internalReferences?.context && !effectiveReadOnly ? (
           <InternalReferencePicker
             open
@@ -5187,41 +5268,28 @@ function serializeEditor(editor: Editor): RichEditorValue {
 
 function serializeCommittedEditor(
   editor: Editor,
-  session: EditorRewriteSessionState | null,
+  sessions: readonly EditorSkillSessionState[],
 ): RichEditorValue {
-  const preview = session?.modifyPreview;
-  if (!session || !preview || preview.showing === "original") {
+  const previews = sessions
+    .flatMap((session) => session.modifyPreview && session.modifyPreview.showing !== "original"
+      ? [{ session, preview: session.modifyPreview }]
+      : [])
+    .sort((left, right) => right.preview.currentFrom - left.preview.currentFrom);
+  if (previews.length === 0) {
     return serializeEditor(editor);
   }
-
-  const originalTransaction = markEditorRewriteTransaction(
-    editor.state.tr.replaceRange(
-      preview.currentFrom,
-      preview.currentTo,
-      preview.originalSlice,
-    ),
-  ).setMeta("addToHistory", false);
-  editor.view.dispatch(originalTransaction);
-  const snapshot = serializeEditor(editor);
-
-  const modifiedSlice = buildEditorRewriteSlice(
-    editor,
-    preview.modifiedMarkdown,
-    preview.placeholders,
-  );
-  const restoredTransaction = markEditorRewriteTransaction(
-    editor.state.tr.replaceRange(
-      preview.currentFrom,
-      preview.currentFrom + preview.originalSlice.size,
-      modifiedSlice,
-    ),
-  ).setMeta("addToHistory", false);
-  editor.view.dispatch(restoredTransaction);
-  setEditorRewriteProtectedRange(editor, {
-    from: session.targetType === "image" ? session.selectionSnapshot.from : preview.currentFrom,
-    to: preview.currentFrom + modifiedSlice.size,
-  }, session.targetKey);
-  return snapshot;
+  let projection = editor.state.tr;
+  for (const { preview } of previews) {
+    projection = projection.replaceRange(preview.currentFrom, preview.currentTo, preview.originalSlice);
+  }
+  const projectedDoc = projection.doc;
+  const container = document.createElement("div");
+  container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(projectedDoc.content));
+  return {
+    html: normalizeHtml(container.innerHTML),
+    text: projectedDoc.textBetween(0, projectedDoc.content.size, "\n\n"),
+    markdown: serializeRichTextNodesMarkdown(editor, projectedDoc.content.content),
+  };
 }
 
 function buildTableToolbarGroups(editor: Editor, readOnly: boolean) {
@@ -6129,7 +6197,7 @@ function applyPlainTextCodeBlocksLanguage(editor: Editor, language: string) {
 }
 
 function createEditorRewriteWidgetPlugin(options: {
-  getWidgetState: () => EditorRewriteWidgetState | null;
+  getWidgetState: () => EditorSkillWidgetState | null;
   getProtectedRange: () => { from: number; to: number } | null;
   getCallbacks: () => {
     onAccept: () => void;
@@ -6232,6 +6300,8 @@ function createEditorRewriteWidgetPlugin(options: {
         resolvedModel={widgetState.resolvedModel}
         resolvedProfileName={widgetState.resolvedProfileName}
         usedDefaultFallback={widgetState.usedDefaultFallback}
+        contextStale={widgetState.contextStale}
+        parseError={widgetState.parseError}
       />,
     );
   };
