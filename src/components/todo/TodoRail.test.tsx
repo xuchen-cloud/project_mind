@@ -743,6 +743,52 @@ describe("TodoRail", () => {
     expect(screen.getByRole("button", { name: "P3 · 不紧急但重要" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("auto-grows the content field through six lines before enabling internal scrolling", async () => {
+    const user = userEvent.setup();
+    renderRail({ finishedTodos: [] });
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    Object.defineProperty(composer, "scrollHeight", { configurable: true, value: 999 });
+
+    fireEvent.change(composer, { target: { value: "1\n2\n3\n4\n5\n6\n7" } });
+
+    expect(composer).toHaveAttribute("data-max-lines", "6");
+    expect(composer).toHaveStyle({ overflowY: "auto" });
+    expect((composer as HTMLTextAreaElement).style.height).toBe(
+      (composer as HTMLTextAreaElement).style.maxHeight,
+    );
+  });
+
+  it("treats creator-owned Project, Contact Mention, Tag, and Internal Reference panels as inside", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn(async () => undefined);
+    renderRail({
+      finishedTodos: [],
+      onCreateTodo,
+      createOwnershipOptions: [{ projectId: 7, name: "Alpha" }],
+    });
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "不应意外提交");
+
+    const panelSelectors = [
+      "contact-mention-picker",
+      "tag-mention-picker",
+      "internal-reference-picker",
+    ];
+    for (const className of panelSelectors) {
+      const panel = document.createElement("div");
+      panel.className = className;
+      document.body.append(panel);
+      fireEvent.pointerDown(panel);
+      panel.remove();
+    }
+    await user.click(screen.getByRole("combobox", { name: "Todo 归属" }));
+    fireEvent.pointerDown(screen.getByRole("option", { name: "Workspace" }));
+
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue("不应意外提交");
+  });
+
   it("creates on Enter, keeps Shift+Enter as a newline, and ignores IME composition Enter", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn(async () => undefined);

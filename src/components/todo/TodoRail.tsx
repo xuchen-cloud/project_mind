@@ -296,9 +296,18 @@ export function TodoRail({
   useEffect(() => {
     if (!isComposing || !composerInputRef.current) return;
     const input = composerInputRef.current;
+    const styles = window.getComputedStyle(input);
+    const fontSize = Number.parseFloat(styles.fontSize) || 16;
+    const rawLineHeight = Number.parseFloat(styles.lineHeight);
+    const lineHeight = rawLineHeight > 4 ? rawLineHeight : (rawLineHeight || 1.55) * fontSize;
+    const verticalPadding =
+      (Number.parseFloat(styles.paddingTop) || 0) +
+      (Number.parseFloat(styles.paddingBottom) || 0);
+    const maxHeight = lineHeight * 6 + verticalPadding;
     input.style.height = "auto";
-    input.style.height = `${Math.max(25, Math.min(input.scrollHeight, 144))}px`;
-    input.style.overflowY = input.scrollHeight > 144 ? "auto" : "hidden";
+    input.style.maxHeight = `${maxHeight}px`;
+    input.style.height = `${Math.max(lineHeight + verticalPadding, Math.min(input.scrollHeight, maxHeight))}px`;
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [content, isComposing]);
 
   useEffect(() => {
@@ -306,7 +315,7 @@ export function TodoRail({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || createPending) return;
       event.preventDefault();
-      discardComposer(true);
+      resetComposer(true);
     };
     document.addEventListener("keydown", handleEscape, true);
     return () => document.removeEventListener("keydown", handleEscape, true);
@@ -329,7 +338,7 @@ export function TodoRail({
       if (content.trim()) {
         void submitCreate();
       } else {
-        discardComposer(false);
+        resetComposer(false);
       }
     };
     document.addEventListener("pointerdown", handleOutsidePointerDown, true);
@@ -420,17 +429,7 @@ export function TodoRail({
         ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
         ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
       });
-      clearTodoComposerDraft(draftStorageKey);
-      setContent("");
-      setPriority("not_urgent_important");
-      if (createOwnershipOptions) {
-        setCreateProjectId(null);
-      }
-      setIsComposing(false);
-      controller.setControllerState((current) => ({
-        ...current,
-        ...resetTodoEditorControllerState(),
-      }));
+      resetComposer(false);
     } catch (error) {
       onError?.(String(error));
     } finally {
@@ -438,7 +437,7 @@ export function TodoRail({
     }
   }
 
-  function discardComposer(restoreFocus: boolean) {
+  function resetComposer(restoreFocus: boolean) {
     clearTodoComposerDraft(draftStorageKey);
     setContent("");
     setPriority("not_urgent_important");
@@ -750,6 +749,7 @@ export function TodoRail({
               <textarea
                 ref={composerInputRef}
                 rows={1}
+                data-max-lines="6"
                 disabled={createPending}
                 className="todo-rail__composer-input w-full resize-none text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft"
                 value={content}
@@ -894,7 +894,7 @@ export function TodoRail({
             </div>
             <div className="todo-rail__composer-meta">
               {createOwnershipOptions ? (
-                <label className="todo-rail__ownership relative flex w-full items-center gap-2 text-ui text-text-soft">
+                <label className="todo-rail__ownership relative flex w-full basis-full items-center gap-2 text-ui text-text-soft">
                   <FolderKanban aria-hidden="true" size={14} />
                   <input
                     role="combobox"
