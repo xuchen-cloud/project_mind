@@ -4173,15 +4173,12 @@ impl Database {
         } else {
             None
         };
-        let document_context = if let Some(target) = input.image_target.as_ref() {
-            Some(format!(
-                "BEFORE:\n{}\n\nAFTER:\n{}\n\nANNOTATIONS (untrusted labels):\n{}",
-                target.before_markdown.as_deref().unwrap_or("无"),
-                target.after_markdown.as_deref().unwrap_or("无"),
-                target.annotation_state.as_deref().unwrap_or("无")
-            ))
-        } else {
-            input.document_context.clone()
+        let image_target = input.image_target.as_ref();
+        let prompt_context = ai_provider::EditorSkillPromptContext {
+            document: input.document_context.as_deref(),
+            before_markdown: image_target.and_then(|target| target.before_markdown.as_deref()),
+            after_markdown: image_target.and_then(|target| target.after_markdown.as_deref()),
+            annotation_state: image_target.and_then(|target| target.annotation_state.as_deref()),
         };
         let payload = ai_provider::run_editor_skill(
             &profile,
@@ -4190,7 +4187,7 @@ impl Database {
             &result_mode,
             selected_markdown,
             &input.placeholder_tokens,
-            document_context.as_deref(),
+            prompt_context,
             provider_image.as_ref(),
             |stream_text| on_stream(stream_text),
         )?;

@@ -1080,25 +1080,35 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
-  it("runs non-overlapping image targets concurrently and protects both anchors", async () => {
+  it("keeps delayed concurrent image jobs attached to their own sessions", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     let jobId = 100;
-    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
-      id: ++jobId,
-      kind: "editor_skill",
-      targetKey: input.targetKey,
-      status: "queued",
-      queuedAt: "",
-      startedAt: null,
-      finishedAt: null,
-      errorMessage: null,
-      streamText: null,
-      result: null,
-    }));
+    let releaseFirstJob: (() => void) | null = null;
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      const snapshot = {
+        id: ++jobId,
+        kind: "editor_skill" as const,
+        targetKey: input.targetKey,
+        status: "queued" as const,
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+      if (snapshot.id === 101) {
+        await new Promise<void>((resolve) => {
+          releaseFirstJob = resolve;
+        });
+      }
+      return snapshot;
+    });
     const { container } = render(
       <RichEditor
         variant="bare"
@@ -1149,24 +1159,392 @@ describe("RichEditor images", () => {
       "/tmp/two.png",
     ]);
     expect(container.querySelectorAll("[data-ai-rewrite-protected='true']")).toHaveLength(2);
-    const firstRequest = enqueueSpy.mock.calls[0]?.[0];
+    await waitFor(() => expect(screen.getByRole("list", { name: "其他 AI 会话" })).toBeInTheDocument());
+    await user.click(within(screen.getByRole("list", { name: "其他 AI 会话" })).getByRole("button", { name: "关闭 文字提取 AI 会话" }));
+    expect(cancelSpy).not.toHaveBeenCalledWith(101);
+    releaseFirstJob?.();
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(101));
+    const secondRequest = enqueueSpy.mock.calls[1]?.[0];
     useAiJobStore.getState().upsertJob({
-      id: 101,
+      id: 102,
       kind: "editor_skill",
-      targetKey: firstRequest?.targetKey ?? "",
+      targetKey: secondRequest?.targetKey ?? "",
       status: "succeeded",
       queuedAt: "",
       startedAt: "",
       finishedAt: "",
       errorMessage: null,
-      streamText: "第一张图片结果",
-      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "第一张图片结果", resolvedModel: "vision", usedDefaultFallback: false } },
+      streamText: "第二张图片结果",
+      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "第二张图片结果", resolvedModel: "vision", usedDefaultFallback: false } },
     });
-    await waitFor(() => expect(screen.getByRole("list", { name: "其他 AI 会话" })).toHaveTextContent("待审阅"));
-    await user.click(within(screen.getByRole("list", { name: "其他 AI 会话" })).getByRole("button", { name: "查看" }));
-    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).toContain("第一张图片结果"));
+    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).toContain("第二张图片结果"));
     await controllerRef.current?.save({ force: true });
-    expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("第一张图片结果");
+    expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("第二张图片结果");
+    cancelSpy.mockRestore();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("runs an image free prompt in auto mode and keeps malformed output copy-only", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
+    let jobId = 200;
+    let releaseWorkspaceJob: (() => void) | null = null;
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      const snapshot = {
+        id: ++jobId,
+        kind: "editor_skill" as const,
+        targetKey: input.targetKey,
+        status: "queued" as const,
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+      if (snapshot.id === 202) {
+        await new Promise<void>((resolve) => {
+          releaseWorkspaceJob = resolve;
+        });
+      }
+      return snapshot;
+    });
+    const aiSettings = {
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      hasUsableImageDefault: true,
+      securityMode: "workspace_password_encrypted" as const,
+      aiSecretsUnlocked: true,
+      execution: { maxConcurrency: 1 },
+      editorSkills: [],
+    };
+    const { container, rerender } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
+        aiSettings={aiSettings}
+        aiRewriteContext={{ scope: "note", noteId: 1 }}
+      />,
+    );
+    const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "自定义解读…" }));
+    const prompt = await screen.findByPlaceholderText("使用 AI 解读图片");
+    await user.type(prompt, "判断图中风险");
+    fireEvent.keyDown(prompt, { key: "Enter" });
+
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    const request = enqueueSpy.mock.calls[0]?.[0];
+    expect(request.kind).toBe("editor_skill");
+    if (request.kind !== "editor_skill") throw new Error("expected editor skill job");
+    expect(request.input).toMatchObject({
+      skillId: null,
+      skillName: "AI 解读图片",
+      prompt: "判断图中风险",
+      resultMode: "auto",
+      targetType: "image",
+    });
+
+    const nearbyParagraph = container.querySelectorAll<HTMLParagraphElement>(".ProseMirror p")[1];
+    await user.click(nearbyParagraph);
+    await user.type(nearbyParagraph, " 已更新");
+    useAiJobStore.getState().upsertJob({
+      id: 201,
+      kind: "editor_skill",
+      targetKey: request.targetKey,
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "无法解析的原始模型响应",
+      result: {
+        kind: "editor_skill",
+        rewrite: {
+          skillId: null,
+          resultMode: "auto",
+          content: "无法解析的原始模型响应",
+          answerMarkdown: "无法解析的原始模型响应",
+          parseError: "invalid JSON",
+          usedDefaultFallback: false,
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("无法解析的原始模型响应")).toBeInTheDocument();
+      expect(screen.getByText(/附近内容已变化/)).toBeInTheDocument();
+      expect(screen.getByText(/只能复制原始内容/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "复制" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "插入" })).toBeDisabled();
+    });
+
+    rerender(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
+        aiSettings={aiSettings}
+        aiRewriteContext={{ scope: "note", noteId: 2 }}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByText("无法解析的原始模型响应")).not.toBeInTheDocument());
+    expect(cancelSpy).toHaveBeenCalledWith(201);
+
+    const currentImage = container.querySelector("img.rich-editor__image") as HTMLImageElement;
+    fireEvent.contextMenu(currentImage, { clientX: 30, clientY: 30 });
+    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "自定义解读…" }));
+    const nextPrompt = await screen.findByPlaceholderText("使用 AI 解读图片");
+    await user.type(nextPrompt, "再次解读");
+    fireEvent.keyDown(nextPrompt, { key: "Enter" });
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(2));
+
+    rerender(
+      <RichEditor
+        variant="bare"
+        html={'<p><img src="asset:///tmp/next-workspace.png" data-path="/tmp/next-workspace.png" data-mime-type="image/png"></p><p>新 Workspace</p>'}
+        aiSettings={aiSettings}
+        aiRewriteContext={{ scope: "workspace_record", workspaceRecordId: 9 }}
+      />,
+    );
+    expect(cancelSpy).not.toHaveBeenCalledWith(202);
+    releaseWorkspaceJob?.();
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(202));
+    cancelSpy.mockRestore();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("rolls back a streamed image preview before a dirty Workspace switch", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: 205,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const aiSettings = {
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      hasUsableImageDefault: true,
+      securityMode: "workspace_password_encrypted" as const,
+      aiSecretsUnlocked: true,
+      execution: { maxConcurrency: 1 },
+      editorSkills: [{
+        id: "extract-image-text",
+        name: "文字提取",
+        icon: null,
+        description: null,
+        prompt: "提取文字",
+        resultMode: "modify" as const,
+        showInTextMenu: false,
+        showInImageMenu: true,
+        profileId: null,
+        sortOrder: 1,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+      }],
+    };
+    const originalHtml = '<p><img src="asset:///tmp/dirty.png" data-path="/tmp/dirty.png" data-mime-type="image/png"></p><p>附近内容</p>';
+    const rendered = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={originalHtml}
+        aiSettings={aiSettings}
+        aiRewriteContext={{ scope: "note", noteId: 1 }}
+      />,
+    );
+    const image = await waitFor(() => rendered.container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+    await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "文字提取" }));
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    const request = enqueueSpy.mock.calls[0]?.[0];
+    useAiJobStore.getState().upsertJob({
+      id: 205,
+      kind: "editor_skill",
+      targetKey: request?.targetKey ?? "",
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "不得持久化的临时预览",
+      result: null,
+    });
+    await waitFor(() => expect(rendered.container.querySelector(".ProseMirror")?.textContent).toContain("不得持久化的临时预览"));
+    const nearbyParagraph = rendered.container.querySelectorAll<HTMLParagraphElement>(".ProseMirror p")[2];
+    await user.click(nearbyParagraph);
+    await user.type(nearbyParagraph, " 已编辑");
+
+    rendered.rerender(
+      <RichEditor
+        variant="bare"
+        html={'<p><img src="asset:///tmp/other.png" data-path="/tmp/other.png" data-mime-type="image/png"></p><p>其他 Workspace</p>'}
+        aiSettings={aiSettings}
+        aiRewriteContext={{ scope: "workspace_record", workspaceRecordId: 8 }}
+      />,
+    );
+    await waitFor(() => {
+      expect(rendered.container.querySelector(".ProseMirror")?.textContent).not.toContain("不得持久化的临时预览");
+      expect(rendered.container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
+      expect(cancelSpy).toHaveBeenCalledWith(205);
+    });
+    useAiJobStore.getState().upsertJob({
+      id: 205,
+      kind: "editor_skill",
+      targetKey: request?.targetKey ?? "",
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "迟到预览",
+      result: { kind: "editor_skill", rewrite: { skillId: "extract-image-text", resultMode: "modify", content: "迟到预览", usedDefaultFallback: false } },
+    });
+    expect(rendered.container.querySelector(".ProseMirror")?.textContent).not.toContain("迟到预览");
+    cancelSpy.mockRestore();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("retries a failed image answer, inserts the answer, and cancels on unmount", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
+    let jobId = 210;
+    let releaseUnmountedJob: (() => void) | null = null;
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+      const snapshot = {
+        id: ++jobId,
+        kind: "editor_skill" as const,
+        targetKey: input.targetKey,
+        status: "queued" as const,
+        queuedAt: "",
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+        streamText: null,
+        result: null,
+      };
+      if (snapshot.id === 213) {
+        await new Promise<void>((resolve) => {
+          releaseUnmountedJob = resolve;
+        });
+      }
+      return snapshot;
+    });
+    const aiSettings = {
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: false,
+      hasUsableImageDefault: true,
+      securityMode: "workspace_password_encrypted" as const,
+      aiSecretsUnlocked: true,
+      execution: { maxConcurrency: 1 },
+      editorSkills: [{
+        id: "explain-image",
+        name: "图片问答",
+        icon: null,
+        description: null,
+        prompt: "解释图片",
+        resultMode: "answer" as const,
+        showInTextMenu: false,
+        showInImageMenu: true,
+        profileId: null,
+        sortOrder: 1,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+      }],
+    };
+    const rendered = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/answer.png" data-path="/tmp/answer.png" data-mime-type="image/png"></p><p>结尾</p>'}
+        aiSettings={aiSettings}
+      />,
+    );
+    const openAnswerSkill = async () => {
+      const image = rendered.container.querySelector("img.rich-editor__image") as HTMLImageElement;
+      fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+      await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+      await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "图片问答" }));
+    };
+
+    await openAnswerSkill();
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    const firstRequest = enqueueSpy.mock.calls[0]?.[0];
+    useAiJobStore.getState().upsertJob({
+      id: 211,
+      kind: "editor_skill",
+      targetKey: firstRequest?.targetKey ?? "",
+      status: "failed",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: "provider failed",
+      streamText: null,
+      result: null,
+    });
+    await user.click(await screen.findByRole("button", { name: "重试" }));
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(2));
+    expect(cancelSpy).toHaveBeenCalledWith(211);
+    const retryRequest = enqueueSpy.mock.calls[1]?.[0];
+    useAiJobStore.getState().upsertJob({
+      id: 212,
+      kind: "editor_skill",
+      targetKey: retryRequest?.targetKey ?? "",
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "这是一张流程图",
+      result: {
+        kind: "editor_skill",
+        rewrite: {
+          skillId: "explain-image",
+          resultMode: "answer",
+          content: "这是一张流程图",
+          answerMarkdown: "这是一张流程图",
+          usedDefaultFallback: false,
+        },
+      },
+    });
+    await waitFor(() => expect(screen.getByText("这是一张流程图")).toBeInTheDocument());
+    expect(rendered.container.querySelector(".ProseMirror")?.textContent).not.toContain("这是一张流程图");
+    await user.click(screen.getByRole("button", { name: "插入" }));
+    await waitFor(() => expect(rendered.container.querySelector(".ProseMirror blockquote")?.textContent).toBe("这是一张流程图"));
+    expect(rendered.container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
+
+    await openAnswerSkill();
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(3));
+    rendered.unmount();
+    expect(cancelSpy).not.toHaveBeenCalledWith(213);
+    releaseUnmountedJob?.();
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(213));
+    cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
     ensureSyncSpy.mockRestore();

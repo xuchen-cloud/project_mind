@@ -470,6 +470,16 @@ export function RichEditor({
       return active ? [...current.slice(0, -1), next] : [next];
     });
   }, []);
+  const updateRewriteSessionByTarget = useCallback((
+    targetKey: string,
+    update: (session: EditorSkillSessionState) => EditorSkillSessionState | null,
+  ) => {
+    setRewriteSessions((current) => current.flatMap((session) => {
+      if (session.targetKey !== targetKey) return [session];
+      const next = update(session);
+      return next ? [next] : [];
+    }));
+  }, []);
   const [uiTick, setUiTick] = useState(0);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<TableToolbarPosition | null>(null);
   const [codeToolbarPosition, setCodeToolbarPosition] = useState<CodeToolbarPosition | null>(null);
@@ -581,6 +591,8 @@ export function RichEditor({
   const tagResultsRef = useRef<ProjectTagRecord[]>([]);
   const rewriteSessionRef = useRef<EditorSkillSessionState | null>(null);
   const rewriteSessionsRef = useRef<EditorSkillSessionState[]>([]);
+  const editorSkillJobIdsRef = useRef(new Map<string, number>());
+  const abandonedEditorSkillTargetsRef = useRef(new Set<string>());
   const rewriteWidgetStateRef = useRef<EditorSkillWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
@@ -1996,22 +2008,37 @@ export function RichEditor({
     }
 
     const nextHtml = normalizeHtml(html ?? defaultHtml);
-    const currentHtml = normalizeHtml(editor.getHTML());
+    let currentHtml = normalizeHtml(editor.getHTML());
 
     if (nextHtml === lastResolvedHtmlRef.current) {
       return;
     }
 
-    if (getEditorRewriteProtectedRange(editor)) {
-      for (const session of rewriteSessionsRef.current) {
-        if (session.jobId) {
-          void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+    if (rewriteSessionsRef.current.length > 0 || getEditorRewriteProtectedRange(editor)) {
+      for (const session of [...rewriteSessionsRef.current].reverse()) {
+        if (session.modifyPreview) {
+          aiPreviewMutationRef.current = true;
+          try {
+            replaceEditorRangeWithSlice(
+              editor,
+              session.modifyPreview.currentFrom,
+              session.modifyPreview.currentTo,
+              session.modifyPreview.originalSlice,
+            );
+          } finally {
+            aiPreviewMutationRef.current = false;
+          }
         }
+        const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+        if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+        if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+        editorSkillJobIdsRef.current.delete(session.targetKey);
       }
       setEditorRewriteProtectedRange(editor, null);
       rewriteSessionRef.current = null;
       rewriteSessionsRef.current = [];
       setRewriteSessions([]);
+      currentHtml = normalizeHtml(editor.getHTML());
     }
 
     if (nextHtml === currentHtml) {
@@ -2843,9 +2870,12 @@ export function RichEditor({
   const closeRewriteSession = useCallback(() => {
     const session = rewriteSessionRef.current;
     rollbackRewritePreview(session);
-    if (session?.jobId) {
-      const currentJob = useAiJobStore.getState().jobsById[session.jobId];
-      void projectMindApi.aiJobCancel(session.jobId).then((snapshot) => {
+    const jobId = session?.jobId ?? (session ? editorSkillJobIdsRef.current.get(session.targetKey) : null);
+    if (session && !jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+    if (jobId) {
+      const currentJob = useAiJobStore.getState().jobsById[jobId];
+      editorSkillJobIdsRef.current.delete(session?.targetKey ?? "");
+      void projectMindApi.aiJobCancel(jobId).then((snapshot) => {
         if (snapshot) useAiJobStore.getState().upsertJob(snapshot);
       }).catch(() => undefined);
       if (currentJob?.status === "queued" || currentJob?.status === "running") {
@@ -2879,7 +2909,10 @@ export function RichEditor({
     const session = rewriteSessionsRef.current.find((item) => item.targetKey === targetKey);
     if (!session) return;
     rollbackRewritePreview(session);
-    if (session.jobId) void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+    const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(targetKey);
+    if (!jobId) abandonedEditorSkillTargetsRef.current.add(targetKey);
+    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+    editorSkillJobIdsRef.current.delete(targetKey);
     if (editor) setEditorRewriteProtectedRange(editor, null, targetKey);
     setRewriteSessions((current) => current.filter((item) => item.targetKey !== targetKey));
   }, [editor, rollbackRewritePreview]);
@@ -2888,9 +2921,12 @@ export function RichEditor({
     const sessions = rewriteSessionsRef.current;
     for (const session of [...sessions].reverse()) {
       rollbackRewritePreview(session);
-      if (session.jobId) {
-        void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (jobId) {
+        void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
       }
+      editorSkillJobIdsRef.current.delete(session.targetKey);
     }
     if (editor) setEditorRewriteProtectedRange(editor, null);
     rewriteSessionRef.current = null;
@@ -2905,7 +2941,10 @@ export function RichEditor({
     }
     for (const session of [...sessions].reverse()) {
       rollbackRewritePreview(session);
-      if (session.jobId) void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+      editorSkillJobIdsRef.current.delete(session.targetKey);
     }
     if (editor) setEditorRewriteProtectedRange(editor, null);
     rewriteSessionRef.current = null;
@@ -3079,14 +3118,23 @@ export function RichEditor({
               : null,
           }),
         );
+        editorSkillJobIdsRef.current.set(targetKey, queuedJob.id);
         useAiJobStore.getState().upsertJob(queuedJob);
-        setRewriteSession((current) => current?.targetKey === targetKey
-          ? { ...current, jobId: queuedJob.id }
-          : current);
+        if (abandonedEditorSkillTargetsRef.current.delete(targetKey)) {
+          const cancelled = await projectMindApi.aiJobCancel(queuedJob.id).catch(() => null);
+          editorSkillJobIdsRef.current.delete(targetKey);
+          if (cancelled) useAiJobStore.getState().upsertJob(cancelled);
+          return;
+        }
+        updateRewriteSessionByTarget(targetKey, (current) => ({
+          ...current,
+          jobId: queuedJob.id,
+        }));
       } catch (error) {
-        rollbackRewritePreview(rewriteSessionRef.current);
+        editorSkillJobIdsRef.current.delete(targetKey);
+        rollbackRewritePreview(nextSession);
         setEditorRewriteProtectedRange(editor, null, targetKey);
-        setRewriteSession(null);
+        updateRewriteSessionByTarget(targetKey, () => null);
         pushToast({
           tone: "error",
           title: "AI 改写失败",
@@ -3103,6 +3151,7 @@ export function RichEditor({
       pushToast,
       restoreStoredTextSelection,
       rollbackRewritePreview,
+      updateRewriteSessionByTarget,
       rewriteUnavailableReason,
     ],
   );
@@ -3342,6 +3391,7 @@ export function RichEditor({
       wrapMarkdownAsBlockquote(rewriteSession.answer),
     );
     setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
     setRewriteSession(null);
     publishAiEditorSnapshot();
   }, [editor, publishAiEditorSnapshot, rewriteSession]);
@@ -3354,9 +3404,10 @@ export function RichEditor({
     const protectedRange = editor
       ? getEditorRewriteProtectedRange(editor, rewriteSession.targetKey)
       : null;
-    if (rewriteSession.jobId) {
-      void projectMindApi.aiJobCancel(rewriteSession.jobId).catch(() => undefined);
-    }
+    const jobId = rewriteSession.jobId ?? editorSkillJobIdsRef.current.get(rewriteSession.targetKey);
+    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+    if (editor) setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
+    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
     void startEditorSkill({
       skillId: rewriteSession.skill.id ?? null,
       skillName: rewriteSession.skill.name,
