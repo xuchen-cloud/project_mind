@@ -2998,8 +2998,14 @@
   box-shadow: 0 10px 22px color-mix(in srgb, var(--color-text) 2%, transparent);
 }
 
+.todo-rail__composer--pending {
+  opacity: 0.72;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
 .todo-rail__composer-input {
-  min-height: 4.9rem;
+  min-height: 1.55rem;
+  max-height: 9rem;
   padding: 0.2rem 0;
   border: 0;
   border-radius: 0.8rem;
@@ -3019,14 +3025,58 @@
   gap: 0.55rem 0.8rem;
 }
 
-.todo-rail__composer-footer {
-  display: flex;
-  justify-content: flex-end;
+.todo-rail__ownership {
+  min-width: 0;
 }
 
-.todo-rail__composer-hint {
-  color: color-mix(in srgb, var(--color-text-soft) 72%, transparent);
-  font-size: var(--text-caption);
+.todo-rail__ownership input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-rail__priority-options {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.todo-rail__priority-button {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 160ms var(--ease-soft);
+}
+
+.todo-rail__priority-button:hover,
+.todo-rail__priority-button:focus-visible {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
+.todo-rail__priority-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.todo-rail__priority-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 10%, transparent);
+  transition: width 160ms var(--ease-soft), height 160ms var(--ease-soft), box-shadow 160ms var(--ease-soft);
+}
+
+.todo-rail__priority-dot--active {
+  width: 0.72rem;
+  height: 0.72rem;
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 3px var(--color-border-strong);
 }
 
 .todo-list {

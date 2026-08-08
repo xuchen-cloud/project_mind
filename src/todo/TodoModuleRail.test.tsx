@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUiStoreState, useUiStore } from "../state/ui-store";
+import { useFeedbackStore } from "../state/feedback-store";
 import { TodoModuleRail } from "./TodoModuleRail";
 
 const change = vi.hoisted(() => vi.fn(async () => undefined));
@@ -32,7 +33,9 @@ vi.mock("../hooks/useContactMentionOptions", () => ({
 describe("TodoModuleRail", () => {
   beforeEach(() => {
     change.mockClear();
+    change.mockResolvedValue(undefined);
     useUiStore.setState(createUiStoreState());
+    useFeedbackStore.setState({ toasts: [] });
     installMemoryLocalStorage();
   });
 
@@ -50,7 +53,7 @@ describe("TodoModuleRail", () => {
       screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
       "推进当前项目",
     );
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(change).toHaveBeenCalledWith({
       type: "create",
@@ -59,6 +62,34 @@ describe("TodoModuleRail", () => {
       priority: "not_urgent_important",
       dueDate: undefined,
     });
+  });
+
+  it("reports a rejected create operation with exactly one visible error notification", async () => {
+    const user = userEvent.setup();
+    change.mockRejectedValueOnce(new Error("创建失败"));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TodoModuleRail scope={{ kind: "current-project", projectId: 7 }} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(
+      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      "保留失败草稿",
+    );
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(useFeedbackStore.getState().toasts).toEqual([
+      expect.objectContaining({
+        tone: "error",
+        title: "Todo 处理失败",
+        detail: "Error: 创建失败",
+      }),
+    ]);
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签")).toHaveValue(
+      "保留失败草稿",
+    );
   });
 });
 

@@ -442,7 +442,7 @@ describe("TodoRail", () => {
       "true",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await userEvent.click(screen.getByRole("button", { name: "创建" }));
     expect(onCreateTodo).toHaveBeenCalledWith({
       content: "准备发布",
       priority: "urgent_important",
@@ -472,8 +472,8 @@ describe("TodoRail", () => {
     expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue(
       "Project 已不可用",
     );
-    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "创建" }));
 
     expect(onCreateTodo).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
@@ -508,7 +508,7 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "Ship checklist");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
     expect(onCreateTodo).toHaveBeenCalledWith({
       content: "Ship checklist",
       priority: "not_urgent_important",
@@ -541,7 +541,7 @@ describe("TodoRail", () => {
       screen.getByPlaceholderText("写下一条需要推进的 Todo"),
       "@20270315 Ship checklist",
     );
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(onCreateTodo).toHaveBeenCalledWith({
       content: "Ship checklist",
@@ -726,15 +726,123 @@ describe("TodoRail", () => {
     expect(useUiStore.getState().todoRailSortMode).toBe("priority");
   });
 
-  it("renders the composer with shortcut hint and save action", async () => {
+  it("opens a compact focused composer with accessible priority dots", async () => {
     const user = userEvent.setup();
 
     renderRail({ finishedTodos: [] });
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
 
-    expect(screen.getByText("Cmd/Ctrl + Enter 保存")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    await waitFor(() => expect(composer).toHaveFocus());
+    expect(composer).toHaveAttribute("rows", "1");
+    expect(composer).toHaveClass("resize-none");
+    expect(screen.queryByText(/Cmd|Ctrl|Enter.*保存/u)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "P1 · 紧急且重要" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "P3 · 不紧急但重要" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("creates on Enter, keeps Shift+Enter as a newline, and ignores IME composition Enter", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn(async () => undefined);
+    renderRail({ finishedTodos: [], onCreateTodo });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    await user.type(composer, "第一行");
+    await user.keyboard("{Shift>}{Enter}{/Shift}第二行");
+    expect(composer).toHaveValue("第一行\n第二行");
+
+    fireEvent.compositionStart(composer);
+    fireEvent.keyDown(composer, { key: "Enter", isComposing: true });
+    fireEvent.compositionEnd(composer);
+    expect(onCreateTodo).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "第一行\n第二行",
+      priority: "not_urgent_important",
+    });
+  });
+
+  it("discards the complete draft on Escape and restores focus to the add control", async () => {
+    const user = userEvent.setup();
+    renderRail({ finishedTodos: [] });
+
+    const addButton = screen.getByRole("button", { name: "新增代办" });
+    await user.click(addButton);
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    await user.type(composer, "稍后不保留");
+    await user.click(screen.getByRole("button", { name: "P1 · 紧急且重要" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByPlaceholderText("写下一条需要推进的 Todo")).not.toBeInTheDocument();
+    await waitFor(() => expect(addButton).toHaveFocus());
+    expect(window.localStorage.getItem("project-mind:todo-rail-draft:workspace")).toBeNull();
+  });
+
+  it("discards an empty outside click and creates a non-empty draft without blocking its target", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn(async () => undefined);
+    const outsideAction = vi.fn();
+    render(
+      <>
+        <button type="button" onClick={outsideAction}>下一步</button>
+        <TodoRail
+          title="Todo List"
+          scopeLabel="Alpha"
+          unfinishedTodos={[]}
+          finishedTodos={[]}
+          createPlaceholder="写下一条需要推进的 Todo"
+          onCreateTodo={onCreateTodo}
+          onToggleStatus={vi.fn()}
+          onUpdatePriority={vi.fn()}
+          onUpdateContent={vi.fn()}
+          onAddProgress={vi.fn()}
+          onUpdateProgress={vi.fn()}
+          onDeleteProgress={vi.fn()}
+          onDeleteTodo={vi.fn()}
+        />
+      </>,
+    );
+
+    const addButton = screen.getByRole("button", { name: "新增代办" });
+    await user.click(addButton);
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    expect(outsideAction).toHaveBeenCalledTimes(1);
+
+    await user.click(addButton);
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "自然提交");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "自然提交",
+      priority: "not_urgent_important",
+    });
+    expect(outsideAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("locks the complete composer and ignores Escape and outside clicks while pending", async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: () => void;
+    const onCreateTodo = vi.fn(() => new Promise<void>((resolve) => { resolveCreate = resolve; }));
+    renderRail({ finishedTodos: [], onCreateTodo });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
+    await user.type(composer, "等待创建");
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(screen.getByRole("button", { name: "创建中…" })).toBeDisabled();
+    expect(composer).toBeDisabled();
+    expect(screen.getByRole("button", { name: "P1 · 紧急且重要" })).toBeDisabled();
+    fireEvent.keyDown(composer, { key: "Escape" });
+    fireEvent.pointerDown(document.body);
+    expect(composer).toBeInTheDocument();
+
+    resolveCreate();
+    await waitFor(() => expect(composer).not.toBeInTheDocument());
   });
 
   it("keeps the complete draft visible when creation fails", async () => {
@@ -749,7 +857,7 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
     fireEvent.change(composer, { target: { value: "保留 [[todo:99|引用]]" } });
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(composer).toHaveValue("保留 [[todo:99|引用]]");
     expect(onError).toHaveBeenCalledWith("Error: Internal Reference 不兼容");
