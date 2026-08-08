@@ -48,7 +48,7 @@ describe("editor rewrite protection", () => {
     const nextState = setup.state.apply(setup.state.tr.insertText("x", 1));
 
     expect(nextState.doc.textContent).toBe("xheadAItail");
-    expect(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(nextState)).toEqual({
+    expect(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(nextState)?.active).toEqual({
       from: setup.range.from + 1,
       to: setup.range.to + 1,
     });
@@ -87,9 +87,30 @@ describe("editor rewrite protection", () => {
     const nextState = setup.state.apply(transaction);
 
     expect(nextState.doc.textContent).toBe("headrewrittentail");
-    expect(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(nextState)).toEqual({
+    expect(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(nextState)?.active).toEqual({
       from: setup.range.from,
       to: setup.range.from + replacement.nodeSize,
     });
+  });
+
+  it("protects multiple non-overlapping Editor Skill targets independently", () => {
+    const setup = createProtectedState();
+    const secondRange = { from: setup.range.to, to: setup.state.doc.content.size };
+    const withSecond = setup.state.apply(
+      setup.state.tr.setMeta(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY, {
+        type: "set",
+        key: "second",
+        range: secondRange,
+      }),
+    );
+    const blocked = withSecond.apply(withSecond.tr.insertText("x", secondRange.from + 1));
+    const outside = withSecond.apply(withSecond.tr.insertText("x", 1));
+
+    expect(blocked).toBe(withSecond);
+    expect(outside.doc.textContent).toBe("xheadAItail");
+    expect(Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(outside) ?? {})).toEqual([
+      "active",
+      "second",
+    ]);
   });
 });

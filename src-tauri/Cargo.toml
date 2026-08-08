@@ -36,7 +36,9 @@ trash = "5.2.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 font-kit = "0.14.3"
+pathfinder_geometry = "0.5.1"
 winreg = "0.55.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 font-kit = "0.14.3"
+pathfinder_geometry = "0.5.1"

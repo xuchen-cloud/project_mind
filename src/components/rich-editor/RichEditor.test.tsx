@@ -1064,6 +1064,76 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it("runs non-overlapping image targets concurrently and protects both anchors", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    let jobId = 100;
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: ++jobId,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/one.png" data-path="/tmp/one.png" data-mime-type="image/png"></p><p>中间可编辑</p><p><img src="asset:///tmp/two.png" data-path="/tmp/two.png" data-mime-type="image/png"></p>'}
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 2 },
+          editorSkills: [{
+            id: "extract-image-text",
+            name: "文字提取",
+            icon: null,
+            description: null,
+            prompt: "提取文字",
+            resultMode: "modify",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const images = await waitFor(() => {
+      const nodes = container.querySelectorAll<HTMLImageElement>("img.rich-editor__image");
+      expect(nodes).toHaveLength(2);
+      return nodes;
+    });
+
+    for (const image of images) {
+      fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+      await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+      await user.click(within(await screen.findByRole("menu", { name: "AI 解读图片 子菜单" })).getByRole("menuitem", { name: "文字提取" }));
+    }
+
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(2));
+    expect(enqueueSpy.mock.calls.map(([input]) => input.kind === "editor_skill" ? input.input.imageTarget?.path : null)).toEqual([
+      "/tmp/one.png",
+      "/tmp/two.png",
+    ]);
+    expect(container.querySelectorAll("[data-ai-rewrite-protected='true']")).toHaveLength(2);
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
   it("copies the original image bytes from the image context menu", async () => {
     const user = userEvent.setup();
     const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);

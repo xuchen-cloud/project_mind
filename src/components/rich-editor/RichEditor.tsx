@@ -71,10 +71,10 @@ import {
   setContactMentionElementBroken,
 } from "../../lib/contactMentions";
 import {
-  aiEditorRewriteJobTargetKey,
-  editorRewriteJobInput,
+  aiEditorSkillJobTargetKey,
+  editorSkillJobInput,
   ensureAiJobSync,
-  readEditorRewriteJobResult,
+  readEditorSkillJobResult,
   useAiJobTarget,
 } from "../../lib/aiJobs";
 import { fileUriToPath } from "../../lib/formatters";
@@ -93,8 +93,8 @@ import {
   trimTrailingCodeBlockNewline,
 } from "../../lib/richTextContent";
 import type {
-  AiEditorRewriteContext,
-  AiEditorRewriteResultMode,
+  AiEditorSkillContext,
+  AiEditorSkillResultMode,
   AiSettingsSnapshot,
   ContactRecord,
   ProjectTagRecord,
@@ -304,7 +304,7 @@ interface EditorAiSkillSnapshot {
   id?: string | null;
   name: string;
   prompt: string;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
 }
 
 interface EditorAiModifyPreview {
@@ -338,7 +338,7 @@ type EditorRewriteDisplayStatus = "queued" | "running" | "succeeded" | "failed";
 interface EditorRewriteWidgetState {
   skillName: string;
   anchorPos: number;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
   status: EditorRewriteDisplayStatus;
   answer?: string | null;
   answerHtml?: string | null;
@@ -383,7 +383,7 @@ interface RichEditorProps {
   contactMentions?: RichEditorContactMentionOptions;
   tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot | null;
-  aiRewriteContext?: AiEditorRewriteContext;
+  aiRewriteContext?: AiEditorSkillContext;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -454,7 +454,18 @@ export function RichEditor({
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
   const [aiMenu, setAiMenu] = useState<EditorAiMenuState | null>(null);
   const [annotationDialog, setAnnotationDialog] = useState<ImageAnnotationDialogState | null>(null);
-  const [rewriteSession, setRewriteSession] = useState<EditorRewriteSessionState | null>(null);
+  const [rewriteSessions, setRewriteSessions] = useState<EditorRewriteSessionState[]>([]);
+  const rewriteSession = rewriteSessions[rewriteSessions.length - 1] ?? null;
+  const setRewriteSession = useCallback((
+    update: EditorRewriteSessionState | null | ((current: EditorRewriteSessionState | null) => EditorRewriteSessionState | null),
+  ) => {
+    setRewriteSessions((current) => {
+      const active = current[current.length - 1] ?? null;
+      const next = typeof update === "function" ? update(active) : update;
+      if (!next) return active ? current.slice(0, -1) : current;
+      return active ? [...current.slice(0, -1), next] : [next];
+    });
+  }, []);
   const [uiTick, setUiTick] = useState(0);
   const [tableToolbarPosition, setTableToolbarPosition] = useState<TableToolbarPosition | null>(null);
   const [codeToolbarPosition, setCodeToolbarPosition] = useState<CodeToolbarPosition | null>(null);
@@ -565,6 +576,7 @@ export function RichEditor({
   const tagActiveIndexRef = useRef(0);
   const tagResultsRef = useRef<ProjectTagRecord[]>([]);
   const rewriteSessionRef = useRef<EditorRewriteSessionState | null>(null);
+  const rewriteSessionsRef = useRef<EditorRewriteSessionState[]>([]);
   const rewriteWidgetStateRef = useRef<EditorRewriteWidgetState | null>(null);
   const rewriteWidgetCallbacksRef = useRef<{
     onAccept: () => void;
@@ -588,6 +600,7 @@ export function RichEditor({
     onOpenAiSettings: undefined,
   });
   rewriteSessionRef.current = rewriteSession;
+  rewriteSessionsRef.current = rewriteSessions;
   const searchStateRef = useRef<{
     open: boolean;
     matches: EditorSearchMatch[];
@@ -618,7 +631,7 @@ export function RichEditor({
   const imageInterpretationReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
   const aiModifySessionActive =
-    rewriteSession?.skill.resultMode === "modify" || rewriteSession?.skill.resultMode === "auto";
+    rewriteSessions.some((session) => session.skill.resultMode === "modify" || session.skill.resultMode === "auto");
   const effectiveReadOnly = readOnly;
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
@@ -1535,15 +1548,13 @@ export function RichEditor({
       scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
     },
     onTransaction: ({ transaction }) => {
-      const session = rewriteSessionRef.current;
-      if (!transaction.docChanged || !session || aiPreviewMutationRef.current) {
+      const sessions = rewriteSessionsRef.current;
+      if (!transaction.docChanged || sessions.length === 0 || aiPreviewMutationRef.current) {
         return;
       }
-
-      const nextAnchorPos = transaction.mapping.map(session.anchorPos, -1);
-      const nextSession: EditorRewriteSessionState = {
+      const nextSessions = sessions.map((session) => ({
         ...session,
-        anchorPos: nextAnchorPos,
+        anchorPos: transaction.mapping.map(session.anchorPos, -1),
         selectionSnapshot: {
           ...session.selectionSnapshot,
           from: transaction.mapping.map(session.selectionSnapshot.from, 1),
@@ -1559,13 +1570,10 @@ export function RichEditor({
               currentTo: transaction.mapping.map(session.modifyPreview.currentTo, -1),
             }
           : session.modifyPreview,
-      };
-      rewriteSessionRef.current = nextSession;
-      setRewriteSession((current) =>
-        current?.targetKey === session.targetKey
-          ? nextSession
-          : current,
-      );
+      }));
+      rewriteSessionsRef.current = nextSessions;
+      rewriteSessionRef.current = nextSessions[nextSessions.length - 1] ?? null;
+      setRewriteSessions(nextSessions);
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (aiPreviewMutationRef.current) {
@@ -1763,7 +1771,7 @@ export function RichEditor({
     }
 
     const completedResult = rewriteJob?.status === "succeeded"
-      ? readEditorRewriteJobResult(rewriteJob)
+      ? readEditorSkillJobResult(rewriteJob)
       : null;
     return {
       skillName: rewriteSession.skill.name,
@@ -1977,15 +1985,23 @@ export function RichEditor({
       return;
     }
 
-    if (getEditorRewriteProtectedRange(editor)) {
-      return;
-    }
-
     const nextHtml = normalizeHtml(html ?? defaultHtml);
     const currentHtml = normalizeHtml(editor.getHTML());
 
     if (nextHtml === lastResolvedHtmlRef.current) {
       return;
+    }
+
+    if (getEditorRewriteProtectedRange(editor)) {
+      for (const session of rewriteSessionsRef.current) {
+        if (session.jobId) {
+          void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+        }
+      }
+      setEditorRewriteProtectedRange(editor, null);
+      rewriteSessionRef.current = null;
+      rewriteSessionsRef.current = [];
+      setRewriteSessions([]);
     }
 
     if (nextHtml === currentHtml) {
@@ -2818,29 +2834,40 @@ export function RichEditor({
     const session = rewriteSessionRef.current;
     rollbackRewritePreview(session);
     if (session?.jobId) {
+      const currentJob = useAiJobStore.getState().jobsById[session.jobId];
       void projectMindApi.aiJobCancel(session.jobId).then((snapshot) => {
         if (snapshot) useAiJobStore.getState().upsertJob(snapshot);
       }).catch(() => undefined);
+      if (currentJob?.status === "queued" || currentJob?.status === "running") {
+        pushToast({
+          tone: "info",
+          title: "已取消 AI 请求",
+          detail: "请求已尽力取消；外部模型若已开始处理，仍可能产生费用。",
+        });
+      }
     }
     if (editor) {
-      setEditorRewriteProtectedRange(editor, null);
+      setEditorRewriteProtectedRange(editor, null, session?.targetKey);
     }
     rewriteSessionRef.current = null;
     setRewriteSession(null);
-  }, [editor, rollbackRewritePreview]);
+  }, [editor, pushToast, rollbackRewritePreview]);
 
   const closeAiMenu = useCallback(() => {
     setAiMenu(null);
   }, []);
 
   useEffect(() => () => {
-    const session = rewriteSessionRef.current;
-    rollbackRewritePreview(session);
-    if (session?.jobId) {
-      void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+    const sessions = rewriteSessionsRef.current;
+    for (const session of [...sessions].reverse()) {
+      rollbackRewritePreview(session);
+      if (session.jobId) {
+        void projectMindApi.aiJobCancel(session.jobId).catch(() => undefined);
+      }
     }
     if (editor) setEditorRewriteProtectedRange(editor, null);
     rewriteSessionRef.current = null;
+    rewriteSessionsRef.current = [];
   }, [editor, rollbackRewritePreview]);
 
   const startEditorRewrite = useCallback(
@@ -2848,7 +2875,7 @@ export function RichEditor({
       skillId?: string | null;
       skillName: string;
       prompt: string;
-      resultMode: AiEditorRewriteResultMode;
+      resultMode: AiEditorSkillResultMode;
       selectionSnapshot?: EditorAiSelectionSnapshot;
       replaceExistingSession?: boolean;
       targetType?: "text" | "image";
@@ -2859,15 +2886,6 @@ export function RichEditor({
       }
 
       const targetType = options.targetType ?? "text";
-      const currentSession = rewriteSessionRef.current;
-      if (currentSession && !currentSession.answer && !options.replaceExistingSession) {
-        pushToast({
-          tone: "info",
-          title: "请先处理当前 AI 修改",
-          detail: "请先接受或撤销当前 AI 修改。",
-        });
-        return;
-      }
 
       const unavailableReason = targetType === "image"
         ? (aiSettings?.aiSecretsUnlocked === false
@@ -2932,11 +2950,25 @@ export function RichEditor({
         return;
       }
 
-      const targetKey = aiEditorRewriteJobTargetKey(
+      const overlappingSession = rewriteSessionsRef.current.find((session) =>
+        selectionSnapshot.from < session.selectionSnapshot.to
+        && selectionSnapshot.to > session.selectionSnapshot.from
+        && (!options.replaceExistingSession || session.targetKey !== rewriteSessionRef.current?.targetKey)
+      );
+      if (overlappingSession) {
+        pushToast({
+          tone: "info",
+          title: "该目标正在由 AI 处理",
+          detail: "同一图片或重叠文字范围不能重复运行；请选择不重叠的目标。",
+        });
+        return;
+      }
+
+      const targetKey = aiEditorSkillJobTargetKey(
         `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       );
 
-      setRewriteSession({
+      const nextSession: EditorRewriteSessionState = {
         targetKey,
         skill: {
           id: options.skillId ?? null,
@@ -2951,12 +2983,14 @@ export function RichEditor({
         targetType,
         imageTarget: options.imageTarget,
         jobId: null,
-      });
+      };
+      if (options.replaceExistingSession) setRewriteSession(nextSession);
+      else setRewriteSessions((current) => [...current, nextSession]);
       if (options.resultMode !== "answer" || targetType === "image") {
         setEditorRewriteProtectedRange(editor, {
           from: selectionSnapshot.from,
           to: selectionSnapshot.to,
-        });
+        }, targetKey);
       }
       setAiMenu(null);
       setContextMenu(null);
@@ -2977,7 +3011,7 @@ export function RichEditor({
           ? buildImageEditorContext(editor, options.imageTarget.nodePos)
           : null;
         const queuedJob = await projectMindApi.aiJobEnqueue(
-          editorRewriteJobInput(targetKey, {
+          editorSkillJobInput(targetKey, {
             skillId: options.skillId ?? null,
             skillName: options.skillName,
             prompt: options.prompt,
@@ -3006,7 +3040,7 @@ export function RichEditor({
           : current);
       } catch (error) {
         rollbackRewritePreview(rewriteSessionRef.current);
-        setEditorRewriteProtectedRange(editor, null);
+        setEditorRewriteProtectedRange(editor, null, targetKey);
         setRewriteSession(null);
         pushToast({
           tone: "error",
@@ -3094,7 +3128,7 @@ export function RichEditor({
       }
 
       try {
-        const protectedRange = getEditorRewriteProtectedRange(editor);
+        const protectedRange = getEditorRewriteProtectedRange(editor, session.targetKey);
         if (!protectedRange) {
           throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
         }
@@ -3116,7 +3150,7 @@ export function RichEditor({
           setEditorRewriteProtectedRange(editor, {
             from: session.targetType === "image" ? session.selectionSnapshot.from : nextFrom,
             to: nextTo,
-          });
+          }, session.targetKey);
         } finally {
           aiPreviewMutationRef.current = false;
         }
@@ -3153,7 +3187,7 @@ export function RichEditor({
           );
         });
       } catch (error) {
-        setEditorRewriteProtectedRange(editor, null);
+        setEditorRewriteProtectedRange(editor, null, session.targetKey);
         rewriteSessionRef.current = null;
         setRewriteSession(null);
         pushToast({
@@ -3181,7 +3215,7 @@ export function RichEditor({
     if (!editor || !session?.modifyPreview) return;
     const preview = session.modifyPreview;
     rollbackRewritePreview(session);
-    setEditorRewriteProtectedRange(editor, null);
+    setEditorRewriteProtectedRange(editor, null, session.targetKey);
     const modifiedSlice = buildEditorRewriteSlice(editor, preview.modifiedMarkdown, preview.placeholders);
     const originalTo = preview.currentFrom + preview.originalSlice.size;
     rewriteSessionRef.current = session.answer
@@ -3211,7 +3245,7 @@ export function RichEditor({
   const rejectModifyPreview = useCallback(() => {
     if (!rewriteSession?.modifyPreview) {
       if (editor) {
-        setEditorRewriteProtectedRange(editor, null);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession?.targetKey);
       }
       setRewriteSession(null);
       return;
@@ -3219,7 +3253,7 @@ export function RichEditor({
     replaceAiPreviewMarkdown(rewriteSession.modifyPreview.originalMarkdown, "original");
     publishAiEditorSnapshot();
     if (editor) {
-      setEditorRewriteProtectedRange(editor, null);
+      setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
     }
     setRewriteSession((current) =>
       current?.answer
@@ -3248,7 +3282,7 @@ export function RichEditor({
       return;
     }
 
-    const protectedRange = getEditorRewriteProtectedRange(editor);
+    const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
     const insertPosition = getInsertPositionAfterSelectedBlock(
       editor,
       protectedRange?.to ?? rewriteSession.anchorPos,
@@ -3258,7 +3292,7 @@ export function RichEditor({
       insertPosition,
       wrapMarkdownAsBlockquote(rewriteSession.answer),
     );
-    setEditorRewriteProtectedRange(editor, null);
+    setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
     setRewriteSession(null);
     publishAiEditorSnapshot();
   }, [editor, publishAiEditorSnapshot, rewriteSession]);
@@ -3269,7 +3303,7 @@ export function RichEditor({
     }
     rollbackRewritePreview(rewriteSession);
     const protectedRange = editor
-      ? getEditorRewriteProtectedRange(editor)
+      ? getEditorRewriteProtectedRange(editor, rewriteSession.targetKey)
       : null;
     if (rewriteSession.jobId) {
       void projectMindApi.aiJobCancel(rewriteSession.jobId).catch(() => undefined);
@@ -3316,7 +3350,7 @@ export function RichEditor({
 
       const result =
         rewriteJob.status === "succeeded"
-          ? readEditorRewriteJobResult(rewriteJob)
+          ? readEditorSkillJobResult(rewriteJob)
           : null;
       const automaticAnswer = isAutomatic
         ? result?.answerMarkdown?.trim() || null
@@ -3329,21 +3363,17 @@ export function RichEditor({
         if (!automaticAnswer) {
           throw new Error("AI 未返回原文修改或回答内容。");
         }
-        const protectedRange = getEditorRewriteProtectedRange(editor);
-        setEditorRewriteProtectedRange(editor, null);
+        const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
+        setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
         if (rewriteSession.answer === automaticAnswer && !rewriteSession.modifyPreview) {
           return;
         }
-        setRewriteSession((current) =>
-          current?.targetKey === rewriteSession.targetKey
-            ? {
-                ...current,
-                anchorPos: protectedRange?.to ?? current.anchorPos,
-                answer: automaticAnswer,
-                modifyPreview: null,
-              }
-            : current,
-        );
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          anchorPos: protectedRange?.to ?? current.anchorPos,
+          answer: automaticAnswer,
+          modifyPreview: null,
+        });
         return;
       }
       if (!content) {
@@ -3353,14 +3383,10 @@ export function RichEditor({
         if (rewriteSession.answer === content) {
           return;
         }
-        setRewriteSession((current) =>
-          current?.targetKey === rewriteSession.targetKey
-            ? {
-                ...current,
-                answer: content,
-              }
-            : current,
-        );
+        setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+          ...current,
+          answer: content,
+        });
         return;
       }
 
@@ -3387,7 +3413,7 @@ export function RichEditor({
         return;
       }
       const snapshot = rewriteSession.selectionSnapshot;
-      const protectedRange = getEditorRewriteProtectedRange(editor);
+      const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
       if (!protectedRange) {
         throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
       }
@@ -3402,47 +3428,43 @@ export function RichEditor({
         } else if (rewriteSession.targetType === "image" && !rewriteSession.modifyPreview) {
           const slice = buildEditorRewriteSlice(editor, content, []);
           const insertPosition = getInsertPositionAfterSelectedBlock(editor, snapshot.to);
-          setEditorRewriteProtectedRange(editor, null);
+          setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
           const inserted = insertEditorPreviewSlice(editor, insertPosition, slice);
           currentFrom = inserted.from;
           nextTo = inserted.to;
           setEditorRewriteProtectedRange(editor, {
             from: snapshot.from,
             to: nextTo,
-          });
+          }, rewriteSession.targetKey);
         } else {
           const slice = buildEditorRewriteSlice(editor, content, snapshot.placeholders);
           nextTo = replaceEditorRangeWithSlice(editor, currentFrom, currentTo, slice);
           setEditorRewriteProtectedRange(editor, {
             from: rewriteSession.targetType === "image" ? snapshot.from : currentFrom,
             to: nextTo,
-          });
+          }, rewriteSession.targetKey);
         }
       } finally {
         aiPreviewMutationRef.current = false;
       }
 
-      setRewriteSession((current) =>
-        current?.targetKey === rewriteSession.targetKey
-          ? {
-              ...current,
-              anchorPos: nextTo,
-              answer: automaticAnswer ?? current.answer,
-              modifyPreview: {
-                originalMarkdown: snapshot.markdown,
-                modifiedMarkdown: content,
-                placeholders: snapshot.placeholders,
-                originalSlice: rewriteSession.targetType === "image" ? Slice.empty : snapshot.originalSlice,
-                currentFrom,
-                currentTo: nextTo,
-                showing: rewriteSession.modifyPreview?.showing ?? "modified",
-              },
-            }
-          : current,
-      );
+      setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
+        ...current,
+        anchorPos: nextTo,
+        answer: automaticAnswer ?? current.answer,
+        modifyPreview: {
+          originalMarkdown: snapshot.markdown,
+          modifiedMarkdown: content,
+          placeholders: snapshot.placeholders,
+          originalSlice: rewriteSession.targetType === "image" ? Slice.empty : snapshot.originalSlice,
+          currentFrom,
+          currentTo: nextTo,
+          showing: rewriteSession.modifyPreview?.showing ?? "modified",
+        },
+      });
     } catch (error) {
       rollbackRewritePreview(rewriteSession);
-      setEditorRewriteProtectedRange(editor, null);
+      setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
       rewriteSessionRef.current = null;
       setRewriteSession(null);
       pushToast({
@@ -3462,10 +3484,10 @@ export function RichEditor({
       setEditorRewriteProtectedRange(editor, {
         from: rewriteSession.selectionSnapshot.from,
         to: rewriteSession.selectionSnapshot.to,
-      });
-      setRewriteSession((current) => current?.targetKey === rewriteSession.targetKey
-        ? { ...current, modifyPreview: null }
-        : current);
+      }, rewriteSession.targetKey);
+      setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey
+        ? current
+        : { ...current, modifyPreview: null });
     }
   }, [editor, rewriteJob?.status, rewriteSession, rollbackRewritePreview]);
 
@@ -3532,7 +3554,10 @@ export function RichEditor({
     });
     const plugin = createEditorRewriteWidgetPlugin({
       getWidgetState: () => rewriteWidgetStateRef.current,
-      getProtectedRange: () => getEditorRewriteProtectedRange(editor),
+      getProtectedRange: () => {
+        const session = rewriteSessionRef.current;
+        return session ? getEditorRewriteProtectedRange(editor, session.targetKey) : null;
+      },
       getCallbacks: () => rewriteWidgetCallbacksRef.current,
     });
 
@@ -3641,6 +3666,7 @@ export function RichEditor({
             },
             readOnly: effectiveReadOnly,
             editorSkills: enabledImageSkills,
+            showAiInterpretation: imageInterpretationReady,
             unavailableReason: imageInterpretationFormatUnavailableReason(imageTarget)
               ?? (aiSettings?.aiSecretsUnlocked === false
               ? "需先解锁 AI 配置"
@@ -5194,7 +5220,7 @@ function serializeCommittedEditor(
   setEditorRewriteProtectedRange(editor, {
     from: session.targetType === "image" ? session.selectionSnapshot.from : preview.currentFrom,
     to: preview.currentFrom + modifiedSlice.size,
-  });
+  }, session.targetKey);
   return snapshot;
 }
 
@@ -6265,6 +6291,7 @@ function buildImageContextMenuActions({
   onCopyImage,
   readOnly,
   editorSkills,
+  showAiInterpretation,
   unavailableReason,
   onOpenAiSettings,
   onRunEditorSkill,
@@ -6276,6 +6303,7 @@ function buildImageContextMenuActions({
   onCopyImage: () => void;
   readOnly: boolean;
   editorSkills: AiSettingsSnapshot["editorSkills"];
+  showAiInterpretation: boolean;
   unavailableReason?: string | null;
   onOpenAiSettings?: () => void;
   onRunEditorSkill: (skill: AiSettingsSnapshot["editorSkills"][number]) => void;
@@ -6288,7 +6316,7 @@ function buildImageContextMenuActions({
   const canEditImage = !readOnly && editor.isEditable;
 
   return [
-    {
+    ...(showAiInterpretation ? [{
       type: "submenu",
       key: "image-ai-interpretation",
       label: "AI 解读图片",
@@ -6319,8 +6347,8 @@ function buildImageContextMenuActions({
           onSelect: () => onOpenAiSettings?.(),
         },
       ],
-    },
-    { type: "separator", key: "image-separator-ai" },
+    } satisfies ContextMenuAction,
+    { type: "separator", key: "image-separator-ai" } satisfies ContextMenuAction] : []),
     {
       key: "image-browse",
       label: "浏览图片",

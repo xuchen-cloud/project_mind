@@ -230,9 +230,9 @@ export interface AiProfileTestJobResult extends AiJobBase {
   testResult: AiProfileTestResult;
 }
 
-export interface AiEditorRewriteResult {
+export interface AiEditorSkillResult {
   skillId?: string | null;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
   content: string;
   replacementMarkdown?: string | null;
   answerMarkdown?: string | null;
@@ -241,14 +241,14 @@ export interface AiEditorRewriteResult {
   usedDefaultFallback: boolean;
 }
 
-export interface AiEditorRewriteJobResult extends AiJobBase {
+export interface AiEditorSkillJobResult extends AiJobBase {
   kind: "editor_skill";
-  rewrite: AiEditorRewriteResult;
+  rewrite: AiEditorSkillResult;
 }
 
 export type AiJobResult =
   | AiProfileTestJobResult
-  | AiEditorRewriteJobResult;
+  | AiEditorSkillJobResult;
 
 export interface AiJobSnapshot {
   id: number;
@@ -269,39 +269,39 @@ export interface AiProfileTestJobInput {
   input: AiProfileTestInput;
 }
 
-export type AiEditorRewriteScope = "project_note" | "workspace_note";
+export type AiEditorSkillScope = "project_note" | "workspace_note";
 
-export interface AiEditorRewriteContext {
-  scope: AiEditorRewriteScope;
+export interface AiEditorSkillContext {
+  scope: AiEditorSkillScope;
   projectId?: number | null;
   noteId?: number | null;
   workspaceNoteId?: number | null;
   sourceLabel?: string | null;
 }
 
-export interface AiEditorRewriteInput {
+export interface AiEditorSkillInput {
   skillId?: string | null;
   skillName?: string | null;
   prompt?: string | null;
-  resultMode: AiEditorRewriteResultMode;
+  resultMode: AiEditorSkillResultMode;
   selectedText: string;
   expandedMarkdown?: string | null;
   placeholderTokens?: string[];
   documentContext?: string | null;
-  context?: AiEditorRewriteContext;
+  context?: AiEditorSkillContext;
   targetType?: "text" | "image";
   imageTarget?: AiEditorImageTarget | null;
 }
 
-export interface AiEditorRewriteJobInput {
+export interface AiEditorSkillJobInput {
   kind: "editor_skill";
   targetKey: string;
-  input: AiEditorRewriteInput;
+  input: AiEditorSkillInput;
 }
 
 export type AiJobEnqueueInput =
   | AiProfileTestJobInput
-  | AiEditorRewriteJobInput;
+  | AiEditorSkillJobInput;
 
 export interface ConclusionGroup {
   activityTitle: string;
@@ -687,7 +687,6 @@ export interface DocumentDeleteInput {
 }
 
 export type AiEditorSkillResultMode = "modify" | "answer" | "auto";
-export type AiEditorRewriteResultMode = AiEditorSkillResultMode;
 
 export interface AiEditorSkillRecord {
   id: string;

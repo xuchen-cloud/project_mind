@@ -14,6 +14,16 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use font_kit::{
+    canvas::{Canvas, Format, RasterizationOptions},
+    font::Font,
+    hinting::HintingOptions,
+    source::SystemSource,
+};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use pathfinder_geometry::transform2d::Transform2F;
+
 #[derive(Debug, Clone)]
 pub struct ResolvedAiProfile {
     pub profile_name: String,
@@ -139,6 +149,7 @@ fn apply_annotation_overlay(image: DynamicImage, annotation_state: Option<&str>)
                 let (x, y, width, height) = annotation_bounds(item, scale_x, scale_y);
                 if item.get("type").and_then(Value::as_str) == Some("text") {
                     fill_rect(&mut canvas, x, y, width, height.max(24), fill);
+                    draw_annotation_text(&mut canvas, item, x, y, width, scale_x, scale_y, red);
                 }
                 draw_rect(&mut canvas, x, y, width, height.max(24), 3, red);
             }
@@ -150,6 +161,146 @@ fn apply_annotation_overlay(image: DynamicImage, annotation_state: Option<&str>)
         }
     }
     DynamicImage::ImageRgba8(canvas)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn draw_annotation_text(
+    canvas: &mut RgbaImage,
+    item: &Value,
+    x: i32,
+    y: i32,
+    width: i32,
+    scale_x: f64,
+    scale_y: f64,
+    color: Rgba<u8>,
+) {
+    let Some(text) = item
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let requested_family = item.get("fontFamily").and_then(Value::as_str);
+    let fonts = load_annotation_fonts(requested_family);
+    if fonts.is_empty() {
+        return;
+    }
+    let point_size = (item.get("fontSize").and_then(Value::as_f64).unwrap_or(26.0)
+        * ((scale_x + scale_y) / 2.0))
+        .max(12.0) as f32;
+    let line_height = (point_size * 1.35).round() as i32;
+    let mut cursor_x = x;
+    let mut baseline_y = y + point_size.round() as i32;
+    let max_x = x + width.max(point_size.round() as i32);
+
+    for character in text.chars() {
+        let advance = if character.is_ascii() {
+            point_size * 0.62
+        } else {
+            point_size
+        };
+        if character == '\n' || (cursor_x > x && cursor_x + advance.round() as i32 > max_x) {
+            cursor_x = x;
+            baseline_y += line_height;
+            if character == '\n' {
+                continue;
+            }
+        }
+        let Some((font, glyph_id)) = fonts.iter().find_map(|font| {
+            font.glyph_for_char(character)
+                .map(|glyph_id| (font, glyph_id))
+        }) else {
+            cursor_x += advance.round() as i32;
+            continue;
+        };
+        let Ok(bounds) = font.raster_bounds(
+            glyph_id,
+            point_size,
+            Transform2F::default(),
+            HintingOptions::None,
+            RasterizationOptions::GrayscaleAa,
+        ) else {
+            cursor_x += advance.round() as i32;
+            continue;
+        };
+        if bounds.width() > 0 && bounds.height() > 0 {
+            let mut glyph = Canvas::new(bounds.size(), Format::A8);
+            if font
+                .rasterize_glyph(
+                    &mut glyph,
+                    glyph_id,
+                    point_size,
+                    Transform2F::from_translation(-bounds.origin().to_f32()),
+                    HintingOptions::None,
+                    RasterizationOptions::GrayscaleAa,
+                )
+                .is_ok()
+            {
+                for glyph_y in 0..bounds.height() {
+                    for glyph_x in 0..bounds.width() {
+                        let coverage =
+                            glyph.pixels[glyph_y as usize * glyph.stride + glyph_x as usize];
+                        if coverage == 0 {
+                            continue;
+                        }
+                        let mut pixel = color;
+                        pixel[3] = ((pixel[3] as u16 * coverage as u16) / 255) as u8;
+                        blend_pixel(
+                            canvas,
+                            cursor_x + bounds.origin_x() + glyph_x,
+                            baseline_y + bounds.origin_y() + glyph_y,
+                            pixel,
+                        );
+                    }
+                }
+            }
+        }
+        cursor_x += advance.round() as i32;
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_annotation_fonts(requested_family: Option<&str>) -> Vec<Font> {
+    let source = SystemSource::new();
+    let mut families = Vec::new();
+    if let Some(family) = requested_family
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        families.push(family.to_string());
+    }
+    families.extend([
+        "PingFang SC".to_string(),
+        "Microsoft YaHei".to_string(),
+        "Noto Sans CJK SC".to_string(),
+        "Arial".to_string(),
+    ]);
+    families
+        .into_iter()
+        .filter_map(|family| {
+            source
+                .select_family_by_name(&family)
+                .ok()?
+                .fonts()
+                .first()?
+                .load()
+                .ok()
+        })
+        .collect()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn draw_annotation_text(
+    _canvas: &mut RgbaImage,
+    _item: &Value,
+    _x: i32,
+    _y: i32,
+    _width: i32,
+    _scale_x: f64,
+    _scale_y: f64,
+    _color: Rgba<u8>,
+) {
 }
 
 fn annotation_bounds(item: &Value, scale_x: f64, scale_y: f64) -> (i32, i32, i32, i32) {
@@ -2014,6 +2165,27 @@ mod tests {
         )
         .unwrap();
         assert_ne!(annotated.data_base64, normalized.data_base64);
+        let text_a = r#"{"version":1,"image":{"width":3200,"height":1600},"items":[{"id":"t","type":"text","x":10,"y":10,"width":400,"height":80,"fontSize":40,"text":"ABC"}]}"#;
+        let text_b = text_a.replace("ABC", "XYZ");
+        let text_a_signature = image_target_signature(&path_text, Some(text_a)).unwrap();
+        let text_b_signature = image_target_signature(&path_text, Some(&text_b)).unwrap();
+        let rendered_a = prepare_provider_image(
+            &path_text,
+            "image/png",
+            &text_a_signature,
+            Some(text_a),
+            "openai_compatible",
+        )
+        .unwrap();
+        let rendered_b = prepare_provider_image(
+            &path_text,
+            "image/png",
+            &text_b_signature,
+            Some(&text_b),
+            "openai_compatible",
+        )
+        .unwrap();
+        assert_ne!(rendered_a.data_base64, rendered_b.data_base64);
         assert!(prepare_provider_image(
             &path_text,
             "image/svg+xml",

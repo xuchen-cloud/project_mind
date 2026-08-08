@@ -1,8 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 
 import type {
-  AiEditorRewriteInput,
-  AiEditorRewriteResult,
+  AiEditorSkillInput,
+  AiEditorSkillResult,
   AiJobEnqueueInput,
   AiJobSnapshot,
   AiJobStatus,
@@ -20,7 +20,7 @@ export function aiProfileTestJobTargetKey(profileId?: number | null) {
   return `profile-test:${profileId ?? "draft"}`;
 }
 
-export function aiEditorRewriteJobTargetKey(seed: string) {
+export function aiEditorSkillJobTargetKey(seed: string) {
   return `editor-skill:${seed}`;
 }
 
@@ -96,9 +96,9 @@ export function profileTestJobInput(input: AiProfileTestInput): AiJobEnqueueInpu
   };
 }
 
-export function editorRewriteJobInput(
+export function editorSkillJobInput(
   targetKey: string,
-  input: AiEditorRewriteInput,
+  input: AiEditorSkillInput,
 ): AiJobEnqueueInput {
   return {
     kind: "editor_skill",
@@ -115,7 +115,7 @@ export function readProfileTestJobResult(job: AiJobSnapshot): AiProfileTestResul
   return job.result.testResult;
 }
 
-export function readEditorRewriteJobResult(job: AiJobSnapshot): AiEditorRewriteResult {
+export function readEditorSkillJobResult(job: AiJobSnapshot): AiEditorSkillResult {
   if (job.result?.kind !== "editor_skill") {
     throw new Error("AI editor rewrite job did not return a rewrite result");
   }

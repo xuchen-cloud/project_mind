@@ -313,7 +313,7 @@ pub struct AiCapabilityBindingRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteActionRecord {
+pub struct AiEditorSkillActionRecord {
     pub id: i64,
     pub label: String,
     pub prompt: String,
@@ -465,7 +465,7 @@ pub struct AiAnswerResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteContext {
+pub struct AiEditorSkillContext {
     pub scope: String,
     pub project_id: Option<i64>,
     pub activity_id: Option<i64>,
@@ -487,7 +487,7 @@ pub struct AiEditorImageTarget {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteResult {
+pub struct AiEditorSkillResult {
     pub skill_id: Option<String>,
     pub result_mode: String,
     pub content: String,
@@ -544,7 +544,7 @@ pub enum AiJobResult {
         test_result: AiProfileTestResult,
     },
     #[serde(rename = "editor_skill")]
-    EditorSkill { rewrite: AiEditorRewriteResult },
+    EditorSkill { rewrite: AiEditorSkillResult },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1151,7 +1151,7 @@ pub struct DocumentDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteInput {
+pub struct AiEditorSkillInput {
     pub skill_id: Option<String>,
     pub skill_name: Option<String>,
     pub prompt: Option<String>,
@@ -1165,7 +1165,7 @@ pub struct AiEditorRewriteInput {
     #[serde(default)]
     pub placeholder_tokens: Vec<String>,
     pub document_context: Option<String>,
-    pub context: Option<AiEditorRewriteContext>,
+    pub context: Option<AiEditorSkillContext>,
     #[serde(default)]
     pub target_type: Option<String>,
     pub image_target: Option<AiEditorImageTarget>,
@@ -1201,7 +1201,7 @@ pub enum AiJobEnqueueInput {
     EditorSkill {
         #[serde(rename = "targetKey", alias = "target_key")]
         target_key: String,
-        input: AiEditorRewriteInput,
+        input: AiEditorSkillInput,
     },
 }
 
@@ -1271,7 +1271,7 @@ pub struct AiCapabilityBindingUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteActionUpsertInput {
+pub struct AiEditorSkillActionUpsertInput {
     pub id: Option<i64>,
     pub label: String,
     pub prompt: String,
@@ -1280,7 +1280,7 @@ pub struct AiEditorRewriteActionUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorRewriteActionDeleteInput {
+pub struct AiEditorSkillActionDeleteInput {
     pub action_id: i64,
 }
 

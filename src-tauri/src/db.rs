@@ -18,10 +18,9 @@ use crate::{
         ActivityCreateInput, ActivityDigest, ActivityStatusOption, ActivityStatusOptionUpsertInput,
         ActivityUpdateMetaInput, AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
         AiArtifactCitationRecord, AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord,
-        AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput,
-        AiEditorRewriteActionDeleteInput, AiEditorRewriteActionRecord,
-        AiEditorRewriteActionUpsertInput, AiEditorRewriteInput, AiEditorRewriteResult,
-        AiEditorSkillDeleteInput, AiEditorSkillRecord, AiEditorSkillReorderInput,
+        AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput, AiEditorSkillActionDeleteInput,
+        AiEditorSkillActionRecord, AiEditorSkillActionUpsertInput, AiEditorSkillDeleteInput,
+        AiEditorSkillInput, AiEditorSkillRecord, AiEditorSkillReorderInput, AiEditorSkillResult,
         AiEditorSkillUpsertInput, AiExecutionSettings, AiFeatureSettings, AiJobEnqueueInput,
         AiJobResult, AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
         AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot,
@@ -127,6 +126,25 @@ const TODO_PRIORITY_URGENCY_KEYWORDS: [&str; 19] = [
     "today",
     "tomorrow",
 ];
+
+#[derive(Clone, Copy)]
+enum AiDefaultRole {
+    General,
+    Image,
+}
+
+impl AiDefaultRole {
+    fn capability(self) -> &'static str {
+        match self {
+            Self::General => "default",
+            Self::Image => "image_default",
+        }
+    }
+
+    fn requires_image(self) -> bool {
+        matches!(self, Self::Image)
+    }
+}
 const TODO_PRIORITY_IMPORTANCE_KEYWORDS: [&str; 20] = [
     "预算", "合同", "法务", "审批", "客户", "上线", "发布", "交付", "回款", "付款", "风险", "合规",
     "方案", "决策", "评审", "blocking", "blocker", "launch", "release", "legal",
@@ -1023,19 +1041,21 @@ impl Database {
             .ok_or_else(|| anyhow!("workspace secrets are locked"))
     }
 
-    fn has_usable_profile_for_capability(&self, capability: &str) -> Result<bool> {
-        let default_binding = self.ai_binding_record("default")?;
-        let binding = if capability == "default" {
-            default_binding.clone()
-        } else {
-            self.ai_binding_record(capability)?
-        };
-
-        let effective_binding = if capability != "default" && binding.use_default {
-            default_binding
+    fn effective_default_binding(&self, role: AiDefaultRole) -> Result<AiCapabilityBindingRecord> {
+        let general = self.ai_binding_record(AiDefaultRole::General.capability())?;
+        if matches!(role, AiDefaultRole::General) {
+            return Ok(general);
+        }
+        let binding = self.ai_binding_record(role.capability())?;
+        Ok(if binding.use_default {
+            general
         } else {
             binding
-        };
+        })
+    }
+
+    fn has_usable_default_role(&self, role: AiDefaultRole) -> Result<bool> {
+        let effective_binding = self.effective_default_binding(role)?;
 
         let Some(profile_id) = effective_binding.profile_id else {
             return Ok(false);
@@ -1043,7 +1063,7 @@ impl Database {
         let profile = self.ai_profile_storage(profile_id)?;
         if !profile.enabled
             || !profile.supports_text
-            || (capability == "image_default" && !profile.supports_image)
+            || (role.requires_image() && !profile.supports_image)
         {
             return Ok(false);
         }
@@ -3164,10 +3184,10 @@ impl Database {
             default_ai_execution_settings()
         });
         let has_usable_default = self
-            .has_usable_profile_for_capability("default")
+            .has_usable_default_role(AiDefaultRole::General)
             .unwrap_or(false);
         let has_usable_image_default = self
-            .has_usable_profile_for_capability("image_default")
+            .has_usable_default_role(AiDefaultRole::Image)
             .unwrap_or(false);
 
         Ok(AiSettingsSnapshot {
@@ -3438,7 +3458,7 @@ impl Database {
         self.ai_editor_skills_get()
     }
 
-    pub fn ai_editor_rewrite_actions_get(&mut self) -> Result<Vec<AiEditorRewriteActionRecord>> {
+    pub fn ai_editor_rewrite_actions_get(&mut self) -> Result<Vec<AiEditorSkillActionRecord>> {
         let stored = self
             .conn
             .query_row(
@@ -3449,7 +3469,7 @@ impl Database {
             .optional()?;
 
         let mut actions = if let Some(value_json) = stored {
-            serde_json::from_str::<Vec<AiEditorRewriteActionRecord>>(&value_json)
+            serde_json::from_str::<Vec<AiEditorSkillActionRecord>>(&value_json)
                 .context("failed to parse AI editor rewrite actions")?
         } else {
             Vec::new()
@@ -3470,8 +3490,8 @@ impl Database {
 
     pub fn ai_editor_rewrite_action_upsert(
         &mut self,
-        input: AiEditorRewriteActionUpsertInput,
-    ) -> Result<AiEditorRewriteActionRecord> {
+        input: AiEditorSkillActionUpsertInput,
+    ) -> Result<AiEditorSkillActionRecord> {
         validate_ai_editor_rewrite_action_fields(&input.label, &input.prompt)?;
 
         let mut actions = self.ai_editor_rewrite_actions_get()?;
@@ -3495,7 +3515,7 @@ impl Database {
                 ));
             }
             let next_id = actions.iter().map(|action| action.id).max().unwrap_or(0) + 1;
-            let action = AiEditorRewriteActionRecord {
+            let action = AiEditorSkillActionRecord {
                 id: next_id,
                 label: input.label.trim().to_string(),
                 prompt: input.prompt.trim().to_string(),
@@ -3513,8 +3533,8 @@ impl Database {
 
     pub fn ai_editor_rewrite_action_delete(
         &mut self,
-        input: AiEditorRewriteActionDeleteInput,
-    ) -> Result<Vec<AiEditorRewriteActionRecord>> {
+        input: AiEditorSkillActionDeleteInput,
+    ) -> Result<Vec<AiEditorSkillActionRecord>> {
         let mut actions = self.ai_editor_rewrite_actions_get()?;
         let initial_len = actions.len();
         actions.retain(|action| action.id != input.action_id);
@@ -3528,7 +3548,7 @@ impl Database {
 
     fn persist_ai_editor_rewrite_actions(
         &mut self,
-        actions: &[AiEditorRewriteActionRecord],
+        actions: &[AiEditorSkillActionRecord],
     ) -> Result<()> {
         let value_json = serde_json::to_string(actions)?;
         let now = now_iso();
@@ -4075,13 +4095,13 @@ impl Database {
         self.ai_binding_record(input.capability.trim())
     }
 
-    pub fn ai_editor_rewrite(
+    pub fn ai_editor_skill_execute(
         &mut self,
-        input: AiEditorRewriteInput,
+        input: AiEditorSkillInput,
         mut on_stream: impl FnMut(String),
-    ) -> Result<AiEditorRewriteResult> {
+    ) -> Result<AiEditorSkillResult> {
         self.ensure_ai_capability_enabled("editor_rewrite")?;
-        let result_mode = normalize_ai_editor_rewrite_result_mode(&input.result_mode)?;
+        let result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
         let skill_id = input
             .skill_id
             .as_deref()
@@ -4174,22 +4194,22 @@ impl Database {
             provider_image.as_ref(),
             |stream_text| on_stream(stream_text),
         )?;
-        let content = normalize_ai_editor_rewrite_markdown(&payload.content);
+        let content = normalize_ai_editor_skill_markdown(&payload.content);
         let replacement_markdown = payload
             .replacement_markdown
             .as_deref()
-            .map(normalize_ai_editor_rewrite_markdown)
+            .map(normalize_ai_editor_skill_markdown)
             .filter(|value| !value.is_empty());
         let answer_markdown = payload
             .answer_markdown
             .as_deref()
-            .map(normalize_ai_editor_rewrite_markdown)
+            .map(normalize_ai_editor_skill_markdown)
             .filter(|value| !value.is_empty());
         if let Some(replacement) = replacement_markdown.as_deref() {
             validate_rewrite_placeholder_tokens(replacement, &input.placeholder_tokens)?;
         }
 
-        Ok(AiEditorRewriteResult {
+        Ok(AiEditorSkillResult {
             skill_id,
             result_mode,
             content,
@@ -4213,7 +4233,7 @@ impl Database {
             }
             AiJobEnqueueInput::EditorSkill { input, .. } => {
                 let rewrite =
-                    self.ai_editor_rewrite(input, |stream_text| on_stream(stream_text))?;
+                    self.ai_editor_skill_execute(input, |stream_text| on_stream(stream_text))?;
                 Ok(AiJobResult::EditorSkill { rewrite })
             }
         }
@@ -7705,19 +7725,9 @@ impl Database {
         )
     }
 
-    fn resolve_profile_for_capability(&self, capability: &str) -> Result<ResolvedAiProfile> {
-        let default_binding = self.ai_binding_record("default")?;
-        let binding = if capability == "default" {
-            default_binding.clone()
-        } else {
-            self.ai_binding_record(capability)?
-        };
-
-        let effective_binding = if capability != "default" && binding.use_default {
-            default_binding
-        } else {
-            binding
-        };
+    fn resolve_default_role(&self, role: AiDefaultRole) -> Result<ResolvedAiProfile> {
+        let capability = role.capability();
+        let effective_binding = self.effective_default_binding(role)?;
 
         let profile_id = effective_binding
             .profile_id
@@ -7729,7 +7739,7 @@ impl Database {
                 capability
             ));
         }
-        if capability == "image_default" && !profile.supports_image {
+        if role.requires_image() && !profile.supports_image {
             return Err(anyhow!("AI image default profile does not support images"));
         }
 
@@ -7782,9 +7792,13 @@ impl Database {
             }
         }
 
-        let role = if is_image { "image_default" } else { "default" };
+        let role = if is_image {
+            AiDefaultRole::Image
+        } else {
+            AiDefaultRole::General
+        };
         Ok((
-            self.resolve_profile_for_capability(role)?,
+            self.resolve_default_role(role)?,
             override_profile_id.is_some(),
         ))
     }
@@ -12230,7 +12244,7 @@ mod tests {
     fn ai_editor_skills_migrate_legacy_rewrite_actions() {
         let (_harness, mut database) = setup_database();
         let action = database
-            .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
+            .ai_editor_rewrite_action_upsert(AiEditorSkillActionUpsertInput {
                 id: None,
                 label: "旧动作".to_string(),
                 prompt: "请改写当前选区".to_string(),
@@ -12253,7 +12267,7 @@ mod tests {
     fn image_interpretation_settings_seed_ocr_and_keep_legacy_skills_out_of_image_menu() {
         let (_harness, mut database) = setup_database();
         let action = database
-            .ai_editor_rewrite_action_upsert(AiEditorRewriteActionUpsertInput {
+            .ai_editor_rewrite_action_upsert(AiEditorSkillActionUpsertInput {
                 id: None,
                 label: "旧动作".to_string(),
                 prompt: "请改写当前选区".to_string(),
@@ -12379,7 +12393,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_editor_rewrite_runs_modify_skill() {
+    fn ai_editor_skill_runs_modify_skill() {
         let (_harness, mut database) = setup_database();
         configure_editor_rewrite_profile(&mut database);
         let skill = database
@@ -12400,8 +12414,8 @@ mod tests {
 
         let mut streamed = Vec::new();
         let result = database
-            .ai_editor_rewrite(
-                AiEditorRewriteInput {
+            .ai_editor_skill_execute(
+                AiEditorSkillInput {
                     skill_id: Some(skill.id.clone()),
                     skill_name: Some(skill.name.clone()),
                     prompt: Some(skill.prompt.clone()),
@@ -12431,13 +12445,13 @@ mod tests {
     }
 
     #[test]
-    fn ai_editor_rewrite_runs_answer_prompt_override() {
+    fn ai_editor_skill_runs_answer_prompt_override() {
         let (_harness, mut database) = setup_database();
         configure_editor_rewrite_profile(&mut database);
 
         let result = database
-            .ai_editor_rewrite(
-                AiEditorRewriteInput {
+            .ai_editor_skill_execute(
+                AiEditorSkillInput {
                     skill_id: None,
                     skill_name: Some("解释".to_string()),
                     prompt: Some("请解释这段话".to_string()),
@@ -12462,13 +12476,13 @@ mod tests {
     }
 
     #[test]
-    fn ai_editor_rewrite_auto_can_return_a_replacement_and_answer() {
+    fn ai_editor_skill_auto_can_return_a_replacement_and_answer() {
         let (_harness, mut database) = setup_database();
         configure_editor_rewrite_profile(&mut database);
 
         let result = database
-            .ai_editor_rewrite(
-                AiEditorRewriteInput {
+            .ai_editor_skill_execute(
+                AiEditorSkillInput {
                     skill_id: None,
                     skill_name: Some("AI 编辑".to_string()),
                     prompt: Some("请润色并解释修改原因".to_string()),
@@ -12493,7 +12507,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_editor_rewrite_placeholder_validator_rejects_missing_tokens() {
+    fn ai_editor_skill_placeholder_validator_rejects_missing_tokens() {
         let error = validate_rewrite_placeholder_tokens(
             "第一段\n\n第二段",
             &["PM_TOKEN_IMAGE_1".to_string()],
@@ -17402,13 +17416,6 @@ fn normalize_ai_editor_skill_result_mode(value: &str) -> Result<String> {
     }
 }
 
-fn normalize_ai_editor_rewrite_result_mode(value: &str) -> Result<String> {
-    match value.trim() {
-        "auto" => Ok("auto".to_string()),
-        _ => normalize_ai_editor_skill_result_mode(value),
-    }
-}
-
 fn validate_ai_editor_skill(skill: &AiEditorSkillRecord) -> Result<()> {
     if skill.id.trim().is_empty() {
         return Err(anyhow!("AI editor skill id cannot be empty"));
@@ -17470,7 +17477,7 @@ fn validate_ai_editor_skill_fields(
     Ok(())
 }
 
-fn normalize_ai_editor_rewrite_markdown(value: &str) -> String {
+fn normalize_ai_editor_skill_markdown(value: &str) -> String {
     let trimmed = value.trim();
 
     if let Some(stripped) = trimmed.strip_prefix("```") {
