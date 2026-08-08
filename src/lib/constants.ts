@@ -43,8 +43,8 @@ export const AI_PROVIDER_FAMILY_OPTIONS = [
 ] as const;
 
 export const AI_CAPABILITY_OPTIONS = [
-  { value: "default", label: "全局默认" },
-  { value: "editor_rewrite", label: "编辑 AI" },
+  { value: "default", label: "通用默认模型" },
+  { value: "image_default", label: "图片默认模型" },
 ] as const;
 
 export const FILE_TAG_COLOR_OPTIONS: Array<{

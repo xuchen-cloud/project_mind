@@ -213,9 +213,9 @@ export interface ActivityDigest {
 
 export type AiJobKind =
   | "profile_test"
-  | "editor_rewrite";
+  | "editor_skill";
 
-export type AiJobStatus = "queued" | "running" | "succeeded" | "failed";
+export type AiJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface AiExecutionSettings {
   maxConcurrency: 1 | 2 | 3 | 4;
@@ -237,10 +237,12 @@ export interface AiEditorRewriteResult {
   replacementMarkdown?: string | null;
   answerMarkdown?: string | null;
   resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback: boolean;
 }
 
 export interface AiEditorRewriteJobResult extends AiJobBase {
-  kind: "editor_rewrite";
+  kind: "editor_skill";
   rewrite: AiEditorRewriteResult;
 }
 
@@ -287,10 +289,12 @@ export interface AiEditorRewriteInput {
   placeholderTokens?: string[];
   documentContext?: string | null;
   context?: AiEditorRewriteContext;
+  targetType?: "text" | "image";
+  imageTarget?: AiEditorImageTarget | null;
 }
 
 export interface AiEditorRewriteJobInput {
-  kind: "editor_rewrite";
+  kind: "editor_skill";
   targetKey: string;
   input: AiEditorRewriteInput;
 }
@@ -682,8 +686,8 @@ export interface DocumentDeleteInput {
   documentId: number;
 }
 
-export type AiEditorSkillResultMode = "modify" | "answer";
-export type AiEditorRewriteResultMode = AiEditorSkillResultMode | "auto";
+export type AiEditorSkillResultMode = "modify" | "answer" | "auto";
+export type AiEditorRewriteResultMode = AiEditorSkillResultMode;
 
 export interface AiEditorSkillRecord {
   id: string;
@@ -693,6 +697,8 @@ export interface AiEditorSkillRecord {
   prompt: string;
   resultMode: AiEditorSkillResultMode;
   showInTextMenu: boolean;
+  showInImageMenu: boolean;
+  profileId?: number | null;
   sortOrder: number;
   enabled: boolean;
   createdAt: string;
@@ -706,7 +712,7 @@ export type AiProviderFamily =
 
 export type AiCapability =
   | "default"
-  | "editor_rewrite";
+  | "image_default";
 
 export interface AiProviderProfileRecord {
   id: number;
@@ -736,6 +742,7 @@ export interface AiSettingsSnapshot {
   profiles: AiProviderProfileRecord[];
   bindings: AiCapabilityBindingRecord[];
   hasUsableDefault: boolean;
+  hasUsableImageDefault: boolean;
   securityMode: string;
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
@@ -836,6 +843,7 @@ export interface AiProfileTestInput {
   supportsImage: boolean;
   supportsFile: boolean;
   enabled: boolean;
+  testImage?: boolean;
 }
 
 export interface AiProfileTestResult {
@@ -860,8 +868,19 @@ export interface AiEditorSkillUpsertInput {
   prompt: string;
   resultMode: AiEditorSkillResultMode;
   showInTextMenu: boolean;
+  showInImageMenu: boolean;
+  profileId?: number | null;
   sortOrder?: number;
   enabled: boolean;
+}
+
+export interface AiEditorImageTarget {
+  path: string;
+  mimeType: string;
+  signature: string;
+  annotationState?: string | null;
+  beforeMarkdown?: string | null;
+  afterMarkdown?: string | null;
 }
 
 export interface AiEditorSkillDeleteInput {

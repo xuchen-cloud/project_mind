@@ -954,6 +954,116 @@ describe("RichEditor images", () => {
     revealPathSpy.mockRestore();
   });
 
+  it("runs image skills from the image context menu through the unified editor skill job", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: 81,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        onSave={onSave}
+        controllerRef={controllerRef}
+        defaultHtml={'<p>前文</p><p><img src="asset:///tmp/diagram.png" data-path="/tmp/diagram.png" data-mime-type="image/png" data-annotation-state="{}" alt="架构图"></p><p>后文</p>'}
+        aiSettings={{
+          profiles: [{
+            id: 1,
+            name: "Vision",
+            providerFamily: "openai_compatible",
+            baseUrl: "https://api.example.com/v1",
+            apiKeyLast4: "1234",
+            hasStoredKey: true,
+            defaultModel: "vision-model",
+            supportsText: true,
+            supportsImage: true,
+            supportsFile: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+          bindings: [{ capability: "image_default", useDefault: false, profileId: 1, model: null, updatedAt: "" }],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "extract-image-text",
+            name: "文字提取",
+            icon: "OCR",
+            description: null,
+            prompt: "提取图片内文字",
+            resultMode: "modify",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 40, clientY: 48 });
+    await user.hover(await screen.findByRole("menuitem", { name: "AI 解读图片" }));
+    const submenu = await screen.findByRole("menu", { name: "AI 解读图片 子菜单" });
+    await user.click(within(submenu).getByRole("menuitem", { name: /文字提取/ }));
+
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    const request = enqueueSpy.mock.calls[0]?.[0];
+    expect(request?.kind).toBe("editor_skill");
+    if (request?.kind === "editor_skill") {
+      expect(request.input).toMatchObject({
+        skillId: "extract-image-text",
+        targetType: "image",
+        imageTarget: {
+          path: "/tmp/diagram.png",
+          mimeType: "image/png",
+          signature: "image-signature",
+          annotationState: "{}",
+          beforeMarkdown: expect.stringContaining("前文"),
+          afterMarkdown: expect.stringContaining("后文"),
+        },
+      });
+    }
+    useAiJobStore.getState().upsertJob({
+      id: 81,
+      kind: "editor_skill",
+      targetKey: request?.targetKey ?? "",
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "图中提取的文字",
+      result: null,
+    });
+    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).toContain("图中提取的文字"));
+    await controllerRef.current?.save({ force: true });
+    expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("图中提取的文字");
+    await user.click(await screen.findByRole("button", { name: "撤销" }));
+    await waitFor(() => expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("图中提取的文字"));
+    expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
   it("copies the original image bytes from the image context menu", async () => {
     const user = userEvent.setup();
     const write = vi.fn(async (items: Array<{ data: Record<string, Blob> }>) => items);
@@ -2848,8 +2958,8 @@ describe("RichEditor context menus", () => {
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockResolvedValue({
       id: 11,
-      kind: "editor_rewrite",
-      targetKey: "editor-rewrite:test",
+      kind: "editor_skill",
+      targetKey: "editor-skill:test",
       status: "queued",
       queuedAt: "",
       startedAt: null,
@@ -2901,8 +3011,8 @@ describe("RichEditor context menus", () => {
 
     expect(ensureSyncSpy).toHaveBeenCalled();
     const request = enqueueSpy.mock.calls[0]?.[0];
-    expect(request.kind).toBe("editor_rewrite");
-    if (request.kind !== "editor_rewrite") {
+    expect(request.kind).toBe("editor_skill");
+    if (request.kind !== "editor_skill") {
       throw new Error("expected an editor rewrite job");
     }
     expect(request.input.prompt).toBe("请翻译成英文");
@@ -2922,7 +3032,7 @@ describe("RichEditor context menus", () => {
       targetKey = input.targetKey;
       return {
         id: 61,
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         targetKey,
         status: "queued",
         queuedAt: "",
@@ -2967,10 +3077,10 @@ describe("RichEditor context menus", () => {
     await user.type(promptInput, "请润色并解释");
     fireEvent.keyDown(promptInput, { key: "Enter" });
 
-    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    await waitFor(() => expect(targetKey).toContain("editor-skill:"));
     useAiJobStore.getState().upsertJob({
       id: 61,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "running",
       queuedAt: "",
@@ -2986,7 +3096,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 61,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "succeeded",
       queuedAt: "",
@@ -2995,7 +3105,7 @@ describe("RichEditor context menus", () => {
       errorMessage: null,
       streamText: "",
       result: {
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         rewrite: {
           skillId: null,
           resultMode: "auto",
@@ -3043,7 +3153,7 @@ describe("RichEditor context menus", () => {
       targetKey = input.targetKey;
       return {
         id: 41,
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         targetKey,
         status: "queued",
         queuedAt: "",
@@ -3103,7 +3213,7 @@ describe("RichEditor context menus", () => {
     await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
 
     await waitFor(() => {
-      expect(targetKey).toContain("editor-rewrite:");
+      expect(targetKey).toContain("editor-skill:");
     });
     expect(container.querySelector("[data-ai-rewrite-protected='true']")).toBeInTheDocument();
     const rewriteWidgetHost = container.querySelector<HTMLElement>(".rich-editor__rewrite-widget-host");
@@ -3112,7 +3222,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 41,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "running",
       queuedAt: "",
@@ -3122,14 +3232,12 @@ describe("RichEditor context menus", () => {
       streamText: "a much longer rewritten paragraph",
       result: null,
     });
-
     await waitFor(() => {
       expect(screen.getByText("AI 正在处理...")).toBeInTheDocument();
     });
-
     useAiJobStore.getState().upsertJob({
       id: 41,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "succeeded",
       queuedAt: "",
@@ -3138,12 +3246,14 @@ describe("RichEditor context menus", () => {
       errorMessage: null,
       streamText: "a much longer rewritten paragraph",
       result: {
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         rewrite: {
           skillId: "polish",
           resultMode: "modify",
           content: "a much longer rewritten paragraph",
           resolvedModel: "mock-model",
+          resolvedProfileName: "Mock",
+          usedDefaultFallback: false,
         },
       },
     });
@@ -3189,7 +3299,7 @@ describe("RichEditor context menus", () => {
       targetKey = input.targetKey;
       return {
         id: 51,
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         targetKey,
         status: "queued",
         queuedAt: "",
@@ -3245,17 +3355,17 @@ describe("RichEditor context menus", () => {
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
 
-    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    await waitFor(() => expect(targetKey).toContain("editor-skill:"));
     const enqueuedInput = enqueueSpy.mock.calls[0]?.[0];
-    expect(enqueuedInput.kind).toBe("editor_rewrite");
-    if (enqueuedInput.kind === "editor_rewrite") {
+    expect(enqueuedInput.kind).toBe("editor_skill");
+    if (enqueuedInput.kind === "editor_skill") {
       expect(enqueuedInput.input.selectedText).toBe("**hello** world");
       expect(enqueuedInput.input.expandedMarkdown).toBe("**hello** world");
       expect(enqueuedInput.input.placeholderTokens).toEqual([]);
     }
     useAiJobStore.getState().upsertJob({
       id: 51,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "running",
       queuedAt: "",
@@ -3273,7 +3383,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 51,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "succeeded",
       queuedAt: "",
@@ -3282,7 +3392,7 @@ describe("RichEditor context menus", () => {
       errorMessage: null,
       streamText: "**better wording** world",
       result: {
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         rewrite: {
           skillId: "polish",
           resultMode: "modify",
@@ -3311,7 +3421,7 @@ describe("RichEditor context menus", () => {
       targetKey = input.targetKey;
       return {
         id: 52,
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         targetKey,
         status: "queued",
         queuedAt: "",
@@ -3367,10 +3477,10 @@ describe("RichEditor context menus", () => {
     const menu = await screen.findByRole("menu", { name: "文本操作" });
     await user.click(within(menu).getByRole("menuitem", { name: "解释" }));
 
-    await waitFor(() => expect(targetKey).toContain("editor-rewrite:"));
+    await waitFor(() => expect(targetKey).toContain("editor-skill:"));
     useAiJobStore.getState().upsertJob({
       id: 52,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "running",
       queuedAt: "",
@@ -3389,7 +3499,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 52,
-      kind: "editor_rewrite",
+      kind: "editor_skill",
       targetKey,
       status: "succeeded",
       queuedAt: "",
@@ -3398,7 +3508,7 @@ describe("RichEditor context menus", () => {
       errorMessage: null,
       streamText: "## 分析\n- 第一条\n- 第二条",
       result: {
-        kind: "editor_rewrite",
+        kind: "editor_skill",
         rewrite: {
           skillId: "explain",
           resultMode: "answer",

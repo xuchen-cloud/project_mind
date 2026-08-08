@@ -980,6 +980,20 @@ fn ai_job_get(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<A
 }
 
 #[tauri::command]
+fn ai_job_cancel(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
+    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.cancel(job_id)))
+}
+
+#[tauri::command]
+fn ai_image_target_signature(
+    path: String,
+    annotation_state: Option<String>,
+) -> CommandResult<String> {
+    ai_provider::image_target_signature(&path, annotation_state.as_deref())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSnapshot>> {
     with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.list_active()))
 }
@@ -1125,6 +1139,8 @@ pub fn run() {
             ai_editor_skill_reorder,
             ai_job_enqueue,
             ai_job_get,
+            ai_job_cancel,
+            ai_image_target_signature,
             ai_jobs_list_active,
             ai_execution_settings_upsert,
             internal_reference_search,

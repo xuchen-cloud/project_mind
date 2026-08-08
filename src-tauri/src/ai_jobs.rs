@@ -105,6 +105,27 @@ impl AiJobManager {
         snapshots
     }
 
+    pub fn cancel(&self, job_id: i64) -> Option<AiJobSnapshot> {
+        let snapshot = {
+            let mut state = lock_state(&self.inner);
+            let current = state.jobs.get(&job_id)?.clone();
+            if current.status.is_terminal() {
+                return Some(current);
+            }
+            state.queued_ids.retain(|candidate| *candidate != job_id);
+            state.running_ids.remove(&job_id);
+            state.requests.remove(&job_id);
+            let snapshot = state.jobs.get_mut(&job_id)?;
+            snapshot.status = AiJobStatus::Cancelled;
+            snapshot.finished_at = Some(now_iso());
+            snapshot.error_message = None;
+            snapshot.clone()
+        };
+        self.emit(&snapshot);
+        self.try_start_jobs();
+        Some(snapshot)
+    }
+
     pub fn set_max_concurrency(&self, max_concurrency: i64) {
         {
             let mut state = lock_state(&self.inner);
@@ -175,10 +196,13 @@ impl AiJobManager {
             let Some(snapshot) = state.jobs.get_mut(&job_id) else {
                 return;
             };
+            if snapshot.status == AiJobStatus::Cancelled {
+                return;
+            }
             snapshot.status = AiJobStatus::Succeeded;
             snapshot.finished_at = Some(now_iso());
             snapshot.error_message = None;
-            if let AiJobResult::EditorRewrite { rewrite } = &result {
+            if let AiJobResult::EditorSkill { rewrite } = &result {
                 snapshot.stream_text = Some(rewrite.content.clone());
             }
             snapshot.result = Some(result);
@@ -197,6 +221,9 @@ impl AiJobManager {
             let Some(snapshot) = state.jobs.get_mut(&job_id) else {
                 return;
             };
+            if snapshot.status == AiJobStatus::Cancelled {
+                return;
+            }
             snapshot.status = AiJobStatus::Failed;
             snapshot.finished_at = Some(now_iso());
             snapshot.error_message = Some(error_message);
@@ -341,6 +368,7 @@ mod tests {
                 supports_image: false,
                 supports_file: false,
                 enabled: true,
+                test_image: false,
             },
         });
         let second = manager.enqueue(AiJobEnqueueInput::ProfileTest {
@@ -356,6 +384,7 @@ mod tests {
                 supports_image: false,
                 supports_file: false,
                 enabled: true,
+                test_image: false,
             },
         });
 

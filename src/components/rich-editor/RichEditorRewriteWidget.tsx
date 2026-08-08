@@ -18,6 +18,9 @@ interface RichEditorRewriteWidgetProps {
   onInsertAnswer: () => void;
   onClose: () => void;
   onOpenAiSettings?: () => void;
+  resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+  usedDefaultFallback?: boolean;
 }
 
 export function RichEditorRewriteWidget({
@@ -38,6 +41,9 @@ export function RichEditorRewriteWidget({
   onInsertAnswer,
   onClose,
   onOpenAiSettings,
+  resolvedModel,
+  resolvedProfileName,
+  usedDefaultFallback = false,
 }: RichEditorRewriteWidgetProps) {
   const isPending = status === "queued" || status === "running";
   const isFailed = status === "failed";
@@ -154,7 +160,10 @@ export function RichEditorRewriteWidget({
         <div className="rich-editor__rewrite-widget-card">
           <AiBadge />
           <div className="rich-editor__rewrite-widget-answer-stack">
-            <div className="rich-editor__rewrite-widget-meta">{skillName}</div>
+            <div className="rich-editor__rewrite-widget-meta">
+              {skillName}{resolvedModel ? ` · ${resolvedProfileName ? `${resolvedProfileName} / ` : ""}${resolvedModel}` : ""}
+              {usedDefaultFallback ? " · 技能模型不可用，已使用默认模型" : ""}
+            </div>
             <div
               className="rich-editor__rewrite-widget-answer rich-editor__surface"
               dangerouslySetInnerHTML={{ __html: answerHtml || "" }}
@@ -195,7 +204,11 @@ export function RichEditorRewriteWidget({
       >
         <div className="rich-editor__rewrite-widget-status">
           <AiBadge />
-          <span>{isPending ? "AI 正在修改..." : "我已完成更新。"}</span>
+          <span>
+            {isPending ? "AI 正在修改..." : "我已完成更新。"}
+            {!isPending && resolvedModel ? ` · ${resolvedProfileName ? `${resolvedProfileName} / ` : ""}${resolvedModel}` : ""}
+            {!isPending && usedDefaultFallback ? " · 已回退默认模型" : ""}
+          </span>
         </div>
         {answer ? (
           <div

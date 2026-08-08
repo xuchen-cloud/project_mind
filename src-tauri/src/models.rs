@@ -332,6 +332,10 @@ pub struct AiEditorSkillRecord {
     pub prompt: String,
     pub result_mode: String,
     pub show_in_text_menu: bool,
+    #[serde(default)]
+    pub show_in_image_menu: bool,
+    #[serde(default)]
+    pub profile_id: Option<i64>,
     pub sort_order: i64,
     pub enabled: bool,
     pub created_at: String,
@@ -344,6 +348,7 @@ pub struct AiSettingsSnapshot {
     pub profiles: Vec<AiProviderProfileRecord>,
     pub bindings: Vec<AiCapabilityBindingRecord>,
     pub has_usable_default: bool,
+    pub has_usable_image_default: bool,
     pub security_mode: String,
     pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
@@ -469,6 +474,17 @@ pub struct AiEditorRewriteContext {
     pub source_label: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiEditorImageTarget {
+    pub path: String,
+    pub mime_type: String,
+    pub signature: String,
+    pub annotation_state: Option<String>,
+    pub before_markdown: Option<String>,
+    pub after_markdown: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiEditorRewriteResult {
@@ -478,13 +494,16 @@ pub struct AiEditorRewriteResult {
     pub replacement_markdown: Option<String>,
     pub answer_markdown: Option<String>,
     pub resolved_model: Option<String>,
+    pub resolved_profile_name: Option<String>,
+    pub used_default_fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AiJobKind {
     ProfileTest,
-    EditorRewrite,
+    #[serde(rename = "editor_skill", alias = "editor_rewrite")]
+    EditorSkill,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -494,11 +513,12 @@ pub enum AiJobStatus {
     Running,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 impl AiJobStatus {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Succeeded | Self::Failed)
+        matches!(self, Self::Succeeded | Self::Failed | Self::Cancelled)
     }
 }
 
@@ -523,9 +543,8 @@ pub enum AiJobResult {
         #[serde(rename = "testResult")]
         test_result: AiProfileTestResult,
     },
-    EditorRewrite {
-        rewrite: AiEditorRewriteResult,
-    },
+    #[serde(rename = "editor_skill")]
+    EditorSkill { rewrite: AiEditorRewriteResult },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1147,6 +1166,9 @@ pub struct AiEditorRewriteInput {
     pub placeholder_tokens: Vec<String>,
     pub document_context: Option<String>,
     pub context: Option<AiEditorRewriteContext>,
+    #[serde(default)]
+    pub target_type: Option<String>,
+    pub image_target: Option<AiEditorImageTarget>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1175,7 +1197,8 @@ pub enum AiJobEnqueueInput {
         target_key: String,
         input: AiProfileTestInput,
     },
-    EditorRewrite {
+    #[serde(rename = "editor_skill", alias = "editor_rewrite")]
+    EditorSkill {
         #[serde(rename = "targetKey", alias = "target_key")]
         target_key: String,
         input: AiEditorRewriteInput,
@@ -1186,13 +1209,13 @@ impl AiJobEnqueueInput {
     pub fn kind(&self) -> AiJobKind {
         match self {
             Self::ProfileTest { .. } => AiJobKind::ProfileTest,
-            Self::EditorRewrite { .. } => AiJobKind::EditorRewrite,
+            Self::EditorSkill { .. } => AiJobKind::EditorSkill,
         }
     }
 
     pub fn target_key(&self) -> &str {
         match self {
-            Self::ProfileTest { target_key, .. } | Self::EditorRewrite { target_key, .. } => {
+            Self::ProfileTest { target_key, .. } | Self::EditorSkill { target_key, .. } => {
                 target_key
             }
         }
@@ -1233,6 +1256,8 @@ pub struct AiProfileTestInput {
     pub supports_image: bool,
     pub supports_file: bool,
     pub enabled: bool,
+    #[serde(default)]
+    pub test_image: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1269,6 +1294,9 @@ pub struct AiEditorSkillUpsertInput {
     pub prompt: String,
     pub result_mode: String,
     pub show_in_text_menu: bool,
+    #[serde(default)]
+    pub show_in_image_menu: bool,
+    pub profile_id: Option<i64>,
     pub sort_order: Option<i64>,
     pub enabled: bool,
 }
@@ -1311,7 +1339,7 @@ mod tests {
         .expect("camelCase ai job payload should deserialize");
 
         match input {
-            AiJobEnqueueInput::EditorRewrite { target_key, input } => {
+            AiJobEnqueueInput::EditorSkill { target_key, input } => {
                 assert_eq!(target_key, "editor-rewrite:test");
                 assert_eq!(input.selected_text, "hello");
                 assert_eq!(input.expanded_markdown.as_deref(), Some("hello"));

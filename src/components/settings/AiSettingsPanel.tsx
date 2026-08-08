@@ -78,6 +78,8 @@ interface EditorSkillDraft {
   prompt: string;
   resultMode: AiEditorSkillResultMode;
   showInTextMenu: boolean;
+  showInImageMenu: boolean;
+  profileId: string;
   sortOrder?: number;
   enabled: boolean;
 }
@@ -231,6 +233,7 @@ export function AiSettingsPanel({
         return {
           ...nextSnapshot,
           hasUsableDefault: isAiCapabilityConfigured(nextSnapshot, "default"),
+          hasUsableImageDefault: isAiCapabilityConfigured(nextSnapshot, "image_default"),
         };
       });
     },
@@ -405,15 +408,18 @@ export function AiSettingsPanel({
                 AI Skills
               </p>
               <p className="mt-0.5 text-body text-text-muted">
-                配置选中文本后可以调用的 AI 技能、结果模式和菜单显隐。
+                配置文本与图片可调用的 AI 技能、结果模式、模型覆盖和菜单显隐。
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5">
               <StatusBadge tone={editorSkills.length >= EDITOR_SKILL_LIMIT ? "warning" : "neutral"}>
                 {editorSkills.length}/{EDITOR_SKILL_LIMIT} 个技能
               </StatusBadge>
-              <StatusBadge tone={isAiCapabilityConfigured(snapshot, "editor_rewrite") ? "success" : "warning"}>
-                {isAiCapabilityConfigured(snapshot, "editor_rewrite") ? "模型已就绪" : "模型待配置"}
+              <StatusBadge tone={isAiCapabilityConfigured(snapshot, "default") ? "success" : "warning"}>
+                {isAiCapabilityConfigured(snapshot, "default") ? "通用模型已就绪" : "通用模型待配置"}
+              </StatusBadge>
+              <StatusBadge tone={isAiCapabilityConfigured(snapshot, "image_default") ? "success" : "warning"}>
+                {isAiCapabilityConfigured(snapshot, "image_default") ? "图片模型已就绪" : "图片模型待配置"}
               </StatusBadge>
             </div>
           </div>
@@ -426,7 +432,7 @@ export function AiSettingsPanel({
             actions={
               <div className="flex flex-wrap items-center gap-1.5">
                 <StatusBadge tone={editorSkillsBusy ? "warning" : "neutral"}>
-                  {editorSkillsBusy ? "保存中" : "同步到文本菜单"}
+                  {editorSkillsBusy ? "保存中" : "同步到文本 / 图片菜单"}
                 </StatusBadge>
                 <Button
                   type="button"
@@ -450,10 +456,10 @@ export function AiSettingsPanel({
 
           <div className="mt-3 grid gap-2.5">
             <p className="text-body text-text-muted">
-              用户选中文本后，右键即可调用启用并显示在文本菜单中的技能。交互由结果模式决定，而不是技能名称。
+              用户选中文本或右键图片后，即可调用对应菜单中启用的技能。交互由结果模式决定，而不是技能名称。
             </p>
             <p className="text-ui text-text-soft">
-              修改原文会先进入预览，生成回答会展示卡片；禁用技能不会出现在文本菜单中。
+              修改内容会先进入临时预览，生成回答会展示卡片；未接受的预览不会持久化。
             </p>
 
             {!canCreateSkill && !isCreatingSkill ? (
@@ -469,6 +475,7 @@ export function AiSettingsPanel({
                 draft={skillDraft}
                 setDraft={setSkillDraft}
                 busy={editorSkillsBusy}
+                profiles={snapshot.profiles}
                 autoFocusName
                 onSave={() => saveEditorSkillMutation.mutate(toEditorSkillInput(skillDraft))}
                 onCancel={closeCreateSkill}
@@ -482,6 +489,7 @@ export function AiSettingsPanel({
                     key={skill.id}
                     skill={skill}
                     busy={editorSkillsBusy}
+                    profiles={snapshot.profiles}
                     canMoveUp={index > 0}
                     canMoveDown={index < editorSkills.length - 1}
                     onSave={(input) => saveEditorSkillMutation.mutate(input)}
@@ -608,6 +616,13 @@ export function AiSettingsPanel({
                     apiKey: profileDraft.apiKey?.trim() || undefined,
                   })
                 }
+                onTestImage={() =>
+                  testProfileMutation.mutate({
+                    ...profileDraft,
+                    apiKey: profileDraft.apiKey?.trim() || undefined,
+                    testImage: true,
+                  })
+                }
               />
             </div>
           </div>
@@ -640,6 +655,13 @@ export function AiSettingsPanel({
                   testProfileMutation.mutate({
                     ...profileDraft,
                     apiKey: profileDraft.apiKey?.trim() || undefined,
+                  })
+                }
+                onTestImage={() =>
+                  testProfileMutation.mutate({
+                    ...profileDraft,
+                    apiKey: profileDraft.apiKey?.trim() || undefined,
+                    testImage: true,
                   })
                 }
                 onDelete={() => deleteProfileMutation.mutate({ profileId: profile.id })}
@@ -729,6 +751,7 @@ function AiProfileRow({
   onCollapse,
   onSave,
   onTest,
+  onTestImage,
   onDelete,
 }: {
   profile: AiProviderProfileRecord;
@@ -745,6 +768,7 @@ function AiProfileRow({
   onCollapse: () => void;
   onSave: () => void;
   onTest: () => void;
+  onTestImage: () => void;
   onDelete: () => void;
 }) {
   const capabilitySummary = formatProfileCapabilitySummary(profile);
@@ -795,6 +819,7 @@ function AiProfileRow({
             testResult={testResult}
             onSave={onSave}
             onTest={onTest}
+            onTestImage={onTestImage}
             onDelete={onDelete}
           />
         </div>
@@ -815,6 +840,7 @@ function AiProfileEditorFields({
   testResult,
   onSave,
   onTest,
+  onTestImage,
   onDelete,
   autoFocusName = false,
 }: {
@@ -829,6 +855,7 @@ function AiProfileEditorFields({
   testResult: AiProfileTestResult | null;
   onSave: () => void;
   onTest: () => void;
+  onTestImage: () => void;
   onDelete?: () => void;
   autoFocusName?: boolean;
 }) {
@@ -963,6 +990,12 @@ function AiProfileEditorFields({
         />
       </div>
 
+      {draft.supportsImage ? (
+        <p className="mt-2 text-ui text-text-soft">
+          使用图片能力时，原图像素、可见标注和附近文本会发送到所选外部 Provider；图片宽度样式不会影响发送内容。
+        </p>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
         <Button
           type="button"
@@ -972,6 +1005,15 @@ function AiProfileEditorFields({
           onClick={onSave}
         >
           {savePending ? "保存中..." : "保存"}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={profileTestJobActive || actionsDisabled || !draft.supportsImage || !draft.supportsText}
+          onClick={onTestImage}
+        >
+          测试图片能力（会产生调用）
         </Button>
         <Button
           type="button"
@@ -1117,7 +1159,11 @@ function BindingRow({
             className={settingsSelectClassName}
           >
             <option value="">选择配置</option>
-            {snapshot.profiles.map((profile) => (
+            {snapshot.profiles
+              .filter((profile) =>
+                capability !== "image_default" || (profile.supportsText && profile.supportsImage),
+              )
+              .map((profile) => (
               <option key={profile.id} value={String(profile.id)}>
                 {profile.name}
               </option>
@@ -1170,14 +1216,6 @@ function buildProfileDraft(profile: AiProviderProfileRecord): AiProviderProfileU
 
 function buildBindingDraft(snapshot: AiSettingsSnapshot, capability: AiCapability): BindingDraft {
   const binding = bindingForCapability(snapshot, capability);
-  if (capability !== "default" && binding.useDefault) {
-    const defaultBinding = bindingForCapability(snapshot, "default");
-    return {
-      profileId: defaultBinding.profileId ? String(defaultBinding.profileId) : "",
-      model: defaultBinding.model ?? "",
-    };
-  }
-
   return {
     profileId: binding.profileId ? String(binding.profileId) : "",
     model: binding.model ?? "",
@@ -1271,6 +1309,8 @@ function createEditorSkillDraft(
     prompt: skill?.prompt ?? "",
     resultMode: skill?.resultMode ?? "modify",
     showInTextMenu: skill?.showInTextMenu ?? true,
+    showInImageMenu: skill?.showInImageMenu ?? false,
+    profileId: skill?.profileId ? String(skill.profileId) : "",
     sortOrder: skill?.sortOrder,
     enabled: skill?.enabled ?? true,
   };
@@ -1288,6 +1328,8 @@ function legacyRewriteActionToSkill(
     prompt: action.prompt,
     resultMode: "modify",
     showInTextMenu: true,
+    showInImageMenu: false,
+    profileId: null,
     sortOrder: index + 1,
     enabled: action.enabled,
     createdAt: action.createdAt,
@@ -1304,6 +1346,8 @@ function toEditorSkillInput(draft: EditorSkillDraft): AiEditorSkillUpsertInput {
     prompt: draft.prompt,
     resultMode: draft.resultMode,
     showInTextMenu: draft.showInTextMenu,
+    showInImageMenu: draft.showInImageMenu,
+    profileId: draft.profileId ? Number(draft.profileId) : null,
     sortOrder: draft.sortOrder,
     enabled: draft.enabled,
   };
@@ -1344,6 +1388,7 @@ function moveEditorSkill(
 function EditorSkillRow({
   skill,
   busy,
+  profiles,
   canMoveUp,
   canMoveDown,
   onSave,
@@ -1352,6 +1397,7 @@ function EditorSkillRow({
 }: {
   skill: AiEditorSkillRecord;
   busy: boolean;
+  profiles: AiProviderProfileRecord[];
   canMoveUp: boolean;
   canMoveDown: boolean;
   onSave: (input: AiEditorSkillUpsertInput) => void;
@@ -1386,7 +1432,7 @@ function EditorSkillRow({
             </span>
             <p className="truncate text-body font-medium text-text">{skill.name}</p>
             <StatusBadge tone={skill.resultMode === "modify" ? "neutral" : "success"}>
-              {skill.resultMode === "modify" ? "修改原文" : "生成回答"}
+              {skill.resultMode === "modify" ? "修改内容" : skill.resultMode === "answer" ? "生成回答" : "自动判断"}
             </StatusBadge>
             <StatusBadge tone={skill.enabled ? "success" : "warning"}>
               {skill.enabled ? "启用" : "停用"}
@@ -1394,6 +1440,7 @@ function EditorSkillRow({
             <StatusBadge tone={skill.showInTextMenu ? "neutral" : "warning"}>
               {skill.showInTextMenu ? "文本菜单" : "已隐藏"}
             </StatusBadge>
+            {skill.showInImageMenu ? <StatusBadge tone="neutral">图片菜单</StatusBadge> : null}
           </div>
           <p className="mt-1 line-clamp-2 text-ui text-text-soft">
             {skill.description?.trim() || skill.prompt}
@@ -1441,6 +1488,7 @@ function EditorSkillRow({
             draft={draft}
             setDraft={setDraft}
             busy={busy}
+            profiles={profiles}
             onSave={() =>
               onSave({
                 ...toEditorSkillInput(draft),
@@ -1460,6 +1508,7 @@ function EditorSkillEditor({
   draft,
   setDraft,
   busy,
+  profiles,
   onSave,
   onCancel,
   onDelete,
@@ -1468,6 +1517,7 @@ function EditorSkillEditor({
   draft: EditorSkillDraft;
   setDraft: Dispatch<SetStateAction<EditorSkillDraft>>;
   busy: boolean;
+  profiles: AiProviderProfileRecord[];
   onSave: () => void;
   onCancel?: () => void;
   onDelete?: () => void;
@@ -1530,7 +1580,7 @@ function EditorSkillEditor({
             placeholder="比如：请保持原意，把这段文字翻译成自然、专业的英文。"
           />
           <span className={settingsFieldHintClassName}>
-            这里只写技能意图即可，系统会自动注入选中文本，并按结果模式约束 AI 输出。
+            这里只写技能意图即可；文本、图片像素、图片内文字、标注与上下文会作为不可信数据单独注入。
           </span>
         </label>
       </div>
@@ -1550,6 +1600,7 @@ function EditorSkillEditor({
         >
           <option value="modify">修改原文</option>
           <option value="answer">生成回答</option>
+          <option value="auto">自动决定</option>
         </select>
         <TogglePill
           label={draft.enabled ? "启用" : "停用"}
@@ -1560,6 +1611,35 @@ function EditorSkillEditor({
             setDraft((current) => ({ ...current, enabled: checked }))
           }
         />
+        <TogglePill
+          label={draft.showInImageMenu ? "显示在图片菜单" : "从图片菜单隐藏"}
+          ariaLabel="AI 技能图片菜单显示开关"
+          checked={draft.showInImageMenu}
+          disabled={busy}
+          onChange={(checked) =>
+            setDraft((current) => ({ ...current, showInImageMenu: checked }))
+          }
+        />
+        <label className={settingsFieldClassName}>
+          <span className={settingsFieldLabelClassName}>Skill 模型</span>
+          <select
+            value={draft.profileId}
+            disabled={busy}
+            className={settingsSelectClassName}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, profileId: event.target.value }))
+            }
+          >
+            <option value="">使用默认模型</option>
+            {profiles
+              .filter((profile) =>
+                profile.enabled && profile.supportsText && (!draft.showInImageMenu || profile.supportsImage),
+              )
+              .map((profile) => (
+                <option key={profile.id} value={String(profile.id)}>{profile.name}</option>
+              ))}
+          </select>
+        </label>
         <TogglePill
           label={draft.showInTextMenu ? "显示在文本菜单" : "从文本菜单隐藏"}
           ariaLabel="AI 技能文本菜单显示开关"
