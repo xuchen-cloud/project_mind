@@ -49,8 +49,9 @@ use models::{
     WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use record_export::{
-    desktop_export_available_bytes, desktop_export_path_exists, desktop_next_available_export_path,
-    desktop_resolve_export_image, desktop_write_export_file,
+    desktop_cancel_export_image, desktop_cancel_export_write, desktop_export_available_bytes,
+    desktop_export_path_exists, desktop_next_available_export_path, desktop_resolve_export_image,
+    desktop_write_export_file,
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
@@ -1079,10 +1080,12 @@ pub fn run() {
             desktop_reveal_in_explorer,
             desktop_read_file_as_data_url,
             desktop_resolve_export_image,
+            desktop_cancel_export_image,
             desktop_export_available_bytes,
             desktop_export_path_exists,
             desktop_next_available_export_path,
             desktop_write_export_file,
+            desktop_cancel_export_write,
             desktop_read_clipboard_html,
             desktop_generate_image_thumbnail,
             desktop_list_system_font_families,

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { MemoryRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { act, render as baseRender, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render as baseRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,10 @@ const noteImageAssetMocks = vi.hoisted(() => ({
   externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
 }));
 
+const recordExportMocks = vi.hoisted(() => ({
+  sources: [] as Array<{ committedHtml: string; recordKind: string }>,
+}));
+
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   projectPageGet: vi.fn(),
@@ -32,6 +36,22 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: apiMocks,
+}));
+
+vi.mock("../../features/record-export/desktopRecordExportPlatform", () => ({
+  createDesktopRecordExporter: (saveCommittedContent: () => Promise<{ committedHtml: string; recordKind: string }>) =>
+    async () => {
+      recordExportMocks.sources.push(await saveCommittedContent());
+      return { kind: "success", path: "/tmp/export.docx", warnings: [], fontSubstituted: false };
+    },
+}));
+
+vi.mock("../../features/record-export/RecordExportAction", () => ({
+  RecordExportAction: ({ exportTo }: { exportTo: (request: object) => Promise<unknown> }) => (
+    <button type="button" onClick={() => void exportTo({ format: "docx", targetPath: "/tmp/export.docx" })}>
+      测试导出
+    </button>
+  ),
 }));
 
 vi.mock("../../hooks/useContactMentionOptions", () => ({
@@ -79,6 +99,7 @@ vi.mock("../rich-editor", () => ({
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
+        getCommittedValue: () => { html: string; text: string; markdown: string };
         focus: (position?: "start" | "end" | number) => void;
         save: () => Promise<unknown>;
       } | null;
@@ -95,8 +116,9 @@ vi.mock("../rich-editor", () => ({
 
       controllerRef.current = {
         getValue: () => buildMockRichValue(valueRef.current),
+        getCommittedValue: () => buildMockRichValue(valueRef.current.replace("[AI preview]", "")),
         focus: richEditorMocks.focus,
-        save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current)) ?? Promise.resolve()),
+        save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current.replace("[AI preview]", ""))) ?? Promise.resolve()),
       };
 
       return () => {
@@ -211,6 +233,7 @@ function FocusSwitchHarness() {
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
     currentNote = { ...baseNote, tags: [] };
+    recordExportMocks.sources.length = 0;
     richEditorMocks.focus.mockReset();
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     apiMocks.projectsList.mockReset();
@@ -242,6 +265,30 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       };
       return currentNote;
     });
+  });
+
+  it("awaits an in-flight save and exports ordinary edits without pending AI preview", async () => {
+    const user = userEvent.setup();
+    let finishSave: ((value: NoteRecord) => void) | undefined;
+    apiMocks.projectRecordUpsert.mockImplementationOnce(() => new Promise<NoteRecord>((resolve) => {
+      finishSave = resolve;
+    }));
+    render(<ProjectNoteFocusPage />);
+
+    const editor = await screen.findByLabelText("正文编辑器");
+    await user.clear(editor);
+    fireEvent.change(editor, { target: { value: "未保存普通编辑[AI preview]" } });
+    await user.click(screen.getByRole("button", { name: "测试导出" }));
+
+    await waitFor(() => expect(apiMocks.projectRecordUpsert).toHaveBeenCalled());
+    expect(recordExportMocks.sources).toHaveLength(0);
+    finishSave?.({ ...currentNote, contentHtml: "<p>未保存普通编辑</p>" });
+    await waitFor(() => expect(recordExportMocks.sources).toHaveLength(1));
+    expect(recordExportMocks.sources[0]).toMatchObject({
+      recordKind: "project",
+      committedHtml: "<p>未保存普通编辑</p>",
+    });
+    expect(recordExportMocks.sources[0]?.committedHtml).not.toContain("AI preview");
   });
 
   it("saves the title with Tab and focuses the tag input", async () => {

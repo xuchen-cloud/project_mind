@@ -13,7 +13,7 @@ export interface RecordExportPlatform {
     signal?: AbortSignal,
   ) => Promise<ResolvedExportImage | MissingExportImage>;
   availableBytes: (targetPath: string) => Promise<number>;
-  loadPdfFont: () => Promise<Uint8Array>;
+  loadPdfFonts: () => Promise<{ sans: Uint8Array; mono: Uint8Array }>;
   writeAtomically: (input: { targetPath: string; bytes: Uint8Array; overwrite?: boolean; signal?: AbortSignal }) => Promise<string>;
 }
 
@@ -65,19 +65,25 @@ export function createRecordExportCoordinator(platform: RecordExportPlatform) {
       if (!document.title && !document.projectName && !document.updatedAt && document.tags.length === 0 && document.blocks.every(isEmptyBlock)) {
         throw new Error("没有可导出的内容");
       }
+      const availableBeforeGeneration = await platform.availableBytes(request.targetPath);
+      const sourceBytes = new TextEncoder().encode(source.committedHtml).byteLength;
+      if (availableBeforeGeneration < Math.max(1, sourceBytes * 2)) {
+        throw new Error("可用磁盘空间不足，无法完成导出");
+      }
+      ensureNotCancelled(request.signal);
       const generated = request.format === "markdown"
-        ? await generateMarkdownOutput(document, platform, request)
+        ? await generateMarkdownOutput(document, platform, request, sourceBytes)
         : request.format === "docx"
-          ? await generateDocxOutput(document, platform, request)
-          : await generatePdfOutput(document, platform, request);
+          ? await generateDocxOutput(document, platform, request, sourceBytes)
+          : await generatePdfOutput(document, platform, request, sourceBytes);
       if (generated.missing.length > 0 && request.missingImageBehavior !== "placeholder") {
         return { kind: "missing-images", missing: generated.missing };
       }
       const { bytes } = generated;
       await validateGeneratedArtifact(bytes, request);
       ensureNotCancelled(request.signal);
-      const availableBytes = await platform.availableBytes(request.targetPath);
-      if (availableBytes < bytes.byteLength * 2) {
+      const availableAfterGeneration = await platform.availableBytes(request.targetPath);
+      if (availableAfterGeneration < bytes.byteLength * 2) {
         throw new Error("可用磁盘空间不足，无法完成导出");
       }
       ensureNotCancelled(request.signal);
@@ -131,11 +137,12 @@ async function generateMarkdownOutput(
   document: ReturnType<typeof projectRecordExportDocument>,
   platform: RecordExportPlatform,
   request: RecordExportRequest,
+  sourceBytes: number,
 ) {
   const withImages = request.includeImages && collectImages(document.blocks).length > 0;
   if (!withImages) request.onProgress?.({ stage: "generating" });
   return withImages
-    ? generateMarkdownArchive(document, platform, request)
+    ? generateMarkdownArchive(document, platform, request, sourceBytes)
     : { bytes: new TextEncoder().encode(generateMarkdown(document)), missing: [], fontSubstituted: false };
 }
 
@@ -143,27 +150,37 @@ async function generateDocxOutput(
   document: ReturnType<typeof projectRecordExportDocument>,
   platform: RecordExportPlatform,
   request: RecordExportRequest,
+  sourceBytes: number,
 ) {
   const { images, missing } = await resolveImages(document.blocks, platform, request);
+  await ensureGenerationWorkspace(platform, request.targetPath, sourceBytes, Array.from(images.values(), (image) => image.bytes));
   request.onProgress?.({ stage: "generating" });
   const { generateDocx } = await import("./docxGenerator");
-  return { bytes: await generateDocx(document, images), missing, fontSubstituted: false };
+  return { bytes: await generateDocx(document, images, request.signal), missing, fontSubstituted: false };
 }
 
 async function generatePdfOutput(
   document: ReturnType<typeof projectRecordExportDocument>,
   platform: RecordExportPlatform,
   request: RecordExportRequest,
+  sourceBytes: number,
 ) {
   const { images, missing } = await resolveImages(document.blocks, platform, request);
+  await ensureGenerationWorkspace(
+    platform,
+    request.targetPath,
+    sourceBytes,
+    Array.from(images.values(), (image) => image.bytes),
+    PDF_BUNDLED_FONT_BYTES,
+  );
   request.onProgress?.({ stage: "generating" });
   const [fontBytes, { generatePdf }] = await Promise.all([
-    platform.loadPdfFont(),
+    platform.loadPdfFonts(),
     import("./pdfGenerator"),
   ]);
   const requestedFonts = [document.style.body.fontFamily, document.style.headings.fontFamily, document.style.list.fontFamily];
   const fontSubstituted = requestedFonts.some((selection) => selection.source === "system" || selection.value === "work_sans" || selection.value === "source_serif");
-  return { bytes: await generatePdf(document, images, fontBytes), missing, fontSubstituted };
+  return { bytes: await generatePdf(document, images, fontBytes, request.signal), missing, fontSubstituted };
 }
 
 async function resolveImages(
@@ -188,6 +205,7 @@ async function generateMarkdownArchive(
   document: ReturnType<typeof projectRecordExportDocument>,
   platform: RecordExportPlatform,
   request: RecordExportRequest,
+  sourceBytes: number,
 ) {
   request.onProgress?.({ stage: "images" });
   const images = collectImages(document.blocks);
@@ -210,18 +228,104 @@ async function generateMarkdownArchive(
     }
     references.set(image.id, resource.name);
   }
+  await ensureGenerationWorkspace(platform, request.targetPath, sourceBytes, Array.from(resources.values(), (resource) => resource.bytes));
   request.onProgress?.({ stage: "generating" });
   const stem = portableStem(request.targetPath);
   const markdown = new TextEncoder().encode(generateMarkdown(document, { imageReferences: references }));
-  const { zipSync } = await import("fflate");
+  const entries = {
+    [`${stem}.md`]: markdown,
+    ...Object.fromEntries(Array.from(resources.values()).map((resource) => [resource.name, resource.bytes])),
+  };
   return {
-    bytes: zipSync({
-      [`${stem}.md`]: markdown,
-      ...Object.fromEntries(Array.from(resources.values()).map((resource) => [resource.name, resource.bytes])),
-    }),
+    bytes: await zipCancellable(entries, request.signal),
     missing,
     fontSubstituted: false,
   };
+}
+
+async function ensureGenerationWorkspace(
+  platform: RecordExportPlatform,
+  targetPath: string,
+  sourceBytes: number,
+  resources: Iterable<Uint8Array>,
+  fixedFormatBytes = 0,
+) {
+  const visualResources = new Map<string, number>();
+  for (const bytes of resources) visualResources.set(bytesKey(bytes), bytes.byteLength);
+  const estimatedWorkingBytes = fixedFormatBytes + sourceBytes + Array.from(visualResources.values()).reduce((total, size) => total + size, 0);
+  const available = await platform.availableBytes(targetPath);
+  if (available < Math.max(1, estimatedWorkingBytes * 2)) {
+    throw new Error("可用磁盘空间不足，无法完成导出");
+  }
+}
+
+const PDF_BUNDLED_FONT_BYTES = 34 * 1024 * 1024;
+
+async function zipCancellable(entries: Record<string, Uint8Array>, signal?: AbortSignal) {
+  const { AsyncZipDeflate, Zip } = await import("fflate");
+  ensureNotCancelled(signal);
+  return new Promise<Uint8Array>((resolve, reject) => {
+    let settled = false;
+    const chunks: Uint8Array[] = [];
+    const files: InstanceType<typeof AsyncZipDeflate>[] = [];
+    const archive = new Zip((error, chunk, final) => {
+      if (settled) return;
+      if (error) {
+        settled = true;
+        signal?.removeEventListener("abort", abort);
+        reject(error);
+        return;
+      }
+      chunks.push(new Uint8Array(chunk));
+      if (final) {
+        settled = true;
+        signal?.removeEventListener("abort", abort);
+        const size = chunks.reduce((total, value) => total + value.byteLength, 0);
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        for (const value of chunks) {
+          bytes.set(value, offset);
+          offset += value.byteLength;
+        }
+        resolve(bytes);
+      }
+    });
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      for (const file of files) file.terminate();
+      archive.terminate();
+      reject(new DOMException("导出已取消", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    void (async () => {
+      try {
+        for (const [name, bytes] of Object.entries(entries)) {
+          ensureNotCancelled(signal);
+          const file = new AsyncZipDeflate(name);
+          files.push(file);
+          archive.add(file);
+          if (bytes.byteLength === 0) file.push(bytes, true);
+          for (let offset = 0; offset < bytes.byteLength; offset += 256 * 1024) {
+            ensureNotCancelled(signal);
+            const end = Math.min(bytes.byteLength, offset + 256 * 1024);
+            file.push(bytes.subarray(offset, end), end === bytes.byteLength);
+            await new Promise<void>((resume) => setTimeout(resume, 0));
+          }
+        }
+        ensureNotCancelled(signal);
+        archive.end();
+      } catch (error) {
+        if (!settled) {
+          settled = true;
+          signal?.removeEventListener("abort", abort);
+          archive.terminate();
+          reject(error);
+        }
+      }
+    })();
+    if (signal?.aborted) abort();
+  });
 }
 
 function collectImages(blocks: ExportBlock[]): Array<Extract<ExportBlock, { type: "image" }>> {

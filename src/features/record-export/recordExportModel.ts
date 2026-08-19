@@ -67,7 +67,7 @@ function projectBlock(node: Node): ExportBlock[] {
   if (!(node instanceof HTMLElement)) return [];
 
   const tag = node.tagName.toLowerCase();
-  if (tag === "p") return [{ type: "paragraph", content: projectInlineChildren(node) }];
+  if (tag === "p") return projectParagraph(node);
   if (tag === "h1" || tag === "h2" || tag === "h3") {
     return [{
       type: "heading",
@@ -126,6 +126,29 @@ function projectBlock(node: Node): ExportBlock[] {
     return [{ type: "attachment", title: nonEmpty(node.getAttribute("data-title")) ?? "未命名文件" }];
   }
   return Array.from(node.childNodes).flatMap(projectBlock);
+}
+
+function projectParagraph(element: HTMLElement): ExportBlock[] {
+  const blocks: ExportBlock[] = [];
+  let pending: ExportInline[] = [];
+  const flush = () => {
+    if (pending.length > 0) {
+      blocks.push({ type: "paragraph", content: mergeAdjacentInlines(pending) });
+      pending = [];
+    }
+  };
+  for (const child of Array.from(element.childNodes)) {
+    if (child instanceof HTMLElement && (
+      child.tagName.toLowerCase() === "img" || child.getAttribute("data-type") === "attachment"
+    )) {
+      flush();
+      blocks.push(...projectBlock(child));
+    } else {
+      pending.push(...projectInline(child, {}));
+    }
+  }
+  flush();
+  return blocks.length > 0 ? blocks : [{ type: "paragraph", content: [] }];
 }
 
 function assignImageIds(blocks: ExportBlock[]) {

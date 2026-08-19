@@ -1,4 +1,4 @@
-import { ArrowLeft, FileDown, LoaderCircle, MoreHorizontal, Settings2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Settings2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -24,7 +24,7 @@ import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { ActionContextMenu, IconButton, TextField } from "../../ui/components";
+import { IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   getRenderableRichTextHtml,
@@ -41,10 +41,9 @@ import {
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TodoModuleRail } from "../../todo";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
-import { RecordExportDialog } from "../../features/record-export/RecordExportDialog";
-import { createRecordExportCoordinator, type RecordExportRequest } from "../../features/record-export/recordExport";
-import { createDesktopRecordExportPlatform } from "../../features/record-export/desktopRecordExportPlatform";
-import { chooseRecordExportTarget } from "../../features/record-export/recordExportTarget";
+import { RecordExportAction } from "../../features/record-export/RecordExportAction";
+import type { RecordExportRequest } from "../../features/record-export/recordExport";
+import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type { ProjectTagRecord, RichTextStyleSettings } from "../../lib/types";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
@@ -80,8 +79,6 @@ export function WorkspaceRecordFocusPage() {
   const [loadedNoteId, setLoadedNoteId] = useState<number | null>(null);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
   const lastSavedUpdatedAtRef = useRef<string | null>(null);
 
@@ -238,7 +235,7 @@ export function WorkspaceRecordFocusPage() {
   }, [codeLanguage, content, draftReady, note, persistWorkspaceRecord, tagIds, title]);
 
   const runExport = useCallback((request: RecordExportRequest) => {
-    const platform = createDesktopRecordExportPlatform(async () => {
+    const exportRecord = createDesktopRecordExporter(async () => {
       const saved = await saveCurrentRecord();
       if (!saved) throw new Error("导出前保存失败");
       const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
@@ -252,7 +249,7 @@ export function WorkspaceRecordFocusPage() {
         style: queryClient.getQueryData<RichTextStyleSettings>(queryKeys.richTextStyle) ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS,
       };
     });
-    return createRecordExportCoordinator(platform).export(request);
+    return exportRecord(request);
   }, [availableTags, content, note?.updatedAt, queryClient, saveCurrentRecord, tagIds, title]);
 
   const handleBack = async () => {
@@ -525,13 +522,11 @@ export function WorkspaceRecordFocusPage() {
               >
                 <Settings2 size={14} />
               </IconButton>
-              <IconButton type="button" size="sm" variant="ghost" aria-label="记录更多操作"
-                onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setMoreMenu({ x: rect.right, y: rect.bottom + 4 });
-                }}>
-                <MoreHorizontal size={16} />
-              </IconButton>
+              <RecordExportAction
+                title={title}
+                getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+                exportTo={runExport}
+              />
               <span
                 className={cn(
                   "text-caption",
@@ -629,19 +624,6 @@ export function WorkspaceRecordFocusPage() {
           onOpenContactMention={openContactMention}
         />
       ) : null}
-      {moreMenu ? (
-        <ActionContextMenu x={moreMenu.x} y={moreMenu.y} ariaLabel="记录更多操作" onClose={() => setMoreMenu(null)}
-          actions={[{ label: "导出…", icon: FileDown, onSelect: () => { setMoreMenu(null); setExportOpen(true); } }]} />
-      ) : null}
-      <RecordExportDialog
-        open={exportOpen}
-        hasImages={/<img\b/iu.test(editorControllerRef.current?.getCommittedValue?.().html ?? content.html)}
-        onClose={() => setExportOpen(false)}
-        chooseTarget={(format, includeImages) => chooseRecordExportTarget({ title, format, includeImages, hasImages: /<img\b/iu.test(editorControllerRef.current?.getCommittedValue?.().html ?? content.html) })}
-        exportTo={runExport}
-        onOpenFile={(path) => desktopApi.openFile(path)}
-        onRevealFile={(path) => desktopApi.revealPath(path)}
-      />
     </div>
   );
 }

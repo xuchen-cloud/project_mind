@@ -47,12 +47,19 @@ export async function chooseRecordExportTarget(input: {
     }],
   });
   if (!selected) return null;
-  const exists = await desktopApi.command<boolean>("desktop_export_path_exists", { path: selected });
-  if (!exists) return { path: selected, overwrite: false };
+  const selectedPath = ensureRecordExportExtension(selected, extension);
+  const exists = await desktopApi.command<boolean>("desktop_export_path_exists", { path: selectedPath });
+  if (!exists) return { path: selectedPath, overwrite: false };
   const overwrite = await desktopApi.confirm("目标文件已存在。是否覆盖原文件？", "覆盖导出文件");
   if (!overwrite) {
-    const path = await desktopApi.command<string>("desktop_next_available_export_path", { path: selected });
+    const path = await desktopApi.command<string>("desktop_next_available_export_path", { path: selectedPath });
     return { path, overwrite: false };
   }
-  return { path: selected, overwrite: true };
+  return { path: selectedPath, overwrite: true };
+}
+
+export function ensureRecordExportExtension(path: string, extension: string) {
+  return path.toLocaleLowerCase("en-US").endsWith(`.${extension.toLocaleLowerCase("en-US")}`)
+    ? path
+    : `${path}.${extension}`;
 }

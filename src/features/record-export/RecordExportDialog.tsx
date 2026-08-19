@@ -102,7 +102,6 @@ export function RecordExportDialog({
   }, [chooseTarget, exportTo, format, includeImages]);
 
   const close = () => {
-    if (state === "running" && stage === "writing") return;
     abortRef.current?.abort();
     onClose();
   };
@@ -124,8 +123,8 @@ export function RecordExportDialog({
         <>
           <Button onClick={close}>{state === "running" ? "关闭" : "取消"}</Button>
           {state === "running" ? (
-            <Button variant="danger" disabled={stage === "writing"} onClick={() => abortRef.current?.abort()}>
-              {stage === "writing" ? "正在完成写入" : "取消导出"}
+            <Button variant="danger" onClick={() => abortRef.current?.abort()}>
+              取消导出
             </Button>
           ) : (
             <Button variant="primary" onClick={() => void run()}>{state === "error" || state === "cancelled" ? "重试" : "导出"}</Button>

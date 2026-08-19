@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { recordExportExtension, sanitizeRecordExportStem } from "./recordExportTarget";
+import { ensureRecordExportExtension, recordExportExtension, sanitizeRecordExportStem } from "./recordExportTarget";
 
 describe("record export portable targets", () => {
   it("creates safe cross-platform names and a dated unnamed fallback", () => {
@@ -16,5 +16,11 @@ describe("record export portable targets", () => {
     expect(recordExportExtension("markdown", true, false)).toBe("md");
     expect(recordExportExtension("docx", true, true)).toBe("docx");
     expect(recordExportExtension("pdf", true, true)).toBe("pdf");
+  });
+
+  it("keeps the chosen filename portable while enforcing the selected format", () => {
+    expect(ensureRecordExportExtension("/tmp/记录", "pdf")).toBe("/tmp/记录.pdf");
+    expect(ensureRecordExportExtension("C:\\Docs\\记录.PDF", "pdf")).toBe("C:\\Docs\\记录.PDF");
+    expect(ensureRecordExportExtension("/tmp/记录.txt", "docx")).toBe("/tmp/记录.txt.docx");
   });
 });

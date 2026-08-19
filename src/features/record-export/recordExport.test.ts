@@ -80,6 +80,7 @@ updated: "2026-08-19T15:20:30+08:00"
 
 \`\`\`ts
 const answer = 42;
+// 中文注释
 \`\`\`
 
 [公开来源](https://example.com/path) 危险链接 目标记录 @小陈 #架构
@@ -101,9 +102,9 @@ const answer = 42;
       ...representativeSource,
       title: "带图记录",
       committedHtml: [
-        '<p>前文</p><img data-path="/private/original-a.png" data-mime-type="image/png" alt="架构图" width="640" />',
-        '<img data-path="/private/original-a.png" data-mime-type="image/png" alt="架构图窄版" width="320" />',
-        '<img data-path="/private/original-a.png" data-mime-type="image/png" alt="有批注" data-annotation-state="{&quot;version&quot;:1,&quot;items&quot;:[{&quot;type&quot;:&quot;rect&quot;}]}" />',
+        '<p>前文<img data-path="/private/original-a.png" data-mime-type="image/png" alt="架构图" width="640" /></p>',
+        '<p><img data-path="/private/original-a.png" data-mime-type="image/png" alt="架构图窄版" width="320" />',
+        '<img data-path="/private/original-a.png" data-mime-type="image/png" alt="有批注" data-annotation-state="{&quot;version&quot;:1,&quot;items&quot;:[{&quot;type&quot;:&quot;rect&quot;}]}" /></p>',
       ].join(""),
     };
     const platform = createFilesystemPlatform(async () => source);
@@ -143,7 +144,7 @@ const answer = 42;
     const source: RecordExportSource = {
       ...representativeSource,
       title: "缺图记录",
-      committedHtml: '<p>正文</p><img data-path="/missing/photo.jpg" alt="现场照片" />',
+      committedHtml: '<p>正文<img data-path="/missing/photo.jpg" alt="现场照片" /></p>',
     };
     const platform = createFilesystemPlatform(async () => source);
     platform.resolveImage = vi.fn(async () => ({
@@ -184,7 +185,12 @@ const answer = 42;
     const targetPath = join(directory, "阶段总结.docx");
     const source: RecordExportSource = {
       ...representativeSource,
-      committedHtml: `${representativeSource.committedHtml}<img src="data:image/png;base64,fixture" alt="架构图" width="400" />`,
+      committedHtml: [
+        representativeSource.committedHtml,
+        "<ul><li><p>嵌套项</p><blockquote><p>嵌套引用</p></blockquote></li></ul>",
+        '<table><tbody><tr><th><p>视觉</p></th></tr><tr><td><p>单元格图片</p><img src="data:image/png;base64,fixture" alt="表格图片" width="120" /></td></tr></tbody></table>',
+        '<p><img src="data:image/png;base64,fixture" alt="架构图" width="400" /></p>',
+      ].join(""),
     };
     const platform = createFilesystemPlatform(async () => source);
     platform.resolveImage = vi.fn(async () => ({
@@ -231,7 +237,12 @@ const answer = 42;
     const targetPath = join(directory, "阶段总结.pdf");
     const source: RecordExportSource = {
       ...representativeSource,
-      committedHtml: `${representativeSource.committedHtml}<img src="data:image/png;base64,fixture" alt="架构图" width="400" />`,
+      committedHtml: [
+        representativeSource.committedHtml,
+        "<ul><li><p>嵌套项</p><blockquote><p>嵌套引用</p></blockquote></li></ul>",
+        '<table><tbody><tr><th><p>视觉</p></th></tr><tr><td><p>单元格图片</p><img src="data:image/png;base64,fixture" alt="表格图片" width="120" /></td></tr></tbody></table>',
+        '<p><img src="data:image/png;base64,fixture" alt="架构图" width="400" /></p>',
+      ].join(""),
     };
     const platform = createFilesystemPlatform(async () => source);
     platform.resolveImage = vi.fn(async () => ({
@@ -251,8 +262,13 @@ const answer = 42;
     expect(result).toMatchObject({ kind: "success", fontSubstituted: false });
     const bytes = new Uint8Array(await readFile(targetPath));
     expect(new TextDecoder("latin1").decode(bytes)).toContain("/FontFile3");
+    expect(new TextDecoder("latin1").decode(bytes)).toContain("NotoSansMonoCJKsc-Regular");
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const pdf = await pdfjs.getDocument({ data: bytes, disableWorker: true }).promise;
+    const pdf = await pdfjs.getDocument({
+      data: bytes,
+      disableWorker: true,
+      standardFontDataUrl: `${join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts")}/`,
+    }).promise;
     expect(pdf.numPages).toBeGreaterThanOrEqual(1);
     const page = await pdf.getPage(1);
     expect(page.view[2]).toBeCloseTo(595.28, 0);
@@ -263,13 +279,22 @@ const answer = 42;
     }))).join(" ");
     expect(text).toContain("阶段总结");
     expect(text).toContain("已确认");
+    expect(text).toContain("中文注释");
     expect(text).toContain("图片：架构图");
-    expect(text).toContain("[x] 已完成");
+    expect(text).toMatch(/\[x\]\s+已完成/u);
     expect(text).toContain("1 / ");
-    const annotations = await page.getAnnotations();
-    expect(annotations.some((annotation) => annotation.url === "https://example.com/path")).toBe(true);
+    const annotations = (await Promise.all(Array.from({ length: pdf.numPages }, async (_, index) => (
+      await (await pdf.getPage(index + 1)).getAnnotations()
+    )))).flat();
+    expect(annotations.map((annotation) => annotation.url).filter(Boolean)).toContain("https://example.com/path");
     expect(annotations.some((annotation) => annotation.url?.startsWith("javascript:"))).toBe(false);
-    expect(await page.getStructTree()).not.toBeNull();
+    const structureTrees = await Promise.all(Array.from({ length: pdf.numPages }, async (_, index) => (
+      await (await pdf.getPage(index + 1)).getStructTree()
+    )));
+    expect(structureTrees.some((tree) => tree && findStructureNode(tree, "Figure", "架构图"))).toBe(true);
+    expect(structureTrees.some((tree) => tree && findStructurePath(tree, ["L", "LI", "LBody", "BlockQuote"]))).toBe(true);
+    expect(structureTrees.some((tree) => tree && findStructurePath(tree, ["Table", "TR", "TD", "Figure"]))).toBe(true);
+    expect(structureTrees.some((tree) => tree && findStructureNode(tree, "H3"))).toBe(true);
     const operators = (await Promise.all(
       Array.from({ length: pdf.numPages }, async (_, index) => (await (await pdf.getPage(index + 1)).getOperatorList()).fnArray),
     )).flat();
@@ -280,6 +305,88 @@ const answer = 42;
     ].includes(operator))).toBe(true);
     const metadata = await pdf.getMetadata();
     expect(metadata.info).toMatchObject({ Title: "阶段总结", Creator: "Project Mind" });
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const viewport = page.getViewport({ scale: 0.6 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext("2d");
+    await page.render({ canvasContext: context, viewport }).promise;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let nonWhitePixels = 0;
+    let darkPixels = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      if (pixels[offset] < 248 || pixels[offset + 1] < 248 || pixels[offset + 2] < 248) nonWhitePixels += 1;
+      if (pixels[offset] < 180 && pixels[offset + 1] < 180 && pixels[offset + 2] < 180) darkPixels += 1;
+    }
+    expect(nonWhitePixels).toBeGreaterThan(canvas.width * canvas.height * 0.015);
+    expect(darkPixels).toBeGreaterThan(canvas.width * canvas.height * 0.001);
+    expect(imageTileSignature(pixels, canvas.width, canvas.height)).toMatchInlineSnapshot(`
+      [
+        [
+          0.052,
+          0.064,
+          0.029,
+          0.025,
+          0.001,
+          0,
+        ],
+        [
+          0.122,
+          0.129,
+          0.11,
+          0.03,
+          0.001,
+          0,
+        ],
+        [
+          0.076,
+          0.033,
+          0,
+          0,
+          0,
+          0,
+        ],
+        [
+          0.115,
+          0.166,
+          0.141,
+          0.141,
+          0.141,
+          0.061,
+        ],
+        [
+          0.269,
+          0.587,
+          0.593,
+          0.605,
+          0.587,
+          0.26,
+        ],
+        [
+          0.153,
+          0.366,
+          0.251,
+          0.206,
+          0.206,
+          0.086,
+        ],
+        [
+          0.135,
+          0.385,
+          0.381,
+          0.381,
+          0.381,
+          0.196,
+        ],
+        [
+          0,
+          0,
+          0.004,
+          0.004,
+          0,
+          0,
+        ],
+      ]
+    `);
     await pdf.cleanup();
   });
 
@@ -318,12 +425,153 @@ const answer = 42;
     await expect(readFile(cancelledTarget)).rejects.toMatchObject({ code: "ENOENT" });
 
     const diskTarget = join(directory, "disk.md");
-    const diskPlatform = createFilesystemPlatform(async () => representativeSource);
+    const diskPlatform = createFilesystemPlatform(async () => imageSource);
+    const diskResolve = vi.spyOn(diskPlatform, "resolveImage");
     diskPlatform.availableBytes = vi.fn(async () => 0);
     const diskWrite = vi.spyOn(diskPlatform, "writeAtomically");
     await expect(createRecordExportCoordinator(diskPlatform).export({ format: "markdown", targetPath: diskTarget }))
       .rejects.toThrow("磁盘空间不足");
     expect(diskWrite).not.toHaveBeenCalled();
+    expect(diskResolve).not.toHaveBeenCalled();
+  });
+
+  it("cancels each format during generation and never commits a partial target", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
+    tempDirectories.push(directory);
+    const tableRows = Array.from({ length: 600 }, (_, index) => `<tr><td><p>行 ${index}</p></td><td><p>用于证明生成已经开始</p></td></tr>`).join("");
+    const source: RecordExportSource = {
+      ...representativeSource,
+      committedHtml: `${representativeSource.committedHtml}<table><tbody>${tableRows}</tbody></table><p><img src="data:image/png;base64,fixture" alt="大图" /></p>`,
+    };
+    for (const format of ["markdown", "docx", "pdf"] as const) {
+      const controller = new AbortController();
+      const targetPath = join(directory, `cancel-generation.${format === "markdown" ? "zip" : format}`);
+      const platform = createFilesystemPlatform(async () => source);
+      platform.resolveImage = vi.fn(async () => ({ kind: "resolved", bytes: validPng, extension: "png", mimeType: "image/png" }));
+      const write = vi.spyOn(platform, "writeAtomically");
+
+      await expect(createRecordExportCoordinator(platform).export({
+        format,
+        includeImages: true,
+        targetPath,
+        signal: controller.signal,
+        onProgress: ({ stage }) => { if (stage === "generating") setTimeout(() => controller.abort(), 0); },
+      })).rejects.toMatchObject({ name: "AbortError" });
+
+      expect(write).not.toHaveBeenCalled();
+      await expect(readFile(targetPath)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("terminates DOCX and PDF generation workers when cancellation arrives after work starts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
+    tempDirectories.push(directory);
+    const terminate = vi.fn();
+    let activeController: AbortController | null = null;
+    const postMessage = vi.fn(() => setTimeout(() => activeController?.abort(), 0));
+    class PendingExportWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      postMessage = postMessage;
+      terminate = terminate;
+    }
+    vi.stubGlobal("Worker", PendingExportWorker);
+    try {
+      for (const format of ["docx", "pdf"] as const) {
+        const controller = new AbortController();
+        activeController = controller;
+        const targetPath = join(directory, `worker-cancel.${format}`);
+        const platform = createFilesystemPlatform(async () => representativeSource);
+        const write = vi.spyOn(platform, "writeAtomically");
+        await expect(createRecordExportCoordinator(platform).export({
+          format,
+          targetPath,
+          signal: controller.signal,
+        })).rejects.toMatchObject({ name: "AbortError" });
+        expect(write).not.toHaveBeenCalled();
+      }
+      expect(postMessage).toHaveBeenCalledTimes(2);
+      expect(terminate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rechecks actual processed image bytes before allocating the document generator", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
+    tempDirectories.push(directory);
+    const targetPath = join(directory, "large.docx");
+    const platform = createFilesystemPlatform(async () => ({
+      ...representativeSource,
+      committedHtml: '<p><img src="data:image/png;base64,fixture" alt="高分辨率图片" /></p>',
+    }));
+    platform.resolveImage = vi.fn(async () => ({
+      kind: "resolved" as const,
+      bytes: new Uint8Array(2_000_000),
+      extension: "png",
+      mimeType: "image/png",
+      widthPx: 6000,
+      heightPx: 4000,
+    }));
+    platform.availableBytes = vi.fn()
+      .mockResolvedValueOnce(Number.MAX_SAFE_INTEGER)
+      .mockResolvedValueOnce(2_000_000);
+    const write = vi.spyOn(platform, "writeAtomically");
+
+    await expect(createRecordExportCoordinator(platform).export({ format: "docx", targetPath }))
+      .rejects.toThrow("磁盘空间不足");
+    expect(platform.resolveImage).toHaveBeenCalledOnce();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("accounts for both bundled PDF fonts before starting document generation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
+    tempDirectories.push(directory);
+    const targetPath = join(directory, "font-space.pdf");
+    const platform = createFilesystemPlatform(async () => representativeSource);
+    platform.availableBytes = vi.fn()
+      .mockResolvedValueOnce(50 * 1024 * 1024)
+      .mockResolvedValueOnce(50 * 1024 * 1024);
+    const loadFonts = vi.spyOn(platform, "loadPdfFonts");
+    const write = vi.spyOn(platform, "writeAtomically");
+
+    await expect(createRecordExportCoordinator(platform).export({ format: "pdf", targetPath }))
+      .rejects.toThrow("磁盘空间不足");
+    expect(loadFonts).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("exports many high-resolution image references without an arbitrary image-count limit", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
+    tempDirectories.push(directory);
+    const targetPath = join(directory, "图片集.zip");
+    const source: RecordExportSource = {
+      ...representativeSource,
+      committedHtml: Array.from({ length: 64 }, (_, index) => (
+        `<p>图 ${index + 1}<img data-path="/private/image-${index + 1}.png" alt="图片 ${index + 1}" width="4096" /></p>`
+      )).join(""),
+    };
+    const platform = createFilesystemPlatform(async () => source);
+    platform.resolveImage = vi.fn(async () => ({
+      kind: "resolved" as const,
+      bytes: validPng,
+      extension: "png",
+      mimeType: "image/png",
+      widthPx: 4096,
+      heightPx: 2160,
+    }));
+
+    await expect(createRecordExportCoordinator(platform).export({
+      format: "markdown",
+      includeImages: true,
+      targetPath,
+    })).resolves.toMatchObject({ kind: "success" });
+
+    expect(platform.resolveImage).toHaveBeenCalledTimes(64);
+    const archive = unzipSync(new Uint8Array(await readFile(targetPath)));
+    expect(Object.keys(archive).filter((name) => name.startsWith("images/"))).toHaveLength(1);
+    const markdown = new TextDecoder().decode(archive["图片集.md"]);
+    expect(markdown).toContain("![图片 64](images/image-001.png)");
   });
 
   it("rejects a Record with no title, body, project, or tags", async () => {
@@ -339,6 +587,7 @@ const answer = 42;
     await expect(createRecordExportCoordinator(platform).export({ format: "markdown", targetPath: "/tmp/empty.md" }))
       .rejects.toThrow("没有可导出的内容");
   });
+
 });
 
 const representativeSource: RecordExportSource = {
@@ -357,7 +606,7 @@ const representativeSource: RecordExportSource = {
     "<ol><li><p>第一步</p></li><li><p>第二步</p></li></ol>",
     "<blockquote><p>可靠引用</p></blockquote>",
     "<table><tbody><tr><th><p>项目</p></th><th><p>结论</p></th></tr><tr><td><p>A</p></td><td><p>保留</p></td></tr></tbody></table>",
-    '<pre><code class="language-ts">const answer = 42;</code></pre>',
+    '<pre><code class="language-ts">const answer = 42;\n// 中文注释</code></pre>',
     '<p><a href="https://example.com/path">公开来源</a> <a href="javascript:alert(1)">危险链接</a> <span data-type="internal-reference" data-ref-id="88" data-label="目标记录">私有引用</span> <span data-type="contact-mention" data-contact-id="9" data-label="小陈">私有联系人</span> <span data-type="tag-mention" data-tag-id="4" data-label="架构">私有标签</span></p>',
     '<div data-type="attachment" data-title="计划.xlsx" data-path="/Users/xuchen/private/计划.xlsx"><a>本机附件</a></div>',
   ].join(""),
@@ -373,7 +622,10 @@ function createFilesystemPlatform(
       throw new Error("fixture does not contain images");
     },
     availableBytes: async () => Number.MAX_SAFE_INTEGER,
-    loadPdfFont: async () => new Uint8Array(await readFile(join(process.cwd(), "src/assets/fonts/NotoSansCJKsc-Regular.otf"))),
+    loadPdfFonts: async () => ({
+      sans: new Uint8Array(await readFile(join(process.cwd(), "src/assets/fonts/NotoSansCJKsc-Regular.otf"))),
+      mono: new Uint8Array(await readFile(join(process.cwd(), "src/assets/fonts/NotoSansMonoCJKsc-Regular.otf"))),
+    }),
     writeAtomically: async ({ bytes, targetPath }) => {
       const temporaryPath = `${targetPath}.partial`;
       await writeFile(temporaryPath, bytes);
@@ -389,3 +641,44 @@ const validPng = Uint8Array.from(
   atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
   (character) => character.charCodeAt(0),
 );
+
+function imageTileSignature(pixels: Uint8ClampedArray, width: number, height: number) {
+  const columns = 6;
+  const rows = 8;
+  return Array.from({ length: rows }, (_, row) => Array.from({ length: columns }, (_, column) => {
+    const startX = Math.floor(column * width / columns);
+    const endX = Math.floor((column + 1) * width / columns);
+    const startY = Math.floor(row * height / rows);
+    const endY = Math.floor((row + 1) * height / rows);
+    let ink = 0;
+    let total = 0;
+    for (let y = startY; y < endY; y += 1) {
+      for (let x = startX; x < endX; x += 1) {
+        const offset = (y * width + x) * 4;
+        if (pixels[offset] < 245 || pixels[offset + 1] < 245 || pixels[offset + 2] < 245) ink += 1;
+        total += 1;
+      }
+    }
+    return Math.round((ink / Math.max(1, total)) * 1000) / 1000;
+  }));
+}
+
+type PdfStructureNode = {
+  role?: string;
+  alt?: string;
+  children?: PdfStructureNode[];
+};
+
+function findStructureNode(node: PdfStructureNode, role: string, alt?: string): boolean {
+  if (node.role === role && (alt === undefined || node.alt === alt)) return true;
+  return node.children?.some((child) => findStructureNode(child, role, alt)) ?? false;
+}
+
+function findStructurePath(node: PdfStructureNode, roles: string[]): boolean {
+  if (roles.length === 0) return true;
+  if (node.role === roles[0]) {
+    if (roles.length === 1) return true;
+    if (node.children?.some((child) => findStructurePath(child, roles.slice(1)))) return true;
+  }
+  return node.children?.some((child) => findStructurePath(child, roles)) ?? false;
+}

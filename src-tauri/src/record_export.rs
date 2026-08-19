@@ -1,7 +1,13 @@
 use std::{
+    collections::HashMap,
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, LazyLock, Mutex,
+    },
+    time::Duration,
 };
 
 use anyhow::{bail, Context, Result};
@@ -16,7 +22,13 @@ pub struct ResolveExportImageInput {
     pub source: Option<String>,
     pub path: Option<String>,
     pub mime_type: Option<String>,
+    pub request_id: Option<String>,
 }
+
+static IMAGE_REQUEST_CANCELLATIONS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static WRITE_REQUEST_CANCELLATIONS: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,13 +46,45 @@ pub struct WriteExportFileInput {
     pub target_path: String,
     pub data_base64: String,
     pub overwrite: Option<bool>,
+    pub request_id: Option<String>,
 }
 
 #[tauri::command]
-pub fn desktop_resolve_export_image(
+pub async fn desktop_resolve_export_image(
     input: ResolveExportImageInput,
 ) -> CommandResult<ResolvedExportImage> {
-    resolve_export_image(input).map_err(|error| error.to_string())
+    resolve_export_image(input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn desktop_cancel_export_image(request_id: String) {
+    let request_id = request_id.trim();
+    if request_id.is_empty() {
+        return;
+    }
+    let cancel = IMAGE_REQUEST_CANCELLATIONS
+        .lock()
+        .expect("image cancellation lock poisoned")
+        .entry(request_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
+        .clone();
+    cancel.notify_one();
+    let cleanup_id = request_id.to_string();
+    let cleanup_cancel = cancel.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(65)).await;
+        let mut requests = IMAGE_REQUEST_CANCELLATIONS
+            .lock()
+            .expect("image cancellation lock poisoned");
+        if requests
+            .get(&cleanup_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &cleanup_cancel))
+        {
+            requests.remove(&cleanup_id);
+        }
+    });
 }
 
 #[tauri::command]
@@ -62,22 +106,64 @@ pub fn desktop_next_available_export_path(path: String) -> CommandResult<String>
 }
 
 #[tauri::command]
-pub fn desktop_write_export_file(input: WriteExportFileInput) -> CommandResult<String> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(input.data_base64.trim())
-        .context("导出数据不是有效的 Base64")
-        .map_err(|error| error.to_string())?;
-    atomic_write_export(
-        Path::new(input.target_path.trim()),
-        &bytes,
-        input.overwrite.unwrap_or(false),
-    )
-    .map(|path| path.to_string_lossy().into_owned())
-    .map_err(|error| error.to_string())
+pub async fn desktop_write_export_file(input: WriteExportFileInput) -> CommandResult<String> {
+    let request_id = input
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let cancelled = request_id.map(|request_id| {
+        WRITE_REQUEST_CANCELLATIONS
+            .lock()
+            .expect("write cancellation lock poisoned")
+            .entry(request_id.to_string())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone()
+    });
+    let target_path = input.target_path.trim().to_string();
+    let data_base64 = input.data_base64.trim().to_string();
+    let overwrite = input.overwrite.unwrap_or(false);
+    let write_cancelled = cancelled.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_base64)
+            .context("导出数据不是有效的 Base64")?;
+        atomic_write_export_with_cancel(
+            Path::new(&target_path),
+            &bytes,
+            overwrite,
+            write_cancelled.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("导出写入任务失败：{error}"))?;
+    if let Some(request_id) = request_id {
+        WRITE_REQUEST_CANCELLATIONS
+            .lock()
+            .expect("write cancellation lock poisoned")
+            .remove(request_id);
+    }
+    result
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(|error| error.to_string())
 }
 
-fn resolve_export_image(input: ResolveExportImageInput) -> Result<ResolvedExportImage> {
-    let (bytes, response_mime) = read_export_image(&input)?;
+#[tauri::command]
+pub fn desktop_cancel_export_write(request_id: String) {
+    let request_id = request_id.trim();
+    if request_id.is_empty() {
+        return;
+    }
+    WRITE_REQUEST_CANCELLATIONS
+        .lock()
+        .expect("write cancellation lock poisoned")
+        .entry(request_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .store(true, Ordering::Release);
+}
+
+async fn resolve_export_image(input: ResolveExportImageInput) -> Result<ResolvedExportImage> {
+    let (bytes, response_mime) = read_export_image(&input).await?;
     let mime_type = normalized_mime(
         input.mime_type.as_deref().or(response_mime.as_deref()),
         input.path.as_deref().or(input.source.as_deref()),
@@ -123,7 +209,13 @@ fn next_available_export_path(path: &Path) -> Result<PathBuf> {
     bail!("无法为导出文件生成可用名称")
 }
 
-fn read_export_image(input: &ResolveExportImageInput) -> Result<(Vec<u8>, Option<String>)> {
+async fn read_export_image(input: &ResolveExportImageInput) -> Result<(Vec<u8>, Option<String>)> {
+    let request_id = input
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let cancel = cancellation_for_request(request_id);
     if let Some(path) = input
         .path
         .as_deref()
@@ -131,24 +223,58 @@ fn read_export_image(input: &ResolveExportImageInput) -> Result<(Vec<u8>, Option
         .filter(|value| !value.is_empty())
     {
         let target = Path::new(path);
-        let bytes =
-            fs::read(target).with_context(|| format!("无法读取图片 {}", target.display()))?;
+        let read_result = tokio::select! {
+            biased;
+            _ = cancel.notified() => {
+                cleanup_image_request(request_id);
+                bail!("图片读取已取消")
+            }
+            bytes = tokio::fs::read(target) => bytes,
+        };
+        cleanup_image_request(request_id);
+        let bytes = read_result.with_context(|| format!("无法读取图片 {}", target.display()))?;
         return Ok((bytes, None));
     }
 
     let source = input.source.as_deref().map(str::trim).unwrap_or_default();
     if let Some(data) = source.strip_prefix("data:") {
-        return decode_data_url(data).map(|(bytes, mime)| (bytes, Some(mime)));
+        let result = decode_data_url(data).map(|(bytes, mime)| (bytes, Some(mime)));
+        cleanup_image_request(request_id);
+        return result;
     }
     if source.starts_with("https://") || source.starts_with("http://") {
-        let response = reqwest::blocking::Client::builder()
+        let client = match reqwest::Client::builder()
             .user_agent("Project-Mind-Record-Export/1.0")
-            .build()?
-            .get(source)
-            .send()
-            .with_context(|| format!("无法读取远程图片 {source}"))?
-            .error_for_status()
-            .with_context(|| format!("远程图片返回错误 {source}"))?;
+            .timeout(Duration::from_secs(60))
+            .build()
+        {
+            Ok(client) => client,
+            Err(error) => {
+                cleanup_image_request(request_id);
+                return Err(error.into());
+            }
+        };
+        let response_result = tokio::select! {
+            biased;
+            _ = cancel.notified() => {
+                cleanup_image_request(request_id);
+                bail!("图片读取已取消")
+            }
+            response = client.get(source).send() => response,
+        };
+        let response = match response_result
+            .with_context(|| format!("无法读取远程图片 {source}"))
+            .and_then(|response| {
+                response
+                    .error_for_status()
+                    .with_context(|| format!("远程图片返回错误 {source}"))
+            }) {
+            Ok(response) => response,
+            Err(error) => {
+                cleanup_image_request(request_id);
+                return Err(error);
+            }
+        };
         let mime = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -157,13 +283,42 @@ fn read_export_image(input: &ResolveExportImageInput) -> Result<(Vec<u8>, Option
             .map(str::trim)
             .filter(|value| value.starts_with("image/"))
             .map(ToOwned::to_owned);
-        let mut reader = response;
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes)?;
-        return Ok((bytes, mime));
+        let bytes_result = tokio::select! {
+            biased;
+            _ = cancel.notified() => {
+                cleanup_image_request(request_id);
+                bail!("图片读取已取消")
+            }
+            bytes = response.bytes() => bytes,
+        };
+        cleanup_image_request(request_id);
+        return Ok((bytes_result?.to_vec(), mime));
     }
 
+    cleanup_image_request(request_id);
     bail!("图片没有可读取的本地路径、data URL 或 HTTP/HTTPS 来源")
+}
+
+fn cancellation_for_request(request_id: Option<&str>) -> Arc<tokio::sync::Notify> {
+    request_id
+        .map(|request_id| {
+            IMAGE_REQUEST_CANCELLATIONS
+                .lock()
+                .expect("image cancellation lock poisoned")
+                .entry(request_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
+                .clone()
+        })
+        .unwrap_or_else(|| Arc::new(tokio::sync::Notify::new()))
+}
+
+fn cleanup_image_request(request_id: Option<&str>) {
+    if let Some(request_id) = request_id {
+        IMAGE_REQUEST_CANCELLATIONS
+            .lock()
+            .expect("image cancellation lock poisoned")
+            .remove(request_id);
+    }
 }
 
 fn decode_data_url(value: &str) -> Result<(Vec<u8>, String)> {
@@ -202,6 +357,7 @@ fn strip_jpeg_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
         bail!("JPEG 文件头无效")
     }
     let mut output = bytes[..2].to_vec();
+    let mut visual_orientation = None;
     let mut offset = 2;
     while offset < bytes.len() {
         if bytes[offset] != 0xff {
@@ -232,13 +388,66 @@ fn strip_jpeg_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
         if length < 2 || offset + length > bytes.len() {
             bail!("JPEG 段长度无效")
         }
+        if marker == 0xe1 {
+            let payload = &bytes[offset + 2..offset + length];
+            if let Some(exif) = payload.strip_prefix(b"Exif\0\0") {
+                visual_orientation = image::metadata::Orientation::from_exif_chunk(exif)
+                    .map(image::metadata::Orientation::to_exif)
+                    .filter(|value| *value != 1)
+                    .or(visual_orientation);
+            }
+        }
         let should_remove = marker == 0xe1 || marker == 0xed || marker == 0xfe;
         if !should_remove {
             output.extend_from_slice(&bytes[marker_start..offset + length]);
         }
         offset += length;
     }
+    if let Some(orientation) = visual_orientation {
+        output.splice(2..2, minimal_exif_orientation_segment(orientation));
+    }
     Ok(output)
+}
+
+fn minimal_exif_orientation_segment(orientation: u8) -> Vec<u8> {
+    vec![
+        0xff,
+        0xe1,
+        0x00,
+        0x22,
+        b'E',
+        b'x',
+        b'i',
+        b'f',
+        0,
+        0,
+        b'M',
+        b'M',
+        0,
+        42,
+        0,
+        0,
+        0,
+        8,
+        0,
+        1,
+        0x01,
+        0x12,
+        0,
+        3,
+        0,
+        0,
+        0,
+        1,
+        0,
+        orientation,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ]
 }
 
 fn strip_png_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
@@ -322,8 +531,16 @@ fn strip_gif_comments(bytes: &[u8]) -> Result<Vec<u8>> {
                 let label = *bytes.get(offset + 1).context("GIF 扩展块不完整")?;
                 let start = offset;
                 offset += 2;
+                let application_id = if label == 0xff {
+                    let size = *bytes.get(offset).context("GIF 应用扩展块不完整")? as usize;
+                    bytes.get(offset + 1..offset + 1 + size)
+                } else {
+                    None
+                };
                 offset = skip_gif_sub_blocks(bytes, offset)?;
-                if label != 0xfe {
+                let keeps_visual_animation_control =
+                    application_id.is_some_and(|id| id == b"NETSCAPE2.0" || id == b"ANIMEXTS1.0");
+                if label != 0xfe && (label != 0xff || keeps_visual_animation_control) {
                     output.extend_from_slice(&bytes[start..offset]);
                 }
             }
@@ -365,6 +582,25 @@ fn skip_gif_sub_blocks(bytes: &[u8], mut offset: usize) -> Result<usize> {
 }
 
 fn atomic_write_export(target: &Path, bytes: &[u8], overwrite: bool) -> Result<PathBuf> {
+    atomic_write_export_with_cancel(target, bytes, overwrite, None)
+}
+
+fn atomic_write_export_with_cancel(
+    target: &Path,
+    bytes: &[u8],
+    overwrite: bool,
+    cancelled: Option<&AtomicBool>,
+) -> Result<PathBuf> {
+    atomic_write_export_with_cancel_hook(target, bytes, overwrite, cancelled, |_| {})
+}
+
+fn atomic_write_export_with_cancel_hook(
+    target: &Path,
+    bytes: &[u8],
+    overwrite: bool,
+    cancelled: Option<&AtomicBool>,
+    mut after_chunk: impl FnMut(usize),
+) -> Result<PathBuf> {
     if target.as_os_str().is_empty() {
         bail!("导出目标路径为空")
     }
@@ -382,8 +618,18 @@ fn atomic_write_export(target: &Path, bytes: &[u8], overwrite: bool) -> Result<P
         .prefix(".project-mind-export-")
         .tempfile_in(parent)
         .with_context(|| format!("无法在 {} 创建临时导出文件", parent.display()))?;
-    temporary.write_all(bytes)?;
+    for (index, chunk) in bytes.chunks(1024 * 1024).enumerate() {
+        if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            bail!("导出写入已取消")
+        }
+        temporary.write_all(chunk)?;
+        after_chunk(index);
+    }
     temporary.as_file().sync_all()?;
+
+    if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        bail!("导出写入已取消")
+    }
 
     persist_atomic(temporary, target, overwrite)?;
     if let Ok(directory) = fs::File::open(parent) {
@@ -460,21 +706,21 @@ fn export_parent(target: &Path) -> Result<&Path> {
 }
 
 fn normalized_mime(provided: Option<&str>, source: Option<&str>, bytes: &[u8]) -> String {
-    provided
-        .map(str::trim)
-        .filter(|value| value.starts_with("image/"))
-        .map(ToOwned::to_owned)
+    image::guess_format(bytes)
+        .ok()
+        .map(|format| format.to_mime_type().to_string())
+        .or_else(|| {
+            provided
+                .map(str::trim)
+                .filter(|value| value.starts_with("image/"))
+                .map(ToOwned::to_owned)
+        })
         .or_else(|| {
             source.and_then(|value| {
                 mime_guess::from_path(value)
                     .first_raw()
                     .map(ToOwned::to_owned)
             })
-        })
-        .or_else(|| {
-            image::guess_format(bytes)
-                .ok()
-                .map(|format| format.to_mime_type().to_string())
         })
         .unwrap_or_else(|| "application/octet-stream".to_string())
 }
@@ -486,6 +732,9 @@ fn extension_for_mime(mime: &str) -> Option<String> {
         "image/gif" => Some("gif"),
         "image/webp" => Some("webp"),
         "image/bmp" => Some("bmp"),
+        "image/svg+xml" => Some("svg"),
+        "image/heic" => Some("heic"),
+        "image/heif" => Some("heif"),
         _ => None,
     }
     .map(ToOwned::to_owned)
@@ -506,6 +755,7 @@ fn image_extension(format: image::ImageFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
 
     #[test]
     fn jpeg_metadata_is_removed_without_reencoding_scan_data() {
@@ -516,6 +766,85 @@ mod tests {
         let output = strip_jpeg_metadata(&input).unwrap();
         assert!(!output.windows(4).any(|window| window == b"Exif"));
         assert!(output.ends_with(&[0x11, 0x22, 0xff, 0xd9]));
+    }
+
+    #[test]
+    fn base64_data_urls_are_decoded_with_their_image_mime_type() {
+        let (bytes, mime) = decode_data_url("image/png;base64,iVBORw0KGgo=").unwrap();
+        assert_eq!(bytes, [137, 80, 78, 71, 13, 10, 26, 10]);
+        assert_eq!(mime, "image/png");
+    }
+
+    #[test]
+    fn jpeg_privacy_cleanup_keeps_only_visual_orientation_from_exif() {
+        let mut input = vec![0xff, 0xd8];
+        input.extend(minimal_exif_orientation_segment(6));
+        input.extend([0xff, 0xfe, 0x00, 0x0d]);
+        input.extend(b"GPS 31.2304");
+        input.extend([0xff, 0xda, 0x00, 0x04, 0x01, 0x02, 0x11, 0x22, 0xff, 0xd9]);
+
+        let output = strip_jpeg_metadata(&input).unwrap();
+        assert!(!output.windows(3).any(|window| window == b"GPS"));
+        assert_eq!(output[2..38], minimal_exif_orientation_segment(6));
+        assert!(output.ends_with(&[0x11, 0x22, 0xff, 0xd9]));
+    }
+
+    #[tokio::test]
+    async fn cancellation_is_remembered_when_it_arrives_before_the_remote_request_starts() {
+        desktop_cancel_export_image("early-cancel".to_string());
+        let cancel = IMAGE_REQUEST_CANCELLATIONS
+            .lock()
+            .unwrap()
+            .get("early-cancel")
+            .unwrap()
+            .clone();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), cancel.notified())
+                .await
+                .is_ok()
+        );
+        cleanup_image_request(Some("early-cancel"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_a_local_image_read_before_bytes_are_returned() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large-image.png");
+        fs::write(&path, vec![0u8; 1024 * 1024]).unwrap();
+        desktop_cancel_export_image("cancel-local".to_string());
+        let input = ResolveExportImageInput {
+            source: None,
+            path: Some(path.to_string_lossy().into_owned()),
+            mime_type: Some("image/png".to_string()),
+            request_id: Some("cancel-local".to_string()),
+        };
+
+        assert!(read_export_image(&input)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("已取消"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_local_images_return_a_structured_read_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("private.png");
+        fs::write(&path, b"private").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        let input = ResolveExportImageInput {
+            source: None,
+            path: Some(path.to_string_lossy().into_owned()),
+            mime_type: Some("image/png".to_string()),
+            request_id: Some("permission-denied".to_string()),
+        };
+
+        let error = read_export_image(&input).await.unwrap_err().to_string();
+        assert!(error.contains("无法读取图片"));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
@@ -530,6 +859,29 @@ mod tests {
 
         atomic_write_export(&target, b"replacement", true).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"replacement");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn cancellation_after_writing_has_started_preserves_target_and_removes_temporary_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("cancelled.pdf");
+        fs::write(&target, b"original").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let result = atomic_write_export_with_cancel_hook(
+            &target,
+            &vec![1u8; 3_000_000],
+            true,
+            Some(&cancelled),
+            |index| {
+                if index == 0 {
+                    cancelled.store(true, Ordering::Release);
+                }
+            },
+        );
+
+        assert!(result.unwrap_err().to_string().contains("已取消"));
+        assert_eq!(fs::read(&target).unwrap(), b"original");
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
@@ -558,5 +910,54 @@ mod tests {
             .any(|window| window == [0x21, 0xfe, 3, b'g', b'p']));
         assert!(output.windows(3).any(|window| window == [0x21, 0xfe, 0x01]));
         assert_eq!(output.last(), Some(&0x3b));
+    }
+
+    #[test]
+    fn gif_privacy_cleanup_removes_metadata_extensions_but_keeps_animation_looping() {
+        let mut input = b"GIF89a\x01\0\x01\0\0\0\0".to_vec();
+        input.extend([0x21, 0xff, 0x0b]);
+        input.extend(b"NETSCAPE2.0");
+        input.extend([0x03, 0x01, 0x00, 0x00, 0x00]);
+        input.extend([0x21, 0xff, 0x0b]);
+        input.extend(b"XMP DataXMP");
+        input.extend([0x03, b'g', b'p', b's', 0x00, 0x3b]);
+
+        let output = strip_gif_comments(&input).unwrap();
+        assert!(output.windows(11).any(|window| window == b"NETSCAPE2.0"));
+        assert!(!output.windows(11).any(|window| window == b"XMP DataXMP"));
+        assert!(!output.windows(3).any(|window| window == b"gps"));
+    }
+
+    #[tokio::test]
+    async fn remote_images_are_read_with_response_mime_and_without_sending_record_content() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /image HTTP/1.1"));
+            assert!(!request.contains("private record body"));
+            let png = b"\x89PNG\r\n\x1a\n";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                png.len()
+            )
+            .unwrap();
+            stream.write_all(png).unwrap();
+        });
+        let input = ResolveExportImageInput {
+            source: Some(format!("http://{address}/image")),
+            path: None,
+            mime_type: None,
+            request_id: Some("remote-success".to_string()),
+        };
+
+        let (bytes, mime) = read_export_image(&input).await.unwrap();
+        assert_eq!(bytes, b"\x89PNG\r\n\x1a\n");
+        assert_eq!(mime.as_deref(), Some("image/png"));
+        server.join().unwrap();
     }
 }

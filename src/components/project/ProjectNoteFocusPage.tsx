@@ -1,4 +1,4 @@
-import { ArrowLeft, FileDown, LoaderCircle, MoreHorizontal, Save } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -15,12 +15,11 @@ import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
-import { desktopApi } from "../../services/desktopApi";
 import { queryKeys } from "../../lib/queryKeys";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { ActionContextMenu, Button, IconButton, TextField } from "../../ui/components";
+import { Button, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   getRenderableRichTextHtml,
@@ -36,10 +35,9 @@ import {
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import { RecordExportDialog } from "../../features/record-export/RecordExportDialog";
-import { createRecordExportCoordinator, type RecordExportRequest } from "../../features/record-export/recordExport";
-import { createDesktopRecordExportPlatform } from "../../features/record-export/desktopRecordExportPlatform";
-import { chooseRecordExportTarget } from "../../features/record-export/recordExportTarget";
+import { RecordExportAction } from "../../features/record-export/RecordExportAction";
+import type { RecordExportRequest } from "../../features/record-export/recordExport";
+import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type { ProjectPageData, ProjectTagRecord, NoteRecord } from "../../lib/types";
 import type { RichTextStyleSettings } from "../../lib/types";
 
@@ -62,8 +60,6 @@ export function ProjectNoteFocusPage() {
   const [codeLanguage, setCodeLanguage] = useState<string | null>(null);
   const [loadedNoteId, setLoadedNoteId] = useState<number | null>(null);
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
-  const [exportOpen, setExportOpen] = useState(false);
-  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
@@ -350,7 +346,7 @@ export function ProjectNoteFocusPage() {
   );
 
   const runExport = useCallback((request: RecordExportRequest) => {
-    const platform = createDesktopRecordExportPlatform(async () => {
+    const exportRecord = createDesktopRecordExporter(async () => {
       const saved = await saveCurrentRecord();
       if (!saved) throw new Error("导出前保存失败");
       const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
@@ -364,7 +360,7 @@ export function ProjectNoteFocusPage() {
         style: queryClient.getQueryData<RichTextStyleSettings>(queryKeys.richTextStyle) ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS,
       };
     });
-    return createRecordExportCoordinator(platform).export(request);
+    return exportRecord(request);
   }, [availableTags, content, note?.updatedAt, project?.name, queryClient, saveCurrentRecord]);
 
   if (projectId === null || noteId === null) {
@@ -434,13 +430,11 @@ export function ProjectNoteFocusPage() {
             <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
               页面宽度
             </Button>
-            <IconButton type="button" size="sm" variant="ghost" aria-label="记录更多操作"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setMoreMenu({ x: rect.right, y: rect.bottom + 4 });
-              }}>
-              <MoreHorizontal size={16} />
-            </IconButton>
+            <RecordExportAction
+              title={titleValueRef.current}
+              getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+              exportTo={runExport}
+            />
             <span
               className={cn(
                 "text-caption",
@@ -550,19 +544,6 @@ export function ProjectNoteFocusPage() {
           </div>
         </div>
       </div>
-      {moreMenu ? (
-        <ActionContextMenu x={moreMenu.x} y={moreMenu.y} ariaLabel="记录更多操作" onClose={() => setMoreMenu(null)}
-          actions={[{ label: "导出…", icon: FileDown, onSelect: () => { setMoreMenu(null); setExportOpen(true); } }]} />
-      ) : null}
-      <RecordExportDialog
-        open={exportOpen}
-        hasImages={/<img\b/iu.test(editorControllerRef.current?.getCommittedValue?.().html ?? content.html)}
-        onClose={() => setExportOpen(false)}
-        chooseTarget={(format, includeImages) => chooseRecordExportTarget({ title: titleValueRef.current, format, includeImages, hasImages: /<img\b/iu.test(editorControllerRef.current?.getCommittedValue?.().html ?? content.html) })}
-        exportTo={runExport}
-        onOpenFile={(path) => desktopApi.openFile(path)}
-        onRevealFile={(path) => desktopApi.revealPath(path)}
-      />
     </div>
   );
 }

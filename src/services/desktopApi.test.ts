@@ -260,25 +260,36 @@ describe("desktopApi", () => {
   it("maps Record Export image, disk-space, and atomic-write commands", async () => {
     tauriMocks.invokeMock
       .mockResolvedValueOnce({ dataBase64: "AA==", mimeType: "image/png", extension: "png" })
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(4096)
-      .mockResolvedValueOnce("/tmp/export.pdf");
+      .mockResolvedValueOnce("/tmp/export.pdf")
+      .mockResolvedValueOnce(undefined);
 
-    await desktopApi.resolveExportImage({ path: "/tmp/image.png", mimeType: "image/png" });
+    await desktopApi.resolveExportImage({ path: "/tmp/image.png", mimeType: "image/png", requestId: "image-1" });
+    await desktopApi.cancelExportImage("image-1");
     await desktopApi.exportAvailableBytes("/tmp/export.pdf");
     await desktopApi.writeExportFile({
       targetPath: "/tmp/export.pdf",
       dataBase64: "JVBERg==",
       overwrite: true,
+      requestId: "write-1",
     });
+    await desktopApi.cancelExportWrite("write-1");
 
     expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(1, "desktop_resolve_export_image", {
-      input: { path: "/tmp/image.png", mimeType: "image/png" },
+      input: { path: "/tmp/image.png", mimeType: "image/png", requestId: "image-1" },
     });
-    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(2, "desktop_export_available_bytes", {
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(2, "desktop_cancel_export_image", {
+      requestId: "image-1",
+    });
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(3, "desktop_export_available_bytes", {
       targetPath: "/tmp/export.pdf",
     });
-    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(3, "desktop_write_export_file", {
-      input: { targetPath: "/tmp/export.pdf", dataBase64: "JVBERg==", overwrite: true },
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(4, "desktop_write_export_file", {
+      input: { targetPath: "/tmp/export.pdf", dataBase64: "JVBERg==", overwrite: true, requestId: "write-1" },
+    });
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(5, "desktop_cancel_export_write", {
+      requestId: "write-1",
     });
   });
 

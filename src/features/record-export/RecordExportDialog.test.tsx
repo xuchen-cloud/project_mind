@@ -57,6 +57,7 @@ describe("RecordExportDialog thin UI boundary", () => {
     renderDialog({
       exportTo: vi.fn((request) => {
         requestSignal = request.signal;
+        request.onProgress?.({ stage: "writing" });
         return new Promise((_, reject) => request.signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError"))));
       }),
     });
@@ -65,5 +66,29 @@ describe("RecordExportDialog thin UI boundary", () => {
     await user.click(await screen.findByRole("button", { name: "取消导出" }));
     expect(requestSignal?.aborted).toBe(true);
     expect(await screen.findByText(/导出已取消/)).toBeInTheDocument();
+  });
+
+  it("shows save failures without reporting success or opening a file", async () => {
+    const user = userEvent.setup();
+    const props = renderDialog({ exportTo: vi.fn(async () => { throw new Error("导出前保存失败"); }) });
+
+    await user.click(screen.getByRole("button", { name: "导出" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("导出前保存失败");
+    expect(screen.queryByText("导出完成")).not.toBeInTheDocument();
+    expect(props.onOpenFile).not.toHaveBeenCalled();
+    expect(props.onRevealFile).not.toHaveBeenCalled();
+  });
+
+  it("offers explicit open and reveal actions only after completion", async () => {
+    const user = userEvent.setup();
+    const props = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: "导出" }));
+    await user.click(await screen.findByRole("button", { name: "打开文件" }));
+    await user.click(screen.getByRole("button", { name: "在文件管理器中显示" }));
+
+    expect(props.onOpenFile).toHaveBeenCalledWith("/tmp/记录.zip");
+    expect(props.onRevealFile).toHaveBeenCalledWith("/tmp/记录.zip");
   });
 });

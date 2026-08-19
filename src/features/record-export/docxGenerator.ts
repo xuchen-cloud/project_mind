@@ -22,6 +22,7 @@ import {
 
 import type { ResolvedExportImage } from "./recordExport";
 import type { ExportBlock, ExportInline, RecordExportDocument } from "./recordExportModel";
+import { exportImagePlaceholder, formatExportVisualDate } from "./exportPresentation";
 
 const A4_WIDTH_TWIPS = 11_906;
 const PAGE_MARGIN_TWIPS = convertMillimetersToTwip(20);
@@ -30,7 +31,18 @@ const BODY_WIDTH_TWIPS = A4_WIDTH_TWIPS - PAGE_MARGIN_TWIPS * 2;
 export async function generateDocx(
   document: RecordExportDocument,
   images: ReadonlyMap<string, ResolvedExportImage>,
+  signal?: AbortSignal,
 ) {
+  if (typeof Worker === "undefined") return generateDocxInCurrentThread(document, images, signal);
+  return runDocxWorker(document, images, signal);
+}
+
+export async function generateDocxInCurrentThread(
+  document: RecordExportDocument,
+  images: ReadonlyMap<string, ResolvedExportImage>,
+  signal?: AbortSignal,
+) {
+  ensureNotCancelled(signal);
   const bodyFont = fontName(document.style.body.fontFamily);
   const headingFont = fontName(document.style.headings.fontFamily);
   const listFont = fontName(document.style.list.fontFamily);
@@ -45,7 +57,7 @@ export async function generateDocx(
   const metadata = [
     document.projectName ? `Project：${document.projectName}` : null,
     document.tags.length > 0 ? `Tags：${document.tags.map((tag) => `#${tag}`).join(" ")}` : null,
-    document.updatedAt ? `最后更新：${formatVisualDate(document.updatedAt)}` : null,
+    document.updatedAt ? `最后更新：${formatExportVisualDate(document.updatedAt)}` : null,
   ].filter((line): line is string => Boolean(line));
   if (metadata.length > 0) {
     children.push(new Paragraph({
@@ -53,7 +65,10 @@ export async function generateDocx(
       children: [new TextRun({ text: metadata.join("  ·  "), font: bodyFont })],
     }));
   }
-  children.push(...document.blocks.flatMap((block) => renderBlock(block, images, { bodyFont, headingFont, listFont })));
+  for (const block of document.blocks) {
+    await yieldForCancellation(signal);
+    children.push(...await renderBlock(block, images, { bodyFont, headingFont, listFont }, signal));
+  }
 
   const file = new Document({
     title: document.title,
@@ -101,14 +116,44 @@ export async function generateDocx(
       children,
     }],
   });
-  return new Uint8Array(await Packer.toArrayBuffer(file));
+  return new Uint8Array(await abortable(Packer.toArrayBuffer(file), signal));
 }
 
-function renderBlock(
+function runDocxWorker(
+  document: RecordExportDocument,
+  images: ReadonlyMap<string, ResolvedExportImage>,
+  signal?: AbortSignal,
+) {
+  ensureNotCancelled(signal);
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const worker = new Worker(new URL("./docxExportWorker.ts", import.meta.url), { type: "module" });
+    const abort = () => {
+      worker.terminate();
+      reject(new DOMException("导出已取消", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    worker.onmessage = (event: MessageEvent<{ bytes?: Uint8Array; error?: string }>) => {
+      signal?.removeEventListener("abort", abort);
+      worker.terminate();
+      if (event.data.error) reject(new Error(event.data.error));
+      else resolve(new Uint8Array(event.data.bytes ?? []));
+    };
+    worker.onerror = (event) => {
+      signal?.removeEventListener("abort", abort);
+      worker.terminate();
+      reject(new Error(event.message || "DOCX 生成失败"));
+    };
+    worker.postMessage({ document, images: Array.from(images.entries()) });
+  });
+}
+
+async function renderBlock(
   block: ExportBlock,
   images: ReadonlyMap<string, ResolvedExportImage>,
   fonts: { bodyFont: string; headingFont: string; listFont: string },
-): Array<Paragraph | Table> {
+  signal?: AbortSignal,
+): Promise<Array<Paragraph | Table>> {
+  ensureNotCancelled(signal);
   switch (block.type) {
     case "paragraph":
       return [new Paragraph({ children: inlineChildren(block.content, fonts.bodyFont) })];
@@ -119,9 +164,13 @@ function renderBlock(
       })];
     case "bulletList":
     case "orderedList":
-    case "taskList":
-      return block.items.flatMap((item) => {
-        const inline = item.blocks[0]?.type === "paragraph" ? item.blocks[0].content : [{ text: plainBlocks(item.blocks) }];
+    case "taskList": {
+      const rendered: Array<Paragraph | Table> = [];
+      for (const item of block.items) {
+        await yieldForCancellation(signal);
+        const primaryIndex = item.blocks.findIndex((nested) => nested.type === "paragraph");
+        const primary = primaryIndex >= 0 ? item.blocks[primaryIndex] : null;
+        const inline = primary?.type === "paragraph" ? primary.content : [];
         const prefix = block.type === "taskList" ? `${item.checked ? "☒" : "☐"} ` : "";
         const paragraph = new Paragraph({
           numbering: {
@@ -130,13 +179,23 @@ function renderBlock(
           },
           children: [new TextRun({ text: prefix, font: fonts.listFont }), ...inlineChildren(inline, fonts.listFont)],
         });
-        return [paragraph, ...item.blocks.slice(1).flatMap((nested) => renderBlock(nested, images, fonts))];
-      });
-    case "blockquote":
-      return block.blocks.map((nested) => new Paragraph({
-        style: "RecordQuote",
-        children: [new TextRun({ text: plainBlocks([nested]), font: fonts.bodyFont })],
-      }));
+        rendered.push(paragraph);
+        for (const [index, nested] of item.blocks.entries()) {
+          if (index !== primaryIndex) rendered.push(...await renderBlock(nested, images, fonts, signal));
+        }
+      }
+      return rendered;
+    }
+    case "blockquote": {
+      const rendered: Array<Paragraph | Table> = [];
+      for (const nested of block.blocks) {
+        await yieldForCancellation(signal);
+        rendered.push(...(nested.type === "paragraph"
+          ? [new Paragraph({ style: "RecordQuote", children: inlineChildren(nested.content, fonts.bodyFont) })]
+          : await renderBlock(nested, images, fonts, signal)));
+      }
+      return rendered;
+    }
     case "codeBlock":
       return [new Paragraph({
         style: "RecordCode",
@@ -149,7 +208,7 @@ function renderBlock(
       return [new Paragraph({ children: [new TextRun({ text: `[附件：${block.title}]`, font: fonts.bodyFont })] })];
     case "image": {
       const image = images.get(block.id);
-      if (!image) return [new Paragraph({ text: imagePlaceholder(block) })];
+      if (!image) return [new Paragraph({ text: exportImagePlaceholder(block) })];
       const width = Math.min(640, Math.max(80, Math.round((block.widthPx ?? image.widthPx ?? 640) * 0.9)));
       const aspect = image.widthPx && image.heightPx ? image.heightPx / image.widthPx : 0.75;
       const height = Math.max(1, Math.round(width * aspect));
@@ -169,26 +228,35 @@ function renderBlock(
     case "table": {
       const columnCount = Math.max(1, ...block.rows.map((row) => row.cells.length));
       const columnWidth = Math.floor(BODY_WIDTH_TWIPS / columnCount);
+      const rows: TableRow[] = [];
+      for (const [rowIndex, row] of block.rows.entries()) {
+        await yieldForCancellation(signal);
+        const cells: TableCell[] = [];
+        for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+          const cell = row.cells[columnIndex];
+          const cellChildren: Array<Paragraph | Table> = [];
+          if (cell) {
+            for (const nested of cell.blocks) cellChildren.push(...await renderBlock(nested, images, fonts, signal));
+          }
+          cells.push(new TableCell({
+            width: { size: columnWidth, type: WidthType.DXA },
+            verticalAlign: VerticalAlign.CENTER,
+            shading: rowIndex === 0 && cell?.header ? { type: ShadingType.CLEAR, fill: "F2F4F7" } : undefined,
+            children: cellChildren.length > 0 ? cellChildren : [new Paragraph("")],
+          }));
+        }
+        rows.push(new TableRow({
+          tableHeader: rowIndex === 0 && row.cells.some((cell) => cell.header),
+          cantSplit: true,
+          children: cells,
+        }));
+      }
       return [new Table({
         width: { size: BODY_WIDTH_TWIPS, type: WidthType.DXA },
         columnWidths: Array.from({ length: columnCount }, () => columnWidth),
         layout: TableLayoutType.FIXED,
         margins: { top: 100, bottom: 100, left: 120, right: 120, marginUnitType: WidthType.DXA },
-        rows: block.rows.map((row, rowIndex) => new TableRow({
-          tableHeader: rowIndex === 0 && row.cells.some((cell) => cell.header),
-          cantSplit: true,
-          children: Array.from({ length: columnCount }, (_, columnIndex) => {
-            const cell = row.cells[columnIndex];
-            return new TableCell({
-              width: { size: columnWidth, type: WidthType.DXA },
-              verticalAlign: VerticalAlign.CENTER,
-              shading: rowIndex === 0 && cell?.header ? { type: ShadingType.CLEAR, fill: "F2F4F7" } : undefined,
-              children: cell
-                ? cell.blocks.flatMap((nested) => renderBlock(nested, images, fonts))
-                : [new Paragraph("")],
-            });
-          }),
-        })),
+        rows,
       })];
     }
   }
@@ -287,29 +355,35 @@ function docxImageType(extension: string): "png" | "jpg" | "gif" | "bmp" {
   return "png";
 }
 
-function plainBlocks(blocks: ExportBlock[]): string {
-  return blocks.map((block) => {
-    if (block.type === "paragraph" || block.type === "heading") return block.content.map((inline) => inline.text).join("");
-    if (block.type === "codeBlock") return block.code;
-    if (block.type === "attachment") return `[附件：${block.title}]`;
-    if (block.type === "image") return imagePlaceholder(block);
-    if (block.type === "blockquote") return plainBlocks(block.blocks);
-    if (block.type === "bulletList" || block.type === "orderedList" || block.type === "taskList") return block.items.map((item) => plainBlocks(item.blocks)).join("；");
-    if (block.type === "table") return block.rows.map((row) => row.cells.map((cell) => plainBlocks(cell.blocks)).join(" | ")).join("；");
-    return "";
-  }).join("\n");
-}
-
-function imagePlaceholder(block: Extract<ExportBlock, { type: "image" }>) {
-  const label = block.alt ?? block.title;
-  return label ? `[图片未导出：${label}]` : "[图片未导出]";
-}
-
 function pxToTwips(px: number) {
   return Math.round(px * 15);
 }
 
-function formatVisualDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(date);
+async function yieldForCancellation(signal?: AbortSignal) {
+  ensureNotCancelled(signal);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  ensureNotCancelled(signal);
+}
+
+function abortable<T>(operation: Promise<T>, signal?: AbortSignal) {
+  if (!signal) return operation;
+  ensureNotCancelled(signal);
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new DOMException("导出已取消", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function ensureNotCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException("导出已取消", "AbortError");
 }

@@ -1,21 +1,25 @@
 import notoSansCjkUrl from "../../assets/fonts/NotoSansCJKsc-Regular.otf?url";
+import notoSansMonoCjkUrl from "../../assets/fonts/NotoSansMonoCJKsc-Regular.otf?url";
 import { getErrorMessage } from "../../lib/errors";
 import { parseImageAnnotationState } from "../../components/rich-editor/image-annotations";
 import { desktopApi } from "../../services/desktopApi";
 import type {
   RecordExportPlatform,
   RecordExportRequest,
+  RecordExportResult,
   RecordExportSource,
   ResolvedExportImage,
 } from "./recordExport";
+import { createRecordExportCoordinator } from "./recordExport";
 import type { ExportBlock } from "./recordExportModel";
 
-interface NativeResolvedImage {
-  dataBase64: string;
-  mimeType: string;
-  extension: string;
-  widthPx?: number | null;
-  heightPx?: number | null;
+export function createDesktopRecordExporter(
+  saveCommittedContent: () => Promise<RecordExportSource>,
+): (request: RecordExportRequest) => Promise<RecordExportResult> {
+  const coordinator = createRecordExportCoordinator(
+    createDesktopRecordExportPlatform(saveCommittedContent),
+  );
+  return (request) => coordinator.export(request);
 }
 
 export function createDesktopRecordExportPlatform(
@@ -24,12 +28,18 @@ export function createDesktopRecordExportPlatform(
   return {
     saveCommittedContent,
     async resolveImage(image, format, signal) {
+      const requestId = createExportImageRequestId();
+      const cancelNativeRequest = () => {
+        void desktopApi.cancelExportImage(requestId).catch(() => undefined);
+      };
+      signal?.addEventListener("abort", cancelNativeRequest, { once: true });
       try {
         ensureNotCancelled(signal);
         const native = await desktopApi.resolveExportImage({
           source: image.source || undefined,
           path: image.path,
           mimeType: image.mimeType,
+          requestId,
         });
         ensureNotCancelled(signal);
         const resolved: ResolvedExportImage = {
@@ -45,28 +55,56 @@ export function createDesktopRecordExportPlatform(
         }
         return resolved;
       } catch (error) {
+        if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+          throw new DOMException("导出已取消", "AbortError");
+        }
         return {
           kind: "missing",
           label: image.alt ?? image.title ?? "图片",
           reason: getErrorMessage(error, "图片无法读取"),
         };
+      } finally {
+        signal?.removeEventListener("abort", cancelNativeRequest);
       }
     },
     availableBytes: (targetPath) => desktopApi.exportAvailableBytes(targetPath),
-    loadPdfFont: async () => {
-      const response = await fetch(notoSansCjkUrl);
-      if (!response.ok) throw new Error("无法加载 PDF 中文回退字体");
-      return new Uint8Array(await response.arrayBuffer());
+    loadPdfFonts: async () => {
+      const [sansResponse, monoResponse] = await Promise.all([
+        fetch(notoSansCjkUrl),
+        fetch(notoSansMonoCjkUrl),
+      ]);
+      if (!sansResponse.ok || !monoResponse.ok) throw new Error("无法加载 PDF 中文回退字体");
+      return {
+        sans: new Uint8Array(await sansResponse.arrayBuffer()),
+        mono: new Uint8Array(await monoResponse.arrayBuffer()),
+      };
     },
-    writeAtomically: ({ targetPath, bytes, overwrite, signal }) => {
+    writeAtomically: async ({ targetPath, bytes, overwrite, signal }) => {
       ensureNotCancelled(signal);
-      return desktopApi.writeExportFile({
-        targetPath,
-        dataBase64: bytesToBase64(bytes),
-        overwrite,
-      });
+      const requestId = createExportImageRequestId();
+      const cancelNativeWrite = () => {
+        void desktopApi.cancelExportWrite(requestId).catch(() => undefined);
+      };
+      signal?.addEventListener("abort", cancelNativeWrite, { once: true });
+      try {
+        return await desktopApi.writeExportFile({
+          targetPath,
+          dataBase64: await bytesToBase64Cancellable(bytes, signal),
+          overwrite,
+          requestId,
+        });
+      } finally {
+        signal?.removeEventListener("abort", cancelNativeWrite);
+      }
     },
   };
+}
+
+function createExportImageRequestId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `record-export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function needsRasterCopy(
@@ -75,7 +113,9 @@ function needsRasterCopy(
   format: RecordExportRequest["format"],
 ) {
   if (image.annotationState) return true;
-  if (format === "markdown") return false;
+  if (format === "markdown") {
+    return !["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(resolved.extension.toLowerCase());
+  }
   return !["png", "jpg", "jpeg"].includes(resolved.extension.toLowerCase());
 }
 
@@ -84,7 +124,11 @@ async function rasterizeExportImage(
   annotationState: string | undefined,
   signal?: AbortSignal,
 ): Promise<ResolvedExportImage> {
-  const bitmap = await decodeBitmap(source.bytes, source.mimeType);
+  const bitmap = await abortableOperation(
+    decodeBitmap(source.bytes, source.mimeType),
+    signal,
+    (lateBitmap) => lateBitmap.close?.(),
+  );
   ensureNotCancelled(signal);
   const canvas = document.createElement("canvas");
   canvas.width = bitmap.width;
@@ -95,7 +139,7 @@ async function rasterizeExportImage(
   bitmap.close?.();
   if (annotationState) drawAnnotations(context, annotationState, bitmap.width, bitmap.height);
   ensureNotCancelled(signal);
-  const blob = await canvasToBlob(canvas);
+  const blob = await abortableOperation(canvasToBlob(canvas), signal);
   return {
     kind: "resolved",
     bytes: new Uint8Array(await blob.arrayBuffer()),
@@ -207,18 +251,51 @@ function canvasToBlob(canvas: HTMLCanvasElement) {
   });
 }
 
+function abortableOperation<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  onLateResult?: (value: T) => void,
+) {
+  if (!signal) return operation;
+  ensureNotCancelled(signal);
+  return new Promise<T>((resolve, reject) => {
+    let aborted = false;
+    const abort = () => {
+      aborted = true;
+      reject(new DOMException("导出已取消", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        if (aborted) onLateResult?.(value);
+        else resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        if (!aborted) reject(error);
+      },
+    );
+  });
+}
+
 function base64ToBytes(value: string) {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  const chunkSize = 0x8000;
+async function bytesToBase64Cancellable(bytes: Uint8Array, signal?: AbortSignal) {
+  const parts: string[] = [];
+  const chunkSize = 0x6000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    ensureNotCancelled(signal);
+    parts.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+    if (offset > 0 && offset % (chunkSize * 16) === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
   }
-  return btoa(binary);
+  ensureNotCancelled(signal);
+  return btoa(parts.join(""));
 }
 
 function ensureNotCancelled(signal?: AbortSignal) {

@@ -120,7 +120,7 @@ export const desktopApi = {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
   },
 
-  resolveExportImage(input: { source?: string; path?: string; mimeType?: string }) {
+  resolveExportImage(input: { source?: string; path?: string; mimeType?: string; requestId?: string }) {
     return invoke<{
       dataBase64: string;
       mimeType: string;
@@ -130,12 +130,20 @@ export const desktopApi = {
     }>("desktop_resolve_export_image", { input });
   },
 
+  cancelExportImage(requestId: string) {
+    return invoke<void>("desktop_cancel_export_image", { requestId });
+  },
+
   exportAvailableBytes(targetPath: string) {
     return invoke<number>("desktop_export_available_bytes", { targetPath });
   },
 
-  writeExportFile(input: { targetPath: string; dataBase64: string; overwrite?: boolean }) {
+  writeExportFile(input: { targetPath: string; dataBase64: string; overwrite?: boolean; requestId?: string }) {
     return invoke<string>("desktop_write_export_file", { input });
+  },
+
+  cancelExportWrite(requestId: string) {
+    return invoke<void>("desktop_cancel_export_write", { requestId });
   },
 
   async readClipboardText() {
