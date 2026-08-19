@@ -139,3 +139,9 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 **Committed Content**：
 编辑器中已经由用户确认、允许保存的正文视图，不包含任何仍待确认的 AI Modification 或 AI Answer。
 _Avoid_：实时预览内容、编辑器 DOM 快照
+
+### 内容携带
+
+**Record Export**：
+单条 Workspace Record 或 Project Record 在其 Committed Content 状态下形成的本地可携带副本，可表现为 Markdown/ZIP、DOCX 或 PDF，但不改变原 Record。
+_Avoid_：Backup、Workspace Export、未确认内容快照

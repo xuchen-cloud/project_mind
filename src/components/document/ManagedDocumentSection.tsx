@@ -97,7 +97,7 @@ export function ManagedDocumentSection({
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [pendingTagIdsByDocumentId, setPendingTagIdsByDocumentId] = useState<Record<number, number[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const openTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const openTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const {

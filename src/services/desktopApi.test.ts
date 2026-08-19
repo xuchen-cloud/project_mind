@@ -3,6 +3,8 @@ const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
   openMock: vi.fn(),
+  saveMock: vi.fn(),
+  askMock: vi.fn(),
   readClipboardTextMock: vi.fn(),
   readClipboardImageMock: vi.fn(),
   getCurrentWindowMock: vi.fn(() => ({
@@ -39,6 +41,8 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: tauriMocks.openMock,
+  save: tauriMocks.saveMock,
+  ask: tauriMocks.askMock,
 }));
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
@@ -86,6 +90,8 @@ describe("desktopApi", () => {
   beforeEach(() => {
     tauriMocks.invokeMock.mockReset();
     tauriMocks.openMock.mockReset();
+    tauriMocks.saveMock.mockReset();
+    tauriMocks.askMock.mockReset();
     tauriMocks.readClipboardTextMock.mockReset();
     tauriMocks.readClipboardImageMock.mockReset();
     tauriMocks.convertFileSrcMock.mockClear();
@@ -248,6 +254,31 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("desktop_generate_image_thumbnail", {
       path: "/tmp/clip.png",
       maxEdge: 720,
+    });
+  });
+
+  it("maps Record Export image, disk-space, and atomic-write commands", async () => {
+    tauriMocks.invokeMock
+      .mockResolvedValueOnce({ dataBase64: "AA==", mimeType: "image/png", extension: "png" })
+      .mockResolvedValueOnce(4096)
+      .mockResolvedValueOnce("/tmp/export.pdf");
+
+    await desktopApi.resolveExportImage({ path: "/tmp/image.png", mimeType: "image/png" });
+    await desktopApi.exportAvailableBytes("/tmp/export.pdf");
+    await desktopApi.writeExportFile({
+      targetPath: "/tmp/export.pdf",
+      dataBase64: "JVBERg==",
+      overwrite: true,
+    });
+
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(1, "desktop_resolve_export_image", {
+      input: { path: "/tmp/image.png", mimeType: "image/png" },
+    });
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(2, "desktop_export_available_bytes", {
+      targetPath: "/tmp/export.pdf",
+    });
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(3, "desktop_write_export_file", {
+      input: { targetPath: "/tmp/export.pdf", dataBase64: "JVBERg==", overwrite: true },
     });
   });
 

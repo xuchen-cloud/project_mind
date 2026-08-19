@@ -194,8 +194,8 @@ export function ProjectSidebar({
   const setSelectedRecordTagId =
     onActiveRecordTagIdChange ?? setLocalActiveRecordTagId;
 
-  const openTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const dragDeactivateTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const openTimerRef = useRef<number | null>(null);
+  const dragDeactivateTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragActiveRef = useRef(false);
 
