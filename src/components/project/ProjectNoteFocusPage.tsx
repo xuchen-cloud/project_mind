@@ -16,6 +16,7 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
+import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { Button, IconButton, TextField } from "../../ui/components";
@@ -34,7 +35,11 @@ import {
   externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
+import { RecordExportAction } from "../../features/record-export/RecordExportAction";
+import type { RecordExportRequest } from "../../features/record-export/recordExport";
+import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type { ProjectPageData, ProjectTagRecord, NoteRecord } from "../../lib/types";
+import type { RichTextStyleSettings } from "../../lib/types";
 
 export function ProjectNoteFocusPage() {
   const navigate = useNavigate();
@@ -63,6 +68,7 @@ export function ProjectNoteFocusPage() {
   const tagIdsValueRef = useRef<number[]>([]);
   const codeLanguageValueRef = useRef<string | null>(null);
   const pendingPersistRef = useRef<Promise<boolean> | null>(null);
+  const lastSavedUpdatedAtRef = useRef<string | null>(null);
 
   const projectQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -153,6 +159,7 @@ export function ProjectNoteFocusPage() {
     setCodeLanguage(note.defaultCodeLanguage ?? null);
     codeLanguageValueRef.current = note.defaultCodeLanguage ?? null;
     setPersistState("idle");
+    lastSavedUpdatedAtRef.current = note.updatedAt;
     setLoadedNoteId(note.id);
   }, [loadedNoteId, note]);
 
@@ -201,6 +208,7 @@ export function ProjectNoteFocusPage() {
                 : current,
           );
           lastSavedTitleRef.current = nextTitle;
+          lastSavedUpdatedAtRef.current = savedRecord.updatedAt;
           return true;
         } catch (error) {
           pushToast({ tone: "error", title: "保存失败", detail: String(error) });
@@ -337,6 +345,24 @@ export function ProjectNoteFocusPage() {
     [navigateInternalReference, saveCurrentRecord],
   );
 
+  const runExport = useCallback((request: RecordExportRequest) => {
+    const exportRecord = createDesktopRecordExporter(async () => {
+      const saved = await saveCurrentRecord();
+      if (!saved) throw new Error("导出前保存失败");
+      const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
+      return {
+        recordKind: "project" as const,
+        title: titleValueRef.current,
+        projectName: project?.name,
+        tags: availableTags.filter((tag) => tagIdsValueRef.current.includes(tag.id)).map((tag) => tag.label),
+        updatedAt: lastSavedUpdatedAtRef.current ?? note?.updatedAt,
+        committedHtml: committed.html,
+        style: queryClient.getQueryData<RichTextStyleSettings>(queryKeys.richTextStyle) ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS,
+      };
+    });
+    return exportRecord(request);
+  }, [availableTags, content, note?.updatedAt, project?.name, queryClient, saveCurrentRecord]);
+
   if (projectId === null || noteId === null) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -404,6 +430,11 @@ export function ProjectNoteFocusPage() {
             <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
               页面宽度
             </Button>
+            <RecordExportAction
+              title={titleValueRef.current}
+              getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+              exportTo={runExport}
+            />
             <span
               className={cn(
                 "text-caption",

@@ -17,8 +17,30 @@ const apiMocks = vi.hoisted(() => ({
   workspaceRecordUpsert: vi.fn(),
 }));
 
+const recordExportMocks = vi.hoisted(() => ({
+  sources: [] as Array<{ committedHtml: string; recordKind: string }>,
+  editorValue: "正文 A[AI preview]",
+  committedValue: "正文 A",
+}));
+
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: apiMocks,
+}));
+
+vi.mock("../../features/record-export/desktopRecordExportPlatform", () => ({
+  createDesktopRecordExporter: (saveCommittedContent: () => Promise<{ committedHtml: string; recordKind: string }>) =>
+    async () => {
+      recordExportMocks.sources.push(await saveCommittedContent());
+      return { kind: "success", path: "/tmp/export.pdf", warnings: [], fontSubstituted: false };
+    },
+}));
+
+vi.mock("../../features/record-export/RecordExportAction", () => ({
+  RecordExportAction: ({ exportTo }: { exportTo: (request: object) => Promise<unknown> }) => (
+    <button type="button" onClick={() => void exportTo({ format: "pdf", targetPath: "/tmp/export.pdf" })}>
+      测试导出
+    </button>
+  ),
 }));
 
 vi.mock("../../services/desktopApi", () => ({
@@ -95,6 +117,7 @@ vi.mock("../rich-editor", () => ({
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
+        getCommittedValue: () => { html: string; text: string; markdown: string };
         focus: () => void;
         save: () => Promise<unknown>;
       } | null;
@@ -108,7 +131,8 @@ vi.mock("../rich-editor", () => ({
       if (!controllerRef) return;
 
       controllerRef.current = {
-        getValue: () => buildMockRichValue(valueRef.current),
+        getValue: () => buildMockRichValue(recordExportMocks.editorValue),
+        getCommittedValue: () => buildMockRichValue(recordExportMocks.committedValue),
         focus: vi.fn(),
         save: vi.fn(),
       };
@@ -183,6 +207,9 @@ function toPlainText(html: string) {
 
 describe("WorkspaceRecordFocusPage record switching", () => {
   beforeEach(() => {
+    recordExportMocks.sources.length = 0;
+    recordExportMocks.editorValue = "正文 A[AI preview]";
+    recordExportMocks.committedValue = "正文 A";
     apiMocks.workspacePageGet.mockReset();
     apiMocks.projectsList.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
@@ -212,6 +239,21 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       contentMarkdown: input.markdown ?? "",
       contentHtml: input.html ?? "",
     }));
+  });
+
+  it("exports the Workspace Record from committed content and excludes pending AI preview", async () => {
+    const user = userEvent.setup();
+    renderPage(<WorkspaceRecordFocusPage />);
+
+    await screen.findByDisplayValue("A");
+    await user.click(screen.getByRole("button", { name: "测试导出" }));
+
+    await waitFor(() => expect(recordExportMocks.sources).toHaveLength(1));
+    expect(recordExportMocks.sources[0]).toMatchObject({
+      recordKind: "workspace",
+      committedHtml: "<p>正文 A</p>",
+    });
+    expect(recordExportMocks.sources[0]?.committedHtml).not.toContain("AI preview");
   });
 
   it("flushes the current record before navigating to another record", async () => {

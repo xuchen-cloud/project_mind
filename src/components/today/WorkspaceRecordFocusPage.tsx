@@ -20,6 +20,7 @@ import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
+import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
@@ -40,7 +41,10 @@ import {
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TodoModuleRail } from "../../todo";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
-import type { ProjectTagRecord } from "../../lib/types";
+import { RecordExportAction } from "../../features/record-export/RecordExportAction";
+import type { RecordExportRequest } from "../../features/record-export/recordExport";
+import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
+import type { ProjectTagRecord, RichTextStyleSettings } from "../../lib/types";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -76,6 +80,7 @@ export function WorkspaceRecordFocusPage() {
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const lastSavedUpdatedAtRef = useRef<string | null>(null);
 
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
@@ -162,6 +167,7 @@ export function WorkspaceRecordFocusPage() {
     setTagIds((note.tags ?? []).map((tag) => tag.id));
     setCodeLanguage(note.defaultCodeLanguage ?? null);
     setPersistState("idle");
+    lastSavedUpdatedAtRef.current = note.updatedAt;
     setLoadedNoteId(note.id);
   }, [note]);
 
@@ -181,7 +187,7 @@ export function WorkspaceRecordFocusPage() {
         );
         const normalized = normalizeRichEditorValue(externalizedValue);
         const mentionedTagIds = extractTagMentionIds(normalized.markdown);
-        await projectMindApi.workspaceRecordUpsert({
+        const savedRecord = await projectMindApi.workspaceRecordUpsert({
           noteId: targetNote.id,
           title: nextTitle.trim() || undefined,
           markdown: normalized.markdown,
@@ -192,6 +198,7 @@ export function WorkspaceRecordFocusPage() {
         await workspacePageQuery.refetch();
         await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+        lastSavedUpdatedAtRef.current = savedRecord.updatedAt;
         return true;
       } catch (error) {
         pushToast({ tone: "error", title: "保存失败", detail: String(error) });
@@ -213,14 +220,37 @@ export function WorkspaceRecordFocusPage() {
 
   const saveCurrentRecord = useCallback(async () => {
     if (!note || !draftReady) return false;
+    const editorController = editorControllerRef.current;
+    if (editorController) {
+      const request = editorController.save({ force: true });
+      if (request) return (await request) !== false;
+    }
     return persistWorkspaceRecord(
       note,
-      editorControllerRef.current?.getValue() ?? content,
+      content,
       title,
       tagIds,
       codeLanguage,
     );
   }, [codeLanguage, content, draftReady, note, persistWorkspaceRecord, tagIds, title]);
+
+  const runExport = useCallback((request: RecordExportRequest) => {
+    const exportRecord = createDesktopRecordExporter(async () => {
+      const saved = await saveCurrentRecord();
+      if (!saved) throw new Error("导出前保存失败");
+      const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
+      return {
+        recordKind: "workspace" as const,
+        title,
+        projectName: null,
+        tags: availableTags.filter((tag) => tagIds.includes(tag.id)).map((tag) => tag.label),
+        updatedAt: lastSavedUpdatedAtRef.current ?? note?.updatedAt,
+        committedHtml: committed.html,
+        style: queryClient.getQueryData<RichTextStyleSettings>(queryKeys.richTextStyle) ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS,
+      };
+    });
+    return exportRecord(request);
+  }, [availableTags, content, note?.updatedAt, queryClient, saveCurrentRecord, tagIds, title]);
 
   const handleBack = async () => {
     if (noteId === null) return;
@@ -492,6 +522,11 @@ export function WorkspaceRecordFocusPage() {
               >
                 <Settings2 size={14} />
               </IconButton>
+              <RecordExportAction
+                title={title}
+                getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+                exportTo={runExport}
+              />
               <span
                 className={cn(
                   "text-caption",

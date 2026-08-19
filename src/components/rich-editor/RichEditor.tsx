@@ -408,6 +408,7 @@ export interface RichEditorSelectionPayload {
 
 export interface RichEditorController {
   getValue: () => RichEditorValue;
+  getCommittedValue: () => RichEditorValue;
   getDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
@@ -2354,6 +2355,9 @@ export function RichEditor({
 
     controllerRef.current = {
       getValue: getCurrentValue,
+      getCommittedValue: () => editor
+        ? normalizeRichEditorValue(serializeCommittedEditor(editor, rewriteSessionsRef.current))
+        : getCurrentValue(),
       getDocumentJson: () => editor?.getJSON() ?? { type: "doc", content: [] },
       getActiveAiProtectionCount: () => editor
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length

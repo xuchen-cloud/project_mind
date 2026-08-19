@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
@@ -84,6 +84,18 @@ export const desktopApi = {
     return Array.isArray(selected) ? selected : [selected];
   },
 
+  saveFile(options: PickFileOptions & { defaultPath?: string } = {}) {
+    return save({
+      title: options.title,
+      defaultPath: options.defaultPath,
+      filters: options.filters,
+    });
+  },
+
+  confirm(message: string, title = "请确认") {
+    return ask(message, { title, kind: "warning" });
+  },
+
   openExternalUrl(url: string) {
     return openUrl(url);
   },
@@ -106,6 +118,32 @@ export const desktopApi = {
 
   readFileAsDataUrl(path: string, mimeType?: string) {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
+  },
+
+  resolveExportImage(input: { source?: string; path?: string; mimeType?: string; requestId?: string }) {
+    return invoke<{
+      dataBase64: string;
+      mimeType: string;
+      extension: string;
+      widthPx?: number | null;
+      heightPx?: number | null;
+    }>("desktop_resolve_export_image", { input });
+  },
+
+  cancelExportImage(requestId: string) {
+    return invoke<void>("desktop_cancel_export_image", { requestId });
+  },
+
+  exportAvailableBytes(targetPath: string) {
+    return invoke<number>("desktop_export_available_bytes", { targetPath });
+  },
+
+  writeExportFile(input: { targetPath: string; dataBase64: string; overwrite?: boolean; requestId?: string }) {
+    return invoke<string>("desktop_write_export_file", { input });
+  },
+
+  cancelExportWrite(requestId: string) {
+    return invoke<void>("desktop_cancel_export_write", { requestId });
   },
 
   async readClipboardText() {

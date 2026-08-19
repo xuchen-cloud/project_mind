@@ -21,6 +21,7 @@ argon2 = "0.5.3"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
+fs2 = "0.4.3"
 mime_guess = "2.0.5"
 rand = "0.8.5"
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
@@ -33,11 +34,14 @@ tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-opener = "2.5.3"
 trash = "5.2.5"
+tempfile = "3.23.0"
+tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
 winreg = "0.55.0"
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 font-kit = "0.14.3"

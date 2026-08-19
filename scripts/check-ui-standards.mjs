@@ -19,6 +19,9 @@ const allowedHardcodedColorFiles = new Set([
   srcFile("services", "projectMindApi.ts"),
   srcFile("components", "rich-editor", "ImageAnnotationDialog.tsx"),
   srcFile("components", "rich-editor", "image-annotations.ts"),
+  // Export artifacts use a deterministic light print palette and must not inherit app theme tokens.
+  srcFile("features", "record-export", "desktopRecordExportPlatform.ts"),
+  srcFile("features", "record-export", "pdfGenerator.ts"),
   srcFile("ui", "components", "Button.tsx"),
   srcFile("ui", "components", "IconButton.tsx"),
   srcFile("ui", "components", "StatusBadge.tsx"),
