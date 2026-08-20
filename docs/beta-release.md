@@ -1,18 +1,17 @@
 # Beta release
 
-ProjectMind 使用私有源码仓库构建桌面应用，并通过公开的
-`xuchen-cloud/project-mind-releases` 仓库分发安装包、Updater 资产和 Beta
-更新清单。应用固定读取：
+ProjectMind 使用公开的 `xuchen-cloud/project_mind` 源码仓库构建桌面应用，
+并在同一仓库分发安装包、Updater 资产和 Beta 更新清单。应用固定读取：
 
 ```text
-https://raw.githubusercontent.com/xuchen-cloud/project-mind-releases/main/beta/latest.json
+https://raw.githubusercontent.com/xuchen-cloud/project_mind/main/beta/latest.json
 ```
 
 ## One-time GitHub setup
 
-公开发布仓库需要一个 `main` 分支和 `beta/` 目录。私有源码仓库需要配置：
+源码仓库需要一个 `main` 分支，并允许 GitHub Actions 以 `contents: write`
+权限创建 Release 和更新 `beta/latest.json`。仓库只需配置：
 
-- `RELEASES_TOKEN`：对公开发布仓库具有 Contents read/write 权限的 fine-grained token。
 - `TAURI_SIGNING_PRIVATE_KEY`：本机
   `~/.tauri/project-mind-updater-v2.key` 的完整内容。
 - 当前私钥使用空密码生成；工作流显式设置空的
@@ -32,7 +31,7 @@ Tauri Updater 私钥不得提交到任何仓库。丢失私钥后，已安装版
 2. 完成仓库规定的完整验证和 Standards / Spec 双轴 review。
 3. 合并版本提交到 `main`。
 4. 从该提交创建并推送标签，例如 `v0.1.0-beta.1`。
-5. `Publish desktop Beta` workflow 会验证、构建三个桌面目标，向公开仓库创建
+5. `Publish desktop Beta` workflow 会验证、构建三个桌面目标，在源码仓库创建
    Pre-release，验证合并后的 `latest.json`，再推进 `beta/latest.json`。
 
 Windows 只发布 NSIS `setup.exe`；macOS 分别发布 Apple Silicon 与 Intel DMG。
