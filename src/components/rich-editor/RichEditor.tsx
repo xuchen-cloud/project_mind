@@ -3553,6 +3553,12 @@ export function RichEditor({
         });
         return;
       }
+      const visibleAutomaticAnswer = automaticAnswer && isEditorRewriteMarkdownPreviewReady(
+        automaticAnswer,
+        buildEditorRewriteSlice(editor, automaticAnswer, []),
+      )
+        ? automaticAnswer
+        : null;
       const content = isAutomatic
         ? result?.replacementMarkdown?.trim() || ""
         : result?.content.trim() || rewriteJob.streamText?.trim() || "";
@@ -3561,15 +3567,18 @@ export function RichEditor({
         if (!automaticAnswer) {
           throw new Error("AI 未返回原文修改或回答内容。");
         }
+        if (!visibleAutomaticAnswer) {
+          throw new Error("AI 返回内容没有可显示的正文。");
+        }
         const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
         setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
-        if (rewriteSession.answer === automaticAnswer && !rewriteSession.modifyPreview) {
+        if (rewriteSession.answer === visibleAutomaticAnswer && !rewriteSession.modifyPreview) {
           return;
         }
         setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
           ...current,
           anchorPos: protectedRange?.to ?? current.anchorPos,
-          answer: automaticAnswer,
+          answer: visibleAutomaticAnswer,
           modifyPreview: null,
         });
         return;
@@ -3578,6 +3587,13 @@ export function RichEditor({
         return;
       }
       if (rewriteSession.skill.resultMode === "answer") {
+        const answerSlice = buildEditorRewriteSlice(editor, content, []);
+        if (!isEditorRewriteMarkdownPreviewReady(content, answerSlice)) {
+          if (rewriteJob.status === "running") {
+            return;
+          }
+          throw new Error("AI 返回内容没有可显示的正文。");
+        }
         if (rewriteSession.answer === content) {
           return;
         }
@@ -3606,7 +3622,7 @@ export function RichEditor({
 
       if (
         rewriteSession.modifyPreview?.modifiedMarkdown === content &&
-        rewriteSession.answer === automaticAnswer
+        rewriteSession.answer === visibleAutomaticAnswer
       ) {
         return;
       }
@@ -3614,6 +3630,17 @@ export function RichEditor({
       const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
       if (!protectedRange) {
         throw new Error("AI 修改范围已失效，请重新选择文本后再试。");
+      }
+      const previewSlice = buildEditorRewriteSlice(
+        editor,
+        content,
+        rewriteSession.targetType === "image" ? [] : snapshot.placeholders,
+      );
+      if (!isEditorRewriteMarkdownPreviewReady(content, previewSlice)) {
+        if (rewriteJob.status === "running") {
+          return;
+        }
+        throw new Error("AI 返回内容没有可显示的正文。");
       }
       let currentFrom = rewriteSession.modifyPreview?.currentFrom ?? protectedRange.from;
       const currentTo = rewriteSession.modifyPreview?.currentTo ?? protectedRange.to;
@@ -3624,10 +3651,9 @@ export function RichEditor({
         if (rewriteSession.modifyPreview?.showing === "original") {
           nextTo = currentTo;
         } else if (rewriteSession.targetType === "image" && !rewriteSession.modifyPreview) {
-          const slice = buildEditorRewriteSlice(editor, content, []);
           const insertPosition = getInsertPositionAfterSelectedBlock(editor, snapshot.to);
           setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
-          const inserted = insertEditorPreviewSlice(editor, insertPosition, slice);
+          const inserted = insertEditorPreviewSlice(editor, insertPosition, previewSlice);
           currentFrom = inserted.from;
           nextTo = inserted.to;
           setEditorRewriteProtectedRange(editor, {
@@ -3635,8 +3661,7 @@ export function RichEditor({
             to: nextTo,
           }, rewriteSession.targetKey);
         } else {
-          const slice = buildEditorRewriteSlice(editor, content, snapshot.placeholders);
-          nextTo = replaceEditorRangeWithSlice(editor, currentFrom, currentTo, slice);
+          nextTo = replaceEditorRangeWithSlice(editor, currentFrom, currentTo, previewSlice);
           setEditorRewriteProtectedRange(editor, {
             from: rewriteSession.targetType === "image" ? snapshot.from : currentFrom,
             to: nextTo,
@@ -3649,7 +3674,7 @@ export function RichEditor({
       setRewriteSession((current) => current?.targetKey !== rewriteSession.targetKey ? current : {
         ...current,
         anchorPos: nextTo,
-        answer: automaticAnswer ?? current.answer,
+        answer: visibleAutomaticAnswer,
         modifyPreview: {
           originalMarkdown: snapshot.markdown,
           modifiedMarkdown: content,
@@ -6182,6 +6207,84 @@ function replaceEditorRangeWithSlice(editor: Editor, from: number, to: number, s
   editor.view.dispatch(transaction);
   editor.commands.focus(undefined, { scrollIntoView: false });
   return nextTo;
+}
+
+function isEditorRewriteMarkdownPreviewReady(markdown: string, slice: Slice) {
+  return hasVisibleEditorRewriteContent(slice) && !hasIncompleteMarkdownStructure(markdown);
+}
+
+function hasIncompleteMarkdownStructure(markdown: string) {
+  let fence: { marker: "`" | "~"; length: number } | null = null;
+  const outsideFenceLines: string[] = [];
+
+  for (const line of markdown.split(/\r?\n/u)) {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/u);
+    if (!fenceMatch) {
+      if (!fence) outsideFenceLines.push(line);
+      continue;
+    }
+
+    const markerRun = fenceMatch[1] ?? "";
+    const marker = markerRun[0] as "`" | "~";
+    const suffix = fenceMatch[2] ?? "";
+    if (!fence) {
+      fence = { marker, length: markerRun.length };
+      continue;
+    }
+    if (
+      marker === fence.marker
+      && markerRun.length >= fence.length
+      && suffix.trim().length === 0
+    ) {
+      fence = null;
+    }
+  }
+
+  if (fence) return true;
+
+  const outsideFences = outsideFenceLines.join("\n");
+  for (let index = 0; index < outsideFences.length - 1; index += 1) {
+    if (outsideFences[index] !== "]" || outsideFences[index + 1] !== "(") continue;
+    if (isEscapedMarkdownCharacter(outsideFences, index)) continue;
+
+    let depth = 1;
+    for (let destinationIndex = index + 2; destinationIndex < outsideFences.length; destinationIndex += 1) {
+      if (isEscapedMarkdownCharacter(outsideFences, destinationIndex)) continue;
+      if (outsideFences[destinationIndex] === "(") depth += 1;
+      if (outsideFences[destinationIndex] === ")") depth -= 1;
+      if (depth === 0) break;
+    }
+    if (depth > 0) return true;
+  }
+
+  return false;
+}
+
+function isEscapedMarkdownCharacter(markdown: string, index: number) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && markdown[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function hasVisibleEditorRewriteContent(slice: Slice) {
+  let visible = false;
+  slice.content.descendants((node) => {
+    if (node.isText && Boolean(node.text?.trim())) {
+      visible = true;
+      return false;
+    }
+    if (
+      (node.isLeaf && node.type.name !== "hardBreak") ||
+      node.type.name === "table"
+    ) {
+      visible = true;
+      return false;
+    }
+    return true;
+  });
+  return visible;
 }
 
 function insertEditorPreviewSlice(editor: Editor, position: number, slice: Slice) {
