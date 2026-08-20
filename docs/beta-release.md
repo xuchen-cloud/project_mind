@@ -31,8 +31,9 @@ Tauri Updater 私钥不得提交到任何仓库。丢失私钥后，已安装版
 2. 完成仓库规定的完整验证和 Standards / Spec 双轴 review。
 3. 合并版本提交到 `main`。
 4. 从该提交创建并推送标签，例如 `v0.1.0-beta.1`。
-5. `Publish desktop Beta` workflow 会验证、构建三个桌面目标，在源码仓库创建
-   Pre-release，验证合并后的 `latest.json`，再推进 `beta/latest.json`。
+5. `Publish desktop Beta` workflow 会直接构建三个桌面目标，在源码仓库创建
+   Pre-release，验证合并后的 `latest.json`，再推进 `beta/latest.json`。完整测试只在
+   第 2 步本地运行，GitHub Actions 不重复执行这道门禁。
 
 Windows 只发布 NSIS `setup.exe`；macOS 分别发布 Apple Silicon 与 Intel DMG。
 应用内更新使用对应的签名更新资产，不会删除或移动 Workspace。

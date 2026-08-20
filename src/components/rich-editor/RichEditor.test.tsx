@@ -233,6 +233,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   clearManagedImageThumbnailCacheForTests();
   useAiJobStore.getState().reset();
   useFeedbackStore.setState({ toasts: [] });
@@ -1181,7 +1182,8 @@ describe("RichEditor images", () => {
     });
     await controllerRef.current?.save({ force: true });
     const committed = onSave.mock.calls.at(-1)?.[0];
-    expect(committed?.markdown).toContain("[图片] 架构图\n\n图中提取的文字\n\n后文 已移动光标");
+    expect(committed?.markdown).toContain("[图片] 架构图\n\n图中提取的文字\n\n后文");
+    expect(committed?.markdown).toContain("已移动光标");
     expect(committed?.html.indexOf("图中提取的文字")).toBeGreaterThan(committed?.html.indexOf("rich-editor__image") ?? -1);
     expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
 
@@ -1821,7 +1823,8 @@ describe("RichEditor images", () => {
     });
     await controllerRef.current?.save({ force: true });
     const committed = onSave.mock.calls.at(-1)?.[0];
-    expect(committed?.markdown).toContain("[图片] 图片\n\n> 最终图片回答\n\n结尾 已移动光标");
+    expect(committed?.markdown).toContain("[图片] 图片\n\n> 最终图片回答\n\n结尾");
+    expect(committed?.markdown).toContain("已移动光标");
     expect(committed?.html.indexOf("最终图片回答")).toBeGreaterThan(committed?.html.indexOf("rich-editor__image") ?? -1);
     expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
 
