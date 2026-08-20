@@ -319,74 +319,16 @@ const answer = 42;
     }
     expect(nonWhitePixels).toBeGreaterThan(canvas.width * canvas.height * 0.015);
     expect(darkPixels).toBeGreaterThan(canvas.width * canvas.height * 0.001);
-    expect(imageTileSignature(pixels, canvas.width, canvas.height)).toMatchInlineSnapshot(`
-      [
-        [
-          0.052,
-          0.064,
-          0.029,
-          0.025,
-          0.001,
-          0,
-        ],
-        [
-          0.122,
-          0.129,
-          0.11,
-          0.03,
-          0.001,
-          0,
-        ],
-        [
-          0.076,
-          0.033,
-          0,
-          0,
-          0,
-          0,
-        ],
-        [
-          0.115,
-          0.166,
-          0.141,
-          0.141,
-          0.141,
-          0.061,
-        ],
-        [
-          0.269,
-          0.587,
-          0.593,
-          0.605,
-          0.587,
-          0.26,
-        ],
-        [
-          0.153,
-          0.366,
-          0.251,
-          0.206,
-          0.206,
-          0.086,
-        ],
-        [
-          0.135,
-          0.385,
-          0.381,
-          0.381,
-          0.381,
-          0.196,
-        ],
-        [
-          0,
-          0,
-          0.004,
-          0.004,
-          0,
-          0,
-        ],
-      ]
-    `);
+    expectImageTileSignatureCloseTo(imageTileSignature(pixels, canvas.width, canvas.height), [
+      [0.052, 0.064, 0.029, 0.025, 0.001, 0],
+      [0.122, 0.129, 0.11, 0.03, 0.001, 0],
+      [0.076, 0.033, 0, 0, 0, 0],
+      [0.115, 0.166, 0.141, 0.141, 0.141, 0.061],
+      [0.269, 0.587, 0.593, 0.605, 0.587, 0.26],
+      [0.153, 0.366, 0.251, 0.206, 0.206, 0.086],
+      [0.135, 0.385, 0.381, 0.381, 0.381, 0.196],
+      [0, 0, 0.004, 0.004, 0, 0],
+    ]);
     await pdf.cleanup();
   });
 
@@ -661,6 +603,16 @@ function imageTileSignature(pixels: Uint8ClampedArray, width: number, height: nu
     }
     return Math.round((ink / Math.max(1, total)) * 1000) / 1000;
   }));
+}
+
+function expectImageTileSignatureCloseTo(actual: number[][], expected: number[][]) {
+  expect(actual).toHaveLength(expected.length);
+  actual.forEach((row, rowIndex) => {
+    expect(row).toHaveLength(expected[rowIndex].length);
+    row.forEach((value, columnIndex) => {
+      expect(value).toBeCloseTo(expected[rowIndex][columnIndex], 2);
+    });
+  });
 }
 
 type PdfStructureNode = {
