@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Beta release configuration", () => {
+  it("keeps verification local and starts tagged releases with packaging", async () => {
+    const workflow = await readFile(".github/workflows/publish-beta.yml", "utf8");
+
+    expect(workflow).not.toMatch(/^  verify:/mu);
+    expect(workflow).not.toContain("needs: verify");
+    expect(workflow).not.toContain("npm run test:unit");
+  });
+
   it("builds updater-enabled app bundles for both macOS architectures", async () => {
     const workflow = await readFile(".github/workflows/publish-beta.yml", "utf8");
     const macUpdaterBuilds = workflow.match(/--bundles app,dmg/gu) ?? [];
