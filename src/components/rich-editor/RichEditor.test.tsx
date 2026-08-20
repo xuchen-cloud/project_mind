@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Copy } from "lucide-react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -333,6 +333,46 @@ function selectTextRange(startNode: Text, startOffset: number, endNode: Text, en
   selection?.removeAllRanges();
   selection?.addRange(range);
   document.dispatchEvent(new Event("selectionchange"));
+}
+
+function mockEditorSkillJob(jobId: number) {
+  const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+  let targetKey = "";
+  const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
+    targetKey = input.targetKey;
+    return {
+      id: jobId,
+      kind: "editor_skill",
+      targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    };
+  });
+
+  return {
+    getTargetKey: () => targetKey,
+    restore: () => {
+      enqueueSpy.mockRestore();
+      ensureSyncSpy.mockRestore();
+    },
+  };
+}
+
+async function selectOpeningTextAndOpenContextMenu(container: HTMLElement) {
+  const surface = await waitFor(() => container.querySelector(".ProseMirror") as HTMLElement);
+  const paragraphText = surface.querySelector("p")?.firstChild as Text;
+  fireEvent.focus(surface);
+  selectTextContent(paragraphText, 0, 5);
+  fireEvent.contextMenu(paragraphText.parentElement as HTMLElement, { clientX: 20, clientY: 20 });
+  return {
+    surface,
+    menu: await screen.findByRole("menu", { name: "文本操作" }),
+  };
 }
 
 function clearBrowserSelection() {
@@ -4030,6 +4070,134 @@ describe("RichEditor context menus", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it("rejects an automatic AI Answer that contains no visible content", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(55);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [],
+        }}
+      />,
+    );
+    const { surface, menu } = await selectOpeningTextAndOpenContextMenu(container);
+    await user.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+    const prompt = within(await screen.findByRole("dialog", { name: "AI 编辑菜单" })).getByPlaceholderText("使用 AI 编辑");
+    await user.type(prompt, "请处理这段文字");
+    fireEvent.keyDown(prompt, { key: "Enter" });
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+
+    await act(async () => {
+      useAiJobStore.getState().upsertJob({
+        id: 55,
+        kind: "editor_skill",
+        targetKey: job.getTargetKey(),
+        status: "succeeded",
+        queuedAt: "",
+        startedAt: "",
+        finishedAt: "",
+        errorMessage: null,
+        streamText: "",
+        result: {
+          kind: "editor_skill",
+          rewrite: {
+            skillId: null,
+            resultMode: "auto",
+            content: '{"replacementMarkdown":null,"answerMarkdown":"```"}',
+            replacementMarkdown: null,
+            answerMarkdown: "```",
+            resolvedModel: "mock-model",
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("hello world");
+      expect(screen.queryByRole("button", { name: "插入" })).not.toBeInTheDocument();
+      expect(useFeedbackStore.getState().toasts).toMatchObject([{
+        tone: "error",
+        title: "应用 AI 结果失败",
+        detail: "AI 返回内容没有可显示的正文。",
+      }]);
+    });
+
+    job.restore();
+  });
+
+  it("discards an invisible automatic AI Answer while keeping its visible Modification", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(56);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [],
+        }}
+      />,
+    );
+    const { surface, menu } = await selectOpeningTextAndOpenContextMenu(container);
+    await user.click(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ }));
+    const prompt = within(await screen.findByRole("dialog", { name: "AI 编辑菜单" })).getByPlaceholderText("使用 AI 编辑");
+    await user.type(prompt, "请处理这段文字");
+    fireEvent.keyDown(prompt, { key: "Enter" });
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+
+    await act(async () => {
+      useAiJobStore.getState().upsertJob({
+        id: 56,
+        kind: "editor_skill",
+        targetKey: job.getTargetKey(),
+        status: "succeeded",
+        queuedAt: "",
+        startedAt: "",
+        finishedAt: "",
+        errorMessage: null,
+        streamText: "",
+        result: {
+          kind: "editor_skill",
+          rewrite: {
+            skillId: null,
+            resultMode: "auto",
+            content: '{"replacementMarkdown":"better world","answerMarkdown":"```"}',
+            replacementMarkdown: "better world",
+            answerMarkdown: "```",
+            resolvedModel: "mock-model",
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("better world");
+      expect(screen.getByRole("button", { name: "接受" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "复制回答" })).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "接受" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "插入" })).not.toBeInTheDocument();
+      expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
+    });
+
+    job.restore();
+  });
+
   it("renders inline rewrite suggestions in the editor and accepts the streamed result", async () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
@@ -4174,6 +4342,98 @@ describe("RichEditor context menus", () => {
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
+  });
+
+  it("keeps the original AI Modification visible until streamed Markdown is complete and visible", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(53);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "polish-incomplete-stream",
+            name: "润色",
+            icon: null,
+            description: null,
+            prompt: "请润色",
+            resultMode: "modify",
+            showInTextMenu: true,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const { surface, menu } = await selectOpeningTextAndOpenContextMenu(container);
+    await user.click(within(menu).getByRole("menuitem", { name: "润色" }));
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+
+    useAiJobStore.getState().upsertJob({
+      id: 53,
+      kind: "editor_skill",
+      targetKey: job.getTargetKey(),
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "```",
+      result: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("AI 正在修改...")).toBeInTheDocument();
+      expect(surface).toHaveTextContent("hello world");
+      expect(surface.querySelector("pre")).not.toBeInTheDocument();
+    });
+
+    useAiJobStore.getState().upsertJob({
+      id: 53,
+      kind: "editor_skill",
+      targetKey: job.getTargetKey(),
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "```text\nbetter wording",
+      result: null,
+    });
+
+    await waitFor(() => {
+      expect(surface).toHaveTextContent("hello world");
+      expect(surface.querySelector("pre")).not.toBeInTheDocument();
+    });
+
+    useAiJobStore.getState().upsertJob({
+      id: 53,
+      kind: "editor_skill",
+      targetKey: job.getTargetKey(),
+      status: "running",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: null,
+      errorMessage: null,
+      streamText: "```text\nbetter wording\n```",
+      result: null,
+    });
+
+    await waitFor(() => {
+      expect(surface.querySelector("pre")?.textContent).toContain("better wording");
+      expect(screen.getByRole("button", { name: "生成中" })).toBeDisabled();
+    });
+
+    job.restore();
   });
 
   it("preserves selected rich text formatting while streaming and accepting modify results", async () => {
@@ -4415,6 +4675,102 @@ describe("RichEditor context menus", () => {
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
+  });
+
+  it("keeps AI Answer loading until streamed Markdown contains visible content", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(54);
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>hello world</p>"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "explain-incomplete-stream",
+            name: "解释",
+            icon: null,
+            description: null,
+            prompt: "请解释",
+            resultMode: "answer",
+            showInTextMenu: true,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const { menu } = await selectOpeningTextAndOpenContextMenu(container);
+    await user.click(within(menu).getByRole("menuitem", { name: "解释" }));
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+
+    await act(async () => {
+      useAiJobStore.getState().upsertJob({
+        id: 54,
+        kind: "editor_skill",
+        targetKey: job.getTargetKey(),
+        status: "running",
+        queuedAt: "",
+        startedAt: "",
+        finishedAt: null,
+        errorMessage: null,
+        streamText: "```",
+        result: null,
+      });
+    });
+
+    expect(screen.getByText("AI 正在处理...")).toBeInTheDocument();
+    expect(screen.queryByText("解释")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生成中" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      useAiJobStore.getState().upsertJob({
+        id: 54,
+        kind: "editor_skill",
+        targetKey: job.getTargetKey(),
+        status: "running",
+        queuedAt: "",
+        startedAt: "",
+        finishedAt: null,
+        errorMessage: null,
+        streamText: "[可见文字](",
+        result: null,
+      });
+    });
+
+    expect(screen.getByText("AI 正在处理...")).toBeInTheDocument();
+    expect(screen.queryByText("可见文字")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生成中" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      useAiJobStore.getState().upsertJob({
+        id: 54,
+        kind: "editor_skill",
+        targetKey: job.getTargetKey(),
+        status: "running",
+        queuedAt: "",
+        startedAt: "",
+        finishedAt: null,
+        errorMessage: null,
+        streamText: "## 分析\n可见回答",
+        result: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "分析", level: 2 })).toBeInTheDocument();
+      expect(screen.getByText("可见回答")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "生成中" })).toBeDisabled();
+    });
+
+    job.restore();
   });
 
   it("shows the table menu inside a table and applies row insertion", async () => {
