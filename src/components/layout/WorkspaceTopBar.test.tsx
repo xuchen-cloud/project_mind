@@ -39,7 +39,7 @@ describe("WorkspaceTopBar", () => {
     );
 
     expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
-    expect(screen.queryByText("Project Mind")).not.toBeInTheDocument();
+    expect(screen.queryByText("ProjectMind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
 
     await user.click(

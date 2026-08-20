@@ -1042,7 +1042,7 @@ export function WorkspaceLayout({
   const mainContent = shouldShowEmpty ? (
     <div className="flex h-full items-center justify-center px-6 py-10">
       <EmptyState
-        title="Project Mind"
+        title="ProjectMind"
         text="当前还没有项目。需要开始整理时再创建即可，后续活动、结论、待办和文件都会围绕项目组织。"
         icon={<FolderKanban size={18} />}
         action={

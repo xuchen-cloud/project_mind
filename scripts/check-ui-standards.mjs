@@ -6,6 +6,7 @@ const srcRoot = path.join(projectRoot, "src");
 const srcFile = (...segments) => path.join(srcRoot, ...segments);
 
 const allowedTauriFiles = new Set([
+  srcFile("services", "appUpdater.ts"),
   srcFile("services", "desktopApi.ts"),
   srcFile("lib", "project-window.ts"),
   srcFile("lib", "aiJobs.ts"),

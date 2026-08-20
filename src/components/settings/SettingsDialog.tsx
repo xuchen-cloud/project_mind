@@ -1,4 +1,12 @@
-import { Contact, Files, Pencil, Settings2, Sparkles, StretchHorizontal } from "lucide-react";
+import {
+  Contact,
+  Files,
+  Pencil,
+  RefreshCw,
+  Settings2,
+  Sparkles,
+  StretchHorizontal,
+} from "lucide-react";
 import { Suspense, lazy, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -20,6 +28,9 @@ const ProjectTagSettingsPanel = lazy(() =>
 const RichTextStylePanel = lazy(() =>
   import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
 );
+const UpdateSettingsPanel = lazy(() =>
+  import("./UpdateSettingsPanel").then((module) => ({ default: module.UpdateSettingsPanel })),
+);
 
 interface SettingsDialogProps {
   open: boolean;
@@ -39,6 +50,11 @@ const SETTINGS_SECTIONS: Array<{
     value: "page-width",
     label: "页面宽度",
     icon: StretchHorizontal,
+  },
+  {
+    value: "updates",
+    label: "应用更新",
+    icon: RefreshCw,
   },
   {
     value: "project-tags",
@@ -85,6 +101,12 @@ export function SettingsDialog({
     switch (activeSection) {
       case "page-width":
         return <PageWidthSettingsPanel />;
+      case "updates":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <UpdateSettingsPanel />
+          </Suspense>
+        );
       case "project-tags":
         return (
           <Suspense fallback={<SettingsPanelFallback />}>
@@ -136,7 +158,9 @@ export function SettingsDialog({
           ? projectId === null
             ? "当前更改只作用于这个 Workspace。"
             : "当前更改只作用于这个项目。"
-          : "当前更改只作用于本地 workspace。"
+          : activeSection === "updates"
+            ? "检查并安装 ProjectMind 桌面版本更新。"
+            : "当前更改只作用于本地 workspace。"
       }
       widthClassName="max-w-6xl"
       bodyClassName="px-0 py-0"
@@ -206,6 +230,9 @@ export function SettingsRouteBridge() {
 }
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
+  if (section === "updates") {
+    return "updates";
+  }
   if (section === "page-width") {
     return "page-width";
   }

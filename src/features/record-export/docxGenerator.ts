@@ -72,9 +72,9 @@ export async function generateDocxInCurrentThread(
 
   const file = new Document({
     title: document.title,
-    subject: "Project Mind Record Export",
-    creator: "Project Mind",
-    lastModifiedBy: "Project Mind",
+    subject: "ProjectMind Record Export",
+    creator: "ProjectMind",
+    lastModifiedBy: "ProjectMind",
     description: "A portable copy of committed Record content.",
     styles: buildStyles(document, { bodyFont, headingFont, listFont }),
     numbering: {

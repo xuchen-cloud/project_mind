@@ -7,6 +7,7 @@ import {
 
 export type SettingsSection =
   | "page-width"
+  | "updates"
   | "project-tags"
   | "contacts"
   | "ai-models"

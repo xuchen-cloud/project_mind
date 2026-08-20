@@ -1,0 +1,117 @@
+name: Publish desktop Beta
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_REPOSITORY: xuchen-cloud/project-mind-releases
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run check:ui-standards
+      - run: npm run build
+      - run: npm run check:bundle-boundaries
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles app,dmg
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles app,dmg
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos-') && '-' || '' }}
+        with:
+          owner: xuchen-cloud
+          repo: project-mind-releases
+          tagName: ${{ github.ref_name }}
+          releaseName: ProjectMind ${{ github.ref_name }}
+          releaseBody: |
+            ProjectMind Beta 桌面版本。应用升级不会删除或移动 Workspace；首次安装前仍建议保留一份独立备份。
+          releaseCommitish: main
+          releaseDraft: true
+          prerelease: true
+          retryAttempts: 2
+          updaterJsonPreferNsis: true
+          releaseAssetNamePattern: ProjectMind_[version]_[platform]_[arch][setup].[ext]
+          args: ${{ matrix.args }}
+
+  publish-channel:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download and validate updater manifest
+        run: |
+          mkdir -p updater-channel
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$RELEASE_REPOSITORY" \
+            --pattern latest.json \
+            --dir updater-channel
+          node scripts/validate-updater-manifest.mjs updater-channel/latest.json
+      - name: Publish Beta release
+        run: |
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$RELEASE_REPOSITORY" \
+            --draft=false \
+            --prerelease
+      - uses: actions/checkout@v7
+        with:
+          repository: xuchen-cloud/project-mind-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          path: release-repository
+      - name: Advance public Beta channel
+        run: |
+          mkdir -p release-repository/beta
+          cp updater-channel/latest.json release-repository/beta/latest.json
+          cd release-repository
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- beta/latest.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "release: advance Beta channel to $GITHUB_REF_NAME"
+          git push origin HEAD:main

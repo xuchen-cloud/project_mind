@@ -37,9 +37,9 @@ export async function generatePdfInCurrentThread(
     displayTitle: true,
     info: {
       Title: document.title ?? "Record Export",
-      Author: "Project Mind",
-      Creator: "Project Mind",
-      Producer: "Project Mind",
+      Author: "ProjectMind",
+      Creator: "ProjectMind",
+      Producer: "ProjectMind",
       Subject: "A portable copy of committed Record content.",
     },
   });

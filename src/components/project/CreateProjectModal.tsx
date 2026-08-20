@@ -48,7 +48,7 @@ export function CreateProjectModal({
           <FolderOpen size={18} />
         </div>
         <div>
-          <p className="text-title font-medium text-text">Project Mind Workspace</p>
+          <p className="text-title font-medium text-text">ProjectMind Workspace</p>
           <p className="text-body text-text-muted">新项目会直接创建在当前 workspace 根目录下。</p>
         </div>
       </div>
