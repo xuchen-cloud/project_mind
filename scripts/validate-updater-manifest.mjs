@@ -10,14 +10,14 @@ function isPublicReleaseAssetUrl(value) {
     if (
       url.origin === "https://github.com" &&
       url.pathname.startsWith(
-        "/xuchen-cloud/project-mind-releases/releases/download/",
+        "/xuchen-cloud/project_mind/releases/download/",
       )
     ) {
       return true;
     }
     return (
       url.origin === "https://api.github.com" &&
-      /^\/repos\/xuchen-cloud\/project-mind-releases\/releases\/assets\/\d+$/u.test(
+      /^\/repos\/xuchen-cloud\/project_mind\/releases\/assets\/\d+$/u.test(
         url.pathname,
       )
     );

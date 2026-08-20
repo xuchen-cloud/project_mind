@@ -8,9 +8,6 @@ on:
 permissions:
   contents: read
 
-env:
-  RELEASE_REPOSITORY: xuchen-cloud/project-mind-releases
-
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -28,6 +25,8 @@ jobs:
 
   build:
     needs: verify
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -57,18 +56,15 @@ jobs:
       - run: npm ci
       - uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos-') && '-' || '' }}
         with:
-          owner: xuchen-cloud
-          repo: project-mind-releases
           tagName: ${{ github.ref_name }}
           releaseName: ProjectMind ${{ github.ref_name }}
           releaseBody: |
             ProjectMind Beta 桌面版本。应用升级不会删除或移动 Workspace；首次安装前仍建议保留一份独立备份。
-          releaseCommitish: main
           releaseDraft: true
           prerelease: true
           retryAttempts: 2
@@ -79,28 +75,30 @@ jobs:
   publish-channel:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
-      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - name: Download and validate updater manifest
         run: |
           mkdir -p updater-channel
           gh release download "$GITHUB_REF_NAME" \
-            --repo "$RELEASE_REPOSITORY" \
+            --repo "$GITHUB_REPOSITORY" \
             --pattern latest.json \
             --dir updater-channel
           node scripts/validate-updater-manifest.mjs updater-channel/latest.json
       - name: Publish Beta release
         run: |
           gh release edit "$GITHUB_REF_NAME" \
-            --repo "$RELEASE_REPOSITORY" \
+            --repo "$GITHUB_REPOSITORY" \
             --draft=false \
             --prerelease
       - uses: actions/checkout@v7
         with:
-          repository: xuchen-cloud/project-mind-releases
-          token: ${{ secrets.RELEASES_TOKEN }}
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: release-repository
       - name: Advance public Beta channel
         run: |

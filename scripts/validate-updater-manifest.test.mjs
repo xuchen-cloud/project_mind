@@ -5,7 +5,7 @@ import { validateUpdaterManifest } from "./validate-updater-manifest.mjs";
 describe("validateUpdaterManifest", () => {
   it("accepts one signed Beta update for every supported desktop target", () => {
     const releaseBase =
-      "https://github.com/xuchen-cloud/project-mind-releases/releases/download/v0.2.0-beta.1";
+      "https://github.com/xuchen-cloud/project_mind/releases/download/v0.2.0-beta.1";
     const manifest = {
       version: "0.2.0-beta.1",
       notes: "Beta update",
@@ -34,7 +34,7 @@ describe("validateUpdaterManifest", () => {
       version: "0.2.0-beta.1",
       platforms: {
         "windows-x86_64": {
-          url: "https://github.com/xuchen-cloud/project-mind-releases/releases/download/v0.2.0-beta.1/update.exe",
+          url: "https://github.com/xuchen-cloud/project_mind/releases/download/v0.2.0-beta.1/update.exe",
           signature: "signed-windows-update",
         },
       },
@@ -53,7 +53,7 @@ describe("validateUpdaterManifest", () => {
           (target, index) => [
             target,
             {
-              url: `https://api.github.com/repos/xuchen-cloud/project-mind-releases/releases/assets/${index + 1}`,
+              url: `https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/${index + 1}`,
               signature: `signed-${target}`,
             },
           ],

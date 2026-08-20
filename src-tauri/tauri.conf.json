@@ -61,7 +61,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5MzJCMTdEMTlDRDc1QTcKUldTbmRjMFpmYkV5MlpqcCt6UFhubXdFV2FZVlFvK2g1VE1pVGFUV0JDT0YzQzN3QXBVRjk4czcK",
       "endpoints": [
-        "https://raw.githubusercontent.com/xuchen-cloud/project-mind-releases/main/beta/latest.json"
+        "https://raw.githubusercontent.com/xuchen-cloud/project_mind/main/beta/latest.json"
       ],
       "windows": {
         "installMode": "passive"

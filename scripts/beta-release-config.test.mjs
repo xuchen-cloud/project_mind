@@ -43,4 +43,16 @@ describe("Beta release configuration", () => {
     expect(contents.join("\n")).not.toContain("Project Mind");
     expect(contents.join("\n")).not.toContain("Project-Mind");
   });
+
+  it("publishes and serves Beta updates from the public source repository", async () => {
+    const workflow = await readFile(".github/workflows/publish-beta.yml", "utf8");
+    const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
+
+    expect(workflow).toContain("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
+    expect(workflow).not.toContain("RELEASES_TOKEN");
+    expect(workflow).not.toContain("project-mind-releases");
+    expect(tauriConfig.plugins.updater.endpoints).toEqual([
+      "https://raw.githubusercontent.com/xuchen-cloud/project_mind/main/beta/latest.json",
+    ]);
+  });
 });
