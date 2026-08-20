@@ -1,5 +1,6 @@
 import { FileDown, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 
 import { desktopApi } from "../../services/desktopApi";
 import { ActionContextMenu, IconButton } from "../../ui/components";
@@ -29,19 +30,26 @@ export function RecordExportAction({
         }}>
         <MoreHorizontal size={16} />
       </IconButton>
-      {menu ? (
-        <ActionContextMenu x={menu.x} y={menu.y} ariaLabel="记录更多操作" onClose={() => setMenu(null)}
-          actions={[{ label: "导出…", icon: FileDown, onSelect: () => { setMenu(null); setOpen(true); } }]} />
-      ) : null}
-      <RecordExportDialog
-        open={open}
-        hasImages={hasImages}
-        onClose={() => setOpen(false)}
-        chooseTarget={(format, includeImages) => chooseRecordExportTarget({ title, format, includeImages, hasImages })}
-        exportTo={exportTo}
-        onOpenFile={(path) => desktopApi.openFile(path)}
-        onRevealFile={(path) => desktopApi.revealPath(path)}
-      />
+      {typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {menu ? (
+                <ActionContextMenu x={menu.x} y={menu.y} ariaLabel="记录更多操作" onClose={() => setMenu(null)}
+                  actions={[{ label: "导出…", icon: FileDown, onSelect: () => { setMenu(null); setOpen(true); } }]} />
+              ) : null}
+              <RecordExportDialog
+                open={open}
+                hasImages={hasImages}
+                onClose={() => setOpen(false)}
+                chooseTarget={(format, includeImages) => chooseRecordExportTarget({ title, format, includeImages, hasImages })}
+                exportTo={exportTo}
+                onOpenFile={(path) => desktopApi.openFile(path)}
+                onRevealFile={(path) => desktopApi.revealPath(path)}
+              />
+            </>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
