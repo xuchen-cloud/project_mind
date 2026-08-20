@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Local, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -67,6 +67,7 @@ const WORKSPACE_NOTE_TAG_SCHEMA_VERSION: i64 = 16;
 const AI_REWRITE_ONLY_SCHEMA_VERSION: i64 = 17;
 const TODO_DUE_DATE_SCHEMA_VERSION: i64 = 18;
 const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
+const CURRENT_SCHEMA_VERSION: i64 = TODO_OWNERSHIP_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const AI_VISIBLE_CAPABILITIES: [&str; 4] = [
@@ -422,6 +423,7 @@ impl Database {
         workspace_root: &Path,
         secret_password: Option<String>,
     ) -> Result<Self> {
+        let database_already_exists = db_path.exists();
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create app data dir at {}", parent.display())
@@ -430,6 +432,9 @@ impl Database {
 
         let conn = Connection::open(db_path)
             .with_context(|| format!("failed to open sqlite at {}", db_path.display()))?;
+        if database_already_exists {
+            backup_before_migration(&conn, workspace_root)?;
+        }
         conn.pragma_update(None, "foreign_keys", "ON")?;
         let mut db = Self {
             conn,
@@ -10544,6 +10549,33 @@ impl Database {
     }
 }
 
+fn backup_before_migration(conn: &Connection, workspace_root: &Path) -> Result<Option<PathBuf>> {
+    let schema_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if schema_version >= CURRENT_SCHEMA_VERSION {
+        return Ok(None);
+    }
+
+    let backup_dir = workspace_root
+        .join(WORKSPACE_HIDDEN_DIR_NAME)
+        .join("backups");
+    fs::create_dir_all(&backup_dir).with_context(|| {
+        format!(
+            "failed to create workspace backup directory at {}",
+            backup_dir.display()
+        )
+    })?;
+    let backup_path = backup_dir.join(format!(
+        "workspace-schema-{schema_version}-to-{CURRENT_SCHEMA_VERSION}-{}.sqlite3",
+        Utc::now().timestamp_millis()
+    ));
+    conn.backup(MAIN_DB, &backup_path, None).with_context(|| {
+        format!(
+            "failed to back up workspace database before migration to schema {CURRENT_SCHEMA_VERSION}"
+        )
+    })?;
+    Ok(Some(backup_path))
+}
+
 fn activity_digest_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActivityDigest> {
     Ok(ActivityDigest {
         id: row.get(0)?,
@@ -11890,6 +11922,53 @@ mod tests {
             },
             database,
         )
+    }
+
+    #[test]
+    fn opening_an_older_workspace_backs_up_and_preserves_its_database() {
+        let (harness, database) = setup_database();
+        let db_path = harness.root.join("app.sqlite3");
+        database
+            .conn
+            .execute_batch(
+                r#"
+                CREATE TABLE preserved_before_update (value TEXT NOT NULL);
+                INSERT INTO preserved_before_update (value) VALUES ('keep me');
+                PRAGMA user_version = 18;
+                "#,
+            )
+            .unwrap();
+        drop(database);
+
+        let reopened = Database::open(&db_path, &harness.workspace_root, None).unwrap();
+        let preserved: String = reopened
+            .conn
+            .query_row("SELECT value FROM preserved_before_update", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        expect_workspace_backup(&harness.workspace_root, "keep me");
+        assert_eq!(preserved, "keep me");
+    }
+
+    fn expect_workspace_backup(workspace_root: &Path, expected_value: &str) {
+        let backup_dir = workspace_root
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join("backups");
+        let backup_paths = fs::read_dir(backup_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(backup_paths.len(), 1);
+
+        let backup = Connection::open(&backup_paths[0]).unwrap();
+        let preserved: String = backup
+            .query_row("SELECT value FROM preserved_before_update", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(preserved, expected_value);
     }
 
     fn create_project(database: &mut Database, workspace_root: &Path) -> ProjectRecord {

@@ -1,6 +1,6 @@
-# Project Mind Alpha
+# ProjectMind
 
-Project Mind Alpha 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并在本地工作区内提供 AI 总结与 Ask 问答。
+ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并在本地工作区内提供 AI 总结与 Ask 问答。
 
 ## 当前产品基线
 
@@ -97,7 +97,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 npm run seed:demo -- --password "demo-password"
 ```
 
-默认会在 `~/Documents/Project Mind Alpha Demo Workspace` 下生成演示数据。也可以直接调用 Rust bin：
+默认会在 `~/Documents/ProjectMind Demo Workspace` 下生成演示数据。也可以直接调用 Rust bin：
 
 ```bash
 cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --password "demo-password" --force

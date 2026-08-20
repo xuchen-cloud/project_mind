@@ -62,7 +62,7 @@ use workspace::{
 };
 
 const APP_IDENTIFIER: &str = "com.xuchen.projectmind.alpha";
-const DEFAULT_DEMO_WORKSPACE_DIR_NAME: &str = "Project Mind Alpha Demo Workspace";
+const DEFAULT_DEMO_WORKSPACE_DIR_NAME: &str = "ProjectMind Demo Workspace";
 const LOCAL_WORKSPACE_SESSION_FILE_NAME: &str = "workspace-session.json";
 
 pub struct SeedDemoWorkspaceResult {
@@ -1053,6 +1053,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             ensure_main_window(app)?;
 

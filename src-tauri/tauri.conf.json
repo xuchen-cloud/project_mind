@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Project Mind Alpha",
+  "productName": "ProjectMind",
   "version": "0.1.0",
   "identifier": "com.xuchen.projectmind.alpha",
   "build": {
@@ -14,7 +14,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Project Mind Alpha",
+        "title": "ProjectMind",
         "width": 1540,
         "height": 980,
         "minWidth": 736,
@@ -47,6 +47,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -55,5 +56,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5MzJCMTdEMTlDRDc1QTcKUldTbmRjMFpmYkV5MlpqcCt6UFhubXdFV2FZVlFvK2g1VE1pVGFUV0JDT0YzQzN3QXBVRjk4czcK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/xuchen-cloud/project-mind-releases/main/beta/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

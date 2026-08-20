@@ -304,7 +304,7 @@ const answer = 42;
       pdfjs.OPS.paintImageMaskXObject,
     ].includes(operator))).toBe(true);
     const metadata = await pdf.getMetadata();
-    expect(metadata.info).toMatchObject({ Title: "阶段总结", Creator: "Project Mind" });
+    expect(metadata.info).toMatchObject({ Title: "阶段总结", Creator: "ProjectMind" });
     const { createCanvas } = await import("@napi-rs/canvas");
     const viewport = page.getViewport({ scale: 0.6 });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));

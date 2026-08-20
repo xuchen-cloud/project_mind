@@ -33,7 +33,7 @@ async function isReusableDevServerRunning() {
     }
 
     const body = await response.text();
-    return body.includes("/@vite/client") && body.includes("Project Mind Alpha");
+    return body.includes("/@vite/client") && body.includes("<title>ProjectMind</title>");
   } catch {
     return false;
   }
