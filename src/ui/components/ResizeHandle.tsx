@@ -44,7 +44,6 @@ export function ResizeHandle({ label, edge, value, min, max, onChange, className
       aria-valuemax={max}
       aria-valuenow={value}
       tabIndex={0}
-      data-edge={edge}
       data-resizing={dragging || undefined}
       className={cn(
         "resize-handle",

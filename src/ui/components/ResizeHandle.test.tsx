@@ -7,7 +7,7 @@ describe("ResizeHandle", () => {
   it.each([
     ["right", "right"],
     ["left", "left"],
-  ] as const)("exposes its %s panel edge so CSS can center the hit area on the divider", (edge, expected) => {
+  ] as const)("centers its %s panel hit area on the divider", (edge) => {
     render(
       <ResizeHandle
         label={`调整 ${edge} 边缘`}
@@ -20,7 +20,6 @@ describe("ResizeHandle", () => {
     );
 
     const handle = screen.getByRole("separator", { name: `调整 ${edge} 边缘` });
-    expect(handle).toHaveAttribute("data-edge", expected);
     expect(handle).toHaveClass(edge === "right" ? "translate-x-1/2" : "-translate-x-1/2");
   });
 
