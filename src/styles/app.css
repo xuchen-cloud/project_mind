@@ -2489,6 +2489,8 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: project-main;
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--color-accent) 6%, transparent) 0%, transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 98%, white) 0%, var(--color-bg) 100%);
@@ -2957,13 +2959,43 @@
     );
 }
 
-.todo-rail__handle {
+.resize-handle {
+  position: absolute;
+  inset-block: 0;
+  z-index: 10;
+  width: 0.5rem;
+  transform: translateX(-50%);
+  cursor: col-resize;
   background: transparent;
   transition: background-color 160ms var(--ease-soft);
 }
 
-.todo-rail__handle:hover {
+.resize-handle:hover,
+.resize-handle:focus-visible,
+.resize-handle[data-resizing="true"] {
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+@container project-main (max-width: 48rem) {
+  .project-overview-focus__chrome-inner {
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem 0.8rem;
+  }
+
+  .project-overview-focus__meta,
+  .project-overview-focus__header-actions {
+    width: 100%;
+  }
+
+  .project-overview-focus__header-actions {
+    justify-content: space-between;
+  }
+
+  .project-overview-focus__page {
+    width: 100%;
+    padding-inline: 1rem;
+  }
 }
 
 .todo-rail__header {

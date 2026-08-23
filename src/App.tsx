@@ -212,10 +212,13 @@ export function WorkspaceLayout({
     setSettingsSection,
     projectRecentPaths,
     projectSidebarCollapsed,
+    projectSidebarWidthPx,
+    setProjectSidebarCollapsed,
     setCreateProjectOpen,
     rememberProjectRoute,
     clearWorkspaceScopedUiState,
     todoRailCollapsed,
+    todoRailWidthPx,
     setTodoRailCollapsed,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
@@ -287,8 +290,12 @@ export function WorkspaceLayout({
   useWorkspaceWindowSizeConstraints({
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
+    projectSidebarWidthPx,
     showTodoRail: showRightSidebarForWidthConstraint,
     todoRailCollapsed,
+    todoRailWidthPx,
+    setProjectSidebarCollapsed,
+    setTodoRailCollapsed,
   });
 
   const [searchInput, setSearchInput] = useState("");

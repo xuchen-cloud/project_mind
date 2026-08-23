@@ -11,12 +11,17 @@ import {
 } from "lucide-react";
 
 import type { TagColorKey, ProjectListItem } from "../../lib/types";
-import { useUiStore } from "../../state/ui-store";
+import {
+  PROJECT_SIDEBAR_WIDTH_MAX_PX,
+  PROJECT_SIDEBAR_WIDTH_MIN_PX,
+  useUiStore,
+} from "../../state/ui-store";
 import {
   ActionContextMenu,
   Button,
   Dialog,
   IconButton,
+  ResizeHandle,
   SearchField,
   StatusBadge,
   type ContextMenuAction,
@@ -213,25 +218,18 @@ export function WorkspaceOverviewSidebar({
     <aside
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
-        "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{ width: `${projectSidebarWidthPx}px` }}
       aria-label="工作区导航侧边栏"
     >
-      <div
-        className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            setProjectSidebarWidthPx(moveEvent.clientX);
-          };
-          const handleMouseUp = () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-        }}
+      <ResizeHandle
+        label="调整工作区侧边栏宽度"
+        edge="right"
+        value={projectSidebarWidthPx}
+        min={PROJECT_SIDEBAR_WIDTH_MIN_PX}
+        max={PROJECT_SIDEBAR_WIDTH_MAX_PX}
+        onChange={setProjectSidebarWidthPx}
+        className="right-0"
       />
 
       <div className="relative border-b border-border px-3 py-3">

@@ -8,6 +8,7 @@ export { EmptyState } from "./EmptyState";
 export { IconButton } from "./IconButton";
 export { PopoverPanel } from "./PopoverPanel";
 export { ProjectStarButton } from "./ProjectStarButton";
+export { ResizeHandle } from "./ResizeHandle";
 export { SearchField } from "./SearchField";
 export { SectionHeader } from "./SectionHeader";
 export { StatusBadge } from "./StatusBadge";

@@ -11,8 +11,12 @@ import type {
 } from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { deriveContactPinyin } from "../../lib/pinyin";
-import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton } from "../../ui/components";
+import {
+  TODO_RAIL_WIDTH_MAX_PX,
+  TODO_RAIL_WIDTH_MIN_PX,
+  useUiStore,
+} from "../../state/ui-store";
+import { Button, IconButton, ResizeHandle } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
@@ -599,26 +603,18 @@ export function TodoRail({
   return (
     <aside
       ref={railRef}
-      className="todo-rail relative flex shrink-0 flex-col transition-[width] duration-[160ms] ease-[var(--ease-soft)]"
+      className="todo-rail relative flex shrink-0 flex-col"
       style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
     >
-      <div
-        className="todo-rail__handle absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize"
-        aria-hidden="true"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          const handlePointerMove = (moveEvent: PointerEvent) => {
-            const nextWidth = window.innerWidth - moveEvent.clientX;
-            setTodoRailWidthPx(nextWidth);
-          };
-          const handlePointerUp = () => {
-            window.removeEventListener("pointermove", handlePointerMove);
-            window.removeEventListener("pointerup", handlePointerUp);
-          };
-          window.addEventListener("pointermove", handlePointerMove);
-          window.addEventListener("pointerup", handlePointerUp);
-        }}
+      <ResizeHandle
+        label="调整 Todo Rail 宽度"
+        edge="left"
+        value={todoRailWidthPx}
+        min={TODO_RAIL_WIDTH_MIN_PX}
+        max={TODO_RAIL_WIDTH_MAX_PX}
+        onChange={setTodoRailWidthPx}
+        className="left-0"
       />
       <div className="todo-rail__header flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

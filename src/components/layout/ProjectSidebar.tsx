@@ -33,8 +33,12 @@ import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { useUiStore } from "../../state/ui-store";
-import { ActionContextMenu, Button, IconButton, PopoverPanel, SearchField, StatusBadge } from "../../ui/components";
+import {
+  PROJECT_SIDEBAR_WIDTH_MAX_PX,
+  PROJECT_SIDEBAR_WIDTH_MIN_PX,
+  useUiStore,
+} from "../../state/ui-store";
+import { ActionContextMenu, Button, IconButton, PopoverPanel, ResizeHandle, SearchField, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
 import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
@@ -177,7 +181,6 @@ export function ProjectSidebar({
   const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
   const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
   const [dragActive, setDragActive] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
 
   // Document editing state
   const [editingDocumentId, setEditingDocumentId] = useState<number | null>(null);
@@ -691,34 +694,6 @@ export function ProjectSidebar({
   };
 
   // Resize handler
-  const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    if (!isResizing) {
-      return undefined;
-    }
-
-    const handleMouseMove = (event: globalThis.MouseEvent) => {
-      const newWidth = event.clientX;
-      setProjectSidebarWidthPx(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isResizing, setProjectSidebarWidthPx]);
-
   if (projectSidebarCollapsed) {
     return (
       <aside className="sidebar-dock sidebar-dock--left" aria-label="项目导航侧边栏">
@@ -743,7 +718,6 @@ export function ProjectSidebar({
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
         dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
-        "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{
         width: `${projectSidebarWidthPx}px`,
@@ -780,12 +754,14 @@ export function ProjectSidebar({
       }}
       onDrop={handleDrop}
     >
-      <div
-        className={cn(
-          "absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20",
-          isResizing && "bg-accent/30",
-        )}
-        onMouseDown={handleResizeStart}
+      <ResizeHandle
+        label="调整项目侧边栏宽度"
+        edge="right"
+        value={projectSidebarWidthPx}
+        min={PROJECT_SIDEBAR_WIDTH_MIN_PX}
+        max={PROJECT_SIDEBAR_WIDTH_MAX_PX}
+        onChange={setProjectSidebarWidthPx}
+        className="right-0"
       />
       <div className="relative border-b border-border px-3 py-3">
         <button
