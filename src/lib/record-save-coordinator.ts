@@ -4,7 +4,7 @@ import type { NoteRecord } from "./types";
 export interface CommittedProjectRecordSnapshot {
   workspaceKey: string;
   projectId: number;
-  noteId: number;
+  recordId: number;
   activityId: number | null;
   title: string;
   tagIds: number[];
@@ -12,8 +12,8 @@ export interface CommittedProjectRecordSnapshot {
   committedContent: RichEditorValue;
 }
 
-export function projectRecordSaveKey(projectId: number, noteId: number) {
-  return `project:${projectId}:${noteId}`;
+export function projectRecordSaveKey(projectId: number, recordId: number) {
+  return `project:${projectId}:${recordId}`;
 }
 
 export interface RecordSaveResult {
@@ -74,6 +74,20 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function statusForTasks(tasks: readonly SaveTask[]): RecordSaveStatus {
+  const pending = tasks.filter((task) => task.state !== "saved");
+  const failed = pending.filter((task) => task.state === "failed");
+  return {
+    phase: failed.length > 0 ? "error" : pending.length > 0 ? "saving" : "idle",
+    pendingCount: pending.length,
+    failedCount: failed.length,
+    retryableFailedCount: failed.filter(
+      (task) => !(task.error instanceof RecordSaveFailure) || task.error.retryable,
+    ).length,
+    lastError: failed[failed.length - 1]?.error ?? null,
+  };
+}
+
 export class RecordSaveCoordinator {
   readonly workspaceKey: string | null;
   private readonly adapter: RecordSaveAdapter;
@@ -101,7 +115,7 @@ export class RecordSaveCoordinator {
 
   submit(snapshot: CommittedProjectRecordSnapshot): RecordSaveReceipt {
     const captured = immutableSnapshot(snapshot);
-    const recordKey = projectRecordSaveKey(captured.projectId, captured.noteId);
+    const recordKey = projectRecordSaveKey(captured.projectId, captured.recordId);
     const sequence = this.nextSequence;
     this.nextSequence += 1;
     const task: SaveTask = {
@@ -120,18 +134,7 @@ export class RecordSaveCoordinator {
   }
 
   getStatus(): RecordSaveStatus {
-    const tasks = Array.from(this.tasksByRecord.values()).flat();
-    const pending = tasks.filter((task) => task.state !== "saved");
-    const failed = pending.filter((task) => task.state === "failed");
-    return {
-      phase: failed.length > 0 ? "error" : pending.length > 0 ? "saving" : "idle",
-      pendingCount: pending.length,
-      failedCount: failed.length,
-      retryableFailedCount: failed.filter(
-        (task) => !(task.error instanceof RecordSaveFailure) || task.error.retryable,
-      ).length,
-      lastError: failed[failed.length - 1]?.error ?? null,
-    };
+    return statusForTasks(Array.from(this.tasksByRecord.values()).flat());
   }
 
   subscribe(listener: StatusListener) {
@@ -196,18 +199,7 @@ export class RecordSaveCoordinator {
   }
 
   getRecordStatus(recordKey: string): RecordSaveStatus {
-    const tasks = this.tasksByRecord.get(recordKey) ?? [];
-    const pending = tasks.filter((task) => task.state !== "saved");
-    const failed = pending.filter((task) => task.state === "failed");
-    return {
-      phase: failed.length > 0 ? "error" : pending.length > 0 ? "saving" : "idle",
-      pendingCount: pending.length,
-      failedCount: failed.length,
-      retryableFailedCount: failed.filter(
-        (task) => !(task.error instanceof RecordSaveFailure) || task.error.retryable,
-      ).length,
-      lastError: failed[failed.length - 1]?.error ?? null,
-    };
+    return statusForTasks(this.tasksByRecord.get(recordKey) ?? []);
   }
 
   private async runRecord(recordKey: string) {

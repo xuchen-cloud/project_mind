@@ -18,15 +18,15 @@ function deferred<T>() {
 }
 
 function snapshot(
-  noteId: number,
+  recordId: number,
   markdown: string,
 ): CommittedProjectRecordSnapshot {
   return {
     workspaceKey: "/workspace/alpha",
     projectId: 1,
-    noteId,
+    recordId,
     activityId: null,
-    title: `Record ${noteId}`,
+    title: `Record ${recordId}`,
     tagIds: [2],
     defaultCodeLanguage: "typescript",
     committedContent: {
@@ -60,7 +60,7 @@ describe("RecordSaveCoordinator", () => {
     const adapter: RecordSaveAdapter = {
       persist: vi.fn(async (value) => {
         writes.push(value.committedContent.markdown);
-        if (value.noteId === 7 && value.committedContent.markdown === "first") {
+        if (value.recordId === 7 && value.committedContent.markdown === "first") {
           return first.promise;
         }
         return { updatedAt: value.committedContent.markdown };

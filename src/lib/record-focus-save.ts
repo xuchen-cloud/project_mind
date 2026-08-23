@@ -3,7 +3,7 @@ export const PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT =
 
 export interface ProjectRecordFocusSaveRequestDetail {
   projectId: number;
-  noteId: number;
+  recordId: number;
   respond: (submitted: boolean) => void;
 }
 
@@ -11,7 +11,7 @@ export type ProjectRecordFocusSaveResult = "submitted" | "failed" | "unhandled";
 
 export function requestProjectRecordFocusSave(input: {
   projectId: number;
-  noteId: number;
+  recordId: number;
 }): ProjectRecordFocusSaveResult {
   let result: ProjectRecordFocusSaveResult = "unhandled";
   window.dispatchEvent(
@@ -20,7 +20,7 @@ export function requestProjectRecordFocusSave(input: {
       {
         detail: {
           projectId: input.projectId,
-          noteId: input.noteId,
+          recordId: input.recordId,
           respond: (submitted) => {
             result = submitted ? "submitted" : "failed";
           },

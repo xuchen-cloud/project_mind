@@ -420,7 +420,7 @@ describe("WorkspaceLayout", () => {
     coordinator.submit({
       workspaceKey: "/tmp/old-workspace",
       projectId: 1,
-      noteId: 7,
+      recordId: 7,
       activityId: null,
       title: "Record",
       tagIds: [],
@@ -464,7 +464,7 @@ describe("WorkspaceLayout", () => {
     coordinator.submit({
       workspaceKey: "/tmp/workspace",
       projectId: 1,
-      noteId: 7,
+      recordId: 7,
       activityId: null,
       title: "Record",
       tagIds: [],
@@ -1230,7 +1230,7 @@ describe("WorkspaceLayout", () => {
       coordinator.submit({
         workspaceKey: "/tmp/workspace",
         projectId: detail.projectId,
-        noteId: detail.noteId,
+        recordId: detail.recordId,
         activityId: null,
         title: "Current Record",
         tagIds: [],
@@ -1252,12 +1252,24 @@ describe("WorkspaceLayout", () => {
     await Promise.resolve();
     expect(persist).toHaveBeenCalledWith(
       expect.objectContaining({
-        noteId: 7,
+        recordId: 7,
         committedContent: expect.objectContaining({ markdown: "最后一个字符！" }),
       }),
     );
     expect(coordinator.getStatus()).toMatchObject({ phase: "saving", pendingCount: 1 });
     finishSave();
+    await coordinator.flush();
+
+    await router.navigate(-1);
+    await waitFor(() => {
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/1/records/7",
+      );
+    });
+    await Promise.resolve();
+    expect(persist).toHaveBeenLastCalledWith(
+      expect.objectContaining({ recordId: 8 }),
+    );
     await coordinator.flush();
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });

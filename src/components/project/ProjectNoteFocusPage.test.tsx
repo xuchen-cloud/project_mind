@@ -219,7 +219,7 @@ function FocusSwitchHarness() {
   const noteId = Number.parseInt(params.noteId ?? "", 10);
 
   const openRecord = (targetNoteId: number) => {
-    const result = requestProjectRecordFocusSave({ projectId, noteId });
+    const result = requestProjectRecordFocusSave({ projectId, recordId: noteId });
     if (result === "submitted") {
       navigate(`/projects/${projectId}/records/${targetNoteId}`);
     }
@@ -409,7 +409,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       new CustomEvent(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, {
         detail: {
           projectId: 1,
-          noteId: 7,
+          recordId: 7,
           respond: vi.fn(),
         },
       }),

@@ -182,11 +182,11 @@ export function ProjectNoteFocusPage() {
       const committed =
         value ??
         editorControllerRef.current?.getCommittedValue() ??
-        normalizeRichEditorValue(content);
+        Object.freeze({ ...content });
       saveCoordinator.submit({
         workspaceKey: saveCoordinator.workspaceKey ?? project?.rootPath ?? `project:${projectId}`,
         projectId,
-        noteId: note.id,
+        recordId: note.id,
         activityId: note.activityId ?? null,
         title: titleValueRef.current,
         tagIds: [...tagIdsValueRef.current],
@@ -245,7 +245,7 @@ export function ProjectNoteFocusPage() {
   useEffect(() => {
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
-      if (!detail || detail.projectId !== projectId || detail.noteId !== noteId) {
+      if (!detail || detail.projectId !== projectId || detail.recordId !== noteId) {
         return;
       }
 
@@ -281,7 +281,6 @@ export function ProjectNoteFocusPage() {
 
   const handleBack = () => {
     if (projectId !== null) {
-      submitCurrentRecord();
       navigate(
         preserveRecordFilters(projectPath(projectId, `record-${noteId}`), searchParams),
       );
@@ -301,10 +300,9 @@ export function ProjectNoteFocusPage() {
 
   const openInternalReference = useCallback(
     async (reference: Parameters<typeof navigateInternalReference>[0]) => {
-      if (!submitCurrentRecord()) return false;
       return navigateInternalReference(reference);
     },
-    [navigateInternalReference, submitCurrentRecord],
+    [navigateInternalReference],
   );
 
   const runExport = useCallback((request: RecordExportRequest) => {

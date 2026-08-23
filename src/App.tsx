@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
-import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
+import type { BlockerFunction } from "react-router-dom";
 
 import type {
   DocumentRecord,
@@ -190,6 +191,7 @@ export function WorkspaceLayout({
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
+  const skipProjectFocusSaveRouteRef = useRef<string | null>(null);
   const submitActiveProjectFocusRecord = useCallback(() => {
     if (
       activeRecordId === null ||
@@ -201,11 +203,38 @@ export function WorkspaceLayout({
 
     const saveResult = requestProjectRecordFocusSave({
       projectId: activeProjectId,
-      noteId: activeRecordId,
+      recordId: activeRecordId,
     });
 
     return saveResult === "submitted";
   }, [activeProjectId, activeRecordId, location.pathname]);
+  const routeSaveBlocker = useBlocker(
+    useCallback<BlockerFunction>(
+      ({ currentLocation, nextLocation }) => {
+        const match = /^\/projects\/(\d+)\/records\/(\d+)$/u.exec(
+          currentLocation.pathname,
+        );
+        if (
+          !match ||
+          (currentLocation.pathname === nextLocation.pathname &&
+            currentLocation.search === nextLocation.search)
+        ) {
+          return false;
+        }
+        const currentRoute = `${currentLocation.pathname}${currentLocation.search}`;
+        if (skipProjectFocusSaveRouteRef.current === currentRoute) {
+          skipProjectFocusSaveRouteRef.current = null;
+          return false;
+        }
+        const result = requestProjectRecordFocusSave({
+          projectId: Number.parseInt(match[1] ?? "", 10),
+          recordId: Number.parseInt(match[2] ?? "", 10),
+        });
+        return result !== "submitted";
+      },
+      [],
+    ),
+  );
   const workspaceActive =
     location.pathname === workspacePath() ||
     location.pathname === "/today" ||
@@ -243,6 +272,18 @@ export function WorkspaceLayout({
     setTodoRailCollapsed,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
+
+  useEffect(() => {
+    if (routeSaveBlocker.state !== "blocked") {
+      return;
+    }
+    setStatus({
+      tone: "error",
+      label: "Save failed",
+      message: "无法捕获当前 Project Record，导航已取消",
+    });
+    routeSaveBlocker.reset();
+  }, [routeSaveBlocker, setStatus]);
 
   const workspaceStatusQuery = useQuery({
     queryKey: queryKeys.workspaceStatus,
@@ -472,6 +513,7 @@ export function WorkspaceLayout({
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
       await flushRecordSaves();
+      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
@@ -482,6 +524,8 @@ export function WorkspaceLayout({
       applyWorkspaceStatus,
       navigate,
       flushRecordSaves,
+      location.pathname,
+      location.search,
       setCreateProjectOpen,
     ],
   );
@@ -536,6 +580,7 @@ export function WorkspaceLayout({
       setCreateWorkspacePending(true);
       setCreateWorkspaceError(null);
       await flushRecordSaves();
+      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
         password: createWorkspacePassword,
@@ -567,6 +612,8 @@ export function WorkspaceLayout({
     createWorkspacePassword,
     createWorkspaceRoot,
     navigate,
+    location.pathname,
+    location.search,
     pushToast,
     flushRecordSaves,
     setStatus,
@@ -580,10 +627,6 @@ export function WorkspaceLayout({
 
   const openProjectInTab = useCallback(
     async (projectId: number) => {
-      if (!submitActiveProjectFocusRecord()) {
-        return;
-      }
-
       if (!projectWindow) {
         const focused = await desktopApi.focusProjectWindow(projectId);
         if (focused) {
@@ -599,7 +642,6 @@ export function WorkspaceLayout({
       openProjectTab,
       projectWindow,
       resolveProjectNavigationPath,
-      submitActiveProjectFocusRecord,
     ],
   );
 
@@ -658,10 +700,6 @@ export function WorkspaceLayout({
 
   const detachProjectToNewWindow = useCallback(
     async (projectId: number) => {
-      if (activeProjectId === projectId && !submitActiveProjectFocusRecord()) {
-        return;
-      }
-
       const route =
         activeProjectId === projectId
           ? `${location.pathname}${location.search}`
@@ -686,21 +724,17 @@ export function WorkspaceLayout({
       navigate,
       openProjectInNewWindow,
       resolveProjectNavigationPath,
-      submitActiveProjectFocusRecord,
     ],
   );
 
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
-      if (activeProjectId === projectId && !submitActiveProjectFocusRecord()) {
-        return;
-      }
       closeProjectTab(projectId);
       if (activeProjectId === projectId) {
         navigate(workspacePath());
       }
     },
-    [activeProjectId, closeProjectTab, navigate, submitActiveProjectFocusRecord],
+    [activeProjectId, closeProjectTab, navigate],
   );
 
   const updateProjectRecordFilters = useCallback(
@@ -762,10 +796,6 @@ export function WorkspaceLayout({
     if (activeProjectId === null) {
       return;
     }
-    if (!submitActiveProjectFocusRecord()) {
-      return;
-    }
-
     const record = await projectMindApi.projectRecordUpsert({
       projectId: activeProjectId,
       markdown: "",
@@ -775,7 +805,7 @@ export function WorkspaceLayout({
     });
     await refreshProjectScope(queryClient, activeProjectId);
     navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
-  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope, submitActiveProjectFocusRecord]);
+  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope]);
 
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {
@@ -784,13 +814,40 @@ export function WorkspaceLayout({
         return;
       }
 
+      if (
+        activeRecordId === record.id &&
+        /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
+      ) {
+        try {
+          await flushRecordSaves();
+          skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+        } catch (error) {
+          pushToast({
+            tone: "error",
+            title: "删除前保存失败",
+            detail: String(error),
+          });
+          return;
+        }
+      }
+
       await projectMindApi.projectRecordDelete({ noteId: record.id });
       await refreshProjectScope(queryClient, projectId);
       if (activeRecordId === record.id) {
         navigate(projectPath(projectId));
       }
     },
-    [activeProjectId, activeRecordId, navigate, queryClient, refreshProjectScope],
+    [
+      activeProjectId,
+      activeRecordId,
+      flushRecordSaves,
+      location.pathname,
+      location.search,
+      navigate,
+      pushToast,
+      queryClient,
+      refreshProjectScope,
+    ],
   );
 
   const handleSearchSelect = useCallback(
@@ -806,7 +863,7 @@ export function WorkspaceLayout({
         (result.kind === "todo" && result.scope === "workspace")
       ) {
         const route = workspaceSearchResultRoute(result);
-        if (route && submitActiveProjectFocusRecord()) {
+        if (route) {
           if (result.kind === "todo") {
             setTodoRailCollapsed(false);
           }
@@ -814,7 +871,7 @@ export function WorkspaceLayout({
         }
       } else if (result.projectId !== null) {
         const route = workspaceSearchResultRoute(result);
-        if (route && submitActiveProjectFocusRecord()) {
+        if (route) {
           if (result.kind === "todo") {
             setTodoRailCollapsed(false);
           }
@@ -829,7 +886,6 @@ export function WorkspaceLayout({
       openProjectInTab,
       openProjectTab,
       openSettings,
-      submitActiveProjectFocusRecord,
       setTodoRailCollapsed,
     ],
   );
@@ -996,7 +1052,7 @@ export function WorkspaceLayout({
 
     void listenToProjectWindowNavigation((route) => {
       void (async () => {
-        if (!disposed && submitActiveProjectFocusRecord()) {
+        if (!disposed) {
           navigate(route);
         }
       })();
@@ -1015,7 +1071,7 @@ export function WorkspaceLayout({
       disposed = true;
       unlisten?.();
     };
-  }, [navigate, projectWindow, submitActiveProjectFocusRecord]);
+  }, [navigate, projectWindow]);
 
   useEffect(() => {
     if (typeof document === "undefined" || !hasWorkspace) {
@@ -1149,11 +1205,7 @@ export function WorkspaceLayout({
         void closeProjectTabAndMaybeNavigate(projectId);
       }}
       onOpenToday={() => {
-        void (async () => {
-          if (submitActiveProjectFocusRecord()) {
-            navigate(workspacePath());
-          }
-        })();
+        navigate(workspacePath());
       }}
       onOpenSettings={() => openSettings("project-tags", activeProjectId)}
       onSearchSelect={handleSearchSelect}
@@ -1288,13 +1340,9 @@ export function WorkspaceLayout({
             activeRecordTagId={projectRecordTagId}
             onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => {
-              void (async () => {
-                if (submitActiveProjectFocusRecord()) {
-                  navigate(
-                    preserveRecordFilters(projectPath(activeProject.id), location.search),
-                  );
-                }
-              })();
+              navigate(
+                preserveRecordFilters(projectPath(activeProject.id), location.search),
+              );
             }}
             onCreateRecord={() => {
               void createProjectSidebarRecord();
@@ -1303,17 +1351,6 @@ export function WorkspaceLayout({
               void (async () => {
                 const isProjectRecordFocusPage =
                   /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
-
-                if (
-                  activeRecordId !== null &&
-                  activeRecordId !== recordId &&
-                  activeProjectId === activeProject.id
-                ) {
-                  const saved = submitActiveProjectFocusRecord();
-                  if (!saved) {
-                    return;
-                  }
-                }
 
                 navigate(
                   preserveRecordFilters(
@@ -1327,17 +1364,6 @@ export function WorkspaceLayout({
             }}
             onFocusRecord={(recordId) => {
               void (async () => {
-                if (
-                  activeRecordId !== null &&
-                  activeRecordId !== recordId &&
-                  activeProjectId === activeProject.id
-                ) {
-                  const saved = submitActiveProjectFocusRecord();
-                  if (!saved) {
-                    return;
-                  }
-                }
-
                 navigate(
                   preserveRecordFilters(recordPath(activeProject.id, recordId), location.search),
                 );

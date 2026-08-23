@@ -55,7 +55,7 @@ describe("project Record save runtime", () => {
     const base = {
       workspaceKey: "/tmp/workspace",
       projectId: 1,
-      noteId: 7,
+      recordId: 7,
       activityId: 12,
       title: " Latest title ",
       tagIds: [3, 5],

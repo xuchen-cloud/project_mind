@@ -23,7 +23,7 @@ export async function persistProjectRecordSnapshot(
   const record = await projectMindApi.projectRecordUpsert({
     projectId: snapshot.projectId,
     activityId: snapshot.activityId ?? undefined,
-    noteId: snapshot.noteId,
+    noteId: snapshot.recordId,
     title: snapshot.title.trim() || undefined,
     markdown: normalized.markdown,
     html: normalized.html,
