@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
@@ -19,6 +19,8 @@ interface WorkspaceWindowSizeConstraintsOptions {
   setProjectSidebarCollapsed?: (collapsed: boolean) => void;
   setTodoRailCollapsed?: (collapsed: boolean) => void;
 }
+
+type PreferredPanel = "project-sidebar" | "todo-rail" | null;
 
 function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -52,7 +54,10 @@ export function getWorkspaceWindowMinWidth({
 }
 
 export function getResponsivePanelState(
-  options: WorkspaceWindowSizeConstraintsOptions & { availableWidthPx: number },
+  options: WorkspaceWindowSizeConstraintsOptions & {
+    availableWidthPx: number;
+    preferredPanel?: PreferredPanel;
+  },
 ) {
   let projectSidebarCollapsed = options.projectSidebarCollapsed;
   let todoRailCollapsed = options.todoRailCollapsed;
@@ -63,11 +68,23 @@ export function getResponsivePanelState(
       todoRailCollapsed,
     }) <= options.availableWidthPx;
 
-  if (!fits() && options.showTodoRail && !todoRailCollapsed) {
-    todoRailCollapsed = true;
-  }
-  if (!fits() && options.showProjectSidebar && !projectSidebarCollapsed) {
-    projectSidebarCollapsed = true;
+  const collapseProjectSidebar = () => {
+    if (!fits() && options.showProjectSidebar && !projectSidebarCollapsed) {
+      projectSidebarCollapsed = true;
+    }
+  };
+  const collapseTodoRail = () => {
+    if (!fits() && options.showTodoRail && !todoRailCollapsed) {
+      todoRailCollapsed = true;
+    }
+  };
+
+  if (options.preferredPanel === "todo-rail") {
+    collapseProjectSidebar();
+    collapseTodoRail();
+  } else {
+    collapseTodoRail();
+    collapseProjectSidebar();
   }
 
   return { projectSidebarCollapsed, todoRailCollapsed };
@@ -86,12 +103,29 @@ export function useWorkspaceWindowSizeConstraints(
   options: WorkspaceWindowSizeConstraintsOptions,
 ) {
   const minWidth = getWorkspaceWindowConstraintMinWidth(options);
+  const previousCollapsedStateRef = useRef({
+    projectSidebarCollapsed: options.projectSidebarCollapsed,
+    todoRailCollapsed: options.todoRailCollapsed,
+  });
 
   useLayoutEffect(() => {
+    const previous = previousCollapsedStateRef.current;
+    const preferredPanel: PreferredPanel =
+      previous.todoRailCollapsed && !options.todoRailCollapsed
+        ? "todo-rail"
+        : previous.projectSidebarCollapsed && !options.projectSidebarCollapsed
+          ? "project-sidebar"
+          : null;
+    previousCollapsedStateRef.current = {
+      projectSidebarCollapsed: options.projectSidebarCollapsed,
+      todoRailCollapsed: options.todoRailCollapsed,
+    };
+
     const protectMainEditor = () => {
       const next = getResponsivePanelState({
         ...options,
         availableWidthPx: window.innerWidth,
+        preferredPanel,
       });
       if (next.todoRailCollapsed !== options.todoRailCollapsed) {
         options.setTodoRailCollapsed?.(next.todoRailCollapsed);

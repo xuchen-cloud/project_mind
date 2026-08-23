@@ -3071,7 +3071,6 @@
   inset-block: 0;
   z-index: 10;
   width: 0.5rem;
-  transform: translateX(-50%);
   cursor: col-resize;
   background: transparent;
   transition: background-color 160ms var(--ease-soft);

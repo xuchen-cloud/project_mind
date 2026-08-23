@@ -44,8 +44,13 @@ export function ResizeHandle({ label, edge, value, min, max, onChange, className
       aria-valuemax={max}
       aria-valuenow={value}
       tabIndex={0}
+      data-edge={edge}
       data-resizing={dragging || undefined}
-      className={cn("resize-handle", className)}
+      className={cn(
+        "resize-handle",
+        edge === "right" ? "translate-x-1/2" : "-translate-x-1/2",
+        className,
+      )}
       onPointerDown={handlePointerDown}
       onKeyDown={(event) => {
         const step = event.shiftKey ? 64 : 8;
