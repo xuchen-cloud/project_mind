@@ -44,6 +44,7 @@ import {
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { queryKeys } from "../../lib/queryKeys";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import {
   extractHashTagLabels,
   findTagByLabel,
@@ -147,11 +148,13 @@ export function ProjectOverviewPage({
     queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
+    ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
+    ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,
@@ -229,7 +232,11 @@ export function ProjectOverviewPage({
     closeImportTagDialog,
     confirmImportTagDialog,
     manageImportTags,
-  } = useDocumentImportFlow({ projectId });
+  } = useDocumentImportFlow({
+    projectId,
+    enabled: visible,
+    resident: true,
+  });
 
   useEffect(() => {
     if (buttonView === null || buttonView === routeView) {
@@ -606,7 +613,7 @@ export function ProjectOverviewPage({
                 <input
                   ref={projectNameInputRef}
                   aria-label="项目名称"
-                  autoFocus={shouldAutoFocusProjectName}
+                  autoFocus={visible && shouldAutoFocusProjectName}
                   className="project-overview-focus__title"
                   value={nameDraft}
                   onChange={(event) => setNameDraft(event.target.value)}
@@ -722,6 +729,7 @@ export function ProjectOverviewPage({
             <RichEditor
               key={`project-quick-note-${activeProject.id}`}
               html={quickNoteDraft.html}
+              readOnly={!visible}
               aiSettings={aiSettings}
               defaultCodeLanguage={quickNoteCodeLanguage}
               onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
@@ -805,11 +813,12 @@ export function ProjectOverviewPage({
                   </div>
                     <RichEditor
                       html={recordDraftValue.html}
+                      readOnly={!visible}
                       aiSettings={aiSettings}
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
                       variant="bare"
-                      autoFocus
+                      autoFocus={visible}
                       assetHandlers={projectQuickNoteAssetHandlers}
                       placeholder="写记录，正文里的 #标签 会自动同步。"
                       tagMentions={{

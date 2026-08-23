@@ -1,23 +1,25 @@
 # Project Mind Cache Strategy
 
 状态：正式基线  
-更新时间：2026-07-11
+更新时间：2026-08-23
 
 ## 目标
 
 项目页签应具有浏览器式切换体验，同时保证内存、后台查询和编辑器实例数量有明确上限。
 
-## 页面驻留层
+## Project 驻留层
 
-项目 Overview 页面分为三种状态：
+每个最近访问的 Project 由一个统一的 resident shell 承载。shell 保留该 Project 的 Overview 页面实例、最近 Project 路由，以及仍命中全局 Focus LRU 的 Record Focus 页面。Project 分为三种状态：
 
 - `Active`：当前可见项目，完整运行。
-- `Warm`：最近访问的两个项目，保留 React 页面和编辑器现场，但页面不可交互并暂停页面级查询。
+- `Warm`：最近访问的四个 Project，保留 React 页面和可驻留编辑现场，但页面不可交互并暂停页面级查询。
 - `Cold`：更早的已打开页签，不保留页面实例；React Query 数据、已保存内容、最近路由和持久化 UI 偏好仍然保留。
 
-驻留列表使用 LRU 顺序。每次访问将项目移动到列表末尾，最多保留当前项目加两个 Warm 项目。关闭页签会立即移除对应驻留页面。
+驻留列表使用 LRU 顺序。每次访问或返回 Project 都将它移动到列表末尾，最多保留 5 个 Project：1 个 Active 加 4 个 Warm。访问第 6 个 Project 时只卸载最久未访问的 shell；关闭页签会立即移除对应 shell，并释放其中的页面和 Focus 实例，不等待 LRU 淘汰。
 
-Workspace Overview 是全局单例，首次打开后作为 `Pinned` 页面常驻内存。它不进入项目页的 LRU 驻留列表，不会因项目切换、超过 Warm 页数上限或数据缓存 GC 而卸载。只有关闭/切换整个 workspace，或显式禁用页面缓存时才释放。
+Workspace Overview 是独立的全局单例，首次打开后作为 `Pinned` 页面常驻内存。它与 Workspace Record Focus 位于独立的 Workspace shell，不进入 Project LRU，不会因 Project 切换、超过 Warm 上限或数据缓存 GC 而卸载。只有关闭/切换整个 Workspace，或显式禁用页面缓存时才释放。
+
+Warm shell 使用不可见布局、`aria-hidden` 与 `inert`。shell 内的 Overview 和 Focus 都必须收到 `visible=false`：页面级 Query、Todo 加载、autofocus、焦点恢复和页面交互随之暂停；Warm Project 的页签 hover/focus 不重复预取已有驻留数据。
 
 ## 数据缓存层
 
@@ -32,6 +34,8 @@ React Query 是持久业务数据的前端唯一内存缓存：
 
 项目页签在鼠标移入或键盘聚焦时预取 `project-page` 与项目标签设置。预取不得阻塞点击导航。
 
+只有 Cold Project 执行页签预取。resident shell 持有的 `project-page` 与 Project Label observer 在驻留期间不因时间经过自动重新请求；显式 mutation cache update 或 query invalidation 仍可刷新。Cold Project 命中 React Query 或预取结果时先显示缓存，只有目标数据真正缺失时才显示 loading 并请求后端。
+
 ## 本地 UI 与草稿
 
 - Zustand persistence 只保存跨会话 UI 偏好。
@@ -41,7 +45,7 @@ React Query 是持久业务数据的前端唯一内存缓存：
 
 ## Record Focus 驻留
 
-Project Record Focus 与 Workspace Record Focus 共用一个 Workspace 范围的全局 LRU，最多保留两个富文本编辑器实例：当前 Active Focus 与最近一个 Warm Focus。打开第三个 Focus 时只释放最久未使用的编辑器实例；Query 数据、路由与滚动恢复信息继续由各自缓存保留。
+Project Record Focus 与 Workspace Record Focus 共用一个 Workspace 范围、独立于 Project LRU 的全局 Focus LRU，最多保留两个富文本编辑器实例：当前 Active Focus 与最近一个 Warm Focus。Project Focus 渲染在所属 Project resident shell 内，Workspace Focus 渲染在独立 Workspace shell 内。打开第三个 Focus 时只释放最久未使用的编辑器实例；所属 Project shell 被淘汰或关闭时也会释放其中的 Focus 实例。Query 数据、最近路由、滚动恢复信息以及待保存/失败快照继续由各自缓存保留。
 
 Record Focus 草稿在组件首次构造时按以下顺序选择来源：
 
@@ -72,6 +76,17 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 
 - Warm 项目切换应直接复用页面实例，不发起阻塞式数据请求。
 - Cold 项目在预取命中时应先渲染缓存，再按明确动作刷新。
-- 无论打开多少项目页签，完整驻留的项目 Overview 页面不得超过 3 个。
-- Workspace Overview 首次打开后必须始终保持挂载，且不占用项目 Overview 的 3 个驻留名额。
+- 无论访问多少 Project，resident Project shell 不得超过 5 个，Record Focus 编辑器不得超过 2 个。
+- Workspace Overview 首次打开后必须始终保持挂载，且不占用 5 个 Project 驻留名额。
 - 隐藏页面必须设置 `aria-hidden` 与 `inert`，并暂停页面级查询。
+
+## 平台验证记录
+
+2026-08-23 的自动化门禁使用真实 Workspace layout、router 与 QueryClient，确定性覆盖 A → B → C → D → E → A、访问第 6 个 Project、LRU 重排、关闭页签、Project/Workspace Focus 跨壳复用、请求计数以及长历史下的 5/2 实例上限。这些契约不包含平台分支。
+
+维护者已明确批准将 macOS / Windows 的实机切换与内存采样延期至 #56；该延期不阻塞 #48 的提交、合并或发布，也不应被解读为平台实测已通过。
+
+| 平台 | 当前结果 | 记录 |
+| --- | --- | --- |
+| macOS WebKit | 自动化与 debug `.app` 构建通过；实机切换/内存采样待执行 | 已生成当前分支的 `ProjectMind.app`；本会话的 Accessibility 启动未返回可操作状态，先前 Tauri dev binary 也不是可识别的 `.app` target。两次尝试均未被误记为切换或内存实测。 |
+| Windows WebView2 | 自动化通过；实机切换/内存采样待执行 | 当前执行环境没有 Windows/WebView2 主机。后续需在 Windows 上执行相同 A–F、跨 Project Focus、关闭页签与长历史场景，并记录 resident shell/Focus 数量和进程内存稳定结果。 |

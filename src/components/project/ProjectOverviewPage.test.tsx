@@ -15,6 +15,7 @@ const scrollIntoViewMock = vi.fn();
 const scrollToMock = vi.fn();
 const noteImageAssetMocks = vi.hoisted(() => ({
   externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
+  richEditorProps: [] as Array<{ readOnly?: boolean }>,
   richTextViewerProps: [] as Array<{
     html?: string;
     deferUntilVisible?: boolean;
@@ -146,12 +147,7 @@ vi.mock("../rich-editor", () => ({
     noteImageAssetMocks.richTextViewerProps.push(props);
     return <div>{props.html}</div>;
   },
-  RichEditor: ({
-    html,
-    readOnly,
-    placeholder,
-    controllerRef,
-  }: {
+  RichEditor: (props: {
     html?: string;
     readOnly?: boolean;
     placeholder?: string;
@@ -162,12 +158,15 @@ vi.mock("../rich-editor", () => ({
         save: () => Promise<unknown>;
       } | null;
     };
-  }) =>
-    readOnly ? (
+  }) => {
+    noteImageAssetMocks.richEditorProps.push({ readOnly: props.readOnly });
+    const { html, readOnly, placeholder, controllerRef } = props;
+    return readOnly ? (
       <div>{html}</div>
     ) : (
       <MockRichEditor html={html} placeholder={placeholder} controllerRef={controllerRef} />
-    ),
+    );
+  },
 }));
 
 function MockRichEditor({
@@ -258,6 +257,7 @@ describe("ProjectOverviewPage", () => {
     useUiStore.setState(createUiStoreState());
     todoModuleRailProps.length = 0;
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
+    noteImageAssetMocks.richEditorProps.length = 0;
     noteImageAssetMocks.richTextViewerProps.length = 0;
     scrollIntoViewMock.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -477,6 +477,56 @@ describe("ProjectOverviewPage", () => {
       expect(nameInput).toHaveFocus();
     });
     expect(nameInput).toHaveValue("Alpha Project");
+  });
+
+  it("does not autofocus controls while the resident Project shell is Warm", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const projectPage = projectPageWithTaglessRecord();
+    queryClient.setQueryData(queryKeys.projects.all, [projectPage.project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+    queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    document.body.focus();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?renameProject=1"]}>
+          <Routes>
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectOverviewPage visible={false} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const nameInput = screen.getByRole("textbox", { name: "项目名称" });
+    await Promise.resolve();
+    expect(nameInput).not.toHaveFocus();
+  });
+
+  it("makes every Overview editor read-only while the resident Project shell is Warm", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const projectPage = projectPageWithTaglessRecord();
+    queryClient.setQueryData(queryKeys.projects.all, [projectPage.project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+    queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?view=record&compose=record"]}>
+          <Routes>
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectOverviewPage visible={false} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(noteImageAssetMocks.richEditorProps.length).toBeGreaterThanOrEqual(2);
+    expect(noteImageAssetMocks.richEditorProps.every(({ readOnly }) => readOnly)).toBe(true);
   });
 
   it("keeps the record context menu available after opening the record view", async () => {

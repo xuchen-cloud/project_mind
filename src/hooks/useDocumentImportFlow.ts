@@ -7,14 +7,19 @@ import { queryKeys } from "../lib/queryKeys";
 import { useFeedbackStore } from "../state/feedback-store";
 import { useUiStore } from "../state/ui-store";
 import { refreshAll } from "./shared";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../lib/resident-pages";
 
 interface UseDocumentImportFlowOptions {
   projectId: number | null;
+  enabled?: boolean;
+  resident?: boolean;
   onDocumentsImported?: (documents: DocumentRecord[]) => void;
 }
 
 export function useDocumentImportFlow({
   projectId,
+  enabled = true,
+  resident = false,
   onDocumentsImported,
 }: UseDocumentImportFlowOptions) {
   const queryClient = useQueryClient();
@@ -26,7 +31,8 @@ export function useDocumentImportFlow({
   const projectTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
-    enabled: projectId !== null,
+    enabled: enabled && projectId !== null,
+    ...(resident ? RESIDENT_PROJECT_QUERY_OPTIONS : {}),
   });
 
   const importFiles = useCallback(

@@ -53,7 +53,8 @@ import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
-import { useResidentProjectPages } from "./hooks/useResidentProjectPages";
+import { useResidentProjectShells } from "./hooks/useResidentProjectShells";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "./lib/resident-pages";
 import { useResidentWorkspacePage } from "./hooks/useResidentWorkspacePage";
 import { createTodoModule, productionTodoTransport } from "./todo/todo-module";
 import {
@@ -74,7 +75,10 @@ import {
   UnlockWorkspaceSecretsDialog,
 } from "./components/workspace/WorkspaceDialogs";
 import { Button, EmptyState } from "./ui/components";
-import { RecordFocusResidentPages } from "./components/record/RecordFocusResidentPages";
+import {
+  RecordFocusResidencyProvider,
+  RecordFocusResidentPages,
+} from "./components/record/RecordFocusResidentPages";
 
 function workspaceScopedQueryKeys() {
   return [
@@ -361,11 +365,19 @@ export function WorkspaceLayout({
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
+  const residentProjectIds = useResidentProjectShells({
+    activeProjectId,
+    enabled: cacheProjectOverviewPages,
+    hasWorkspace,
+    openProjectIds,
+  });
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
-    staleTime: activeRecordFocusRoute?.kind === "project" ? Number.POSITIVE_INFINITY : undefined,
+    ...(cacheProjectOverviewPages || activeRecordFocusRoute?.kind === "project"
+      ? RESIDENT_PROJECT_QUERY_OPTIONS
+      : {}),
   });
   const projectSidebarRecords = useMemo(
     () => toProjectSidebarRecords(projectSidebarOverviewQuery.data?.records ?? []),
@@ -679,6 +691,9 @@ export function WorkspaceLayout({
 
   const prefetchProject = useCallback(
     (projectId: number) => {
+      if (residentProjectIds.includes(projectId)) {
+        return;
+      }
       void Promise.all([
         todoModule.load({ kind: "current-project", projectId }),
         prefetchProjectPageData(queryClient, projectId),
@@ -686,7 +701,7 @@ export function WorkspaceLayout({
         // Prefetch failures are surfaced by the destination page query.
       });
     },
-    [queryClient, todoModule],
+    [queryClient, residentProjectIds, todoModule],
   );
 
   const openProjectInNewWindow = useCallback(
@@ -937,23 +952,6 @@ export function WorkspaceLayout({
     cacheProjectOverviewPages && location.pathname === workspacePath();
   const recordFocusResidencyActive =
     cacheProjectOverviewPages && activeRecordFocusRoute !== null;
-  const [recordFocusResidencyWorkspaceKey, setRecordFocusResidencyWorkspaceKey] =
-    useState<string | null>(null);
-
-  useEffect(() => {
-    if (!hasWorkspace || !cacheProjectOverviewPages) {
-      setRecordFocusResidencyWorkspaceKey(null);
-      return;
-    }
-    if (recordFocusResidencyActive) {
-      setRecordFocusResidencyWorkspaceKey(currentWorkspace?.rootPath ?? null);
-    }
-  }, [
-    cacheProjectOverviewPages,
-    currentWorkspace?.rootPath,
-    hasWorkspace,
-    recordFocusResidencyActive,
-  ]);
 
   useEffect(() => {
     if (recordSaveStatus.phase !== "idle") {
@@ -1033,12 +1031,6 @@ export function WorkspaceLayout({
     }
   }, [activeProjectId, openProjectTab]);
 
-  const residentProjectOverviewIds = useResidentProjectPages({
-    activeProjectId,
-    enabled: cacheProjectOverviewPages,
-    hasWorkspace,
-    openProjectIds,
-  });
   const workspaceOverviewResident = useResidentWorkspacePage({
     active: workspaceOverviewActive,
     enabled: cacheProjectOverviewPages,
@@ -1291,43 +1283,59 @@ export function WorkspaceLayout({
   ) : (
     <Outlet />
   );
-  const cachedWorkspaceOverviewPage =
-    cacheProjectOverviewPages &&
-    hasWorkspace &&
-    (workspaceOverviewActive || workspaceOverviewResident) ? (
+  const workspaceResidentShellActive =
+    workspaceOverviewActive || activeRecordFocusRoute?.kind === "workspace";
+  const cachedWorkspaceResidentShell =
+    cacheProjectOverviewPages && hasWorkspace ? (
       <div
         className="h-full min-h-0"
-        style={{ display: workspaceOverviewActive ? undefined : "none" }}
-        aria-hidden={workspaceOverviewActive ? undefined : true}
-        inert={!workspaceOverviewActive}
+        data-workspace-resident-shell
+        style={{ display: workspaceResidentShellActive ? undefined : "none" }}
+        aria-hidden={workspaceResidentShellActive ? undefined : true}
+        inert={!workspaceResidentShellActive}
       >
-        <WorkspacePage
-          key={currentWorkspace.rootPath}
-          activeProjectIdOverride={null}
-          searchParamsOverride={getWorkspaceOverviewSearchParams(
-            workspaceOverviewActive
-              ? `${location.pathname}${location.search}`
-              : workspaceOverviewRoute,
-          )}
-          visible={workspaceOverviewActive}
-          onSearchParamsOverride={(nextSearchParams, options) => {
-            const nextRoute = buildWorkspaceOverviewRoute(nextSearchParams);
-            setWorkspaceOverviewRoute(nextRoute);
+        {workspaceOverviewActive || workspaceOverviewResident ? (
+          <div
+            className="h-full min-h-0"
+            style={{ display: workspaceOverviewActive ? undefined : "none" }}
+            aria-hidden={workspaceOverviewActive ? undefined : true}
+            inert={!workspaceOverviewActive}
+          >
+            <WorkspacePage
+              key={currentWorkspace.rootPath}
+              activeProjectIdOverride={null}
+              searchParamsOverride={getWorkspaceOverviewSearchParams(
+                workspaceOverviewActive
+                  ? `${location.pathname}${location.search}`
+                  : workspaceOverviewRoute,
+              )}
+              visible={workspaceOverviewActive}
+              onSearchParamsOverride={(nextSearchParams, options) => {
+                const nextRoute = buildWorkspaceOverviewRoute(nextSearchParams);
+                setWorkspaceOverviewRoute(nextRoute);
 
-            if (workspaceOverviewActive) {
-              navigate(nextRoute, options);
-            }
-          }}
-        />
+                if (workspaceOverviewActive) {
+                  navigate(nextRoute, options);
+                }
+              }}
+            />
+          </div>
+        ) : null}
+        <RecordFocusResidentPages projectId={null} />
       </div>
     ) : null;
-  const cachedProjectOverviewPages =
+  const cachedProjectResidentShells =
     cacheProjectOverviewPages && hasWorkspace && openedProjects.length > 0 ? (
       <>
         {openedProjects.map((project) => {
-          const active = projectOverviewActive && activeProjectId === project.id;
+          const overviewActive =
+            projectOverviewActive && activeProjectId === project.id;
+          const focusActive =
+            activeRecordFocusRoute?.kind === "project" &&
+            activeRecordFocusRoute.projectId === project.id;
+          const active = overviewActive || focusActive;
           const resident =
-            active || residentProjectOverviewIds.includes(project.id);
+            active || residentProjectIds.includes(project.id);
 
           if (!resident) {
             return null;
@@ -1342,45 +1350,51 @@ export function WorkspaceLayout({
             <div
               key={project.id}
               className="h-full min-h-0"
+              data-project-resident-id={project.id}
+              data-project-resident-active={active ? "true" : "false"}
               style={{ display: active ? undefined : "none" }}
               aria-hidden={active ? undefined : true}
               inert={!active}
             >
-              <ProjectOverviewPage
-                projectIdOverride={project.id}
-                searchParamsOverride={cachedSearchParams}
-                visible={active}
-                onSearchParamsOverride={(nextSearchParams, options) => {
-                  const nextRoute = buildProjectOverviewRoute(
-                    project.id,
-                    nextSearchParams,
-                  );
-                  rememberProjectRoute(project.id, nextRoute);
+              <div
+                className="h-full min-h-0"
+                style={{ display: overviewActive ? undefined : "none" }}
+                aria-hidden={overviewActive ? undefined : true}
+                inert={!overviewActive}
+              >
+                <ProjectOverviewPage
+                  projectIdOverride={project.id}
+                  searchParamsOverride={cachedSearchParams}
+                  visible={overviewActive}
+                  onSearchParamsOverride={(nextSearchParams, options) => {
+                    const nextRoute = buildProjectOverviewRoute(
+                      project.id,
+                      nextSearchParams,
+                    );
+                    rememberProjectRoute(project.id, nextRoute);
 
-                  if (active) {
-                    navigate(nextRoute, options);
-                  }
-                }}
-              />
+                    if (overviewActive) {
+                      navigate(nextRoute, options);
+                    }
+                  }}
+                />
+              </div>
+              <RecordFocusResidentPages projectId={project.id} />
             </div>
           );
         })}
       </>
     ) : null;
-  const cachedRecordFocusPages =
-    cacheProjectOverviewPages &&
-    currentWorkspace &&
-    (recordFocusResidencyActive ||
-      recordFocusResidencyWorkspaceKey === currentWorkspace.rootPath) ? (
-      <RecordFocusResidentPages
-        key={currentWorkspace.rootPath}
-        workspaceKey={currentWorkspace.rootPath}
-      />
-    ) : null;
   return (
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
       flushBarrier={flushRecordSaves}
+    >
+    <RecordFocusResidencyProvider
+      residentProjectIds={residentProjectIds}
+      workspaceKey={
+        cacheProjectOverviewPages ? (currentWorkspace?.rootPath ?? null) : null
+      }
     >
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
       {projectWindow ? null : workspaceTopBar}
@@ -1401,6 +1415,7 @@ export function WorkspaceLayout({
             recordQuery={projectRecordQuery}
             onRecordQueryChange={(value) => updateProjectRecordFilters({ query: value })}
             activeRecordTagId={projectRecordTagId}
+            resident={cacheProjectOverviewPages}
             onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => {
               navigate(
@@ -1448,9 +1463,8 @@ export function WorkspaceLayout({
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <main className="min-h-0 flex-1 overflow-hidden">
-            {cachedWorkspaceOverviewPage}
-            {cachedProjectOverviewPages}
-            {cachedRecordFocusPages}
+            {cachedWorkspaceResidentShell}
+            {cachedProjectResidentShells}
             {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
               ? null
               : mainContent}
@@ -1507,6 +1521,7 @@ export function WorkspaceLayout({
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
+    </RecordFocusResidencyProvider>
     </RecordSaveCoordinatorProvider>
   );
 }

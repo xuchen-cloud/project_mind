@@ -286,6 +286,18 @@ function CrossProjectFocusSwitchHarness() {
   );
 }
 
+function ResidentFocusVisibilityHarness() {
+  const [visible, setVisible] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setVisible((current) => !current)}>
+        切换 Focus 可见性
+      </button>
+      <ProjectNoteFocusPage visible={visible} />
+    </>
+  );
+}
+
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
     currentNote = { ...baseNote, tags: [] };
@@ -347,6 +359,25 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文");
     expect(view.container.querySelector("[data-focus-page-key]")).not.toHaveAttribute("data-cold-entry");
+  });
+
+  it("does not refetch cached Project Labels when a Warm Focus becomes Active", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    queryClient.setQueryData(
+      queryKeys.projectTags.project(1),
+      { tags: [] },
+      { updatedAt: Date.now() - 60_000 },
+    );
+
+    render(<ResidentFocusVisibilityHarness />, queryClient);
+    const user = userEvent.setup();
+    await screen.findByLabelText("正文编辑器");
+    await user.click(screen.getByRole("button", { name: "切换 Focus 可见性" }));
+    await user.click(screen.getByRole("button", { name: "切换 Focus 可见性" }));
+
+    expect(apiMocks.projectTagSettingsGet).not.toHaveBeenCalled();
   });
 
   it("awaits an in-flight save and exports ordinary edits without pending AI preview", async () => {

@@ -1396,6 +1396,7 @@ describe("WorkspaceLayout", () => {
     await screen.findByPlaceholderText("记录标题");
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
     expect(alphaA).not.toBeNull();
+    expect(alphaA?.closest('[data-project-resident-id="1"]')).not.toBeNull();
 
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
@@ -1404,11 +1405,21 @@ describe("WorkspaceLayout", () => {
 
     await act(() => router.navigate("/projects/2/records/17"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
+    expect(
+      document
+        .querySelector('[data-focus-page-key="2:17"]')
+        ?.closest('[data-project-resident-id="2"]'),
+    ).not.toBeNull();
     await act(() => router.navigate("/projects/1/records/7"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
 
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
+    expect(
+      document
+        .querySelector('[data-focus-page-key="workspace:27"]')
+        ?.closest("[data-workspace-resident-shell]"),
+    ).not.toBeNull();
     await act(() => router.navigate("/workspace"));
     expect(router.state.location.pathname).toBe("/workspace");
     await waitFor(() => {
@@ -1428,5 +1439,154 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
   });
+
+  it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
+    const timestamp = "2026-08-23T00:00:00.000Z";
+    const projects = Array.from({ length: 12 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id,
+        name: `Project ${id}`,
+        kind: "normal" as const,
+        status: "active",
+        rootPath: `/tmp/project-${id}`,
+        quickNote: `Quick note ${id}`,
+        quickNoteMarkdown: `Quick note ${id}`,
+        quickNoteHtml: `<p>Quick note ${id}</p>`,
+        isArchived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        unorganizedCount: 0,
+        openTodoCount: 0,
+      };
+    });
+    const projectPages = new Map(
+      projects.map((project) => [
+        project.id,
+        {
+          project,
+          records: [{
+            id: project.id * 10,
+            projectId: project.id,
+            activityId: null,
+            title: `Record ${project.id}`,
+            contentMarkdown: `Record body ${project.id}`,
+            contentHtml: `<p>Record body ${project.id}</p>`,
+            defaultCodeLanguage: null,
+            tags: [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }],
+          projectDocuments: [],
+          conclusionGroups: [],
+          unfinishedTodos: [],
+          finishedTodos: [],
+        },
+      ]),
+    );
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) =>
+      projectPages.get(projectId)!,
+    );
+    useUiStore.setState({ openProjectIds: projects.map((project) => project.id) });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnMount: false } },
+    });
+    queryClient.setQueryData(queryKeys.projects.all, projects);
+    for (const project of projects) {
+      queryClient.setQueryData(queryKeys.projectPage(project.id), projectPages.get(project.id));
+      queryClient.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    queryClient.setQueryData(queryKeys.aiSettings, null);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: {
+        persist: vi.fn(async () => ({ updatedAt: timestamp })),
+      },
+    });
+
+    const router = createMemoryRouter(
+      [{
+        path: "/",
+        element: (
+          <WorkspaceLayout
+            cacheProjectOverviewPages
+            recordSaveCoordinator={coordinator}
+          />
+        ),
+        children: [
+          { path: "projects/:projectId", element: <div>legacy route</div> },
+          {
+            path: "projects/:projectId/records/:noteId",
+            element: <div>legacy Focus route</div>,
+          },
+        ],
+      }],
+      { initialEntries: ["/projects/1?view=record"] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-project-resident-id="1"]')).not.toBeNull(),
+    );
+    const projectA = document.querySelector('[data-project-resident-id="1"]');
+
+    for (const projectId of [2, 3, 4, 5]) {
+      await act(() => router.navigate(`/projects/${projectId}`));
+      await waitFor(() =>
+        expect(
+          document.querySelector(`[data-project-resident-id="${projectId}"]`),
+        ).toHaveAttribute("data-project-resident-active", "true"),
+      );
+    }
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5),
+    );
+    expect(projectA).toHaveAttribute("aria-hidden", "true");
+    expect(projectA).toHaveAttribute("inert");
+
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Project 1" }));
+    await waitFor(() => {
+      expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
+      expect(projectA).toHaveAttribute("data-project-resident-active", "true");
+    });
+    expect(router.state.location.pathname).toBe("/projects/1");
+    expect(router.state.location.search).toBe("?view=record");
+
+    await act(() => router.navigate("/projects/6"));
+    await waitFor(() => {
+      expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
+      expect(document.querySelector('[data-project-resident-id="2"]')).toBeNull();
+    });
+    expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "关闭 Project 3" }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull(),
+    );
+
+    for (const projectId of [7, 8, 9, 10, 11, 12]) {
+      const recordId = projectId * 10;
+      await act(async () => {
+        await router.navigate(`/projects/${projectId}/records/${recordId}`);
+        await coordinator.flush();
+      });
+      await waitFor(() =>
+        expect(
+          document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`),
+        ).not.toBeNull(),
+      );
+    }
+    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+    expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
+  }, 15_000);
 
 });
