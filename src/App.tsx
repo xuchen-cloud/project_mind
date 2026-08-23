@@ -513,10 +513,10 @@ export function WorkspaceLayout({
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
       await flushRecordSaves();
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
+      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       return snapshot;
     },
@@ -580,7 +580,6 @@ export function WorkspaceLayout({
       setCreateWorkspacePending(true);
       setCreateWorkspaceError(null);
       await flushRecordSaves();
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
         password: createWorkspacePassword,
@@ -589,6 +588,7 @@ export function WorkspaceLayout({
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
       setCreateWorkspacePassword("");
+      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       setStatus({
         tone: "success",
@@ -820,7 +820,6 @@ export function WorkspaceLayout({
       ) {
         try {
           await flushRecordSaves();
-          skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
         } catch (error) {
           pushToast({
             tone: "error",
@@ -834,6 +833,7 @@ export function WorkspaceLayout({
       await projectMindApi.projectRecordDelete({ noteId: record.id });
       await refreshProjectScope(queryClient, projectId);
       if (activeRecordId === record.id) {
+        skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
         navigate(projectPath(projectId));
       }
     },
