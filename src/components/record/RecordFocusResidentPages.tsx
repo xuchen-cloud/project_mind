@@ -1,4 +1,13 @@
-import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
@@ -25,6 +34,13 @@ const ProjectNoteFocusPage = lazy(loadProjectNoteFocusPageModule);
 const WorkspaceRecordFocusPage = lazy(loadWorkspaceRecordFocusPageModule);
 
 const MAX_RESIDENT_RECORD_FOCUSES = 2;
+
+interface RecordFocusResidencyValue {
+  activeFocus: RecordFocusRoute | null;
+  routes: RecordFocusRoute[];
+}
+
+const RecordFocusResidencyContext = createContext<RecordFocusResidencyValue | null>(null);
 
 function updateResidentFocusRoutes(
   current: readonly RecordFocusRoute[],
@@ -118,7 +134,10 @@ function ResidentFocusPage({
   );
 }
 
-export function RecordFocusResidentPages({ workspaceKey }: { workspaceKey: string }) {
+function useRecordFocusResidency(
+  workspaceKey: string | null,
+  residentProjectIds?: readonly number[],
+) {
   const location = useLocation();
   const activeFocus = useMemo(
     () => parseRecordFocusRoute(location.pathname),
@@ -127,14 +146,30 @@ export function RecordFocusResidentPages({ workspaceKey }: { workspaceKey: strin
   const [residency, setResidency] = useState<{
     workspaceKey: string;
     routes: RecordFocusRoute[];
-  }>(() => ({ workspaceKey, routes: [] }));
-  const currentRoutes = residency.workspaceKey === workspaceKey ? residency.routes : [];
-  const renderedRoutes = updateResidentFocusRoutes(currentRoutes, activeFocus);
+  }>(() => ({ workspaceKey: workspaceKey ?? "", routes: [] }));
+  const currentRoutes =
+    workspaceKey !== null && residency.workspaceKey === workspaceKey
+      ? residency.routes
+      : [];
+  const renderedRoutes = updateResidentFocusRoutes(currentRoutes, activeFocus).filter(
+    (route) =>
+      route.kind === "workspace" ||
+      residentProjectIds === undefined ||
+      residentProjectIds.includes(route.projectId),
+  );
 
   useLayoutEffect(() => {
     setResidency((current) => {
+      if (workspaceKey === null) {
+        return { workspaceKey: "", routes: [] };
+      }
       const baseRoutes = current.workspaceKey === workspaceKey ? current.routes : [];
-      const nextRoutes = updateResidentFocusRoutes(baseRoutes, activeFocus);
+      const nextRoutes = updateResidentFocusRoutes(baseRoutes, activeFocus).filter(
+        (route) =>
+          route.kind === "workspace" ||
+          residentProjectIds === undefined ||
+          residentProjectIds.includes(route.projectId),
+      );
       if (
         current.workspaceKey === workspaceKey &&
         current.routes.length === nextRoutes.length &&
@@ -144,10 +179,53 @@ export function RecordFocusResidentPages({ workspaceKey }: { workspaceKey: strin
       }
       return { workspaceKey, routes: nextRoutes };
     });
-  }, [activeFocus, workspaceKey]);
+  }, [activeFocus, residentProjectIds, workspaceKey]);
 
-  return renderedRoutes.map((route) => {
-    const active = route.key === activeFocus?.key;
+  return { activeFocus, routes: renderedRoutes };
+}
+
+export function RecordFocusResidencyProvider({
+  children,
+  residentProjectIds,
+  workspaceKey,
+}: {
+  children: React.ReactNode;
+  residentProjectIds: readonly number[];
+  workspaceKey: string | null;
+}) {
+  const value = useRecordFocusResidency(workspaceKey, residentProjectIds);
+  return (
+    <RecordFocusResidencyContext.Provider value={value}>
+      {children}
+    </RecordFocusResidencyContext.Provider>
+  );
+}
+
+function matchesResidencyScope(
+  route: RecordFocusRoute,
+  projectId: number | null | undefined,
+) {
+  if (projectId === undefined) return true;
+  return projectId === null
+    ? route.kind === "workspace"
+    : route.kind === "project" && route.projectId === projectId;
+}
+
+export function RecordFocusResidentPages({
+  projectId,
+  workspaceKey,
+}: {
+  projectId?: number | null;
+  workspaceKey?: string;
+}) {
+  const sharedResidency = useContext(RecordFocusResidencyContext);
+  const standaloneResidency = useRecordFocusResidency(
+    sharedResidency ? null : (workspaceKey ?? null),
+  );
+  const residency = sharedResidency ?? standaloneResidency;
+
+  return residency.routes.filter((route) => matchesResidencyScope(route, projectId)).map((route) => {
+    const active = route.key === residency.activeFocus?.key;
     return (
       <ResidentFocusPage key={route.key} active={active} focusKey={route.key}>
         {route.kind === "project" ? (

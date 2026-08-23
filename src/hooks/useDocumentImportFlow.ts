@@ -10,11 +10,15 @@ import { refreshAll } from "./shared";
 
 interface UseDocumentImportFlowOptions {
   projectId: number | null;
+  enabled?: boolean;
+  staleTime?: number;
   onDocumentsImported?: (documents: DocumentRecord[]) => void;
 }
 
 export function useDocumentImportFlow({
   projectId,
+  enabled = true,
+  staleTime,
   onDocumentsImported,
 }: UseDocumentImportFlowOptions) {
   const queryClient = useQueryClient();
@@ -26,7 +30,8 @@ export function useDocumentImportFlow({
   const projectTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
-    enabled: projectId !== null,
+    enabled: enabled && projectId !== null,
+    staleTime,
   });
 
   const importFiles = useCallback(

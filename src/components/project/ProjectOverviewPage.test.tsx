@@ -479,6 +479,32 @@ describe("ProjectOverviewPage", () => {
     expect(nameInput).toHaveValue("Alpha Project");
   });
 
+  it("does not autofocus controls while the resident Project shell is Warm", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const projectPage = projectPageWithTaglessRecord();
+    queryClient.setQueryData(queryKeys.projects.all, [projectPage.project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+    queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    document.body.focus();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1?renameProject=1"]}>
+          <Routes>
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectOverviewPage visible={false} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const nameInput = screen.getByRole("textbox", { name: "项目名称" });
+    await Promise.resolve();
+    expect(nameInput).not.toHaveFocus();
+  });
+
   it("keeps the record context menu available after opening the record view", async () => {
     const { projectMindApi } = await import("../../services/projectMindApi");
     const queryClient = new QueryClient({

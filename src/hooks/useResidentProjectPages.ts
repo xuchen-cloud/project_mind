@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import {
   pruneResidentProjects,
@@ -12,7 +12,7 @@ interface ResidentProjectPagesOptions {
   openProjectIds: number[];
 }
 
-/** Browser-like bounded page residency: one active page plus two warm pages. */
+/** Browser-like bounded Project residency: one Active shell plus four Warm shells. */
 export function useResidentProjectPages({
   activeProjectId,
   enabled,
@@ -21,7 +21,7 @@ export function useResidentProjectPages({
 }: ResidentProjectPagesOptions) {
   const [residentProjectIds, setResidentProjectIds] = useState<number[]>([]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasWorkspace || !enabled) {
       setResidentProjectIds([]);
       return;
@@ -32,7 +32,7 @@ export function useResidentProjectPages({
     );
   }, [enabled, hasWorkspace, openProjectIds]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasWorkspace || !enabled || activeProjectId === null) {
       return;
     }

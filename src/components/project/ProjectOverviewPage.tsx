@@ -147,11 +147,13 @@ export function ProjectOverviewPage({
     queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
+    staleTime: Number.POSITIVE_INFINITY,
   });
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
+    staleTime: Number.POSITIVE_INFINITY,
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,
@@ -229,7 +231,11 @@ export function ProjectOverviewPage({
     closeImportTagDialog,
     confirmImportTagDialog,
     manageImportTags,
-  } = useDocumentImportFlow({ projectId });
+  } = useDocumentImportFlow({
+    projectId,
+    enabled: visible,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 
   useEffect(() => {
     if (buttonView === null || buttonView === routeView) {
@@ -606,7 +612,7 @@ export function ProjectOverviewPage({
                 <input
                   ref={projectNameInputRef}
                   aria-label="项目名称"
-                  autoFocus={shouldAutoFocusProjectName}
+                  autoFocus={visible && shouldAutoFocusProjectName}
                   className="project-overview-focus__title"
                   value={nameDraft}
                   onChange={(event) => setNameDraft(event.target.value)}
@@ -809,7 +815,7 @@ export function ProjectOverviewPage({
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
                       variant="bare"
-                      autoFocus
+                      autoFocus={visible}
                       assetHandlers={projectQuickNoteAssetHandlers}
                       placeholder="写记录，正文里的 #标签 会自动同步。"
                       tagMentions={{
