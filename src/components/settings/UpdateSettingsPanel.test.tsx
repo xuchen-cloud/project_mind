@@ -65,9 +65,10 @@ describe("UpdateSettingsPanel", () => {
       adapter: { persist: vi.fn(() => pendingSave) },
     });
     coordinator.submit({
+      scope: "project",
       workspaceKey: "/tmp/workspace",
       projectId: 1,
-      noteId: 7,
+      recordId: 7,
       activityId: null,
       title: "Record",
       tagIds: [],
@@ -102,9 +103,10 @@ describe("UpdateSettingsPanel", () => {
       adapter: { persist: vi.fn(async () => { throw new Error("disk busy"); }) },
     });
     coordinator.submit({
+      scope: "project",
       workspaceKey: "/tmp/workspace",
       projectId: 1,
-      noteId: 7,
+      recordId: 7,
       activityId: null,
       title: "Record",
       tagIds: [],

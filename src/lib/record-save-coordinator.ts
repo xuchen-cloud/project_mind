@@ -1,28 +1,50 @@
 import type { RichEditorValue } from "../components/rich-editor/types";
-import type { NoteRecord } from "./types";
+import type { NoteRecord, WorkspaceRecord } from "./types";
 
-export interface CommittedProjectRecordSnapshot {
+interface CommittedRecordSnapshotBase {
   workspaceKey: string;
-  projectId: number;
   recordId: number;
-  activityId: number | null;
   title: string;
   tagIds: number[];
   defaultCodeLanguage: string | null;
   committedContent: RichEditorValue;
 }
 
+export interface CommittedProjectRecordSnapshot extends CommittedRecordSnapshotBase {
+  scope: "project";
+  projectId: number;
+  activityId: number | null;
+}
+
+export interface CommittedWorkspaceRecordSnapshot extends CommittedRecordSnapshotBase {
+  scope: "workspace";
+}
+
+export type CommittedRecordSnapshot =
+  | CommittedProjectRecordSnapshot
+  | CommittedWorkspaceRecordSnapshot;
+
 export function projectRecordSaveKey(projectId: number, recordId: number) {
   return `project:${projectId}:${recordId}`;
 }
 
+export function workspaceRecordSaveKey(recordId: number) {
+  return `workspace:${recordId}`;
+}
+
+function recordSaveKey(snapshot: CommittedRecordSnapshot) {
+  return snapshot.scope === "project"
+    ? projectRecordSaveKey(snapshot.projectId, snapshot.recordId)
+    : workspaceRecordSaveKey(snapshot.recordId);
+}
+
 export interface RecordSaveResult {
   updatedAt: string;
-  record?: NoteRecord;
+  record?: NoteRecord | WorkspaceRecord;
 }
 
 export interface RecordSaveAdapter {
-  persist(snapshot: Readonly<CommittedProjectRecordSnapshot>): Promise<RecordSaveResult>;
+  persist(snapshot: Readonly<CommittedRecordSnapshot>): Promise<RecordSaveResult>;
 }
 
 export interface RecordSaveReceipt {
@@ -51,7 +73,7 @@ export class RecordSaveFailure extends Error {
 type SaveTaskState = "queued" | "running" | "failed" | "saved";
 
 interface SaveTask {
-  snapshot: Readonly<CommittedProjectRecordSnapshot>;
+  snapshot: Readonly<CommittedRecordSnapshot>;
   sequence: number;
   state: SaveTaskState;
   error: unknown | null;
@@ -60,8 +82,8 @@ interface SaveTask {
 type StatusListener = (status: RecordSaveStatus) => void;
 
 function immutableSnapshot(
-  snapshot: CommittedProjectRecordSnapshot,
-): Readonly<CommittedProjectRecordSnapshot> {
+  snapshot: CommittedRecordSnapshot,
+): Readonly<CommittedRecordSnapshot> {
   const committedContent = Object.freeze({ ...snapshot.committedContent });
   return Object.freeze({
     ...snapshot,
@@ -92,7 +114,7 @@ export class RecordSaveCoordinator {
   readonly workspaceKey: string | null;
   private readonly adapter: RecordSaveAdapter;
   private readonly onLatestSaved?: (
-    snapshot: Readonly<CommittedProjectRecordSnapshot>,
+    snapshot: Readonly<CommittedRecordSnapshot>,
     result: RecordSaveResult,
   ) => void;
   private readonly tasksByRecord = new Map<string, SaveTask[]>();
@@ -104,7 +126,7 @@ export class RecordSaveCoordinator {
     adapter: RecordSaveAdapter;
     workspaceKey?: string;
     onLatestSaved?: (
-      snapshot: Readonly<CommittedProjectRecordSnapshot>,
+      snapshot: Readonly<CommittedRecordSnapshot>,
       result: RecordSaveResult,
     ) => void;
   }) {
@@ -113,9 +135,9 @@ export class RecordSaveCoordinator {
     this.onLatestSaved = options.onLatestSaved;
   }
 
-  submit(snapshot: CommittedProjectRecordSnapshot): RecordSaveReceipt {
+  submit(snapshot: CommittedRecordSnapshot): RecordSaveReceipt {
     const captured = immutableSnapshot(snapshot);
-    const recordKey = projectRecordSaveKey(captured.projectId, captured.recordId);
+    const recordKey = recordSaveKey(captured);
     const sequence = this.nextSequence;
     this.nextSequence += 1;
     const task: SaveTask = {

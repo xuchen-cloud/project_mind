@@ -1,5 +1,7 @@
 export const PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT =
   "project-mind-project-record-focus-save-request";
+export const WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT =
+  "project-mind-workspace-record-focus-save-request";
 
 export interface ProjectRecordFocusSaveRequestDetail {
   projectId: number;
@@ -7,19 +9,44 @@ export interface ProjectRecordFocusSaveRequestDetail {
   respond: (submitted: boolean) => void;
 }
 
-export type ProjectRecordFocusSaveResult = "submitted" | "failed" | "unhandled";
+export type RecordFocusSaveResult = "submitted" | "failed" | "unhandled";
+
+export interface WorkspaceRecordFocusSaveRequestDetail {
+  recordId: number;
+  respond: (submitted: boolean) => void;
+}
 
 export function requestProjectRecordFocusSave(input: {
   projectId: number;
   recordId: number;
-}): ProjectRecordFocusSaveResult {
-  let result: ProjectRecordFocusSaveResult = "unhandled";
+}): RecordFocusSaveResult {
+  let result: RecordFocusSaveResult = "unhandled";
   window.dispatchEvent(
     new CustomEvent<ProjectRecordFocusSaveRequestDetail>(
       PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
       {
         detail: {
           projectId: input.projectId,
+          recordId: input.recordId,
+          respond: (submitted) => {
+            result = submitted ? "submitted" : "failed";
+          },
+        },
+      },
+    ),
+  );
+  return result;
+}
+
+export function requestWorkspaceRecordFocusSave(input: {
+  recordId: number;
+}): RecordFocusSaveResult {
+  let result: RecordFocusSaveResult = "unhandled";
+  window.dispatchEvent(
+    new CustomEvent<WorkspaceRecordFocusSaveRequestDetail>(
+      WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+      {
+        detail: {
           recordId: input.recordId,
           respond: (submitted) => {
             result = submitted ? "submitted" : "failed";

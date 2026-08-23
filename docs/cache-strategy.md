@@ -39,6 +39,20 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - 页面临时状态应尽量可以从路由、React Query 数据或草稿恢复，不能依赖页面永久驻留。
 - workspace 切换必须清理所有 workspace-scoped query、搜索结果、Todo 草稿和临时同步任务。
 
+## Record Focus 驻留
+
+Project Record Focus 与 Workspace Record Focus 共用一个 Workspace 范围的全局 LRU，最多保留两个富文本编辑器实例：当前 Active Focus 与最近一个 Warm Focus。打开第三个 Focus 时只释放最久未使用的编辑器实例；Query 数据、路由与滚动恢复信息继续由各自缓存保留。
+
+Record Focus 草稿在组件首次构造时按以下顺序选择来源：
+
+1. 后台保存协调器中最新的待保存或失败 Committed Content 快照。
+2. React Query 中已有的 `project-page` 或 `workspace-page` 数据。
+3. 仅在前两者都不能提供目标 Record 时请求后端。
+
+命中前两种来源时首帧直接显示 Record，不经过 effect 复制缓存导致的 loading。页面实例一旦拥有本地草稿，后台 Query 更新不得覆盖 Active 或 Warm 编辑现场。
+
+Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级查询，并将编辑器切换为不可编辑状态；它不获取焦点、不自动聚焦，也不响应 Active 页面交互。重新成为 Active 时复用同一编辑器实例，以保留光标、选区、撤销历史和滚动位置。
+
 ## 富文本与图片缓存
 
 - Viewer HTML、图片 pending promise 和缩略图缓存必须有 TTL 或最大条目数。

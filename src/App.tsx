@@ -22,10 +22,14 @@ import {
   workspacePath,
 } from "./lib/formatters";
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
-import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
+import {
+  requestProjectRecordFocusSave,
+  requestWorkspaceRecordFocusSave,
+} from "./lib/record-focus-save";
+import { parseRecordFocusRoute } from "./lib/record-focus-route";
 import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 import {
-  createProjectRecordSaveCoordinator,
+  createRecordSaveCoordinator,
   RecordSaveCoordinatorProvider,
   useRecordSaveStatus,
 } from "./lib/record-save-runtime";
@@ -70,6 +74,7 @@ import {
   UnlockWorkspaceSecretsDialog,
 } from "./components/workspace/WorkspaceDialogs";
 import { Button, EmptyState } from "./ui/components";
+import { RecordFocusResidentPages } from "./components/record/RecordFocusResidentPages";
 
 function workspaceScopedQueryKeys() {
   return [
@@ -196,45 +201,44 @@ export function WorkspaceLayout({
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
-  const skipProjectFocusSaveRouteRef = useRef<string | null>(null);
-  const submitActiveProjectFocusRecord = useCallback(() => {
-    if (
-      activeRecordId === null ||
-      activeProjectId === null ||
-      !/^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
-    ) {
-      return true;
-    }
-
-    const saveResult = requestProjectRecordFocusSave({
-      projectId: activeProjectId,
-      recordId: activeRecordId,
-    });
-
+  const activeRecordFocusRoute = useMemo(
+    () => parseRecordFocusRoute(location.pathname),
+    [location.pathname],
+  );
+  const skipFocusSaveRouteRef = useRef<string | null>(null);
+  const submitActiveFocusRecord = useCallback(() => {
+    const route = activeRecordFocusRoute;
+    if (!route) return true;
+    const saveResult = route.kind === "project"
+      ? requestProjectRecordFocusSave({
+          projectId: route.projectId,
+          recordId: route.recordId,
+        })
+      : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
     return saveResult === "submitted";
-  }, [activeProjectId, activeRecordId, location.pathname]);
+  }, [activeRecordFocusRoute]);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
       ({ currentLocation, nextLocation }) => {
-        const match = /^\/projects\/(\d+)\/records\/(\d+)$/u.exec(
-          currentLocation.pathname,
-        );
+        const route = parseRecordFocusRoute(currentLocation.pathname);
         if (
-          !match ||
+          !route ||
           (currentLocation.pathname === nextLocation.pathname &&
             currentLocation.search === nextLocation.search)
         ) {
           return false;
         }
         const currentRoute = `${currentLocation.pathname}${currentLocation.search}`;
-        if (skipProjectFocusSaveRouteRef.current === currentRoute) {
-          skipProjectFocusSaveRouteRef.current = null;
+        if (skipFocusSaveRouteRef.current === currentRoute) {
+          skipFocusSaveRouteRef.current = null;
           return false;
         }
-        const result = requestProjectRecordFocusSave({
-          projectId: Number.parseInt(match[1] ?? "", 10),
-          recordId: Number.parseInt(match[2] ?? "", 10),
-        });
+        const result = route.kind === "project"
+          ? requestProjectRecordFocusSave({
+              projectId: route.projectId,
+              recordId: route.recordId,
+            })
+          : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
         return result !== "submitted";
       },
       [],
@@ -301,7 +305,7 @@ export function WorkspaceLayout({
   const hasWorkspace = Boolean(currentWorkspace);
   const internalRecordSaveCoordinator = useMemo(
     () =>
-      createProjectRecordSaveCoordinator({
+      createRecordSaveCoordinator({
         workspaceKey: currentWorkspace?.rootPath ?? "workspace:unavailable",
         queryClient,
       }),
@@ -311,11 +315,11 @@ export function WorkspaceLayout({
     injectedRecordSaveCoordinator ?? internalRecordSaveCoordinator;
   const recordSaveStatus = useRecordSaveStatus(recordSaveCoordinator);
   const flushRecordSaves = useCallback(async () => {
-    if (!submitActiveProjectFocusRecord()) {
-      throw new Error("无法捕获当前 Project Record 的 Committed Content");
+    if (!submitActiveFocusRecord()) {
+      throw new Error("无法捕获当前 Record 的 Committed Content");
     }
     await recordSaveCoordinator.flush();
-  }, [recordSaveCoordinator, submitActiveProjectFocusRecord]);
+  }, [recordSaveCoordinator, submitActiveFocusRecord]);
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -361,6 +365,7 @@ export function WorkspaceLayout({
     queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
+    staleTime: activeRecordFocusRoute?.kind === "project" ? Number.POSITIVE_INFINITY : undefined,
   });
   const projectSidebarRecords = useMemo(
     () => toProjectSidebarRecords(projectSidebarOverviewQuery.data?.records ?? []),
@@ -543,7 +548,7 @@ export function WorkspaceLayout({
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+      skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       return snapshot;
     },
@@ -615,7 +620,7 @@ export function WorkspaceLayout({
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
       setCreateWorkspacePassword("");
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+      skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       setStatus({
         tone: "success",
@@ -857,7 +862,7 @@ export function WorkspaceLayout({
       await projectMindApi.projectRecordDelete({ noteId: record.id });
       await refreshProjectScope(queryClient, projectId);
       if (activeRecordId === record.id) {
-        skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+        skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
         navigate(projectPath(projectId));
       }
     },
@@ -930,6 +935,25 @@ export function WorkspaceLayout({
     isProjectOverviewPath(location.pathname, activeProjectId);
   const workspaceOverviewActive =
     cacheProjectOverviewPages && location.pathname === workspacePath();
+  const recordFocusResidencyActive =
+    cacheProjectOverviewPages && activeRecordFocusRoute !== null;
+  const [recordFocusResidencyWorkspaceKey, setRecordFocusResidencyWorkspaceKey] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      setRecordFocusResidencyWorkspaceKey(null);
+      return;
+    }
+    if (recordFocusResidencyActive) {
+      setRecordFocusResidencyWorkspaceKey(currentWorkspace?.rootPath ?? null);
+    }
+  }, [
+    cacheProjectOverviewPages,
+    currentWorkspace?.rootPath,
+    hasWorkspace,
+    recordFocusResidencyActive,
+  ]);
 
   useEffect(() => {
     if (recordSaveStatus.phase !== "idle") {
@@ -1343,6 +1367,16 @@ export function WorkspaceLayout({
         })}
       </>
     ) : null;
+  const cachedRecordFocusPages =
+    cacheProjectOverviewPages &&
+    currentWorkspace &&
+    (recordFocusResidencyActive ||
+      recordFocusResidencyWorkspaceKey === currentWorkspace.rootPath) ? (
+      <RecordFocusResidentPages
+        key={currentWorkspace.rootPath}
+        workspaceKey={currentWorkspace.rootPath}
+      />
+    ) : null;
   return (
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
@@ -1380,7 +1414,7 @@ export function WorkspaceLayout({
             onOpenRecord={(recordId) => {
               void (async () => {
                 const isProjectRecordFocusPage =
-                  /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+                  parseRecordFocusRoute(location.pathname)?.kind === "project";
 
                 navigate(
                   preserveRecordFilters(
@@ -1417,7 +1451,10 @@ export function WorkspaceLayout({
           <main className="min-h-0 flex-1 overflow-hidden">
             {cachedWorkspaceOverviewPage}
             {cachedProjectOverviewPages}
-            {projectOverviewActive || workspaceOverviewActive ? null : mainContent}
+            {cachedRecordFocusPages}
+            {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
+              ? null
+              : mainContent}
           </main>
 
           <StatusBar

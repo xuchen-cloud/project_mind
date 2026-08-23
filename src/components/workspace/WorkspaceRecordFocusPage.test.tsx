@@ -2,11 +2,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { WorkspacePageData, WorkspaceRecord } from "../../lib/types";
+import type {
+  NoteRecord,
+  ProjectPageData,
+  ProjectRecord,
+  WorkspacePageData,
+  WorkspaceRecord,
+} from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
+import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
+import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
 
 const apiMocks = vi.hoisted(() => ({
@@ -17,6 +26,8 @@ const apiMocks = vi.hoisted(() => ({
   projectTagUpsert: vi.fn(),
   workspaceRecordUpsert: vi.fn(),
   aiSettingsGet: vi.fn(),
+  projectPageGet: vi.fn(),
+  projectRecordUpsert: vi.fn(),
 }));
 
 const recordExportMocks = vi.hoisted(() => ({
@@ -90,8 +101,10 @@ vi.mock("../../state/ui-store", () => ({
   }),
 }));
 
-vi.mock("../todo", () => ({
-  TodoRail: () => null,
+vi.mock("../../todo", () => ({
+  TodoModuleRail: ({ enabled }: { enabled?: boolean }) => (
+    <div data-testid="todo-module-rail" data-enabled={enabled === false ? "false" : "true"} />
+  ),
 }));
 
 vi.mock("./WorkspaceOverviewSidebar", () => ({
@@ -104,6 +117,7 @@ vi.mock("./WorkspaceOverviewSidebar", () => ({
 
 vi.mock("../rich-editor/noteImageAssets", () => ({
   buildWorkspaceNoteImageAssetHandlers: () => undefined,
+  buildProjectNoteImageAssetHandlers: () => undefined,
   externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
 }));
 
@@ -168,6 +182,16 @@ const noteB: WorkspaceRecord = {
   updatedAt: "",
 };
 
+const noteC: WorkspaceRecord = {
+  id: 9,
+  title: "C",
+  contentMarkdown: "正文 C",
+  contentHtml: "<p>正文 C</p>",
+  tags: [],
+  createdAt: "",
+  updatedAt: "",
+};
+
 function LocationDisplay() {
   const location = useLocation();
   return <div data-testid="location-display">{location.pathname}</div>;
@@ -186,10 +210,33 @@ function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOpt
   );
 }
 
+function ResidentWorkspaceFocusHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => navigate("/workspace/records/7")}>打开 Workspace 记录 A</button>
+      <button type="button" onClick={() => navigate("/workspace/records/8")}>打开 Workspace 记录 B</button>
+      <button type="button" onClick={() => navigate("/workspace/records/9")}>打开 Workspace 记录 C</button>
+      <RecordFocusResidentPages workspaceKey="/tmp/workspace" />
+    </>
+  );
+}
+
+function CrossScopeFocusHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => navigate("/workspace/records/7")}>打开 Workspace Focus</button>
+      <button type="button" onClick={() => navigate("/projects/1/records/70")}>打开 Project Focus</button>
+      <RecordFocusResidentPages workspaceKey="/tmp/workspace" />
+    </>
+  );
+}
+
 function buildWorkspacePage(): WorkspacePageData {
   return {
     quickNote: null,
-    records: [noteA, noteB],
+    records: [noteA, noteB, noteC],
     unfinishedTodos: [],
     finishedTodos: [],
   };
@@ -219,6 +266,8 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     apiMocks.projectTagUpsert.mockReset();
     apiMocks.workspaceRecordUpsert.mockReset();
     apiMocks.aiSettingsGet.mockReset();
+    apiMocks.projectPageGet.mockReset();
+    apiMocks.projectRecordUpsert.mockReset();
 
     apiMocks.workspacePageGet.mockResolvedValue(buildWorkspacePage());
     apiMocks.projectsList.mockResolvedValue([]);
@@ -229,6 +278,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
     apiMocks.aiSettingsGet.mockResolvedValue(null);
+    apiMocks.projectRecordUpsert.mockResolvedValue({});
     apiMocks.projectTagUpsert.mockImplementation(async ({ label }: { label: string }) => ({
       id: 22,
       label,
@@ -286,29 +336,195 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(recordExportMocks.sources[0]?.committedHtml).not.toContain("AI preview");
   });
 
-  it("flushes the current record before navigating to another record", async () => {
+  it("leaves persistence to the route coordinator when navigating to another record", async () => {
     const user = userEvent.setup();
     renderPage(<WorkspaceRecordFocusPage />);
 
     await screen.findByDisplayValue("A");
     await user.click(screen.getByRole("button", { name: "Open record 8" }));
 
-    await waitFor(() => {
-      expect(apiMocks.workspaceRecordUpsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          noteId: 7,
-          markdown: "正文 A",
-          html: "<p>正文 A</p>",
-        }),
-      );
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/8");
+    expect(apiMocks.workspaceRecordUpsert).not.toHaveBeenCalled();
+  });
+
+  it("reuses the two most recent Workspace Record Focus editors without another workspace-page request", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    queryClient.setQueryData(queryKeys.projects.all, []);
+    queryClient.setQueryData(queryKeys.workspaceStatus, {
+      currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
     });
 
-    expect(apiMocks.workspaceRecordUpsert).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        noteId: 8,
-        markdown: "正文 A",
-      }),
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/workspace/records/7"]}>
+          <Routes>
+            <Route
+              path="/workspace/records/:noteId"
+              element={<ResidentWorkspaceFocusHarness />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/8");
+
+    const editorA = await screen.findByDisplayValue("正文 A");
+    expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 B" }));
+    const editorB = await screen.findByDisplayValue("正文 B");
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(
+      editorA.closest("[data-record-focus-resident-key]")?.querySelector(
+        '[data-testid="todo-module-rail"]',
+      ),
+    ).toHaveAttribute("data-enabled", "false");
+
+    await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 A" }));
+    expect(await screen.findByDisplayValue("正文 A")).toBe(editorA);
+    expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 C" }));
+    expect(await screen.findByDisplayValue("正文 C")).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(editorB).not.toBeInTheDocument();
+  });
+
+  it("shares the two-editor residency limit between Workspace and Project Record Focus", async () => {
+    const user = userEvent.setup();
+    const project: ProjectRecord = {
+      id: 1,
+      name: "Alpha",
+      kind: "normal",
+      status: "active",
+      rootPath: "/tmp/alpha",
+      quickNote: "",
+      isArchived: false,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const projectNote: NoteRecord = {
+      id: 70,
+      projectId: 1,
+      activityId: null,
+      title: "Project Record",
+      contentMarkdown: "Project 正文",
+      contentHtml: "<p>Project 正文</p>",
+      tags: [],
+      createdAt: "",
+      updatedAt: "",
+    };
+    const projectPage: ProjectPageData = {
+      project,
+      records: [projectNote],
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    queryClient.setQueryData(queryKeys.workspaceStatus, {
+      currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/workspace/records/7"]}>
+          <Routes>
+            <Route path="*" element={<CrossScopeFocusHarness />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const workspaceEditor = await screen.findByDisplayValue("正文 A");
+    await user.click(screen.getByRole("button", { name: "打开 Project Focus" }));
+    await screen.findByDisplayValue("Project 正文");
+    await user.click(screen.getByRole("button", { name: "打开 Workspace Focus" }));
+
+    expect(await screen.findByDisplayValue("正文 A")).toBe(workspaceEditor);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite an initialized Workspace Record draft after Query cache refresh", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/workspace/records/7"]}>
+          <Routes>
+            <Route
+              path="/workspace/records/:noteId"
+              element={<WorkspaceRecordFocusPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const title = screen.getByPlaceholderText("记录标题");
+    await user.clear(title);
+    await user.type(title, "Workspace 本地标题");
+    queryClient.setQueryData<WorkspacePageData>(queryKeys.workspacePage, {
+      ...buildWorkspacePage(),
+      records: [
+        { ...noteA, title: "后台刷新标题", contentMarkdown: "后台正文", contentHtml: "<p>后台正文</p>" },
+        noteB,
+        noteC,
+      ],
+    });
+
+    expect(title).toHaveValue("Workspace 本地标题");
+    expect(screen.getByDisplayValue("正文 A")).toBeInTheDocument();
+  });
+
+  it("initializes from a failed Workspace save snapshot before stale Query data", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => { throw new Error("save failed"); }) },
+    });
+    coordinator.submit({
+      scope: "workspace",
+      workspaceKey: "/tmp/workspace",
+      recordId: 7,
+      title: "失败快照标题",
+      tagIds: [],
+      defaultCodeLanguage: "typescript",
+      committedContent: buildMockRichValue("失败快照最新正文"),
+    });
+    await vi.waitFor(() => {
+      expect(coordinator.getRecordStatus("workspace:7").phase).toBe("error");
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/workspace/records/7"]}>
+            <Routes>
+              <Route path="/workspace/records/:noteId" element={<WorkspaceRecordFocusPage />} />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("失败快照标题");
+    expect(screen.getByDisplayValue("失败快照最新正文")).toBeInTheDocument();
+    expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
   });
 });
