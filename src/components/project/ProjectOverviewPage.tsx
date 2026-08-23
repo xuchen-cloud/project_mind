@@ -729,6 +729,7 @@ export function ProjectOverviewPage({
             <RichEditor
               key={`project-quick-note-${activeProject.id}`}
               html={quickNoteDraft.html}
+              readOnly={!visible}
               aiSettings={aiSettings}
               defaultCodeLanguage={quickNoteCodeLanguage}
               onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
@@ -812,6 +813,7 @@ export function ProjectOverviewPage({
                   </div>
                     <RichEditor
                       html={recordDraftValue.html}
+                      readOnly={!visible}
                       aiSettings={aiSettings}
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
