@@ -21,6 +21,12 @@ import {
 } from "./lib/formatters";
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
+import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
+import {
+  createProjectRecordSaveCoordinator,
+  RecordSaveCoordinatorProvider,
+  useRecordSaveStatus,
+} from "./lib/record-save-runtime";
 import { queryKeys } from "./lib/queryKeys";
 import {
   getCurrentWindowLabel,
@@ -164,8 +170,10 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
 
 export function WorkspaceLayout({
   cacheProjectOverviewPages = false,
+  recordSaveCoordinator: injectedRecordSaveCoordinator,
 }: {
   cacheProjectOverviewPages?: boolean;
+  recordSaveCoordinator?: RecordSaveCoordinator;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -182,6 +190,22 @@ export function WorkspaceLayout({
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
+  const submitActiveProjectFocusRecord = useCallback(() => {
+    if (
+      activeRecordId === null ||
+      activeProjectId === null ||
+      !/^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
+    ) {
+      return true;
+    }
+
+    const saveResult = requestProjectRecordFocusSave({
+      projectId: activeProjectId,
+      noteId: activeRecordId,
+    });
+
+    return saveResult === "submitted";
+  }, [activeProjectId, activeRecordId, location.pathname]);
   const workspaceActive =
     location.pathname === workspacePath() ||
     location.pathname === "/today" ||
@@ -226,6 +250,23 @@ export function WorkspaceLayout({
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const hasWorkspace = Boolean(currentWorkspace);
+  const internalRecordSaveCoordinator = useMemo(
+    () =>
+      createProjectRecordSaveCoordinator({
+        workspaceKey: currentWorkspace?.rootPath ?? "workspace:unavailable",
+        queryClient,
+      }),
+    [currentWorkspace?.rootPath, queryClient],
+  );
+  const recordSaveCoordinator =
+    injectedRecordSaveCoordinator ?? internalRecordSaveCoordinator;
+  const recordSaveStatus = useRecordSaveStatus(recordSaveCoordinator);
+  const flushRecordSaves = useCallback(async () => {
+    if (!submitActiveProjectFocusRecord()) {
+      throw new Error("无法捕获当前 Project Record 的 Committed Content");
+    }
+    await recordSaveCoordinator.flush();
+  }, [recordSaveCoordinator, submitActiveProjectFocusRecord]);
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -320,6 +361,8 @@ export function WorkspaceLayout({
   const [unlockPending, setUnlockPending] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
+  const reportedRecordSaveErrorRef = useRef<unknown>(null);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
   const todayVisible = hasWorkspace;
@@ -428,13 +471,19 @@ export function WorkspaceLayout({
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
+      await flushRecordSaves();
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
       navigate(workspacePath(), { replace: true });
       return snapshot;
     },
-    [applyWorkspaceStatus, navigate, setCreateProjectOpen],
+    [
+      applyWorkspaceStatus,
+      navigate,
+      flushRecordSaves,
+      setCreateProjectOpen,
+    ],
   );
 
   const handleOpenExistingWorkspace = useCallback(
@@ -473,23 +522,6 @@ export function WorkspaceLayout({
     }
   }, []);
 
-  const saveActiveProjectFocusRecord = useCallback(async () => {
-    if (
-      activeRecordId === null ||
-      activeProjectId === null ||
-      !/^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
-    ) {
-      return true;
-    }
-
-    const saveResult = await requestProjectRecordFocusSave({
-      projectId: activeProjectId,
-      noteId: activeRecordId,
-    });
-
-    return saveResult === "saved";
-  }, [activeProjectId, activeRecordId, location.pathname]);
-
   const handleCreateWorkspace = useCallback(async () => {
     if (!createWorkspaceRoot.trim()) {
       setCreateWorkspaceError("请选择 workspace 根目录。");
@@ -503,6 +535,7 @@ export function WorkspaceLayout({
     try {
       setCreateWorkspacePending(true);
       setCreateWorkspaceError(null);
+      await flushRecordSaves();
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
         password: createWorkspacePassword,
@@ -535,6 +568,7 @@ export function WorkspaceLayout({
     createWorkspaceRoot,
     navigate,
     pushToast,
+    flushRecordSaves,
     setStatus,
   ]);
 
@@ -546,7 +580,7 @@ export function WorkspaceLayout({
 
   const openProjectInTab = useCallback(
     async (projectId: number) => {
-      if (!(await saveActiveProjectFocusRecord())) {
+      if (!submitActiveProjectFocusRecord()) {
         return;
       }
 
@@ -565,7 +599,7 @@ export function WorkspaceLayout({
       openProjectTab,
       projectWindow,
       resolveProjectNavigationPath,
-      saveActiveProjectFocusRecord,
+      submitActiveProjectFocusRecord,
     ],
   );
 
@@ -624,7 +658,7 @@ export function WorkspaceLayout({
 
   const detachProjectToNewWindow = useCallback(
     async (projectId: number) => {
-      if (activeProjectId === projectId && !(await saveActiveProjectFocusRecord())) {
+      if (activeProjectId === projectId && !submitActiveProjectFocusRecord()) {
         return;
       }
 
@@ -652,13 +686,13 @@ export function WorkspaceLayout({
       navigate,
       openProjectInNewWindow,
       resolveProjectNavigationPath,
-      saveActiveProjectFocusRecord,
+      submitActiveProjectFocusRecord,
     ],
   );
 
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
-      if (activeProjectId === projectId && !(await saveActiveProjectFocusRecord())) {
+      if (activeProjectId === projectId && !submitActiveProjectFocusRecord()) {
         return;
       }
       closeProjectTab(projectId);
@@ -666,7 +700,7 @@ export function WorkspaceLayout({
         navigate(workspacePath());
       }
     },
-    [activeProjectId, closeProjectTab, navigate, saveActiveProjectFocusRecord],
+    [activeProjectId, closeProjectTab, navigate, submitActiveProjectFocusRecord],
   );
 
   const updateProjectRecordFilters = useCallback(
@@ -728,7 +762,7 @@ export function WorkspaceLayout({
     if (activeProjectId === null) {
       return;
     }
-    if (!(await saveActiveProjectFocusRecord())) {
+    if (!submitActiveProjectFocusRecord()) {
       return;
     }
 
@@ -741,7 +775,7 @@ export function WorkspaceLayout({
     });
     await refreshProjectScope(queryClient, activeProjectId);
     navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
-  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope, saveActiveProjectFocusRecord]);
+  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope, submitActiveProjectFocusRecord]);
 
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {
@@ -772,7 +806,7 @@ export function WorkspaceLayout({
         (result.kind === "todo" && result.scope === "workspace")
       ) {
         const route = workspaceSearchResultRoute(result);
-        if (route && (await saveActiveProjectFocusRecord())) {
+        if (route && submitActiveProjectFocusRecord()) {
           if (result.kind === "todo") {
             setTodoRailCollapsed(false);
           }
@@ -780,7 +814,7 @@ export function WorkspaceLayout({
         }
       } else if (result.projectId !== null) {
         const route = workspaceSearchResultRoute(result);
-        if (route && (await saveActiveProjectFocusRecord())) {
+        if (route && submitActiveProjectFocusRecord()) {
           if (result.kind === "todo") {
             setTodoRailCollapsed(false);
           }
@@ -795,7 +829,7 @@ export function WorkspaceLayout({
       openProjectInTab,
       openProjectTab,
       openSettings,
-      saveActiveProjectFocusRecord,
+      submitActiveProjectFocusRecord,
       setTodoRailCollapsed,
     ],
   );
@@ -813,6 +847,9 @@ export function WorkspaceLayout({
     cacheProjectOverviewPages && location.pathname === workspacePath();
 
   useEffect(() => {
+    if (recordSaveStatus.phase !== "idle") {
+      return;
+    }
     if (!hasWorkspace) {
       setStatus({
         tone: "neutral",
@@ -835,9 +872,51 @@ export function WorkspaceLayout({
   }, [
     hasWorkspace,
     projectsQuery.isLoading,
+    recordSaveStatus.phase,
     setStatus,
     visibleProjects.length,
   ]);
+
+  useEffect(() => {
+    const previousPhase = previousRecordSavePhaseRef.current;
+    previousRecordSavePhaseRef.current = recordSaveStatus.phase;
+    if (recordSaveStatus.phase === "saving") {
+      reportedRecordSaveErrorRef.current = null;
+      setStatus({
+        tone: "warning",
+        label: "Saving",
+        message: `正在后台保存 ${recordSaveStatus.pendingCount} 条 Record 变更`,
+      });
+      return;
+    }
+    if (recordSaveStatus.phase === "error") {
+      setStatus({
+        tone: "error",
+        label: "Save failed",
+        message:
+          recordSaveStatus.retryableFailedCount > 0
+            ? `${recordSaveStatus.failedCount} 条 Record 保存失败，可重试`
+            : `${recordSaveStatus.failedCount} 条 Record 保存失败，需要修正后重试`,
+      });
+      if (reportedRecordSaveErrorRef.current !== recordSaveStatus.lastError) {
+        reportedRecordSaveErrorRef.current = recordSaveStatus.lastError;
+        pushToast({
+          tone: "error",
+          title: "后台保存失败",
+          detail: String(recordSaveStatus.lastError),
+        });
+      }
+      return;
+    }
+    reportedRecordSaveErrorRef.current = null;
+    if (previousPhase !== "idle") {
+      setStatus({
+        tone: "success",
+        label: "Saved",
+        message: "Record 后台保存已完成",
+      });
+    }
+  }, [pushToast, recordSaveStatus, setStatus]);
 
   useEffect(() => {
     if (activeProjectId !== null) {
@@ -917,7 +996,7 @@ export function WorkspaceLayout({
 
     void listenToProjectWindowNavigation((route) => {
       void (async () => {
-        if (!disposed && (await saveActiveProjectFocusRecord())) {
+        if (!disposed && submitActiveProjectFocusRecord()) {
           navigate(route);
         }
       })();
@@ -936,7 +1015,7 @@ export function WorkspaceLayout({
       disposed = true;
       unlisten?.();
     };
-  }, [navigate, projectWindow, saveActiveProjectFocusRecord]);
+  }, [navigate, projectWindow, submitActiveProjectFocusRecord]);
 
   useEffect(() => {
     if (typeof document === "undefined" || !hasWorkspace) {
@@ -956,6 +1035,50 @@ export function WorkspaceLayout({
 
     void ensureAiJobSync();
   }, [hasWorkspace]);
+
+  useEffect(() => {
+    if (!hasWorkspace) {
+      return;
+    }
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void desktopApi
+      .listenForCloseRequest(async () => {
+        try {
+          await flushRecordSaves();
+          return true;
+        } catch (error) {
+          setStatus({
+            tone: "error",
+            label: "Save failed",
+            message: "退出已暂停；请重试 Record 保存",
+          });
+          pushToast({
+            tone: "error",
+            title: "退出前保存失败",
+            detail: String(error),
+          });
+          return false;
+        }
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [
+    hasWorkspace,
+    pushToast,
+    flushRecordSaves,
+    setStatus,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1027,7 +1150,7 @@ export function WorkspaceLayout({
       }}
       onOpenToday={() => {
         void (async () => {
-          if (await saveActiveProjectFocusRecord()) {
+          if (submitActiveProjectFocusRecord()) {
             navigate(workspacePath());
           }
         })();
@@ -1140,6 +1263,10 @@ export function WorkspaceLayout({
       </>
     ) : null;
   return (
+    <RecordSaveCoordinatorProvider
+      coordinator={recordSaveCoordinator}
+      flushBarrier={flushRecordSaves}
+    >
     <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
       {projectWindow ? null : workspaceTopBar}
 
@@ -1162,7 +1289,7 @@ export function WorkspaceLayout({
             onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => {
               void (async () => {
-                if (await saveActiveProjectFocusRecord()) {
+                if (submitActiveProjectFocusRecord()) {
                   navigate(
                     preserveRecordFilters(projectPath(activeProject.id), location.search),
                   );
@@ -1182,7 +1309,7 @@ export function WorkspaceLayout({
                   activeRecordId !== recordId &&
                   activeProjectId === activeProject.id
                 ) {
-                  const saved = await saveActiveProjectFocusRecord();
+                  const saved = submitActiveProjectFocusRecord();
                   if (!saved) {
                     return;
                   }
@@ -1205,7 +1332,7 @@ export function WorkspaceLayout({
                   activeRecordId !== recordId &&
                   activeProjectId === activeProject.id
                 ) {
-                  const saved = await saveActiveProjectFocusRecord();
+                  const saved = submitActiveProjectFocusRecord();
                   if (!saved) {
                     return;
                   }
@@ -1246,6 +1373,11 @@ export function WorkspaceLayout({
                   : currentWorkspace.displayName
             }
             detail={`${visibleProjects.length} projects`}
+            onRetrySave={
+              recordSaveStatus.retryableFailedCount > 0
+                ? () => recordSaveCoordinator.retryFailed()
+                : undefined
+            }
           />
         </div>
       </div>
@@ -1283,6 +1415,7 @@ export function WorkspaceLayout({
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
+    </RecordSaveCoordinatorProvider>
   );
 }
 

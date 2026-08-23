@@ -45,6 +45,15 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - 缓存 key 必须包含足以区分内容版本的信息。
 - 测试必须提供显式清理入口，避免跨用例污染。
 
+## Project Record 后台保存
+
+- 离开 Project Record Focus 时始终捕获并提交一次不可变的 Committed Content 快照；这一语义不以 dirty 状态替代。
+- 普通 Project 与 Record 导航只同步读取当前 Committed Content、标题、标签、代码语言及 Record/Project 身份，然后立即提交路由。内容规范化、managed image 外部化、数据库写入和 React Query 同步均在导航之后执行。
+- 保存任务由当前 Workspace 的 `RecordSaveCoordinator` 持有，不依赖来源页面继续挂载。任务按 Record 串行，不同 Record 可以独立推进。
+- 同一 Record 只有最新提交的成功结果可以写回 React Query；仍在排队或失败的较新快照不会被较旧结果覆盖。
+- 失败任务保留其快照，并通过全局状态和 Toast 显示。可重试失败能够从状态栏重试，且不阻塞普通导航。
+- 正常退出、切换 Workspace 和安装更新是 flush barrier：必须等待对应 Workspace 的队列完成；flush 失败会取消该生命周期动作并保留任务。
+
 ## 性能验收
 
 - Warm 项目切换应直接复用页面实例，不发起阻塞式数据请求。

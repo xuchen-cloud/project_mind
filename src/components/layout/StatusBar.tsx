@@ -6,9 +6,10 @@ import { StatusBadge } from "../../ui/components";
 interface StatusBarProps {
   context?: string | null;
   detail?: string | null;
+  onRetrySave?: () => void;
 }
 
-export function StatusBar({ context, detail }: StatusBarProps) {
+export function StatusBar({ context, detail, onRetrySave }: StatusBarProps) {
   const status = useFeedbackStore((state) => state.status);
 
   return (
@@ -42,6 +43,15 @@ export function StatusBar({ context, detail }: StatusBarProps) {
       </div>
 
       <div className="flex min-w-0 items-center gap-3 text-text-soft">
+        {onRetrySave ? (
+          <button
+            type="button"
+            className="font-medium text-danger hover:underline"
+            onClick={onRetrySave}
+          >
+            重试保存
+          </button>
+        ) : null}
         {context ? <span className="truncate">{context}</span> : null}
         {detail ? <span className="truncate">{detail}</span> : null}
       </div>

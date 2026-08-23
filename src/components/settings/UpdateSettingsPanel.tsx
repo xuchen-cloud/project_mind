@@ -2,6 +2,7 @@ import { Download, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getErrorMessage } from "../../lib/errors";
+import { useRecordSaveFlushBarrier } from "../../lib/record-save-runtime";
 import {
   tauriAppUpdater,
   type AppUpdate,
@@ -14,6 +15,7 @@ interface UpdateSettingsPanelProps {
 }
 
 export function UpdateSettingsPanel({ updater = tauriAppUpdater }: UpdateSettingsPanelProps) {
+  const flushRecordSaves = useRecordSaveFlushBarrier();
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [versionReadFailed, setVersionReadFailed] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
@@ -75,6 +77,7 @@ export function UpdateSettingsPanel({ updater = tauriAppUpdater }: UpdateSetting
     setInstalling(true);
     setError(null);
     try {
+      await flushRecordSaves();
       await updater.install(availableUpdate);
       setInstalled(true);
     } catch (nextError) {

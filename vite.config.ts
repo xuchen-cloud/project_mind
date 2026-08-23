@@ -10,6 +10,12 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
+            if (
+              id.includes("/src/components/rich-editor/") &&
+              !/(ImageAnnotationDialog|image-annotations|imageThumbnails)/u.test(id)
+            ) {
+              return "rich-editor";
+            }
             return undefined;
           }
 
