@@ -1,14 +1,14 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { useResidentProjectPages } from "./useResidentProjectPages";
+import { useResidentProjectShells } from "./useResidentProjectShells";
 
-describe("useResidentProjectPages", () => {
+describe("useResidentProjectShells", () => {
   it("includes a newly active cold project in the route-change render", () => {
     const openProjectIds = [1, 2, 3, 4];
     const { result, rerender } = renderHook(
       ({ activeProjectId }) =>
-        useResidentProjectPages({
+        useResidentProjectShells({
           activeProjectId,
           enabled: true,
           hasWorkspace: true,

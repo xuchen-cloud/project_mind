@@ -1442,7 +1442,7 @@ describe("WorkspaceLayout", () => {
 
   it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
     const timestamp = "2026-08-23T00:00:00.000Z";
-    const projects = Array.from({ length: 6 }, (_, index) => {
+    const projects = Array.from({ length: 12 }, (_, index) => {
       const id = index + 1;
       return {
         id,
@@ -1465,7 +1465,18 @@ describe("WorkspaceLayout", () => {
         project.id,
         {
           project,
-          records: [],
+          records: [{
+            id: project.id * 10,
+            projectId: project.id,
+            activityId: null,
+            title: `Record ${project.id}`,
+            contentMarkdown: `Record body ${project.id}`,
+            contentHtml: `<p>Record body ${project.id}</p>`,
+            defaultCodeLanguage: null,
+            tags: [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }],
           projectDocuments: [],
           conclusionGroups: [],
           unfinishedTodos: [],
@@ -1489,12 +1500,29 @@ describe("WorkspaceLayout", () => {
     }
     queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: {
+        persist: vi.fn(async () => ({ updatedAt: timestamp })),
+      },
+    });
 
     const router = createMemoryRouter(
       [{
         path: "/",
-        element: <WorkspaceLayout cacheProjectOverviewPages />,
-        children: [{ path: "projects/:projectId", element: <div>legacy route</div> }],
+        element: (
+          <WorkspaceLayout
+            cacheProjectOverviewPages
+            recordSaveCoordinator={coordinator}
+          />
+        ),
+        children: [
+          { path: "projects/:projectId", element: <div>legacy route</div> },
+          {
+            path: "projects/:projectId/records/:noteId",
+            element: <div>legacy Focus route</div>,
+          },
+        ],
       }],
       { initialEntries: ["/projects/1?view=record"] },
     );
@@ -1542,8 +1570,23 @@ describe("WorkspaceLayout", () => {
     await waitFor(() =>
       expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull(),
     );
+
+    for (const projectId of [7, 8, 9, 10, 11, 12]) {
+      const recordId = projectId * 10;
+      await act(async () => {
+        await router.navigate(`/projects/${projectId}/records/${recordId}`);
+        await coordinator.flush();
+      });
+      await waitFor(() =>
+        expect(
+          document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`),
+        ).not.toBeNull(),
+      );
+    }
+    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
 });

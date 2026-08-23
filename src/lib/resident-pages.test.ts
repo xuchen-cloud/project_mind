@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MAX_RESIDENT_PROJECT_OVERVIEWS,
-  pruneResidentProjects,
-  touchResidentProject,
+  MAX_RESIDENT_PROJECT_SHELLS,
+  pruneResidentProjectShells,
+  touchResidentProjectShell,
 } from "./resident-pages";
 
 describe("resident project pages", () => {
@@ -12,37 +12,37 @@ describe("resident project pages", () => {
     const open = [1, 2, 3, 4, 5, 6];
 
     for (const projectId of open.slice(0, 5)) {
-      resident = touchResidentProject(resident, projectId, open);
+      resident = touchResidentProjectShell(resident, projectId, open);
     }
 
     expect(resident).toEqual([1, 2, 3, 4, 5]);
-    expect(resident).toHaveLength(MAX_RESIDENT_PROJECT_OVERVIEWS);
+    expect(resident).toHaveLength(MAX_RESIDENT_PROJECT_SHELLS);
 
-    resident = touchResidentProject(resident, 1, open);
+    resident = touchResidentProjectShell(resident, 1, open);
     expect(resident).toEqual([2, 3, 4, 5, 1]);
 
-    resident = touchResidentProject(resident, 6, open);
+    resident = touchResidentProjectShell(resident, 6, open);
     expect(resident).toEqual([3, 4, 5, 1, 6]);
   });
 
   it("promotes a warm page without remounting it", () => {
-    expect(touchResidentProject([1, 2, 3, 4, 5], 1, [1, 2, 3, 4, 5])).toEqual([
+    expect(touchResidentProjectShell([1, 2, 3, 4, 5], 1, [1, 2, 3, 4, 5])).toEqual([
       2, 3, 4, 5, 1,
     ]);
   });
 
   it("drops closed tabs immediately", () => {
-    expect(pruneResidentProjects([1, 2, 3], [1, 3])).toEqual([1, 3]);
+    expect(pruneResidentProjectShells([1, 2, 3], [1, 3])).toEqual([1, 3]);
   });
 
   it("stays bounded after a long Project history", () => {
     const open = Array.from({ length: 40 }, (_, index) => index + 1);
     const resident = open.reduce<number[]>(
-      (current, projectId) => touchResidentProject(current, projectId, open),
+      (current, projectId) => touchResidentProjectShell(current, projectId, open),
       [],
     );
 
     expect(resident).toEqual([36, 37, 38, 39, 40]);
-    expect(resident).toHaveLength(MAX_RESIDENT_PROJECT_OVERVIEWS);
+    expect(resident).toHaveLength(MAX_RESIDENT_PROJECT_SHELLS);
   });
 });

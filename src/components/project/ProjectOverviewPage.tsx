@@ -44,6 +44,7 @@ import {
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { queryKeys } from "../../lib/queryKeys";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import {
   extractHashTagLabels,
   findTagByLabel,
@@ -147,13 +148,13 @@ export function ProjectOverviewPage({
     queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
-    staleTime: Number.POSITIVE_INFINITY,
+    ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
-    staleTime: Number.POSITIVE_INFINITY,
+    ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,
@@ -234,7 +235,7 @@ export function ProjectOverviewPage({
   } = useDocumentImportFlow({
     projectId,
     enabled: visible,
-    staleTime: Number.POSITIVE_INFINITY,
+    resident: true,
   });
 
   useEffect(() => {

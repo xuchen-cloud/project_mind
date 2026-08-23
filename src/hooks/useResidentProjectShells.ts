@@ -1,11 +1,11 @@
 import { useLayoutEffect, useState } from "react";
 
 import {
-  pruneResidentProjects,
-  touchResidentProject,
+  pruneResidentProjectShells,
+  touchResidentProjectShell,
 } from "../lib/resident-pages";
 
-interface ResidentProjectPagesOptions {
+interface ResidentProjectShellsOptions {
   activeProjectId: number | null;
   enabled: boolean;
   hasWorkspace: boolean;
@@ -13,12 +13,12 @@ interface ResidentProjectPagesOptions {
 }
 
 /** Browser-like bounded Project residency: one Active shell plus four Warm shells. */
-export function useResidentProjectPages({
+export function useResidentProjectShells({
   activeProjectId,
   enabled,
   hasWorkspace,
   openProjectIds,
-}: ResidentProjectPagesOptions) {
+}: ResidentProjectShellsOptions) {
   const [residentProjectIds, setResidentProjectIds] = useState<number[]>([]);
 
   useLayoutEffect(() => {
@@ -28,7 +28,7 @@ export function useResidentProjectPages({
     }
 
     setResidentProjectIds((current) =>
-      pruneResidentProjects(current, openProjectIds),
+      pruneResidentProjectShells(current, openProjectIds),
     );
   }, [enabled, hasWorkspace, openProjectIds]);
 
@@ -38,7 +38,7 @@ export function useResidentProjectPages({
     }
 
     setResidentProjectIds((current) =>
-      touchResidentProject(current, activeProjectId, openProjectIds),
+      touchResidentProjectShell(current, activeProjectId, openProjectIds),
     );
   }, [activeProjectId, enabled, hasWorkspace, openProjectIds]);
 
@@ -46,5 +46,5 @@ export function useResidentProjectPages({
   // the current render so a cold tab never produces an intermediate blank frame.
   return activeProjectId === null || !enabled || !hasWorkspace
     ? residentProjectIds
-    : touchResidentProject(residentProjectIds, activeProjectId, openProjectIds);
+    : touchResidentProjectShell(residentProjectIds, activeProjectId, openProjectIds);
 }

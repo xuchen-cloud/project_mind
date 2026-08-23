@@ -103,7 +103,7 @@ interface ProjectSidebarProps {
   recordQuery?: string;
   onRecordQueryChange?: (value: string) => void;
   activeRecordTagId?: number | null;
-  projectDataStaleTime?: number;
+  resident?: boolean;
   onActiveRecordTagIdChange?: (tagId: number | null) => void;
   onOpenProject: () => void;
   onOpenRecord?: (recordId: number) => void;
@@ -143,7 +143,7 @@ export function ProjectSidebar({
   recordQuery: recordQueryProp,
   onRecordQueryChange,
   activeRecordTagId: activeRecordTagIdProp,
-  projectDataStaleTime,
+  resident = false,
   onActiveRecordTagIdChange,
   onOpenProject,
   onOpenRecord,
@@ -182,7 +182,7 @@ export function ProjectSidebar({
     manageImportTags,
   } = useDocumentImportFlow({
     projectId: project.id,
-    staleTime: projectDataStaleTime,
+    resident,
   });
 
   const records = explicitRecords ?? [];

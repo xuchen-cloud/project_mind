@@ -15,6 +15,7 @@ import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import {
   createRecordSaveCoordinator,
   useRecordSaveCoordinator,
@@ -143,6 +144,7 @@ export function ProjectNoteFocusPage({
     queryKey: queryKeys.projectTags.project(projectId),
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
     enabled: visible && projectId !== null,
+    ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,

@@ -53,7 +53,8 @@ import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
 import { useDebouncedValue } from "./hooks/useUtilityHooks";
 import { useWorkspaceWindowSizeConstraints } from "./hooks/useWorkspaceWindowSizeConstraints";
-import { useResidentProjectPages } from "./hooks/useResidentProjectPages";
+import { useResidentProjectShells } from "./hooks/useResidentProjectShells";
+import { RESIDENT_PROJECT_QUERY_OPTIONS } from "./lib/resident-pages";
 import { useResidentWorkspacePage } from "./hooks/useResidentWorkspacePage";
 import { createTodoModule, productionTodoTransport } from "./todo/todo-module";
 import {
@@ -364,7 +365,7 @@ export function WorkspaceLayout({
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
-  const residentProjectOverviewIds = useResidentProjectPages({
+  const residentProjectIds = useResidentProjectShells({
     activeProjectId,
     enabled: cacheProjectOverviewPages,
     hasWorkspace,
@@ -374,10 +375,9 @@ export function WorkspaceLayout({
     queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
-    staleTime:
-      cacheProjectOverviewPages || activeRecordFocusRoute?.kind === "project"
-        ? Number.POSITIVE_INFINITY
-        : undefined,
+    ...(cacheProjectOverviewPages || activeRecordFocusRoute?.kind === "project"
+      ? RESIDENT_PROJECT_QUERY_OPTIONS
+      : {}),
   });
   const projectSidebarRecords = useMemo(
     () => toProjectSidebarRecords(projectSidebarOverviewQuery.data?.records ?? []),
@@ -691,7 +691,7 @@ export function WorkspaceLayout({
 
   const prefetchProject = useCallback(
     (projectId: number) => {
-      if (residentProjectOverviewIds.includes(projectId)) {
+      if (residentProjectIds.includes(projectId)) {
         return;
       }
       void Promise.all([
@@ -701,7 +701,7 @@ export function WorkspaceLayout({
         // Prefetch failures are surfaced by the destination page query.
       });
     },
-    [queryClient, residentProjectOverviewIds, todoModule],
+    [queryClient, residentProjectIds, todoModule],
   );
 
   const openProjectInNewWindow = useCallback(
@@ -1335,7 +1335,7 @@ export function WorkspaceLayout({
             activeRecordFocusRoute.projectId === project.id;
           const active = overviewActive || focusActive;
           const resident =
-            active || residentProjectOverviewIds.includes(project.id);
+            active || residentProjectIds.includes(project.id);
 
           if (!resident) {
             return null;
@@ -1391,7 +1391,7 @@ export function WorkspaceLayout({
       flushBarrier={flushRecordSaves}
     >
     <RecordFocusResidencyProvider
-      residentProjectIds={residentProjectOverviewIds}
+      residentProjectIds={residentProjectIds}
       workspaceKey={
         cacheProjectOverviewPages ? (currentWorkspace?.rootPath ?? null) : null
       }
@@ -1415,9 +1415,7 @@ export function WorkspaceLayout({
             recordQuery={projectRecordQuery}
             onRecordQueryChange={(value) => updateProjectRecordFilters({ query: value })}
             activeRecordTagId={projectRecordTagId}
-            projectDataStaleTime={
-              cacheProjectOverviewPages ? Number.POSITIVE_INFINITY : undefined
-            }
+            resident={cacheProjectOverviewPages}
             onActiveRecordTagIdChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenProject={() => {
               navigate(
