@@ -17,6 +17,8 @@ interface EntityTagEditorProps {
   inputRef?: Ref<HTMLInputElement>;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
   onCreated?: (tag: ProjectTagRecord) => void;
+  onPendingChange?: (pending: boolean) => void;
+  onCommitSettled?: (error: unknown | null) => void;
   onCommitNavigation?: (reason: "tab" | "enter") => Promise<unknown> | void;
 }
 
@@ -30,6 +32,8 @@ export function EntityTagEditor({
   inputRef,
   onChange,
   onCreated,
+  onPendingChange,
+  onCommitSettled,
   onCommitNavigation,
 }: EntityTagEditorProps) {
   const [input, setInput] = useState("");
@@ -46,17 +50,30 @@ export function EntityTagEditor({
 
   const commitLabel = async (rawLabel: string) => {
     const label = rawLabel.trim().replace(/^#/, "");
-    if (!label || busy || creating) return;
+    if (!label || busy || creating) return false;
 
-    const existing = findTagByLabel(availableTags, label);
-    const tag = existing ?? await createTag(label);
-    if (!tag || selectedIds.has(tag.id)) {
+    setCreating(true);
+    onPendingChange?.(true);
+    let commitError: unknown | null = null;
+    try {
+      const existing = findTagByLabel(availableTags, label);
+      const tag = existing ?? await createTag(label);
+      if (!tag || selectedIds.has(tag.id)) {
+        setInput("");
+        return true;
+      }
+
+      await onChange([...tags.map((item) => item.id), tag.id]);
       setInput("");
-      return;
+      return true;
+    } catch (error) {
+      commitError = error;
+      return false;
+    } finally {
+      setCreating(false);
+      onPendingChange?.(false);
+      onCommitSettled?.(commitError);
     }
-
-    await onChange([...tags.map((item) => item.id), tag.id]);
-    setInput("");
   };
 
   const handleInputRef = (node: HTMLInputElement | null) => {
@@ -65,34 +82,31 @@ export function EntityTagEditor({
   };
 
   const createTag = async (label: string) => {
-    try {
-      setCreating(true);
-      const tag = await projectMindApi.projectTagUpsert({
-        projectId: projectId ?? null,
-        label,
-        colorKey: colorKeyForTagLabel(label),
-      });
-      onCreated?.(tag);
-      return tag;
-    } finally {
-      setCreating(false);
-    }
+    const tag = await projectMindApi.projectTagUpsert({
+      projectId: projectId ?? null,
+      label,
+      colorKey: colorKeyForTagLabel(label),
+    });
+    onCreated?.(tag);
+    return tag;
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      void commitLabel(suggestions[0]?.label ?? query).then(() =>
-        onCommitNavigation?.("enter"),
-      );
+      void commitLabel(suggestions[0]?.label ?? query).then((committed) => {
+        if (committed) onCommitNavigation?.("enter");
+      });
       return;
     }
 
     if (event.key === "Tab" && query) {
       event.preventDefault();
-      void commitLabel(suggestions[0]?.label ?? query).then(() => {
-        localInputRef.current?.focus();
-        onCommitNavigation?.("tab");
+      void commitLabel(suggestions[0]?.label ?? query).then((committed) => {
+        if (committed) {
+          localInputRef.current?.focus();
+          onCommitNavigation?.("tab");
+        }
       });
       return;
     }

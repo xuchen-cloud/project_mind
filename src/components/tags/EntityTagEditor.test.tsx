@@ -117,6 +117,33 @@ describe("EntityTagEditor", () => {
     expect(onCommitNavigation).toHaveBeenCalledWith("enter");
   });
 
+  it("does not navigate when Tag creation fails", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onCommitNavigation = vi.fn();
+    const onCommitSettled = vi.fn();
+    apiMocks.projectTagUpsert.mockRejectedValueOnce(new Error("保存失败"));
+
+    render(
+      <EntityTagEditor
+        projectId={1}
+        availableTags={[]}
+        tags={[]}
+        onChange={onChange}
+        onCommitNavigation={onCommitNavigation}
+        onCommitSettled={onCommitSettled}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("#标签"), "失败标签{Enter}");
+
+    await waitFor(() =>
+      expect(onCommitSettled).toHaveBeenCalledWith(expect.objectContaining({ message: "保存失败" })),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommitNavigation).not.toHaveBeenCalled();
+  });
+
   it("keeps empty Tab as normal browser focus navigation", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -63,6 +63,8 @@ export function TodoModuleRail({
           content: payload.content,
           priority: payload.priority,
           dueDate: payload.dueDate,
+          tagIds: payload.tagIds,
+          tags: payload.optimisticTags,
         })
       }
       onToggleStatus={(todoId, status) =>

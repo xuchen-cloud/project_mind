@@ -49,6 +49,8 @@ export type TodoChange =
       content: string;
       priority: TodoPriority;
       dueDate?: string | null;
+      tagIds?: number[];
+      tags?: DocumentTagRecord[];
     }
   | { type: "update-content"; todoId: number; content: string; dueDate?: string | null }
   | { type: "update-priority"; todoId: number; priority: TodoPriority }
@@ -286,7 +288,12 @@ export function createTodoModule({
   }
 
   async function create(command: Extract<TodoChange, { type: "create" }>) {
-    const synced = await resolveContentTags(command.ownership, command.content, []);
+    const synced = await resolveContentTags(
+      command.ownership,
+      command.content,
+      command.tagIds ?? [],
+      command.tags ?? [],
+    );
     const input: TodoCreateInput =
       command.ownership.scope === "workspace"
         ? {

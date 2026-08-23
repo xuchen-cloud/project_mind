@@ -173,7 +173,7 @@ export function TodoReferenceEditor({
   return (
     <div
       className={cn(
-        "relative rounded-[var(--radius-6)] border border-[color-mix(in_srgb,var(--color-accent)_24%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] transition-[border-color,box-shadow,background-color] duration-[160ms] ease-[var(--ease-soft)] focus-within:border-[color-mix(in_srgb,var(--color-accent)_36%,var(--color-border))] focus-within:shadow-[0_0_0_3px_var(--color-accent-ring)]",
+        "todo-editor-field relative",
         disabled && "opacity-75",
         containerClassName,
       )}
@@ -182,7 +182,7 @@ export function TodoReferenceEditor({
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute inset-0 px-2.5 py-1.5 text-text-soft",
+            "pointer-events-none absolute inset-0 text-text-soft",
             textClassName,
           )}
         >
@@ -197,7 +197,7 @@ export function TodoReferenceEditor({
         contentEditable={!disabled}
         suppressContentEditableWarning
         className={cn(
-          "min-h-8 w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-text outline-none whitespace-pre-wrap break-words",
+          "w-full text-text outline-none whitespace-pre-wrap break-words",
           textClassName,
           disabled && "cursor-default",
         )}

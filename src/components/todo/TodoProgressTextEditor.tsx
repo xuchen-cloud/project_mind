@@ -27,6 +27,7 @@ interface TodoProgressTextEditorProps {
   autoFocus?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  containerClassName?: string;
   internalReferenceContext?: InternalReferenceContext | null;
   normalizeValue?: (value: string) => string;
   disableMentionTrigger?: (trigger: { start: number; end: number }) => boolean;
@@ -40,6 +41,7 @@ export function TodoProgressTextEditor({
   autoFocus = false,
   disabled = false,
   placeholder = "@0315 已与财务确认方案",
+  containerClassName = "todo-subtask-editor",
   internalReferenceContext,
   normalizeValue = normalizeProgressDraft,
   disableMentionTrigger,
@@ -173,6 +175,7 @@ export function TodoProgressTextEditor({
         autoFocus={autoFocus}
         disabled={disabled}
         placeholder={placeholder}
+        containerClassName={containerClassName}
         textClassName="text-ui leading-[1.2rem]"
         onChange={(nextValue, nextSelection) => {
           onChange(normalizeValue(nextValue));

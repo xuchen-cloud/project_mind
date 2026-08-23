@@ -84,12 +84,14 @@ describe("TodoModuleRail", () => {
       expect.objectContaining({
         tone: "error",
         title: "Todo 处理失败",
-        detail: "Error: 创建失败",
+        detail:
+          "Todo 创建结果无法确认，草稿已保留：Error: 创建失败；Todo 列表已刷新，请核对。",
       }),
     ]);
     expect(screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签")).toHaveValue(
       "保留失败草稿",
     );
+    expect(screen.getByRole("button", { name: "请先核对" })).toBeDisabled();
   });
 });
 

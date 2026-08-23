@@ -3184,35 +3184,131 @@
 .todo-rail__composer {
   position: relative;
   display: grid;
-  gap: 0.62rem;
+  grid-template-columns: 3px minmax(0, 1fr);
+  gap: 0.72rem;
   padding: 0.82rem 0.9rem 0.78rem;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   border-radius: 1rem;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-bg) 98%, white) 0%,
-      color-mix(in srgb, var(--color-bg) 94%, var(--color-bg-subtle)) 100%
-    );
-  box-shadow: 0 10px 22px color-mix(in srgb, var(--color-text) 2%, transparent);
+  background: var(--color-bg);
+  transition: opacity var(--duration-standard) var(--ease-soft);
+}
+
+.todo-rail__composer-priority-rail {
+  width: 3px;
+  min-height: 2.3rem;
+  border-radius: 999px;
+  background: var(--todo-priority-color, var(--color-todo-p3));
+}
+
+.todo-rail__composer-card-body,
+.todo-rail__composer-primary,
+.todo-rail__composer-subtasks,
+.todo-rail__composer-subtask-list {
+  display: grid;
+  min-width: 0;
+}
+
+.todo-rail__composer-card-body {
+  gap: 0.62rem;
+}
+
+.todo-rail__composer-primary {
+  gap: 0.4rem;
+}
+
+.todo-rail__composer-tags {
+  min-width: 0;
+  opacity: 0.86;
+}
+
+.todo-rail__composer-tags .entity-tag-chip {
+  filter: saturate(0.78);
+}
+
+.todo-rail__composer-subtasks,
+.todo-rail__composer-subtask-list {
+  gap: 0.28rem;
+}
+
+.todo-rail__composer-subtask-row {
+  display: flex;
+  min-width: 0;
+  min-height: 1.7rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.todo-rail__composer-subtask-row > button {
+  opacity: 0.58;
+  transition: opacity var(--duration-standard) var(--ease-soft);
+}
+
+.todo-rail__composer-subtask-row:focus-within > button {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .todo-rail__composer-subtask-row:hover > button {
+    opacity: 1;
+  }
+}
+
+.todo-rail__composer-add-subtask {
+  min-width: 0;
 }
 
 .todo-rail__composer--pending {
   opacity: 0.72;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
 }
 
-.todo-rail__composer-input {
-  min-height: 1.55rem;
-  padding: 0.2rem 0;
+.todo-rail__composer-recovery {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.todo-rail__composer-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.todo-editor-field {
+  box-sizing: border-box;
+  width: 100%;
   border: 0;
-  border-radius: 0.8rem;
-  background: transparent;
+  border-radius: var(--radius-6);
+  background: var(--color-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 14%, var(--color-border));
+  color: var(--color-text);
+  transition:
+    border-color var(--duration-standard) var(--ease-soft),
+    background-color var(--duration-standard) var(--ease-soft),
+    box-shadow var(--duration-standard) var(--ease-soft);
+}
+
+.todo-editor-field:focus-visible,
+.todo-editor-field:focus-within {
+  background: var(--color-bg);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, var(--color-border)),
+    0 0 0 2px color-mix(in srgb, var(--color-accent-ring) 70%, transparent);
+  outline: none;
+}
+
+.todo-rail__composer-input.todo-editor-field {
+  display: block;
+  min-height: 1.95rem;
+  padding: 0.2rem 0.58rem;
+  border-radius: var(--radius-8);
   line-height: 1.55;
 }
 
 .todo-rail__composer-input:focus {
-  box-shadow: none;
+  outline: none;
 }
 
 .todo-rail__composer-meta {
@@ -3221,6 +3317,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.55rem 0.8rem;
+  padding-top: 0.48rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 52%, transparent);
 }
 
 .todo-rail__ownership {
@@ -3249,7 +3347,9 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  transition: background-color 160ms var(--ease-soft);
+  transition:
+    background-color var(--duration-standard) var(--ease-soft),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 .todo-rail__priority-button:hover,
@@ -3263,18 +3363,24 @@
   opacity: 0.58;
 }
 
+.todo-rail__priority-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 .todo-rail__priority-dot {
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 0.72rem;
+  height: 0.72rem;
   border-radius: 999px;
   box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 10%, transparent);
-  transition: width 160ms var(--ease-soft), height 160ms var(--ease-soft), box-shadow 160ms var(--ease-soft);
+  transform: scale(0.76);
+  transition:
+    box-shadow var(--duration-standard) var(--ease-soft),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 .todo-rail__priority-dot--active {
-  width: 0.72rem;
-  height: 0.72rem;
   box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 3px var(--color-border-strong);
+  transform: scale(1);
 }
 
 .todo-list {
@@ -3328,20 +3434,6 @@
 .todo-card[data-state~="expanded"] {
   border-color: color-mix(in srgb, var(--color-border-strong) 42%, transparent);
   box-shadow: 0 18px 38px color-mix(in srgb, var(--color-text) 4%, transparent);
-}
-
-.todo-card[data-state~="editing"] {
-  border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 8%, transparent),
-    0 18px 34px color-mix(in srgb, var(--color-accent) 7%, transparent);
-}
-
-.todo-card[data-state~="progress-editing"] {
-  border-color: color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 6%, transparent),
-    0 16px 30px color-mix(in srgb, var(--color-accent) 5%, transparent);
 }
 
 .todo-card__row {
@@ -3424,15 +3516,8 @@
 }
 
 .todo-card__check:disabled {
-  opacity: 0.7;
-}
-
-.todo-card__check--hidden {
-  opacity: 0;
-  width: 0;
-  margin: 0;
-  overflow: hidden;
-  pointer-events: none;
+  cursor: default;
+  opacity: 0.38;
 }
 
 .todo-card__check-ring {
@@ -3616,10 +3701,10 @@
   overflow-wrap: anywhere;
   word-break: break-word;
   transition:
-    background-color 160ms var(--ease-soft),
-    color 160ms var(--ease-soft),
-    box-shadow 160ms var(--ease-soft),
-    transform 160ms var(--ease-soft);
+    background-color var(--duration-standard) var(--ease-soft),
+    color var(--duration-standard) var(--ease-soft),
+    box-shadow var(--duration-standard) var(--ease-soft),
+    transform var(--duration-standard) var(--ease-soft);
 }
 
 .todo-inline-content:hover {
@@ -3682,22 +3767,28 @@
   display: grid;
   min-width: 0;
   gap: 0.15rem;
-  width: fit-content;
+  width: 100%;
+  min-height: 1.7rem;
+  align-content: center;
   border-radius: 0.65rem;
   padding: 0.12rem 0.24rem;
   text-align: left;
   font-size: 0.75rem;
   line-height: 1.35;
   transition:
-    background-color 160ms var(--ease-soft),
-    color 160ms var(--ease-soft),
-    box-shadow 160ms var(--ease-soft),
-    transform 160ms var(--ease-soft);
+    background-color var(--duration-standard) var(--ease-soft),
+    color var(--duration-standard) var(--ease-soft),
+    box-shadow var(--duration-standard) var(--ease-soft),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 .todo-inline-progress-trigger:hover {
   background: color-mix(in srgb, var(--color-accent) 4%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.todo-inline-progress-trigger:active {
+  transform: scale(0.97);
 }
 
 .todo-inline-progress-trigger__empty {
@@ -3741,17 +3832,42 @@
 }
 
 .todo-inline-editor {
-  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
-  border-radius: 0.82rem;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-bg) 98%, white) 0%,
-      color-mix(in srgb, var(--color-bg-subtle) 92%, transparent) 100%
-    );
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 5%, transparent),
-    0 8px 18px color-mix(in srgb, var(--color-accent) 5%, transparent);
+  width: 100%;
+}
+
+.todo-inline-editor > [role="textbox"],
+.todo-inline-editor > span {
+  min-height: 1.8rem;
+  padding: 0.18rem 0.22rem;
+  border-radius: inherit;
+}
+
+.todo-subtask-editor-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.todo-subtask-editor-row__check-placeholder {
+  width: 0.92rem;
+  height: 0.92rem;
+  flex: 0 0 0.92rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 42%, var(--color-border));
+  border-radius: 0.22rem;
+  background: var(--color-bg);
+  opacity: 0.58;
+}
+
+.todo-subtask-editor {
+  width: 100%;
+}
+
+.todo-subtask-editor > [role="textbox"],
+.todo-subtask-editor > span {
+  min-height: 1.7rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: inherit;
 }
 
 .todo-progress-item__editor-shell {
@@ -3767,10 +3883,10 @@
   border-radius: 0.72rem;
   padding: 0.08rem 0.12rem;
   transition:
-    background-color 160ms var(--ease-soft),
-    box-shadow 160ms var(--ease-soft),
-    color 160ms var(--ease-soft),
-    transform 160ms var(--ease-soft);
+    background-color var(--duration-standard) var(--ease-soft),
+    box-shadow var(--duration-standard) var(--ease-soft),
+    color var(--duration-standard) var(--ease-soft),
+    transform var(--duration-standard) var(--ease-soft);
 }
 
 .todo-progress-item__text:hover {
@@ -5184,11 +5300,6 @@
   background: var(--color-bg);
 }
 
-.todo-card[data-state~="editing"],
-.todo-card[data-state~="progress-editing"] {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 54%, transparent);
-}
-
 .todo-card,
 .todo-card__check,
 .todo-card__check-ring,
@@ -5238,6 +5349,9 @@
   .todo-card__check-ring,
   .todo-card__check-glyph,
   .todo-rail__view-switch-button,
+  .todo-rail__priority-button,
+  .todo-rail__priority-dot,
+  .todo-inline-progress-trigger,
   .todo-progress-item,
   .todo-progress-item__check,
   .todo-progress-item__check-ring,
@@ -5254,7 +5368,8 @@
 
   .todo-card__subitem-row,
   .todo-card__subitem-row > *,
-  .todo-card__expand {
+  .todo-card__expand,
+  .todo-editor-field {
     transition: none;
   }
 
