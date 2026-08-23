@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
 import { Outlet, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -68,6 +68,12 @@ import {
 } from "./components/workspace/WorkspaceDialogs";
 import { Button, EmptyState } from "./ui/components";
 
+const RecordFocusResidentPages = lazy(() =>
+  import("./components/record/RecordFocusResidentPages").then((module) => ({
+    default: module.RecordFocusResidentPages,
+  })),
+);
+
 function workspaceScopedQueryKeys() {
   return [
     ["projects"],
@@ -122,6 +128,13 @@ function toProjectSidebarDocuments(
 
 function isProjectOverviewPath(pathname: string, projectId: number | null) {
   return projectId !== null && pathname === projectPath(projectId);
+}
+
+function isRecordFocusPath(pathname: string) {
+  return (
+    /^\/projects\/\d+\/records\/\d+$/u.test(pathname) ||
+    /^\/workspace\/records\/\d+$/u.test(pathname)
+  );
 }
 
 function getProjectOverviewSearchParams(route: string) {
@@ -901,6 +914,25 @@ export function WorkspaceLayout({
     isProjectOverviewPath(location.pathname, activeProjectId);
   const workspaceOverviewActive =
     cacheProjectOverviewPages && location.pathname === workspacePath();
+  const recordFocusResidencyActive =
+    cacheProjectOverviewPages && isRecordFocusPath(location.pathname);
+  const [recordFocusResidencyWorkspaceKey, setRecordFocusResidencyWorkspaceKey] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasWorkspace || !cacheProjectOverviewPages) {
+      setRecordFocusResidencyWorkspaceKey(null);
+      return;
+    }
+    if (recordFocusResidencyActive) {
+      setRecordFocusResidencyWorkspaceKey(currentWorkspace?.rootPath ?? null);
+    }
+  }, [
+    cacheProjectOverviewPages,
+    currentWorkspace?.rootPath,
+    hasWorkspace,
+    recordFocusResidencyActive,
+  ]);
 
   useEffect(() => {
     if (recordSaveStatus.phase !== "idle") {
@@ -1314,6 +1346,26 @@ export function WorkspaceLayout({
         })}
       </>
     ) : null;
+  const cachedRecordFocusPages =
+    cacheProjectOverviewPages &&
+    currentWorkspace &&
+    (recordFocusResidencyActive ||
+      recordFocusResidencyWorkspaceKey === currentWorkspace.rootPath) ? (
+      <Suspense
+        fallback={
+          recordFocusResidencyActive ? (
+            <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
+              正在打开记录…
+            </div>
+          ) : null
+        }
+      >
+        <RecordFocusResidentPages
+          key={currentWorkspace.rootPath}
+          workspaceKey={currentWorkspace.rootPath}
+        />
+      </Suspense>
+    ) : null;
   return (
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
@@ -1387,7 +1439,10 @@ export function WorkspaceLayout({
           <main className="min-h-0 flex-1 overflow-hidden">
             {cachedWorkspaceOverviewPage}
             {cachedProjectOverviewPages}
-            {projectOverviewActive || workspaceOverviewActive ? null : mainContent}
+            {cachedRecordFocusPages}
+            {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
+              ? null
+              : mainContent}
           </main>
 
           <StatusBar

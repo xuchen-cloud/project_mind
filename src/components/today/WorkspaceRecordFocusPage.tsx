@@ -44,16 +44,61 @@ import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
-import type { ProjectTagRecord, RichTextStyleSettings } from "../../lib/types";
+import type {
+  ProjectTagRecord,
+  RichTextStyleSettings,
+  WorkspacePageData,
+} from "../../lib/types";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
-export function WorkspaceRecordFocusPage() {
+interface WorkspaceRecordDraft {
+  title: string;
+  content: RichEditorValue;
+  tagIds: number[];
+  codeLanguage: string | null;
+  updatedAt: string;
+}
+
+function workspaceRecordDraftFromQuery(
+  workspacePage: WorkspacePageData | undefined,
+  noteId: number | null,
+): WorkspaceRecordDraft | null {
+  if (!workspacePage || noteId === null) return null;
+  const note = (workspacePage.records ?? []).find((record) => record.id === noteId);
+  if (!note) return null;
+  return {
+    title: note.title ?? "",
+    content: {
+      html: getRenderableRichTextHtml({
+        html: note.contentHtml,
+        markdown: note.contentMarkdown,
+      }),
+      text: note.contentMarkdown,
+      markdown: note.contentMarkdown,
+    },
+    tagIds: (note.tags ?? []).map((tag) => tag.id),
+    codeLanguage: note.defaultCodeLanguage ?? null,
+    updatedAt: note.updatedAt,
+  };
+}
+
+export function WorkspaceRecordFocusPage({
+  noteIdOverride,
+  visible = true,
+}: {
+  noteIdOverride?: number;
+  visible?: boolean;
+} = {}) {
   const navigate = useNavigate();
   const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const noteId = parseRouteId(params.noteId);
+  const noteId = noteIdOverride ?? parseRouteId(params.noteId);
+  const initialDraft = workspaceRecordDraftFromQuery(
+    queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage),
+    noteId,
+  );
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `workspace-record:${noteId}`,
   );
@@ -72,39 +117,45 @@ export function WorkspaceRecordFocusPage() {
   const contactMentionOptions = useContactMentionOptions();
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
 
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState<RichEditorValue>(EMPTY_VALUE);
-  const [tagIds, setTagIds] = useState<number[]>([]);
-  const [codeLanguage, setCodeLanguage] = useState<string | null>(null);
-  const [loadedNoteId, setLoadedNoteId] = useState<number | null>(null);
+  const [title, setTitle] = useState(initialDraft?.title ?? "");
+  const [content, setContent] = useState<RichEditorValue>(initialDraft?.content ?? EMPTY_VALUE);
+  const [tagIds, setTagIds] = useState<number[]>(initialDraft?.tagIds ?? []);
+  const [codeLanguage, setCodeLanguage] = useState<string | null>(
+    initialDraft?.codeLanguage ?? null,
+  );
+  const [loadedNoteId, setLoadedNoteId] = useState<number | null>(
+    initialDraft ? noteId : null,
+  );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const [isSaving, setIsSaving] = useState(false);
   const editorControllerRef = useRef<RichEditorController | null>(null);
-  const lastSavedUpdatedAtRef = useRef<string | null>(null);
+  const lastSavedUpdatedAtRef = useRef<string | null>(initialDraft?.updatedAt ?? null);
 
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
     queryFn: projectMindApi.workspacePageGet,
-    enabled: noteId !== null,
+    enabled: visible && noteId !== null && loadedNoteId === null,
   });
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
-    enabled: noteId !== null,
+    enabled: visible && noteId !== null,
   });
   const workspaceStatusQuery = useQuery({
     queryKey: queryKeys.workspaceStatus,
     queryFn: projectMindApi.workspaceStatusGet,
-    enabled: noteId !== null,
+    enabled: visible && noteId !== null,
   });
 
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.workspace,
     queryFn: () => projectMindApi.projectTagSettingsGet({}),
+    enabled: visible,
   });
   const aiSettingsQuery = useQuery({
     queryKey: queryKeys.aiSettings,
     queryFn: projectMindApi.aiSettingsGet,
+    enabled: visible,
   });
 
   const note = useMemo(() => {
@@ -156,7 +207,7 @@ export function WorkspaceRecordFocusPage() {
   }
 
   useEffect(() => {
-    if (!note) return;
+    if (!note || loadedNoteId === note.id) return;
 
     setTitle(note.title ?? "");
     setContent({
@@ -169,7 +220,7 @@ export function WorkspaceRecordFocusPage() {
     setPersistState("idle");
     lastSavedUpdatedAtRef.current = note.updatedAt;
     setLoadedNoteId(note.id);
-  }, [note]);
+  }, [loadedNoteId, note]);
 
   const persistWorkspaceRecord = useCallback(
     async (
@@ -382,7 +433,7 @@ export function WorkspaceRecordFocusPage() {
     );
   }
 
-  if (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading) {
+  if (!draftReady && workspacePageQuery.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <LoaderCircle className="animate-spin text-text-soft" size={24} />
@@ -580,7 +631,8 @@ export function WorkspaceRecordFocusPage() {
                 onDefaultCodeLanguageChange={setCodeLanguage}
                 variant="page"
                 showToolbar={false}
-                autoFocus={!hasSavedPosition}
+                autoFocus={visible && !hasSavedPosition}
+                readOnly={!visible}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"
                 tagMentions={{

@@ -13,6 +13,7 @@ import {
 import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
+import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 
 const richEditorMocks = vi.hoisted(() => ({
@@ -93,11 +94,15 @@ vi.mock("../rich-editor", () => ({
     onSave,
     variant,
     showToolbar,
+    autoFocus,
+    readOnly,
   }: {
     html?: string;
     onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown>;
     variant?: string;
     showToolbar?: boolean;
+    autoFocus?: boolean;
+    readOnly?: boolean;
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
@@ -133,6 +138,8 @@ vi.mock("../rich-editor", () => ({
         aria-label="正文编辑器"
         data-variant={variant}
         data-show-toolbar={String(showToolbar)}
+        data-auto-focus={String(Boolean(autoFocus))}
+        readOnly={readOnly}
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
@@ -230,6 +237,51 @@ function FocusSwitchHarness() {
       <button type="button" onClick={() => openRecord(70)}>打开记录 A</button>
       <button type="button" onClick={() => openRecord(80)}>打开记录 B</button>
       <ProjectNoteFocusPage />
+    </>
+  );
+}
+
+function ResidentFocusSwitchHarness() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = Number.parseInt(params.projectId ?? "", 10);
+  const noteId = Number.parseInt(params.noteId ?? "", 10);
+
+  const openRecord = (targetNoteId: number) => {
+    const result = requestProjectRecordFocusSave({ projectId, recordId: noteId });
+    if (result === "submitted") {
+      navigate(`/projects/${projectId}/records/${targetNoteId}`);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => openRecord(70)}>打开驻留记录 A</button>
+      <button type="button" onClick={() => openRecord(80)}>打开驻留记录 B</button>
+      <button type="button" onClick={() => openRecord(90)}>打开驻留记录 C</button>
+      <RecordFocusResidentPages workspaceKey="/tmp/workspace" />
+    </>
+  );
+}
+
+function CrossProjectFocusSwitchHarness() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = Number.parseInt(params.projectId ?? "", 10);
+  const noteId = Number.parseInt(params.noteId ?? "", 10);
+
+  const openRecord = (targetProjectId: number, targetNoteId: number) => {
+    const result = requestProjectRecordFocusSave({ projectId, recordId: noteId });
+    if (result === "submitted") {
+      navigate(`/projects/${targetProjectId}/records/${targetNoteId}`);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => openRecord(1, 70)}>打开 Project A Focus</button>
+      <button type="button" onClick={() => openRecord(2, 80)}>打开 Project B Focus</button>
+      <RecordFocusResidentPages workspaceKey="/tmp/workspace" />
     </>
   );
 }
@@ -460,6 +512,258 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     });
 
     expect(titleInput).toHaveValue("尚未离开的本地标题");
+  });
+
+  it("reuses the two most recent Project Record Focus editors without another project-page request", async () => {
+    const user = userEvent.setup();
+    const notes = [
+      { ...baseNote, id: 70, title: "记录 A", contentMarkdown: "正文 A", contentHtml: "<p>正文 A</p>" },
+      { ...baseNote, id: 80, title: "记录 B", contentMarkdown: "正文 B", contentHtml: "<p>正文 B</p>" },
+      { ...baseNote, id: 90, title: "记录 C", contentMarkdown: "正文 C", contentHtml: "<p>正文 C</p>" },
+    ];
+    const projectPage = {
+      project,
+      records: notes,
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+    });
+
+    baseRender(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+            <Routes>
+              <Route
+                path="/projects/:projectId/records/:noteId"
+                element={<ResidentFocusSwitchHarness />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    const editorA = screen.getByDisplayValue("正文 A");
+    await user.clear(editorA);
+    await user.type(editorA, "本地正文 A");
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
+    const editorB = await screen.findByDisplayValue("正文 B");
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(editorA).toHaveAttribute("readonly");
+    expect(editorA).toHaveAttribute("data-auto-focus", "false");
+    expect(editorA.closest("[data-record-focus-resident-key]")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    expect(editorA.closest("[data-record-focus-resident-key]")).toHaveAttribute("inert");
+    expect(editorB).not.toHaveAttribute("readonly");
+
+    queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
+      ...projectPage,
+      records: notes.map((note) =>
+        note.id === 70
+          ? { ...note, contentMarkdown: "后台刷新正文 A", contentHtml: "<p>后台刷新正文 A</p>" }
+          : note,
+      ),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 A" }));
+    expect(await screen.findByDisplayValue("本地正文 A")).toBe(editorA);
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 C" }));
+    expect(await screen.findByDisplayValue("正文 C")).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(editorB).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
+    expect(await screen.findByDisplayValue("正文 B")).not.toBe(editorB);
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+  });
+
+  it("reuses the same Focus editors across Projects under one Workspace-wide limit", async () => {
+    const user = userEvent.setup();
+    const projectB = { ...project, id: 2, name: "Beta", rootPath: "/tmp/beta" };
+    const noteA = {
+      ...baseNote,
+      id: 70,
+      projectId: 1,
+      title: "Project A Record",
+      contentMarkdown: "Project A 正文",
+      contentHtml: "<p>Project A 正文</p>",
+    };
+    const noteB = {
+      ...baseNote,
+      id: 80,
+      projectId: 2,
+      title: "Project B Record",
+      contentMarkdown: "Project B 正文",
+      contentHtml: "<p>Project B 正文</p>",
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projects.all, [project, projectB]);
+    queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
+      project,
+      records: [noteA],
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    });
+    queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(2), {
+      project: projectB,
+      records: [noteB],
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+    });
+
+    baseRender(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+            <Routes>
+              <Route
+                path="/projects/:projectId/records/:noteId"
+                element={<CrossProjectFocusSwitchHarness />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    const editorA = await screen.findByDisplayValue("Project A 正文");
+    await user.click(screen.getByRole("button", { name: "打开 Project B Focus" }));
+    await screen.findByDisplayValue("Project B 正文");
+    await user.click(screen.getByRole("button", { name: "打开 Project A Focus" }));
+
+    expect(await screen.findByDisplayValue("Project A 正文")).toBe(editorA);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+  });
+
+  it("restores an evicted Project Record Focus from the latest pending save snapshot", async () => {
+    const user = userEvent.setup();
+    const notes = [
+      { ...baseNote, id: 70, title: "记录 A", contentMarkdown: "旧正文 A", contentHtml: "<p>旧正文 A</p>" },
+      { ...baseNote, id: 80, title: "记录 B", contentMarkdown: "正文 B", contentHtml: "<p>正文 B</p>" },
+      { ...baseNote, id: 90, title: "记录 C", contentMarkdown: "正文 C", contentHtml: "<p>正文 C</p>" },
+    ];
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
+      project,
+      records: notes,
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    });
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(() => new Promise(() => undefined)) },
+    });
+
+    baseRender(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+            <Routes>
+              <Route
+                path="/projects/:projectId/records/:noteId"
+                element={<ResidentFocusSwitchHarness />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    const editorA = await screen.findByDisplayValue("旧正文 A");
+    await user.clear(editorA);
+    await user.type(editorA, "延迟保存的最新正文 A");
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
+    await screen.findByDisplayValue("正文 B");
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 C" }));
+    await screen.findByDisplayValue("正文 C");
+    expect(editorA).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开驻留记录 A" }));
+    expect(await screen.findByDisplayValue("延迟保存的最新正文 A")).toBeInTheDocument();
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
+  });
+
+  it("initializes from a failed save snapshot before stale Query data", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
+      project,
+      records: [
+        {
+          ...baseNote,
+          id: 70,
+          title: "Query 旧标题",
+          contentMarkdown: "Query 旧正文",
+          contentHtml: "<p>Query 旧正文</p>",
+        },
+      ],
+      unfinishedTodos: [],
+      finishedTodos: [],
+      projectDocuments: [],
+    });
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => { throw new Error("save failed"); }) },
+    });
+    coordinator.submit({
+      workspaceKey: "/tmp/workspace",
+      projectId: 1,
+      recordId: 70,
+      activityId: null,
+      title: "失败快照标题",
+      tagIds: [],
+      defaultCodeLanguage: "typescript",
+      committedContent: buildMockRichValue("失败快照最新正文"),
+    });
+    await vi.waitFor(() => {
+      expect(coordinator.getRecordStatus("project:1:70").phase).toBe("error");
+    });
+
+    baseRender(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/projects/1/records/70"]}>
+            <Routes>
+              <Route
+                path="/projects/:projectId/records/:noteId"
+                element={<ProjectNoteFocusPage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("失败快照标题");
+    expect(screen.getByDisplayValue("失败快照最新正文")).toBeInTheDocument();
+    expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
   });
 
   it("saves edited content before switching records and restores its previous scroll position", async () => {
