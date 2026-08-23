@@ -41,6 +41,10 @@ vi.mock("./lib/project-window", () => ({
   }),
 }));
 
+vi.mock("./routes/record-focus-modules", () => ({
+  scheduleRecordFocusPageModulesPreload: vi.fn(() => vi.fn()),
+}));
+
 vi.mock("./services/projectMindApi", () => ({
   projectMindApi: {
     workspaceStatusGet: vi.fn(async () => ({
@@ -681,6 +685,36 @@ describe("WorkspaceLayout", () => {
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Beta Project" }));
 
     expect(desktopApi.focusProjectWindow).toHaveBeenCalledWith(2);
+    expect(router.state.location.pathname).toBe("/projects/1");
+  });
+
+  it("prefetches project page data before a non-active tab is opened", async () => {
+    useUiStore.setState({ openProjectIds: [1, 2] });
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      { id: 1, name: "Alpha Project", kind: "normal", status: "active", rootPath: "/tmp/alpha", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
+      { id: 2, name: "Beta Project", kind: "normal", status: "active", rootPath: "/tmp/beta", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
+    ]);
+
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout />, children: [{ path: "projects/:projectId", element: <div>project route body</div> }] }],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("project route body");
+    const betaTab = await screen.findByRole("tab", { name: "Beta Project" });
+    vi.mocked(projectMindApi.projectPageGet).mockClear();
+
+    fireEvent.pointerEnter(betaTab);
+
+    await waitFor(() =>
+      expect(projectMindApi.projectPageGet).toHaveBeenCalledWith({ projectId: 2 }),
+    );
     expect(router.state.location.pathname).toBe("/projects/1");
   });
 

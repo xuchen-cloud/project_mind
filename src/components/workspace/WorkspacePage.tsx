@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "../../lib/formatters";
 import { pageWidthContainerClass, withPageWidthClass } from "../../lib/pageWidth";
 import { queryKeys } from "../../lib/queryKeys";
+import { prefetchProjectPageData } from "../../lib/project-prefetch";
 import {
   getRenderableRichTextHtml,
   renderMarkdownToHtml,
@@ -35,7 +36,7 @@ import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { desktopApi } from "../../services/desktopApi";
 import { cn } from "../../ui/lib/cn";
-import { IconButton } from "../../ui/components";
+import { IconButton, PageLoadingSkeleton } from "../../ui/components";
 import { RichEditor } from "../rich-editor";
 import {
   buildWorkspaceNoteImageAssetHandlers,
@@ -72,6 +73,9 @@ export function WorkspacePage({
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setWorkspaceSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
+  const wasWorkspacePageCachedAtMount = useRef(
+    queryClient.getQueryData(queryKeys.workspacePage) !== undefined,
+  );
   const { pushToast } = useFeedbackStore();
   const {
     openSettings,
@@ -137,6 +141,14 @@ export function WorkspacePage({
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const availableTags = workspaceTagSettingsQuery.data?.tags ?? [];
   const aiSettings = aiSettingsQuery.data ?? null;
+  const prefetchProject = useCallback(
+    (projectId: number) => {
+      void prefetchProjectPageData(queryClient, projectId).catch(() => {
+        // The destination query reports prefetch failures.
+      });
+    },
+    [queryClient],
+  );
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
   const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const [quickNoteMoveSelection, setQuickNoteMoveSelection] =
@@ -471,16 +483,14 @@ export function WorkspacePage({
   }
 
   if (!workspacePage || !currentWorkspace) {
-    return (
-      <div className="flex h-full items-center justify-center gap-2 text-body text-text-soft">
-        <LoaderCircle className="spin" size={16} />
-        正在加载工作区...
-      </div>
-    );
+    return <PageLoadingSkeleton variant="overview" label="正在加载工作区" />;
   }
 
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden">
+    <div
+      className="page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
+    >
       <WorkspaceOverviewSidebar
         workspaceRootPath={currentWorkspace.rootPath}
         projects={visibleProjects}
@@ -501,6 +511,7 @@ export function WorkspacePage({
         onOpenProject={(projectId) => {
           void openProject(projectId);
         }}
+        onPrefetchProject={prefetchProject}
         onOpenProjectInNewWindow={(projectId) => {
           void openProjectInNewWindow(projectId);
         }}

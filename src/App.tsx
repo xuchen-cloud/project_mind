@@ -23,6 +23,8 @@ import {
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
 import { queryKeys } from "./lib/queryKeys";
+import { prefetchProjectPageData } from "./lib/project-prefetch";
+import { scheduleRecordFocusPageModulesPreload } from "./routes/record-focus-modules";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
@@ -232,6 +234,14 @@ export function WorkspaceLayout({
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const hasWorkspace = Boolean(currentWorkspace);
+
+  useEffect(() => {
+    if (!hasWorkspace) {
+      return;
+    }
+
+    return scheduleRecordFocusPageModulesPreload(window);
+  }, [hasWorkspace]);
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -590,10 +600,7 @@ export function WorkspaceLayout({
     (projectId: number) => {
       void Promise.all([
         todoModule.load({ kind: "current-project", projectId }),
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.projectTags.project(projectId),
-          queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
-        }),
+        prefetchProjectPageData(queryClient, projectId),
       ]).catch(() => {
         // Prefetch failures are surfaced by the destination page query.
       });

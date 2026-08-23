@@ -2555,6 +2555,72 @@
     linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 98%, white) 0%, var(--color-bg) 100%);
 }
 
+.page-loading-skeleton {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.page-loading-skeleton__chrome {
+  min-height: 5.15rem;
+  flex: 0 0 auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.page-loading-skeleton__chrome-inner {
+  width: min(100%, 78rem);
+  margin: 0 auto;
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.5rem 0.95rem;
+}
+
+.page-loading-skeleton__body {
+  width: min(100%, 47.5rem);
+  min-height: 24rem;
+  margin: 0 auto;
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.page-loading-skeleton__block {
+  display: block;
+  border-radius: var(--radius-6);
+  background: color-mix(in srgb, var(--color-text-tertiary) 10%, var(--color-bg-muted));
+}
+
+.page-loading-skeleton__title { width: min(22rem, 55%); height: 2rem; }
+.page-loading-skeleton__meta { width: min(14rem, 38%); height: 0.75rem; }
+.page-loading-skeleton__record-title { width: min(28rem, 68%); height: 2.4rem; }
+.page-loading-skeleton__tag-row { display: flex; gap: 0.5rem; min-height: 1.5rem; }
+.page-loading-skeleton__tag { width: 5.5rem; height: 1.5rem; border-radius: 999px; }
+.page-loading-skeleton__tag--short { width: 4rem; }
+.page-loading-skeleton__line { width: 100%; height: 0.85rem; }
+.page-loading-skeleton__line--medium { width: 82%; }
+.page-loading-skeleton__line--short { width: 58%; }
+
+.page-cold-entry[data-cold-entry="true"] {
+  opacity: 1;
+  transition: opacity var(--duration-standard) var(--ease-decel);
+}
+
+@starting-style {
+  .page-cold-entry[data-cold-entry="true"] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-cold-entry[data-cold-entry="true"] {
+    transition-duration: 120ms;
+  }
+}
+
 .project-overview-focus__chrome {
   position: relative;
   z-index: 6;

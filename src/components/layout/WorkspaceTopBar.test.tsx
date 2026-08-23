@@ -8,6 +8,38 @@ import {
 } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
+  it("prefetches a project from pointer and keyboard intent without opening it", () => {
+    const onPrefetchProject = vi.fn();
+    const onOpenProject = vi.fn();
+
+    render(
+      <WorkspaceTopBar
+        projects={[{ id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 0 }]}
+        activeProjectId={1}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={onOpenProject}
+        onPrefetchProject={onPrefetchProject}
+        onOpenWorkspace={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    const tab = screen.getByRole("tab", { name: "Beta" });
+    fireEvent.pointerEnter(tab);
+    fireEvent.focus(tab);
+
+    expect(onPrefetchProject).toHaveBeenNthCalledWith(1, 2);
+    expect(onPrefetchProject).toHaveBeenNthCalledWith(2, 2);
+    expect(onOpenProject).not.toHaveBeenCalled();
+
+    fireEvent.click(tab);
+    expect(onOpenProject).toHaveBeenCalledWith(2);
+  });
+
   it("keeps each Project Status scannable in its tab", () => {
     render(
       <WorkspaceTopBar

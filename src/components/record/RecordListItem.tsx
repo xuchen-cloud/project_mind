@@ -625,7 +625,12 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
         >
           {renderHeaderStack()}
           <CollapsibleRecordContent>
-            <RichTextViewer html={renderableHtml} active={active} eagerManagedImages />
+            <RichTextViewer
+              html={renderableHtml}
+              active={active}
+              deferUntilVisible
+              eagerManagedImages
+            />
           </CollapsibleRecordContent>
         </div>
       )}
