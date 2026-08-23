@@ -386,7 +386,7 @@ export type WorkspaceSearchResult =
       activityId?: null;
     })
   | (WorkspaceSearchResultBase & {
-      kind: "project" | "activity" | "note" | "conclusion" | "document";
+      kind: "project" | "note" | "document";
       projectId: number;
       activityId?: number | null;
     })
@@ -404,6 +404,16 @@ export type WorkspaceSearchResult =
       activityId?: number | null;
       source: string;
     });
+
+export type LegacyWorkspaceSearchResult = WorkspaceSearchResultBase & {
+  kind: "activity" | "conclusion";
+  projectId: number;
+  activityId?: number | null;
+};
+
+export type WorkspaceSearchApiResult =
+  | WorkspaceSearchResult
+  | LegacyWorkspaceSearchResult;
 
 export interface ProjectCreateInput {
   name: string;

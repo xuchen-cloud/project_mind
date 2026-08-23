@@ -101,6 +101,7 @@ describe("ProjectSidebar", () => {
         project={{
           id: 1,
           name: "Alpha Project",
+          status: "推进中",
           rootPath: "/tmp/alpha-project",
           isArchived: false,
         }}
@@ -130,6 +131,7 @@ describe("ProjectSidebar", () => {
     );
 
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    expect(screen.getByText("推进中")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "记录" })).toHaveAttribute(
       "aria-selected",
       "true",

@@ -164,9 +164,13 @@ describe("TodoRail", () => {
         "true",
       ),
     );
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" }),
+    );
     expect(useUiStore.getState().todoRailCollapsed).toBe(false);
-    expect(screen.getByText(finishedTodo.content)).toBeInTheDocument();
+    expect(screen.getByText(finishedTodo.content).closest("[data-todo-id]")).toHaveClass(
+      "is-focused",
+    );
   });
 
   it("groups Workspace View and keeps flat Todo cards free of repeated Project names", async () => {
@@ -278,11 +282,31 @@ describe("TodoRail", () => {
       onViewModeChange,
     });
 
-    const workspaceViewToggle = screen.getByRole("button", { name: "Workspace View" });
-    expect(workspaceViewToggle).toHaveAttribute("aria-pressed", "false");
-    expect(workspaceViewToggle.closest(".todo-rail__header")).not.toBeNull();
-    await user.click(workspaceViewToggle);
+    expect(screen.getByText("Alpha", { selector: ".todo-rail__scope" })).toBeInTheDocument();
+    const currentProjectTab = screen.getByRole("tab", { name: "Current Project View" });
+    const workspaceViewTab = screen.getByRole("tab", { name: "Workspace View" });
+    expect(currentProjectTab).toHaveAttribute("aria-selected", "true");
+    expect(workspaceViewTab).toHaveAttribute("aria-selected", "false");
+    expect(workspaceViewTab.closest(".todo-rail__header")).not.toBeNull();
+    await user.click(workspaceViewTab);
     expect(onViewModeChange).toHaveBeenCalledWith("workspace");
+  });
+
+  it("allows a Todo completion to be immediately undone while persistence is pending", async () => {
+    const user = userEvent.setup();
+    const onToggleStatus = vi.fn(() => new Promise<void>(() => undefined));
+
+    renderRail({
+      unfinishedTodos: [todoWithoutHistory],
+      finishedTodos: [],
+      onToggleStatus,
+    });
+
+    await user.click(screen.getByRole("button", { name: "标记为已完成" }));
+    await user.click(screen.getByRole("button", { name: "标记为未完成" }));
+
+    expect(onToggleStatus).toHaveBeenNthCalledWith(1, todoWithoutHistory.id, "finished");
+    expect(onToggleStatus).toHaveBeenNthCalledWith(2, todoWithoutHistory.id, "unfinished");
   });
 
   it("persists the new todo draft on window blur", async () => {
@@ -584,7 +608,7 @@ describe("TodoRail", () => {
     expect(onToggleStatus).toHaveBeenCalledWith(1, "finished");
   });
 
-  it("keeps a completing todo in its original position while it fades out", async () => {
+  it("moves a completed Todo immediately when the optimistic parent update lands", async () => {
     const user = userEvent.setup();
 
     function TransitionHarness() {
@@ -630,22 +654,12 @@ describe("TodoRail", () => {
 
     render(<TransitionHarness />);
 
-    const getVisibleTitles = () =>
-      Array.from(document.querySelectorAll(".todo-list__collection > article")).map((article) =>
-        article.querySelector(".todo-inline-content")?.textContent?.trim() ?? "",
-      );
-
-    const initialTitles = getVisibleTitles();
-    const originalIndex = initialTitles.indexOf("Prepare demo notes");
-
-    expect(originalIndex).toBeGreaterThanOrEqual(0);
-
     const targetCard = screen.getByText("Prepare demo notes").closest("article");
     await user.click(within(targetCard!).getByRole("button", { name: "标记为已完成" }));
 
-    const transitionedTitles = getVisibleTitles();
-
-    expect(transitionedTitles[originalIndex]).toBe("Prepare demo notes");
+    expect(screen.queryByText("Prepare demo notes")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "已完成" }));
+    expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
   });
 
   it("deletes a todo from the context menu", async () => {
@@ -689,7 +703,7 @@ describe("TodoRail", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Todo List" })).toBeInTheDocument();
-    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha", { selector: ".todo-rail__scope" })).toBeInTheDocument();
     expect(screen.queryByText(/未完成 · .*已完成/u)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "P1" })).not.toBeInTheDocument();
     expect(screen.queryByText("全部标签")).not.toBeInTheDocument();
@@ -712,7 +726,7 @@ describe("TodoRail", () => {
     };
 
     const firstRail = renderRail(props);
-    await user.click(screen.getByRole("button", { name: "按优先级" }));
+    await user.click(screen.getByRole("tab", { name: "按优先级" }));
     await user.click(screen.getByRole("button", { name: "已完成" }));
 
     firstRail.unmount();

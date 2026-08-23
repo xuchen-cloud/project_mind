@@ -21,4 +21,21 @@ describe("UnlockWorkspaceSecretsDialog", () => {
       screen.getByRole("dialog", { name: "解锁 Workspace Secrets" }).parentElement,
     ).toHaveClass("z-[60]");
   });
+
+  it("focuses the password field first and exposes an error as an alert", () => {
+    render(
+      <UnlockWorkspaceSecretsDialog
+        open
+        pending={false}
+        error="密码不正确"
+        password=""
+        onPasswordChange={() => undefined}
+        onClose={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("输入密码后继续")).toHaveFocus();
+    expect(screen.getByRole("alert")).toHaveTextContent("密码不正确");
+  });
 });

@@ -39,6 +39,7 @@ import type { InternalReferenceTarget } from "../../lib/internalReferences";
 const RECORD_COLLAPSED_CONTENT_HEIGHT = 320;
 const COLLAPSE_OVERFLOW_TOLERANCE = 2;
 const BROWSE_DOUBLE_CLICK_WINDOW_MS = 650;
+const EMPTY_RECORD_DRAFT: RichEditorValue = { html: "", text: "", markdown: "" };
 
 export interface RecordListItemRecord {
   id: number;
@@ -109,7 +110,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   const [autoFocusEditor, setAutoFocusEditor] = useState(true);
   const [autoFocusPoint, setAutoFocusPoint] = useState<RichEditorAutoFocusPoint | null>(null);
   const [title, setTitle] = useState(record.title ?? "");
-  const [value, setValue] = useState<RichEditorValue>(() => buildRecordDraft(record));
+  const [value, setValue] = useState<RichEditorValue>(EMPTY_RECORD_DRAFT);
   const [tagIds, setTagIds] = useState<number[]>((record.tags ?? []).map((tag) => tag.id));
   const [codeLanguage, setCodeLanguage] = useState<string | null>(
     record.defaultCodeLanguage ?? null,
@@ -123,19 +124,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   const pendingAnchorTopRef = useRef<number | null>(null);
   const browseEditStartedAtRef = useRef<number | null>(null);
   const focusPageOpeningRef = useRef(false);
-  const saveSignatureRef = useRef(
-    buildRecordSaveSignature(
-      buildRecordDraft(record),
-      record.title ?? "",
-      tagIds,
-      record.defaultCodeLanguage ?? null,
-    ),
-  );
-
-  const renderableHtml = getRenderableRichTextHtml({
-    html: record.contentHtml,
-    markdown: record.contentMarkdown,
-  });
+  const saveSignatureRef = useRef("");
   const recordTags = record.tags ?? [];
   const recordTagIds = recordTags.map((tag) => tag.id);
   const selectedTags = availableTags.filter((tag) => tagIds.includes(tag.id));
@@ -155,19 +144,12 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   useEffect(() => {
     if (!editing) {
       setTitle(record.title ?? "");
-      setValue(buildRecordDraft(record));
       setTagIds(recordTagIds);
       setCodeLanguage(record.defaultCodeLanguage ?? null);
       setPersistState("idle");
       setAutoFocusPoint(null);
       setAutoFocusEditor(true);
       setShowTagEditor(false);
-      saveSignatureRef.current = buildRecordSaveSignature(
-        buildRecordDraft(record),
-        record.title ?? "",
-        recordTagIds,
-        record.defaultCodeLanguage ?? null,
-      );
     }
   }, [editing, record, recordSnapshotKey]);
 
@@ -276,6 +258,14 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
     point?: RichEditorAutoFocusPoint,
     options: { autoFocusEditor?: boolean } = {},
   ) {
+    const nextDraft = buildRecordDraft(record);
+    setValue(nextDraft);
+    saveSignatureRef.current = buildRecordSaveSignature(
+      nextDraft,
+      record.title ?? "",
+      recordTagIds,
+      record.defaultCodeLanguage ?? null,
+    );
     scrollParentRef.current = containerRef.current?.closest(scrollParentSelector) ?? null;
     if (scrollParentRef.current && containerRef.current) {
       const parentRect = scrollParentRef.current.getBoundingClientRect();
@@ -625,7 +615,13 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
         >
           {renderHeaderStack()}
           <CollapsibleRecordContent>
-            <RichTextViewer html={renderableHtml} active={active} eagerManagedImages />
+            <RichTextViewer
+              html={record.contentHtml}
+              markdown={record.contentMarkdown}
+              active={active}
+              deferUntilVisible
+              eagerManagedImages
+            />
           </CollapsibleRecordContent>
         </div>
       )}

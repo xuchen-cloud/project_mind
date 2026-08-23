@@ -12,11 +12,13 @@ import type {
 } from "../lib/types";
 
 const apiMocks = vi.hoisted(() => ({
+  projectUpdate: vi.fn(),
   projectSetArchive: vi.fn(),
 }));
 
 vi.mock("../services/projectMindApi", () => ({
   projectMindApi: {
+    projectUpdate: apiMocks.projectUpdate,
     projectSetArchive: apiMocks.projectSetArchive,
   },
 }));
@@ -74,10 +76,47 @@ const projectTodo: TodoRecord = {
 };
 
 beforeEach(() => {
+  apiMocks.projectUpdate.mockReset();
   apiMocks.projectSetArchive.mockReset();
 });
 
 describe("useProjectMutations", () => {
+  it("keeps Project Status consistent in shared Project caches", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const projectPage: ProjectPageData = {
+      project,
+      projectDocuments: [],
+      conclusionGroups: [],
+      records: [],
+      unfinishedTodos: [projectTodo],
+      finishedTodos: [],
+    };
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    queryClient.setQueryData(queryKeys.projectPage(project.id), projectPage);
+    apiMocks.projectUpdate.mockResolvedValueOnce({ ...project, status: "推进中" });
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useProjectMutations([project], vi.fn()), { wrapper });
+
+    await act(() =>
+      result.current.projectUpdateMutation.mutateAsync({
+        projectId: project.id,
+        quickNote: project.quickNote,
+        status: "推进中",
+      }),
+    );
+
+    expect(queryClient.getQueryData<ProjectListItem[]>(queryKeys.projects.all)?.[0]).toMatchObject({
+      status: "推进中",
+      openTodoCount: 1,
+      isArchived: false,
+    });
+    expect(
+      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(project.id))?.project,
+    ).toMatchObject({ status: "推进中", isArchived: false });
+  });
+
   it("keeps shared page caches consistent through Archive and Restore", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const projectPage: ProjectPageData = {

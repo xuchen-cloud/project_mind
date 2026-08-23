@@ -168,8 +168,8 @@ const baseNote: NoteRecord = {
 
 let currentNote: NoteRecord;
 
-function render(ui: ReactElement) {
-  const queryClient = new QueryClient({
+function render(ui: ReactElement, providedQueryClient?: QueryClient) {
+  const queryClient = providedQueryClient ?? new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
@@ -269,6 +269,32 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       };
       return currentNote;
     });
+  });
+
+  it("hands a cold record from one static skeleton to ready content", async () => {
+    let resolvePage!: (value: ProjectPageData) => void;
+    apiMocks.projectPageGet.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve; }));
+    const view = render(<ProjectNoteFocusPage />);
+
+    expect(await screen.findByRole("status", { name: "正在加载项目记录" })).toHaveAttribute("data-variant", "record");
+    expect(view.container.querySelector(".animate-spin, .spin")).toBeNull();
+
+    await act(async () => resolvePage(buildProjectPage()));
+    expect(await screen.findByLabelText("正文编辑器")).toHaveValue("正文");
+    expect(screen.queryByRole("status", { name: "正在加载项目记录" })).not.toBeInTheDocument();
+    expect(view.container.querySelector("[data-focus-page-key]" )).toHaveAttribute("data-cold-entry", "true");
+  });
+
+  it("renders a cached record synchronously without a cold entrance", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+
+    const view = render(<ProjectNoteFocusPage />, queryClient);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文");
+    expect(view.container.querySelector("[data-focus-page-key]")).not.toHaveAttribute("data-cold-entry");
   });
 
   it("awaits an in-flight save and exports ordinary edits without pending AI preview", async () => {

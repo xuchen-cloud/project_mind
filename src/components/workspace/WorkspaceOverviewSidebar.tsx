@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
   Archive,
   ChevronLeft,
@@ -11,17 +11,29 @@ import {
 } from "lucide-react";
 
 import type { TagColorKey, ProjectListItem } from "../../lib/types";
-import { useUiStore } from "../../state/ui-store";
+import {
+  PROJECT_SIDEBAR_WIDTH_MAX_PX,
+  PROJECT_SIDEBAR_WIDTH_MIN_PX,
+  useUiStore,
+} from "../../state/ui-store";
 import {
   ActionContextMenu,
   Button,
   Dialog,
   IconButton,
+  ResizeHandle,
   SearchField,
+  SidebarFilters,
+  SidebarTabs,
   StatusBadge,
   type ContextMenuAction,
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+
+const WORKSPACE_SIDEBAR_TABS = [
+  { value: "projects", label: "项目" },
+  { value: "records", label: "记录" },
+] as const;
 
 export interface WorkspaceOverviewSidebarRecordItem {
   id: number;
@@ -43,6 +55,7 @@ interface WorkspaceOverviewSidebarProps {
   onActiveRecordTagIdChange: (tagId: number | null) => void;
   onOpenOverview: () => void;
   onOpenProject: (projectId: number) => void;
+  onPrefetchProject?: (projectId: number) => void;
   onOpenProjectInNewWindow: (projectId: number) => void;
   onCreateProject: () => void;
   createProjectPending?: boolean;
@@ -68,6 +81,7 @@ export function WorkspaceOverviewSidebar({
   onActiveRecordTagIdChange,
   onOpenOverview,
   onOpenProject,
+  onPrefetchProject,
   onOpenProjectInNewWindow,
   onCreateProject,
   createProjectPending = false,
@@ -213,25 +227,18 @@ export function WorkspaceOverviewSidebar({
     <aside
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
-        "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{ width: `${projectSidebarWidthPx}px` }}
       aria-label="工作区导航侧边栏"
     >
-      <div
-        className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            setProjectSidebarWidthPx(moveEvent.clientX);
-          };
-          const handleMouseUp = () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-        }}
+      <ResizeHandle
+        label="调整工作区侧边栏宽度"
+        edge="right"
+        value={projectSidebarWidthPx}
+        min={PROJECT_SIDEBAR_WIDTH_MIN_PX}
+        max={PROJECT_SIDEBAR_WIDTH_MAX_PX}
+        onChange={setProjectSidebarWidthPx}
+        className="right-0"
       />
 
       <div className="relative border-b border-border px-3 py-3">
@@ -268,14 +275,12 @@ export function WorkspaceOverviewSidebar({
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3">
         <div className="grid shrink-0 gap-3">
-          <div className="grid grid-cols-2 rounded-[var(--radius-8)] bg-bg p-1" role="tablist" aria-label="工作区侧边栏视图">
-            <TabButton active={activeTab === "projects"} onClick={() => setActiveTab("projects")}>
-              项目
-            </TabButton>
-            <TabButton active={activeTab === "records"} onClick={() => setActiveTab("records")}>
-              记录
-            </TabButton>
-          </div>
+          <SidebarTabs
+            ariaLabel="工作区侧边栏视图"
+            value={activeTab}
+            options={WORKSPACE_SIDEBAR_TABS}
+            onValueChange={setActiveTab}
+          />
 
           {activeTab === "projects" ? (
             <Button
@@ -316,22 +321,15 @@ export function WorkspaceOverviewSidebar({
           </div>
 
           {activeTab === "records" && recordTagOptions.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              <FilterPill active={activeRecordTagId === null} onClick={() => onActiveRecordTagIdChange(null)}>
-                全部
-              </FilterPill>
-              {recordTagOptions.map((tag) => (
-                <FilterPill
-                  key={tag.id}
-                  active={activeRecordTagId === tag.id}
-                  onClick={() =>
-                    onActiveRecordTagIdChange(activeRecordTagId === tag.id ? null : tag.id)
-                  }
-                >
-                  {tag.label}
-                </FilterPill>
-              ))}
-            </div>
+            <SidebarFilters
+              ariaLabel="Workspace Record 标签筛选"
+              value={activeRecordTagId}
+              options={recordTagOptions.map((tag) => ({
+                value: tag.id,
+                label: tag.label,
+              }))}
+              onValueChange={onActiveRecordTagIdChange}
+            />
           ) : null}
         </div>
 
@@ -353,6 +351,8 @@ export function WorkspaceOverviewSidebar({
                             onOpenProject(project.id);
                           }
                         }}
+                        onPointerEnter={() => onPrefetchProject?.(project.id)}
+                        onFocus={() => onPrefetchProject?.(project.id)}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           if (isEditing) {
@@ -398,7 +398,11 @@ export function WorkspaceOverviewSidebar({
                               {project.name}
                             </p>
                           )}
-                          <p className="mt-1 text-ui text-text-soft">{project.openTodoCount} 个待办</p>
+                          <p className="mt-1 flex min-w-0 items-center gap-1.5 text-ui text-text-soft">
+                            <span className="truncate text-text-muted">{project.status || "未设置"}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="shrink-0">{project.openTodoCount} 个 Todo</span>
+                          </p>
                         </span>
                       </button>
                     );
@@ -487,7 +491,7 @@ export function WorkspaceOverviewSidebar({
       <Dialog
         open={deleteConfirmProject !== null}
         title="删除项目"
-        description="删除后项目目录会移到废纸篓，项目中的记录、待办和文件关联也会从当前 workspace 移除。"
+        description="删除后项目目录会移到废纸篓，项目中的 Record、Todo 和文件关联也会从当前 Workspace 移除。"
         widthClassName="max-w-lg"
         onClose={() => setDeleteConfirmProject(null)}
         footer={
@@ -590,47 +594,5 @@ export function WorkspaceOverviewSidebar({
         )}
       </Dialog>
     </aside>
-  );
-}
-
-function TabButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      className={cn(
-        "rounded-[var(--radius-6)] px-2 py-1.5 text-ui font-medium transition-colors",
-        active ? "bg-bg-subtle text-text shadow-[var(--shadow-sm)]" : "text-text-soft hover:text-text",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FilterPill({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-        active
-          ? "border-[color-mix(in_srgb,var(--color-accent)_20%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
-          : "border-border bg-bg text-text-soft hover:border-border-strong hover:text-text",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }

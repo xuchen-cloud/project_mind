@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ProjectListItem,
   ProjectPageData,
+  TodoProgressRecord,
   TodoRecord,
   WorkspacePageData,
 } from "../lib/types";
@@ -319,6 +320,44 @@ describe("Todo module", () => {
     ).toEqual([finished]);
   });
 
+  it("keeps the latest Todo status when interrupted saves resolve out of order", async () => {
+    const { module, original, transport } = await loadedProjectTodoModule(1);
+    let resolveFinish!: (todo: TodoRecord) => void;
+    let resolveUndo!: (todo: TodoRecord) => void;
+    vi.mocked(transport.todoUpdateStatus)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFinish = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveUndo = resolve;
+      }));
+
+    const finish = module.change({
+      type: "update-status",
+      todoId: original.id,
+      status: "finished",
+    });
+    await vi.waitFor(() => expect(transport.todoUpdateStatus).toHaveBeenCalledTimes(1));
+
+    const undo = module.change({
+      type: "update-status",
+      todoId: original.id,
+      status: "unfinished",
+    });
+    await vi.waitFor(() => expect(transport.todoUpdateStatus).toHaveBeenCalledTimes(2));
+    expect(module.read({ kind: "workspace" }).unfinishedTodos).toHaveLength(1);
+
+    resolveUndo({ ...original, status: "unfinished" });
+    await undo;
+    resolveFinish({ ...original, status: "finished" });
+    await finish;
+
+    expect(module.read({ kind: "workspace" }).unfinishedTodos).toEqual([
+      expect.objectContaining({ id: original.id, status: "unfinished" }),
+    ]);
+    expect(module.read({ kind: "workspace" }).finishedTodos).toEqual([]);
+  });
+
   it("adds, updates, and deletes Todo progress through one progress lifecycle", async () => {
     const { module, original, transport } = await loadedProjectTodoModule();
     const progress = {
@@ -362,6 +401,65 @@ describe("Todo module", () => {
     vi.mocked(transport.todoDeleteProgress).mockResolvedValueOnce(completedProgress);
     await module.change({ type: "delete-progress", progressId: progress.id });
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].progresses).toEqual([]);
+  });
+
+  it("keeps the latest Subtask status when interrupted saves resolve out of order", async () => {
+    const { module, original, transport } = await loadedProjectTodoModule();
+    const progress = {
+      id: 41,
+      todoId: original.id,
+      content: "第一步",
+      progressDate: "2026-08-06",
+      dueDate: null,
+      status: "unfinished" as const,
+      completedAt: null,
+      orderIndex: 0,
+      createdAt: now,
+    };
+    vi.mocked(transport.todoAddProgress).mockResolvedValueOnce(progress);
+    await module.change({
+      type: "add-progress",
+      todoId: original.id,
+      content: progress.content,
+      progressDate: progress.progressDate,
+    });
+
+    let resolveFinish!: (progress: TodoProgressRecord) => void;
+    let resolveUndo!: (progress: TodoProgressRecord) => void;
+    vi.mocked(transport.todoUpdateProgress)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFinish = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveUndo = resolve;
+      }));
+
+    const finish = module.change({
+      type: "update-progress",
+      progressId: progress.id,
+      content: progress.content,
+      progressDate: progress.progressDate,
+      status: "finished",
+    });
+    await vi.waitFor(() => expect(transport.todoUpdateProgress).toHaveBeenCalledTimes(1));
+
+    const undo = module.change({
+      type: "update-progress",
+      progressId: progress.id,
+      content: progress.content,
+      progressDate: progress.progressDate,
+      status: "unfinished",
+    });
+    await vi.waitFor(() => expect(transport.todoUpdateProgress).toHaveBeenCalledTimes(2));
+
+    resolveUndo(progress);
+    await undo;
+    resolveFinish({ ...progress, status: "finished", completedAt: now });
+    await finish;
+
+    expect(
+      module.read({ kind: "workspace" }).unfinishedTodos[0].progresses[0],
+    ).toMatchObject({ id: progress.id, status: "unfinished", completedAt: null });
   });
 
   it("deletes a Todo from both projections and updates the Project count", async () => {

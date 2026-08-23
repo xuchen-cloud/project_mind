@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspacePageData, WorkspaceRecord } from "../../lib/types";
+import { queryKeys } from "../../lib/queryKeys";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
 
 const apiMocks = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
   projectTagSettingsGet: vi.fn(),
   projectTagUpsert: vi.fn(),
   workspaceRecordUpsert: vi.fn(),
+  aiSettingsGet: vi.fn(),
 }));
 
 const recordExportMocks = vi.hoisted(() => ({
@@ -171,9 +173,9 @@ function LocationDisplay() {
   return <div data-testid="location-display">{location.pathname}</div>;
 }
 
-function renderPage(ui: ReactElement) {
+function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/workspace/records/7"]}>
         <Routes>
           <Route path="/workspace/records/:noteId" element={ui} />
@@ -216,6 +218,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
     apiMocks.workspaceRecordUpsert.mockReset();
+    apiMocks.aiSettingsGet.mockReset();
 
     apiMocks.workspacePageGet.mockResolvedValue(buildWorkspacePage());
     apiMocks.projectsList.mockResolvedValue([]);
@@ -225,6 +228,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       aiSecretsUnlocked: true,
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
+    apiMocks.aiSettingsGet.mockResolvedValue(null);
     apiMocks.projectTagUpsert.mockImplementation(async ({ label }: { label: string }) => ({
       id: 22,
       label,
@@ -239,6 +243,32 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       contentMarkdown: input.markdown ?? "",
       contentHtml: input.html ?? "",
     }));
+  });
+
+  it("hands a cold record from one static skeleton to ready content", async () => {
+    let resolvePage!: (value: WorkspacePageData) => void;
+    apiMocks.workspacePageGet.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve; }));
+    const view = renderPage(<WorkspaceRecordFocusPage />);
+
+    expect(await screen.findByRole("status", { name: "正在加载工作区记录" })).toHaveAttribute("data-variant", "record");
+    expect(view.container.querySelector(".animate-spin, .spin")).toBeNull();
+
+    await act(async () => resolvePage(buildWorkspacePage()));
+    expect(await screen.findByLabelText("正文编辑器")).toHaveValue("正文 A");
+    expect(screen.queryByRole("status", { name: "正在加载工作区记录" })).not.toBeInTheDocument();
+    expect(view.container.querySelector(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
+  });
+
+  it("renders a cached record synchronously without a cold entrance", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    queryClient.setQueryData(queryKeys.projects.all, []);
+    queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" }, recentWorkspaces: [], aiSecretsUnlocked: true });
+    const view = renderPage(<WorkspaceRecordFocusPage />, queryClient);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文 A");
+    expect(view.container.querySelector(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
   });
 
   it("exports the Workspace Record from committed content and excludes pending AI preview", async () => {

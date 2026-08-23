@@ -104,6 +104,15 @@
 - 克制的蓝绿色强调
 - 明确但不刺眼的危险色
 
+正文颜色必须使用可读的语义层级：
+
+- `text-primary`：正文、标题与主要操作
+- `text-secondary`：辅助说明与元数据，仍需满足正常阅读
+- `text-tertiary`：眉题、路径等低优先级信息，不用于关键操作
+- `text-disabled`：仅用于不可操作状态
+
+旧的 `text-muted` 与 `text-soft` 只作为兼容别名，分别映射到 `text-secondary` 与 `text-tertiary`。
+
 设计意图：
 
 - 主区适合长文阅读与编辑
@@ -149,6 +158,19 @@
 - 小组件使用 6px 到 8px 圆角
 - 模态与较大浮层使用更高圆角
 - 阴影只在浮层与对话框中明显出现
+- 长驻侧栏和 Todo Rail 使用纯色背景与分隔线，不使用渐变、模糊或悬浮阴影
+
+### 4.5 动效
+
+新增或调整的交互动效只使用三档，并通过语义 token 引用：
+
+- `100ms`：按压反馈
+- `160ms`：颜色与常规控件状态
+- `220ms`：偶发的浮层或较大状态变化
+
+CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliberate`；JS 时序使用同名语义常量。`1ms` 只作为 reduced-motion 下关闭位移的技术值，不属于视觉时长档位。
+
+共享 `Button`、`IconButton` 与 `ToolbarButton` 在指针按下时使用 `scale(0.97)`；reduced-motion 下取消位移。持续 loading spinner 使用线性旋转，并在 reduced-motion 下停止旋转。
 
 ## 5. 当前界面骨架
 
@@ -257,6 +279,16 @@
 
 - `page`
 - `bare`
+
+### 6.6 `Project Status`
+
+Project Status 是项目生命周期的一行短文本信号：
+
+- 在项目标题附近原地编辑
+- 在 Workspace 项目列表、项目页签和项目侧边栏以弱文本或中性 badge 复现
+- 不使用 Project Label 的多色分类表达
+- 不使用 Archive 的归档文案或操作语义
+- 不扩展为独立卡片或重表单
 
 ## 7. 交互规则
 

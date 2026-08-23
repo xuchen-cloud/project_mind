@@ -43,9 +43,23 @@ export const useFeedbackStore = create<FeedbackStore>((set) => ({
     })),
   resetStatus: () => set({ status: defaultStatus }),
   pushToast: (toast) =>
-    set((state) => ({
-      toasts: [...state.toasts, { id: Date.now() + Math.round(Math.random() * 1000), ...toast }],
-    })),
+    set((state) => {
+      const isAlreadyVisible = state.toasts.some(
+        (item) =>
+          item.tone === toast.tone &&
+          item.title === toast.title &&
+          item.detail === toast.detail,
+      );
+
+      return isAlreadyVisible
+        ? state
+        : {
+            toasts: [
+              ...state.toasts,
+              { id: Date.now() + Math.round(Math.random() * 1000), ...toast },
+            ],
+          };
+    }),
   dismissToast: (id) =>
     set((state) => ({
       toasts: state.toasts.filter((toast) => toast.id !== id),

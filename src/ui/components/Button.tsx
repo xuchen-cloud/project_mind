@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "../lib/cn";
+import { pressableFeedbackClassName } from "./pressableStyles";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger";
 export type ButtonSize = "sm" | "md";
@@ -26,7 +27,8 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-[var(--radius-6)] border text-ui font-medium transition-[background-color,border-color,color,box-shadow,transform,opacity] duration-[160ms] ease-[var(--ease-soft)] disabled:pointer-events-none disabled:opacity-60",
+        "inline-flex items-center justify-center gap-2 rounded-[var(--radius-6)] border text-ui font-medium disabled:pointer-events-none disabled:opacity-60",
+        pressableFeedbackClassName,
         size === "sm" ? "h-7 px-2.5" : "h-8 px-3",
         block && "w-full",
         variant === "primary" &&

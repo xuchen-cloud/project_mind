@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { repairRichTextAssetHtml } from "../../lib/richTextAssets";
+import { getRenderableRichTextHtml } from "../../lib/richTextContent";
 import { desktopApi } from "../../services/desktopApi";
 import {
   resolveManagedImageDisplaySrc,
@@ -25,6 +25,7 @@ const viewerHtmlCache = new Map<string, ViewerHtmlCacheEntry>();
 
 interface RichTextViewerProps {
   html?: string | null;
+  markdown?: string | null;
   className?: string;
   deferUntilVisible?: boolean;
   active?: boolean;
@@ -33,6 +34,7 @@ interface RichTextViewerProps {
 
 export function RichTextViewer({
   html,
+  markdown,
   className = "rich-editor__surface ProseMirror",
   deferUntilVisible = false,
   active = true,
@@ -40,24 +42,37 @@ export function RichTextViewer({
 }: RichTextViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rawHtml = html?.trim() ?? "";
+  const rawMarkdown = markdown?.trim() ?? "";
   const [isVisible, setIsVisible] = useState(!deferUntilVisible);
+  const renderableCacheRef = useRef<{ sourceKey: string; html: string } | null>(null);
   const renderableHtml = useMemo(() => {
     if (deferUntilVisible && !isVisible) {
-      return "";
+      return null;
     }
 
-    return repairRichTextAssetHtml(rawHtml);
-  }, [deferUntilVisible, isVisible, rawHtml]);
+    const sourceKey = `${rawHtml}\u0000${rawMarkdown}`;
+    if (renderableCacheRef.current?.sourceKey === sourceKey) {
+      return renderableCacheRef.current.html;
+    }
+    if (deferUntilVisible && !active) {
+      return null;
+    }
+
+    const nextHtml = getRenderableRichTextHtml({ html: rawHtml, markdown: rawMarkdown });
+    renderableCacheRef.current = { sourceKey, html: nextHtml };
+    return nextHtml;
+  }, [active, deferUntilVisible, isVisible, rawHtml, rawMarkdown]);
   const [viewerHtml, setViewerHtml] = useState(() =>
-    getViewerHtmlForRender(deferUntilVisible ? "" : repairRichTextAssetHtml(rawHtml)),
+    getViewerHtmlForRender(renderableHtml ?? ""),
   );
   const placeholderMinHeight = useMemo(() => {
-    if (!deferUntilVisible || isVisible || !rawHtml) {
+    const rawContent = rawHtml || rawMarkdown;
+    if (!deferUntilVisible || isVisible || !rawContent) {
       return undefined;
     }
 
-    return /<img\b/i.test(rawHtml) ? 180 : 72;
-  }, [deferUntilVisible, isVisible, rawHtml]);
+    return /<img\b|!\[/i.test(rawContent) ? 180 : 72;
+  }, [deferUntilVisible, isVisible, rawHtml, rawMarkdown]);
 
   useEffect(() => {
     if (!active) {
@@ -103,6 +118,9 @@ export function RichTextViewer({
   }, [active, deferUntilVisible, isVisible]);
 
   useEffect(() => {
+    if (renderableHtml === null) {
+      return;
+    }
     setViewerHtml(getViewerHtmlForRender(renderableHtml));
   }, [renderableHtml]);
 
@@ -122,7 +140,7 @@ export function RichTextViewer({
       setViewerHtml((current) => {
         const next = replaceViewerImageDisplaySrc(current, path, displaySrc);
 
-        if (next !== current) {
+        if (next !== current && renderableHtml !== null) {
           cacheViewerHtml(renderableHtml, next);
         }
 

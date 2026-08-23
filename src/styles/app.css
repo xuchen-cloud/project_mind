@@ -12,11 +12,14 @@
   --color-border: rgba(55, 53, 47, 0.09);
   --color-border-strong: rgba(55, 53, 47, 0.16);
   --color-border-disabled: rgba(55, 53, 47, 0.06);
-  --color-text: #37352f;
-  --color-text-muted: rgba(55, 53, 47, 0.65);
-  --color-text-soft: rgba(55, 53, 47, 0.45);
-  --color-text-disabled: rgba(55, 53, 47, 0.3);
-  --color-accent: #2383e2;
+  --color-text-primary: #37352f;
+  --color-text-secondary: #625f58;
+  --color-text-tertiary: #77736b;
+  --color-text-disabled: #aaa69e;
+  --color-text: var(--color-text-primary);
+  --color-text-muted: var(--color-text-secondary);
+  --color-text-soft: var(--color-text-tertiary);
+  --color-accent: #1976c9;
   --color-accent-ring: rgba(35, 131, 226, 0.18);
   --color-danger: #d44c47;
   --color-success: #0f7b6c;
@@ -70,6 +73,10 @@
   --radius-6: 6px;
   --radius-8: 8px;
   --radius-12: 12px;
+  --duration-fast: 100ms;
+  --duration-standard: 160ms;
+  --duration-deliberate: 220ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-soft: cubic-bezier(0.2, 0, 0, 1);
   --ease-decel: cubic-bezier(0.16, 1, 0.3, 1);
   --rich-text-body-font-family: var(--font-editor-workspace-sans);
@@ -103,6 +110,9 @@
   --color-border-strong: var(--color-border-strong);
   --color-border-disabled: var(--color-border-disabled);
   --color-text: var(--color-text);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
   --color-text-muted: var(--color-text-muted);
   --color-text-soft: var(--color-text-soft);
   --color-text-disabled: var(--color-text-disabled);
@@ -212,7 +222,7 @@
 }
 
 .spin {
-  animation: spin 1.2s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
@@ -222,18 +232,67 @@
 }
 
 .is-focused {
-  animation: focus-flash 1.1s var(--ease-decel);
+  position: relative;
 }
 
-@keyframes focus-flash {
+.is-focused::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 2px solid var(--color-accent-ring);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  animation: focus-cue var(--duration-deliberate) var(--ease-soft);
+}
+
+@keyframes focus-cue {
   0% {
-    box-shadow: 0 0 0 0 rgba(35, 131, 226, 0.22);
+    opacity: 0;
   }
-  60% {
-    box-shadow: 0 0 0 6px rgba(35, 131, 226, 0.1);
+  32% {
+    opacity: 1;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(35, 131, 226, 0);
+    opacity: 0;
+  }
+}
+
+.dialog-backdrop {
+  opacity: 1;
+  transition: opacity var(--duration-deliberate) var(--ease-decel);
+}
+
+.dialog-surface {
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: center;
+  transition:
+    opacity var(--duration-deliberate) var(--ease-decel),
+    transform var(--duration-deliberate) var(--ease-decel);
+}
+
+.toast-item {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-standard) var(--ease-decel),
+    transform var(--duration-standard) var(--ease-decel);
+}
+
+@starting-style {
+  .dialog-backdrop {
+    opacity: 0;
+  }
+
+  .dialog-surface {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  .toast-item {
+    opacity: 0;
+    transform: translateY(-8px);
   }
 }
 
@@ -305,7 +364,7 @@
 }
 
 .rich-editor__tool-spinner {
-  animation: spin 1.2s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
 .rich-editor__toolbar-extras {
@@ -2489,9 +2548,77 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: project-main;
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--color-accent) 6%, transparent) 0%, transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 98%, white) 0%, var(--color-bg) 100%);
+}
+
+.page-loading-skeleton {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.page-loading-skeleton__chrome {
+  min-height: 5.15rem;
+  flex: 0 0 auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.page-loading-skeleton__chrome-inner {
+  width: min(100%, 78rem);
+  margin: 0 auto;
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.5rem 0.95rem;
+}
+
+.page-loading-skeleton__body {
+  width: min(100%, 47.5rem);
+  min-height: 24rem;
+  margin: 0 auto;
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.page-loading-skeleton__block {
+  display: block;
+  border-radius: var(--radius-6);
+  background: color-mix(in srgb, var(--color-text-tertiary) 10%, var(--color-bg-muted));
+}
+
+.page-loading-skeleton__title { width: min(22rem, 55%); height: 2rem; }
+.page-loading-skeleton__meta { width: min(14rem, 38%); height: 0.75rem; }
+.page-loading-skeleton__record-title { width: min(28rem, 68%); height: 2.4rem; }
+.page-loading-skeleton__tag-row { display: flex; gap: 0.5rem; min-height: 1.5rem; }
+.page-loading-skeleton__tag { width: 5.5rem; height: 1.5rem; border-radius: 999px; }
+.page-loading-skeleton__tag--short { width: 4rem; }
+.page-loading-skeleton__line { width: 100%; height: 0.85rem; }
+.page-loading-skeleton__line--medium { width: 82%; }
+.page-loading-skeleton__line--short { width: 58%; }
+
+.page-cold-entry[data-cold-entry="true"] {
+  opacity: 1;
+  transition: opacity var(--duration-standard) var(--ease-decel);
+}
+
+@starting-style {
+  .page-cold-entry[data-cold-entry="true"] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-cold-entry[data-cold-entry="true"] {
+    transition-duration: 120ms;
+  }
 }
 
 .project-overview-focus__chrome {
@@ -2531,6 +2658,54 @@
   min-width: 0;
   display: grid;
   gap: 0.4rem;
+}
+
+.project-overview-focus__title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.project-overview-focus__status {
+  min-width: 0;
+  max-width: 12rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-6);
+  color: var(--color-text-soft);
+  background: color-mix(in srgb, var(--color-bg-subtle) 72%, transparent);
+  font-size: var(--text-ui);
+  transition:
+    background-color var(--duration-standard) var(--ease-soft),
+    color var(--duration-standard) var(--ease-soft);
+}
+
+.project-overview-focus__status:focus-within {
+  color: var(--color-text);
+  background: var(--color-bg-subtle);
+}
+
+.project-overview-focus__status-label {
+  flex: none;
+  color: var(--color-text-soft);
+}
+
+.project-overview-focus__status-input {
+  width: min(7rem, 22vw);
+  min-width: 3rem;
+  border: 0;
+  padding: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.project-overview-focus__status-input::placeholder {
+  color: var(--color-text-soft);
 }
 
 .project-overview-focus__eyebrow {
@@ -2957,13 +3132,43 @@
     );
 }
 
-.todo-rail__handle {
+.resize-handle {
+  position: absolute;
+  inset-block: 0;
+  z-index: 10;
+  width: 0.5rem;
+  transform: translateX(-50%);
+  cursor: col-resize;
   background: transparent;
   transition: background-color 160ms var(--ease-soft);
 }
 
-.todo-rail__handle:hover {
+.resize-handle:hover,
+.resize-handle:focus-visible,
+.resize-handle[data-resizing="true"] {
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+@container project-main (max-width: 48rem) {
+  .project-overview-focus__chrome-inner {
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem 0.8rem;
+  }
+
+  .project-overview-focus__meta,
+  .project-overview-focus__header-actions {
+    width: 100%;
+  }
+
+  .project-overview-focus__header-actions {
+    justify-content: space-between;
+  }
+
+  .project-overview-focus__page {
+    width: 100%;
+    padding-inline: 1rem;
+  }
 }
 
 .todo-rail__header {
@@ -2976,6 +3181,54 @@
       color-mix(in srgb, var(--color-bg-subtle) 88%, transparent) 100%
     );
   backdrop-filter: blur(14px);
+}
+
+.todo-rail__scope {
+  margin-top: 0.12rem;
+  overflow: hidden;
+  color: var(--color-text-soft);
+  font-size: var(--text-caption);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-rail__view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  margin-top: 0.48rem;
+  padding: 0.12rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 48%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-muted) 82%, transparent);
+}
+
+.todo-rail__view-switch-button {
+  min-height: 1.55rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.22rem 0.48rem;
+  background: transparent;
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-standard) var(--ease-soft),
+    color var(--duration-standard) var(--ease-soft),
+    transform var(--duration-standard) var(--ease-decel);
+}
+
+.todo-rail__view-switch-button[aria-selected="true"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.todo-rail__view-switch-button:active {
+  transform: scale(0.97);
 }
 
 .todo-rail__toolbar {
@@ -3101,12 +3354,6 @@
       color-mix(in srgb, var(--color-bg) 95%, var(--color-bg-subtle)) 100%
     );
   box-shadow: 0 10px 22px color-mix(in srgb, var(--color-text) 2%, transparent);
-  transition:
-    border-color 180ms var(--ease-soft),
-    box-shadow 180ms var(--ease-soft),
-    transform 180ms var(--ease-soft),
-    opacity 180ms var(--ease-soft),
-    background 180ms var(--ease-soft);
 }
 
 .todo-card:hover,
@@ -3121,20 +3368,15 @@
 }
 
 .todo-card[data-state~="completing"] {
-  pointer-events: none;
   z-index: 3;
-  will-change: transform, opacity, box-shadow;
-  animation: todo-card-complete 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0.72;
+  transform: translateY(2px) scale(0.99);
 }
 
 .todo-card[data-state~="restoring"] {
   z-index: 2;
-  will-change: transform, opacity, box-shadow;
-  animation: todo-card-restore 300ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.todo-card[data-state~="completing"] .todo-card__primary::before {
-  animation: todo-card-priority-pulse 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .todo-card[data-state~="expanded"] {
@@ -3233,15 +3475,6 @@
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 24%, transparent),
     0 1px 2px color-mix(in srgb, var(--color-text) 3%, transparent);
-  transition:
-    transform 220ms var(--ease-soft),
-    border-color 180ms var(--ease-soft),
-    background-color 180ms var(--ease-soft),
-    color 180ms var(--ease-soft),
-    box-shadow 220ms var(--ease-soft),
-    opacity 160ms var(--ease-soft),
-    width 160ms var(--ease-soft),
-    margin 160ms var(--ease-soft);
 }
 
 .todo-card__check:disabled {
@@ -3268,9 +3501,6 @@
   border: 0;
   background: transparent;
   box-shadow: none;
-  transition:
-    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    color 180ms var(--ease-soft);
 }
 
 .todo-card__check-ring::after {
@@ -3294,9 +3524,6 @@
   align-items: center;
   justify-content: center;
   transform: scale(0.94);
-  transition:
-    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 180ms var(--ease-soft);
 }
 
 .todo-card__check:hover,
@@ -3330,21 +3557,9 @@
   transform: scale(1.05);
 }
 
-.todo-card[data-state~="completing"] .todo-card__check-ring {
-  animation: todo-check-confirm 460ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.todo-card[data-state~="completing"] .todo-card__check-ring::after {
-  animation: todo-check-halo 460ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .todo-card[data-state~="finished"] .todo-card__check-glyph,
 .todo-card[data-state~="completing"] .todo-card__check-glyph {
   transform: scale(1);
-}
-
-.todo-card[data-state~="completing"] .todo-card__check-glyph {
-  animation: todo-check-glyph 410ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .todo-card[data-state~="finished"] .todo-card__check:hover,
@@ -3394,8 +3609,8 @@
   max-height: 0;
   overflow: hidden;
   transition:
-    max-height 180ms var(--ease-soft),
-    opacity 160ms var(--ease-soft);
+    max-height var(--duration-standard) var(--ease-soft),
+    opacity var(--duration-standard) var(--ease-soft);
 }
 
 .todo-card__subitem-row > :first-child {
@@ -3406,8 +3621,7 @@
 .todo-card__subitem-row > * {
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity 160ms var(--ease-soft);
+  transition: opacity var(--duration-standard) var(--ease-soft);
 }
 
 .todo-card__subitem-row--visible,
@@ -3435,9 +3649,9 @@
   margin-top: 0;
   align-self: center;
   transition:
-    opacity 160ms var(--ease-soft),
-    width 160ms var(--ease-soft),
-    margin 160ms var(--ease-soft);
+    opacity var(--duration-standard) var(--ease-soft),
+    width var(--duration-standard) var(--ease-soft),
+    margin var(--duration-standard) var(--ease-soft);
 }
 
 .todo-card__expand--hidden {
@@ -3518,10 +3732,6 @@
   text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 42%, transparent);
 }
 
-.todo-card[data-state~="completing"] .todo-inline-content {
-  animation: todo-inline-complete 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
 .todo-inline-progress-trigger {
   display: grid;
   min-width: 0;
@@ -3554,12 +3764,6 @@
 .todo-progress-item {
   position: relative;
   padding: 0;
-  transition:
-    background-color 160ms var(--ease-soft),
-    transform 220ms var(--ease-soft),
-    opacity 220ms var(--ease-soft),
-    box-shadow 160ms var(--ease-soft),
-    border-color 160ms var(--ease-soft);
 }
 
 .todo-progress-item:hover {
@@ -3568,12 +3772,14 @@
 }
 
 .todo-progress-item--completing {
-  pointer-events: none;
-  animation: todo-subitem-complete 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0.68;
+  transform: translateY(2px) scale(0.99);
+  background-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 8%, transparent);
 }
 
 .todo-progress-item--restoring {
-  animation: todo-subitem-restore 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .todo-progress-item--bordered {
@@ -3650,10 +3856,6 @@
   text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 34%, transparent);
 }
 
-.todo-progress-item--completing .todo-progress-item__text {
-  animation: todo-subitem-text-complete 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
 .todo-progress-item__check {
   display: inline-flex;
   width: 1.15rem;
@@ -3663,10 +3865,6 @@
   justify-content: center;
   border-radius: var(--radius-4);
   color: var(--color-text-soft);
-  transition:
-    transform 220ms var(--ease-soft),
-    color 180ms var(--ease-soft),
-    filter 220ms var(--ease-soft);
 }
 
 .todo-progress-item__check-ring {
@@ -3689,11 +3887,6 @@
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 16%, transparent),
     0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent);
-  transition:
-    transform 180ms var(--ease-soft),
-    border-color 160ms var(--ease-soft),
-    background-color 160ms var(--ease-soft),
-    box-shadow 180ms var(--ease-soft);
 }
 
 .todo-progress-item__check-ring::after {
@@ -3717,10 +3910,6 @@
   align-items: center;
   justify-content: center;
   transform: scale(0.92);
-  transition:
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 180ms var(--ease-soft),
-    opacity 180ms var(--ease-soft);
 }
 
 .todo-progress-item__check:hover .todo-progress-item__check-ring,
@@ -3750,21 +3939,9 @@
   transform: scale(1.04);
 }
 
-.todo-progress-item--completing .todo-progress-item__check-ring {
-  animation: todo-subitem-check-confirm 420ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.todo-progress-item--completing .todo-progress-item__check-ring::after {
-  animation: todo-subitem-check-halo 420ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .todo-progress-item--completing .todo-progress-item__check-glyph,
 .todo-progress-item__check[aria-pressed="true"] .todo-progress-item__check-glyph {
   transform: scale(1);
-}
-
-.todo-progress-item--completing .todo-progress-item__check-glyph {
-  animation: todo-subitem-check-glyph 390ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .todo-progress-item__check[aria-pressed="true"]:hover .todo-progress-item__check-ring,
@@ -3775,230 +3952,6 @@
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
     0 6px 12px color-mix(in srgb, var(--color-accent) 12%, transparent);
-}
-
-@keyframes todo-card-complete {
-  0% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 12px 26px color-mix(in srgb, var(--color-text) 2%, transparent);
-  }
-  22% {
-    transform: translateY(0) scale(1.008);
-    opacity: 1;
-    box-shadow: 0 16px 28px color-mix(in srgb, var(--color-accent) 8%, transparent);
-  }
-  64% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 13px 24px color-mix(in srgb, var(--color-text) 2%, transparent);
-  }
-  100% {
-    transform: translateY(0) scale(0.986);
-    opacity: 0;
-    box-shadow: 0 8px 16px color-mix(in srgb, var(--color-text) 1%, transparent);
-  }
-}
-
-@keyframes todo-card-restore {
-  0% {
-    transform: translateY(0) scale(0.982);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes todo-check-confirm {
-  0% {
-    transform: scale(0.9);
-  }
-  42% {
-    transform: scale(1.12);
-  }
-  72% {
-    transform: scale(1.02);
-  }
-  100% {
-    transform: scale(1.05);
-  }
-}
-
-@keyframes todo-check-glyph {
-  0% {
-    transform: scale(0.72);
-    opacity: 0.72;
-  }
-  48% {
-    transform: scale(1.12);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes todo-check-halo {
-  0% {
-    opacity: 0;
-    transform: scale(0.72);
-  }
-  22% {
-    opacity: 0.32;
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.28);
-  }
-}
-
-@keyframes todo-card-priority-pulse {
-  0% {
-    width: 3px;
-    box-shadow:
-      inset -1px 0 0 color-mix(in srgb, white 14%, transparent),
-      0 0 8px color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 7%, transparent);
-    filter: saturate(1);
-  }
-  28% {
-    width: 5px;
-    box-shadow:
-      inset -1px 0 0 color-mix(in srgb, white 16%, transparent),
-      0 0 12px color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 16%, transparent);
-    filter: saturate(1.12);
-  }
-  64% {
-    width: 4px;
-    box-shadow:
-      inset -1px 0 0 color-mix(in srgb, white 14%, transparent),
-      0 0 10px color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 12%, transparent);
-    filter: saturate(1.08);
-  }
-  100% {
-    width: 3px;
-    box-shadow:
-      inset -1px 0 0 color-mix(in srgb, white 14%, transparent),
-      0 0 8px color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 7%, transparent);
-    filter: saturate(1);
-  }
-}
-
-@keyframes todo-inline-complete {
-  0% {
-    color: var(--color-text);
-    text-decoration-color: transparent;
-  }
-  24% {
-    color: color-mix(in srgb, var(--color-text) 56%, transparent);
-    text-decoration-color: transparent;
-  }
-  48% {
-    color: color-mix(in srgb, var(--color-text) 56%, transparent);
-    text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 42%, transparent);
-  }
-  72% {
-    color: color-mix(in srgb, var(--color-text) 56%, transparent);
-    text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 42%, transparent);
-  }
-  100% {
-    color: color-mix(in srgb, var(--color-text) 56%, transparent);
-    text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 42%, transparent);
-  }
-}
-
-@keyframes todo-subitem-complete {
-  0% {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    background-color: transparent;
-  }
-  26% {
-    transform: translateY(0) scale(1.01);
-    opacity: 1;
-    background-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 10%, transparent);
-  }
-  42% {
-    transform: translateY(1px) scale(0.995);
-    background-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 12%, transparent);
-  }
-  100% {
-    transform: translateY(4px) scale(0.985);
-    opacity: 0.68;
-    background-color: transparent;
-  }
-}
-
-@keyframes todo-subitem-restore {
-  0% {
-    transform: translateY(3px);
-    opacity: 0.76;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-@keyframes todo-subitem-text-complete {
-  0% {
-    color: color-mix(in srgb, var(--color-text) 84%, transparent);
-    text-decoration-color: transparent;
-  }
-  32% {
-    color: color-mix(in srgb, var(--color-text) 62%, transparent);
-    text-decoration-color: transparent;
-  }
-  100% {
-    color: color-mix(in srgb, var(--color-text) 62%, transparent);
-    text-decoration-color: color-mix(in srgb, var(--todo-priority-color, var(--color-todo-p3)) 34%, transparent);
-  }
-}
-
-@keyframes todo-subitem-check-confirm {
-  0% {
-    transform: scale(0.88);
-  }
-  42% {
-    transform: scale(1.14);
-  }
-  72% {
-    transform: scale(1.03);
-  }
-  100% {
-    transform: scale(1.06);
-  }
-}
-
-@keyframes todo-subitem-check-glyph {
-  0% {
-    transform: scale(0.7);
-    opacity: 0.72;
-  }
-  48% {
-    transform: scale(1.14);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes todo-subitem-check-halo {
-  0% {
-    opacity: 0;
-    transform: scale(0.72);
-  }
-  24% {
-    opacity: 0.32;
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.24);
-  }
 }
 
 .todo-priority-popover {
@@ -4445,9 +4398,7 @@
 }
 
 .workspace-gate-shell {
-  background:
-    radial-gradient(circle at top, color-mix(in srgb, var(--color-success) 12%, transparent), transparent 42%),
-    linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-subtle) 100%);
+  background: var(--color-bg-muted);
 }
 
 .context-menu-no-select {
@@ -5203,17 +5154,173 @@
   }
 }
 
+/* Desktop visual-system audit: the editor is the raised plane; resident tools stay flat. */
+.activity-note-focus,
+.project-overview-focus {
+  background: var(--color-bg);
+}
+
+.activity-note-focus__chrome,
+.project-overview-focus__chrome {
+  background: var(--color-bg);
+  backdrop-filter: none;
+}
+
+.activity-note-focus .rich-editor--page .rich-editor__toolbar,
+.project-overview-focus .rich-editor--page .rich-editor__toolbar {
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: none;
+}
+
+.project-overview-focus__view-switch {
+  background: var(--color-bg-subtle);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.project-history-record,
+.workspace-history-record {
+  border-color: var(--color-border);
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+.project-history-record:hover:not(.project-history-record--editing),
+.workspace-history-record:hover:not(.workspace-history-record--editing) {
+  border-color: var(--color-border-strong);
+  box-shadow: none;
+}
+
+.sidebar-dock {
+  border-color: var(--color-border);
+  background: var(--color-bg-subtle);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.sidebar-dock__icon {
+  background: transparent;
+}
+
+.todo-rail,
+.todo-rail__collapsed {
+  background: var(--color-bg-subtle);
+}
+
+.todo-rail__header {
+  background: var(--color-bg-subtle);
+  backdrop-filter: none;
+}
+
+.todo-rail__composer {
+  border-radius: var(--radius-8);
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+.todo-card {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.todo-card:hover,
+.todo-card:focus-within,
+.todo-card[data-state~="finished"],
+.todo-card[data-state~="expanded"] {
+  box-shadow: none;
+}
+
+.todo-card:hover,
+.todo-card:focus-within {
+  background: var(--color-bg);
+}
+
+.todo-card[data-state~="editing"],
+.todo-card[data-state~="progress-editing"] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 54%, transparent);
+}
+
+.todo-card,
+.todo-card__check,
+.todo-card__check-ring,
+.todo-card__check-glyph,
+.todo-progress-item,
+.todo-progress-item__check,
+.todo-progress-item__check-ring,
+.todo-progress-item__check-glyph {
+  transition-property: transform, opacity, color, background-color, border-color;
+  transition-duration: var(--duration-standard);
+  transition-timing-function: var(--ease-soft);
+}
+
+.todo-priority-popover {
+  background: var(--color-bg);
+  backdrop-filter: none;
+}
+
+.activity-notes__result-editor--fullpage {
+  background: var(--color-bg);
+}
+
+.activity-notes__result-editor--fullpage::before {
+  border-color: var(--color-border);
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+.activity-notes__result-editor--fullpage .activity-notes__editor-header {
+  background: var(--color-bg);
+  backdrop-filter: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spin,
+  .animate-spin,
   .is-focused,
+  .rich-editor__tool-spinner,
   .rich-editor--toolbar,
-  .rich-editor__attachment-link,
+  .rich-editor__attachment-link {
+    animation: none;
+    transition-duration: 1ms;
+  }
+
   .todo-card,
   .todo-card__check,
   .todo-card__check-ring,
-  .todo-progress-item {
+  .todo-card__check-glyph,
+  .todo-rail__view-switch-button,
+  .todo-progress-item,
+  .todo-progress-item__check,
+  .todo-progress-item__check-ring,
+  .todo-progress-item__check-glyph {
+    transform: none !important;
+  }
+
+  .todo-card,
+  .todo-progress-item,
+  .todo-inline-content,
+  .todo-progress-item__text {
+    transition-duration: var(--duration-standard);
+  }
+
+  .todo-card__subitem-row,
+  .todo-card__subitem-row > *,
+  .todo-card__expand {
+    transition: none;
+  }
+
+  .spin,
+  .animate-spin,
+  .rich-editor__tool-spinner {
+    transform: none;
+  }
+
+  .is-focused::after {
     animation: none;
-    transition-duration: 1ms;
+    opacity: 1;
   }
 
   .todo-card[data-state~="completing"],
@@ -5227,10 +5334,38 @@
   .todo-progress-item--restoring {
     animation: none;
   }
+
+  .dialog-backdrop,
+  .dialog-surface,
+  .toast-item {
+    transform: none;
+    transition: opacity var(--duration-standard) var(--ease-decel);
+  }
+
+  @starting-style {
+    .dialog-surface,
+    .toast-item {
+      opacity: 0;
+      transform: none;
+    }
+  }
 }
 
 .workspace-topbar {
   overflow: visible;
+}
+
+.workspace-topbar__search-toggle {
+  display: none;
+}
+
+.workspace-topbar__tab,
+.workspace-topbar__tab-trigger,
+.workspace-topbar__tab-close,
+.workspace-topbar__search-toggle,
+.workspace-topbar__search label,
+.workspace-topbar__search [role="option"] {
+  transition: none;
 }
 
 .workspace-topbar__tablist {
@@ -5249,6 +5384,25 @@
 
 .workspace-topbar__tab-trigger {
   min-width: 0;
+  gap: 0.35rem;
+}
+
+.workspace-topbar__tab-divider {
+  flex: none;
+  color: var(--color-text-soft);
+  opacity: 0.7;
+}
+
+.workspace-topbar__tab-status {
+  min-width: 0;
+  max-width: 4rem;
+  overflow: hidden;
+  flex: 0 1 auto;
+  color: var(--color-text-soft);
+  font-size: var(--text-caption);
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-topbar__tab-label {
@@ -5329,6 +5483,18 @@
 @media (max-width: 1180px) {
   .workspace-topbar__search {
     display: none;
+  }
+
+  .workspace-topbar__search-toggle {
+    display: inline-flex;
+  }
+
+  .workspace-topbar__search--compact-open {
+    display: block;
+    position: absolute;
+    right: 3.25rem;
+    top: 0.25rem;
+    z-index: 30;
   }
 }
 
