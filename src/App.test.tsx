@@ -19,6 +19,7 @@ import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
+import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
@@ -27,6 +28,7 @@ vi.mock("./services/desktopApi", () => ({
     openProjectWindow: vi.fn(async () => undefined),
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
+    listenForCloseRequest: vi.fn(async () => () => undefined),
   },
 }));
 
@@ -140,6 +142,7 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceRecordList: vi.fn(async () => []),
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
+    workspaceOpen: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -378,6 +381,116 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByTestId("location-display")).toHaveTextContent(
       "/projects/1?renameProject=1",
     );
+  });
+
+  it("flushes the old Workspace queue before opening another Workspace", async () => {
+    const user = userEvent.setup();
+    vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({
+      currentWorkspace: null,
+      recentWorkspaces: [
+        {
+          rootPath: "/tmp/next-workspace",
+          metadataPath: "/tmp/next-workspace/.project-mind/workspace.json",
+          displayName: "Next Workspace",
+          createdAt: "2026-08-23T00:00:00.000Z",
+        },
+      ],
+      aiSecretsUnlocked: false,
+      securityMode: "workspace_password_encrypted",
+    });
+    vi.mocked(projectMindApi.workspaceOpen).mockResolvedValue({
+      currentWorkspace: {
+        rootPath: "/tmp/next-workspace",
+        metadataPath: "/tmp/next-workspace/.project-mind/workspace.json",
+        displayName: "Next Workspace",
+        createdAt: "2026-08-23T00:00:00.000Z",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+      securityMode: "workspace_password_encrypted",
+    });
+    let finishSave!: () => void;
+    const pendingSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/old-workspace",
+      adapter: { persist: vi.fn(() => pendingSave) },
+    });
+    coordinator.submit({
+      workspaceKey: "/tmp/old-workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Next Workspace/ }));
+    expect(projectMindApi.workspaceOpen).not.toHaveBeenCalled();
+    finishSave();
+    await waitFor(() => {
+      expect(projectMindApi.workspaceOpen).toHaveBeenCalledWith({
+        rootPath: "/tmp/next-workspace",
+      });
+    });
+  });
+
+  it("waits for pending Record saves before allowing a normal window close", async () => {
+    let requestClose: (() => Promise<boolean>) | undefined;
+    vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
+      requestClose = handler;
+      return () => undefined;
+    });
+    let finishSave!: () => void;
+    const pendingSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(() => pendingSave) },
+    });
+    coordinator.submit({
+      workspaceKey: "/tmp/workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(requestClose).toBeDefined());
+    let closed = false;
+    const closeResult = requestClose?.().then((result) => {
+      closed = result;
+      return result;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    finishSave();
+    await expect(closeResult).resolves.toBe(true);
   });
 
   it("opens settings as a dialog even when there are no projects", async () => {
@@ -1004,8 +1117,7 @@ describe("WorkspaceLayout", () => {
     );
   });
 
-  it("keeps single-click record navigation inside the project focus page", async () => {
-    const user = userEvent.setup();
+  it("commits Record navigation before a delayed forced save resolves", async () => {
     const LocationDisplay = () => {
       const location = useLocation();
       return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
@@ -1077,11 +1189,20 @@ describe("WorkspaceLayout", () => {
       finishedTodos: [],
     });
 
+    let finishSave!: () => void;
+    const delayedSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const persist = vi.fn(() => delayedSave);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist },
+    });
     const router = createMemoryRouter(
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout recordSaveCoordinator={coordinator} />,
           children: [
             {
               path: "projects/:projectId/records/:noteId",
@@ -1105,15 +1226,51 @@ describe("WorkspaceLayout", () => {
     );
 
     const handleSaveRequest = (event: Event) => {
-      (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail.respond(true);
+      const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
+      coordinator.submit({
+        workspaceKey: "/tmp/workspace",
+        projectId: detail.projectId,
+        recordId: detail.recordId,
+        activityId: null,
+        title: "Current Record",
+        tagIds: [],
+        defaultCodeLanguage: null,
+        committedContent: {
+          html: "<p>最后一个字符！</p>",
+          text: "最后一个字符！",
+          markdown: "最后一个字符！",
+        },
+      });
+      detail.respond(true);
     };
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    await user.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+    expect(persist).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordId: 7,
+        committedContent: expect.objectContaining({ markdown: "最后一个字符！" }),
+      }),
+    );
+    expect(coordinator.getStatus()).toMatchObject({ phase: "saving", pendingCount: 1 });
+    finishSave();
+    await coordinator.flush();
+
+    await router.navigate(-1);
     await waitFor(() => {
-      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/1/records/7",
+      );
     });
+    await Promise.resolve();
+    expect(persist).toHaveBeenLastCalledWith(
+      expect.objectContaining({ recordId: 8 }),
+    );
+    await coordinator.flush();
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
 

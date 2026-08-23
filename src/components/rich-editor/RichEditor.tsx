@@ -561,6 +561,7 @@ export function RichEditor({
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const pendingChangeSnapshotRef = useRef<RichEditorValue | null>(null);
+  const latestCommittedValueRef = useRef<Readonly<RichEditorValue> | null>(null);
   const isFocusedRef = useRef(false);
   const persistStateRef = useRef<RichEditorPersistState>("idle");
   const dirtyStateRef = useRef(false);
@@ -1282,6 +1283,19 @@ export function RichEditor({
     [placeholder],
   );
 
+  const captureCommittedValue = useCallback((nextEditor: Editor) => {
+    aiPreviewMutationRef.current = true;
+    let snapshot: RichEditorValue;
+    try {
+      snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
+    } finally {
+      aiPreviewMutationRef.current = false;
+    }
+    const immutable = Object.freeze({ ...snapshot });
+    latestCommittedValueRef.current = immutable;
+    return immutable;
+  }, []);
+
   const editor = useEditor({
     immediatelyRender: false,
     editable: !effectiveReadOnly,
@@ -1546,7 +1560,8 @@ export function RichEditor({
         return false;
       },
     },
-    onCreate: () => {
+    onCreate: ({ editor: nextEditor }) => {
+      captureCommittedValue(nextEditor);
       updatePersistState("idle");
     },
     onFocus: ({ editor: nextEditor }) => {
@@ -1559,14 +1574,8 @@ export function RichEditor({
       isFocusedRef.current = false;
       setIsFocused(false);
       clearChangePublishTimer();
+      const snapshot = captureCommittedValue(nextEditor);
       if (onChange || onSnapshot) {
-        aiPreviewMutationRef.current = true;
-        let snapshot: RichEditorValue;
-        try {
-          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
-        } finally {
-          aiPreviewMutationRef.current = false;
-        }
         lastResolvedHtmlRef.current = snapshot.html;
         publishChangeSnapshot(snapshot, { immediate: true, sync: true });
       }
@@ -1622,13 +1631,7 @@ export function RichEditor({
       }
       if (rewriteSessionRef.current?.modifyPreview) {
         clearChangePublishTimer();
-        aiPreviewMutationRef.current = true;
-        let snapshot: RichEditorValue;
-        try {
-          snapshot = serializeCommittedEditor(nextEditor, rewriteSessionsRef.current);
-        } finally {
-          aiPreviewMutationRef.current = false;
-        }
+        const snapshot = captureCommittedValue(nextEditor);
         lastResolvedHtmlRef.current = snapshot.html;
         publishChangeSnapshot(snapshot, { immediate: true, sync: true });
         scheduleDeferredEditorUi(nextEditor, { refreshChrome: true });
@@ -1643,6 +1646,7 @@ export function RichEditor({
         taskShortcutTransformRef.current = true;
         return;
       }
+      captureCommittedValue(nextEditor);
       if (onChange || onSnapshot) {
         scheduleChangeSnapshot(nextEditor);
       }
@@ -1882,13 +1886,7 @@ export function RichEditor({
       clearPersistTimer();
       clearBlurPersistTimer();
 
-      aiPreviewMutationRef.current = true;
-      let committedSnapshot: RichEditorValue;
-      try {
-        committedSnapshot = serializeCommittedEditor(editor, rewriteSessionsRef.current);
-      } finally {
-        aiPreviewMutationRef.current = false;
-      }
+      const committedSnapshot = captureCommittedValue(editor);
       const snapshot = normalizeRichEditorValue(committedSnapshot);
       publishChangeSnapshot(snapshot, { immediate: true, sync: true });
 
@@ -1973,6 +1971,7 @@ export function RichEditor({
       }
     },
     [
+      captureCommittedValue,
       clearChangePublishTimer,
       clearBlurPersistTimer,
       clearPersistTimer,
@@ -2083,6 +2082,7 @@ export function RichEditor({
     if (currentHtml !== nextHtml) {
       replaceEditorContentWithoutHistory(editor, nextHtml);
     }
+    captureCommittedValue(editor);
 
     updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
   }, [
@@ -2091,6 +2091,7 @@ export function RichEditor({
     defaultHtml,
     editor,
     html,
+    captureCommittedValue,
     updatePersistState,
   ]);
 
@@ -2355,9 +2356,7 @@ export function RichEditor({
 
     controllerRef.current = {
       getValue: getCurrentValue,
-      getCommittedValue: () => editor
-        ? normalizeRichEditorValue(serializeCommittedEditor(editor, rewriteSessionsRef.current))
-        : getCurrentValue(),
+      getCommittedValue: () => latestCommittedValueRef.current ?? getCurrentValue(),
       getDocumentJson: () => editor?.getJSON() ?? { type: "doc", content: [] },
       getActiveAiProtectionCount: () => editor
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
@@ -3346,7 +3345,8 @@ export function RichEditor({
     if (!editor) {
       return;
     }
-    const snapshot = serializeEditor(editor);
+    const snapshot = Object.freeze({ ...serializeEditor(editor) });
+    latestCommittedValueRef.current = snapshot;
     lastResolvedHtmlRef.current = snapshot.html;
     publishChangeSnapshot(snapshot, { immediate: true, sync: true });
     updatePersistState("dirty");

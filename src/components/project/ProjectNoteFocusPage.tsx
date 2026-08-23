@@ -13,9 +13,13 @@ import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { colorKeyForTagLabel } from "../../lib/tags";
-import { extractTagMentionIds } from "../../lib/tagMentions";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
+import {
+  createProjectRecordSaveCoordinator,
+  useRecordSaveCoordinator,
+} from "../../lib/record-save-runtime";
+import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
@@ -32,13 +36,12 @@ import {
 } from "../rich-editor";
 import {
   buildProjectNoteImageAssetHandlers,
-  externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
-import type { ProjectPageData, ProjectTagRecord, NoteRecord } from "../../lib/types";
+import type { ProjectPageData, ProjectTagRecord } from "../../lib/types";
 import type { RichTextStyleSettings } from "../../lib/types";
 
 export function ProjectNoteFocusPage() {
@@ -46,6 +49,7 @@ export function ProjectNoteFocusPage() {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const workspaceSaveCoordinator = useRecordSaveCoordinator();
   const projectId = parseRouteId(params.projectId);
   const noteId = parseRouteId(params.noteId);
   const focusScrollRef = useRef<HTMLDivElement | null>(null);
@@ -67,8 +71,8 @@ export function ProjectNoteFocusPage() {
   const titleValueRef = useRef("");
   const tagIdsValueRef = useRef<number[]>([]);
   const codeLanguageValueRef = useRef<string | null>(null);
-  const pendingPersistRef = useRef<Promise<boolean> | null>(null);
   const lastSavedUpdatedAtRef = useRef<string | null>(null);
+  const hasSubmittedSaveRef = useRef(false);
 
   const projectQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -96,6 +100,15 @@ export function ProjectNoteFocusPage() {
     projectId === null
       ? null
       : (projectQuery.data ?? []).find((item) => item.id === projectId) ?? null;
+  const fallbackSaveCoordinator = useMemo(
+    () =>
+      createProjectRecordSaveCoordinator({
+        workspaceKey: project?.rootPath ?? `project:${projectId ?? "unknown"}`,
+        queryClient,
+      }),
+    [project?.rootPath, projectId, queryClient],
+  );
+  const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `project-record:${project?.rootPath ?? `project-${projectId}`}:${noteId}`,
   );
@@ -163,132 +176,87 @@ export function ProjectNoteFocusPage() {
     setLoadedNoteId(note.id);
   }, [loadedNoteId, note]);
 
-  const persistProjectRecord = useCallback(
-    async (
-      targetNote: NoteRecord,
-      value: RichEditorValue,
-      nextTitle: string,
-      nextTagIds: number[],
-      nextCodeLanguage: string | null,
-    ) => {
-      if (!projectId) return false;
-
-      const operation = (async () => {
-        try {
-          const targetAssetHandlers = buildProjectNoteImageAssetHandlers(
-            targetNote.projectId,
-            targetNote.activityId ?? null,
-          );
-          const externalizedValue = await externalizeEmbeddedImageDataUrls(
-            value,
-            targetAssetHandlers,
-          );
-          const normalized = normalizeRichEditorValue(externalizedValue);
-          const mentionedTagIds = extractTagMentionIds(normalized.markdown);
-          const savedRecord = await projectMindApi.projectRecordUpsert({
-            projectId: targetNote.projectId,
-            activityId: targetNote.activityId ?? undefined,
-            noteId: targetNote.id,
-            title: nextTitle.trim() || undefined,
-            markdown: normalized.markdown,
-            html: normalized.html,
-            defaultCodeLanguage: nextCodeLanguage,
-            tagIds: Array.from(new Set([...nextTagIds, ...mentionedTagIds])),
-          });
-          queryClient.setQueryData<ProjectPageData | undefined>(
-            queryKeys.projectPage(projectId),
-            (current) =>
-              current
-                ? {
-                    ...current,
-                    records: (current.records ?? []).map((record) =>
-                      record.id === savedRecord.id ? savedRecord : record,
-                    ),
-                  }
-                : current,
-          );
-          lastSavedTitleRef.current = nextTitle;
-          lastSavedUpdatedAtRef.current = savedRecord.updatedAt;
-          return true;
-        } catch (error) {
-          pushToast({ tone: "error", title: "保存失败", detail: String(error) });
-          throw error;
-        }
-      })();
-
-      pendingPersistRef.current = operation;
-      void operation.then(
-        () => {
-          if (pendingPersistRef.current === operation) pendingPersistRef.current = null;
-        },
-        () => {
-          if (pendingPersistRef.current === operation) pendingPersistRef.current = null;
-        },
-      );
-      return operation;
-    },
-    [projectId, pushToast, queryClient],
-  );
+  const submitCurrentRecord = useCallback(
+    (value?: RichEditorValue) => {
+      if (!note || !draftReady || projectId === null) return false;
+      const committed =
+        value ??
+        editorControllerRef.current?.getCommittedValue() ??
+        Object.freeze({ ...content });
+      saveCoordinator.submit({
+        workspaceKey: saveCoordinator.workspaceKey ?? project?.rootPath ?? `project:${projectId}`,
+        projectId,
+        recordId: note.id,
+        activityId: note.activityId ?? null,
+        title: titleValueRef.current,
+        tagIds: [...tagIdsValueRef.current],
+        defaultCodeLanguage: codeLanguageValueRef.current,
+        committedContent: committed,
+      });
+      hasSubmittedSaveRef.current = true;
+      lastSavedTitleRef.current = titleValueRef.current;
+      setPersistState("saving");
+      return true;
+    }, [content, draftReady, note, project?.rootPath, projectId, saveCoordinator]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
-      if (!note || !draftReady) return false;
-      return persistProjectRecord(
-        note,
-        value,
-        titleValueRef.current,
-        tagIdsValueRef.current,
-        codeLanguageValueRef.current,
-      );
+      if (!submitCurrentRecord(value)) return false;
+      await saveCoordinator.flush();
+      return true;
     },
-    [draftReady, note, persistProjectRecord],
+    [saveCoordinator, submitCurrentRecord],
   );
 
   const saveCurrentRecord = useCallback(async () => {
-    if (!note || !draftReady) return false;
-    const scrollElement = focusScrollRef.current;
-    const scrollTop = scrollElement?.scrollTop ?? null;
-    const editorController = editorControllerRef.current;
-    let saved: unknown;
-    if (editorController) {
-      const saveRequest = editorController.save({ force: true });
-      if (saveRequest) {
-        saved = await saveRequest;
-      } else if (pendingPersistRef.current) {
-        saved = await pendingPersistRef.current;
-      } else {
-        saved = true;
+    if (!submitCurrentRecord()) return false;
+    try {
+      await saveCoordinator.flush();
+      setPersistState("saved");
+      return true;
+    } catch (error) {
+      setPersistState("error");
+      pushToast({ tone: "error", title: "保存失败", detail: String(error) });
+      return false;
+    }
+  }, [pushToast, saveCoordinator, submitCurrentRecord]);
+
+  useEffect(() => {
+    if (projectId === null || noteId === null) {
+      return;
+    }
+    return saveCoordinator.subscribe(() => {
+      if (!hasSubmittedSaveRef.current) {
+        return;
       }
-    } else {
-      saved = await persistProjectRecord(
-        note,
-        content,
-        titleValueRef.current,
-        tagIdsValueRef.current,
-        codeLanguageValueRef.current,
+      const status = saveCoordinator.getRecordStatus(
+        projectRecordSaveKey(projectId, noteId),
       );
-    }
-    if (scrollElement && scrollTop !== null) {
-      scrollElement.scrollTop = scrollTop;
-    }
-    return saved !== false;
-  }, [content, draftReady, note, persistProjectRecord]);
+      setPersistState(
+        status.phase === "error"
+          ? "error"
+          : status.phase === "saving"
+            ? "saving"
+            : "saved",
+      );
+    });
+  }, [noteId, projectId, saveCoordinator]);
 
   useEffect(() => {
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
-      if (!detail || detail.projectId !== projectId || detail.noteId !== noteId) {
+      if (!detail || detail.projectId !== projectId || detail.recordId !== noteId) {
         return;
       }
 
-      detail.respond(saveCurrentRecord());
+      detail.respond(submitCurrentRecord());
     };
 
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     return () => {
       window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     };
-  }, [noteId, projectId, saveCurrentRecord]);
+  }, [noteId, projectId, submitCurrentRecord]);
 
   const saveTitleIfChanged = async () => {
     if (!note || !draftReady || titleValueRef.current === lastSavedTitleRef.current) {
@@ -311,10 +279,8 @@ export function ProjectNoteFocusPage() {
       .catch(() => undefined);
   };
 
-  const handleBack = async () => {
+  const handleBack = () => {
     if (projectId !== null) {
-      // Save before navigating back
-      await saveCurrentRecord();
       navigate(
         preserveRecordFilters(projectPath(projectId, `record-${noteId}`), searchParams),
       );
@@ -326,7 +292,7 @@ export function ProjectNoteFocusPage() {
     setTagIds(newTagIds);
     tagIdsValueRef.current = newTagIds;
     try {
-      await saveCurrentRecord();
+      submitCurrentRecord();
     } catch (error) {
       pushToast({ tone: "error", title: "标签更新失败", detail: String(error) });
     }
@@ -334,15 +300,9 @@ export function ProjectNoteFocusPage() {
 
   const openInternalReference = useCallback(
     async (reference: Parameters<typeof navigateInternalReference>[0]) => {
-      try {
-        const saved = await saveCurrentRecord();
-        if (!saved) return false;
-      } catch {
-        return false;
-      }
       return navigateInternalReference(reference);
     },
-    [navigateInternalReference, saveCurrentRecord],
+    [navigateInternalReference],
   );
 
   const runExport = useCallback((request: RecordExportRequest) => {
@@ -350,12 +310,15 @@ export function ProjectNoteFocusPage() {
       const saved = await saveCurrentRecord();
       if (!saved) throw new Error("导出前保存失败");
       const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
+      const savedRecord = queryClient
+        .getQueryData<ProjectPageData>(queryKeys.projectPage(projectId))
+        ?.records?.find((record) => record.id === note?.id);
       return {
         recordKind: "project" as const,
         title: titleValueRef.current,
         projectName: project?.name,
         tags: availableTags.filter((tag) => tagIdsValueRef.current.includes(tag.id)).map((tag) => tag.label),
-        updatedAt: lastSavedUpdatedAtRef.current ?? note?.updatedAt,
+        updatedAt: savedRecord?.updatedAt ?? lastSavedUpdatedAtRef.current ?? note?.updatedAt,
         committedHtml: committed.html,
         style: queryClient.getQueryData<RichTextStyleSettings>(queryKeys.richTextStyle) ?? DEFAULT_RICH_TEXT_STYLE_SETTINGS,
       };
