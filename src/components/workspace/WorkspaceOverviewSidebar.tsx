@@ -55,6 +55,7 @@ interface WorkspaceOverviewSidebarProps {
   onActiveRecordTagIdChange: (tagId: number | null) => void;
   onOpenOverview: () => void;
   onOpenProject: (projectId: number) => void;
+  onPrefetchProject?: (projectId: number) => void;
   onOpenProjectInNewWindow: (projectId: number) => void;
   onCreateProject: () => void;
   createProjectPending?: boolean;
@@ -80,6 +81,7 @@ export function WorkspaceOverviewSidebar({
   onActiveRecordTagIdChange,
   onOpenOverview,
   onOpenProject,
+  onPrefetchProject,
   onOpenProjectInNewWindow,
   onCreateProject,
   createProjectPending = false,
@@ -349,6 +351,8 @@ export function WorkspaceOverviewSidebar({
                             onOpenProject(project.id);
                           }
                         }}
+                        onPointerEnter={() => onPrefetchProject?.(project.id)}
+                        onFocus={() => onPrefetchProject?.(project.id)}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           if (isEditing) {

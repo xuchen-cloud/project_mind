@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AppUpdaterClient } from "../../services/appUpdater";
+import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
 
 describe("UpdateSettingsPanel", () => {
@@ -50,6 +52,83 @@ describe("UpdateSettingsPanel", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "更新已安装，正在重新启动…",
     );
+  });
+
+  it("flushes pending Record saves before installing an update", async () => {
+    const user = userEvent.setup();
+    let finishSave!: () => void;
+    const pendingSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(() => pendingSave) },
+    });
+    coordinator.submit({
+      scope: "project",
+      workspaceKey: "/tmp/workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const update = { version: "0.2.0-beta.1", notes: null };
+    const updater: AppUpdaterClient = {
+      currentVersion: vi.fn(async () => "0.1.0"),
+      check: vi.fn(async () => update),
+      install: vi.fn(async () => undefined),
+    };
+    render(
+      <RecordSaveCoordinatorProvider coordinator={coordinator}>
+        <UpdateSettingsPanel updater={updater} />
+      </RecordSaveCoordinatorProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "检查更新" }));
+    await user.click(await screen.findByRole("button", { name: "下载并安装" }));
+    expect(updater.install).not.toHaveBeenCalled();
+
+    finishSave();
+    expect(await screen.findByRole("status")).toHaveTextContent("正在重新启动");
+    expect(updater.install).toHaveBeenCalledWith(update);
+  });
+
+  it("does not install an update when the Record save barrier fails", async () => {
+    const user = userEvent.setup();
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => { throw new Error("disk busy"); }) },
+    });
+    coordinator.submit({
+      scope: "project",
+      workspaceKey: "/tmp/workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const update = { version: "0.2.0-beta.1", notes: null };
+    const updater: AppUpdaterClient = {
+      currentVersion: vi.fn(async () => "0.1.0"),
+      check: vi.fn(async () => update),
+      install: vi.fn(async () => undefined),
+    };
+    render(
+      <RecordSaveCoordinatorProvider coordinator={coordinator}>
+        <UpdateSettingsPanel updater={updater} />
+      </RecordSaveCoordinatorProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "检查更新" }));
+    await user.click(await screen.findByRole("button", { name: "下载并安装" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("disk busy");
+    expect(updater.install).not.toHaveBeenCalled();
   });
 
   it("confirms when the installed version is already current", async () => {

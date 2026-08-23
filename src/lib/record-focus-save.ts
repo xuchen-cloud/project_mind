@@ -1,53 +1,59 @@
 export const PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT =
   "project-mind-project-record-focus-save-request";
+export const WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT =
+  "project-mind-workspace-record-focus-save-request";
 
 export interface ProjectRecordFocusSaveRequestDetail {
   projectId: number;
-  noteId: number;
-  respond: (saved: boolean | Promise<boolean>) => void;
+  recordId: number;
+  respond: (submitted: boolean) => void;
 }
 
-export type ProjectRecordFocusSaveResult = "saved" | "failed" | "unhandled";
+export type RecordFocusSaveResult = "submitted" | "failed" | "unhandled";
+
+export interface WorkspaceRecordFocusSaveRequestDetail {
+  recordId: number;
+  respond: (submitted: boolean) => void;
+}
 
 export function requestProjectRecordFocusSave(input: {
   projectId: number;
-  noteId: number;
-}): Promise<ProjectRecordFocusSaveResult> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let handled = false;
-
-    const settle = (result: ProjectRecordFocusSaveResult) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      resolve(result);
-    };
-
-    window.dispatchEvent(
-      new CustomEvent<ProjectRecordFocusSaveRequestDetail>(
-        PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
-        {
-          detail: {
-            projectId: input.projectId,
-            noteId: input.noteId,
-            respond: (saved) => {
-              handled = true;
-              void Promise.resolve(saved)
-                .then((ok) => settle(ok ? "saved" : "failed"))
-                .catch(() => settle("failed"));
-            },
+  recordId: number;
+}): RecordFocusSaveResult {
+  let result: RecordFocusSaveResult = "unhandled";
+  window.dispatchEvent(
+    new CustomEvent<ProjectRecordFocusSaveRequestDetail>(
+      PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+      {
+        detail: {
+          projectId: input.projectId,
+          recordId: input.recordId,
+          respond: (submitted) => {
+            result = submitted ? "submitted" : "failed";
           },
         },
-      ),
-    );
+      },
+    ),
+  );
+  return result;
+}
 
-    window.setTimeout(() => {
-      if (!handled) {
-        settle("unhandled");
-      }
-    }, 0);
-  });
+export function requestWorkspaceRecordFocusSave(input: {
+  recordId: number;
+}): RecordFocusSaveResult {
+  let result: RecordFocusSaveResult = "unhandled";
+  window.dispatchEvent(
+    new CustomEvent<WorkspaceRecordFocusSaveRequestDetail>(
+      WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+      {
+        detail: {
+          recordId: input.recordId,
+          respond: (submitted) => {
+            result = submitted ? "submitted" : "failed";
+          },
+        },
+      },
+    ),
+  );
+  return result;
 }

@@ -39,11 +39,34 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - 页面临时状态应尽量可以从路由、React Query 数据或草稿恢复，不能依赖页面永久驻留。
 - workspace 切换必须清理所有 workspace-scoped query、搜索结果、Todo 草稿和临时同步任务。
 
+## Record Focus 驻留
+
+Project Record Focus 与 Workspace Record Focus 共用一个 Workspace 范围的全局 LRU，最多保留两个富文本编辑器实例：当前 Active Focus 与最近一个 Warm Focus。打开第三个 Focus 时只释放最久未使用的编辑器实例；Query 数据、路由与滚动恢复信息继续由各自缓存保留。
+
+Record Focus 草稿在组件首次构造时按以下顺序选择来源：
+
+1. 后台保存协调器中最新的待保存或失败 Committed Content 快照。
+2. React Query 中已有的 `project-page` 或 `workspace-page` 数据。
+3. 仅在前两者都不能提供目标 Record 时请求后端。
+
+命中前两种来源时首帧直接显示 Record，不经过 effect 复制缓存导致的 loading。页面实例一旦拥有本地草稿，后台 Query 更新不得覆盖 Active 或 Warm 编辑现场。
+
+Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级查询，并将编辑器切换为不可编辑状态；它不获取焦点、不自动聚焦，也不响应 Active 页面交互。重新成为 Active 时复用同一编辑器实例，以保留光标、选区、撤销历史和滚动位置。
+
 ## 富文本与图片缓存
 
 - Viewer HTML、图片 pending promise 和缩略图缓存必须有 TTL 或最大条目数。
 - 缓存 key 必须包含足以区分内容版本的信息。
 - 测试必须提供显式清理入口，避免跨用例污染。
+
+## Project Record 后台保存
+
+- 离开 Project Record Focus 时始终捕获并提交一次不可变的 Committed Content 快照；这一语义不以 dirty 状态替代。
+- 普通 Project 与 Record 导航只同步读取当前 Committed Content、标题、标签、代码语言及 Record/Project 身份，然后立即提交路由。内容规范化、managed image 外部化、数据库写入和 React Query 同步均在导航之后执行。
+- 保存任务由当前 Workspace 的 `RecordSaveCoordinator` 持有，不依赖来源页面继续挂载。任务按 Record 串行，不同 Record 可以独立推进。
+- 同一 Record 只有最新提交的成功结果可以写回 React Query；仍在排队或失败的较新快照不会被较旧结果覆盖。
+- 失败任务保留其快照，并通过全局状态和 Toast 显示。可重试失败能够从状态栏重试，且不阻塞普通导航。
+- 正常退出、切换 Workspace 和安装更新是 flush barrier：必须等待对应 Workspace 的队列完成；flush 失败会取消该生命周期动作并保留任务。
 
 ## 性能验收
 

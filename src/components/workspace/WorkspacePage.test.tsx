@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { queryKeys } from "../../lib/queryKeys";
 
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
@@ -169,6 +170,36 @@ describe("WorkspacePage", () => {
       updatedAt: "2026-04-06T08:00:00.000Z",
     });
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("uses a static overview skeleton only for a cold workspace entry", async () => {
+    let resolveWorkspace!: (value: { quickNote: null; records: never[]; unfinishedTodos: never[]; finishedTodos: never[] }) => void;
+    apiMocks.workspacePageGet.mockImplementationOnce(() => new Promise((resolve) => { resolveWorkspace = resolve; }));
+    renderPage();
+
+    expect(await screen.findByRole("status", { name: "正在加载工作区" })).toHaveAttribute("data-variant", "overview");
+    expect(document.querySelector(".animate-spin, .spin")).toBeNull();
+
+    await act(async () => resolveWorkspace({ quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] }));
+    const page = await screen.findByTestId("workspace-overview-focus-page");
+    expect(page.closest(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
+  });
+
+  it("does not replay cold entry when a cached resident workspace is hidden and restored", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.workspacePage, { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] });
+    queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" }, recentWorkspaces: [], aiSecretsUnlocked: true });
+    const page = (visible: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter><WorkspacePage visible={visible} /></MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(page(true));
+    expect((await screen.findByTestId("workspace-overview-focus-page")).closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+    view.rerender(page(false));
+    view.rerender(page(true));
+    expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
   });
 
   it("shows the overview page content", async () => {

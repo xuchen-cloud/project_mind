@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -19,6 +20,8 @@ import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
+import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
+import { queryKeys } from "./lib/queryKeys";
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
@@ -27,6 +30,7 @@ vi.mock("./services/desktopApi", () => ({
     openProjectWindow: vi.fn(async () => undefined),
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
+    listenForCloseRequest: vi.fn(async () => () => undefined),
   },
 }));
 
@@ -39,6 +43,11 @@ vi.mock("./lib/project-window", () => ({
     const match = /^project-(\d+)$/u.exec(label);
     return match ? Number.parseInt(match[1] ?? "", 10) : null;
   }),
+}));
+
+vi.mock("./routes/record-focus-modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./routes/record-focus-modules")>()),
+  scheduleRecordFocusPageModulesPreload: vi.fn(() => vi.fn()),
 }));
 
 vi.mock("./services/projectMindApi", () => ({
@@ -138,8 +147,15 @@ vi.mock("./services/projectMindApi", () => ({
       documents: [],
     })),
     workspaceRecordList: vi.fn(async () => []),
+    workspacePageGet: vi.fn(async () => ({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    })),
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
+    workspaceOpen: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -384,6 +400,118 @@ describe("WorkspaceLayout", () => {
     );
   });
 
+  it("flushes the old Workspace queue before opening another Workspace", async () => {
+    const user = userEvent.setup();
+    vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({
+      currentWorkspace: null,
+      recentWorkspaces: [
+        {
+          rootPath: "/tmp/next-workspace",
+          metadataPath: "/tmp/next-workspace/.project-mind/workspace.json",
+          displayName: "Next Workspace",
+          createdAt: "2026-08-23T00:00:00.000Z",
+        },
+      ],
+      aiSecretsUnlocked: false,
+      securityMode: "workspace_password_encrypted",
+    });
+    vi.mocked(projectMindApi.workspaceOpen).mockResolvedValue({
+      currentWorkspace: {
+        rootPath: "/tmp/next-workspace",
+        metadataPath: "/tmp/next-workspace/.project-mind/workspace.json",
+        displayName: "Next Workspace",
+        createdAt: "2026-08-23T00:00:00.000Z",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+      securityMode: "workspace_password_encrypted",
+    });
+    let finishSave!: () => void;
+    const pendingSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/old-workspace",
+      adapter: { persist: vi.fn(() => pendingSave) },
+    });
+    coordinator.submit({
+      scope: "project",
+      workspaceKey: "/tmp/old-workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Next Workspace/ }));
+    expect(projectMindApi.workspaceOpen).not.toHaveBeenCalled();
+    finishSave();
+    await waitFor(() => {
+      expect(projectMindApi.workspaceOpen).toHaveBeenCalledWith({
+        rootPath: "/tmp/next-workspace",
+      });
+    });
+  });
+
+  it("waits for pending Record saves before allowing a normal window close", async () => {
+    let requestClose: (() => Promise<boolean>) | undefined;
+    vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
+      requestClose = handler;
+      return () => undefined;
+    });
+    let finishSave!: () => void;
+    const pendingSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(() => pendingSave) },
+    });
+    coordinator.submit({
+      scope: "project",
+      workspaceKey: "/tmp/workspace",
+      projectId: 1,
+      recordId: 7,
+      activityId: null,
+      title: "Record",
+      tagIds: [],
+      defaultCodeLanguage: null,
+      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+    });
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(requestClose).toBeDefined());
+    let closed = false;
+    const closeResult = requestClose?.().then((result) => {
+      closed = result;
+      return result;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    finishSave();
+    await expect(closeResult).resolves.toBe(true);
+  });
+
   it("opens settings as a dialog even when there are no projects", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
@@ -555,8 +683,10 @@ describe("WorkspaceLayout", () => {
       await screen.findByRole("tab", { name: "Beta Project" }),
     );
     expect(await screen.findByText("project route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/2",
+    await waitFor(() =>
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/2",
+      ),
     );
 
     await user.click(screen.getByRole("tab", { name: "Alpha Project" }));
@@ -681,6 +811,36 @@ describe("WorkspaceLayout", () => {
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Beta Project" }));
 
     expect(desktopApi.focusProjectWindow).toHaveBeenCalledWith(2);
+    expect(router.state.location.pathname).toBe("/projects/1");
+  });
+
+  it("prefetches project page data before a non-active tab is opened", async () => {
+    useUiStore.setState({ openProjectIds: [1, 2] });
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      { id: 1, name: "Alpha Project", kind: "normal", status: "active", rootPath: "/tmp/alpha", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
+      { id: 2, name: "Beta Project", kind: "normal", status: "active", rootPath: "/tmp/beta", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
+    ]);
+
+    const router = createMemoryRouter(
+      [{ path: "/", element: <WorkspaceLayout />, children: [{ path: "projects/:projectId", element: <div>project route body</div> }] }],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("project route body");
+    const betaTab = await screen.findByRole("tab", { name: "Beta Project" });
+    vi.mocked(projectMindApi.projectPageGet).mockClear();
+
+    fireEvent.pointerEnter(betaTab);
+
+    await waitFor(() =>
+      expect(projectMindApi.projectPageGet).toHaveBeenCalledWith({ projectId: 2 }),
+    );
     expect(router.state.location.pathname).toBe("/projects/1");
   });
 
@@ -952,8 +1112,7 @@ describe("WorkspaceLayout", () => {
     );
   });
 
-  it("keeps single-click record navigation inside the project focus page", async () => {
-    const user = userEvent.setup();
+  it("commits Record navigation before a delayed forced save resolves", async () => {
     const LocationDisplay = () => {
       const location = useLocation();
       return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
@@ -1025,11 +1184,20 @@ describe("WorkspaceLayout", () => {
       finishedTodos: [],
     });
 
+    let finishSave!: () => void;
+    const delayedSave = new Promise<{ updatedAt: string }>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "saved" });
+    });
+    const persist = vi.fn(() => delayedSave);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist },
+    });
     const router = createMemoryRouter(
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout recordSaveCoordinator={coordinator} />,
           children: [
             {
               path: "projects/:projectId/records/:noteId",
@@ -1053,16 +1221,212 @@ describe("WorkspaceLayout", () => {
     );
 
     const handleSaveRequest = (event: Event) => {
-      (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail.respond(true);
+      const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
+      coordinator.submit({
+        scope: "project",
+        workspaceKey: "/tmp/workspace",
+        projectId: detail.projectId,
+        recordId: detail.recordId,
+        activityId: null,
+        title: "Current Record",
+        tagIds: [],
+        defaultCodeLanguage: null,
+        committedContent: {
+          html: "<p>最后一个字符！</p>",
+          text: "最后一个字符！",
+          markdown: "最后一个字符！",
+        },
+      });
+      detail.respond(true);
     };
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    await user.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+    expect(persist).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordId: 7,
+        committedContent: expect.objectContaining({ markdown: "最后一个字符！" }),
+      }),
+    );
+    expect(coordinator.getStatus()).toMatchObject({ phase: "saving", pendingCount: 1 });
+    finishSave();
+    await coordinator.flush();
+
+    await router.navigate(-1);
     await waitFor(() => {
-      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/1/records/7",
+      );
     });
+    await Promise.resolve();
+    expect(persist).toHaveBeenLastCalledWith(
+      expect.objectContaining({ recordId: 8 }),
+    );
+    await coordinator.flush();
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
+  });
+
+  it("keeps a global two-entry Record Focus LRU through the production WorkspaceLayout routes", async () => {
+    const timestamp = "2026-08-23T00:00:00.000Z";
+    const project = (id: number, name: string) => ({
+      id,
+      name,
+      kind: "normal" as const,
+      status: "active",
+      rootPath: `/tmp/${name.toLowerCase()}`,
+      quickNote: "",
+      isArchived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      unorganizedCount: 0,
+      openTodoCount: 0,
+    });
+    const projects = [project(1, "Alpha"), project(2, "Beta")];
+    const record = (projectId: number, id: number, title: string) => ({
+      id,
+      projectId,
+      activityId: null,
+      title,
+      contentMarkdown: `${title} 正文`,
+      contentHtml: `<p>${title} 正文</p>`,
+      defaultCodeLanguage: null,
+      tags: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const projectPages = new Map([
+      [1, {
+        project: projects[0],
+        records: [record(1, 7, "Alpha A"), record(1, 8, "Alpha B")],
+        projectDocuments: [],
+        conclusionGroups: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+      }],
+      [2, {
+        project: projects[1],
+        records: [record(2, 17, "Beta A")],
+        projectDocuments: [],
+        conclusionGroups: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+      }],
+    ]);
+    const workspacePage = {
+      quickNote: null,
+      records: [{
+        id: 27,
+        title: "Workspace A",
+        contentMarkdown: "Workspace A 正文",
+        contentHtml: "<p>Workspace A 正文</p>",
+        defaultCodeLanguage: null,
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    };
+    const workspaceStatus = {
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        metadataPath: "/tmp/workspace/.project-mind/workspace.json",
+        displayName: "Test Workspace",
+        createdAt: timestamp,
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+      securityMode: "workspace_password_encrypted" as const,
+    };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) =>
+      projectPages.get(projectId)!,
+    );
+    vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue(workspacePage);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnMount: false } },
+    });
+    queryClient.setQueryData(queryKeys.workspaceStatus, workspaceStatus);
+    queryClient.setQueryData(queryKeys.projects.all, projects);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPages.get(1));
+    queryClient.setQueryData(queryKeys.projectPage(2), projectPages.get(2));
+    queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
+    queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
+    queryClient.setQueryData(queryKeys.aiSettings, null);
+    const persist = vi.fn(() => new Promise<{ updatedAt: string }>(() => undefined));
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist },
+    });
+    const router = createMemoryRouter(
+      [{
+        path: "/",
+        element: (
+          <WorkspaceLayout
+            cacheProjectOverviewPages
+            recordSaveCoordinator={coordinator}
+          />
+        ),
+        children: [
+          { path: "projects/:projectId/records/:noteId", element: <div>legacy project route</div> },
+          { path: "workspace/records/:noteId", element: <div>legacy workspace route</div> },
+          { path: "workspace", element: <div>legacy workspace overview</div> },
+        ],
+      }],
+      { initialEntries: ["/projects/1/records/7"] },
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const fallback = document.querySelector("[data-record-focus-cached-fallback]");
+    expect(fallback).toHaveTextContent("Alpha A 正文");
+    expect(
+      screen.queryByRole("status", { name: "正在打开记录" }),
+    ).not.toBeInTheDocument();
+    await screen.findByPlaceholderText("记录标题");
+    const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
+    expect(alphaA).not.toBeNull();
+
+    await act(() => router.navigate("/projects/1/records/8"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    await act(() => router.navigate("/projects/1/records/7"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
+
+    await act(() => router.navigate("/projects/2/records/17"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
+    await act(() => router.navigate("/projects/1/records/7"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
+
+    await act(() => router.navigate("/workspace/records/27"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
+    await act(() => router.navigate("/workspace"));
+    expect(router.state.location.pathname).toBe("/workspace");
+    await waitFor(() => {
+      expect(
+        persist.mock.calls.filter(([snapshot]) =>
+          snapshot.scope === "workspace" && snapshot.recordId === 27,
+        ),
+      ).toHaveLength(1);
+    });
+    await act(() => router.navigate("/workspace/records/27"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
+
+    await act(() => router.navigate("/projects/1/records/8"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(alphaA).not.toBeInTheDocument();
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+    expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
   });
 
 });

@@ -159,7 +159,7 @@ describe("WorkspaceOverviewHistory", () => {
     expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
   });
 
-  it("does not defer the record viewer in browse mode so images can render immediately", () => {
+  it("defers the record viewer in browse mode while preserving eager nearby images", () => {
     render(
       <WorkspaceOverviewHistory
         notes={[
@@ -186,7 +186,7 @@ describe("WorkspaceOverviewHistory", () => {
     );
 
     expect(recordViewerProps).toBeDefined();
-    expect(recordViewerProps?.deferUntilVisible).toBeUndefined();
+    expect(recordViewerProps?.deferUntilVisible).toBe(true);
     expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 

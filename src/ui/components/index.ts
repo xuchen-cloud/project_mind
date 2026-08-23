@@ -6,6 +6,7 @@ export { DeleteContextMenu } from "./DeleteContextMenu";
 export { Dialog } from "./Dialog";
 export { EmptyState } from "./EmptyState";
 export { IconButton } from "./IconButton";
+export { PageLoadingSkeleton } from "./PageLoadingSkeleton";
 export { PopoverPanel } from "./PopoverPanel";
 export { ProjectStarButton } from "./ProjectStarButton";
 export { ResizeHandle } from "./ResizeHandle";

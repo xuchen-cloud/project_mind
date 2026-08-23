@@ -7,7 +7,7 @@ import {
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Save, Settings2, Trash2 } from "lucide-react";
+import { Save, Settings2, Trash2 } from "lucide-react";
 
 import {
   getRenderableRichTextHtml,
@@ -28,6 +28,7 @@ import type {
   NoteRecord,
   ProjectPageData,
 } from "../../lib/types";
+import { PageLoadingSkeleton } from "../../ui/components";
 import {
   parseFocusRecordId,
   parseFocusTodoId,
@@ -96,6 +97,9 @@ export function ProjectOverviewPage({
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setProjectSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
+  const wasProjectPageCachedAtMount = useRef(
+    queryClient.getQueryData(queryKeys.projectPage(projectId)) !== undefined,
+  );
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
   const focusedTodoId = parseFocusTodoId(focusId);
@@ -581,16 +585,14 @@ export function ProjectOverviewPage({
   }
 
   if (!activeProject || !projectPage) {
-    return (
-      <div className="flex h-full items-center justify-center gap-2 text-body text-text-soft">
-        <LoaderCircle className="spin" size={16} />
-        正在加载项目页...
-      </div>
-    );
+    return <PageLoadingSkeleton variant="overview" label="正在加载项目页" />;
   }
 
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden">
+    <div
+      className="page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      data-cold-entry={wasProjectPageCachedAtMount.current ? undefined : "true"}
+    >
       <div className="project-overview-focus flex-1" data-testid="project-overview-focus-page">
         <header className="project-overview-focus__chrome">
           <div

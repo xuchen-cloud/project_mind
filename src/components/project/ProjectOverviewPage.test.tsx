@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, type Ref } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import type { ProjectPageData } from "../../lib/types";
+import { queryKeys } from "../../lib/queryKeys";
 
 import { ProjectOverviewPage } from "./ProjectOverviewPage";
 
@@ -86,6 +87,7 @@ vi.mock("../../services/projectMindApi", () => ({
       updatedAt: "2026-04-06T09:00:00.000Z",
     })),
     projectRecordDelete: vi.fn(async () => undefined),
+    aiSettingsGet: vi.fn(async () => null),
   },
 }));
 
@@ -267,6 +269,49 @@ describe("ProjectOverviewPage", () => {
       configurable: true,
       value: scrollToMock,
     });
+  });
+
+  it("uses a static overview skeleton only for a cold project entry", async () => {
+    let resolvePage!: (value: ProjectPageData) => void;
+    vi.mocked(projectMindApi.projectPageGet).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePage = resolve; }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes><Route path="/projects/:projectId" element={<ProjectOverviewPage />} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("status", { name: "正在加载项目页" })).toHaveAttribute("data-variant", "overview");
+    expect(document.querySelector(".animate-spin, .spin")).toBeNull();
+
+    await act(async () => resolvePage(projectPageWithTaglessRecord()));
+    const page = await screen.findByTestId("project-overview-focus-page");
+    expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
+    expect(page.closest(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
+  });
+
+  it("does not replay cold entry when a cached resident project is hidden and restored", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.projects.all, [projectPageWithTaglessRecord().project]);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPageWithTaglessRecord());
+    const page = (visible: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes><Route path="/projects/:projectId" element={<ProjectOverviewPage visible={visible} />} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(page(true));
+    expect((await screen.findByTestId("project-overview-focus-page")).closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+
+    view.rerender(page(false));
+    view.rerender(page(true));
+    expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("project-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
   });
 
   it("does not expose the internal Project status beside the title", async () => {
@@ -462,7 +507,7 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
-  it("does not defer the project record viewer in browse mode so images can render immediately", async () => {
+  it("defers the project record viewer in browse mode while preserving eager nearby images", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -487,7 +532,7 @@ describe("ProjectOverviewPage", () => {
     );
 
     expect(recordViewerProps).toBeDefined();
-    expect(recordViewerProps?.deferUntilVisible).toBeUndefined();
+    expect(recordViewerProps?.deferUntilVisible).toBe(true);
     expect(recordViewerProps?.eagerManagedImages).toBe(true);
   });
 
