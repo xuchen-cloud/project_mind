@@ -559,8 +559,10 @@ describe("WorkspaceLayout", () => {
       await screen.findByRole("tab", { name: "Beta Project" }),
     );
     expect(await screen.findByText("project route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/2",
+    await waitFor(() =>
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/2",
+      ),
     );
 
     await user.click(screen.getByRole("tab", { name: "Alpha Project" }));

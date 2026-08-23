@@ -66,6 +66,48 @@ describe("RichTextViewer", () => {
     }
   });
 
+  it("does not repair updated html while a previously visible viewer is inactive", async () => {
+    const originalIntersectionObserver = globalThis.IntersectionObserver;
+    const intersectionCallbacks: IntersectionObserverCallback[] = [];
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      value: class IntersectionObserver {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallbacks.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords = () => [];
+        root = null;
+        rootMargin = "1200px 0px";
+        thresholds = [];
+      },
+    });
+
+    try {
+      const firstHtml = '<img src="/tmp/old.png" data-path="/tmp/managed/old.png">';
+      const nextHtml = '<img src="/tmp/new.png" data-path="/tmp/managed/new.png">';
+      const { rerender } = render(
+        <RichTextViewer html={firstHtml} active deferUntilVisible />,
+      );
+      intersectionCallbacks[0]?.([{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry], {} as IntersectionObserver);
+      await waitFor(() => expect(desktopApi.toFileUrl).toHaveBeenCalledWith("/tmp/managed/old.png"));
+      vi.mocked(desktopApi.toFileUrl).mockClear();
+
+      rerender(<RichTextViewer html={nextHtml} active={false} deferUntilVisible />);
+      expect(desktopApi.toFileUrl).not.toHaveBeenCalled();
+
+      rerender(<RichTextViewer html={nextHtml} active deferUntilVisible />);
+      await waitFor(() => expect(desktopApi.toFileUrl).toHaveBeenCalledWith("/tmp/managed/new.png"));
+    } finally {
+      Object.defineProperty(globalThis, "IntersectionObserver", {
+        configurable: true,
+        value: originalIntersectionObserver,
+      });
+    }
+  });
+
   it("defers managed image html repair until the viewer enters the viewport", async () => {
     const originalIntersectionObserver = globalThis.IntersectionObserver;
     const intersectionCallbacks: IntersectionObserverCallback[] = [];
