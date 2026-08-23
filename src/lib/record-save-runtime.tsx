@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "./queryKeys";
-import type { ProjectPageData } from "./types";
+import type { NoteRecord, ProjectPageData, WorkspacePageData, WorkspaceRecord } from "./types";
 import {
   RecordSaveCoordinator,
   type RecordSaveStatus,
@@ -30,7 +30,6 @@ export function RecordSaveCoordinatorProvider({
     </RecordSaveCoordinatorContext.Provider>
   );
 }
-
 export function useRecordSaveCoordinator() {
   return useContext(RecordSaveCoordinatorContext);
 }
@@ -62,7 +61,7 @@ export function useRecordSaveStatus(coordinator: RecordSaveCoordinator | null) {
   return status;
 }
 
-export function createProjectRecordSaveCoordinator(options: {
+export function createRecordSaveCoordinator(options: {
   workspaceKey: string;
   queryClient: QueryClient;
 }) {
@@ -73,28 +72,39 @@ export function createProjectRecordSaveCoordinator(options: {
         if (snapshot.workspaceKey !== options.workspaceKey) {
           throw new Error("Record 保存任务不属于当前 Workspace");
         }
-        const { persistProjectRecordSnapshot } = await import(
+        const { persistRecordSnapshot } = await import(
           "./record-save-persistence"
         );
-        return persistProjectRecordSnapshot(snapshot);
+        return persistRecordSnapshot(snapshot);
       },
     },
     onLatestSaved: (snapshot, result) => {
       if (!result.record) {
         return;
       }
-      options.queryClient.setQueryData<ProjectPageData | undefined>(
-        queryKeys.projectPage(snapshot.projectId),
-        (current) =>
-          current
-            ? {
-                ...current,
-                records: (current.records ?? []).map((record) =>
-                  record.id === result.record?.id ? result.record : record,
-                ),
-              }
-            : current,
-      );
+      if (snapshot.scope === "project") {
+        const record = result.record as NoteRecord;
+        options.queryClient.setQueryData<ProjectPageData | undefined>(
+          queryKeys.projectPage(snapshot.projectId),
+          (current) => current ? {
+            ...current,
+            records: (current.records ?? []).map((candidate) =>
+              candidate.id === record.id ? record : candidate,
+            ),
+          } : current,
+        );
+      } else {
+        const record = result.record as WorkspaceRecord;
+        options.queryClient.setQueryData<WorkspacePageData | undefined>(
+          queryKeys.workspacePage,
+          (current) => current ? {
+            ...current,
+            records: (current.records ?? []).map((candidate) =>
+              candidate.id === record.id ? record : candidate,
+            ),
+          } : current,
+        );
+      }
     },
   });
 }

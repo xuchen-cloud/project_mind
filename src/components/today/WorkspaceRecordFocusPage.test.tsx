@@ -13,6 +13,8 @@ import type {
   WorkspaceRecord,
 } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
+import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
 
@@ -99,8 +101,10 @@ vi.mock("../../state/ui-store", () => ({
   }),
 }));
 
-vi.mock("../todo", () => ({
-  TodoRail: () => null,
+vi.mock("../../todo", () => ({
+  TodoModuleRail: ({ enabled }: { enabled?: boolean }) => (
+    <div data-testid="todo-module-rail" data-enabled={enabled === false ? "false" : "true"} />
+  ),
 }));
 
 vi.mock("./WorkspaceOverviewSidebar", () => ({
@@ -358,12 +362,17 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = screen.getByDisplayValue("正文 A");
+    const editorA = await screen.findByDisplayValue("正文 A");
     expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 B" }));
     const editorB = await screen.findByDisplayValue("正文 B");
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(
+      editorA.closest("[data-record-focus-resident-key]")?.querySelector(
+        '[data-testid="todo-module-rail"]',
+      ),
+    ).toHaveAttribute("data-enabled", "false");
 
     await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 A" }));
     expect(await screen.findByDisplayValue("正文 A")).toBe(editorA);
@@ -469,5 +478,42 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
     expect(title).toHaveValue("Workspace 本地标题");
     expect(screen.getByDisplayValue("正文 A")).toBeInTheDocument();
+  });
+
+  it("initializes from a failed Workspace save snapshot before stale Query data", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => { throw new Error("save failed"); }) },
+    });
+    coordinator.submit({
+      scope: "workspace",
+      workspaceKey: "/tmp/workspace",
+      recordId: 7,
+      title: "失败快照标题",
+      tagIds: [],
+      defaultCodeLanguage: "typescript",
+      committedContent: buildMockRichValue("失败快照最新正文"),
+    });
+    await vi.waitFor(() => {
+      expect(coordinator.getRecordStatus("workspace:7").phase).toBe("error");
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <MemoryRouter initialEntries={["/workspace/records/7"]}>
+            <Routes>
+              <Route path="/workspace/records/:noteId" element={<WorkspaceRecordFocusPage />} />
+            </Routes>
+          </MemoryRouter>
+        </RecordSaveCoordinatorProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("失败快照标题");
+    expect(screen.getByDisplayValue("失败快照最新正文")).toBeInTheDocument();
+    expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
   });
 });

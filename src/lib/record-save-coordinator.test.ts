@@ -22,6 +22,7 @@ function snapshot(
   markdown: string,
 ): CommittedProjectRecordSnapshot {
   return {
+    scope: "project",
     workspaceKey: "/workspace/alpha",
     projectId: 1,
     recordId,

@@ -553,7 +553,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = screen.getByDisplayValue("正文 A");
+    const editorA = await screen.findByDisplayValue("正文 A");
     await user.clear(editorA);
     await user.type(editorA, "本地正文 A");
     expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
@@ -733,6 +733,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       adapter: { persist: vi.fn(async () => { throw new Error("save failed"); }) },
     });
     coordinator.submit({
+      scope: "project",
       workspaceKey: "/tmp/workspace",
       projectId: 1,
       recordId: 70,

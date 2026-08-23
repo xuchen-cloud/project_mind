@@ -1,37 +1,29 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
-import { ProjectNoteFocusPage } from "../project/ProjectNoteFocusPage";
-import { WorkspaceRecordFocusPage } from "../today/WorkspaceRecordFocusPage";
+import { parseRecordFocusRoute, type RecordFocusRoute } from "../../lib/record-focus-route";
+import {
+  projectRecordSaveKey,
+  workspaceRecordSaveKey,
+} from "../../lib/record-save-coordinator";
+import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
+import { queryKeys } from "../../lib/queryKeys";
+import type { ProjectPageData, WorkspacePageData } from "../../lib/types";
+import { recordFocusDraftFromRecord, type RecordFocusDraft } from "./recordFocusDraft";
+
+const ProjectNoteFocusPage = lazy(() =>
+  import("../project/ProjectNoteFocusPage").then((module) => ({
+    default: module.ProjectNoteFocusPage,
+  })),
+);
+const WorkspaceRecordFocusPage = lazy(() =>
+  import("../today/WorkspaceRecordFocusPage").then((module) => ({
+    default: module.WorkspaceRecordFocusPage,
+  })),
+);
 
 const MAX_RESIDENT_RECORD_FOCUSES = 2;
-
-type RecordFocusRoute =
-  | { key: string; kind: "project"; projectId: number; recordId: number }
-  | { key: string; kind: "workspace"; recordId: number };
-
-function parseRecordFocusRoute(pathname: string): RecordFocusRoute | null {
-  const projectMatch = /^\/projects\/(\d+)\/records\/(\d+)$/u.exec(pathname);
-  if (projectMatch) {
-    const projectId = Number.parseInt(projectMatch[1] ?? "", 10);
-    const recordId = Number.parseInt(projectMatch[2] ?? "", 10);
-    if (Number.isFinite(projectId) && Number.isFinite(recordId)) {
-      return {
-        key: `project:${projectId}:${recordId}`,
-        kind: "project",
-        projectId,
-        recordId,
-      };
-    }
-  }
-
-  const workspaceMatch = /^\/workspace\/records\/(\d+)$/u.exec(pathname);
-  if (!workspaceMatch) return null;
-  const recordId = Number.parseInt(workspaceMatch[1] ?? "", 10);
-  return Number.isFinite(recordId)
-    ? { key: `workspace:${recordId}`, kind: "workspace", recordId }
-    : null;
-}
 
 function updateResidentFocusRoutes(
   current: readonly RecordFocusRoute[],
@@ -43,6 +35,68 @@ function updateResidentFocusRoutes(
 
   return [...current.filter((route) => route.key !== active.key), active].slice(
     -MAX_RESIDENT_RECORD_FOCUSES,
+  );
+}
+
+function CachedRecordFocusPage({ route }: { route: RecordFocusRoute }) {
+  const queryClient = useQueryClient();
+  const saveCoordinator = useRecordSaveCoordinator();
+  let draft: RecordFocusDraft | null = null;
+
+  if (route.kind === "project") {
+    const snapshot = saveCoordinator?.getLatestSnapshot(
+      projectRecordSaveKey(route.projectId, route.recordId),
+    );
+    if (snapshot?.scope === "project") {
+      draft = {
+        title: snapshot.title,
+        content: snapshot.committedContent,
+        tagIds: snapshot.tagIds,
+        codeLanguage: snapshot.defaultCodeLanguage,
+        updatedAt: "",
+      };
+    } else {
+      const record = queryClient
+        .getQueryData<ProjectPageData>(queryKeys.projectPage(route.projectId))
+        ?.records?.find((candidate) => candidate.id === route.recordId);
+      draft = record ? recordFocusDraftFromRecord(record) : null;
+    }
+  } else {
+    const snapshot = saveCoordinator?.getLatestSnapshot(
+      workspaceRecordSaveKey(route.recordId),
+    );
+    if (snapshot?.scope === "workspace") {
+      draft = {
+        title: snapshot.title,
+        content: snapshot.committedContent,
+        tagIds: snapshot.tagIds,
+        codeLanguage: snapshot.defaultCodeLanguage,
+        updatedAt: "",
+      };
+    } else {
+      const record = queryClient
+        .getQueryData<WorkspacePageData>(queryKeys.workspacePage)
+        ?.records?.find((candidate) => candidate.id === route.recordId);
+      draft = record ? recordFocusDraftFromRecord(record) : null;
+    }
+  }
+
+  if (!draft) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
+        正在打开记录…
+      </div>
+    );
+  }
+
+  return (
+    <article className="h-full min-h-0 overflow-auto px-6 py-6" data-record-focus-cached-fallback>
+      {draft.title ? <h1 className="text-lg font-medium text-text">{draft.title}</h1> : null}
+      <div
+        className="rich-editor__content mt-4"
+        dangerouslySetInnerHTML={{ __html: draft.content.html }}
+      />
+    </article>
   );
 }
 
@@ -92,7 +146,7 @@ export function RecordFocusResidentPages({ workspaceKey }: { workspaceKey: strin
   const currentRoutes = residency.workspaceKey === workspaceKey ? residency.routes : [];
   const renderedRoutes = updateResidentFocusRoutes(currentRoutes, activeFocus);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setResidency((current) => {
       const baseRoutes = current.workspaceKey === workspaceKey ? current.routes : [];
       const nextRoutes = updateResidentFocusRoutes(baseRoutes, activeFocus);
@@ -112,13 +166,17 @@ export function RecordFocusResidentPages({ workspaceKey }: { workspaceKey: strin
     return (
       <ResidentFocusPage key={route.key} active={active} focusKey={route.key}>
         {route.kind === "project" ? (
-          <ProjectNoteFocusPage
-            projectIdOverride={route.projectId}
-            noteIdOverride={route.recordId}
-            visible={active}
-          />
+          <Suspense fallback={<CachedRecordFocusPage route={route} />}>
+            <ProjectNoteFocusPage
+              projectIdOverride={route.projectId}
+              recordIdOverride={route.recordId}
+              visible={active}
+            />
+          </Suspense>
         ) : (
-          <WorkspaceRecordFocusPage noteIdOverride={route.recordId} visible={active} />
+          <Suspense fallback={<CachedRecordFocusPage route={route} />}>
+            <WorkspaceRecordFocusPage recordIdOverride={route.recordId} visible={active} />
+          </Suspense>
         )}
       </ResidentFocusPage>
     );

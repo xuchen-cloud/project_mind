@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -20,6 +21,7 @@ import {
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
 import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
+import { queryKeys } from "./lib/queryKeys";
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
@@ -140,6 +142,12 @@ vi.mock("./services/projectMindApi", () => ({
       documents: [],
     })),
     workspaceRecordList: vi.fn(async () => []),
+    workspacePageGet: vi.fn(async () => ({
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    })),
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
     workspaceOpen: vi.fn(),
@@ -418,6 +426,7 @@ describe("WorkspaceLayout", () => {
       adapter: { persist: vi.fn(() => pendingSave) },
     });
     coordinator.submit({
+      scope: "project",
       workspaceKey: "/tmp/old-workspace",
       projectId: 1,
       recordId: 7,
@@ -462,6 +471,7 @@ describe("WorkspaceLayout", () => {
       adapter: { persist: vi.fn(() => pendingSave) },
     });
     coordinator.submit({
+      scope: "project",
       workspaceKey: "/tmp/workspace",
       projectId: 1,
       recordId: 7,
@@ -1228,6 +1238,7 @@ describe("WorkspaceLayout", () => {
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
       coordinator.submit({
+        scope: "project",
         workspaceKey: "/tmp/workspace",
         projectId: detail.projectId,
         recordId: detail.recordId,
@@ -1272,6 +1283,154 @@ describe("WorkspaceLayout", () => {
     );
     await coordinator.flush();
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
+  });
+
+  it("keeps a global two-entry Record Focus LRU through the production WorkspaceLayout routes", async () => {
+    const timestamp = "2026-08-23T00:00:00.000Z";
+    const project = (id: number, name: string) => ({
+      id,
+      name,
+      kind: "normal" as const,
+      status: "active",
+      rootPath: `/tmp/${name.toLowerCase()}`,
+      quickNote: "",
+      isArchived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      unorganizedCount: 0,
+      openTodoCount: 0,
+    });
+    const projects = [project(1, "Alpha"), project(2, "Beta")];
+    const record = (projectId: number, id: number, title: string) => ({
+      id,
+      projectId,
+      activityId: null,
+      title,
+      contentMarkdown: `${title} 正文`,
+      contentHtml: `<p>${title} 正文</p>`,
+      defaultCodeLanguage: null,
+      tags: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const projectPages = new Map([
+      [1, {
+        project: projects[0],
+        records: [record(1, 7, "Alpha A"), record(1, 8, "Alpha B")],
+        projectDocuments: [],
+        conclusionGroups: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+      }],
+      [2, {
+        project: projects[1],
+        records: [record(2, 17, "Beta A")],
+        projectDocuments: [],
+        conclusionGroups: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+      }],
+    ]);
+    const workspacePage = {
+      quickNote: null,
+      records: [{
+        id: 27,
+        title: "Workspace A",
+        contentMarkdown: "Workspace A 正文",
+        contentHtml: "<p>Workspace A 正文</p>",
+        defaultCodeLanguage: null,
+        tags: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    };
+    const workspaceStatus = {
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        metadataPath: "/tmp/workspace/.project-mind/workspace.json",
+        displayName: "Test Workspace",
+        createdAt: timestamp,
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+      securityMode: "workspace_password_encrypted" as const,
+    };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) =>
+      projectPages.get(projectId)!,
+    );
+    vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue(workspacePage);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    });
+    queryClient.setQueryData(queryKeys.workspaceStatus, workspaceStatus);
+    queryClient.setQueryData(queryKeys.projects.all, projects);
+    queryClient.setQueryData(queryKeys.projectPage(1), projectPages.get(1));
+    queryClient.setQueryData(queryKeys.projectPage(2), projectPages.get(2));
+    queryClient.setQueryData(queryKeys.workspacePage, workspacePage);
+    queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
+    queryClient.setQueryData(queryKeys.aiSettings, null);
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+    });
+    const router = createMemoryRouter(
+      [{
+        path: "/",
+        element: (
+          <WorkspaceLayout
+            cacheProjectOverviewPages
+            recordSaveCoordinator={coordinator}
+          />
+        ),
+        children: [
+          { path: "projects/:projectId/records/:noteId", element: <div>legacy project route</div> },
+          { path: "workspace/records/:noteId", element: <div>legacy workspace route</div> },
+          { path: "workspace", element: <div>legacy workspace overview</div> },
+        ],
+      }],
+      { initialEntries: ["/projects/1/records/7"] },
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const fallback = document.querySelector("[data-record-focus-cached-fallback]");
+    expect(fallback).toHaveTextContent("Alpha A 正文");
+    expect(screen.queryByText("正在打开记录…")).not.toBeInTheDocument();
+    await screen.findByPlaceholderText("记录标题");
+    const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
+    expect(alphaA).not.toBeNull();
+
+    await act(() => router.navigate("/projects/1/records/8"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    await act(() => router.navigate("/projects/1/records/7"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
+
+    await act(() => router.navigate("/projects/2/records/17"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
+    await act(() => router.navigate("/projects/1/records/7"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
+
+    await act(() => router.navigate("/workspace/records/27"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
+    await act(() => router.navigate("/workspace"));
+    await act(() => router.navigate("/workspace/records/27"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
+
+    await act(() => router.navigate("/projects/1/records/8"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(alphaA).not.toBeInTheDocument();
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+    expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
   });
 
 });

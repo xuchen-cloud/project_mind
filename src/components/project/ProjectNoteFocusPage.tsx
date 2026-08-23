@@ -16,7 +16,7 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import {
-  createProjectRecordSaveCoordinator,
+  createRecordSaveCoordinator,
   useRecordSaveCoordinator,
 } from "../../lib/record-save-runtime";
 import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
@@ -43,6 +43,7 @@ import type { RecordExportRequest } from "../../features/record-export/recordExp
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type { ProjectPageData, ProjectTagRecord } from "../../lib/types";
 import type { RichTextStyleSettings } from "../../lib/types";
+import { recordFocusDraftFromRecord } from "../record/recordFocusDraft";
 
 interface ProjectRecordDraft {
   activityId: number | null;
@@ -53,37 +54,13 @@ interface ProjectRecordDraft {
   updatedAt: string | null;
 }
 
-function projectRecordDraftFromQuery(
-  projectPage: ProjectPageData | undefined,
-  noteId: number | null,
-): ProjectRecordDraft | null {
-  if (!projectPage || noteId === null) return null;
-  const note = (projectPage.records ?? []).find((record) => record.id === noteId);
-  if (!note) return null;
-  return {
-    activityId: note.activityId ?? null,
-    title: note.title ?? "",
-    content: {
-      html: getRenderableRichTextHtml({
-        html: note.contentHtml,
-        markdown: note.contentMarkdown,
-      }),
-      text: note.contentMarkdown,
-      markdown: note.contentMarkdown,
-    },
-    tagIds: (note.tags ?? []).map((tag) => tag.id),
-    codeLanguage: note.defaultCodeLanguage ?? null,
-    updatedAt: note.updatedAt,
-  };
-}
-
 export function ProjectNoteFocusPage({
   projectIdOverride,
-  noteIdOverride,
+  recordIdOverride,
   visible = true,
 }: {
   projectIdOverride?: number;
-  noteIdOverride?: number;
+  recordIdOverride?: number;
   visible?: boolean;
 } = {}) {
   const navigate = useNavigate();
@@ -92,16 +69,17 @@ export function ProjectNoteFocusPage({
   const queryClient = useQueryClient();
   const workspaceSaveCoordinator = useRecordSaveCoordinator();
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
-  const noteId = noteIdOverride ?? parseRouteId(params.noteId);
+  const recordId = recordIdOverride ?? parseRouteId(params.noteId);
   const initialProjectPage = queryClient.getQueryData<ProjectPageData>(
     queryKeys.projectPage(projectId),
   );
-  const initialSnapshot =
-    projectId === null || noteId === null
+  const latestSnapshot =
+    projectId === null || recordId === null
       ? null
       : workspaceSaveCoordinator?.getLatestSnapshot(
-          projectRecordSaveKey(projectId, noteId),
+          projectRecordSaveKey(projectId, recordId),
         ) ?? null;
+  const initialSnapshot = latestSnapshot?.scope === "project" ? latestSnapshot : null;
   const initialDraft: ProjectRecordDraft | null = initialSnapshot
     ? {
         activityId: initialSnapshot.activityId,
@@ -111,7 +89,14 @@ export function ProjectNoteFocusPage({
         codeLanguage: initialSnapshot.defaultCodeLanguage,
         updatedAt: null,
       }
-    : projectRecordDraftFromQuery(initialProjectPage, noteId);
+    : (() => {
+        const record = initialProjectPage?.records?.find(
+          (candidate) => candidate.id === recordId,
+        );
+        return record
+          ? { ...recordFocusDraftFromRecord(record), activityId: record.activityId ?? null }
+          : null;
+      })();
   const focusScrollRef = useRef<HTMLDivElement | null>(null);
   const { pushToast } = useFeedbackStore();
   const { openSettings, pageWidthMode, projectSidebarCollapsed } = useUiStore();
@@ -127,7 +112,7 @@ export function ProjectNoteFocusPage({
     initialDraft?.codeLanguage ?? null,
   );
   const [loadedNoteId, setLoadedNoteId] = useState<number | null>(
-    initialDraft ? noteId : null,
+    initialDraft ? recordId : null,
   );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -149,7 +134,7 @@ export function ProjectNoteFocusPage({
   const projectPageQuery = useQuery({
     queryKey: queryKeys.projectPage(projectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: projectId as number }),
-    enabled: visible && projectId !== null && noteId !== null && loadedNoteId === null,
+    enabled: visible && projectId !== null && recordId !== null && loadedNoteId === null,
   });
 
   const tagSettingsQuery = useQuery({
@@ -171,7 +156,7 @@ export function ProjectNoteFocusPage({
         null;
   const fallbackSaveCoordinator = useMemo(
     () =>
-      createProjectRecordSaveCoordinator({
+      createRecordSaveCoordinator({
         workspaceKey: project?.rootPath ?? `project:${projectId ?? "unknown"}`,
         queryClient,
       }),
@@ -179,7 +164,7 @@ export function ProjectNoteFocusPage({
   );
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
-    `project-record:${project?.rootPath ?? `project-${projectId}`}:${noteId}`,
+    `project-record:${project?.rootPath ?? `project-${projectId}`}:${recordId}`,
   );
   const setFocusScrollRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -190,13 +175,13 @@ export function ProjectNoteFocusPage({
   );
 
   const note = useMemo(() => {
-    if (!projectPageQuery.data || noteId === null) return null;
-    return (projectPageQuery.data.records ?? []).find((record) => record.id === noteId) ?? null;
-  }, [projectPageQuery.data, noteId]);
+    if (!projectPageQuery.data || recordId === null) return null;
+    return (projectPageQuery.data.records ?? []).find((record) => record.id === recordId) ?? null;
+  }, [projectPageQuery.data, recordId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const aiSettings = aiSettingsQuery.data ?? null;
-  const draftReady = noteId !== null && loadedNoteId === noteId;
+  const draftReady = recordId !== null && loadedNoteId === recordId;
   const activityId = note?.activityId ?? initialDraft?.activityId ?? null;
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !draftReady) {
@@ -248,15 +233,16 @@ export function ProjectNoteFocusPage({
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue) => {
-      if (!draftReady || projectId === null || noteId === null) return false;
+      if (!draftReady || projectId === null || recordId === null) return false;
       const committed =
         value ??
         editorControllerRef.current?.getCommittedValue() ??
         Object.freeze({ ...content });
       saveCoordinator.submit({
+        scope: "project",
         workspaceKey: saveCoordinator.workspaceKey ?? project?.rootPath ?? `project:${projectId}`,
         projectId,
-        recordId: noteId,
+        recordId,
         activityId,
         title: titleValueRef.current,
         tagIds: [...tagIdsValueRef.current],
@@ -267,7 +253,7 @@ export function ProjectNoteFocusPage({
       lastSavedTitleRef.current = titleValueRef.current;
       setPersistState("saving");
       return true;
-    }, [activityId, content, draftReady, noteId, project?.rootPath, projectId, saveCoordinator]);
+    }, [activityId, content, draftReady, recordId, project?.rootPath, projectId, saveCoordinator]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
@@ -292,7 +278,7 @@ export function ProjectNoteFocusPage({
   }, [pushToast, saveCoordinator, submitCurrentRecord]);
 
   useEffect(() => {
-    if (projectId === null || noteId === null) {
+    if (projectId === null || recordId === null) {
       return;
     }
     return saveCoordinator.subscribe(() => {
@@ -300,7 +286,7 @@ export function ProjectNoteFocusPage({
         return;
       }
       const status = saveCoordinator.getRecordStatus(
-        projectRecordSaveKey(projectId, noteId),
+        projectRecordSaveKey(projectId, recordId),
       );
       setPersistState(
         status.phase === "error"
@@ -310,12 +296,12 @@ export function ProjectNoteFocusPage({
             : "saved",
       );
     });
-  }, [noteId, projectId, saveCoordinator]);
+  }, [recordId, projectId, saveCoordinator]);
 
   useEffect(() => {
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
-      if (!detail || detail.projectId !== projectId || detail.recordId !== noteId) {
+      if (!detail || detail.projectId !== projectId || detail.recordId !== recordId) {
         return;
       }
 
@@ -326,7 +312,7 @@ export function ProjectNoteFocusPage({
     return () => {
       window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     };
-  }, [noteId, projectId, submitCurrentRecord]);
+  }, [recordId, projectId, submitCurrentRecord]);
 
   const saveTitleIfChanged = async () => {
     if (!draftReady || titleValueRef.current === lastSavedTitleRef.current) {
@@ -352,7 +338,7 @@ export function ProjectNoteFocusPage({
   const handleBack = () => {
     if (projectId !== null) {
       navigate(
-        preserveRecordFilters(projectPath(projectId, `record-${noteId}`), searchParams),
+        preserveRecordFilters(projectPath(projectId, `record-${recordId}`), searchParams),
       );
     }
   };
@@ -382,7 +368,7 @@ export function ProjectNoteFocusPage({
       const committed = editorControllerRef.current?.getCommittedValue?.() ?? normalizeRichEditorValue(content);
       const savedRecord = queryClient
         .getQueryData<ProjectPageData>(queryKeys.projectPage(projectId))
-        ?.records?.find((record) => record.id === noteId);
+        ?.records?.find((record) => record.id === recordId);
       return {
         recordKind: "project" as const,
         title: titleValueRef.current,
@@ -394,9 +380,9 @@ export function ProjectNoteFocusPage({
       };
     });
     return exportRecord(request);
-  }, [availableTags, content, note?.updatedAt, noteId, project?.name, queryClient, saveCurrentRecord]);
+  }, [availableTags, content, note?.updatedAt, recordId, project?.name, queryClient, saveCurrentRecord]);
 
-  if (projectId === null || noteId === null) {
+  if (projectId === null || recordId === null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-text-soft">无效的记录ID</p>
@@ -431,7 +417,7 @@ export function ProjectNoteFocusPage({
   return (
     <div
       className="project-overview-focus h-full min-h-0"
-      data-focus-page-key={`${projectId}:${noteId}`}
+      data-focus-page-key={`${projectId}:${recordId}`}
     >
       {/* Header */}
       <header className="project-overview-focus__chrome">
@@ -532,7 +518,7 @@ export function ProjectNoteFocusPage({
               }}
             />
             <RichEditor
-              key={`${projectId}:${noteId}`}
+              key={`${projectId}:${recordId}`}
               html={content.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}

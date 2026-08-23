@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
 import { Outlet, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -21,10 +21,14 @@ import {
   workspacePath,
 } from "./lib/formatters";
 import { generateDefaultProjectName } from "./lib/projectDefaultName";
-import { requestProjectRecordFocusSave } from "./lib/record-focus-save";
+import {
+  requestProjectRecordFocusSave,
+  requestWorkspaceRecordFocusSave,
+} from "./lib/record-focus-save";
+import { parseRecordFocusRoute } from "./lib/record-focus-route";
 import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 import {
-  createProjectRecordSaveCoordinator,
+  createRecordSaveCoordinator,
   RecordSaveCoordinatorProvider,
   useRecordSaveStatus,
 } from "./lib/record-save-runtime";
@@ -67,12 +71,7 @@ import {
   UnlockWorkspaceSecretsDialog,
 } from "./components/workspace/WorkspaceDialogs";
 import { Button, EmptyState } from "./ui/components";
-
-const RecordFocusResidentPages = lazy(() =>
-  import("./components/record/RecordFocusResidentPages").then((module) => ({
-    default: module.RecordFocusResidentPages,
-  })),
-);
+import { RecordFocusResidentPages } from "./components/record/RecordFocusResidentPages";
 
 function workspaceScopedQueryKeys() {
   return [
@@ -128,13 +127,6 @@ function toProjectSidebarDocuments(
 
 function isProjectOverviewPath(pathname: string, projectId: number | null) {
   return projectId !== null && pathname === projectPath(projectId);
-}
-
-function isRecordFocusPath(pathname: string) {
-  return (
-    /^\/projects\/\d+\/records\/\d+$/u.test(pathname) ||
-    /^\/workspace\/records\/\d+$/u.test(pathname)
-  );
 }
 
 function getProjectOverviewSearchParams(route: string) {
@@ -204,45 +196,40 @@ export function WorkspaceLayout({
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
-  const skipProjectFocusSaveRouteRef = useRef<string | null>(null);
-  const submitActiveProjectFocusRecord = useCallback(() => {
-    if (
-      activeRecordId === null ||
-      activeProjectId === null ||
-      !/^\/projects\/\d+\/records\/\d+$/u.test(location.pathname)
-    ) {
-      return true;
-    }
-
-    const saveResult = requestProjectRecordFocusSave({
-      projectId: activeProjectId,
-      recordId: activeRecordId,
-    });
-
+  const skipFocusSaveRouteRef = useRef<string | null>(null);
+  const submitActiveFocusRecord = useCallback(() => {
+    const route = parseRecordFocusRoute(location.pathname);
+    if (!route) return true;
+    const saveResult = route.kind === "project"
+      ? requestProjectRecordFocusSave({
+          projectId: route.projectId,
+          recordId: route.recordId,
+        })
+      : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
     return saveResult === "submitted";
-  }, [activeProjectId, activeRecordId, location.pathname]);
+  }, [location.pathname]);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
       ({ currentLocation, nextLocation }) => {
-        const match = /^\/projects\/(\d+)\/records\/(\d+)$/u.exec(
-          currentLocation.pathname,
-        );
+        const route = parseRecordFocusRoute(currentLocation.pathname);
         if (
-          !match ||
+          !route ||
           (currentLocation.pathname === nextLocation.pathname &&
             currentLocation.search === nextLocation.search)
         ) {
           return false;
         }
         const currentRoute = `${currentLocation.pathname}${currentLocation.search}`;
-        if (skipProjectFocusSaveRouteRef.current === currentRoute) {
-          skipProjectFocusSaveRouteRef.current = null;
+        if (skipFocusSaveRouteRef.current === currentRoute) {
+          skipFocusSaveRouteRef.current = null;
           return false;
         }
-        const result = requestProjectRecordFocusSave({
-          projectId: Number.parseInt(match[1] ?? "", 10),
-          recordId: Number.parseInt(match[2] ?? "", 10),
-        });
+        const result = route.kind === "project"
+          ? requestProjectRecordFocusSave({
+              projectId: route.projectId,
+              recordId: route.recordId,
+            })
+          : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
         return result !== "submitted";
       },
       [],
@@ -306,7 +293,7 @@ export function WorkspaceLayout({
   const hasWorkspace = Boolean(currentWorkspace);
   const internalRecordSaveCoordinator = useMemo(
     () =>
-      createProjectRecordSaveCoordinator({
+      createRecordSaveCoordinator({
         workspaceKey: currentWorkspace?.rootPath ?? "workspace:unavailable",
         queryClient,
       }),
@@ -316,11 +303,11 @@ export function WorkspaceLayout({
     injectedRecordSaveCoordinator ?? internalRecordSaveCoordinator;
   const recordSaveStatus = useRecordSaveStatus(recordSaveCoordinator);
   const flushRecordSaves = useCallback(async () => {
-    if (!submitActiveProjectFocusRecord()) {
-      throw new Error("无法捕获当前 Project Record 的 Committed Content");
+    if (!submitActiveFocusRecord()) {
+      throw new Error("无法捕获当前 Record 的 Committed Content");
     }
     await recordSaveCoordinator.flush();
-  }, [recordSaveCoordinator, submitActiveProjectFocusRecord]);
+  }, [recordSaveCoordinator, submitActiveFocusRecord]);
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -529,7 +516,7 @@ export function WorkspaceLayout({
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+      skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       return snapshot;
     },
@@ -601,7 +588,7 @@ export function WorkspaceLayout({
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
       setCreateWorkspacePassword("");
-      skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+      skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       setStatus({
         tone: "success",
@@ -846,7 +833,7 @@ export function WorkspaceLayout({
       await projectMindApi.projectRecordDelete({ noteId: record.id });
       await refreshProjectScope(queryClient, projectId);
       if (activeRecordId === record.id) {
-        skipProjectFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+        skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
         navigate(projectPath(projectId));
       }
     },
@@ -915,7 +902,7 @@ export function WorkspaceLayout({
   const workspaceOverviewActive =
     cacheProjectOverviewPages && location.pathname === workspacePath();
   const recordFocusResidencyActive =
-    cacheProjectOverviewPages && isRecordFocusPath(location.pathname);
+    cacheProjectOverviewPages && parseRecordFocusRoute(location.pathname) !== null;
   const [recordFocusResidencyWorkspaceKey, setRecordFocusResidencyWorkspaceKey] =
     useState<string | null>(null);
 
@@ -1351,20 +1338,10 @@ export function WorkspaceLayout({
     currentWorkspace &&
     (recordFocusResidencyActive ||
       recordFocusResidencyWorkspaceKey === currentWorkspace.rootPath) ? (
-      <Suspense
-        fallback={
-          recordFocusResidencyActive ? (
-            <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
-              正在打开记录…
-            </div>
-          ) : null
-        }
-      >
-        <RecordFocusResidentPages
-          key={currentWorkspace.rootPath}
-          workspaceKey={currentWorkspace.rootPath}
-        />
-      </Suspense>
+      <RecordFocusResidentPages
+        key={currentWorkspace.rootPath}
+        workspaceKey={currentWorkspace.rootPath}
+      />
     ) : null;
   return (
     <RecordSaveCoordinatorProvider
