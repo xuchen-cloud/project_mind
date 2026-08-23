@@ -22,9 +22,6 @@ const noteImageAssetMocks = vi.hoisted(() => ({
   }>,
 }));
 const todoModuleRailProps = vi.hoisted(() => [] as Array<Record<string, any>>);
-const projectMutationMocks = vi.hoisted(() => ({
-  updateMutateAsync: vi.fn(async () => undefined),
-}));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
@@ -113,7 +110,7 @@ vi.mock("../../hooks/useContactMentionOptions", () => ({
 
 vi.mock("../../hooks/useProjectMutations", () => ({
   useProjectMutations: () => ({
-    projectUpdateMutation: { mutateAsync: projectMutationMocks.updateMutateAsync },
+    projectUpdateMutation: { mutateAsync: vi.fn(async () => undefined) },
   }),
 }));
 
@@ -259,7 +256,6 @@ describe("ProjectOverviewPage", () => {
     useUiStore.setState(createUiStoreState());
     todoModuleRailProps.length = 0;
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
-    projectMutationMocks.updateMutateAsync.mockClear();
     noteImageAssetMocks.richTextViewerProps.length = 0;
     scrollIntoViewMock.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -273,8 +269,7 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
-  it("edits Project Status beside the Project title without changing Archive", async () => {
-    const user = userEvent.setup();
+  it("does not expose the internal Project status beside the title", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -286,26 +281,9 @@ describe("ProjectOverviewPage", () => {
       </QueryClientProvider>,
     );
 
-    const statusInput = await screen.findByRole("textbox", { name: "项目状态" });
-    expect(statusInput).toHaveValue("active");
-
-    await user.clear(statusInput);
-    await user.type(statusInput, "推进中");
-    await user.tab();
-
-    await waitFor(() => {
-      expect(projectMutationMocks.updateMutateAsync).toHaveBeenCalledWith({
-        projectId: 1,
-        quickNote: "",
-        quickNoteMarkdown: "",
-        quickNoteHtml: "",
-        quickNoteCodeLanguage: null,
-        status: "推进中",
-      });
-    });
-    expect(projectMutationMocks.updateMutateAsync).not.toHaveBeenCalledWith(
-      expect.objectContaining({ isArchived: expect.anything() }),
-    );
+    expect(await screen.findByRole("textbox", { name: "项目名称" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "项目状态" })).not.toBeInTheDocument();
+    expect(screen.queryByText("active")).not.toBeInTheDocument();
   });
 
   it("defaults to Current Project View and persists a switch to Workspace View", async () => {

@@ -280,16 +280,6 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 - `page`
 - `bare`
 
-### 6.6 `Project Status`
-
-Project Status 是项目生命周期的一行短文本信号：
-
-- 在项目标题附近原地编辑
-- 在 Workspace 项目列表、项目页签和项目侧边栏以弱文本或中性 badge 复现
-- 不使用 Project Label 的多色分类表达
-- 不使用 Archive 的归档文案或操作语义
-- 不扩展为独立卡片或重表单
-
 ## 7. 交互规则
 
 ### 7.1 QuickNote / Record切换

@@ -331,14 +331,9 @@ export function WorkspaceTopBar({
                     dragging: false,
                   };
                 }}
-                aria-label={project.name}
                 title={project.name}
               >
-                <span className="workspace-topbar__tab-label min-w-0 flex-1">
-                  {project.name}
-                </span>
-                <span aria-hidden="true" className="workspace-topbar__tab-divider">·</span>
-                <span className="workspace-topbar__tab-status">{project.status || "未设置"}</span>
+                <span className="workspace-topbar__tab-label min-w-0 flex-1">{project.name}</span>
               </button>
               {onCloseProject ? (
                 <button

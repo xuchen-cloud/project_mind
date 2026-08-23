@@ -394,10 +394,8 @@ export function WorkspaceOverviewSidebar({
                               {project.name}
                             </p>
                           )}
-                          <p className="mt-1 flex min-w-0 items-center gap-1.5 text-ui text-text-soft">
-                            <span className="truncate text-text-muted">{project.status || "未设置"}</span>
-                            <span aria-hidden="true">·</span>
-                            <span className="shrink-0">{project.openTodoCount} 个 Todo</span>
+                          <p className="mt-1 text-ui text-text-soft">
+                            {project.openTodoCount} 个 Todo
                           </p>
                         </span>
                       </button>

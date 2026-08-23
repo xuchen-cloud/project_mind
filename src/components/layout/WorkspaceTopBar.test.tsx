@@ -8,10 +8,10 @@ import {
 } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
-  it("keeps each Project Status scannable in its tab", () => {
+  it("does not expose the internal Project status in navigation tabs", () => {
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "推进中", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 }]}
         activeProjectId={1}
         searchInput=""
         onSearchInput={vi.fn()}
@@ -24,7 +24,8 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    expect(screen.getByText("推进中")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.queryByText("active")).not.toBeInTheDocument();
   });
 
   it("handles search selection", async () => {

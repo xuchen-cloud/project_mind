@@ -1172,7 +1172,6 @@ export function WorkspaceLayout({
               id: activeProject.id,
               name: activeProject.name,
               kind: activeProject.kind,
-              status: activeProject.status,
               rootPath: activeProject.rootPath,
               isArchived: activeProject.isArchived,
             }}

@@ -94,7 +94,6 @@ interface ProjectSidebarProps {
     id: number;
     name: string;
     kind?: "normal";
-    status?: string;
     rootPath: string;
     isArchived?: boolean;
   };
@@ -793,8 +792,7 @@ export function ProjectSidebar({
           <span className="min-w-0">
             <span className="block truncate text-title font-medium">{project.name}</span>
             <span className="mt-1 flex items-center gap-2">
-              <StatusBadge tone="neutral">{project.status || "未设置"}</StatusBadge>
-              {project.isArchived ? <StatusBadge tone="neutral">archived</StatusBadge> : null}
+              <StatusBadge tone="neutral">{project.isArchived ? "archived" : "overview"}</StatusBadge>
             </span>
           </span>
         </button>

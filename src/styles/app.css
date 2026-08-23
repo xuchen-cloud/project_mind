@@ -2594,54 +2594,6 @@
   gap: 0.4rem;
 }
 
-.project-overview-focus__title-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.project-overview-focus__status {
-  min-width: 0;
-  max-width: 12rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: var(--radius-6);
-  color: var(--color-text-soft);
-  background: color-mix(in srgb, var(--color-bg-subtle) 72%, transparent);
-  font-size: var(--text-ui);
-  transition:
-    background-color var(--duration-standard) var(--ease-soft),
-    color var(--duration-standard) var(--ease-soft);
-}
-
-.project-overview-focus__status:focus-within {
-  color: var(--color-text);
-  background: var(--color-bg-subtle);
-}
-
-.project-overview-focus__status-label {
-  flex: none;
-  color: var(--color-text-soft);
-}
-
-.project-overview-focus__status-input {
-  width: min(7rem, 22vw);
-  min-width: 3rem;
-  border: 0;
-  padding: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-
-.project-overview-focus__status-input::placeholder {
-  color: var(--color-text-soft);
-}
-
 .project-overview-focus__eyebrow {
   font-size: var(--text-caption);
   font-weight: 500;
@@ -2750,11 +2702,6 @@
 
 .todo-rail__segmented-control .project-overview-focus__view-switch-button {
   padding: 0.32rem 0.5rem;
-}
-
-.project-overview-focus__status {
-  color: var(--color-text-soft);
-  font-size: var(--text-ui);
 }
 
 .project-overview-focus__scroll {
@@ -5317,25 +5264,6 @@
 
 .workspace-topbar__tab-trigger {
   min-width: 0;
-  gap: 0.35rem;
-}
-
-.workspace-topbar__tab-divider {
-  flex: none;
-  color: var(--color-text-soft);
-  opacity: 0.7;
-}
-
-.workspace-topbar__tab-status {
-  min-width: 0;
-  max-width: 4rem;
-  overflow: hidden;
-  flex: 0 1 auto;
-  color: var(--color-text-soft);
-  font-size: var(--text-caption);
-  font-weight: 450;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workspace-topbar__tab-label {

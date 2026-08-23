@@ -834,7 +834,6 @@ describe("WorkspaceLayout", () => {
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    expect(within(sidebar).getByText("active")).toBeInTheDocument();
     await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
 
     expect(projectMindApi.projectRecordUpsert).toHaveBeenCalledWith({
