@@ -1,5 +1,5 @@
-import { ArrowLeft, LoaderCircle, Settings2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Settings2 } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -28,11 +28,12 @@ import {
   createRecordSaveCoordinator,
   useRecordSaveCoordinator,
 } from "../../lib/record-save-runtime";
+import { prefetchProjectPageData } from "../../lib/project-prefetch";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { IconButton, TextField } from "../../ui/components";
+import { IconButton, PageLoadingSkeleton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   normalizeRichEditorValue,
@@ -77,14 +78,20 @@ export function WorkspaceRecordFocusPage({
     ? null
     : workspaceSaveCoordinator?.getLatestSnapshot(workspaceRecordSaveKey(recordId)) ?? null;
   const initialSnapshot = latestSnapshot?.scope === "workspace" ? latestSnapshot : null;
-  const initialRecord = queryClient
-    .getQueryData<WorkspacePageData>(queryKeys.workspacePage)
-    ?.records?.find((candidate) => candidate.id === recordId);
+  const initialWorkspacePage = queryClient.getQueryData<WorkspacePageData>(
+    queryKeys.workspacePage,
+  );
+  const initialRecord = initialWorkspacePage?.records?.find(
+    (candidate) => candidate.id === recordId,
+  );
   const initialDraft = initialSnapshot
     ? recordFocusDraftFromSnapshot(initialSnapshot)
     : initialRecord
       ? recordFocusDraftFromRecord(initialRecord)
       : null;
+  const wasWorkspacePageCachedAtMount = useRef(
+    initialWorkspacePage !== undefined,
+  );
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `workspace-record:${recordId}`,
   );
@@ -180,6 +187,14 @@ export function WorkspaceRecordFocusPage({
     [currentWorkspace?.rootPath, queryClient],
   );
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
+  const prefetchProject = useCallback(
+    (projectId: number) => {
+      void prefetchProjectPageData(queryClient, projectId).catch(() => {
+        // The destination query reports prefetch failures.
+      });
+    },
+    [queryClient],
+  );
   const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
     visibleProjects,
     (path, options) => navigate(path, options),
@@ -203,7 +218,7 @@ export function WorkspaceRecordFocusPage({
     );
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!note || loadedNoteId === note.id) return;
 
     const draft = recordFocusDraftFromRecord(note);
@@ -434,12 +449,11 @@ export function WorkspaceRecordFocusPage({
     );
   }
 
-  if (!draftReady && workspacePageQuery.isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
-      </div>
-    );
+  if (
+    !draftReady &&
+    (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
+  ) {
+    return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
   }
 
   if (!draftReady && !note) {
@@ -451,17 +465,14 @@ export function WorkspaceRecordFocusPage({
   }
 
   if (!draftReady) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
   }
 
   return (
     <div
-      className="relative flex h-full min-h-0 overflow-hidden"
+      className="page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-focus-page-key={`workspace:${recordId}`}
+      data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
     >
       {currentWorkspace ? (
         <WorkspaceOverviewSidebar
@@ -484,6 +495,7 @@ export function WorkspaceRecordFocusPage({
           onOpenProject={(projectId) => {
             void openProject(projectId);
           }}
+          onPrefetchProject={prefetchProject}
           onOpenProjectInNewWindow={(projectId) => {
             void openProjectInNewWindow(projectId);
           }}

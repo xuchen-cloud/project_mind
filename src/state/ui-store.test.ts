@@ -6,6 +6,8 @@ import {
   NOTE_EDITOR_WIDTH_MIN_PX,
   PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
   TODO_RAIL_WIDTH_DEFAULT_PX,
+  WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX,
+  WORKSPACE_WINDOW_MIN_WIDTH_DEFAULT_PX,
   createUiStore,
   createUiStoreState,
   UI_STORE_STORAGE_KEY,
@@ -17,6 +19,14 @@ describe("useUiStore", () => {
   beforeEach(() => {
     useUiStore.persist.clearStorage();
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("preserves the main editor minimum width at the 1180px desktop seam", () => {
+    expect(
+      PROJECT_SIDEBAR_WIDTH_DEFAULT_PX +
+        WORKSPACE_MAIN_CONTENT_MIN_WIDTH_PX +
+        TODO_RAIL_WIDTH_DEFAULT_PX,
+    ).toBeLessThanOrEqual(WORKSPACE_WINDOW_MIN_WIDTH_DEFAULT_PX);
   });
 
   it("toggles modal, rail, and sidebar state", () => {

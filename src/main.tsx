@@ -13,26 +13,19 @@ import { Navigate, RouterProvider, createHashRouter, useParams } from "react-rou
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
-import { WorkspacePage } from "./components/today/WorkspacePage";
+import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { createProjectMindQueryClient } from "./lib/queryClient";
+import {
+  loadProjectNoteFocusPageModule,
+  loadWorkspaceRecordFocusPageModule,
+} from "./routes/record-focus-modules";
+import { PageLoadingSkeleton } from "./ui/components";
 
-const ProjectNoteFocusPage = lazy(() =>
-  import("./components/project/ProjectNoteFocusPage").then((module) => ({
-    default: module.ProjectNoteFocusPage,
-  })),
-);
-const WorkspaceRecordFocusPage = lazy(() =>
-  import("./components/today/WorkspaceRecordFocusPage").then((module) => ({
-    default: module.WorkspaceRecordFocusPage,
-  })),
-);
+const ProjectNoteFocusPage = lazy(loadProjectNoteFocusPageModule);
+const WorkspaceRecordFocusPage = lazy(loadWorkspaceRecordFocusPageModule);
 
 function RouteFallback() {
-  return (
-    <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
-      正在打开记录…
-    </div>
-  );
+  return <PageLoadingSkeleton variant="record" label="正在打开记录" />;
 }
 
 function deferred(element: React.ReactNode) {

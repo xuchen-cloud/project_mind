@@ -11,21 +11,18 @@ import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import type { ProjectPageData, WorkspacePageData } from "../../lib/types";
 import {
+  loadProjectNoteFocusPageModule,
+  loadWorkspaceRecordFocusPageModule,
+} from "../../routes/record-focus-modules";
+import { PageLoadingSkeleton } from "../../ui/components";
+import {
   recordFocusDraftFromRecord,
   recordFocusDraftFromSnapshot,
   type RecordFocusDraft,
 } from "./recordFocusDraft";
 
-const ProjectNoteFocusPage = lazy(() =>
-  import("../project/ProjectNoteFocusPage").then((module) => ({
-    default: module.ProjectNoteFocusPage,
-  })),
-);
-const WorkspaceRecordFocusPage = lazy(() =>
-  import("../today/WorkspaceRecordFocusPage").then((module) => ({
-    default: module.WorkspaceRecordFocusPage,
-  })),
-);
+const ProjectNoteFocusPage = lazy(loadProjectNoteFocusPageModule);
+const WorkspaceRecordFocusPage = lazy(loadWorkspaceRecordFocusPageModule);
 
 const MAX_RESIDENT_RECORD_FOCUSES = 2;
 
@@ -74,11 +71,7 @@ function CachedRecordFocusPage({ route }: { route: RecordFocusRoute }) {
   }
 
   if (!draft) {
-    return (
-      <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
-        正在打开记录…
-      </div>
-    );
+    return <PageLoadingSkeleton variant="record" label="正在打开记录" />;
   }
 
   return (

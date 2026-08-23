@@ -1,6 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "../lib/cn";
+import { pressableFeedbackClassName } from "./pressableStyles";
 
 type IconButtonVariant = "secondary" | "ghost" | "subtle" | "danger";
 type IconButtonSize = "sm" | "md";
@@ -19,7 +20,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     <button
       ref={ref}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-[var(--radius-6)] border transition-[background-color,border-color,color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] disabled:pointer-events-none disabled:opacity-60",
+        "inline-flex shrink-0 items-center justify-center rounded-[var(--radius-6)] border disabled:pointer-events-none disabled:opacity-60",
+        pressableFeedbackClassName,
         size === "sm" ? "h-7 w-7" : "h-8 w-8",
         variant === "secondary" &&
           "border-border bg-bg text-text-muted hover:border-border-strong hover:bg-bg-subtle hover:text-text",

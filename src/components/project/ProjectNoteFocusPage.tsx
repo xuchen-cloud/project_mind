@@ -1,5 +1,5 @@
-import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ArrowLeft, Save } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -23,7 +23,7 @@ import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton, TextField } from "../../ui/components";
+import { Button, IconButton, PageLoadingSkeleton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import {
   getRenderableRichTextHtml,
@@ -96,6 +96,9 @@ export function ProjectNoteFocusPage({
           ? { ...recordFocusDraftFromRecord(record), activityId: record.activityId ?? null }
           : null;
       })();
+  const wasProjectPageCachedAtMount = useRef(
+    initialProjectPage !== undefined,
+  );
   const focusScrollRef = useRef<HTMLDivElement | null>(null);
   const { pushToast } = useFeedbackStore();
   const { openSettings, pageWidthMode, projectSidebarCollapsed } = useUiStore();
@@ -209,7 +212,7 @@ export function ProjectNoteFocusPage({
   }
 
   // Initialize state from note
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!note || loadedNoteId === note.id) return;
 
     setTitle(note.title ?? "");
@@ -389,12 +392,8 @@ export function ProjectNoteFocusPage({
     );
   }
 
-  if (!draftReady && projectPageQuery.isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
-      </div>
-    );
+  if (!draftReady && (projectQuery.isLoading || projectPageQuery.isLoading)) {
+    return <PageLoadingSkeleton variant="record" label="正在加载项目记录" />;
   }
 
   if (!draftReady && !note) {
@@ -406,17 +405,14 @@ export function ProjectNoteFocusPage({
   }
 
   if (!draftReady) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
-      </div>
-    );
+    return <PageLoadingSkeleton variant="record" label="正在加载项目记录" />;
   }
 
   return (
     <div
-      className="project-overview-focus h-full min-h-0"
+      className="page-cold-entry project-overview-focus h-full min-h-0"
       data-focus-page-key={`${projectId}:${recordId}`}
+      data-cold-entry={wasProjectPageCachedAtMount.current ? undefined : "true"}
     >
       {/* Header */}
       <header className="project-overview-focus__chrome">

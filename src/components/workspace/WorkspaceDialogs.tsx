@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { Button, Dialog, TextField } from "../../ui/components";
 
 interface CreateWorkspaceDialogProps {
@@ -25,6 +27,8 @@ export function CreateWorkspaceDialog({
   onClose,
   onSubmit,
 }: CreateWorkspaceDialogProps) {
+  const rootPathRef = useRef<HTMLInputElement>(null);
+
   return (
     <Dialog
       open={open}
@@ -32,6 +36,7 @@ export function CreateWorkspaceDialog({
       title="新建 Workspace"
       description="会在所选目录下创建 .project-mind 隐藏目录，并初始化数据库与配置。"
       widthClassName="max-w-2xl"
+      initialFocusRef={rootPathRef}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -55,6 +60,7 @@ export function CreateWorkspaceDialog({
           </span>
           <div className="flex gap-2">
             <TextField
+              ref={rootPathRef}
               value={rootPath}
               onChange={(event) => onRootPathChange(event.target.value)}
               placeholder="例如：/Users/alex/workspaces/customer-success"
@@ -79,7 +85,7 @@ export function CreateWorkspaceDialog({
         </label>
 
         {error ? (
-          <div className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
+          <div role="alert" className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
             {error}
           </div>
         ) : null}
@@ -107,6 +113,8 @@ export function UnlockWorkspaceSecretsDialog({
   onClose,
   onSubmit,
 }: UnlockWorkspaceSecretsDialogProps) {
+  const passwordRef = useRef<HTMLInputElement>(null);
+
   return (
     <Dialog
       open={open}
@@ -115,6 +123,7 @@ export function UnlockWorkspaceSecretsDialog({
       description="输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"
       widthClassName="max-w-lg"
       layerClassName="z-[60]"
+      initialFocusRef={passwordRef}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -137,6 +146,7 @@ export function UnlockWorkspaceSecretsDialog({
             Workspace 密码
           </span>
           <TextField
+            ref={passwordRef}
             type="password"
             value={password}
             onChange={(event) => onPasswordChange(event.target.value)}
@@ -145,7 +155,7 @@ export function UnlockWorkspaceSecretsDialog({
         </label>
 
         {error ? (
-          <div className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
+          <div role="alert" className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
             {error}
           </div>
         ) : null}

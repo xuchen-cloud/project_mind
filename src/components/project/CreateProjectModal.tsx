@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FolderOpen } from "lucide-react";
 import type { ProjectCreateInput } from "../../lib/types";
 import { PROJECT_STATUS_OPTIONS } from "../../lib/constants";
@@ -20,6 +20,7 @@ export function CreateProjectModal({
   const [name, setName] = useState("");
   const [quickNote, setQuickNote] = useState("");
   const [status, setStatus] = useState("active");
+  const nameRef = useRef<HTMLInputElement>(null);
 
   return (
     <Dialog
@@ -27,6 +28,7 @@ export function CreateProjectModal({
       onClose={onClose}
       title="创建项目"
       widthClassName="max-w-2xl"
+      initialFocusRef={nameRef}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -65,6 +67,7 @@ export function CreateProjectModal({
         <label className="block space-y-1.5">
           <span className="text-ui font-medium text-text-muted">项目名称</span>
           <TextField
+            ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             required

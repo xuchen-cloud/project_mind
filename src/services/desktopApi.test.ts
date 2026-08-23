@@ -321,7 +321,7 @@ describe("desktopApi", () => {
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       configurable: true,
-      value: new URL("http://localhost:1420/#/today"),
+      value: new URL("http://localhost:1420/#/workspace"),
     });
 
     await desktopApi.openProjectWindow({

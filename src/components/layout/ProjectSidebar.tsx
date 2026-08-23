@@ -7,7 +7,6 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import {
   ChevronLeft,
@@ -33,8 +32,22 @@ import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { useUiStore } from "../../state/ui-store";
-import { ActionContextMenu, Button, IconButton, PopoverPanel, SearchField, StatusBadge } from "../../ui/components";
+import {
+  PROJECT_SIDEBAR_WIDTH_MAX_PX,
+  PROJECT_SIDEBAR_WIDTH_MIN_PX,
+  useUiStore,
+} from "../../state/ui-store";
+import {
+  ActionContextMenu,
+  Button,
+  IconButton,
+  PopoverPanel,
+  ResizeHandle,
+  SearchField,
+  SidebarFilters,
+  SidebarTabs,
+  StatusBadge,
+} from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
 import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
@@ -81,6 +94,7 @@ interface ProjectSidebarProps {
     id: number;
     name: string;
     kind?: "normal";
+    status?: string;
     rootPath: string;
     isArchived?: boolean;
   };
@@ -116,6 +130,10 @@ const CONTEXT_MENU_WIDTH = 280;
 const CONTEXT_MENU_HEIGHT = 464;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const DRAG_DEACTIVATE_DELAY_MS = 80;
+const PROJECT_SIDEBAR_TABS = [
+  { value: "records", label: "记录" },
+  { value: "files", label: "文件" },
+] as const;
 
 export function ProjectSidebar({
   project,
@@ -177,7 +195,6 @@ export function ProjectSidebar({
   const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
   const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
   const [dragActive, setDragActive] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
 
   // Document editing state
   const [editingDocumentId, setEditingDocumentId] = useState<number | null>(null);
@@ -691,34 +708,6 @@ export function ProjectSidebar({
   };
 
   // Resize handler
-  const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    if (!isResizing) {
-      return undefined;
-    }
-
-    const handleMouseMove = (event: globalThis.MouseEvent) => {
-      const newWidth = event.clientX;
-      setProjectSidebarWidthPx(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isResizing, setProjectSidebarWidthPx]);
-
   if (projectSidebarCollapsed) {
     return (
       <aside className="sidebar-dock sidebar-dock--left" aria-label="项目导航侧边栏">
@@ -743,7 +732,6 @@ export function ProjectSidebar({
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
         dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
-        "transition-[width] duration-[160ms] ease-[var(--ease-soft)]",
       )}
       style={{
         width: `${projectSidebarWidthPx}px`,
@@ -780,12 +768,14 @@ export function ProjectSidebar({
       }}
       onDrop={handleDrop}
     >
-      <div
-        className={cn(
-          "absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/20",
-          isResizing && "bg-accent/30",
-        )}
-        onMouseDown={handleResizeStart}
+      <ResizeHandle
+        label="调整项目侧边栏宽度"
+        edge="right"
+        value={projectSidebarWidthPx}
+        min={PROJECT_SIDEBAR_WIDTH_MIN_PX}
+        max={PROJECT_SIDEBAR_WIDTH_MAX_PX}
+        onChange={setProjectSidebarWidthPx}
+        className="right-0"
       />
       <div className="relative border-b border-border px-3 py-3">
         <button
@@ -803,7 +793,8 @@ export function ProjectSidebar({
           <span className="min-w-0">
             <span className="block truncate text-title font-medium">{project.name}</span>
             <span className="mt-1 flex items-center gap-2">
-              <StatusBadge tone="neutral">{project.isArchived ? "archived" : "overview"}</StatusBadge>
+              <StatusBadge tone="neutral">{project.status || "未设置"}</StatusBadge>
+              {project.isArchived ? <StatusBadge tone="neutral">archived</StatusBadge> : null}
             </span>
           </span>
         </button>
@@ -822,14 +813,12 @@ export function ProjectSidebar({
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="grid shrink-0 gap-3">
-              <div className="grid grid-cols-2 rounded-[var(--radius-8)] bg-bg p-1" role="tablist" aria-label="项目侧边栏视图">
-                <TabButton active={activeTab === "records"} onClick={() => setActiveTab("records")}>
-                  记录
-                </TabButton>
-                <TabButton active={activeTab === "files"} onClick={() => setActiveTab("files")}>
-                  文件
-                </TabButton>
-              </div>
+              <SidebarTabs
+                ariaLabel="项目侧边栏视图"
+                value={activeTab}
+                options={PROJECT_SIDEBAR_TABS}
+                onValueChange={setActiveTab}
+              />
               <div className="flex items-center gap-2">
                 <SearchField
                   aria-label={activeTab === "records" ? "搜索记录" : "搜索文件"}
@@ -872,31 +861,23 @@ export function ProjectSidebar({
                 ) : null}
               </div>
               {(activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  <FilterPill
-                    active={activeTab === "records" ? selectedRecordTagId === null : documentTagId === null}
-                    onClick={() =>
-                      activeTab === "records"
-                        ? setSelectedRecordTagId(null)
-                        : setDocumentTagId(null)
-                    }
-                  >
-                    全部
-                  </FilterPill>
-                  {(activeTab === "records" ? recordTagOptions : documentTagOptions).map((tag) => (
-                    <FilterPill
-                      key={tag.id}
-                      active={activeTab === "records" ? selectedRecordTagId === tag.id : documentTagId === tag.id}
-                      onClick={() =>
-                        activeTab === "records"
-                          ? setSelectedRecordTagId(selectedRecordTagId === tag.id ? null : tag.id)
-                          : setDocumentTagId(documentTagId === tag.id ? null : tag.id)
-                      }
-                    >
-                      {tag.label}
-                    </FilterPill>
-                  ))}
-                </div>
+                <SidebarFilters
+                  ariaLabel={
+                    activeTab === "records"
+                      ? "Project Record 标签筛选"
+                      : "Project File 标签筛选"
+                  }
+                  value={activeTab === "records" ? selectedRecordTagId : documentTagId}
+                  options={(activeTab === "records"
+                    ? recordTagOptions
+                    : documentTagOptions
+                  ).map((tag) => ({ value: tag.id, label: tag.label }))}
+                  onValueChange={(tagId) =>
+                    activeTab === "records"
+                      ? setSelectedRecordTagId(tagId)
+                      : setDocumentTagId(tagId)
+                  }
+                />
               ) : null}
             </div>
 
@@ -1261,40 +1242,6 @@ export function ProjectSidebar({
         />
       ) : null}
     </aside>
-  );
-}
-
-function TabButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      className={cn(
-        "rounded-[var(--radius-6)] px-2 py-1.5 text-ui font-medium transition-colors",
-        active ? "bg-bg-subtle text-text shadow-[var(--shadow-sm)]" : "text-text-soft hover:text-text",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FilterPill({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "rounded-[var(--radius-6)] border px-2 py-1 text-caption transition-colors",
-        active
-          ? "border-border-strong bg-bg text-text"
-          : "border-transparent text-text-soft hover:border-border hover:bg-bg-hover hover:text-text",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }
 

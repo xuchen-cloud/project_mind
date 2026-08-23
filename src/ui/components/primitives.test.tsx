@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Search } from "lucide-react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,6 +24,28 @@ describe("ui primitives", () => {
 
     const button = screen.getByRole("button", { name: /search/i });
     expect(button).toHaveClass("bg-text");
+  });
+
+  it("gives every shared pressable the same restrained press feedback", () => {
+    render(
+      <div>
+        <Button>Button</Button>
+        <IconButton aria-label="icon button">
+          <Search size={14} />
+        </IconButton>
+        <ToolbarButton aria-label="toolbar button">
+          <Search size={14} />
+        </ToolbarButton>
+      </div>,
+    );
+
+    for (const name of ["Button", "icon button", "toolbar button"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass(
+        "active:scale-[0.97]",
+        "motion-reduce:transform-none",
+        "duration-[var(--duration-fast)]",
+      );
+    }
   });
 
   it("renders text and search fields", async () => {
@@ -78,5 +101,45 @@ describe("ui primitives", () => {
     expect(screen.getByRole("dialog", { name: "Nested Dialog" }).parentElement).toHaveClass(
       "z-[60]",
     );
+  });
+
+  it("keeps keyboard focus inside an open dialog and restores its trigger on close", async () => {
+    const user = userEvent.setup();
+
+    function DialogHarness() {
+      const [open, setOpen] = useState(false);
+
+      return (
+        <main>
+          <button type="button" onClick={() => setOpen(true)}>打开编辑</button>
+          <a href="#outside">背景链接</a>
+          <Dialog open={open} title="编辑 Project" onClose={() => setOpen(false)}>
+            <label>
+              Project 名称
+              <input />
+            </label>
+            <button type="button">保存</button>
+          </Dialog>
+        </main>
+      );
+    }
+
+    render(<DialogHarness />);
+    const trigger = screen.getByRole("button", { name: "打开编辑" });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "编辑 Project" });
+    expect(within(dialog).getByRole("button", { name: "关闭对话框" })).toHaveFocus();
+    expect(trigger.closest("main")?.parentElement).toHaveAttribute("inert");
+
+    await user.tab({ shift: true });
+    expect(within(dialog).getByRole("button", { name: "保存" })).toHaveFocus();
+    await user.tab();
+    expect(within(dialog).getByRole("button", { name: "关闭对话框" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "编辑 Project" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(trigger.closest("main")?.parentElement).not.toHaveAttribute("inert");
   });
 });

@@ -9,7 +9,7 @@ export const PROJECT_STATUS_OPTIONS = [
 
 export const EMPTY_ACTIVITY_ATTRIBUTE_LABEL = "未设置属性";
 export const DEFAULT_ACTIVITY_STATUS_LABEL = "待启动";
-export const UNTITLED_ACTIVITY_PREFIX = "未命名 Activity";
+export const UNTITLED_ACTIVITY_PREFIX = "未命名 Record";
 
 export const TODO_STATUS_OPTIONS = [
   { value: "unfinished", label: "未完成" },
@@ -92,9 +92,9 @@ export function priorityLabel(value: string) {
 export function suggestionLabel(type: string) {
   switch (type) {
     case "conclusion":
-      return "结论建议";
+      return "Record 建议";
     case "todo":
-      return "待办建议";
+      return "Todo 建议";
     default:
       return type;
   }

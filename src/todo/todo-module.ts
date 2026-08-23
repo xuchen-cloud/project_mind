@@ -98,6 +98,7 @@ export function createTodoModule({
   transport: TodoTransport;
 }) {
   const cache = createTodoQueryCache(queryClient);
+  const todoMutationRevisions = new Map<number, number>();
 
   async function load(scope: TodoViewScope, options: { force?: boolean } = {}) {
     const readQuery = options.force
@@ -263,17 +264,23 @@ export function createTodoModule({
     reconcile: (result: T, optimistic: TodoRecord) => TodoRecord | null;
     openTodoDelta?: number;
   }) {
+    const mutationRevision = (todoMutationRevisions.get(source.id) ?? 0) + 1;
+    todoMutationRevisions.set(source.id, mutationRevision);
     await cache.cancel(source.projectId);
     const snapshot = cache.snapshot(source.projectId);
     cache.upsert(optimisticTodo);
     cache.updateProjectOpenCount(source.projectId, openTodoDelta);
     try {
       const result = await run();
-      const saved = reconcile(result, optimisticTodo);
-      if (saved) cache.upsert(saved);
+      if (todoMutationRevisions.get(source.id) === mutationRevision) {
+        const saved = reconcile(result, optimisticTodo);
+        if (saved) cache.upsert(saved);
+      }
       return result;
     } catch (error) {
-      cache.restore(source.projectId, snapshot);
+      if (todoMutationRevisions.get(source.id) === mutationRevision) {
+        cache.restore(source.projectId, snapshot);
+      }
       throw error;
     }
   }

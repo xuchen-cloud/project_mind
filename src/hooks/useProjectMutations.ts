@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
 import { useUiStore } from "../state/ui-store";
-import type { ProjectListItem } from "../lib/types";
+import type { ProjectListItem, ProjectPageData, ProjectRecord } from "../lib/types";
 import { queryKeys } from "../lib/queryKeys";
 import { syncProjectArchiveCaches } from "./project-archive-query-cache";
 
@@ -14,6 +14,19 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
     queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
     queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
+}
+
+function syncProjectCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  project: ProjectRecord,
+) {
+  queryClient.setQueryData<ProjectListItem[] | undefined>(queryKeys.projects.all, (current) =>
+    current?.map((item) => (item.id === project.id ? { ...item, ...project } : item)),
+  );
+  queryClient.setQueryData<ProjectPageData | undefined>(
+    queryKeys.projectPage(project.id),
+    (current) => (current ? { ...current, project: { ...current.project, ...project } } : current),
+  );
 }
 
 export function useProjectMutations(
@@ -41,7 +54,8 @@ export function useProjectMutations(
 
   const projectUpdateMutation = useMutation({
     mutationFn: projectMindApi.projectUpdate,
-    onSuccess: async (_, input) => {
+    onSuccess: async (project, input) => {
+      syncProjectCaches(queryClient, project);
       setStatus({ tone: "success", label: "Synced", message: "项目信息已同步" });
       await refreshProjectScope(queryClient, input.projectId);
     },

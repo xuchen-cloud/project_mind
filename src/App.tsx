@@ -7,6 +7,7 @@ import type { BlockerFunction } from "react-router-dom";
 import type {
   DocumentRecord,
   NoteRecord,
+  WorkspaceSearchApiResult,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
 } from "./lib/types";
@@ -33,6 +34,8 @@ import {
   useRecordSaveStatus,
 } from "./lib/record-save-runtime";
 import { queryKeys } from "./lib/queryKeys";
+import { prefetchProjectPageData } from "./lib/project-prefetch";
+import { scheduleRecordFocusPageModulesPreload } from "./routes/record-focus-modules";
 import {
   getCurrentWindowLabel,
   isProjectWindow,
@@ -63,7 +66,7 @@ import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
-import { WorkspacePage } from "./components/today/WorkspacePage";
+import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
 import { clearAllTodoComposerDrafts } from "./components/todo/todo-draft-storage";
 import {
@@ -159,19 +162,21 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
       return null;
     case "project":
       return null;
-    case "activity":
-      return `/projects/${result.projectId}/activities/${result.id}`;
     case "note":
       return projectPath(result.projectId, recordFocusId(result.id));
-    case "conclusion":
-      return projectPath(result.projectId, `conclusion-${result.id}`);
     case "todo":
       return result.scope === "workspace"
         ? `${workspacePath()}?focus=todo-${result.id}`
         : projectPath(result.projectId, `todo-${result.id}`);
     case "document":
-      return projectPath(result.projectId, `document-${result.id}`);
+      return projectPath(result.projectId);
   }
+}
+
+export function isCurrentWorkspaceSearchResult(
+  result: WorkspaceSearchApiResult,
+): result is WorkspaceSearchResult {
+  return result.kind !== "activity" && result.kind !== "conclusion";
 }
 
 export function WorkspaceLayout({
@@ -241,7 +246,6 @@ export function WorkspaceLayout({
   );
   const workspaceActive =
     location.pathname === workspacePath() ||
-    location.pathname === "/today" ||
     /^\/workspace\/records\/\d+$/u.test(location.pathname);
   const projectRecordQuery = useMemo(
     () => new URLSearchParams(location.search).get("recordQuery") ?? "",
@@ -269,10 +273,14 @@ export function WorkspaceLayout({
     setSettingsSection,
     projectRecentPaths,
     projectSidebarCollapsed,
+    projectSidebarWidthPx,
+    setProjectSidebarCollapsed,
+    setProjectSidebarTab,
     setCreateProjectOpen,
     rememberProjectRoute,
     clearWorkspaceScopedUiState,
     todoRailCollapsed,
+    todoRailWidthPx,
     setTodoRailCollapsed,
   } = useUiStore();
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
@@ -312,6 +320,14 @@ export function WorkspaceLayout({
     }
     await recordSaveCoordinator.flush();
   }, [recordSaveCoordinator, submitActiveFocusRecord]);
+
+  useEffect(() => {
+    if (!hasWorkspace) {
+      return;
+    }
+
+    return scheduleRecordFocusPageModulesPreload(window);
+  }, [hasWorkspace]);
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -374,8 +390,12 @@ export function WorkspaceLayout({
   useWorkspaceWindowSizeConstraints({
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
+    projectSidebarWidthPx,
     showTodoRail: showRightSidebarForWidthConstraint,
     todoRailCollapsed,
+    todoRailWidthPx,
+    setProjectSidebarCollapsed,
+    setTodoRailCollapsed,
   });
 
   const [searchInput, setSearchInput] = useState("");
@@ -394,6 +414,13 @@ export function WorkspaceLayout({
   const searchPending =
     normalizedSearchInput.length > 0 &&
     (!searchQueryIsCurrent || searchQuery.isFetching);
+  const currentSearchResults = useMemo(
+    () =>
+      searchQueryIsCurrent
+        ? (searchQuery.data ?? []).filter(isCurrentWorkspaceSearchResult)
+        : [],
+    [searchQuery.data, searchQueryIsCurrent],
+  );
 
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceRoot, setCreateWorkspaceRoot] = useState("");
@@ -411,7 +438,7 @@ export function WorkspaceLayout({
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
-  const todayVisible = hasWorkspace;
+  const workspaceVisible = hasWorkspace;
 
   const { createProjectMutation, refreshProjectScope } = useProjectMutations(
     visibleProjects,
@@ -654,10 +681,7 @@ export function WorkspaceLayout({
     (projectId: number) => {
       void Promise.all([
         todoModule.load({ kind: "current-project", projectId }),
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.projectTags.project(projectId),
-          queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
-        }),
+        prefetchProjectPageData(queryClient, projectId),
       ]).catch(() => {
         // Prefetch failures are surfaced by the destination page query.
       });
@@ -879,6 +903,9 @@ export function WorkspaceLayout({
         if (route) {
           if (result.kind === "todo") {
             setTodoRailCollapsed(false);
+          } else if (result.kind === "document") {
+            setProjectSidebarTab("files");
+            setProjectSidebarCollapsed(false);
           }
           openProjectTab(result.projectId);
           navigate(route);
@@ -891,6 +918,8 @@ export function WorkspaceLayout({
       openProjectInTab,
       openProjectTab,
       openSettings,
+      setProjectSidebarCollapsed,
+      setProjectSidebarTab,
       setTodoRailCollapsed,
     ],
   );
@@ -1213,12 +1242,12 @@ export function WorkspaceLayout({
     <WorkspaceTopBar
       projects={openedProjects}
       activeProjectId={activeProjectId}
-      todayActive={workspaceActive}
-      showToday={todayVisible}
+      workspaceActive={workspaceActive}
+      showWorkspace={workspaceVisible}
       settingsActive={settingsOpen}
       searchInput={searchInput}
       onSearchInput={setSearchInput}
-      searchResults={searchQueryIsCurrent ? (searchQuery.data ?? []) : []}
+      searchResults={currentSearchResults}
       searching={searchPending}
       searchError={searchQueryIsCurrent && searchQuery.isError}
       onOpenProject={(projectId) => {
@@ -1228,7 +1257,7 @@ export function WorkspaceLayout({
       onCloseProject={(projectId) => {
         void closeProjectTabAndMaybeNavigate(projectId);
       }}
-      onOpenToday={() => {
+      onOpenWorkspace={() => {
         navigate(workspacePath());
       }}
       onOpenSettings={() => openSettings("project-tags", activeProjectId)}
@@ -1242,7 +1271,7 @@ export function WorkspaceLayout({
     <div className="flex h-full items-center justify-center px-6 py-10">
       <EmptyState
         title="ProjectMind"
-        text="当前还没有项目。需要开始整理时再创建即可，后续活动、结论、待办和文件都会围绕项目组织。"
+        text="当前还没有项目。需要开始整理时再创建即可，后续记录、Todo 和文件都会围绕项目组织。"
         icon={<FolderKanban size={18} />}
         action={
           <Button
@@ -1363,6 +1392,7 @@ export function WorkspaceLayout({
               id: activeProject.id,
               name: activeProject.name,
               kind: activeProject.kind,
+              status: activeProject.status,
               rootPath: activeProject.rootPath,
               isArchived: activeProject.isArchived,
             }}
