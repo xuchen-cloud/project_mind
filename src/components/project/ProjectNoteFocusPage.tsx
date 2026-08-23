@@ -374,7 +374,7 @@ export function ProjectNoteFocusPage() {
   if (projectQuery.isLoading || projectPageQuery.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
+        <LoaderCircle className="spin text-text-soft" size={24} />
       </div>
     );
   }
@@ -390,7 +390,7 @@ export function ProjectNoteFocusPage() {
   if (!draftReady) {
     return (
       <div className="flex h-full items-center justify-center">
-        <LoaderCircle className="animate-spin text-text-soft" size={24} />
+        <LoaderCircle className="spin text-text-soft" size={24} />
       </div>
     );
   }

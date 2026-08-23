@@ -27,7 +27,12 @@ export function StatusBar({ context, detail }: StatusBarProps) {
         >
           {status.label}
         </StatusBadge>
-        <div className="inline-flex min-w-0 items-center gap-2 truncate">
+        <div
+          className="inline-flex min-w-0 items-center gap-2 truncate"
+          role={status.tone === "error" ? "alert" : "status"}
+          aria-live={status.tone === "error" ? "assertive" : "polite"}
+          aria-atomic="true"
+        >
           {status.tone === "success" ? (
             <CircleCheck size={14} className="shrink-0 text-success" />
           ) : status.tone === "warning" ? (

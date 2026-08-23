@@ -80,7 +80,7 @@ import type {
   WorkspaceCreateInput,
   WorkspaceOpenInput,
   WorkspaceSearchInput,
-  WorkspaceSearchResult,
+  WorkspaceSearchApiResult,
   WorkspaceStatusSnapshot,
   WorkspaceUnlockInput,
 } from "../lib/types";
@@ -260,5 +260,5 @@ export const projectMindApi = {
       input,
     }),
   workspaceSearch: (input: WorkspaceSearchInput) =>
-    desktopApi.command<WorkspaceSearchResult[]>("workspace_search", { input }),
+    desktopApi.command<WorkspaceSearchApiResult[]>("workspace_search", { input }),
 };

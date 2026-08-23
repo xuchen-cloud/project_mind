@@ -5828,7 +5828,7 @@ function buildTextContextMenuActions({
     },
     {
       key: "shortcut-task-list",
-      label: "待办",
+      label: "Todo",
       icon: ListTodo,
       active: editor.isActive("taskList"),
       disabled: !canRun((chain) => chain.toggleTaskList()),
@@ -5900,8 +5900,8 @@ function buildTextContextMenuActions({
     },
     {
       key: "text-task-list",
-      label: "待办清单",
-      mainLabel: "待办清单",
+      label: "Todo 清单",
+      mainLabel: "Todo 清单",
       icon: ListTodo,
       active: () => editor.isActive("taskList"),
       disabled: !canRun((chain) => chain.toggleTaskList()),
@@ -6052,7 +6052,7 @@ function buildTextContextMenuActions({
         },
         {
           key: "insert-task-list",
-          label: "待办",
+          label: "Todo",
           icon: ListTodo,
           disabled: !canRun((chain) => chain.toggleTaskList()),
           onSelect: runCommand((chain) => chain.toggleTaskList()),

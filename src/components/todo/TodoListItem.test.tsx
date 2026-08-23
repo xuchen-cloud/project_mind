@@ -259,6 +259,43 @@ describe("TodoListItem", () => {
     );
   });
 
+  it("allows a Subtask completion to be immediately undone while persistence is pending", async () => {
+    const user = userEvent.setup();
+    const onUpdateProgress = vi.fn(() => new Promise<void>(() => undefined));
+
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "等待财务确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "unfinished",
+            completedAt: null,
+            orderIndex: 0,
+          },
+        ],
+      },
+      { onUpdateProgress },
+    );
+
+    await user.click(screen.getByRole("button", { name: "标记子项完成" }));
+    await user.click(screen.getByRole("button", { name: "标记子项未完成" }));
+
+    expect(onUpdateProgress).toHaveBeenNthCalledWith(1, 31, {
+      content: "等待财务确认",
+      progressDate: "2026-04-05",
+      status: "finished",
+    });
+    expect(onUpdateProgress).toHaveBeenNthCalledWith(2, 31, {
+      content: "等待财务确认",
+      progressDate: "2026-04-05",
+      status: "unfinished",
+    });
+  });
+
   it("allows clicking an unfinished subitem body to edit it", async () => {
     const user = userEvent.setup();
 

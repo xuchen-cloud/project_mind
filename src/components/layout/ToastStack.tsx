@@ -18,7 +18,7 @@ export function ToastStack({
         <div
           key={toast.id}
           className={[
-            "flex min-w-[280px] max-w-[380px] items-start justify-between gap-3 rounded-[var(--radius-8)] border px-3 py-3 text-body shadow-[var(--shadow-md)]",
+            "toast-item flex min-w-[280px] max-w-[380px] items-start justify-between gap-3 rounded-[var(--radius-8)] border px-3 py-3 text-body shadow-[var(--shadow-md)]",
             toast.tone === "success"
               ? "border-[color-mix(in_srgb,var(--color-success)_24%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-bg))] text-success"
               : toast.tone === "error"
@@ -36,7 +36,12 @@ export function ToastStack({
                 <Info size={16} />
               )}
             </span>
-            <div className="min-w-0">
+            <div
+              className="min-w-0"
+              role={toast.tone === "error" ? "alert" : "status"}
+              aria-live={toast.tone === "error" ? "assertive" : "polite"}
+              aria-atomic="true"
+            >
               <p className="font-medium leading-snug">{toast.title}</p>
               {toast.detail ? (
                 <p className="mt-0.5 text-ui opacity-80">{toast.detail}</p>
@@ -47,7 +52,7 @@ export function ToastStack({
             type="button"
             size="sm"
             className="mt-[-2px]"
-            aria-label="关闭通知"
+            aria-label={`关闭通知：${toast.title}`}
             onClick={() => onDismiss(toast.id)}
           >
             <X size={14} />

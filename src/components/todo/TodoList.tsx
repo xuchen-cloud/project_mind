@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
@@ -12,8 +12,6 @@ import type {
 import { ActionContextMenu, EmptyState } from "../../ui/components";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
-
-const TODO_STATUS_TRANSITION_MS = 620;
 
 type TodoStatusTransition = {
   todo: TodoRecord;
@@ -80,7 +78,6 @@ export function TodoList({
     y: number;
   } | null>(null);
   const [todoTransitions, setTodoTransitions] = useState<Record<number, TodoStatusTransition>>({});
-  const transitionTimersRef = useRef(new Map<number, number>());
   const contextMenuTodo = useMemo(
     () => (contextMenu ? todos.find((todo) => todo.id === contextMenu.todoId) ?? null : null),
     [contextMenu, todos],
@@ -109,28 +106,21 @@ export function TodoList({
   }, [contextMenu, contextMenuTodo]);
 
   useEffect(() => {
-    return () => {
-      transitionTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      transitionTimersRef.current.clear();
-    };
-  }, []);
-
-  function clearTodoTransition(todoId: number) {
-    const timerId = transitionTimersRef.current.get(todoId);
-    if (timerId) {
-      window.clearTimeout(timerId);
-      transitionTimersRef.current.delete(todoId);
-    }
     setTodoTransitions((current) => {
-      if (!current[todoId]) {
-        return current;
+      const next = { ...current };
+      let changed = false;
+
+      for (const [todoId, transition] of Object.entries(current)) {
+        const source = todos.find((todo) => todo.id === Number(todoId));
+        if (!source || source.status === transition.todo.status) {
+          delete next[Number(todoId)];
+          changed = true;
+        }
       }
 
-      const next = { ...current };
-      delete next[todoId];
-      return next;
+      return changed ? next : current;
     });
-  }
+  }, [todos]);
 
   async function handleToggleStatus(todo: TodoRecord) {
     const nextStatus = todo.status === "finished" ? "unfinished" : "finished";
@@ -146,19 +136,17 @@ export function TodoList({
       },
     }));
 
-    const existingTimerId = transitionTimersRef.current.get(todo.id);
-    if (existingTimerId) {
-      window.clearTimeout(existingTimerId);
-    }
-    transitionTimersRef.current.set(
-      todo.id,
-      window.setTimeout(() => clearTodoTransition(todo.id), TODO_STATUS_TRANSITION_MS),
-    );
-
     try {
       await onToggleStatus(todo.id, nextStatus);
     } catch (error) {
-      clearTodoTransition(todo.id);
+      setTodoTransitions((current) => {
+        if (current[todo.id]?.todo.status !== nextStatus) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[todo.id];
+        return next;
+      });
       throw error;
     }
   }
@@ -213,7 +201,7 @@ export function TodoList({
         <ActionContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          ariaLabel="待办操作"
+          ariaLabel="Todo 操作"
           onClose={() => setContextMenu(null)}
           actions={[
             {

@@ -1,14 +1,14 @@
 # Project Mind Alpha UX 基线
 
 状态：当前正式基线  
-更新时间：2026-06-08
+更新时间：2026-08-23
 
 ## 1. UX 目标
 
 当前产品的 UX 目标是让用户在一个本地工作区里稳定完成以下闭环：
 
 1. 进入正确的工作区
-2. 快速抓住今天最重要的信息
+2. 快速抓住当前最重要的信息
 3. 在QuickNote里持续维护项目上下文
 4. 在Record中保存更细的过程信息
 5. 用 Todo、文件、引用和 AI 继续推进
@@ -33,7 +33,6 @@ flowchart TD
   B --> H["Ask Panel"]
   D --> I["QuickNote"]
   D --> J["Record"]
-  I --> K["Daily Brief"]
   I --> L["Workspace QuickNote"]
   J --> M["Workspace Record"]
   D --> N["Workspace Todo Rail"]
@@ -66,7 +65,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 它承担四类任务：
 
 - 回到整个工作区层面的视角
-- 记录今天最重要的上下文
+- 记录当前最重要的上下文
 - 浏览工作区级Record
 - 在 Workspace Todo Rail 中统一处理 Workspace Todo 与活跃 Project 的 Project Todo
 
@@ -84,6 +83,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 
 项目页当前不再是“项目摘要 + 许多附属卡片”的旧式首页，而是：
 
+- 一个在项目标题附近轻量编辑、并与 Project Label 和 Archive 分离的 Project Status
 - 一个可以持续维护的QuickNote
 - 一个可以检索和编辑的项目Record区
 - 一个承载记录与文件的项目侧边栏
@@ -112,6 +112,8 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 - 工作区菜单
 - 设置
 
+已打开项目的页签以短文本显示各自的 Project Status，便于在不进入项目页的情况下扫读；Project Status 不表示归档状态。
+
 ## 4. 当前核心用户流
 
 ### 4.1 打开工作区
@@ -120,7 +122,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 2. 打开已有工作区，或创建新工作区。
 3. 进入 Workspace / 工作区。
 
-### 4.2 记录今天的背景与判断
+### 4.2 记录当前背景与判断
 
 1. 用户停留在Workspace `QuickNote` 视图。
 2. 直接在 `Workspace QuickNote` 中输入内容。
@@ -136,7 +138,7 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 
 1. 用户从左侧项目页签或Workspace侧边栏打开项目。
 2. 进入项目 `QuickNote`。
-3. 在QuickNote里维护背景、判断、阶段结论与引用。
+3. 在QuickNote里维护背景、判断、候选行动与引用。
 
 ### 4.5 保存更细的项目记录
 
@@ -166,15 +168,15 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 
 Workspace 优先级是：
 
-1. 今天最值得先抓住的判断
+1. 当前最值得先抓住的判断
 2. Workspace Todo 与活跃 Project 的 Project Todo 聚合队列
 3. 工作区记录回看
 
 因此：
 
 - Workspace QuickNote 必须足够轻
-- Daily Brief 只能作为辅助总结
-- Record不应压过“今天要看什么”
+- Workspace QuickNote 承载当前背景与判断
+- Record不应压过当前工作上下文
 
 ### 5.2 Project
 
@@ -187,6 +189,7 @@ Workspace 优先级是：
 
 因此：
 
+- Project Status 在标题旁原地编辑，并在 Workspace 项目列表、项目页签和项目侧边栏轻量复现
 - QuickNote是主场
 - Record是补充视角
 - 侧边栏承载导航与材料，不应喧宾夺主
@@ -268,6 +271,5 @@ AI 不可用时：
 
 ## 8. 当前 UX 风险
 
-- 仓库中仍存在旧 Activity 叙事，容易让实现与文档混淆
 - 工作区页右侧 Todo Rail 和中间主区在小窗口下的空间竞争较明显
-- 项目页当前对“项目当前状态”的结构化摘要仍偏弱，更多依赖用户自己维护默认笔记
+- Project Status 只提供生命周期信号；项目当前上下文仍主要由用户维护的 QuickNote 承载

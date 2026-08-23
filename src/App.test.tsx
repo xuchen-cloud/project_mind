@@ -244,7 +244,11 @@ vi.mock("./services/projectMindApi", () => ({
   },
 }));
 
-import { WorkspaceLayout, workspaceSearchResultRoute } from "./App";
+import {
+  WorkspaceLayout,
+  isCurrentWorkspaceSearchResult,
+  workspaceSearchResultRoute,
+} from "./App";
 import { getCurrentWindowLabel, isProjectWindow } from "./lib/project-window";
 import { desktopApi } from "./services/desktopApi";
 import { projectMindApi } from "./services/projectMindApi";
@@ -258,7 +262,7 @@ describe("workspaceSearchResultRoute", () => {
     matchedText: "Result",
   };
 
-  it("builds routes for every navigable search result kind", () => {
+  it("builds only routes consumed by the current workspace and project pages", () => {
     expect(
       workspaceSearchResultRoute({
         ...baseResult,
@@ -283,15 +287,9 @@ describe("workspaceSearchResultRoute", () => {
         projectId: null,
       }),
     ).toBeNull();
-    expect(
-      workspaceSearchResultRoute({ ...baseResult, kind: "activity", id: 7 }),
-    ).toBe("/projects/3/activities/7");
     expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe(
       "/projects/3?focus=record-8",
     );
-    expect(
-      workspaceSearchResultRoute({ ...baseResult, kind: "conclusion", id: 9 }),
-    ).toBe("/projects/3?focus=conclusion-9");
     expect(workspaceSearchResultRoute({
       ...baseResult,
       kind: "todo",
@@ -313,10 +311,16 @@ describe("workspaceSearchResultRoute", () => {
     ).toBe("/workspace?focus=todo-10");
     expect(
       workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 }),
-    ).toBe("/projects/3?focus=document-11");
+    ).toBe("/projects/3");
     expect(
       workspaceSearchResultRoute({ ...baseResult, kind: "project", id: 3 }),
     ).toBeNull();
+  });
+
+  it("keeps legacy Activity and Conclusion hits out of the current search interface", () => {
+    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "activity", id: 7 })).toBe(false);
+    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "conclusion", id: 9 })).toBe(false);
+    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "note", id: 8 })).toBe(true);
   });
 });
 
@@ -342,7 +346,7 @@ describe("WorkspaceLayout", () => {
           element: <WorkspaceLayout />,
           children: [
             { index: true, element: <div>workspace outlet</div> },
-            { path: "today", element: <div>today route</div> },
+            { path: "workspace", element: <div>workspace route</div> },
             {
               path: "projects/:projectId",
               element: (
@@ -389,7 +393,7 @@ describe("WorkspaceLayout", () => {
           element: <WorkspaceLayout />,
           children: [
             { index: true, element: <div>workspace outlet</div> },
-            { path: "today", element: <div>today route</div> },
+            { path: "workspace", element: <div>workspace route</div> },
           ],
         },
       ],
@@ -508,54 +512,6 @@ describe("WorkspaceLayout", () => {
         openTodoCount: 0,
       },
     ]);
-    vi.mocked(projectMindApi.activityList).mockImplementation(
-      async ({ projectId }) =>
-        projectId === 1
-          ? [
-              {
-                id: 11,
-                projectId: 1,
-                attributeOptionId: null,
-                attributeLabel: null,
-                attributeColorKey: null,
-                title: "Kickoff Review",
-                activityTime: "2026-04-11T00:00:00.000Z",
-                statusOptionId: 1,
-                statusLabel: "已整理",
-                statusColorKey: "green",
-                isPinned: false,
-                isExpanded: false,
-                createdAt: "",
-                updatedAt: "",
-                digest: {
-                  id: 11,
-                  projectId: 1,
-                  attributeOptionId: null,
-                  attributeLabel: null,
-                  attributeColorKey: null,
-                  title: "Kickoff Review",
-                  activityTime: "2026-04-11T00:00:00.000Z",
-                  statusOptionId: 1,
-                  statusLabel: "已整理",
-                  statusColorKey: "green",
-                  isPinned: false,
-                  noteCount: 0,
-                  conclusionCount: 0,
-                  todoCount: 0,
-                  documentCount: 0,
-                  completedTodoCount: 0,
-                  totalTodoCount: 0,
-                  hasOpenTodos: false,
-                },
-                notes: [],
-                conclusions: [],
-                todos: [],
-                documents: [],
-              },
-            ]
-          : [],
-    );
-
     const LocationDisplay = () => {
       const location = useLocation();
       return (
@@ -578,19 +534,10 @@ describe("WorkspaceLayout", () => {
                 </>
               ),
             },
-            {
-              path: "projects/:projectId/activities/:activityId",
-              element: (
-                <>
-                  <div>activity route body</div>
-                  <LocationDisplay />
-                </>
-              ),
-            },
           ],
         },
       ],
-      { initialEntries: ["/projects/1/activities/11?focus=todo-3"] },
+      { initialEntries: ["/projects/1?focus=todo-3"] },
     );
 
     render(
@@ -599,27 +546,28 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("activity route body")).toBeInTheDocument();
+    expect(await screen.findByText("project route body")).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/1/activities/11?focus=todo-3",
+      "/projects/1?focus=todo-3",
     );
 
     await user.click(
-      await screen.findByRole("button", { name: "Beta Project" }),
+      await screen.findByRole("tab", { name: "Beta Project" }),
     );
     expect(await screen.findByText("project route body")).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent(
       "/projects/2",
     );
 
-    await user.click(screen.getByRole("button", { name: "Alpha Project" }));
-    expect(await screen.findByText("activity route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/1/activities/11?focus=todo-3",
+    await user.click(screen.getByRole("tab", { name: "Alpha Project" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location-display")).toHaveTextContent(
+        "/projects/1?focus=todo-3",
+      ),
     );
   });
 
-  it("keeps Today visible without an Ask entry", async () => {
+  it("keeps Workspace visible without an Ask entry", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -627,7 +575,7 @@ describe("WorkspaceLayout", () => {
           element: <WorkspaceLayout />,
           children: [
             { index: true, element: <div>workspace outlet</div> },
-            { path: "today", element: <div>today route</div> },
+            { path: "workspace", element: <div>workspace route</div> },
           ],
         },
       ],
@@ -644,10 +592,10 @@ describe("WorkspaceLayout", () => {
     expect(
       screen.queryByRole("button", { name: "Ask" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
   });
 
-  it("keeps /today accessible after AI entry removal", async () => {
+  it("uses /workspace as the canonical Workspace route", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -656,11 +604,11 @@ describe("WorkspaceLayout", () => {
           children: [
             { index: true, element: <div>workspace outlet</div> },
             { path: "projects", element: <div>projects route</div> },
-            { path: "today", element: <div>today route</div> },
+            { path: "workspace", element: <div>workspace route</div> },
           ],
         },
       ],
-      { initialEntries: ["/today"] },
+      { initialEntries: ["/workspace"] },
     );
 
     render(
@@ -669,8 +617,8 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/today"));
-    expect(await screen.findByText("today route")).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    expect(await screen.findByText("workspace route")).toBeInTheDocument();
   });
 
   it("focuses an existing detached project window instead of navigating in the main window", async () => {
@@ -730,7 +678,7 @@ describe("WorkspaceLayout", () => {
     );
 
     await screen.findByText("project route body");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Beta Project" }));
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Beta Project" }));
 
     expect(desktopApi.focusProjectWindow).toHaveBeenCalledWith(2);
     expect(router.state.location.pathname).toBe("/projects/1");
@@ -886,6 +834,7 @@ describe("WorkspaceLayout", () => {
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    expect(within(sidebar).getByText("active")).toBeInTheDocument();
     await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
 
     expect(projectMindApi.projectRecordUpsert).toHaveBeenCalledWith({

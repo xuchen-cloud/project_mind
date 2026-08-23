@@ -45,7 +45,7 @@ export function getInternalReferenceKindLabel(kind: InternalReferenceKind) {
     case "note":
       return "记录";
     case "conclusion":
-      return "结论";
+      return "Record";
     case "todo":
       return "Todo";
     case "document":
@@ -253,7 +253,7 @@ function getInternalReferenceFallbackLabel(refKind?: InternalReferenceKind) {
     case "note":
       return "记录";
     case "conclusion":
-      return "结论";
+      return "Record";
     case "todo":
       return "Todo";
     case "document":

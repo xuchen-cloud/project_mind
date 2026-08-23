@@ -157,6 +157,7 @@ export function ProjectOverviewPage({
   const { projectUpdateMutation } = useProjectMutations(visibleProjects, (path) => navigate(path));
 
   const [nameDraft, setNameDraft] = useState("");
+  const [statusDraft, setStatusDraft] = useState("");
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
   const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const [quickNoteMoveSelection, setQuickNoteMoveSelection] =
@@ -237,6 +238,7 @@ export function ProjectOverviewPage({
     if (!activeProject) return;
 
     setNameDraft(activeProject.name);
+    setStatusDraft(activeProject.status);
     setQuickNoteCodeLanguage(activeProject.quickNoteCodeLanguage ?? null);
 
     if (!visible) {
@@ -384,6 +386,22 @@ export function ProjectOverviewPage({
       quickNoteHtml: activeProject.quickNoteHtml,
       quickNoteCodeLanguage: activeProject.quickNoteCodeLanguage ?? null,
       status: activeProject.status,
+    });
+  }
+
+  async function saveProjectStatus() {
+    if (!activeProject) return;
+
+    const nextStatus = statusDraft.trim();
+    if (nextStatus === activeProject.status) return;
+
+    await projectUpdateMutation.mutateAsync({
+      projectId: activeProject.id,
+      quickNote: activeProject.quickNote,
+      quickNoteMarkdown: activeProject.quickNoteMarkdown,
+      quickNoteHtml: activeProject.quickNoteHtml,
+      quickNoteCodeLanguage: activeProject.quickNoteCodeLanguage ?? null,
+      status: nextStatus,
     });
   }
 
@@ -601,25 +619,46 @@ export function ProjectOverviewPage({
             )}
           >
             <div className="project-overview-focus__meta">
-                <input
-                  ref={projectNameInputRef}
-                  aria-label="项目名称"
-                  autoFocus={shouldAutoFocusProjectName}
-                  className="project-overview-focus__title"
-                  value={nameDraft}
-                  onChange={(event) => setNameDraft(event.target.value)}
-                  onFocus={(event) => {
-                    if (shouldAutoFocusProjectName) {
-                      event.currentTarget.select();
-                    }
-                  }}
-                  onBlur={() => void saveProjectName()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.currentTarget.blur();
-                    }
-                  }}
-                />
+              <div className="project-overview-focus__title-row">
+                  <input
+                    ref={projectNameInputRef}
+                    aria-label="项目名称"
+                    autoFocus={shouldAutoFocusProjectName}
+                    className="project-overview-focus__title"
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    onFocus={(event) => {
+                      if (shouldAutoFocusProjectName) {
+                        event.currentTarget.select();
+                      }
+                    }}
+                    onBlur={() => void saveProjectName()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                <label className="project-overview-focus__status">
+                  <span className="project-overview-focus__status-label">状态</span>
+                  <input
+                    aria-label="项目状态"
+                    className="project-overview-focus__status-input"
+                    value={statusDraft}
+                    placeholder="未设置"
+                    onChange={(event) => setStatusDraft(event.target.value)}
+                    onBlur={() => void saveProjectStatus()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      } else if (event.key === "Escape") {
+                        setStatusDraft(activeProject.status);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </label>
+              </div>
               <button
                 type="button"
                 className="project-overview-focus__path"

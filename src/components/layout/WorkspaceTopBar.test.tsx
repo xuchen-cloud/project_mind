@@ -8,6 +8,25 @@ import {
 } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
+  it("keeps each Project Status scannable in its tab", () => {
+    render(
+      <WorkspaceTopBar
+        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "推进中", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 }]}
+        activeProjectId={1}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenToday={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("推进中")).toBeInTheDocument();
+  });
+
   it("handles search selection", async () => {
     const user = userEvent.setup();
     const onSearchSelect = vi.fn();
@@ -16,7 +35,7 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
         activeProjectId={1}
-        todayActive={false}
+        workspaceActive={false}
         searchInput="bet"
         onSearchInput={vi.fn()}
         searchResults={[
@@ -32,22 +51,72 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.queryByText("ProjectMind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
 
     await user.click(
-      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+      screen.getByRole("combobox", { name: "全局搜索" }),
     );
-    await user.click(screen.getAllByRole("button", { name: /beta/i })[0]);
+    await user.click(screen.getByRole("option", { name: /beta/i }));
     expect(onSearchSelect).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "project", projectId: 2 }),
+    );
+  });
+
+  it("exposes global search as a combobox and selects the active result with the keyboard", async () => {
+    const user = userEvent.setup();
+    const onSearchSelect = vi.fn();
+
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        searchInput="记录"
+        onSearchInput={vi.fn()}
+        searchResults={[
+          {
+            kind: "workspace_note",
+            id: 4,
+            projectId: null,
+            title: "工作区记录",
+            subtitle: "Workspace",
+            matchedText: "工作区记录",
+          },
+          {
+            kind: "note",
+            id: 8,
+            projectId: 2,
+            title: "项目记录",
+            subtitle: "Alpha",
+            matchedText: "项目记录",
+          },
+        ]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenWorkspace={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={onSearchSelect}
+      />,
+    );
+
+    const search = screen.getByRole("combobox", { name: "全局搜索" });
+    await user.click(search);
+
+    expect(search).toHaveAttribute("aria-expanded", "true");
+    expect(search).toHaveAttribute("aria-controls", "workspace-search-results");
+    expect(screen.getByRole("listbox", { name: "全局搜索结果" })).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+
+    expect(onSearchSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "note", id: 8 }),
     );
   });
 
@@ -56,32 +125,31 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[]}
         activeProjectId={null}
-        showToday={false}
+        showWorkspace={false}
         searchInput="预算"
         onSearchInput={vi.fn()}
         searchResults={[
           {
-            kind: "activity",
+            kind: "note",
             id: 7,
             projectId: 2,
-            activityId: 7,
-            title: "季度复盘",
+            title: "季度复盘记录",
             subtitle: "Alpha",
             matchedText: "…讨论下一季度预算和交付节奏…",
           },
         ]}
         searching={false}
         onOpenProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
     );
 
     fireEvent.focus(
-      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+      screen.getByRole("combobox", { name: "全局搜索" }),
     );
-    expect(screen.getByText("活动")).toBeInTheDocument();
+    expect(screen.getByText("记录")).toBeInTheDocument();
     expect(screen.getByText("…讨论下一季度预算和交付节奏…")).toBeInTheDocument();
   });
 
@@ -118,19 +186,19 @@ describe("WorkspaceTopBar", () => {
         ]}
         searching={false}
         onOpenProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
       />,
     );
 
     fireEvent.focus(
-      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+      screen.getByRole("combobox", { name: "全局搜索" }),
     );
     expect(screen.getAllByText("Workspace")).toHaveLength(2);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
 
-    const results = screen.getAllByRole("button", { name: /同名 Todo/ });
+    const results = screen.getAllByRole("option", { name: /同名 Todo/ });
     expect(results).toHaveLength(2);
     await user.click(results[0]);
     expect(onSearchSelect).toHaveBeenCalledWith(
@@ -143,21 +211,21 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[]}
         activeProjectId={null}
-        showToday={false}
+        showWorkspace={false}
         searchInput="预算"
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
         searchError
         onOpenProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
     );
 
     fireEvent.focus(
-      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+      screen.getByRole("combobox", { name: "全局搜索" }),
     );
     expect(screen.getByText("搜索失败，请稍后重试")).toBeInTheDocument();
     expect(screen.queryByText("没有匹配结果")).not.toBeInTheDocument();
@@ -168,23 +236,23 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[]}
         activeProjectId={null}
-        showToday={false}
+        showWorkspace={false}
         searchInput=""
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
         onOpenProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
     );
 
     fireEvent.focus(
-      screen.getByPlaceholderText("搜索 Workspace、项目、活动、记录、结论、Todo、文件、联系人"),
+      screen.getByRole("combobox", { name: "全局搜索" }),
     );
     expect(
-      screen.getByText("输入关键词，搜索 Workspace、项目、活动、记录、结论、Todo、文件和联系人"),
+      screen.getByText("输入关键词，搜索 Workspace、项目、记录、Todo、文件和联系人"),
     ).toBeInTheDocument();
   });
 
@@ -226,21 +294,21 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
         activeProjectId={1}
-        todayActive={false}
+        workspaceActive={false}
         searchInput=""
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
         onOpenProject={onOpenProject}
         onCloseProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
         onDetachProject={onDetachProject}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Alpha" }));
+    await user.click(screen.getByRole("tab", { name: "Alpha" }));
 
     expect(onOpenProject).toHaveBeenCalledWith(1);
     expect(onDetachProject).not.toHaveBeenCalled();
@@ -253,21 +321,21 @@ describe("WorkspaceTopBar", () => {
       <WorkspaceTopBar
         projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
         activeProjectId={1}
-        todayActive={false}
+        workspaceActive={false}
         searchInput=""
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
         onDetachProject={onDetachProject}
       />,
     );
 
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" }), {
+    fireEvent.contextMenu(screen.getByRole("tab", { name: "Alpha" }), {
       clientX: 120,
       clientY: 88,
     });
@@ -311,25 +379,25 @@ describe("WorkspaceTopBar", () => {
           },
         ]}
         activeProjectId={1}
-        todayActive={false}
+        workspaceActive={false}
         searchInput=""
         onSearchInput={vi.fn()}
         searchResults={[]}
         searching={false}
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
-        onOpenToday={vi.fn()}
+        onOpenWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("title", "Workspace");
-    expect(screen.getByRole("button", { name: "Alpha project with a very long title" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("title", "Workspace");
+    expect(screen.getByRole("tab", { name: "Alpha project with a very long title" })).toHaveAttribute(
       "title",
       "Alpha project with a very long title",
     );
-    expect(screen.getByRole("button", { name: "Beta project with another very long title" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Beta project with another very long title" })).toHaveAttribute(
       "title",
       "Beta project with another very long title",
     );
@@ -340,5 +408,74 @@ describe("WorkspaceTopBar", () => {
     expect(
       screen.getByRole("button", { name: "关闭 Beta project with another very long title" }),
     ).not.toHaveClass("workspace-topbar__tab-close--persistent");
+  });
+
+  it("uses roving tab stops and arrow keys across Workspace and Project tabs", async () => {
+    const user = userEvent.setup();
+    const onOpenProject = vi.fn();
+
+    render(
+      <WorkspaceTopBar
+        projects={[
+          { id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 },
+          { id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 },
+        ]}
+        activeProjectId={1}
+        workspaceActive={false}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={onOpenProject}
+        onOpenWorkspace={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    const workspaceTab = screen.getByRole("tab", { name: "Workspace" });
+    const alphaTab = screen.getByRole("tab", { name: "Alpha" });
+    const betaTab = screen.getByRole("tab", { name: "Beta" });
+
+    expect(workspaceTab).toHaveAttribute("tabindex", "-1");
+    expect(alphaTab).toHaveAttribute("tabindex", "0");
+    expect(betaTab).toHaveAttribute("tabindex", "-1");
+
+    alphaTab.focus();
+    await user.keyboard("{ArrowRight}");
+
+    expect(betaTab).toHaveFocus();
+    expect(onOpenProject).toHaveBeenCalledWith(2);
+  });
+
+  it("keeps global search reachable through the compact top-bar entry", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenWorkspace={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    const compactEntry = screen.getByRole("button", { name: "打开全局搜索" });
+    await user.click(compactEntry);
+
+    const search = screen.getByRole("combobox", { name: "全局搜索" });
+    expect(search).toHaveFocus();
+    expect(compactEntry).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+
+    expect(compactEntry).toHaveFocus();
+    expect(compactEntry).toHaveAttribute("aria-expanded", "false");
   });
 });

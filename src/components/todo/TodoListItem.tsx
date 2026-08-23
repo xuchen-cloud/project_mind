@@ -37,7 +37,6 @@ import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { parseProgressInput, priorityColorValue, sortTodoProgresses } from "./todo-utils";
 import { TodoDueDate } from "./TodoDueDate";
 
-const PROGRESS_STATUS_TRANSITION_MS = 420;
 const SUBITEM_CONTROLS_HOT_ZONE_PX = 14;
 const SUBITEM_CONTROLS_REVEAL_DELAY_MS = 400;
 
@@ -96,7 +95,6 @@ export function TodoListItem({
   availableTagScopeProjectId?: number | null;
   allowTagCreation?: boolean;
 }) {
-  const [toggling, setToggling] = useState(false);
   const [contentEditing, setContentEditing] = useState(false);
   const [tagEditing, setTagEditing] = useState(false);
   const [progressEditing, setProgressEditing] = useState(false);
@@ -105,7 +103,6 @@ export function TodoListItem({
     Record<number, { progress: TodoProgressRecord; phase: ProgressVisualState }>
   >({});
   const expandButtonRef = useRef<HTMLButtonElement | null>(null);
-  const progressTimersRef = useRef(new Map<number, number>());
   const subitemControlsTimerRef = useRef<number | null>(null);
   const createdTagsRef = useRef<ProjectTagRecord[]>([]);
   const needsProjectTagOptions =
@@ -172,11 +169,26 @@ export function TodoListItem({
 
   useEffect(() => {
     return () => {
-      progressTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      progressTimersRef.current.clear();
       clearSubitemControlsTimer();
     };
   }, []);
+
+  useEffect(() => {
+    setProgressTransitions((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      for (const [progressId, transition] of Object.entries(current)) {
+        const source = todo.progresses.find((progress) => progress.id === Number(progressId));
+        if (!source || source.status === transition.progress.status) {
+          delete next[Number(progressId)];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [todo.progresses]);
 
   function clearSubitemControlsTimer() {
     if (subitemControlsTimerRef.current === null) {
@@ -187,31 +199,8 @@ export function TodoListItem({
     subitemControlsTimerRef.current = null;
   }
 
-  function clearProgressTransition(progressId: number) {
-    const timerId = progressTimersRef.current.get(progressId);
-    if (timerId) {
-      window.clearTimeout(timerId);
-      progressTimersRef.current.delete(progressId);
-    }
-
-    setProgressTransitions((current) => {
-      if (!current[progressId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[progressId];
-      return next;
-    });
-  }
-
-  async function handleToggle() {
-    setToggling(true);
-    try {
-      await onToggleStatus(todo.id, todo.status === "finished" ? "unfinished" : "finished");
-    } finally {
-      setToggling(false);
-    }
+  function handleToggle() {
+    return onToggleStatus(todo.id, todo.status === "finished" ? "unfinished" : "finished");
   }
 
   async function handleProgressStatusToggle(
@@ -236,15 +225,6 @@ export function TodoListItem({
       [progressId]: { progress: nextProgress, phase },
     }));
 
-    const existingTimer = progressTimersRef.current.get(progressId);
-    if (existingTimer) {
-      window.clearTimeout(existingTimer);
-    }
-    progressTimersRef.current.set(
-      progressId,
-      window.setTimeout(() => clearProgressTransition(progressId), PROGRESS_STATUS_TRANSITION_MS),
-    );
-
     try {
       await onUpdateProgress(progressId, {
         content: currentProgress.content,
@@ -253,7 +233,14 @@ export function TodoListItem({
         status: nextStatus,
       });
     } catch (error) {
-      clearProgressTransition(progressId);
+      setProgressTransitions((current) => {
+        if (current[progressId]?.progress.status !== nextStatus) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[progressId];
+        return next;
+      });
       throw error;
     }
   }
@@ -358,7 +345,6 @@ export function TodoListItem({
                 className={cn("todo-card__check", contentEditing && "todo-card__check--hidden")}
                 aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
                 aria-pressed={todo.status === "finished"}
-                disabled={toggling}
                 onClick={() => {
                   void handleToggle();
                 }}
@@ -527,7 +513,6 @@ function TodoHistoryProgressItem({
   const [saving, setSaving] = useState(false);
   const [optimisticProgress, setOptimisticProgress] = useState<TodoProgressRecord | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [statusSaving, setStatusSaving] = useState(false);
   const saveInFlightRef = useRef(false);
   const displayProgress = optimisticProgress ?? progress;
   const progressContextActions: ContextMenuAction[] = [
@@ -632,23 +617,17 @@ function TodoHistoryProgressItem({
     }
   }
 
-  async function handleToggleSubItem() {
-    setStatusSaving(true);
-    try {
-      const nextStatus = progress.status === "finished" ? "unfinished" : "finished";
-      if (onToggleStatus) {
-        await onToggleStatus(progress.id, nextStatus);
-      } else {
-        await onUpdateProgress(progress.id, {
-          content: progress.content,
-          progressDate: progress.progressDate,
-          ...(progress.dueDate ? { dueDate: progress.dueDate } : {}),
-          status: nextStatus,
-        });
-      }
-    } finally {
-      setStatusSaving(false);
+  function handleToggleSubItem() {
+    const nextStatus = progress.status === "finished" ? "unfinished" : "finished";
+    if (onToggleStatus) {
+      return onToggleStatus(progress.id, nextStatus);
     }
+    return onUpdateProgress(progress.id, {
+      content: progress.content,
+      progressDate: progress.progressDate,
+      ...(progress.dueDate ? { dueDate: progress.dueDate } : {}),
+      status: nextStatus,
+    });
   }
 
   if (editing) {
@@ -708,7 +687,7 @@ function TodoHistoryProgressItem({
               displayProgress.status === "finished" ? "标记子项未完成" : "标记子项完成"
             }
             aria-pressed={displayProgress.status === "finished"}
-            disabled={statusSaving || saving}
+            disabled={saving}
             onClick={() => {
               void handleToggleSubItem();
             }}

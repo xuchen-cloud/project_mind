@@ -211,6 +211,29 @@ describe("WorkspacePage", () => {
     expect(screen.getByTestId("workspace-overview-view-switch")).toBeInTheDocument();
   });
 
+  it("shows Project Status in the Workspace Project list", async () => {
+    apiMocks.projectsList.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "Alpha",
+        kind: "normal",
+        status: "待评审",
+        rootPath: "/tmp/alpha",
+        quickNote: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        unorganizedCount: 0,
+        openTodoCount: 2,
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("待评审")).toBeInTheDocument();
+    expect(screen.getByText("2 个 Todo")).toBeInTheDocument();
+  });
+
   it("keeps Workspace usable without AI modules", async () => {
     apiMocks.projectsList.mockResolvedValueOnce([]);
     apiMocks.workspacePageGet.mockResolvedValueOnce({
@@ -423,7 +446,7 @@ describe("WorkspacePage", () => {
     expect(
       within(projectTodoCard!).queryByRole("button", { name: "打开 Project Alpha" }),
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "按优先级" }));
+    await user.click(screen.getByRole("tab", { name: "按优先级" }));
     expect(
       Array.from(document.querySelectorAll(".todo-list__collection > article")).map(
         (card) => card.id,

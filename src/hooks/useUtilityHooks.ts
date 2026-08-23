@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { MOTION_DURATION_MS } from "../ui/motion";
+
 const scrollPositions = new Map<string, number>();
 const MAX_SAVED_SCROLL_POSITIONS = 100;
 
@@ -16,6 +18,56 @@ function rememberScrollPosition(key: string, position: number) {
 interface FocusTargetOptions {
   enabled?: boolean;
   refocusOnEnable?: boolean;
+}
+
+interface FocusTargetElementOptions {
+  block?: ScrollLogicalPosition;
+}
+
+const FOCUS_CUE_DURATION_MS = MOTION_DURATION_MS.deliberate;
+
+export function focusTargetElement(
+  element: HTMLElement,
+  { block = "center" }: FocusTargetElementOptions = {},
+) {
+  const scrollBehavior =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+  const scrollContainer = element.closest(
+    "[data-testid='project-overview-focus-scroll'], [data-testid='workspace-overview-focus-scroll']",
+  ) as HTMLElement | null;
+
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const targetTop =
+      scrollContainer.scrollTop +
+      elementRect.top -
+      containerRect.top -
+      Math.max(24, (containerRect.height - elementRect.height) / 2);
+    const nextTop = Math.max(0, targetTop);
+
+    if (typeof scrollContainer.scrollTo === "function") {
+      scrollContainer.scrollTo({ top: nextTop, behavior: scrollBehavior });
+    } else {
+      scrollContainer.scrollTop = nextTop;
+    }
+  } else {
+    element.scrollIntoView({ block, behavior: scrollBehavior });
+  }
+
+  element.classList.add("is-focused");
+  const timer = window.setTimeout(
+    () => element.classList.remove("is-focused"),
+    FOCUS_CUE_DURATION_MS,
+  );
+
+  return () => {
+    window.clearTimeout(timer);
+    element.classList.remove("is-focused");
+  };
 }
 
 export function useFocusTarget(
@@ -40,51 +92,7 @@ export function useFocusTarget(
     const element = document.getElementById(focusId);
     if (!element) return;
     lastFocusedIdRef.current = focusId;
-
-    const scrollContainer = element.closest(
-      "[data-testid='project-overview-focus-scroll'], [data-testid='workspace-overview-focus-scroll']",
-    ) as HTMLElement | null;
-
-    if (scrollContainer) {
-      const scrollToTarget = () => {
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        const targetTop =
-          scrollContainer.scrollTop +
-          elementRect.top -
-          containerRect.top -
-          Math.max(24, (containerRect.height - elementRect.height) / 2);
-
-        const nextTop = Math.max(0, targetTop);
-        if (typeof scrollContainer.scrollTo === "function") {
-          scrollContainer.scrollTo({
-            top: nextTop,
-            behavior: "smooth",
-          });
-        } else {
-          scrollContainer.scrollTop = nextTop;
-        }
-      };
-
-      scrollToTarget();
-      const frame = window.requestAnimationFrame(scrollToTarget);
-      const firstTimer = window.setTimeout(scrollToTarget, 80);
-      const secondTimer = window.setTimeout(scrollToTarget, 240);
-
-      element.classList.add("is-focused");
-      const timer = window.setTimeout(() => element.classList.remove("is-focused"), 1600);
-      return () => {
-        window.cancelAnimationFrame(frame);
-        window.clearTimeout(firstTimer);
-        window.clearTimeout(secondTimer);
-        window.clearTimeout(timer);
-      };
-    }
-
-    element.scrollIntoView({ block: "center", behavior: "smooth" });
-    element.classList.add("is-focused");
-    const timer = window.setTimeout(() => element.classList.remove("is-focused"), 1600);
-    return () => window.clearTimeout(timer);
+    return focusTargetElement(element);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, focusId, refocusOnEnable, ...deps]);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Earth, FolderKanban, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
 
 import { type InternalReferenceTarget } from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
@@ -10,6 +10,7 @@ import type {
   TodoTagUpdateHandler,
 } from "../../lib/types";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { focusTargetElement } from "../../hooks/useUtilityHooks";
 import { deriveContactPinyin } from "../../lib/pinyin";
 import {
   TODO_RAIL_WIDTH_MAX_PX,
@@ -91,7 +92,7 @@ export function TodoRail({
   projectId,
   focusTodoId = null,
   title,
-  scopeLabel: _scopeLabel,
+  scopeLabel,
   unfinishedTodos,
   finishedTodos,
   availableTags = [],
@@ -134,6 +135,8 @@ export function TodoRail({
   const railRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const addTodoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const currentProjectViewRef = useRef<HTMLButtonElement | null>(null);
+  const workspaceViewRef = useRef<HTMLButtonElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const internalReferenceContext =
     projectId === undefined
@@ -258,12 +261,19 @@ export function TodoRail({
 
     setTodoRailCollapsed(false);
     setTab(focusedTodo.status === "finished" ? "finished" : "unfinished");
+    let clearFocusCue: (() => void) | undefined;
     const frameId = window.requestAnimationFrame(() => {
-      railRef.current
-        ?.querySelector<HTMLElement>(`[data-todo-id="${focusTodoId}"]`)
-        ?.scrollIntoView({ block: "nearest" });
+      const element = railRef.current?.querySelector<HTMLElement>(
+        `[data-todo-id="${focusTodoId}"]`,
+      );
+      if (element) {
+        clearFocusCue = focusTargetElement(element, { block: "nearest" });
+      }
     });
-    return () => window.cancelAnimationFrame(frameId);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      clearFocusCue?.();
+    };
   }, [
     finishedTodos,
     focusTodoId,
@@ -619,28 +629,55 @@ export function TodoRail({
       <div className="todo-rail__header flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-title font-medium text-text">{title}</h2>
+          <p className="todo-rail__scope">{scopeLabel}</p>
+          {showViewModeSwitch ? (
+            <div
+              className="todo-rail__view-switch"
+              role="tablist"
+              aria-label="Todo View"
+            >
+              <button
+                ref={currentProjectViewRef}
+                type="button"
+                role="tab"
+                aria-selected={!workspaceView}
+                tabIndex={!workspaceView ? 0 : -1}
+                className="todo-rail__view-switch-button"
+                onClick={() => onViewModeChange?.("current-project")}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "End") {
+                    return;
+                  }
+                  event.preventDefault();
+                  workspaceViewRef.current?.focus();
+                  onViewModeChange?.("workspace");
+                }}
+              >
+                Current Project View
+              </button>
+              <button
+                ref={workspaceViewRef}
+                type="button"
+                role="tab"
+                aria-selected={workspaceView}
+                tabIndex={workspaceView ? 0 : -1}
+                className="todo-rail__view-switch-button"
+                onClick={() => onViewModeChange?.("workspace")}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowUp" && event.key !== "Home") {
+                    return;
+                  }
+                  event.preventDefault();
+                  currentProjectViewRef.current?.focus();
+                  onViewModeChange?.("current-project");
+                }}
+              >
+                Workspace View
+              </button>
+            </div>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {showViewModeSwitch ? (
-            <IconButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="todo-rail__icon-toggle"
-              aria-label="Workspace View"
-              aria-pressed={workspaceView}
-              title={
-                workspaceView
-                  ? "Workspace View（点击切换到 Current Project View）"
-                  : "Current Project View（点击切换到 Workspace View）"
-              }
-              onClick={() =>
-                onViewModeChange?.(workspaceView ? "current-project" : "workspace")
-              }
-            >
-              <Earth size={14} />
-            </IconButton>
-          ) : null}
           {onRefresh ? (
             <IconButton
               type="button"

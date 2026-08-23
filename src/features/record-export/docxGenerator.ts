@@ -171,7 +171,9 @@ async function renderBlock(
         const primaryIndex = item.blocks.findIndex((nested) => nested.type === "paragraph");
         const primary = primaryIndex >= 0 ? item.blocks[primaryIndex] : null;
         const inline = primary?.type === "paragraph" ? primary.content : [];
-        const prefix = block.type === "taskList" ? `${item.checked ? "☒" : "☐"} ` : "";
+        const prefix = block.type === "taskList"
+          ? `${String.fromCodePoint(item.checked ? 0x2612 : 0x2610)} `
+          : "";
         const paragraph = new Paragraph({
           numbering: {
             reference: block.type === "orderedList" ? "record-decimal" : "record-bullets",

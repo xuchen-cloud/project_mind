@@ -1,13 +1,20 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MOTION_DURATION_MS } from "../ui/motion";
 import { useFocusTarget, useScrollPositionRestoration } from "./useUtilityHooks";
 
-function FocusTargetHarness({ enabled }: { enabled: boolean }) {
+function FocusTargetHarness({
+  enabled,
+  scope = "project",
+}: {
+  enabled: boolean;
+  scope?: "project" | "workspace";
+}) {
   useFocusTarget("record-7", [], { enabled, refocusOnEnable: false });
 
   return (
-    <div data-testid="project-overview-focus-scroll">
+    <div data-testid={`${scope}-overview-focus-scroll`}>
       <div id="record-7">目标记录</div>
     </div>
   );
@@ -26,8 +33,58 @@ function ScrollRestorationHarness({ routeKey }: { routeKey: string }) {
 
 describe("useFocusTarget", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["project", "workspace"] as const)(
+    "positions a %s Record once and clears its focus cue after the deliberate motion duration",
+    (scope) => {
+      vi.useFakeTimers();
+      const scrollTo = vi.fn();
+      Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+        configurable: true,
+        value: scrollTo,
+      });
+
+      render(<FocusTargetHarness enabled scope={scope} />);
+
+      const record = document.getElementById("record-7");
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+      expect(record).toHaveClass("is-focused");
+
+      act(() => vi.advanceTimersByTime(MOTION_DURATION_MS.deliberate));
+
+      expect(record).not.toHaveClass("is-focused");
+    },
+  );
+
+  it("positions a Record without smooth movement when reduced motion is preferred", () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: scrollTo,
+    });
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
+    );
+
+    render(<FocusTargetHarness enabled />);
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
   });
 
   it("does not reposition an already focused card when a cached page becomes visible again", () => {

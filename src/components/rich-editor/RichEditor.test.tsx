@@ -3435,12 +3435,12 @@ describe("RichEditor context menus", () => {
       within(blockShortcutGroup)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["标题 1", "标题 2", "标题 3", "引用", "待办"]);
+    ).toEqual(["标题 1", "标题 2", "标题 3", "引用", "Todo"]);
     expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
     const insertBlockGroup = within(menu).getByRole("group", {
       name: "新增区块",
     });
-    ["引用", "表格", "图片", "文件", "代码块", "待办", "分隔线", "更多"].forEach((label) => {
+    ["引用", "表格", "图片", "文件", "代码块", "Todo", "分隔线", "更多"].forEach((label) => {
       expect(within(insertBlockGroup).getByRole("button", { name: label })).toBeInTheDocument();
     });
     expect(within(insertBlockGroup).getByRole("button", { name: "表格" })).toBeEnabled();

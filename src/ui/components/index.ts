@@ -10,6 +10,7 @@ export { PopoverPanel } from "./PopoverPanel";
 export { ProjectStarButton } from "./ProjectStarButton";
 export { ResizeHandle } from "./ResizeHandle";
 export { SearchField } from "./SearchField";
+export { SidebarFilters, SidebarTabs } from "./SidebarChoiceGroup";
 export { SectionHeader } from "./SectionHeader";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";

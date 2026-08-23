@@ -35,4 +35,18 @@ describe("useFeedbackStore", () => {
     useFeedbackStore.getState().dismissToast(state.toasts[0].id);
     expect(useFeedbackStore.getState().toasts).toHaveLength(0);
   });
+
+  it("keeps one active toast for repeated identical feedback", () => {
+    useFeedbackStore.setState({ toasts: [] });
+
+    const feedback = {
+      tone: "error" as const,
+      title: "保存失败",
+      detail: "磁盘不可写",
+    };
+    useFeedbackStore.getState().pushToast(feedback);
+    useFeedbackStore.getState().pushToast(feedback);
+
+    expect(useFeedbackStore.getState().toasts).toHaveLength(1);
+  });
 });

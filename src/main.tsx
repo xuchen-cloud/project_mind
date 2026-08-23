@@ -13,7 +13,7 @@ import { Navigate, RouterProvider, createHashRouter, useParams } from "react-rou
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
-import { WorkspacePage } from "./components/today/WorkspacePage";
+import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { createProjectMindQueryClient } from "./lib/queryClient";
 
 const ProjectNoteFocusPage = lazy(() =>
@@ -22,7 +22,7 @@ const ProjectNoteFocusPage = lazy(() =>
   })),
 );
 const WorkspaceRecordFocusPage = lazy(() =>
-  import("./components/today/WorkspaceRecordFocusPage").then((module) => ({
+  import("./components/workspace/WorkspaceRecordFocusPage").then((module) => ({
     default: module.WorkspaceRecordFocusPage,
   })),
 );

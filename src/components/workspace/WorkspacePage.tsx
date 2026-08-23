@@ -617,7 +617,7 @@ export function WorkspacePage({
                 variant="page"
                 showToolbar={false}
                 assetHandlers={workspaceAssetHandlers}
-                placeholder="记下今天最需要先抓住的背景、判断、临时结论或提醒。"
+                placeholder="记下当前最需要先抓住的背景、判断、候选行动或提醒。"
                 tagMentions={{
                   projectId: null,
                   availableTags,
