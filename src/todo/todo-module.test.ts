@@ -267,6 +267,58 @@ describe("Todo module", () => {
     expect(module.read({ kind: "workspace" }).unfinishedTodos).toEqual([saved]);
   });
 
+  it("merges explicitly selected Tags with hash Tags while creating", async () => {
+    const workspacePage: WorkspacePageData = {
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    };
+    const transport = testTransport({ projects: [], workspacePage, projectPages: {} });
+    const explicitTag = {
+      id: 8,
+      label: "法务",
+      colorKey: "red" as const,
+      usageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const hashTag = {
+      id: 9,
+      label: "发布",
+      colorKey: "blue" as const,
+      usageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const saved = {
+      ...todo(22, { scope: "workspace" }, "准备发布"),
+      tags: [explicitTag, hashTag],
+    };
+    vi.mocked(transport.projectTagSettingsGet).mockResolvedValueOnce({
+      tags: [explicitTag, hashTag],
+    });
+    vi.mocked(transport.todoCreate).mockResolvedValueOnce(saved);
+    const module = createTodoModule({ queryClient: new QueryClient(), transport });
+    await module.load({ kind: "workspace" });
+
+    await module.change({
+      type: "create",
+      ownership: { scope: "workspace" },
+      content: "准备发布 #发布",
+      priority: "not_urgent_important",
+      tagIds: [explicitTag.id],
+      tags: [explicitTag],
+    });
+
+    expect(transport.todoCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "准备发布",
+        tagIds: [explicitTag.id, hashTag.id],
+      }),
+    );
+  });
+
   it("updates Todo content in both projections", async () => {
     const { active, module, original, transport } = await loadedProjectTodoModule();
     const edited = { ...original, content: "更新内容" };

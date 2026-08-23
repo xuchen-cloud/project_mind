@@ -57,10 +57,15 @@ describe("TodoInlineProgressEditor", () => {
 
     expect(screen.queryByText(/\+\s*进展/u)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "添加子任务" }));
-    expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "true");
+    const addSubtask = screen.getByRole("button", { name: "添加子任务" });
+    expect(addSubtask).toHaveClass("w-full");
+    await user.click(addSubtask);
+    const textbox = screen.getByRole("textbox");
+    expect(textbox).toHaveAttribute("contenteditable", "true");
+    expect(textbox.parentElement).toHaveClass("todo-editor-field");
+    expect(screen.getByText("输入子任务，Enter 保存")).toBeInTheDocument();
 
-    await user.type(screen.getByRole("textbox"), "@0315 已确认方案");
+    await user.type(textbox, "@0315 已确认方案");
     await user.keyboard("{Enter}");
 
     expect(onSave).toHaveBeenCalledWith({
@@ -108,7 +113,7 @@ describe("TodoInlineProgressEditor", () => {
 
     await user.click(screen.getByRole("button", { name: "完成问题答复" }));
 
-    expect(screen.getByText("@0315 已与财务确认方案")).toBeInTheDocument();
+    expect(screen.getByText("输入子任务，Enter 保存")).toBeInTheDocument();
   });
 
   it("normalizes pasted line breaks before saving", async () => {

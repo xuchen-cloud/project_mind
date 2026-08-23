@@ -158,20 +158,23 @@ export function TodoInlineProgressEditor({
 
   if (editing) {
     return (
-      <div className="relative">
-        <TodoProgressTextEditor
-          value={draft}
-          autoFocus
-          disabled={saving}
-          placeholder="@0315 已与财务确认方案"
-          internalReferenceContext={internalReferenceContext}
-          disableMentionTrigger={(trigger) => isProgressDatePrefixTrigger(draft, trigger)}
-          onChange={setDraft}
-          onCommit={() => {
-            void handleSave();
-          }}
-          onCancel={() => setMode(null)}
-        />
+      <div className="todo-subtask-editor-row">
+        <span className="todo-subtask-editor-row__check-placeholder" aria-hidden="true" />
+        <div className="relative min-w-0 flex-1">
+          <TodoProgressTextEditor
+            value={draft}
+            autoFocus
+            disabled={saving}
+            placeholder="输入子任务，Enter 保存"
+            internalReferenceContext={internalReferenceContext}
+            disableMentionTrigger={(trigger) => isProgressDatePrefixTrigger(draft, trigger)}
+            onChange={setDraft}
+            onCommit={() => {
+              void handleSave();
+            }}
+            onCancel={() => setMode(null)}
+          />
+        </div>
       </div>
     );
   }
@@ -198,7 +201,7 @@ export function TodoInlineProgressEditor({
         role="button"
         tabIndex={0}
         className={cn(
-          "todo-inline-progress-trigger",
+          "todo-inline-progress-trigger w-full",
           displayLatestProgress ? "text-text" : "text-text-muted",
         )}
         onClick={() => {

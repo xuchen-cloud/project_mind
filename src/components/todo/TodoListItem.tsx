@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -97,7 +98,11 @@ export function TodoListItem({
 }) {
   const [contentEditing, setContentEditing] = useState(false);
   const [tagEditing, setTagEditing] = useState(false);
-  const [progressEditing, setProgressEditing] = useState(false);
+  const [inlineProgressEditing, setInlineProgressEditing] = useState(false);
+  const [historyEditingProgressIds, setHistoryEditingProgressIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const progressEditing = inlineProgressEditing || historyEditingProgressIds.size > 0;
   const [subitemControlsVisible, setSubitemControlsVisible] = useState(false);
   const [progressTransitions, setProgressTransitions] = useState<
     Record<number, { progress: TodoProgressRecord; phase: ProgressVisualState }>
@@ -151,7 +156,8 @@ export function TodoListItem({
   const canExpand = finishedSubItems.length > 0;
   const canShowSubitemControls = allowInlineProgress || canExpand;
   const shouldShowSubitemControls =
-    canShowSubitemControls && (subitemControlsVisible || expanded || progressEditing);
+    canShowSubitemControls &&
+    (subitemControlsVisible || expanded || contentEditing || tagEditing || progressEditing);
   const expandedItemRef = useDismissOnOutside<HTMLElement>({
     enabled: expanded,
     onDismiss: () => onToggleExpanded(todo.id, false),
@@ -160,18 +166,18 @@ export function TodoListItem({
   });
 
   useEffect(() => {
+    return () => {
+      clearSubitemControlsTimer();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!expanded || canExpand) {
       return;
     }
 
     onToggleExpanded(todo.id, false);
   }, [canExpand, expanded, onToggleExpanded, todo.id]);
-
-  useEffect(() => {
-    return () => {
-      clearSubitemControlsTimer();
-    };
-  }, []);
 
   useEffect(() => {
     setProgressTransitions((current) => {
@@ -245,6 +251,21 @@ export function TodoListItem({
     }
   }
 
+  const handleHistoryProgressEditingChange = useCallback(
+    (progressId: number, editing: boolean) => {
+      setHistoryEditingProgressIds((current) => {
+        const next = new Set(current);
+        if (editing) {
+          next.add(progressId);
+        } else {
+          next.delete(progressId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   function renderProgressItem(progress: TodoProgressRecord, bordered: boolean) {
     return (
       <TodoHistoryProgressItem
@@ -263,6 +284,7 @@ export function TodoListItem({
         onError={onError}
         onOpenInternalReference={onOpenInternalReference}
         onOpenContactMention={onOpenContactMention}
+        onEditingChange={handleHistoryProgressEditingChange}
       />
     );
   }
@@ -342,9 +364,10 @@ export function TodoListItem({
               </div>
               <button
                 type="button"
-                className={cn("todo-card__check", contentEditing && "todo-card__check--hidden")}
+                className="todo-card__check"
                 aria-label={todo.status === "finished" ? "标记为未完成" : "标记为已完成"}
                 aria-pressed={todo.status === "finished"}
+                disabled={contentEditing}
                 onClick={() => {
                   void handleToggle();
                 }}
@@ -423,6 +446,7 @@ export function TodoListItem({
                     "todo-card__subitem-row",
                     shouldShowSubitemControls && "todo-card__subitem-row--visible",
                   )}
+                  data-visibility="hover"
                   onPointerLeave={handleSubitemControlsPointerLeave}
                 >
                   <div className="todo-card__add-subtask">
@@ -433,7 +457,7 @@ export function TodoListItem({
                       internalReferenceContext={internalReferenceContext}
                       onOpenInternalReference={onOpenInternalReference}
                       onOpenContactMention={onOpenContactMention}
-                      onEditingChange={setProgressEditing}
+                      onEditingChange={setInlineProgressEditing}
                       onSave={(payload) => onAddProgress(todo.id, payload)}
                       onUpdateLatestProgress={onUpdateProgress}
                       onDeleteLatestProgress={onDeleteProgress}
@@ -488,6 +512,7 @@ function TodoHistoryProgressItem({
   onError,
   onOpenInternalReference,
   onOpenContactMention,
+  onEditingChange,
 }: {
   progress: TodoProgressRecord;
   internalReferenceContext: InternalReferenceContext;
@@ -507,6 +532,7 @@ function TodoHistoryProgressItem({
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
+  onEditingChange: (progressId: number, editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(progress.content);
@@ -542,6 +568,11 @@ function TodoHistoryProgressItem({
       setDraft(displayProgress.content);
     }
   }, [displayProgress.content, editing]);
+
+  useEffect(() => {
+    onEditingChange(progress.id, editing);
+    return () => onEditingChange(progress.id, false);
+  }, [editing, onEditingChange, progress.id]);
 
   useEffect(() => {
     if (!optimisticProgress) {
@@ -638,19 +669,22 @@ function TodoHistoryProgressItem({
           bordered && "todo-progress-item--bordered",
         )}
       >
-        <div className="relative todo-progress-item__editor-shell">
-          <TodoProgressTextEditor
-            value={draft}
-            autoFocus
-            disabled={saving}
-            placeholder="@0315 已与财务确认方案"
-            internalReferenceContext={internalReferenceContext}
-            onChange={setDraft}
-            onCommit={() => {
-              void handleSave();
-            }}
-            onCancel={() => setEditing(false)}
-          />
+        <div className="todo-subtask-editor-row todo-progress-item__editor-shell">
+          <span className="todo-subtask-editor-row__check-placeholder" aria-hidden="true" />
+          <div className="relative min-w-0 flex-1">
+            <TodoProgressTextEditor
+              value={draft}
+              autoFocus
+              disabled={saving}
+              placeholder="输入子任务，Enter 保存"
+              internalReferenceContext={internalReferenceContext}
+              onChange={setDraft}
+              onCommit={() => {
+                void handleSave();
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          </div>
         </div>
       </div>
     );

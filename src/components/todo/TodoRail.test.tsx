@@ -750,11 +750,279 @@ describe("TodoRail", () => {
     const composer = screen.getByPlaceholderText("写下一条需要推进的 Todo");
     await waitFor(() => expect(composer).toHaveFocus());
     expect(composer).toHaveAttribute("rows", "1");
-    expect(composer).toHaveClass("resize-none");
+    expect(composer).toHaveClass("todo-editor-field", "resize-none");
     expect(screen.queryByText(/Cmd|Ctrl|Enter.*保存/u)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "P1 · 紧急且重要" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "P3 · 不紧急但重要" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("builds a Todo card draft with a live priority rail, Tags, and Subtasks", async () => {
+    const user = userEvent.setup();
+    const tag = {
+      id: 12,
+      label: "法务",
+      colorKey: "red" as const,
+      usageCount: 0,
+      createdAt: "2026-04-06T08:00:00.000Z",
+      updatedAt: "2026-04-06T08:00:00.000Z",
+    };
+    const createdTodo = {
+      ...todoWithoutHistory,
+      id: 88,
+      content: "准备发布",
+      tags: [{ id: tag.id, label: tag.label, colorKey: tag.colorKey }],
+    };
+    const onCreateTodo = vi.fn(async () => createdTodo);
+    const onAddProgress = vi.fn(async () => undefined);
+
+    renderRail({
+      finishedTodos: [],
+      availableTags: [tag],
+      onCreateTodo,
+      onAddProgress,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    const card = screen.getByTestId("todo-composer-card");
+    expect(card.querySelector(".todo-rail__composer-priority-rail")).toBeInTheDocument();
+    expect(card).toHaveStyle({ "--todo-priority-color": "var(--color-todo-p3)" });
+
+    await user.click(within(card).getByRole("button", { name: "P1 · 紧急且重要" }));
+    expect(card).toHaveStyle({ "--todo-priority-color": "var(--color-todo-p1)" });
+
+    await user.type(within(card).getByPlaceholderText("写下一条需要推进的 Todo"), "准备发布");
+    await user.type(within(card).getByPlaceholderText("#标签"), "法务{Enter}");
+
+    await user.click(within(card).getByRole("button", { name: "添加子任务" }));
+    const subtaskEditor = card.querySelector(
+      ".todo-subtask-editor [role=\"textbox\"]",
+    ) as HTMLElement;
+    expect(subtaskEditor).toBeInTheDocument();
+    await user.type(subtaskEditor, "@0315 准备资料");
+    await user.keyboard("{Enter}");
+    expect(within(card).getByText("准备资料")).toBeInTheDocument();
+
+    await user.click(within(card).getByRole("button", { name: "创建" }));
+
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "准备发布",
+      priority: "urgent_important",
+      tagIds: [tag.id],
+      optimisticTags: [{ id: tag.id, label: tag.label, colorKey: tag.colorKey }],
+    });
+    expect(onAddProgress).toHaveBeenCalledWith(
+      createdTodo.id,
+      expect.objectContaining({ content: "准备资料" }),
+    );
+  });
+
+  it("waits for a newly created Tag before enabling Todo creation", async () => {
+    const user = userEvent.setup();
+    const createdTag = {
+      id: 23,
+      label: "新标签",
+      colorKey: "blue" as const,
+      usageCount: 0,
+      createdAt: "2026-08-23T08:00:00.000Z",
+      updatedAt: "2026-08-23T08:00:00.000Z",
+    };
+    let resolveTag!: (tag: typeof createdTag) => void;
+    const tagCreate = vi
+      .spyOn(projectMindApi, "projectTagUpsert")
+      .mockImplementation(() => new Promise((resolve) => { resolveTag = resolve; }));
+    const onCreateTodo = vi.fn(async () => ({ ...todoWithoutHistory, id: 89 }));
+
+    renderRail({ finishedTodos: [], onCreateTodo });
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "带新标签创建");
+    const tagInput = screen.getByPlaceholderText("#标签");
+    await user.type(tagInput, "新标签{Enter}");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "创建" })).toBeDisabled());
+    expect(onCreateTodo).not.toHaveBeenCalled();
+
+    resolveTag(createdTag);
+    await waitFor(() => expect(screen.getByLabelText("移除标签 新标签")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(onCreateTodo).toHaveBeenCalledWith({
+      content: "带新标签创建",
+      priority: "not_urgent_important",
+      tagIds: [createdTag.id],
+      optimisticTags: [
+        { id: createdTag.id, label: createdTag.label, colorKey: createdTag.colorKey },
+      ],
+    });
+    tagCreate.mockRestore();
+  });
+
+  it("commits a blurred new Tag before an outside click submits the Todo", async () => {
+    const user = userEvent.setup();
+    const createdTag = {
+      id: 24,
+      label: "外点标签",
+      colorKey: "green" as const,
+      usageCount: 0,
+      createdAt: "2026-08-23T08:00:00.000Z",
+      updatedAt: "2026-08-23T08:00:00.000Z",
+    };
+    let resolveTag!: (tag: typeof createdTag) => void;
+    const tagCreate = vi
+      .spyOn(projectMindApi, "projectTagUpsert")
+      .mockImplementation(() => new Promise((resolve) => { resolveTag = resolve; }));
+    const onCreateTodo = vi.fn(async () => ({ ...todoWithoutHistory, id: 91 }));
+    const outsideAction = vi.fn();
+
+    render(
+      <>
+        <button type="button" onClick={outsideAction}>继续工作</button>
+        <TodoRail
+          title="Todo List"
+          scopeLabel="Alpha"
+          unfinishedTodos={[]}
+          finishedTodos={[]}
+          createPlaceholder="写下一条需要推进的 Todo"
+          onCreateTodo={onCreateTodo}
+          onToggleStatus={vi.fn()}
+          onUpdatePriority={vi.fn()}
+          onUpdateContent={vi.fn()}
+          onAddProgress={vi.fn()}
+          onUpdateProgress={vi.fn()}
+          onDeleteProgress={vi.fn()}
+          onDeleteTodo={vi.fn()}
+        />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "外点创建");
+    await user.type(screen.getByPlaceholderText("#标签"), "外点标签");
+    await user.click(screen.getByRole("button", { name: "继续工作" }));
+
+    expect(outsideAction).toHaveBeenCalledTimes(1);
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    resolveTag(createdTag);
+    await waitFor(() =>
+      expect(onCreateTodo).toHaveBeenCalledWith({
+        content: "外点创建",
+        priority: "not_urgent_important",
+        tagIds: [createdTag.id],
+        optimisticTags: [
+          { id: createdTag.id, label: createdTag.label, colorKey: createdTag.colorKey },
+        ],
+      }),
+    );
+    tagCreate.mockRestore();
+  });
+
+  it("lets nested Tag and Subtask editors handle Escape without discarding the Todo draft", async () => {
+    const user = userEvent.setup();
+    renderRail({ finishedTodos: [] });
+
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "保留创建草稿");
+    await user.click(
+      within(screen.getByTestId("todo-composer-card")).getByRole("button", {
+        name: "添加子任务",
+      }),
+    );
+    const subtaskEditor = document.querySelector(
+      ".todo-subtask-editor [role=\"textbox\"]",
+    ) as HTMLElement;
+    await user.type(subtaskEditor, "暂不添加");
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByTestId("todo-composer-card")).toBeInTheDocument();
+    expect(document.querySelector(".todo-subtask-editor [role=\"textbox\"]")).toBeNull();
+
+    const tagInput = screen.getByPlaceholderText("#标签");
+    await user.type(tagInput, "暂不选择");
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByTestId("todo-composer-card")).toBeInTheDocument();
+    expect(tagInput).toHaveValue("");
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue("保留创建草稿");
+  });
+
+  it("blocks ownership changes while a Subtask contains a scoped Internal Reference", async () => {
+    const user = userEvent.setup();
+    const onError = vi.fn();
+    window.localStorage.setItem(
+      "project-mind:todo-rail-draft:workspace",
+      JSON.stringify({
+        content: "保留引用作用域",
+        priority: "not_urgent_important",
+        projectId: null,
+        subtasks: [
+          {
+            content: "核对 [[todo:1|原范围 Todo]]",
+            progressDate: "2026-08-23",
+          },
+        ],
+      }),
+    );
+
+    renderRail({
+      finishedTodos: [],
+      createOwnershipOptions: [{ projectId: 7, name: "Alpha" }],
+      onError,
+    });
+    await selectOwnership(user, "Alpha");
+
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("Workspace");
+    expect(onError).toHaveBeenCalledWith(
+      "请先移除 Todo 与 Subtask 中的 Internal Reference，再切换归属。",
+    );
+    expect(screen.getByText(/核对/u)).toBeInTheDocument();
+  });
+
+  it("preserves ambiguous Subtask failures without retrying or creating a duplicate Todo", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "project-mind:todo-rail-draft:workspace",
+      JSON.stringify({
+        content: "分步发布",
+        priority: "not_urgent_important",
+        projectId: null,
+        tagIds: [],
+        subtasks: [
+          { content: "第一步", progressDate: "2026-08-23" },
+          { content: "第二步", progressDate: "2026-08-24" },
+        ],
+      }),
+    );
+    const onCreateTodo = vi.fn(async () => ({ ...todoWithoutHistory, id: 90 }));
+    const onAddProgress = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("响应丢失"));
+    const onError = vi.fn();
+    const onRefresh = vi.fn(async () => undefined);
+
+    renderRail({ finishedTodos: [], onCreateTodo, onAddProgress, onError, onRefresh });
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        "Todo 已创建；仍有 1 个 Subtask 草稿需核对后手动添加：Error: 响应丢失；Todo 列表已刷新，请核对。",
+      ),
+    );
+    expect(onCreateTodo).toHaveBeenCalledTimes(1);
+    expect(onAddProgress.mock.calls).toEqual([
+      [90, expect.objectContaining({ content: "第一步" })],
+      [90, expect.objectContaining({ content: "第二步" })],
+    ]);
+    expect(screen.queryByText("第一步")).not.toBeInTheDocument();
+    expect(screen.getByText("第二步")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("仍有 1 个 Subtask 草稿需核对");
+    expect(screen.getByRole("button", { name: "Todo 已创建" })).toBeDisabled();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(onCreateTodo).toHaveBeenCalledTimes(1);
+    expect(onAddProgress).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("button", { name: "已核对，清除草稿" }));
+    expect(screen.queryByTestId("todo-composer-card")).not.toBeInTheDocument();
   });
 
   it("auto-grows the content field through six lines before enabling internal scrolling", async () => {
@@ -912,13 +1180,15 @@ describe("TodoRail", () => {
     await waitFor(() => expect(composer).not.toBeInTheDocument());
   });
 
-  it("keeps the complete draft visible when creation fails", async () => {
+  it("locks the draft for manual verification when the Todo creation result is unknown", async () => {
     const user = userEvent.setup();
     const onError = vi.fn();
+    const onRefresh = vi.fn(async () => undefined);
     renderRail({
       finishedTodos: [],
       onCreateTodo: vi.fn().mockRejectedValue(new Error("Internal Reference 不兼容")),
       onError,
+      onRefresh,
     });
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -927,7 +1197,28 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(composer).toHaveValue("保留 [[todo:99|引用]]");
-    expect(onError).toHaveBeenCalledWith("Error: Internal Reference 不兼容");
+    expect(onError).toHaveBeenCalledWith(
+      "Todo 创建结果无法确认，草稿已保留：Error: Internal Reference 不兼容；Todo 列表已刷新，请核对。",
+    );
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "请先核对" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Todo 创建结果无法确认");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("todo-composer-card")).toBeInTheDocument();
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("project-mind:todo-rail-draft:workspace") ?? "{}",
+      ),
+    ).toMatchObject({ creationOutcome: "unknown" });
+
+    await user.click(screen.getByRole("button", { name: "确认未创建，继续编辑" }));
+    expect(screen.getByRole("button", { name: "创建" })).toBeEnabled();
+    expect(composer).toBeEnabled();
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("project-mind:todo-rail-draft:workspace") ?? "{}",
+      ),
+    ).toMatchObject({ creationOutcome: null });
   });
 
   it("updates a completed sub item from its context menu", async () => {
@@ -943,6 +1234,10 @@ describe("TodoRail", () => {
     await user.click(screen.getByRole("button", { name: "展开已完成子项" }));
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
     await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
+
+    expect(screen.getByRole("button", { name: "收起已完成子项" })).toHaveClass(
+      "todo-card__expand--hidden",
+    );
 
     const textbox = screen.getByRole("textbox");
     await user.clear(textbox);

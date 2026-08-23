@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw, X } from "lucide-react";
 
-import { type InternalReferenceTarget } from "../../lib/internalReferences";
+import {
+  splitInternalReferenceText,
+  type InternalReferenceTarget,
+} from "../../lib/internalReferences";
 import { type ContactMentionTarget } from "../../lib/contactMentions";
 import type {
+  DocumentTagRecord,
   ProjectTagRecord,
   TodoPriority,
   TodoRecord,
   TodoTagUpdateHandler,
 } from "../../lib/types";
+import { queryKeys } from "../../lib/queryKeys";
+import { projectMindApi } from "../../services/projectMindApi";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { focusTargetElement } from "../../hooks/useUtilityHooks";
 import { deriveContactPinyin } from "../../lib/pinyin";
@@ -20,8 +27,14 @@ import {
 import { Button, IconButton, ResizeHandle } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { ContactMentionPicker, useContactMentionSearch } from "../contact";
-import { InternalReferencePicker, useInternalReferenceSearch } from "../internal-reference";
+import {
+  InternalReferenceInlineText,
+  InternalReferencePicker,
+  useInternalReferenceSearch,
+} from "../internal-reference";
+import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
+import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 import { TodoList } from "./TodoList";
 import { TodoSortSwitch } from "./TodoSortSwitch";
 import { parseDueDateInput, priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS } from "./todo-utils";
@@ -31,7 +44,9 @@ import {
   readTodoComposerDraft,
   writeTodoComposerDraft,
   type TodoComposerDraftSnapshot,
+  type TodoComposerSubtaskDraft,
 } from "./todo-draft-storage";
+import { TodoDueDate } from "./TodoDueDate";
 import {
   focusTodoEditorInput,
   getTodoEditorPickerPosition,
@@ -66,6 +81,8 @@ interface TodoRailProps {
     priority: TodoPriority;
     dueDate?: string | null;
     projectId?: number | null;
+    tagIds?: number[];
+    optimisticTags?: DocumentTagRecord[];
   }) => Promise<unknown> | void;
   onToggleStatus: (todoId: number, status: TodoRecord["status"]) => Promise<unknown> | void;
   onUpdatePriority: (todoId: number, priority: TodoPriority) => Promise<unknown> | void;
@@ -142,9 +159,7 @@ export function TodoRail({
     projectId === undefined
       ? { scope: "workspace" as const, projectId: null }
       : { scope: "project" as const, projectId };
-  const [isComposing, setIsComposing] = useState(
-    () => Boolean(initialComposerDraft?.content.trim()),
-  );
+  const [isComposing, setIsComposing] = useState(() => Boolean(initialComposerDraft));
   const [content, setContent] = useState(
     () => initialComposerDraft?.content ?? "",
   );
@@ -154,15 +169,58 @@ export function TodoRail({
   const [createProjectId, setCreateProjectId] = useState<number | null>(
     () => initialComposerDraft?.projectId ?? null,
   );
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>(
+    () => initialComposerDraft?.tagIds ?? [],
+  );
+  const [draftSubtasks, setDraftSubtasks] = useState<TodoComposerSubtaskDraft[]>(
+    () => initialComposerDraft?.subtasks ?? [],
+  );
+  const [composerCreationOutcome, setComposerCreationOutcome] = useState<
+    "created" | "unknown" | null
+  >(() => initialComposerDraft?.creationOutcome ?? null);
+  const [composerCreatedTags, setComposerCreatedTags] = useState<ProjectTagRecord[]>([]);
   const [ownershipPickerOpen, setOwnershipPickerOpen] = useState(false);
   const [ownershipQuery, setOwnershipQuery] = useState("");
   const [createPending, setCreatePending] = useState(false);
+  const [composerTagPending, setComposerTagPending] = useState(false);
+  const composerLocked = createPending || composerTagPending || composerCreationOutcome !== null;
   const composerInternalReferenceContext =
     createOwnershipOptions && createProjectId !== null
       ? { scope: "project" as const, projectId: createProjectId }
       : internalReferenceContext;
+  const composerTagProjectId = createOwnershipOptions ? createProjectId : (projectId ?? null);
+  const composerTagSettingsQuery = useQuery({
+    queryKey: queryKeys.projectTags.project(createProjectId ?? 0),
+    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: createProjectId! }),
+    enabled: Boolean(createOwnershipOptions && createProjectId !== null),
+  });
+  const composerAvailableTags = useMemo(() => {
+    const source =
+      createOwnershipOptions && createProjectId !== null
+        ? (composerTagSettingsQuery.data?.tags ?? [])
+        : availableTags;
+    return [...source, ...composerCreatedTags].filter(
+      (tag, index, tags) => tags.findIndex((candidate) => candidate.id === tag.id) === index,
+    );
+  }, [
+    availableTags,
+    composerCreatedTags,
+    composerTagSettingsQuery.data?.tags,
+    createOwnershipOptions,
+    createProjectId,
+  ]);
+  const selectedComposerTags = useMemo<DocumentTagRecord[]>(
+    () =>
+      composerAvailableTags
+        .filter((tag) => selectedTagIds.includes(tag.id))
+        .map(({ id, label, colorKey }) => ({ id, label, colorKey })),
+    [composerAvailableTags, selectedTagIds],
+  );
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerTagInputRef = useRef<HTMLInputElement | null>(null);
+  const outsideSubmitAfterTagRef = useRef(false);
+  const composerTagCommitSucceededRef = useRef(false);
   const composerDraftRef = useRef<{
     key: string;
     snapshot: TodoComposerDraftSnapshot;
@@ -172,6 +230,9 @@ export function TodoRail({
       content: initialComposerDraft?.content ?? "",
       priority: initialComposerDraft?.priority ?? "not_urgent_important",
       projectId: initialComposerDraft?.projectId ?? null,
+      tagIds: initialComposerDraft?.tagIds ?? [],
+      subtasks: initialComposerDraft?.subtasks ?? [],
+      creationOutcome: initialComposerDraft?.creationOutcome ?? null,
     },
   });
   const contactMentionOptions = useContactMentionOptions();
@@ -245,7 +306,12 @@ export function TodoRail({
   }, [createOwnershipOptions, displayMode, todos, workspaceView]);
   const showSortSwitch = todos.length > 1;
   const createDisabled =
-    createPending || !canCreateTodo || ownershipUnavailable || !content.trim();
+    createPending ||
+    composerTagPending ||
+    !canCreateTodo ||
+    composerCreationOutcome !== null ||
+    ownershipUnavailable ||
+    !content.trim();
 
   useEffect(() => {
     if (focusTodoId === null) {
@@ -327,7 +393,14 @@ export function TodoRail({
   useEffect(() => {
     if (!isComposing) return;
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || createPending) return;
+      if (event.key !== "Escape" || createPending || composerTagPending) return;
+      if (composerCreationOutcome !== null) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".todo-subtask-editor, .entity-tag-chip--input")
+      ) {
+        return;
+      }
       event.preventDefault();
       resetComposer(true);
     };
@@ -338,7 +411,7 @@ export function TodoRail({
   useEffect(() => {
     if (!isComposing) return;
     const handleOutsidePointerDown = (event: PointerEvent) => {
-      if (createPending) return;
+      if (createPending || composerTagPending || composerCreationOutcome !== null) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (
@@ -347,6 +420,12 @@ export function TodoRail({
           ".contact-mention-picker, .tag-mention-picker, .internal-reference-picker, #todo-ownership-options",
         )
       ) {
+        return;
+      }
+      if (composerTagInputRef.current?.value.trim()) {
+        outsideSubmitAfterTagRef.current = true;
+        composerTagCommitSucceededRef.current = false;
+        composerTagInputRef.current.blur();
         return;
       }
       if (content.trim()) {
@@ -360,11 +439,26 @@ export function TodoRail({
   });
 
   useEffect(() => {
+    if (!outsideSubmitAfterTagRef.current || composerTagPending) return;
+    outsideSubmitAfterTagRef.current = false;
+    if (!composerTagCommitSucceededRef.current) return;
+    if (content.trim()) {
+      void submitCreate();
+    } else {
+      resetComposer(false);
+    }
+  });
+
+  useEffect(() => {
     const snapshot = readTodoComposerDraft(draftStorageKey);
     setContent(snapshot?.content ?? "");
     setPriority(snapshot?.priority ?? "not_urgent_important");
     setCreateProjectId(snapshot?.projectId ?? null);
-    setIsComposing(Boolean(snapshot?.content.trim()));
+    setSelectedTagIds(snapshot?.tagIds ?? []);
+    setDraftSubtasks(snapshot?.subtasks ?? []);
+    setComposerCreationOutcome(snapshot?.creationOutcome ?? null);
+    setComposerCreatedTags([]);
+    setIsComposing(Boolean(snapshot));
     controller.setControllerState((current) => ({
       ...current,
       ...resetTodoEditorControllerState(),
@@ -372,10 +466,25 @@ export function TodoRail({
   }, [controller.setControllerState, draftStorageKey]);
 
   useEffect(() => {
-    const snapshot = { content, priority, projectId: createProjectId };
+    const snapshot = {
+      content,
+      priority,
+      projectId: createProjectId,
+      tagIds: selectedTagIds,
+      subtasks: draftSubtasks,
+      creationOutcome: composerCreationOutcome,
+    };
     composerDraftRef.current = { key: draftStorageKey, snapshot };
     writeTodoComposerDraft(draftStorageKey, snapshot);
-  }, [content, createProjectId, draftStorageKey, priority]);
+  }, [
+    composerCreationOutcome,
+    content,
+    createProjectId,
+    draftStorageKey,
+    draftSubtasks,
+    priority,
+    selectedTagIds,
+  ]);
 
   useEffect(() => {
     const flushDraft = () => {
@@ -421,34 +530,99 @@ export function TodoRail({
       onError?.("当前 Project 已归档，无法新建 Todo。");
       return;
     }
-    if (!content.trim()) {
+    if (composerTagPending || composerCreationOutcome !== null) {
       return;
     }
-    if (
-      ownershipUnavailable
-    ) {
+    if (composerCreationOutcome === null && !content.trim()) {
+      return;
+    }
+    if (composerCreationOutcome === null && ownershipUnavailable) {
       onError?.("所选 Project 已不可用，请重新选择归属。");
-      return;
-    }
-    const parsed = parseDueDateInput(content);
-    if (!parsed.ok) {
-      onError?.(parsed.error);
       return;
     }
     setCreatePending(true);
     try {
-      await onCreateTodo({
+      const parsed = parseDueDateInput(content);
+      if (!parsed.ok) {
+        onError?.(parsed.error);
+        return;
+      }
+      const createdTodo = await onCreateTodo({
         content: parsed.content,
         priority,
         ...(createOwnershipOptions ? { projectId: createProjectId } : {}),
         ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
+        ...(selectedTagIds.length > 0
+          ? { tagIds: selectedTagIds, optimisticTags: selectedComposerTags }
+          : {}),
       });
+      if (draftSubtasks.length === 0) {
+        resetComposer(false);
+        return;
+      }
+      const targetTodoId = readCreatedTodoId(createdTodo);
+      persistComposerRecovery(draftSubtasks, "created");
+      if (targetTodoId === null) {
+        await refreshAfterAmbiguousWrite(
+          "Todo 已创建，但无法识别新 Todo；Subtask 草稿已保留。",
+        );
+        return;
+      }
+
+      const subtasksToAdd = draftSubtasks;
+      for (let index = 0; index < subtasksToAdd.length; index += 1) {
+        try {
+          await onAddProgress(targetTodoId, subtasksToAdd[index]);
+          persistComposerRecovery(subtasksToAdd.slice(index + 1), "created");
+        } catch (error) {
+          const remaining = subtasksToAdd.slice(index);
+          persistComposerRecovery(remaining, "created");
+          await refreshAfterAmbiguousWrite(
+            `Todo 已创建；仍有 ${remaining.length} 个 Subtask 草稿需核对后手动添加：${String(error)}`,
+          );
+          return;
+        }
+      }
       resetComposer(false);
     } catch (error) {
-      onError?.(String(error));
+      persistComposerRecovery(draftSubtasks, "unknown");
+      await refreshAfterAmbiguousWrite(
+        `Todo 创建结果无法确认，草稿已保留：${String(error)}`,
+      );
     } finally {
       setCreatePending(false);
     }
+  }
+
+  async function refreshAfterAmbiguousWrite(message: string) {
+    if (!onRefresh) {
+      onError?.(`${message}；请刷新 Todo 列表后核对。`);
+      return;
+    }
+    try {
+      await onRefresh();
+      onError?.(`${message}；Todo 列表已刷新，请核对。`);
+    } catch (refreshError) {
+      onError?.(`${message}；Todo 列表刷新失败，请保持草稿并稍后重试：${String(refreshError)}`);
+    }
+  }
+
+  function persistComposerRecovery(
+    subtasks: TodoComposerSubtaskDraft[],
+    creationOutcome: "created" | "unknown",
+  ) {
+    const snapshot: TodoComposerDraftSnapshot = {
+      content,
+      priority,
+      projectId: createProjectId,
+      tagIds: selectedTagIds,
+      subtasks,
+      creationOutcome,
+    };
+    composerDraftRef.current = { key: draftStorageKey, snapshot };
+    writeTodoComposerDraft(draftStorageKey, snapshot);
+    setDraftSubtasks(subtasks);
+    setComposerCreationOutcome(creationOutcome);
   }
 
   function resetComposer(restoreFocus: boolean) {
@@ -456,6 +630,11 @@ export function TodoRail({
     setContent("");
     setPriority("not_urgent_important");
     if (createOwnershipOptions) setCreateProjectId(null);
+    setSelectedTagIds([]);
+    setDraftSubtasks([]);
+    setComposerCreationOutcome(null);
+    setComposerCreatedTags([]);
+    setComposerTagPending(false);
     setOwnershipPickerOpen(false);
     setOwnershipQuery("");
     setIsComposing(false);
@@ -466,6 +645,21 @@ export function TodoRail({
     if (restoreFocus) {
       window.requestAnimationFrame(() => addTodoButtonRef.current?.focus());
     }
+  }
+
+  function continueComposerAfterUnknownCreation() {
+    const snapshot: TodoComposerDraftSnapshot = {
+      content,
+      priority,
+      projectId: createProjectId,
+      tagIds: selectedTagIds,
+      subtasks: draftSubtasks,
+      creationOutcome: null,
+    };
+    composerDraftRef.current = { key: draftStorageKey, snapshot };
+    writeTodoComposerDraft(draftStorageKey, snapshot);
+    setComposerCreationOutcome(null);
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
   }
 
   function handleReferenceInsert(reference: Parameters<typeof insertInternalReferenceToken>[2]) {
@@ -541,6 +735,30 @@ export function TodoRail({
       dismissedTagKey: controller.tagTriggerKey,
     }));
     focusTodoEditorInput(composerInputRef.current, nextSelection);
+  }
+
+  function selectComposerOwnership(nextProjectId: number | null) {
+    if (nextProjectId !== createProjectId) {
+      const containsScopedReference = [content, ...draftSubtasks.map((subtask) => subtask.content)]
+        .some((value) =>
+          splitInternalReferenceText(value).some((segment) => segment.type === "reference"),
+        );
+      if (containsScopedReference) {
+        setOwnershipPickerOpen(false);
+        setOwnershipQuery("");
+        onError?.("请先移除 Todo 与 Subtask 中的 Internal Reference，再切换归属。");
+        return;
+      }
+      setSelectedTagIds([]);
+      setComposerCreatedTags([]);
+    }
+    setCreateProjectId(nextProjectId);
+    setOwnershipPickerOpen(false);
+    setOwnershipQuery("");
+    controller.setControllerState((current) => ({
+      ...current,
+      ...resetTodoEditorControllerState(),
+    }));
   }
 
   function toggleExpanded(todoId: number, nextExpanded?: boolean) {
@@ -775,16 +993,28 @@ export function TodoRail({
         {isComposing ? (
           <div
             ref={composerRef}
-            className={cn("todo-rail__composer mb-3", createPending && "todo-rail__composer--pending")}
-            aria-busy={createPending}
+            className={cn(
+              "todo-rail__composer mb-3",
+              (createPending || composerTagPending) && "todo-rail__composer--pending",
+            )}
+            aria-busy={createPending || composerTagPending}
+            data-testid="todo-composer-card"
+            style={
+              {
+                "--todo-priority-color": priorityColorValue(priority),
+              } as CSSProperties
+            }
           >
-            <div className="relative">
+            <span className="todo-rail__composer-priority-rail" aria-hidden="true" />
+            <div className="todo-rail__composer-card-body">
+              <div className="todo-rail__composer-primary">
+                <div className="relative">
               <textarea
                 ref={composerInputRef}
                 rows={1}
                 data-max-lines="6"
-                disabled={createPending}
-                className="todo-rail__composer-input w-full resize-none text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft"
+                disabled={composerLocked}
+                className="todo-editor-field todo-rail__composer-input w-full resize-none text-body text-text placeholder:text-text-soft"
                 value={content}
                 onChange={(event) => {
                   const nextSelectionStart = event.target.selectionStart;
@@ -816,7 +1046,7 @@ export function TodoRail({
                   }));
                 }}
                 onKeyDown={(event) => {
-                  if (createPending) return;
+                  if (composerLocked) return;
                   if (
                     handleTodoEditorMentionKeyDown({
                       event,
@@ -883,7 +1113,7 @@ export function TodoRail({
                 placeholder={createPlaceholder}
               />
               <InternalReferencePicker
-                open={controller.referencePickerOpen && !createPending}
+                open={controller.referencePickerOpen && !composerLocked}
                 loading={referenceLoading}
                 results={referenceResults}
                 activeIndex={controller.controllerState.referenceActiveIndex}
@@ -894,7 +1124,7 @@ export function TodoRail({
                 onSelect={handleReferenceInsert}
               />
               <ContactMentionPicker
-                open={controller.mentionPickerOpen && !createPending}
+                open={controller.mentionPickerOpen && !composerLocked}
                 loading={mentionLoading}
                 results={mentionResults}
                 activeIndex={controller.controllerState.mentionActiveIndex}
@@ -910,7 +1140,7 @@ export function TodoRail({
                 onCreate={handleMentionCreate}
               />
               <TagMentionPicker
-                open={controller.tagPickerOpen && !createPending}
+                open={controller.tagPickerOpen && !composerLocked}
                 loading={tagLoading}
                 results={tagResults}
                 activeIndex={controller.controllerState.tagActiveIndex}
@@ -924,10 +1154,120 @@ export function TodoRail({
                 }
                 onSelect={handleTagInsert}
               />
-            </div>
-            <div className="todo-rail__composer-meta">
+                </div>
+                <div className="todo-rail__composer-tags">
+                  <EntityTagEditor
+                    key={composerTagProjectId ?? "workspace"}
+                    projectId={composerTagProjectId}
+                    availableTags={composerAvailableTags}
+                    tags={selectedComposerTags}
+                    busy={composerLocked}
+                    inputRef={composerTagInputRef}
+                    compact
+                    mode="full"
+                    onCreated={(tag) => {
+                      setComposerCreatedTags((current) => [
+                        ...current.filter((candidate) => candidate.id !== tag.id),
+                        tag,
+                      ]);
+                    }}
+                    onChange={(tagIds) => setSelectedTagIds(tagIds)}
+                    onPendingChange={setComposerTagPending}
+                    onCommitSettled={(error) => {
+                      composerTagCommitSucceededRef.current = error === null;
+                      if (error !== null) {
+                        onError?.(`Tag 保存失败：${String(error)}`);
+                      }
+                    }}
+                  />
+                </div>
+                {composerCreationOutcome !== null ? (
+                  <div className="todo-rail__composer-recovery">
+                    <p role="status">
+                      {composerCreationOutcome === "created"
+                        ? `Todo 已创建；仍有 ${draftSubtasks.length} 个 Subtask 草稿需核对后手动添加。`
+                        : "Todo 创建结果无法确认；请先核对 Todo 列表。"}
+                    </p>
+                    <div className="todo-rail__composer-recovery-actions">
+                      {composerCreationOutcome === "unknown" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={continueComposerAfterUnknownCreation}
+                        >
+                          确认未创建，继续编辑
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => resetComposer(false)}
+                      >
+                        已核对，清除草稿
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="todo-rail__composer-subtasks">
+                  {draftSubtasks.length > 0 ? (
+                    <div className="todo-rail__composer-subtask-list">
+                      {draftSubtasks.map((subtask, index) => (
+                        <div
+                          key={`${subtask.content}:${subtask.progressDate}:${index}`}
+                          className="todo-rail__composer-subtask-row"
+                        >
+                          <span
+                            className="todo-subtask-editor-row__check-placeholder"
+                            aria-hidden="true"
+                          />
+                          <p className="min-w-0 flex-1 text-ui leading-[1.2rem] text-text-muted">
+                            <InternalReferenceInlineText
+                              value={subtask.content}
+                              className="break-words"
+                              variant="todo-inline"
+                              onOpenInternalReference={onOpenInternalReference}
+                              onOpenContactMention={onOpenContactMention}
+                            />
+                            {subtask.dueDate ? <TodoDueDate value={subtask.dueDate} /> : null}
+                          </p>
+                          <IconButton
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`移除 Subtask ${subtask.content}`}
+                            disabled={createPending || composerTagPending}
+                            onClick={() =>
+                              setDraftSubtasks((current) =>
+                                current.filter((_, candidateIndex) => candidateIndex !== index),
+                              )
+                            }
+                          >
+                            <X size={12} />
+                          </IconButton>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="todo-rail__composer-add-subtask">
+                    <TodoInlineProgressEditor
+                      latestProgress={null}
+                      editable={!composerLocked}
+                      onError={onError}
+                      internalReferenceContext={composerInternalReferenceContext}
+                      onOpenInternalReference={onOpenInternalReference}
+                      onOpenContactMention={onOpenContactMention}
+                      onSave={(subtask) => {
+                        setDraftSubtasks((current) => [...current, subtask]);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="todo-rail__composer-meta">
               {createOwnershipOptions ? (
-                <label className="todo-rail__ownership relative flex w-full basis-full items-center gap-2 text-ui text-text-soft">
+                <label className="todo-rail__ownership relative flex min-w-0 flex-[1_1_12rem] items-center gap-2 text-ui text-text-soft">
                   <FolderKanban aria-hidden="true" size={14} />
                   <input
                     role="combobox"
@@ -942,7 +1282,7 @@ export function TodoRail({
                       )
                     }
                     className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
-                    disabled={createPending}
+                    disabled={composerLocked}
                     value={ownershipPickerOpen ? ownershipQuery : selectedOwnershipName}
                     onFocus={() => {
                       setOwnershipPickerOpen(true);
@@ -962,20 +1302,12 @@ export function TodoRail({
                     >
                       <button
                         type="button"
-                        disabled={createPending}
+                        disabled={composerLocked}
                         role="option"
                         aria-selected={createProjectId === null}
                         className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
                         onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setCreateProjectId(null);
-                          setOwnershipPickerOpen(false);
-                          setOwnershipQuery("");
-                          controller.setControllerState((current) => ({
-                            ...current,
-                            ...resetTodoEditorControllerState(),
-                          }));
-                        }}
+                        onClick={() => selectComposerOwnership(null)}
                       >
                         Workspace
                       </button>
@@ -983,20 +1315,12 @@ export function TodoRail({
                         <button
                           key={option.projectId}
                           type="button"
-                          disabled={createPending}
+                          disabled={composerLocked}
                           role="option"
                           aria-selected={createProjectId === option.projectId}
                           className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            setCreateProjectId(option.projectId);
-                            setOwnershipPickerOpen(false);
-                            setOwnershipQuery("");
-                            controller.setControllerState((current) => ({
-                              ...current,
-                              ...resetTodoEditorControllerState(),
-                            }));
-                          }}
+                          onClick={() => selectComposerOwnership(option.projectId)}
                         >
                           {option.name}
                         </button>
@@ -1013,7 +1337,7 @@ export function TodoRail({
                     active={priority === option.value}
                     title={option.optionLabel}
                     onClick={() => setPriority(option.value)}
-                    disabled={createPending}
+                    disabled={composerLocked}
                   />
                 ))}
               </div>
@@ -1024,8 +1348,15 @@ export function TodoRail({
                 disabled={createDisabled}
                 onClick={() => void submitCreate()}
               >
-                {createPending ? "创建中…" : "创建"}
+                {createPending
+                  ? "创建中…"
+                  : composerCreationOutcome === "created"
+                    ? "Todo 已创建"
+                    : composerCreationOutcome === "unknown"
+                      ? "请先核对"
+                      : "创建"}
               </Button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -1051,6 +1382,15 @@ export function TodoRail({
       </div>
     </aside>
   );
+}
+
+function readCreatedTodoId(value: unknown) {
+  if (!value || typeof value !== "object" || !("id" in value)) {
+    return null;
+  }
+  return typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id > 0
+    ? value.id
+    : null;
 }
 
 function PriorityDotButton({

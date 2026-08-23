@@ -135,6 +135,7 @@ describe("TodoListItem", () => {
     await user.click(screen.getByRole("button", { name: content }));
 
     const editor = screen.getByRole("textbox");
+    expect(editor.parentElement).toHaveClass("todo-editor-field");
     expect(editor).toHaveTextContent(content);
     await user.type(editor, "{Enter}");
 
@@ -445,7 +446,7 @@ describe("TodoListItem", () => {
     expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
   });
 
-  it("reveals subitem controls only after dwelling in the narrow bottom hot zone", () => {
+  it("reveals Subtask controls only after dwelling in the bottom hover zone", () => {
     vi.useFakeTimers();
 
     try {
@@ -470,6 +471,8 @@ describe("TodoListItem", () => {
         fireEvent(card, event);
       };
 
+      expect(subitemRow).not.toHaveClass("todo-card__subitem-row--visible");
+
       movePointerTo(85);
       act(() => vi.advanceTimersByTime(500));
       expect(subitemRow).not.toHaveClass("todo-card__subitem-row--visible");
@@ -488,20 +491,50 @@ describe("TodoListItem", () => {
     }
   });
 
-  it("hides the completion button while editing todo content", async () => {
+  it("keeps the completion control in place but disables it while editing Todo content", async () => {
     const user = userEvent.setup();
 
     renderItem({}, { allowInlineEdit: true });
 
     await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
 
-    expect(screen.getByRole("button", { name: "标记为已完成" }).className).toContain(
-      "todo-card__check--hidden",
-    );
+    expect(screen.getByRole("textbox").parentElement).toHaveClass("todo-editor-field");
+    expect(screen.getByRole("button", { name: "标记为已完成" })).toBeDisabled();
     expect(document.getElementById("todo-7")?.getAttribute("data-state")).toContain("editing");
   });
 
-  it("hides the expand button while editing a subitem", async () => {
+  it("reveals Subtask and expand controls immediately while the Todo card is editing", async () => {
+    const user = userEvent.setup();
+
+    renderItem(
+      {
+        progresses: [
+          {
+            id: 31,
+            todoId: todo.id,
+            content: "已完成确认",
+            progressDate: "2026-04-05",
+            createdAt: "2026-04-05T09:00:00.000Z",
+            status: "finished",
+            completedAt: "2026-04-05T09:10:00.000Z",
+            orderIndex: 0,
+          },
+        ],
+      },
+      { allowInlineEdit: true, allowInlineProgress: true },
+    );
+
+    const row = document.querySelector("#todo-7 .todo-card__subitem-row");
+    expect(row).not.toHaveClass("todo-card__subitem-row--visible");
+
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+
+    expect(row).toHaveClass("todo-card__subitem-row--visible");
+    expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeInTheDocument();
+  });
+
+  it("hides the completed-Subtask control while editing", async () => {
     const user = userEvent.setup();
 
     renderItem(
@@ -524,7 +557,7 @@ describe("TodoListItem", () => {
 
     await user.click(screen.getByRole("button", { name: "添加子任务" }));
 
-    expect(screen.getByRole("button", { name: "展开已完成子项" }).className).toContain(
+    expect(screen.getByRole("button", { name: "展开已完成子项" })).toHaveClass(
       "todo-card__expand--hidden",
     );
     expect(document.getElementById("todo-7")?.getAttribute("data-state")).toContain(
