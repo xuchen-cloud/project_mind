@@ -7,6 +7,8 @@ const tauriMocks = vi.hoisted(() => ({
   askMock: vi.fn(),
   readClipboardTextMock: vi.fn(),
   readClipboardImageMock: vi.fn(),
+  onCloseRequestedMock: vi.fn(),
+  destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
     innerSize: vi.fn(async () => ({
       width: 3360,
@@ -17,6 +19,8 @@ const tauriMocks = vi.hoisted(() => ({
       }),
     })),
     scaleFactor: vi.fn(async () => 2),
+    onCloseRequested: tauriMocks.onCloseRequestedMock,
+    destroy: tauriMocks.destroyWindowMock,
   })),
   getByLabelMock: vi.fn(),
   webviewWindowInstances: [] as Array<{
@@ -96,6 +100,9 @@ describe("desktopApi", () => {
     tauriMocks.readClipboardImageMock.mockReset();
     tauriMocks.convertFileSrcMock.mockClear();
     tauriMocks.getCurrentWindowMock.mockClear();
+    tauriMocks.onCloseRequestedMock.mockReset();
+    tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
+    tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
     tauriMocks.getCurrentWebviewWindowMock.mockClear();
     tauriMocks.webviewWindowInstances.length = 0;
@@ -108,6 +115,22 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("projects_list", {
       input: { includeArchived: true },
     });
+  });
+
+  it("prevents a close request until the lifecycle barrier allows destruction", async () => {
+    const allowClose = vi.fn(async () => true);
+    const unlisten = await desktopApi.listenForCloseRequest(allowClose);
+    const handler = tauriMocks.onCloseRequestedMock.mock.calls[0]?.[0] as (
+      event: { preventDefault: () => void },
+    ) => Promise<void>;
+    const preventDefault = vi.fn();
+
+    await handler({ preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(allowClose).toHaveBeenCalledTimes(1);
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledTimes(1);
+    expect(unlisten).toBeTypeOf("function");
   });
 
   it("reads clipboard HTML and text through their native adapter boundaries", async () => {

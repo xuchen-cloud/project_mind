@@ -3954,6 +3954,7 @@ describe("RichEditor context menus", () => {
 
   it("applies automatic AI edits and keeps an optional answer available", async () => {
     const user = userEvent.setup();
+    const controllerRef = { current: null as RichEditorController | null };
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
@@ -3973,6 +3974,7 @@ describe("RichEditor context menus", () => {
     });
     const { container } = render(
       <RichEditor
+        controllerRef={controllerRef}
         variant="bare"
         defaultHtml="<p>hello world with a much longer opening paragraph</p><p>second paragraph</p><p>last paragraph</p>"
         aiSettings={{
@@ -4050,6 +4052,13 @@ describe("RichEditor context menus", () => {
       expect(screen.getByText("改写说明")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "复制回答" })).toBeInTheDocument();
     });
+    const committedBeforeAcceptance = controllerRef.current?.getCommittedValue();
+    expect(committedBeforeAcceptance?.markdown).toContain(
+      "hello world with a much longer opening paragraph",
+    );
+    expect(committedBeforeAcceptance?.markdown).not.toContain("better world");
+    expect(committedBeforeAcceptance?.markdown).not.toContain("改写说明");
+    expect(Object.isFrozen(committedBeforeAcceptance)).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "接受" }));
     await waitFor(() => {
@@ -5189,6 +5198,46 @@ describe("RichEditor context menus", () => {
     await waitFor(() => {
       expect(container.querySelector(".ProseMirror")?.textContent).toContain("ab");
     });
+  });
+
+  it("returns the latest immutable committed snapshot without waiting for save timers", async () => {
+    const user = userEvent.setup();
+    const controllerRef = { current: null as RichEditorController | null };
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml="<p>latest</p>"
+        controllerRef={controllerRef}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+
+    await user.type(surface, "!");
+
+    const snapshot = controllerRef.current?.getCommittedValue();
+    expect(snapshot).toMatchObject({
+      html: "<p>!latest</p>",
+      text: "!latest",
+      markdown: "!latest",
+    });
+    expect(Object.isFrozen(snapshot)).toBe(true);
+  });
+
+  it("keeps managed image identity metadata in the committed snapshot", async () => {
+    const controllerRef = { current: null as RichEditorController | null };
+    render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="data:image/png;base64,AA==" data-path="/tmp/managed/clip.png" data-mime-type="image/png" alt="截图" /></p>'}
+        controllerRef={controllerRef}
+      />,
+    );
+
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    const snapshot = controllerRef.current?.getCommittedValue();
+    expect(snapshot?.html).toContain('src="asset:///tmp/managed/clip.png"');
+    expect(snapshot?.html).toContain('data-path="/tmp/managed/clip.png"');
+    expect(snapshot?.html).toContain('data-mime-type="image/png"');
   });
 
   it("undoes the latest edit in one step after a saved-content echo changes metadata", async () => {

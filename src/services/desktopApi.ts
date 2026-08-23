@@ -42,6 +42,16 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
+  async listenForCloseRequest(onClose: () => Promise<boolean>) {
+    const currentWindow = getCurrentWindow();
+    return currentWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+      if (await onClose()) {
+        await currentWindow.destroy();
+      }
+    });
+  },
+
   async command<T>(name: string, payload?: Record<string, unknown>) {
     try {
       return await invoke<T>(name, payload);

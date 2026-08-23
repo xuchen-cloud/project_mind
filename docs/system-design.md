@@ -194,6 +194,8 @@ Workspace Overview 由 `useResidentWorkspacePage` 独立管理。它在首次访
 
 React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据新鲜期为 15 秒、GC 时间为 10 分钟；窗口聚焦、网络重连和重新挂载不会隐式刷新。详细约束见 `docs/cache-strategy.md`。
 
+Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinator` 承担。页面离开前只捕获最新 Committed Content 快照并立即导航；coordinator 在页面卸载后继续处理 managed image、持久化、同 Record 排序、失败保留与 React Query 最新结果同步。正常退出、Workspace 切换和更新安装会先 flush 当前 Workspace 队列。
+
 图片标注、Record Focus 页面和非默认设置面板通过 dynamic import 加载。生产构建使用 `check:bundle-boundaries` 防止 Canvas 重新进入启动预加载，并限制主入口脚本不超过 250 KiB。
 
 ## 4. Service Layer
