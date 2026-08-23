@@ -1363,7 +1363,7 @@ describe("WorkspaceLayout", () => {
     );
     vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue(workspacePage);
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+      defaultOptions: { queries: { retry: false, refetchOnMount: false } },
     });
     queryClient.setQueryData(queryKeys.workspaceStatus, workspaceStatus);
     queryClient.setQueryData(queryKeys.projects.all, projects);
@@ -1374,9 +1374,10 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
     queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
+    const persist = vi.fn(() => new Promise<{ updatedAt: string }>(() => undefined));
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
-      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+      adapter: { persist },
     });
     const router = createMemoryRouter(
       [{
@@ -1422,6 +1423,14 @@ describe("WorkspaceLayout", () => {
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
     await act(() => router.navigate("/workspace"));
+    expect(router.state.location.pathname).toBe("/workspace");
+    await waitFor(() => {
+      expect(
+        persist.mock.calls.filter(([snapshot]) =>
+          snapshot.scope === "workspace" && snapshot.recordId === 27,
+        ),
+      ).toHaveLength(1);
+    });
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
 

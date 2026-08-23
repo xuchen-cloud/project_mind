@@ -310,30 +310,15 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(recordExportMocks.sources[0]?.committedHtml).not.toContain("AI preview");
   });
 
-  it("flushes the current record before navigating to another record", async () => {
+  it("leaves persistence to the route coordinator when navigating to another record", async () => {
     const user = userEvent.setup();
     renderPage(<WorkspaceRecordFocusPage />);
 
     await screen.findByDisplayValue("A");
     await user.click(screen.getByRole("button", { name: "Open record 8" }));
 
-    await waitFor(() => {
-      expect(apiMocks.workspaceRecordUpsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          noteId: 7,
-          markdown: "正文 A",
-          html: "<p>正文 A</p>",
-        }),
-      );
-    });
-
-    expect(apiMocks.workspaceRecordUpsert).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        noteId: 8,
-        markdown: "正文 A",
-      }),
-    );
     expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/8");
+    expect(apiMocks.workspaceRecordUpsert).not.toHaveBeenCalled();
   });
 
   it("reuses the two most recent Workspace Record Focus editors without another workspace-page request", async () => {

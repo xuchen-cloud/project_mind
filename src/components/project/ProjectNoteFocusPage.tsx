@@ -43,7 +43,10 @@ import type { RecordExportRequest } from "../../features/record-export/recordExp
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type { ProjectPageData, ProjectTagRecord } from "../../lib/types";
 import type { RichTextStyleSettings } from "../../lib/types";
-import { recordFocusDraftFromRecord } from "../record/recordFocusDraft";
+import {
+  recordFocusDraftFromRecord,
+  recordFocusDraftFromSnapshot,
+} from "../record/recordFocusDraft";
 
 interface ProjectRecordDraft {
   activityId: number | null;
@@ -82,12 +85,8 @@ export function ProjectNoteFocusPage({
   const initialSnapshot = latestSnapshot?.scope === "project" ? latestSnapshot : null;
   const initialDraft: ProjectRecordDraft | null = initialSnapshot
     ? {
+        ...recordFocusDraftFromSnapshot(initialSnapshot),
         activityId: initialSnapshot.activityId,
-        title: initialSnapshot.title,
-        content: { ...initialSnapshot.committedContent },
-        tagIds: [...initialSnapshot.tagIds],
-        codeLanguage: initialSnapshot.defaultCodeLanguage,
-        updatedAt: null,
       }
     : (() => {
         const record = initialProjectPage?.records?.find(

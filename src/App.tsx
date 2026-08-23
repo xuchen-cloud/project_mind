@@ -196,9 +196,13 @@ export function WorkspaceLayout({
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
+  const activeRecordFocusRoute = useMemo(
+    () => parseRecordFocusRoute(location.pathname),
+    [location.pathname],
+  );
   const skipFocusSaveRouteRef = useRef<string | null>(null);
   const submitActiveFocusRecord = useCallback(() => {
-    const route = parseRecordFocusRoute(location.pathname);
+    const route = activeRecordFocusRoute;
     if (!route) return true;
     const saveResult = route.kind === "project"
       ? requestProjectRecordFocusSave({
@@ -207,7 +211,7 @@ export function WorkspaceLayout({
         })
       : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
     return saveResult === "submitted";
-  }, [location.pathname]);
+  }, [activeRecordFocusRoute]);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
       ({ currentLocation, nextLocation }) => {
@@ -345,6 +349,7 @@ export function WorkspaceLayout({
     queryKey: queryKeys.projectPage(activeProjectId),
     queryFn: () => projectMindApi.projectPageGet({ projectId: activeProjectId as number }),
     enabled: hasWorkspace && activeProjectId !== null,
+    staleTime: activeRecordFocusRoute?.kind === "project" ? Number.POSITIVE_INFINITY : undefined,
   });
   const projectSidebarRecords = useMemo(
     () => toProjectSidebarRecords(projectSidebarOverviewQuery.data?.records ?? []),
@@ -902,7 +907,7 @@ export function WorkspaceLayout({
   const workspaceOverviewActive =
     cacheProjectOverviewPages && location.pathname === workspacePath();
   const recordFocusResidencyActive =
-    cacheProjectOverviewPages && parseRecordFocusRoute(location.pathname) !== null;
+    cacheProjectOverviewPages && activeRecordFocusRoute !== null;
   const [recordFocusResidencyWorkspaceKey, setRecordFocusResidencyWorkspaceKey] =
     useState<string | null>(null);
 
@@ -1379,7 +1384,7 @@ export function WorkspaceLayout({
             onOpenRecord={(recordId) => {
               void (async () => {
                 const isProjectRecordFocusPage =
-                  /^\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+                  parseRecordFocusRoute(location.pathname)?.kind === "project";
 
                 navigate(
                   preserveRecordFilters(

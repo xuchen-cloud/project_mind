@@ -1,4 +1,5 @@
 import type { DocumentTagRecord } from "../../lib/types";
+import type { CommittedRecordSnapshot } from "../../lib/record-save-coordinator";
 import { getRenderableRichTextHtml, type RichEditorValue } from "../rich-editor";
 
 interface RecordFocusDraftSource {
@@ -10,12 +11,24 @@ interface RecordFocusDraftSource {
   updatedAt: string;
 }
 
+export function recordFocusDraftFromSnapshot(
+  snapshot: Readonly<CommittedRecordSnapshot>,
+): RecordFocusDraft {
+  return {
+    title: snapshot.title,
+    content: { ...snapshot.committedContent },
+    tagIds: [...snapshot.tagIds],
+    codeLanguage: snapshot.defaultCodeLanguage,
+    updatedAt: null,
+  };
+}
+
 export interface RecordFocusDraft {
   title: string;
   content: RichEditorValue;
   tagIds: number[];
   codeLanguage: string | null;
-  updatedAt: string;
+  updatedAt: string | null;
 }
 
 export function recordFocusDraftFromRecord(

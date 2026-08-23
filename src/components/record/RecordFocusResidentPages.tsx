@@ -10,7 +10,11 @@ import {
 import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import type { ProjectPageData, WorkspacePageData } from "../../lib/types";
-import { recordFocusDraftFromRecord, type RecordFocusDraft } from "./recordFocusDraft";
+import {
+  recordFocusDraftFromRecord,
+  recordFocusDraftFromSnapshot,
+  type RecordFocusDraft,
+} from "./recordFocusDraft";
 
 const ProjectNoteFocusPage = lazy(() =>
   import("../project/ProjectNoteFocusPage").then((module) => ({
@@ -48,13 +52,7 @@ function CachedRecordFocusPage({ route }: { route: RecordFocusRoute }) {
       projectRecordSaveKey(route.projectId, route.recordId),
     );
     if (snapshot?.scope === "project") {
-      draft = {
-        title: snapshot.title,
-        content: snapshot.committedContent,
-        tagIds: snapshot.tagIds,
-        codeLanguage: snapshot.defaultCodeLanguage,
-        updatedAt: "",
-      };
+      draft = recordFocusDraftFromSnapshot(snapshot);
     } else {
       const record = queryClient
         .getQueryData<ProjectPageData>(queryKeys.projectPage(route.projectId))
@@ -66,13 +64,7 @@ function CachedRecordFocusPage({ route }: { route: RecordFocusRoute }) {
       workspaceRecordSaveKey(route.recordId),
     );
     if (snapshot?.scope === "workspace") {
-      draft = {
-        title: snapshot.title,
-        content: snapshot.committedContent,
-        tagIds: snapshot.tagIds,
-        codeLanguage: snapshot.defaultCodeLanguage,
-        updatedAt: "",
-      };
+      draft = recordFocusDraftFromSnapshot(snapshot);
     } else {
       const record = queryClient
         .getQueryData<WorkspacePageData>(queryKeys.workspacePage)

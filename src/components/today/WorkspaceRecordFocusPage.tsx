@@ -53,7 +53,10 @@ import type {
   RichTextStyleSettings,
   WorkspacePageData,
 } from "../../lib/types";
-import { recordFocusDraftFromRecord } from "../record/recordFocusDraft";
+import {
+  recordFocusDraftFromRecord,
+  recordFocusDraftFromSnapshot,
+} from "../record/recordFocusDraft";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -78,13 +81,7 @@ export function WorkspaceRecordFocusPage({
     .getQueryData<WorkspacePageData>(queryKeys.workspacePage)
     ?.records?.find((candidate) => candidate.id === recordId);
   const initialDraft = initialSnapshot
-    ? {
-        title: initialSnapshot.title,
-        content: { ...initialSnapshot.committedContent },
-        tagIds: [...initialSnapshot.tagIds],
-        codeLanguage: initialSnapshot.defaultCodeLanguage,
-        updatedAt: null,
-      }
+    ? recordFocusDraftFromSnapshot(initialSnapshot)
     : initialRecord
       ? recordFocusDraftFromRecord(initialRecord)
       : null;
@@ -307,9 +304,8 @@ export function WorkspaceRecordFocusPage({
     return exportRecord(request);
   }, [availableTags, content, note?.updatedAt, queryClient, saveCurrentRecord, tagIds, title]);
 
-  const handleBack = async () => {
+  const handleBack = () => {
     if (recordId === null) return;
-    await saveCurrentRecord();
     navigate(
       preserveRecordFilters(`${workspacePath()}?view=record&focus=record-${recordId}`, searchParams),
     );
@@ -505,40 +501,14 @@ export function WorkspaceRecordFocusPage({
           onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
           onDeleteProject={(project) => deleteProject(project.id)}
           onOpenRecord={(nextRecordId) => {
-            void (async () => {
-              if (nextRecordId === recordId) {
-                return;
-              }
-
-              try {
-                const saved = await saveCurrentRecord();
-                if (!saved) {
-                  return;
-                }
-              } catch {
-                return;
-              }
-
+            if (nextRecordId !== recordId) {
               navigate(preserveRecordFilters(`/workspace/records/${nextRecordId}`, searchParams));
-            })();
+            }
           }}
           onFocusRecord={(nextRecordId) => {
-            void (async () => {
-              if (nextRecordId === recordId) {
-                return;
-              }
-
-              try {
-                const saved = await saveCurrentRecord();
-                if (!saved) {
-                  return;
-                }
-              } catch {
-                return;
-              }
-
+            if (nextRecordId !== recordId) {
               navigate(preserveRecordFilters(`/workspace/records/${nextRecordId}`, searchParams));
-            })();
+            }
           }}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
         />
@@ -560,7 +530,7 @@ export function WorkspaceRecordFocusPage({
                   size="sm"
                   variant="ghost"
                   aria-label="返回 Workspace"
-                  onClick={() => void handleBack()}
+                  onClick={handleBack}
                 >
                   <ArrowLeft size={16} />
                 </IconButton>
