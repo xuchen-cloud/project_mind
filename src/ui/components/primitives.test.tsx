@@ -1,13 +1,14 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Search } from "lucide-react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Button,
   Dialog,
   IconButton,
+  PopoverPanel,
   SearchField,
   StatusBadge,
   TextField,
@@ -15,6 +16,17 @@ import {
 } from "./index";
 
 describe("ui primitives", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps popover motion opt-in", () => {
+    const { rerender } = render(<PopoverPanel data-testid="panel" />);
+    expect(screen.getByTestId("panel")).not.toHaveAttribute("data-motion");
+
+    rerender(<PopoverPanel data-testid="panel" motion="trigger" motionOrigin="top left" />);
+    expect(screen.getByTestId("panel")).toHaveAttribute("data-motion", "trigger");
+    expect(screen.getByTestId("panel")).toHaveStyle({ transformOrigin: "top left" });
+  });
+
   it("renders button variants with icons", () => {
     render(
       <Button variant="primary" leadingIcon={<Search size={14} />}>
@@ -101,6 +113,47 @@ describe("ui primitives", () => {
     expect(screen.getByRole("dialog", { name: "Nested Dialog" }).parentElement).toHaveClass(
       "z-[60]",
     );
+  });
+
+  it("keeps only the closing dialog visual for 160ms", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <Dialog open title="Closing Dialog" onClose={vi.fn()}><p>Body</p></Dialog>,
+    );
+
+    rerender(<Dialog open={false} title="Closing Dialog" onClose={vi.fn()}><p>Body</p></Dialog>);
+
+    const portal = document.querySelector("[data-dialog-portal]") as HTMLElement;
+    const backdrop = portal.firstElementChild as HTMLElement;
+    expect(screen.queryByRole("dialog", { name: "Closing Dialog" })).not.toBeInTheDocument();
+    expect(backdrop).toHaveAttribute("data-state", "closing");
+    expect(backdrop).toHaveAttribute("aria-hidden", "true");
+    expect(backdrop).toHaveAttribute("inert");
+
+    act(() => vi.advanceTimersByTime(160));
+    expect(document.querySelector("[data-dialog-portal]")).not.toBeInTheDocument();
+  });
+
+  it("cancels Dialog exit when it reopens without creating a second portal", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <Dialog open title="Reopening Dialog" onClose={onClose}><p>Body</p></Dialog>,
+    );
+    const portal = document.querySelector("[data-dialog-portal]");
+
+    rerender(
+      <Dialog open={false} title="Reopening Dialog" onClose={onClose}><p>Body</p></Dialog>,
+    );
+    rerender(
+      <Dialog open title="Reopening Dialog" onClose={onClose}><p>Body</p></Dialog>,
+    );
+    act(() => vi.advanceTimersByTime(160));
+
+    expect(screen.getByRole("dialog", { name: "Reopening Dialog" })).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-dialog-portal]")).toHaveLength(1);
+    expect(document.querySelector("[data-dialog-portal]")).toBe(portal);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("keeps keyboard focus inside an open dialog and restores its trigger on close", async () => {

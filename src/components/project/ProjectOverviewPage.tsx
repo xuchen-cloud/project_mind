@@ -62,6 +62,8 @@ import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
+import { useDelayedPending } from "../../hooks/useDelayedPending";
+import { useKeyedPresence } from "../../hooks/useKeyedPresence";
 import { ActionContextMenu, Button, EmptyState, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
@@ -200,6 +202,11 @@ export function ProjectOverviewPage({
         tagId: recordFilterTagId,
       }),
     [allRecords, recordFilterTagId, recordSearchQuery],
+  );
+  const recordPresence = useKeyedPresence(
+    records,
+    (record) => String(record.id),
+    `${recordSearchQuery}|${recordFilterTagId ?? ""}`,
   );
   const visibleRecordFocusKey = useMemo(
     () => records.map((record) => record.id).join(","),
@@ -591,7 +598,11 @@ export function ProjectOverviewPage({
     setProjectSearchParams(nextSearchParams);
   }
 
-  if (!activeProject || !projectPage) {
+  const projectPagePending = !activeProject || !projectPage;
+  const showProjectPageSkeleton = useDelayedPending(projectPagePending);
+
+  if (projectPagePending) {
+    if (!showProjectPageSkeleton) return null;
     return <PageLoadingSkeleton variant="overview" label="正在加载项目页" />;
   }
 
@@ -775,15 +786,13 @@ export function ProjectOverviewPage({
               onSave={saveProjectQuickNote}
             />
           </section>
-          <section
+          {currentView === "record" ? <section
             className={withPageWidthClass(
               "project-overview-focus__page project-overview-focus__page--history",
               pageWidthMode,
               "history",
             )}
             data-testid="project-overview-body-history"
-            style={{ display: currentView === "record" ? undefined : "none" }}
-            aria-hidden={currentView === "record" ? undefined : true}
           >
               {recordDraftOpen ? (
                 <article className="project-history-record project-history-record--draft project-history-record--editing">
@@ -865,10 +874,22 @@ export function ProjectOverviewPage({
                 </article>
               ) : null}
 
-              {records.length > 0 ? (
-                <div className="grid gap-2.5">
-                  {records.map((note) => (
-                    <div key={note.id}>
+              {recordPresence.items.length > 0 ? (
+                <div ref={recordPresence.containerRef} tabIndex={-1} className="grid gap-2.5" data-list-layout-motion>
+                  {recordPresence.items.map(({ item: note, key, state }) => (
+                    <div
+                      key={key}
+                      className="record-presence-item"
+                      data-state={state}
+                      data-layout-motion-id={`record-${key}`}
+                      aria-hidden={state === "exiting" || undefined}
+                      inert={state === "exiting" ? true : undefined}
+                      onTransitionEnd={(event) => {
+                        if (state === "exiting" && event.target === event.currentTarget) {
+                          recordPresence.finishExit(key);
+                        }
+                      }}
+                    >
                       <RecordListItem
                         record={note}
                         scope={{
@@ -930,7 +951,7 @@ export function ProjectOverviewPage({
                   onClose={() => setRecordContextMenu(null)}
                 />
               ) : null}
-          </section>
+          </section> : null}
         </div>
       </div>
 
@@ -949,14 +970,13 @@ export function ProjectOverviewPage({
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />
-      {quickNoteMoveSelection ? (
-        <MoveSelectionToRecordCard
-          records={allRecords}
-          onClose={() => setQuickNoteMoveSelection(null)}
-          onSelectRecord={moveQuickNoteSelectionToProjectRecord}
-          onCreateRecord={createProjectRecordFromQuickNoteSelection}
-        />
-      ) : null}
+      <MoveSelectionToRecordCard
+        open={Boolean(quickNoteMoveSelection)}
+        records={allRecords}
+        onClose={() => setQuickNoteMoveSelection(null)}
+        onSelectRecord={moveQuickNoteSelectionToProjectRecord}
+        onCreateRecord={createProjectRecordFromQuickNoteSelection}
+      />
     </div>
   );
 }

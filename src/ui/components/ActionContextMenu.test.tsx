@@ -10,6 +10,53 @@ afterEach(() => {
 });
 
 describe("ActionContextMenu", () => {
+  it("keeps the entry origin at the clamped pointer position", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 240 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 160 });
+
+    render(
+      <ActionContextMenu
+        x={230}
+        y={150}
+        ariaLabel="测试菜单"
+        onClose={vi.fn()}
+        actions={[{ label: "复制", onSelect: vi.fn() }]}
+      />,
+    );
+
+    const panel = screen.getByRole("menu", { name: "测试菜单" }).parentElement;
+    expect(panel).toHaveStyle({ left: "52px", top: "112px", transformOrigin: "176px 36px" });
+  });
+
+  it("clamps a top-left pointer origin to the visible panel corner", () => {
+    render(
+      <ActionContextMenu
+        x={2}
+        y={3}
+        ariaLabel="左上菜单"
+        onClose={vi.fn()}
+        actions={[{ label: "复制", onSelect: vi.fn() }]}
+      />,
+    );
+
+    const panel = screen.getByRole("menu", { name: "左上菜单" }).parentElement;
+    expect(panel).toHaveStyle({ left: "12px", top: "12px", transformOrigin: "0px 0px" });
+  });
+
+  it("uses the pointer as the origin when no viewport clamp is needed", () => {
+    render(
+      <ActionContextMenu
+        x={48}
+        y={56}
+        ariaLabel="普通菜单"
+        onClose={vi.fn()}
+        actions={[{ label: "复制", onSelect: vi.fn() }]}
+      />,
+    );
+    const panel = screen.getByRole("menu", { name: "普通菜单" }).parentElement;
+    expect(panel).toHaveStyle({ left: "48px", top: "56px", transformOrigin: "0px 0px" });
+  });
+
   it("renders separators, focuses the menu container, and supports keyboard navigation", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

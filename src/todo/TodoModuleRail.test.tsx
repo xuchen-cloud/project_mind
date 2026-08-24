@@ -50,7 +50,7 @@ describe("TodoModuleRail", () => {
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     expect(screen.queryByRole("combobox", { name: "Todo 归属" })).not.toBeInTheDocument();
     await user.type(
-      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      screen.getByPlaceholderText("写下要做的事"),
       "推进当前项目",
     );
     await user.click(screen.getByRole("button", { name: "创建" }));
@@ -75,7 +75,7 @@ describe("TodoModuleRail", () => {
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(
-      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      screen.getByPlaceholderText("写下要做的事"),
       "保留失败草稿",
     );
     await user.click(screen.getByRole("button", { name: "创建" }));
@@ -88,7 +88,7 @@ describe("TodoModuleRail", () => {
           "Todo 创建结果无法确认，草稿已保留：Error: 创建失败；Todo 列表已刷新，请核对。",
       }),
     ]);
-    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签")).toHaveValue(
+    expect(screen.getByPlaceholderText("写下要做的事")).toHaveValue(
       "保留失败草稿",
     );
     expect(screen.getByRole("button", { name: "请先核对" })).toBeDisabled();

@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
-import { FilePlus2, NotebookPen, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FilePlus2 } from "lucide-react";
 
 import { formatDateTime } from "../../lib/formatters";
-import { Button, IconButton, PopoverPanel, SearchField } from "../../ui/components";
+import { Button, Dialog, SearchField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 
 export interface MoveSelectionRecordOption {
@@ -14,6 +14,7 @@ export interface MoveSelectionRecordOption {
 
 interface MoveSelectionToRecordCardProps<TRecord extends MoveSelectionRecordOption> {
   records: TRecord[];
+  open: boolean;
   onClose: () => void;
   onSelectRecord: (record: TRecord) => Promise<unknown>;
   onCreateRecord: (title?: string) => Promise<unknown>;
@@ -21,12 +22,14 @@ interface MoveSelectionToRecordCardProps<TRecord extends MoveSelectionRecordOpti
 
 export function MoveSelectionToRecordCard<TRecord extends MoveSelectionRecordOption>({
   records,
+  open,
   onClose,
   onSelectRecord,
   onCreateRecord,
 }: MoveSelectionToRecordCardProps<TRecord>) {
   const [query, setQuery] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const trimmedQuery = query.trim();
   const normalizedQuery = trimmedQuery.toLocaleLowerCase("zh-Hans-CN");
   const recentRecords = useMemo(
@@ -53,6 +56,10 @@ export function MoveSelectionToRecordCard<TRecord extends MoveSelectionRecordOpt
       .slice(0, 8);
   }, [normalizedQuery, recentRecords, records]);
 
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
   async function runAction(key: string, action: () => Promise<unknown>) {
     if (busyKey) {
       return;
@@ -68,35 +75,22 @@ export function MoveSelectionToRecordCard<TRecord extends MoveSelectionRecordOpt
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-start justify-center bg-[var(--color-overlay)] px-4 pt-[12vh]">
-      <PopoverPanel className="w-[min(34rem,calc(100vw-2rem))] p-3 shadow-[var(--shadow-lg)]">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <NotebookPen size={15} className="text-accent" />
-            <h2 className="truncate text-[13px] font-semibold text-text">移动到记录</h2>
-          </div>
-          <IconButton
-            type="button"
-            size="sm"
-            variant="ghost"
-            aria-label="关闭移动到记录"
-            onClick={onClose}
-          >
-            <X size={14} />
-          </IconButton>
-        </div>
-
+    <Dialog
+      open={open}
+      title="移动到记录"
+      description="选择已有记录，或输入标题创建新记录。"
+      onClose={onClose}
+      initialFocusRef={searchRef}
+      layerClassName="z-[95]"
+      positionClassName="dialog-backdrop--top-search"
+      widthClassName="max-w-[34rem]"
+      bodyClassName="p-3"
+    >
         <SearchField
-          autoFocus
+          ref={searchRef}
           value={query}
           placeholder="搜索记录，或输入标题创建"
           onChange={(event) => setQuery(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            }
-          }}
         />
 
         <div className="mt-3 max-h-[18rem] overflow-y-auto">
@@ -153,8 +147,7 @@ export function MoveSelectionToRecordCard<TRecord extends MoveSelectionRecordOpt
             {trimmedQuery ? `创建记录：${trimmedQuery}` : "创建无标题记录"}
           </Button>
         </div>
-      </PopoverPanel>
-    </div>
+    </Dialog>
   );
 }
 

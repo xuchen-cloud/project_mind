@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,5 +44,61 @@ describe("feedback surfaces", () => {
     rerender(<StatusBar />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("同步失败");
+  });
+
+  it("keeps dismissed toast visuals for 160ms without repeating live-region semantics", () => {
+    vi.useFakeTimers();
+    const toast = { id: 1, tone: "error" as const, title: "保存失败" };
+    const { rerender } = render(<ToastStack toasts={[toast]} onDismiss={vi.fn()} />);
+
+    rerender(<ToastStack toasts={[]} onDismiss={vi.fn()} />);
+
+    const closingToast = document.querySelector(".toast-item") as HTMLElement;
+    expect(closingToast).toHaveAttribute("data-state", "closing");
+    expect(closingToast).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(160));
+    expect(document.querySelector(".toast-item")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("finishes a Toast exit on transitionend before the safety timer", () => {
+    vi.useFakeTimers();
+    const toast = { id: 1, tone: "neutral" as const, title: "已保存" };
+    const { rerender } = render(<ToastStack toasts={[toast]} onDismiss={vi.fn()} />);
+
+    rerender(<ToastStack toasts={[]} onDismiss={vi.fn()} />);
+    const closingToast = document.querySelector(".toast-item") as HTMLElement;
+    fireEvent.transitionEnd(closingToast);
+
+    expect(document.querySelector(".toast-item")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(160));
+    expect(document.querySelector(".toast-item")).not.toBeInTheDocument();
+  });
+
+  it("keeps new Toasts during an exit and cancels the exit when the same id returns", () => {
+    vi.useFakeTimers();
+    const first = { id: 1, tone: "neutral" as const, title: "第一条" };
+    const second = { id: 2, tone: "success" as const, title: "第二条" };
+    const { rerender } = render(<ToastStack toasts={[first]} onDismiss={vi.fn()} />);
+
+    rerender(<ToastStack toasts={[]} onDismiss={vi.fn()} />);
+    rerender(<ToastStack toasts={[second]} onDismiss={vi.fn()} />);
+
+    expect(document.querySelectorAll(".toast-item")).toHaveLength(2);
+    expect(screen.getByText("第二条").closest(".toast-item")).toHaveAttribute(
+      "data-state",
+      "present",
+    );
+
+    rerender(<ToastStack toasts={[first, second]} onDismiss={vi.fn()} />);
+    expect(screen.getByText("第一条").closest(".toast-item")).toHaveAttribute(
+      "data-state",
+      "present",
+    );
+
+    act(() => vi.advanceTimersByTime(160));
+    expect(document.querySelectorAll(".toast-item")).toHaveLength(2);
   });
 });

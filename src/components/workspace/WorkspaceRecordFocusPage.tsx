@@ -15,6 +15,7 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
+import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -441,6 +442,8 @@ export function WorkspaceRecordFocusPage({
     }
   };
 
+  const showRecordSkeleton = useDelayedPending(!draftReady);
+
   if (recordId === null) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -453,6 +456,7 @@ export function WorkspaceRecordFocusPage({
     !draftReady &&
     (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
   ) {
+    if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
   }
 
@@ -465,6 +469,7 @@ export function WorkspaceRecordFocusPage({
   }
 
   if (!draftReady) {
+    if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
   }
 

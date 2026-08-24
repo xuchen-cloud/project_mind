@@ -80,7 +80,7 @@ export function CreateProjectModal({
             value={quickNote}
             onChange={(e) => setQuickNote(e.target.value)}
             rows={4}
-            className="w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
+            className="w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 py-2 text-body text-text outline-none transition-[border-color,background-color,box-shadow] duration-[var(--duration-standard)] ease-[var(--ease-soft)] placeholder:text-text-soft hover:border-border-strong focus:border-accent"
             placeholder="写下当前阶段、目标、关键约束和判断依据。"
           />
         </label>
@@ -90,7 +90,7 @@ export function CreateProjectModal({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
+              className="h-8 w-full rounded-[var(--radius-6)] border border-border bg-bg px-3 text-body text-text outline-none transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent"
             >
               {PROJECT_STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>

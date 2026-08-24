@@ -15,6 +15,8 @@ interface EntityTagEditorProps {
   compact?: boolean;
   mode?: "full" | "edit" | "display";
   inputRef?: Ref<HTMLInputElement>;
+  inputPlaceholder?: string;
+  showInputLeadingIcon?: boolean;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
   onCreated?: (tag: ProjectTagRecord) => void;
   onPendingChange?: (pending: boolean) => void;
@@ -30,6 +32,8 @@ export function EntityTagEditor({
   compact = false,
   mode = "full",
   inputRef,
+  inputPlaceholder = "#标签",
+  showInputLeadingIcon = true,
   onChange,
   onCreated,
   onPendingChange,
@@ -167,13 +171,13 @@ export function EntityTagEditor({
             compact ? "max-w-[10rem]" : "max-w-[16rem]",
           )}
         >
-          <Plus size={11} aria-hidden="true" />
+          {showInputLeadingIcon ? <Plus size={11} aria-hidden="true" /> : null}
           <input
             ref={handleInputRef}
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-soft"
             value={input}
             disabled={busy || creating}
-            placeholder="#标签"
+            placeholder={inputPlaceholder}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={() => {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { collectMotionViolations } from "./ui-standards-motion-rules.mjs";
 
 const projectRoot = process.cwd();
 const srcRoot = path.join(projectRoot, "src");
@@ -194,6 +195,12 @@ for (const file of walk(srcRoot)) {
     for (const match of collectRegexMatches(content, emojiPattern)) {
       addViolation(file, content, match.index, "emoji detected in source file", match.text);
     }
+  }
+
+  for (const violation of collectMotionViolations(relativeFile(file), content)) {
+    violations.push(
+      `${violation.file}:${violation.line} motion/${violation.rule}: ${formatSnippet(violation.snippet)}`,
+    );
   }
 }
 

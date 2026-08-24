@@ -4,6 +4,7 @@ export { ActionContextMenu } from "./ActionContextMenu";
 export type { ContextMenuAction } from "./ActionContextMenu";
 export { DeleteContextMenu } from "./DeleteContextMenu";
 export { Dialog } from "./Dialog";
+export { DisclosurePresence } from "./DisclosurePresence";
 export { EmptyState } from "./EmptyState";
 export { IconButton } from "./IconButton";
 export { PageLoadingSkeleton } from "./PageLoadingSkeleton";

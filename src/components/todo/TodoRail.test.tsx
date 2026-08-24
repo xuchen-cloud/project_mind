@@ -136,10 +136,10 @@ describe("TodoRail", () => {
   }
 
   async function selectOwnership(user: ReturnType<typeof userEvent.setup>, name: string) {
-    const input = screen.getByRole("combobox", { name: "Todo 归属" });
-    await user.click(input);
-    await user.clear(input);
-    await user.type(input, name);
+    const selector = screen.getByRole("combobox", { name: "Todo 归属" });
+    await user.click(selector);
+    const search = screen.getByRole("searchbox", { name: "筛选 Todo 归属" });
+    await user.type(search, name);
     await user.click(screen.getByRole("option", { name }));
   }
 
@@ -159,13 +159,10 @@ describe("TodoRail", () => {
     renderRail({ focusTodoId: finishedTodo.id });
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "已完成" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      ),
+      expect(screen.getByRole("button", { name: "返回未完成" })).toBeInTheDocument(),
     );
     await waitFor(() =>
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" }),
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "auto" }),
     );
     expect(useUiStore.getState().todoRailCollapsed).toBe(false);
     expect(screen.getByText(finishedTodo.content).closest("[data-todo-id]")).toHaveClass(
@@ -253,8 +250,9 @@ describe("TodoRail", () => {
       });
 
       await user.click(screen.getByRole("button", { name: "新增代办" }));
-      const ownershipSearch = screen.getByRole("combobox", { name: "Todo 归属" });
-      await user.type(ownershipSearch, query);
+      const ownershipSelector = screen.getByRole("combobox", { name: "Todo 归属" });
+      await user.click(ownershipSelector);
+      await user.type(screen.getByRole("searchbox", { name: "筛选 Todo 归属" }), query);
 
       expect(screen.getByRole("option", { name: "Workspace" })).toBeInTheDocument();
       expect(screen.getByRole("option", { name: projectName })).toBeInTheDocument();
@@ -262,7 +260,7 @@ describe("TodoRail", () => {
       expect(screen.queryByRole("option", { name: hiddenProject })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("option", { name: projectName }));
-      expect(ownershipSearch).toHaveValue(projectName);
+      expect(ownershipSelector).toHaveTextContent(projectName);
     },
   );
 
@@ -282,12 +280,13 @@ describe("TodoRail", () => {
       onViewModeChange,
     });
 
-    expect(screen.getByText("Alpha", { selector: ".todo-rail__scope" })).toBeInTheDocument();
-    const currentProjectTab = screen.getByRole("tab", { name: "Current Project View" });
-    const workspaceViewTab = screen.getByRole("tab", { name: "Workspace View" });
+    expect(screen.queryByText("Alpha", { selector: ".todo-rail__scope" })).not.toBeInTheDocument();
+    const currentProjectTab = screen.getByRole("tab", { name: "当前项目" });
+    const workspaceViewTab = screen.getByRole("tab", { name: "整个工作区" });
     expect(currentProjectTab).toHaveAttribute("aria-selected", "true");
     expect(workspaceViewTab).toHaveAttribute("aria-selected", "false");
-    expect(workspaceViewTab.closest(".todo-rail__header")).not.toBeNull();
+    expect(workspaceViewTab.closest(".todo-rail__toolbar")).not.toBeNull();
+    expect(workspaceViewTab.closest(".todo-rail__header")).toBeNull();
     await user.click(workspaceViewTab);
     expect(onViewModeChange).toHaveBeenCalledWith("workspace");
   });
@@ -457,7 +456,15 @@ describe("TodoRail", () => {
       onCreateTodo,
     });
 
-    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("Alpha");
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveTextContent("Alpha");
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveClass(
+      "todo-rail__ownership-select",
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Todo 归属" }).parentElement?.querySelector(
+        ".todo-rail__ownership-chevron",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue(
       "准备发布 @20260801",
     );
@@ -493,7 +500,7 @@ describe("TodoRail", () => {
       onError,
     });
 
-    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue(
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveTextContent(
       "Project 已不可用",
     );
     expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
@@ -582,7 +589,7 @@ describe("TodoRail", () => {
 
     expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "已完成" }));
+    await user.click(screen.getByRole("button", { name: /查看已完成/u }));
     expect(screen.getByText("Done item")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "展开已完成子项" })).not.toBeInTheDocument();
 
@@ -658,7 +665,7 @@ describe("TodoRail", () => {
     await user.click(within(targetCard!).getByRole("button", { name: "标记为已完成" }));
 
     expect(screen.queryByText("Prepare demo notes")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "已完成" }));
+    await user.click(screen.getByRole("button", { name: /查看已完成/u }));
     expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
   });
 
@@ -694,7 +701,7 @@ describe("TodoRail", () => {
     expect(onUpdatePriority).toHaveBeenCalledWith(4, "urgent_important");
   });
 
-  it("renders a simplified header and keeps unfinished/finished tab switching", async () => {
+  it("keeps completion history as a secondary footer action", async () => {
     const user = userEvent.setup();
 
     renderRail({
@@ -707,11 +714,13 @@ describe("TodoRail", () => {
     expect(screen.queryByText(/未完成 · .*已完成/u)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "P1" })).not.toBeInTheDocument();
     expect(screen.queryByText("全部标签")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("todo-rail-view-switch")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "已完成" }));
+    await user.click(screen.getByRole("button", { name: /查看已完成/u }));
     expect(screen.getByText("Done item")).toBeInTheDocument();
+    expect(screen.getByText("已完成", { selector: ".todo-rail__finished-label" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "未完成" }));
+    await user.click(screen.getByRole("button", { name: "返回未完成" }));
     expect(screen.getByText("Prepare demo notes")).toBeInTheDocument();
   });
 
@@ -727,15 +736,12 @@ describe("TodoRail", () => {
 
     const firstRail = renderRail(props);
     await user.click(screen.getByRole("tab", { name: "按优先级" }));
-    await user.click(screen.getByRole("button", { name: "已完成" }));
+    await user.click(screen.getByRole("button", { name: /查看已完成/u }));
 
     firstRail.unmount();
     renderRail(props);
 
-    expect(screen.getByRole("button", { name: "已完成" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: "返回未完成" })).toBeInTheDocument();
     expect(screen.getByText("Done item")).toBeInTheDocument();
     expect(useUiStore.getState().todoRailSortMode).toBe("priority");
   });
@@ -787,12 +793,17 @@ describe("TodoRail", () => {
     const card = screen.getByTestId("todo-composer-card");
     expect(card.querySelector(".todo-rail__composer-priority-rail")).toBeInTheDocument();
     expect(card).toHaveStyle({ "--todo-priority-color": "var(--color-todo-p3)" });
-
     await user.click(within(card).getByRole("button", { name: "P1 · 紧急且重要" }));
     expect(card).toHaveStyle({ "--todo-priority-color": "var(--color-todo-p1)" });
 
     await user.type(within(card).getByPlaceholderText("写下一条需要推进的 Todo"), "准备发布");
-    await user.type(within(card).getByPlaceholderText("#标签"), "法务{Enter}");
+    expect(card.querySelector(".todo-rail__composer-primary > .todo-rail__composer-priority-rail"))
+      .toBeInTheDocument();
+    expect(card.querySelector(".todo-rail__composer-subtasks .todo-rail__composer-priority-rail"))
+      .not.toBeInTheDocument();
+    const tagInput = within(card).getByPlaceholderText("# 新增标签");
+    expect(tagInput.closest("label")?.querySelector("svg")).toBeNull();
+    await user.type(tagInput, "法务{Enter}");
 
     await user.click(within(card).getByRole("button", { name: "添加子任务" }));
     const subtaskEditor = card.querySelector(
@@ -836,7 +847,7 @@ describe("TodoRail", () => {
     renderRail({ finishedTodos: [], onCreateTodo });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "带新标签创建");
-    const tagInput = screen.getByPlaceholderText("#标签");
+    const tagInput = screen.getByPlaceholderText("# 新增标签");
     await user.type(tagInput, "新标签{Enter}");
 
     await waitFor(() => expect(screen.getByRole("button", { name: "创建" })).toBeDisabled());
@@ -854,6 +865,40 @@ describe("TodoRail", () => {
         { id: createdTag.id, label: createdTag.label, colorKey: createdTag.colorKey },
       ],
     });
+    tagCreate.mockRestore();
+  });
+
+  it("commits a typed new Tag before the Create button submits the Todo", async () => {
+    const user = userEvent.setup();
+    const createdTag = {
+      id: 25,
+      label: "直接创建",
+      colorKey: "teal" as const,
+      usageCount: 0,
+      createdAt: "2026-08-23T08:00:00.000Z",
+      updatedAt: "2026-08-23T08:00:00.000Z",
+    };
+    const tagCreate = vi
+      .spyOn(projectMindApi, "projectTagUpsert")
+      .mockResolvedValue(createdTag);
+    const onCreateTodo = vi.fn(async () => ({ ...todoWithoutHistory, id: 90 }));
+
+    renderRail({ finishedTodos: [], onCreateTodo });
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "带标签创建");
+    await user.type(screen.getByPlaceholderText("# 新增标签"), "直接创建");
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    await waitFor(() =>
+      expect(onCreateTodo).toHaveBeenCalledWith({
+        content: "带标签创建",
+        priority: "not_urgent_important",
+        tagIds: [createdTag.id],
+        optimisticTags: [
+          { id: createdTag.id, label: createdTag.label, colorKey: createdTag.colorKey },
+        ],
+      }),
+    );
     tagCreate.mockRestore();
   });
 
@@ -897,7 +942,7 @@ describe("TodoRail", () => {
 
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "外点创建");
-    await user.type(screen.getByPlaceholderText("#标签"), "外点标签");
+    await user.type(screen.getByPlaceholderText("# 新增标签"), "外点标签");
     await user.click(screen.getByRole("button", { name: "继续工作" }));
 
     expect(outsideAction).toHaveBeenCalledTimes(1);
@@ -936,7 +981,7 @@ describe("TodoRail", () => {
     expect(screen.getByTestId("todo-composer-card")).toBeInTheDocument();
     expect(document.querySelector(".todo-subtask-editor [role=\"textbox\"]")).toBeNull();
 
-    const tagInput = screen.getByPlaceholderText("#标签");
+    const tagInput = screen.getByPlaceholderText("# 新增标签");
     await user.type(tagInput, "暂不选择");
     await user.keyboard("{Escape}");
 
@@ -970,7 +1015,7 @@ describe("TodoRail", () => {
     });
     await selectOwnership(user, "Alpha");
 
-    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveValue("Workspace");
+    expect(screen.getByRole("combobox", { name: "Todo 归属" })).toHaveTextContent("Workspace");
     expect(onError).toHaveBeenCalledWith(
       "请先移除 Todo 与 Subtask 中的 Internal Reference，再切换归属。",
     );
@@ -1235,8 +1280,9 @@ describe("TodoRail", () => {
     fireEvent.contextMenu(screen.getByText("等待财务确认").closest("article") as HTMLElement);
     await user.click(screen.getByRole("menuitem", { name: "编辑子项" }));
 
-    expect(screen.getByRole("button", { name: "收起已完成子项" })).toHaveClass(
-      "todo-card__expand--hidden",
+    expect(document.querySelector(".todo-card__expand--hidden")).toHaveAttribute(
+      "aria-hidden",
+      "true",
     );
 
     const textbox = screen.getByRole("textbox");
@@ -1279,7 +1325,7 @@ describe("TodoRail", () => {
       onDeleteProgress,
     });
 
-    await user.click(screen.getByRole("button", { name: "已完成" }));
+    await user.click(screen.getByRole("button", { name: /查看已完成/u }));
     fireEvent.contextMenu(screen.getByText("已同步法务").closest("article") as HTMLElement);
 
     expect(screen.queryByRole("menuitem", { name: "编辑子项" })).not.toBeInTheDocument();

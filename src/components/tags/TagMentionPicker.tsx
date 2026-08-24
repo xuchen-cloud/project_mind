@@ -138,7 +138,7 @@ export function TagMentionPicker({
                 role="option"
                 aria-selected={index === activeIndex}
                 className={cn(
-                  "tag-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+                  "tag-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                   index === activeIndex
                     ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
                     : "hover:bg-bg-hover",
@@ -174,7 +174,7 @@ export function TagMentionPicker({
                 role="option"
                 aria-selected={activeIndex === results.length}
                 className={cn(
-                  "tag-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+                  "tag-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                   activeIndex === results.length
                     ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
                     : "hover:bg-bg-hover",

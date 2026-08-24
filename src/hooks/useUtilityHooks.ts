@@ -30,11 +30,6 @@ export function focusTargetElement(
   element: HTMLElement,
   { block = "center" }: FocusTargetElementOptions = {},
 ) {
-  const scrollBehavior =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth";
   const scrollContainer = element.closest(
     "[data-testid='project-overview-focus-scroll'], [data-testid='workspace-overview-focus-scroll']",
   ) as HTMLElement | null;
@@ -50,12 +45,12 @@ export function focusTargetElement(
     const nextTop = Math.max(0, targetTop);
 
     if (typeof scrollContainer.scrollTo === "function") {
-      scrollContainer.scrollTo({ top: nextTop, behavior: scrollBehavior });
+      scrollContainer.scrollTo({ top: nextTop, behavior: "auto" });
     } else {
       scrollContainer.scrollTop = nextTop;
     }
   } else {
-    element.scrollIntoView({ block, behavior: scrollBehavior });
+    element.scrollIntoView({ block, behavior: "auto" });
   }
 
   element.classList.add("is-focused");

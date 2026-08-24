@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AiSettingsSnapshot } from "../../lib/types";
 
@@ -75,6 +75,8 @@ import { AiSettingsPanel } from "./AiSettingsPanel";
 let aiSettingsSnapshot: AiSettingsSnapshot;
 
 describe("AiSettingsPanel", () => {
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(() => {
     mockAiSettingsGet.mockReset();
     mockAiBindingUpsert.mockReset();
@@ -286,6 +288,31 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(screen.queryByLabelText("名称")).not.toBeInTheDocument());
   });
 
+  it("restores profile disclosure focus and cancels a closing exit when reopened", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await screen.findByRole("heading", { name: "AI 模型配置" });
+    const trigger = screen.getByRole("button", { name: /OpenAI Prod/u });
+    await user.click(trigger);
+    const nameInput = await screen.findByLabelText("名称");
+    nameInput.focus();
+    vi.useFakeTimers();
+
+    fireEvent.click(trigger);
+    const closingPanel = document.querySelector(".disclosure-presence") as HTMLElement;
+    expect(trigger).toHaveFocus();
+    expect(closingPanel).toHaveAttribute("data-state", "closing");
+    expect(closingPanel).toHaveAttribute("aria-hidden", "true");
+    expect(closingPanel).toHaveAttribute("inert");
+
+    fireEvent.click(trigger);
+    act(() => vi.advanceTimersByTime(160));
+
+    expect(screen.getByLabelText("名称")).toBeInTheDocument();
+    expect(document.querySelectorAll(".disclosure-presence")).toHaveLength(1);
+  });
+
   it("renders only general and image default model bindings", async () => {
     const user = userEvent.setup();
 
@@ -399,6 +426,49 @@ describe("AiSettingsPanel", () => {
     await screen.findByText("24/24 个技能");
     expect(screen.getByRole("button", { name: "新增技能" })).toBeDisabled();
     expect(screen.getByText(/已达到 24 个技能上限/)).toBeInTheDocument();
+  });
+
+  it("keeps an Editor Skill disclosure inert while closing and restores trigger focus", async () => {
+    const user = userEvent.setup();
+    aiSettingsSnapshot = {
+      ...aiSettingsSnapshot,
+      editorSkills: [
+        {
+          id: "skill-1",
+          name: "提炼摘要",
+          icon: null,
+          description: "提炼关键信息",
+          prompt: "请提炼摘要",
+          resultMode: "modify",
+          showInTextMenu: true,
+          showInImageMenu: false,
+          profileId: null,
+          sortOrder: 1,
+          enabled: true,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+    };
+    renderPanel("rewrite");
+
+    await screen.findByText("提炼摘要");
+    const trigger = screen.getByRole("button", { name: "展开" });
+    await user.click(trigger);
+    const nameInput = await screen.findByLabelText("技能名称");
+    nameInput.focus();
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole("button", { name: "收起" }));
+    const closingPanel = document.querySelector(".disclosure-presence") as HTMLElement;
+    expect(trigger).toHaveFocus();
+    expect(closingPanel).toHaveAttribute("data-state", "closing");
+    expect(closingPanel).toHaveAttribute("aria-hidden", "true");
+
+    act(() => vi.advanceTimersByTime(159));
+    expect(document.querySelector(".disclosure-presence")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(document.querySelector(".disclosure-presence")).not.toBeInTheDocument();
   });
 });
 

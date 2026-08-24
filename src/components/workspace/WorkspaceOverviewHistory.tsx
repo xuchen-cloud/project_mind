@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { preserveRecordFilters } from "../../lib/formatters";
+import { useKeyedPresence } from "../../hooks/useKeyedPresence";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -101,6 +102,11 @@ export function WorkspaceOverviewHistory({
     noteId: number;
   } | null>(null);
   const recordDraftEditorRef = useRef<RichEditorController | null>(null);
+  const recordPresence = useKeyedPresence(
+    notes,
+    (record) => String(record.id),
+    recordFilters.toString(),
+  );
   const contextMenuNote = recordContextMenu
     ? notes.find((note) => note.id === recordContextMenu.noteId) ?? null
     : null;
@@ -239,11 +245,23 @@ export function WorkspaceOverviewHistory({
         </article>
       ) : null}
 
-      {notes.length > 0 ? (
-        <div className="grid gap-2.5">
-          {notes.map((note) => (
+      {recordPresence.items.length > 0 ? (
+        <div ref={recordPresence.containerRef} tabIndex={-1} className="grid gap-2.5" data-list-layout-motion>
+          {recordPresence.items.map(({ item: note, key, state }) => (
+            <div
+              key={key}
+              className="record-presence-item"
+              data-state={state}
+              data-layout-motion-id={`record-${key}`}
+              aria-hidden={state === "exiting" || undefined}
+              inert={state === "exiting" ? true : undefined}
+              onTransitionEnd={(event) => {
+                if (state === "exiting" && event.target === event.currentTarget) {
+                  recordPresence.finishExit(key);
+                }
+              }}
+            >
             <RecordListItem
-              key={note.id}
               record={note}
               scope={{ kind: "workspace", assetHandlers }}
               focused={focusId === `record-${note.id}`}
@@ -276,6 +294,7 @@ export function WorkspaceOverviewHistory({
               onCreatedTag={syncWorkspaceTagCache}
               onOpenAiSettings={() => openSettings("ai-rewrite")}
             />
+            </div>
           ))}
         </div>
       ) : !hasAnyNotes ? (

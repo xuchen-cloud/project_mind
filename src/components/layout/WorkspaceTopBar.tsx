@@ -217,7 +217,7 @@ export function WorkspaceTopBar({
   const tabClassName = useMemo(
     () =>
       [
-        "workspace-topbar__tab group inline-flex h-8 min-w-0 items-center rounded-[var(--radius-6)] border pr-0.5 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[160ms] ease-[var(--ease-soft)]",
+        "workspace-topbar__tab group inline-flex h-8 min-w-0 items-center rounded-[var(--radius-6)] border pr-0.5 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
       ].join(" "),
     [],
   );
@@ -257,7 +257,7 @@ export function WorkspaceTopBar({
             <button
               type="button"
               className={[
-                "workspace-topbar__tab workspace-topbar__tab--workspace inline-flex h-8 min-w-0 items-center gap-1 rounded-[var(--radius-6)] border px-2 text-ui font-medium transition-[background-color,color,border-color] duration-[160ms] ease-[var(--ease-soft)]",
+                "workspace-topbar__tab workspace-topbar__tab--workspace inline-flex h-8 min-w-0 items-center gap-1 rounded-[var(--radius-6)] border px-2 text-ui font-medium transition-[background-color,color,border-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                 workspaceActive ? "workspace-topbar__tab--active" : "",
                 workspaceActive
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"

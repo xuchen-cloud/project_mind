@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
@@ -10,6 +10,7 @@ import type {
   TodoTagUpdateHandler,
 } from "../../lib/types";
 import { ActionContextMenu, EmptyState } from "../../ui/components";
+import { cancelListLayoutMotion } from "../../ui/listLayoutMotion";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
 
@@ -78,6 +79,7 @@ export function TodoList({
     y: number;
   } | null>(null);
   const [todoTransitions, setTodoTransitions] = useState<Record<number, TodoStatusTransition>>({});
+  const motionContainerRef = useRef<HTMLDivElement | null>(null);
   const contextMenuTodo = useMemo(
     () => (contextMenu ? todos.find((todo) => todo.id === contextMenu.todoId) ?? null : null),
     [contextMenu, todos],
@@ -122,6 +124,11 @@ export function TodoList({
     });
   }, [todos]);
 
+  useEffect(
+    () => () => cancelListLayoutMotion(motionContainerRef.current),
+    [],
+  );
+
   async function handleToggleStatus(todo: TodoRecord) {
     const nextStatus = todo.status === "finished" ? "unfinished" : "finished";
     const phase = nextStatus === "finished" ? "completing" : "restoring";
@@ -159,7 +166,13 @@ export function TodoList({
   return (
     <div className="todo-list">
       {visibleTodos.length > 0 ? (
-        <div className="todo-list__collection">
+        <div
+          ref={(element) => {
+            if (element) motionContainerRef.current = element;
+          }}
+          className="todo-list__collection"
+          data-list-layout-motion
+        >
           {visibleTodos.map((todo, index) => (
             <TodoListItem
               key={todo.id}

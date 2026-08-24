@@ -177,7 +177,7 @@ export function SettingsDialog({
                   key={section.value}
                   type="button"
                   className={cn(
-                    "rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+                    "rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                     active
                       ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
                       : "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-bg hover:text-text",

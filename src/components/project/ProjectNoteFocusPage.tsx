@@ -11,6 +11,7 @@ import {
 } from "../../lib/record-focus-save";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
+import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -386,6 +387,8 @@ export function ProjectNoteFocusPage({
     return exportRecord(request);
   }, [availableTags, content, note?.updatedAt, recordId, project?.name, queryClient, saveCurrentRecord]);
 
+  const showRecordSkeleton = useDelayedPending(!draftReady);
+
   if (projectId === null || recordId === null) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -395,6 +398,7 @@ export function ProjectNoteFocusPage({
   }
 
   if (!draftReady && (projectQuery.isLoading || projectPageQuery.isLoading)) {
+    if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载项目记录" />;
   }
 
@@ -407,6 +411,7 @@ export function ProjectNoteFocusPage({
   }
 
   if (!draftReady) {
+    if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载项目记录" />;
   }
 

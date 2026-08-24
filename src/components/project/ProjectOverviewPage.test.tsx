@@ -272,6 +272,7 @@ describe("ProjectOverviewPage", () => {
   });
 
   it("uses a static overview skeleton only for a cold project entry", async () => {
+    vi.useFakeTimers();
     let resolvePage!: (value: ProjectPageData) => void;
     vi.mocked(projectMindApi.projectPageGet).mockImplementationOnce(
       () => new Promise((resolve) => { resolvePage = resolve; }),
@@ -285,9 +286,14 @@ describe("ProjectOverviewPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("status", { name: "正在加载项目页" })).toHaveAttribute("data-variant", "overview");
+    expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(119));
+    expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole("status", { name: "正在加载项目页" })).toHaveAttribute("data-variant", "overview");
     expect(document.querySelector(".animate-spin, .spin")).toBeNull();
 
+    vi.useRealTimers();
     await act(async () => resolvePage(projectPageWithTaglessRecord()));
     const page = await screen.findByTestId("project-overview-focus-page");
     expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
@@ -312,6 +318,26 @@ describe("ProjectOverviewPage", () => {
     view.rerender(page(true));
     expect(screen.queryByRole("status", { name: "正在加载项目页" })).not.toBeInTheDocument();
     expect(screen.getByTestId("project-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+  });
+
+  it("does not build Project Record history until the Record view is active", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/projects/1"]}>
+          <Routes><Route path="/projects/:projectId" element={<ProjectOverviewPage />} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Record" });
+    expect(screen.queryByText("目标记录")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Record" }));
+
+    expect(await screen.findByText("目标记录")).toBeInTheDocument();
   });
 
   it("does not expose the internal Project status beside the title", async () => {

@@ -116,7 +116,7 @@ export function ContactMentionPicker({
                 role="option"
                 aria-selected={index === activeIndex}
                 className={cn(
-                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                   index === activeIndex
                     ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
                     : "hover:bg-bg-hover",
@@ -154,7 +154,7 @@ export function ContactMentionPicker({
                 role="option"
                 aria-selected={createIndex === activeIndex}
                 className={cn(
-                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                   createIndex === activeIndex
                     ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
                     : "hover:bg-bg-hover",

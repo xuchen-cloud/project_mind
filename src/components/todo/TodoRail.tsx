@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw, Search, X } from "lucide-react";
 
 import {
   splitInternalReferenceText,
@@ -219,7 +219,8 @@ export function TodoRail({
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(() => new Set());
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerTagInputRef = useRef<HTMLInputElement | null>(null);
-  const outsideSubmitAfterTagRef = useRef(false);
+  const ownershipButtonRef = useRef<HTMLButtonElement | null>(null);
+  const submitAfterTagCommitRef = useRef(false);
   const composerTagCommitSucceededRef = useRef(false);
   const composerDraftRef = useRef<{
     key: string;
@@ -423,7 +424,7 @@ export function TodoRail({
         return;
       }
       if (composerTagInputRef.current?.value.trim()) {
-        outsideSubmitAfterTagRef.current = true;
+        submitAfterTagCommitRef.current = true;
         composerTagCommitSucceededRef.current = false;
         composerTagInputRef.current.blur();
         return;
@@ -439,8 +440,8 @@ export function TodoRail({
   });
 
   useEffect(() => {
-    if (!outsideSubmitAfterTagRef.current || composerTagPending) return;
-    outsideSubmitAfterTagRef.current = false;
+    if (!submitAfterTagCommitRef.current || composerTagPending) return;
+    submitAfterTagCommitRef.current = false;
     if (!composerTagCommitSucceededRef.current) return;
     if (content.trim()) {
       void submitCreate();
@@ -847,60 +848,13 @@ export function TodoRail({
       <div className="todo-rail__header flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-title font-medium text-text">{title}</h2>
-          <p className="todo-rail__scope">{scopeLabel}</p>
-          {showViewModeSwitch ? (
-            <div
-              className="todo-rail__view-switch"
-              role="tablist"
-              aria-label="Todo View"
-            >
-              <button
-                ref={currentProjectViewRef}
-                type="button"
-                role="tab"
-                aria-selected={!workspaceView}
-                tabIndex={!workspaceView ? 0 : -1}
-                className="todo-rail__view-switch-button"
-                onClick={() => onViewModeChange?.("current-project")}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "End") {
-                    return;
-                  }
-                  event.preventDefault();
-                  workspaceViewRef.current?.focus();
-                  onViewModeChange?.("workspace");
-                }}
-              >
-                Current Project View
-              </button>
-              <button
-                ref={workspaceViewRef}
-                type="button"
-                role="tab"
-                aria-selected={workspaceView}
-                tabIndex={workspaceView ? 0 : -1}
-                className="todo-rail__view-switch-button"
-                onClick={() => onViewModeChange?.("workspace")}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowLeft" && event.key !== "ArrowUp" && event.key !== "Home") {
-                    return;
-                  }
-                  event.preventDefault();
-                  currentProjectViewRef.current?.focus();
-                  onViewModeChange?.("current-project");
-                }}
-              >
-                Workspace View
-              </button>
-            </div>
-          ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="todo-rail__header-actions flex shrink-0 items-center">
           {onRefresh ? (
             <IconButton
               type="button"
               size="sm"
-              variant="secondary"
+              variant="ghost"
               aria-label="刷新代办列表"
               title="刷新代办列表"
               disabled={refreshing}
@@ -913,7 +867,7 @@ export function TodoRail({
             ref={addTodoButtonRef}
             type="button"
             size="sm"
-            variant="secondary"
+            variant="subtle"
             aria-label="新增代办"
             disabled={!canCreateTodo || isComposing}
             onClick={() => setIsComposing(true)}
@@ -923,6 +877,7 @@ export function TodoRail({
           <IconButton
             type="button"
             size="sm"
+            variant="ghost"
             aria-label="收起代办侧边栏"
             onClick={toggleTodoRailCollapsed}
           >
@@ -932,43 +887,74 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <div className="todo-rail__toolbar mb-3 flex flex-nowrap items-center justify-between gap-2">
-          <div
-            className="todo-rail__segmented-control project-overview-focus__view-switch"
-            data-testid="todo-rail-view-switch"
-          >
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                tab === "unfinished" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={tab === "unfinished"}
-              onClick={() => setTab("unfinished")}
-            >
-              未完成
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "project-overview-focus__view-switch-button",
-                tab === "finished" &&
-                  "project-overview-focus__view-switch-button--active",
-              )}
-              aria-pressed={tab === "finished"}
-              onClick={() => setTab("finished")}
-            >
-              已完成
-            </button>
+        <div className="todo-rail__toolbar flex flex-nowrap items-center justify-between gap-3">
+          <div className="todo-rail__toolbar-scope min-w-0">
+            {showViewModeSwitch ? (
+              <div
+                className="todo-rail__view-switch"
+                role="tablist"
+                aria-label="待办范围"
+              >
+                <button
+                  ref={currentProjectViewRef}
+                  type="button"
+                  role="tab"
+                  aria-selected={!workspaceView}
+                  tabIndex={!workspaceView ? 0 : -1}
+                  className="todo-rail__view-switch-button"
+                  onClick={() => onViewModeChange?.("current-project")}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== "ArrowRight" &&
+                      event.key !== "ArrowDown" &&
+                      event.key !== "End"
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    workspaceViewRef.current?.focus();
+                    onViewModeChange?.("workspace");
+                  }}
+                >
+                  当前项目
+                </button>
+                <button
+                  ref={workspaceViewRef}
+                  type="button"
+                  role="tab"
+                  aria-selected={workspaceView}
+                  tabIndex={workspaceView ? 0 : -1}
+                  className="todo-rail__view-switch-button"
+                  onClick={() => onViewModeChange?.("workspace")}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== "ArrowLeft" &&
+                      event.key !== "ArrowUp" &&
+                      event.key !== "Home"
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    currentProjectViewRef.current?.focus();
+                    onViewModeChange?.("current-project");
+                  }}
+                >
+                  整个工作区
+                </button>
+              </div>
+            ) : (
+              <p className="todo-rail__scope">{scopeLabel}</p>
+            )}
+            {tab === "finished" ? (
+              <span className="todo-rail__finished-label">已完成</span>
+            ) : null}
           </div>
-
-          <div className="flex items-center gap-1.5">
+          <div className="todo-rail__list-controls flex items-center">
             {workspaceView ? (
               <IconButton
                 type="button"
                 size="sm"
-                variant="ghost"
+                variant="subtle"
                 className="todo-rail__icon-toggle"
                 aria-label="分组显示"
                 aria-pressed={displayMode === "grouped"}
@@ -1005,9 +991,9 @@ export function TodoRail({
               } as CSSProperties
             }
           >
-            <span className="todo-rail__composer-priority-rail" aria-hidden="true" />
             <div className="todo-rail__composer-card-body">
               <div className="todo-rail__composer-primary">
+                <span className="todo-rail__composer-priority-rail" aria-hidden="true" />
                 <div className="relative">
               <textarea
                 ref={composerInputRef}
@@ -1164,6 +1150,8 @@ export function TodoRail({
                     busy={composerLocked}
                     inputRef={composerTagInputRef}
                     compact
+                    inputPlaceholder="# 新增标签"
+                    showInputLeadingIcon={false}
                     mode="full"
                     onCreated={(tag) => {
                       setComposerCreatedTags((current) => [
@@ -1267,67 +1255,110 @@ export function TodoRail({
               </div>
               <div className="todo-rail__composer-meta">
               {createOwnershipOptions ? (
-                <label className="todo-rail__ownership relative flex min-w-0 flex-[1_1_12rem] items-center gap-2 text-ui text-text-soft">
-                  <FolderKanban aria-hidden="true" size={14} />
-                  <input
-                    role="combobox"
-                    aria-label="Todo 归属"
-                    aria-expanded={ownershipPickerOpen}
-                    aria-controls="todo-ownership-options"
-                    aria-autocomplete="list"
-                    aria-invalid={
-                      createProjectId !== null &&
-                      !createOwnershipOptions.some(
-                        (option) => option.projectId === createProjectId,
-                      )
-                    }
-                    className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-text"
-                    disabled={composerLocked}
-                    value={ownershipPickerOpen ? ownershipQuery : selectedOwnershipName}
-                    onFocus={() => {
-                      setOwnershipPickerOpen(true);
+                <div
+                  className="todo-rail__ownership relative flex min-w-0 flex-[1_1_12rem] items-center gap-2 text-ui text-text-soft"
+                  onBlurCapture={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      setOwnershipPickerOpen(false);
                       setOwnershipQuery("");
-                    }}
-                    onChange={(event) => {
-                      setOwnershipPickerOpen(true);
-                      setOwnershipQuery(event.target.value);
-                    }}
-                    onBlur={() => window.setTimeout(() => setOwnershipPickerOpen(false), 0)}
-                  />
-                  {ownershipPickerOpen ? (
-                    <div
-                      id="todo-ownership-options"
-                      role="listbox"
-                      className="absolute left-12 right-0 top-[calc(100%+4px)] z-30 grid max-h-52 overflow-y-auto rounded-md border border-border bg-bg p-1 shadow-lg"
+                    }
+                  }}
+                >
+                  <FolderKanban aria-hidden="true" size={14} />
+                  <span className="todo-rail__ownership-select-shell relative min-w-0 flex-1">
+                    <button
+                      ref={ownershipButtonRef}
+                      type="button"
+                      role="combobox"
+                      aria-label="Todo 归属"
+                      aria-expanded={ownershipPickerOpen}
+                      aria-controls="todo-ownership-options"
+                      aria-invalid={
+                        createProjectId !== null &&
+                        !createOwnershipOptions.some(
+                          (option) => option.projectId === createProjectId,
+                        )
+                      }
+                      className={cn(
+                        "todo-rail__ownership-select min-w-0 w-full text-text",
+                        ownershipPickerOpen && "todo-rail__ownership-select--open",
+                      )}
+                      disabled={composerLocked}
+                      onClick={() => {
+                        setOwnershipPickerOpen((current) => !current);
+                        setOwnershipQuery("");
+                      }}
                     >
-                      <button
-                        type="button"
-                        disabled={composerLocked}
-                        role="option"
-                        aria-selected={createProjectId === null}
-                        className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => selectComposerOwnership(null)}
-                      >
-                        Workspace
-                      </button>
-                      {filteredOwnershipOptions.map((option) => (
-                        <button
-                          key={option.projectId}
-                          type="button"
-                          disabled={composerLocked}
-                          role="option"
-                          aria-selected={createProjectId === option.projectId}
-                          className="rounded px-2 py-1.5 text-left text-text hover:bg-bg-hover"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => selectComposerOwnership(option.projectId)}
-                        >
-                          {option.name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </label>
+                      <span className="min-w-0 flex-1 truncate text-left">
+                        {selectedOwnershipName}
+                      </span>
+                      <ChevronDown
+                        aria-hidden="true"
+                        size={13}
+                        className={cn(
+                          "todo-rail__ownership-chevron",
+                          ownershipPickerOpen && "todo-rail__ownership-chevron--open",
+                        )}
+                      />
+                    </button>
+                    {ownershipPickerOpen ? (
+                      <div className="todo-rail__ownership-panel">
+                        <label className="todo-rail__ownership-search">
+                          <Search aria-hidden="true" size={13} />
+                          <input
+                            autoFocus
+                            type="search"
+                            role="searchbox"
+                            aria-label="筛选 Todo 归属"
+                            placeholder="搜索项目"
+                            value={ownershipQuery}
+                            onChange={(event) => setOwnershipQuery(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                setOwnershipPickerOpen(false);
+                                setOwnershipQuery("");
+                                window.requestAnimationFrame(() => ownershipButtonRef.current?.focus());
+                              }
+                            }}
+                          />
+                        </label>
+                        <div id="todo-ownership-options" role="listbox" className="todo-rail__ownership-options">
+                          <button
+                            type="button"
+                            disabled={composerLocked}
+                            role="option"
+                            aria-selected={createProjectId === null}
+                            className="todo-rail__ownership-option"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectComposerOwnership(null)}
+                          >
+                            <span className="min-w-0 flex-1 truncate">Workspace</span>
+                            {createProjectId === null ? <Check aria-hidden="true" size={13} /> : null}
+                          </button>
+                          {filteredOwnershipOptions.map((option) => (
+                            <button
+                              key={option.projectId}
+                              type="button"
+                              disabled={composerLocked}
+                              role="option"
+                              aria-selected={createProjectId === option.projectId}
+                              className="todo-rail__ownership-option"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectComposerOwnership(option.projectId)}
+                              title={option.name}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{option.name}</span>
+                              {createProjectId === option.projectId ? (
+                                <Check aria-hidden="true" size={13} />
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </span>
+                </div>
               ) : null}
               <div className="todo-rail__priority-options" aria-label="Todo 优先级">
                 {TODO_PRIORITY_OPTIONS.map((option) => (
@@ -1346,7 +1377,20 @@ export function TodoRail({
                 size="sm"
                 variant="primary"
                 disabled={createDisabled}
-                onClick={() => void submitCreate()}
+                onPointerDown={(event) => {
+                  if (composerTagInputRef.current?.value.trim()) {
+                    event.preventDefault();
+                  }
+                }}
+                onClick={() => {
+                  if (composerTagInputRef.current?.value.trim()) {
+                    submitAfterTagCommitRef.current = true;
+                    composerTagCommitSucceededRef.current = false;
+                    composerTagInputRef.current.blur();
+                    return;
+                  }
+                  void submitCreate();
+                }}
               >
                 {createPending
                   ? "创建中…"
@@ -1361,7 +1405,7 @@ export function TodoRail({
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="todo-rail__list-scroll min-h-0 flex-1 overflow-y-auto">
           {workspaceView && displayMode === "grouped" ? (
             todoGroups.length > 0 ? (
               <div className="grid gap-4">
@@ -1378,6 +1422,26 @@ export function TodoRail({
           ) : (
             renderTodoList(todos, true)
           )}
+        </div>
+        <div className="todo-rail__completion-footer">
+          <button
+            type="button"
+            className="todo-rail__completion-button"
+            onClick={() => setTab(tab === "unfinished" ? "finished" : "unfinished")}
+          >
+            {tab === "unfinished" ? (
+              <>
+                <span>查看已完成</span>
+                {finishedTodos.length > 0 ? (
+                  <span className="todo-rail__completion-count" aria-label={`${finishedTodos.length} 项`}>
+                    {finishedTodos.length}
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              "返回未完成"
+            )}
+          </button>
         </div>
       </div>
     </aside>
@@ -1420,7 +1484,7 @@ function PriorityDotButton({
     >
       <span
         className={cn("todo-rail__priority-dot", active && "todo-rail__priority-dot--active")}
-        style={{ backgroundColor: colorValue }}
+        style={{ color: colorValue }}
       />
     </button>
   );
