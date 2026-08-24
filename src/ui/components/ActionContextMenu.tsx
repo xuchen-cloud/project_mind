@@ -184,7 +184,7 @@ export function ActionContextMenu({
       ) + MENU_VERTICAL_PADDING;
 
     if (typeof window === "undefined") {
-      return { left: x, top: y };
+      return { left: x, top: y, menuHeight };
     }
 
     return {
@@ -196,6 +196,7 @@ export function ActionContextMenu({
         Math.max(VIEWPORT_PADDING, y),
         Math.max(VIEWPORT_PADDING, window.innerHeight - menuHeight - VIEWPORT_PADDING),
       ),
+      menuHeight,
     };
   }, [actions, x, y]);
 
@@ -203,7 +204,11 @@ export function ActionContextMenu({
     <PopoverPanel
       ref={menuRef}
       className="context-menu__panel fixed z-[80] w-[11rem] rounded-[8px] border p-1 outline-none backdrop-blur-[18px]"
-      style={position}
+      style={{
+        left: position.left,
+        top: position.top,
+        transformOrigin: `${Math.min(MENU_WIDTH, Math.max(0, x - position.left))}px ${Math.min(position.menuHeight, Math.max(0, y - position.top))}px`,
+      }}
     >
       <ActionContextMenuLevel
         actions={actions}

@@ -52,7 +52,7 @@ describe("useFocusTarget", () => {
 
       const record = document.getElementById("record-7");
       expect(scrollTo).toHaveBeenCalledTimes(1);
-      expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
       expect(record).toHaveClass("is-focused");
 
       act(() => vi.advanceTimersByTime(MOTION_DURATION_MS.deliberate));

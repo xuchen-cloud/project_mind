@@ -15,6 +15,8 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import { Button, IconButton, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { commitListLayoutChange } from "../../ui/listLayoutMotion";
+import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import {
   getRenderableRichTextHtml,
@@ -633,6 +635,16 @@ function CollapsibleRecordContent({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [canCollapse, setCanCollapse] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  function resolveListContainer() {
+    const item = contentRef.current?.closest("[data-layout-motion-id]") ?? null;
+    return item?.closest("[data-list-layout-motion]") ?? null;
+  }
+  const expandedPresence = useMotionPresence(expanded, {
+    commitExit: (update) => {
+      commitListLayoutChange(resolveListContainer(), update);
+    },
+  });
+  const visuallyExpanded = expanded || expandedPresence.mounted;
 
   useEffect(() => {
     setExpanded(false);
@@ -682,16 +694,28 @@ function CollapsibleRecordContent({ children }: { children: ReactNode }) {
     event.stopPropagation();
   }
 
+  function toggleExpanded() {
+    commitListLayoutChange(resolveListContainer(), () => setExpanded((current) => !current));
+  }
+
   return (
     <div className="project-history-record__content">
       <div
         ref={contentRef}
         className={cn(
           "project-history-record__collapsible",
-          canCollapse && !expanded && "project-history-record__collapsible--collapsed",
+          canCollapse && !visuallyExpanded && "project-history-record__collapsible--collapsed",
         )}
+        data-reveal={
+          expanded && !expandedPresence.mounted
+            ? "entering"
+            : expandedPresence.mounted
+              ? expandedPresence.state
+              : "open"
+        }
+        onTransitionEnd={expandedPresence.onTransitionEnd}
         style={
-          canCollapse && !expanded
+          canCollapse && !visuallyExpanded
             ? { maxHeight: `${RECORD_COLLAPSED_CONTENT_HEIGHT}px` }
             : undefined
         }
@@ -710,7 +734,7 @@ function CollapsibleRecordContent({ children }: { children: ReactNode }) {
             onKeyDown={stopCardActivation}
             onClick={(event) => {
               event.stopPropagation();
-              setExpanded((current) => !current);
+              toggleExpanded();
             }}
           >
             {expanded ? "收起" : "展开全部"}

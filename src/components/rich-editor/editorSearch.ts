@@ -63,7 +63,7 @@ export function scrollSearchMatchIntoComfortView(editor: Editor, position: numbe
     if (matchMiddle < comfortTop || matchMiddle > comfortBottom) {
       scrollParent.scrollBy({
         top: matchMiddle - (rect.top + rect.height * 0.42),
-        behavior: "smooth",
+        behavior: "auto",
       });
     }
     return;
@@ -71,7 +71,7 @@ export function scrollSearchMatchIntoComfortView(editor: Editor, position: numbe
 
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
   if (matchMiddle < viewportHeight * 0.28 || matchMiddle > viewportHeight * 0.72) {
-    window.scrollBy({ top: matchMiddle - viewportHeight * 0.42, behavior: "smooth" });
+    window.scrollBy({ top: matchMiddle - viewportHeight * 0.42, behavior: "auto" });
   }
 }
 

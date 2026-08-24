@@ -36,7 +36,7 @@ export function TodoModuleRail({
       projectId={scope.kind === "current-project" ? scope.projectId : undefined}
       focusTodoId={focusTodoId}
       title="Todo List"
-      scopeLabel={scope.kind === "workspace" ? "整个工作区" : "当前 Project"}
+      scopeLabel={scope.kind === "workspace" ? "整个工作区" : "当前项目"}
       viewMode={viewMode}
       showViewModeSwitch={showViewModeSwitch}
       canCreateTodo={canCreateTodo}
@@ -45,7 +45,7 @@ export function TodoModuleRail({
       finishedTodos={todo.view.finishedTodos}
       availableTags={availableTags}
       canCreateTagsForTodo={() => true}
-      createPlaceholder="写下一条需要推进的 Todo，可用 #标签"
+      createPlaceholder="写下要做的事"
       createOwnershipOptions={
         scope.kind === "workspace"
           ? todo.view.projects.map((project) => ({ projectId: project.id, name: project.name }))

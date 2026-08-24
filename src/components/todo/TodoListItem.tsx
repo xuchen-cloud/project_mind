@@ -10,6 +10,7 @@ import {
 import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-react";
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
+import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { shouldIgnoreContextMenuTarget } from "../../lib/context-menu";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -28,6 +29,7 @@ import type {
 } from "../../lib/types";
 import { ActionContextMenu, IconButton, type ContextMenuAction } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { commitListLayoutChange } from "../../ui/listLayoutMotion";
 import {
   InternalReferenceInlineText,
 } from "../internal-reference";
@@ -158,25 +160,32 @@ export function TodoListItem({
   const shouldShowSubitemControls =
     canShowSubitemControls &&
     (subitemControlsVisible || expanded || contentEditing || tagEditing || progressEditing);
+  function resolveListContainer() {
+    return document.getElementById(`todo-${todo.id}`)?.closest("[data-list-layout-motion]") ?? null;
+  }
+  function commitExpanded(nextExpanded?: boolean) {
+    commitListLayoutChange(resolveListContainer(), () => onToggleExpanded(todo.id, nextExpanded));
+  }
+  const finishedPanelPresence = useMotionPresence(expanded && canExpand, {
+    commitExit: (update) => {
+      commitListLayoutChange(resolveListContainer(), update);
+    },
+  });
   const expandedItemRef = useDismissOnOutside<HTMLElement>({
     enabled: expanded,
-    onDismiss: () => onToggleExpanded(todo.id, false),
+    onDismiss: () => commitExpanded(false),
     ignoredRefs: [expandButtonRef],
     listenFocusIn: false,
   });
 
-  useEffect(() => {
-    return () => {
-      clearSubitemControlsTimer();
-    };
-  }, []);
+  useEffect(() => () => clearSubitemControlsTimer(), []);
 
   useEffect(() => {
     if (!expanded || canExpand) {
       return;
     }
 
-    onToggleExpanded(todo.id, false);
+    commitExpanded(false);
   }, [canExpand, expanded, onToggleExpanded, todo.id]);
 
   useEffect(() => {
@@ -327,6 +336,7 @@ export function TodoListItem({
     <article
       id={`todo-${todo.id}`}
       data-todo-id={todo.id}
+      data-layout-motion-id={`todo-${todo.id}`}
       ref={expanded ? expandedItemRef : undefined}
       className="todo-card group"
       data-state={todoState}
@@ -399,6 +409,8 @@ export function TodoListItem({
                   availableTags={scopedAvailableTags}
                   tags={todo.tags ?? []}
                   compact
+                  inputPlaceholder="# 新增标签"
+                  showInputLeadingIcon={false}
                   mode={
                     (contentEditing || tagEditing) && onUpdateTags
                       ? allowTagCreation
@@ -473,8 +485,11 @@ export function TodoListItem({
                         "todo-card__expand",
                         progressEditing && "todo-card__expand--hidden",
                       )}
+                      disabled={progressEditing}
+                      tabIndex={progressEditing ? -1 : undefined}
+                      aria-hidden={progressEditing || undefined}
                       aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
-                      onClick={() => onToggleExpanded(todo.id)}
+                      onClick={() => commitExpanded()}
                     >
                       {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </IconButton>
@@ -483,8 +498,14 @@ export function TodoListItem({
               </>
             ) : null}
 
-            {expanded && canExpand ? (
-              <div className="todo-card__finished-panel">
+            {finishedPanelPresence.mounted && canExpand ? (
+              <div
+                className="todo-card__finished-panel"
+                data-presence={finishedPanelPresence.state}
+                aria-hidden={finishedPanelPresence.state === "closing" || undefined}
+                inert={finishedPanelPresence.state === "closing" ? true : undefined}
+                onTransitionEnd={finishedPanelPresence.onTransitionEnd}
+              >
                 <div className="grid">
                   {finishedSubItems.map((progress, index) =>
                     renderProgressItem(progress, index > 0),

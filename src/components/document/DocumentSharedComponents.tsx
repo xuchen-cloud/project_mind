@@ -118,6 +118,7 @@ interface FloatingMenuPosition {
   left: number;
   top: number;
   width: number;
+  placement: "top" | "bottom";
 }
 
 // DocumentVersionDropdown component
@@ -205,6 +206,7 @@ export function DocumentVersionDropdown({
         left,
         top,
         width: Math.max(triggerRect.width + 88, 220),
+        placement: shouldOpenUp ? "top" : "bottom",
       });
     };
 
@@ -241,7 +243,7 @@ export function DocumentVersionDropdown({
         <ChevronDown
           size={12}
           className={cn(
-            "shrink-0 text-text-soft transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+            "shrink-0 text-text-soft transition-transform duration-[var(--duration-standard)] ease-[var(--ease-soft)] motion-reduce:transform-none motion-reduce:transition-none",
             open && "rotate-180",
           )}
           aria-hidden="true"
@@ -263,7 +265,11 @@ export function DocumentVersionDropdown({
               data-document-interactive="true"
               onClick={stopPropagation}
             >
-              <PopoverPanel className="min-w-[13.75rem] p-1.5">
+              <PopoverPanel
+                className="min-w-[13.75rem] p-1.5"
+                motion="trigger"
+                motionOrigin={menuPosition?.placement === "top" ? "bottom left" : "top left"}
+              >
                 {versionsQuery.isLoading ? (
                   <p className="px-2.5 py-2 text-ui text-text-soft">正在加载版本...</p>
                 ) : versions.length === 0 ? (

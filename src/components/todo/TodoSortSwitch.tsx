@@ -39,7 +39,7 @@ export function TodoSortSwitch({
 
   return (
     <div
-      className="inline-flex items-center gap-0.5 rounded-full bg-bg-muted p-0.5"
+      className="todo-sort-switch inline-flex items-center"
       role="tablist"
       aria-label="Todo 排序方式"
     >
@@ -52,7 +52,7 @@ export function TodoSortSwitch({
         aria-selected={value === "time"}
         tabIndex={value === "time" ? 0 : -1}
         className={cn(
-          "h-7 rounded-full px-2 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+          "todo-sort-switch__button text-ui font-medium transition-[background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
           value === "time"
             ? "bg-bg text-text"
             : "text-text-soft hover:text-text",
@@ -71,7 +71,7 @@ export function TodoSortSwitch({
         aria-selected={value === "priority"}
         tabIndex={value === "priority" ? 0 : -1}
         className={cn(
-          "h-7 rounded-full px-2 text-ui font-medium transition-[background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+          "todo-sort-switch__button text-ui font-medium transition-[background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
           value === "priority"
             ? "bg-bg text-text"
             : "text-text-soft hover:text-text",

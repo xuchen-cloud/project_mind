@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { cn } from "../lib/cn";
+import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { IconButton } from "./IconButton";
 
 interface DialogProps {
@@ -21,6 +22,7 @@ interface DialogProps {
   widthClassName?: string;
   bodyClassName?: string;
   layerClassName?: string;
+  positionClassName?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
 }
 
@@ -70,6 +72,7 @@ export function Dialog({
   widthClassName,
   bodyClassName,
   layerClassName = "z-40",
+  positionClassName,
   initialFocusRef,
 }: DialogProps) {
   const titleId = useId();
@@ -77,6 +80,7 @@ export function Dialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const presence = useMotionPresence(open);
 
   onCloseRef.current = onClose;
   if (hostRef.current === null && typeof document !== "undefined") {
@@ -86,11 +90,11 @@ export function Dialog({
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!open || !host) return undefined;
+    if (!presence.mounted || !host) return undefined;
 
     document.body.append(host);
     return () => host.remove();
-  }, [open]);
+  }, [presence.mounted]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -155,9 +159,9 @@ export function Dialog({
         dialog.restoreFocusTo.focus();
       }
     };
-  }, [initialFocusRef, open]);
+  }, [initialFocusRef, open, presence.mounted]);
 
-  if (!open || !hostRef.current) {
+  if (!presence.mounted || !hostRef.current) {
     return null;
   }
 
@@ -166,9 +170,14 @@ export function Dialog({
       className={cn(
         "dialog-backdrop fixed inset-0 flex items-center justify-center bg-overlay px-4 py-6",
         layerClassName,
+        positionClassName,
       )}
+      data-state={presence.state}
+      aria-hidden={!open || undefined}
+      inert={!open ? true : undefined}
+      onTransitionEnd={presence.onTransitionEnd}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        if (open && event.target === event.currentTarget) {
           onClose();
         }
       }}
@@ -180,6 +189,7 @@ export function Dialog({
           "border-[color-mix(in_srgb,var(--color-border-strong)_58%,white)]",
           widthClassName ?? "max-w-xl",
         )}
+        data-state={presence.state}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

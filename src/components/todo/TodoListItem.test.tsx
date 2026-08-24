@@ -114,7 +114,7 @@ describe("TodoListItem", () => {
   it("does not render an empty tag editor by default", () => {
     renderItem();
 
-    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("# 新增标签")).not.toBeInTheDocument();
   });
 
   it("shows tags as read-only in display mode", () => {
@@ -183,7 +183,9 @@ describe("TodoListItem", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
-    await user.type(screen.getByPlaceholderText("#标签"), "复盘{Enter}");
+    const tagInput = screen.getByPlaceholderText("# 新增标签");
+    expect(tagInput.closest("label")?.querySelector("svg")).toBeNull();
+    await user.type(tagInput, "复盘{Enter}");
 
     expect(onUpdateTags).toHaveBeenCalledWith({
       todoId: 7,
@@ -216,7 +218,7 @@ describe("TodoListItem", () => {
 
     await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
 
-    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("# 新增标签")).not.toBeInTheDocument();
   });
 
   it("marks an unfinished sub item as finished", async () => {
@@ -557,9 +559,12 @@ describe("TodoListItem", () => {
 
     await user.click(screen.getByRole("button", { name: "添加子任务" }));
 
-    expect(screen.getByRole("button", { name: "展开已完成子项" })).toHaveClass(
-      "todo-card__expand--hidden",
-    );
+    const hiddenExpandButton = document.querySelector(
+      ".todo-card__expand--hidden",
+    ) as HTMLButtonElement;
+    expect(hiddenExpandButton).toHaveClass("todo-card__expand--hidden");
+    expect(hiddenExpandButton).toBeDisabled();
+    expect(hiddenExpandButton).toHaveAttribute("tabindex", "-1");
     expect(document.getElementById("todo-7")?.getAttribute("data-state")).toContain(
       "progress-editing",
     );

@@ -30,7 +30,7 @@ export function TagFilterBar({
         <button
           type="button"
           className={cn(
-            "rounded-[var(--radius-6)] border px-2.5 py-1 text-ui transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+            "rounded-[var(--radius-6)] border px-2.5 py-1 text-ui transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
             selectedTagIds.length === 0
               ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] text-accent"
               : "border-border bg-bg text-text-muted hover:border-border-strong hover:bg-bg-hover hover:text-text",
@@ -47,7 +47,7 @@ export function TagFilterBar({
               key={tag.id}
               type="button"
               className={cn(
-                "inline-flex items-center gap-2 rounded-[var(--radius-6)] border px-2.5 py-1 text-ui transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+                "inline-flex items-center gap-2 rounded-[var(--radius-6)] border px-2.5 py-1 text-ui transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                 selected
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))] text-text"
                   : "border-border bg-bg text-text-muted hover:border-border-strong hover:bg-bg-hover hover:text-text",

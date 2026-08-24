@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -47,8 +48,10 @@ import type {
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import { useFeedbackStore } from "../../state/feedback-store";
+import { cancelListLayoutMotion, commitListLayoutChange } from "../../ui/listLayoutMotion";
 import {
   Button,
+  DisclosurePresence,
   EmptyState,
   SectionHeader,
   StatusBadge,
@@ -64,6 +67,26 @@ import {
 } from "./shared";
 
 const EDITOR_SKILL_LIMIT = 24;
+
+function DisclosureMotionList({ children }: { children: ReactNode }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const motionContainer = containerRef.current;
+    return () => cancelListLayoutMotion(motionContainer);
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="grid gap-2.5"
+      data-disclosure-list
+      data-list-layout-motion
+    >
+      {children}
+    </div>
+  );
+}
 
 interface BindingDraft {
   profileId: string;
@@ -483,7 +506,7 @@ export function AiSettingsPanel({
             ) : null}
 
             {editorSkills.length > 0 ? (
-              <div className="grid gap-2.5">
+              <DisclosureMotionList>
                 {editorSkills.map((skill, index) => (
                   <EditorSkillRow
                     key={skill.id}
@@ -504,7 +527,7 @@ export function AiSettingsPanel({
                     }}
                   />
                 ))}
-              </div>
+              </DisclosureMotionList>
             ) : !isCreatingSkill ? (
               <EmptyState
                 compact
@@ -629,7 +652,7 @@ export function AiSettingsPanel({
         ) : null}
 
         {snapshot.profiles.length > 0 ? (
-          <div className="grid gap-2.5">
+          <DisclosureMotionList>
             {snapshot.profiles.map((profile) => (
               <AiProfileRow
                 key={profile.id}
@@ -667,7 +690,7 @@ export function AiSettingsPanel({
                 onDelete={() => deleteProfileMutation.mutate({ profileId: profile.id })}
               />
             ))}
-          </div>
+          </DisclosureMotionList>
         ) : !isCreatingProfile ? (
           <EmptyState text="还没有 AI 接入配置。" compact className="min-h-40" />
         ) : null}
@@ -772,20 +795,26 @@ function AiProfileRow({
   onDelete: () => void;
 }) {
   const capabilitySummary = formatProfileCapabilitySummary(profile);
+  const disclosureTriggerRef = useRef<HTMLButtonElement | null>(null);
   return (
     <article
+      data-layout-motion-id={`ai-profile-${profile.id}`}
       className={[
-        "rounded-[var(--radius-8)] border bg-bg transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)]",
+        "rounded-[var(--radius-8)] border bg-bg transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
         expanded
           ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]"
           : "border-border hover:border-border-strong",
       ].join(" ")}
     >
       <button
+        ref={disclosureTriggerRef}
         type="button"
         aria-expanded={expanded}
         className="flex w-full items-start justify-between gap-3 px-3 py-3 text-left"
-        onClick={expanded ? onCollapse : onExpand}
+        onClick={() => {
+          const list = disclosureTriggerRef.current?.closest("[data-disclosure-list]") ?? null;
+          commitListLayoutChange(list, expanded ? onCollapse : onExpand);
+        }}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -805,8 +834,11 @@ function AiProfileRow({
         </span>
       </button>
 
-      {expanded ? (
-        <div className="border-t border-border px-3 pb-3 pt-3">
+      <DisclosurePresence
+        open={expanded}
+        triggerRef={disclosureTriggerRef}
+        className="border-t border-border px-3 pb-3 pt-3"
+      >
           <AiProfileEditorFields
             selectedProfile={profile}
             draft={draft}
@@ -822,8 +854,7 @@ function AiProfileRow({
             onTestImage={onTestImage}
             onDelete={onDelete}
           />
-        </div>
-      ) : null}
+      </DisclosurePresence>
     </article>
   );
 }
@@ -1279,7 +1310,7 @@ function ExecutionModeSwitch({
             disabled={disabled}
             aria-pressed={active}
             className={[
-              "rounded-[var(--radius-8)] border px-3 py-2 text-left text-body transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] disabled:cursor-not-allowed disabled:opacity-60",
+              "rounded-[var(--radius-8)] border px-3 py-2 text-left text-body transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] disabled:cursor-not-allowed disabled:opacity-60",
               active
                 ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
                 : "border-border bg-bg text-text-muted hover:border-border-strong hover:text-text",
@@ -1405,6 +1436,7 @@ function EditorSkillRow({
   onMove: (direction: "up" | "down") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const disclosureTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [draft, setDraft] = useState<EditorSkillDraft>(() =>
     createEditorSkillDraft(skill),
   );
@@ -1415,8 +1447,9 @@ function EditorSkillRow({
 
   return (
     <article
+      data-layout-motion-id={`editor-skill-${skill.id}`}
       className={[
-        "rounded-[var(--radius-8)] border bg-bg transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)]",
+        "rounded-[var(--radius-8)] border bg-bg transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
         expanded
           ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]"
           : "border-border hover:border-border-strong",
@@ -1472,18 +1505,25 @@ function EditorSkillRow({
             <ArrowDown size={14} />
           </button>
           <button
+            ref={disclosureTriggerRef}
             type="button"
             aria-expanded={expanded}
             className="rounded-[var(--radius-8)] px-2 py-1 text-ui font-medium text-text-muted hover:bg-bg-hover hover:text-text"
-            onClick={() => setExpanded((current) => !current)}
+            onClick={() => {
+              const list = disclosureTriggerRef.current?.closest("[data-disclosure-list]") ?? null;
+              commitListLayoutChange(list, () => setExpanded((current) => !current));
+            }}
           >
             {expanded ? "收起" : "展开"}
           </button>
         </div>
       </div>
 
-      {expanded ? (
-        <div className="border-t border-border px-3 pb-3 pt-3">
+      <DisclosurePresence
+        open={expanded}
+        triggerRef={disclosureTriggerRef}
+        className="border-t border-border px-3 pb-3 pt-3"
+      >
           <EditorSkillEditor
             draft={draft}
             setDraft={setDraft}
@@ -1498,8 +1538,7 @@ function EditorSkillRow({
             }
             onDelete={() => onDelete(skill.id)}
           />
-        </div>
-      ) : null}
+      </DisclosurePresence>
     </article>
   );
 }
@@ -1576,7 +1615,7 @@ function EditorSkillEditor({
               setDraft((current) => ({ ...current, prompt: event.target.value }))
             }
             rows={5}
-            className="min-h-28 rounded-[var(--radius-8)] border border-border bg-bg px-3 py-2.5 text-body text-text outline-none transition-[border-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:bg-bg-subtle disabled:text-text-soft"
+            className="min-h-28 rounded-[var(--radius-8)] border border-border bg-bg px-3 py-2.5 text-body text-text outline-none transition-[border-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] hover:border-border-strong focus:border-accent disabled:bg-bg-subtle disabled:text-text-soft"
             placeholder="比如：请保持原意，把这段文字翻译成自然、专业的英文。"
           />
           <span className={settingsFieldHintClassName}>
@@ -1708,7 +1747,7 @@ function TogglePill({
       aria-pressed={checked}
       disabled={disabled}
       className={[
-        "flex h-8 items-center rounded-[var(--radius-8)] border px-3 text-ui font-medium transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)] disabled:cursor-not-allowed disabled:opacity-60",
+        "flex h-8 items-center rounded-[var(--radius-8)] border px-3 text-ui font-medium transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] disabled:cursor-not-allowed disabled:opacity-60",
         checked
           ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
           : "border-border bg-bg text-text-muted hover:border-border-strong hover:text-text",

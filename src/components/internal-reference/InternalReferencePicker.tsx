@@ -116,7 +116,7 @@ export function InternalReferencePicker({
               role="option"
               aria-selected={index === activeIndex}
               className={cn(
-                "internal-reference-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[160ms] ease-[var(--ease-soft)]",
+                "internal-reference-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                 index === activeIndex
                   ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
                   : "hover:bg-bg-hover",

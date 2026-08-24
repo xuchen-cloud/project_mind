@@ -74,7 +74,7 @@ export function ColorKeyDropdown({
         aria-controls={open ? listboxId : undefined}
         disabled={disabled}
         className={cn(
-          "flex w-full items-center justify-between gap-2 rounded-[var(--radius-6)] border bg-bg text-left text-text outline-none transition-[border-color,background-color] duration-[160ms] ease-[var(--ease-soft)] hover:border-border-strong disabled:pointer-events-none disabled:opacity-60",
+          "flex w-full items-center justify-between gap-2 rounded-[var(--radius-6)] border bg-bg text-left text-text outline-none transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] hover:border-border-strong disabled:pointer-events-none disabled:opacity-60",
           open ? "border-accent" : "border-border",
           size === "sm" ? "h-7 px-2.5 text-ui" : "h-8 px-3 text-body",
         )}
@@ -91,7 +91,7 @@ export function ColorKeyDropdown({
         <ChevronDown
           size={14}
           className={cn(
-            "shrink-0 text-text-soft transition-transform duration-[160ms] ease-[var(--ease-soft)]",
+            "shrink-0 text-text-soft transition-transform duration-[var(--duration-standard)] ease-[var(--ease-soft)] motion-reduce:transform-none motion-reduce:transition-none",
             open && "rotate-180",
           )}
           aria-hidden="true"
@@ -100,6 +100,8 @@ export function ColorKeyDropdown({
 
       {open ? (
         <PopoverPanel
+          motion="trigger"
+          motionOrigin="top left"
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}

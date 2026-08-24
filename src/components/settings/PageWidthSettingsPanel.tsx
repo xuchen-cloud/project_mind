@@ -58,7 +58,7 @@ export function PageWidthSettingsPanel() {
               key={option.value}
               type="button"
               className={cn(
-                "grid gap-2 rounded-[var(--radius-8)] border px-4 py-3 text-left transition-[border-color,background-color,color] duration-[160ms] ease-[var(--ease-soft)]",
+                "grid gap-2 rounded-[var(--radius-8)] border px-4 py-3 text-left transition-[border-color,background-color,color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                 active
                   ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-text"
                   : "border-border bg-bg text-text-soft hover:border-border-strong hover:bg-bg-hover hover:text-text",

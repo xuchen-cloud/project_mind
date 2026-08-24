@@ -336,13 +336,19 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {
+    vi.useFakeTimers();
     let resolvePage!: (value: ProjectPageData) => void;
     apiMocks.projectPageGet.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve; }));
     const view = render(<ProjectNoteFocusPage />);
 
-    expect(await screen.findByRole("status", { name: "正在加载项目记录" })).toHaveAttribute("data-variant", "record");
+    expect(screen.queryByRole("status", { name: "正在加载项目记录" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(119));
+    expect(screen.queryByRole("status", { name: "正在加载项目记录" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole("status", { name: "正在加载项目记录" })).toHaveAttribute("data-variant", "record");
     expect(view.container.querySelector(".animate-spin, .spin")).toBeNull();
 
+    vi.useRealTimers();
     await act(async () => resolvePage(buildProjectPage()));
     expect(await screen.findByLabelText("正文编辑器")).toHaveValue("正文");
     expect(screen.queryByRole("status", { name: "正在加载项目记录" })).not.toBeInTheDocument();

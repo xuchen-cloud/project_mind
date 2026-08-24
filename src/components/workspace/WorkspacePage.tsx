@@ -34,6 +34,7 @@ import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
+import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { desktopApi } from "../../services/desktopApi";
 import { cn } from "../../ui/lib/cn";
 import { IconButton, PageLoadingSkeleton } from "../../ui/components";
@@ -482,7 +483,11 @@ export function WorkspacePage({
     deleteProjectMutation.mutate({ projectId });
   }
 
-  if (!workspacePage || !currentWorkspace) {
+  const workspacePagePending = !workspacePage || !currentWorkspace;
+  const showWorkspacePageSkeleton = useDelayedPending(workspacePagePending);
+
+  if (workspacePagePending) {
+    if (!showWorkspacePageSkeleton) return null;
     return <PageLoadingSkeleton variant="overview" label="正在加载工作区" />;
   }
 
@@ -680,10 +685,7 @@ export function WorkspacePage({
                 }}
               />
             </section>
-            <div
-              style={{ display: currentView === "record" ? undefined : "none" }}
-              aria-hidden={currentView === "record" ? undefined : true}
-            >
+            {currentView === "record" ? (
               <WorkspaceOverviewHistory
                 notes={filteredWorkspaceRecords}
                 hasAnyNotes={workspaceRecords.length > 0}
@@ -736,7 +738,7 @@ export function WorkspacePage({
                 active={visible && currentView === "record"}
                 recordFilters={searchParams}
               />
-            </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -749,14 +751,13 @@ export function WorkspacePage({
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />
-      {quickNoteMoveSelection ? (
-        <MoveSelectionToRecordCard
-          records={workspaceRecords}
-          onClose={() => setQuickNoteMoveSelection(null)}
-          onSelectRecord={moveQuickNoteSelectionToWorkspaceRecord}
-          onCreateRecord={createWorkspaceRecordFromQuickNoteSelection}
-        />
-      ) : null}
+      <MoveSelectionToRecordCard
+        open={Boolean(quickNoteMoveSelection)}
+        records={workspaceRecords}
+        onClose={() => setQuickNoteMoveSelection(null)}
+        onSelectRecord={moveQuickNoteSelectionToWorkspaceRecord}
+        onCreateRecord={createWorkspaceRecordFromQuickNoteSelection}
+      />
     </div>
   );
 }

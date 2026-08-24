@@ -579,8 +579,8 @@ export function ManagedDocumentSection({
                   "relative",
                   isEditing ? "" : "context-menu-no-select",
                   isGridLayout
-                    ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]"
-                    : "group flex cursor-pointer items-center gap-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
+                    ? "group grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[var(--duration-standard)] ease-[var(--ease-soft)]"
+                    : "group flex cursor-pointer items-center gap-2 rounded-[var(--radius-8)] px-2.5 py-2 transition-[border-color,background-color,box-shadow] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
                   document.health === "missing"
                     ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
                     : isContextOpen
@@ -722,7 +722,7 @@ export function ManagedDocumentSection({
         <SurfaceCard
           subtle
           className={[
-            "overflow-visible transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[var(--ease-soft)]",
+            "overflow-visible transition-[border-color,background-color,box-shadow] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
             visibleDragActive
               ? "border-accent bg-bg-hover shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_40%,transparent)]"
               : "",

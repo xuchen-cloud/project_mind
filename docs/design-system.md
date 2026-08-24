@@ -172,6 +172,8 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 
 共享 `Button`、`IconButton` 与 `ToolbarButton` 在指针按下时使用 `scale(0.97)`；reduced-motion 下取消位移。持续 loading spinner 使用线性旋转，并在 reduced-motion 下停止旋转。
 
+默认界面不添加动效。浮层与位移动效必须显式 opt-in，只允许 `transform`、`opacity`，单次揭示可使用 `clip-path`；禁止动画布局属性。键盘高频路径保持即时。凡使用 translate、scale 或 rotate，都必须提供 `prefers-reduced-motion` 或 `motion-reduce` 降级；持续 spinner 是唯一允许的长时线性动画，并在 reduced motion 下停止。
+
 ## 5. 当前界面骨架
 
 ### 5.1 Workspace Gate

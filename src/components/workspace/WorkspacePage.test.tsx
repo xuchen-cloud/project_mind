@@ -173,13 +173,19 @@ describe("WorkspacePage", () => {
   });
 
   it("uses a static overview skeleton only for a cold workspace entry", async () => {
+    vi.useFakeTimers();
     let resolveWorkspace!: (value: { quickNote: null; records: never[]; unfinishedTodos: never[]; finishedTodos: never[] }) => void;
     apiMocks.workspacePageGet.mockImplementationOnce(() => new Promise((resolve) => { resolveWorkspace = resolve; }));
     renderPage();
 
-    expect(await screen.findByRole("status", { name: "正在加载工作区" })).toHaveAttribute("data-variant", "overview");
+    expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(119));
+    expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole("status", { name: "正在加载工作区" })).toHaveAttribute("data-variant", "overview");
     expect(document.querySelector(".animate-spin, .spin")).toBeNull();
 
+    vi.useRealTimers();
     await act(async () => resolveWorkspace({ quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] }));
     const page = await screen.findByTestId("workspace-overview-focus-page");
     expect(page.closest(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
@@ -200,6 +206,34 @@ describe("WorkspacePage", () => {
     view.rerender(page(true));
     expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
     expect(screen.getByTestId("workspace-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+  });
+
+  it("does not build Workspace Record history until the Record view is active", async () => {
+    const user = userEvent.setup();
+    apiMocks.workspacePageGet.mockResolvedValueOnce({
+      quickNote: null,
+      records: [{
+        id: 41,
+        title: "Workspace history record",
+        contentMarkdown: "Hidden history content",
+        contentHtml: "<p>Hidden history content</p>",
+        defaultCodeLanguage: null,
+        tags: [],
+        createdAt: "2026-08-24T00:00:00.000Z",
+        updatedAt: "2026-08-24T00:00:00.000Z",
+      }],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+
+    renderPage();
+
+    await screen.findByRole("button", { name: "Record" });
+    expect(screen.queryByText("Workspace history record")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Record" }));
+
+    expect(await screen.findByText("Workspace history record")).toBeInTheDocument();
   });
 
   it("shows the overview page content", async () => {
@@ -278,7 +312,7 @@ describe("WorkspacePage", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.queryByRole("button", { name: "Current Project View" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "当前项目" })).not.toBeInTheDocument();
   });
 
   it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
@@ -289,7 +323,7 @@ describe("WorkspacePage", () => {
     await screen.findByText("Todo List");
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(
-      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      screen.getByPlaceholderText("写下要做的事"),
       "整理复盘 #跨项目",
     );
     await user.click(screen.getByRole("button", { name: "创建" }));
@@ -359,14 +393,13 @@ describe("WorkspacePage", () => {
     await screen.findByText("Todo List");
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     const ownership = screen.getByRole("combobox", { name: "Todo 归属" });
-    expect(ownership).toHaveValue("Workspace");
+    expect(ownership).toHaveTextContent("Workspace");
 
     await user.click(ownership);
-    await user.clear(ownership);
-    await user.type(ownership, "Alpha");
+    await user.type(screen.getByRole("searchbox", { name: "筛选 Todo 归属" }), "Alpha");
     await user.click(screen.getByRole("option", { name: "Alpha" }));
     await user.type(
-      screen.getByPlaceholderText("写下一条需要推进的 Todo，可用 #标签"),
+      screen.getByPlaceholderText("写下要做的事"),
       "推进里程碑 #同名",
     );
     await user.click(screen.getByRole("button", { name: "创建" }));
@@ -461,7 +494,7 @@ describe("WorkspacePage", () => {
       ),
     ).toEqual(["todo-8", "todo-7"]);
     await user.click(within(projectTodoCard!).getByRole("button", { name: "推进 Alpha 发布" }));
-    expect(await within(projectTodoCard!).findByPlaceholderText("#标签")).toBeInTheDocument();
+    expect(await within(projectTodoCard!).findByPlaceholderText("# 新增标签")).toBeInTheDocument();
     expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 1 });
   });
 
