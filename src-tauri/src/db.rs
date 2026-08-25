@@ -67,7 +67,8 @@ const WORKSPACE_NOTE_TAG_SCHEMA_VERSION: i64 = 16;
 const AI_REWRITE_ONLY_SCHEMA_VERSION: i64 = 17;
 const TODO_DUE_DATE_SCHEMA_VERSION: i64 = 18;
 const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
-const CURRENT_SCHEMA_VERSION: i64 = TODO_OWNERSHIP_SCHEMA_VERSION;
+const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
+const CURRENT_SCHEMA_VERSION: i64 = RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const AI_VISIBLE_CAPABILITIES: [&str; 4] = [
@@ -105,6 +106,7 @@ const AI_EDITOR_SKILL_LIMIT: usize = 24;
 const AI_EDITOR_REWRITE_ACTION_LIMIT: usize = 5;
 const MANAGED_NOTE_IMAGE_STORAGE_MODE: &str = "managed_note_image";
 const PROJECT_NOTE_ASSET_DIR_NAME: &str = "embedded-note-assets";
+const RICH_TEXT_PATH_ATTRIBUTES: [&str; 4] = ["data-path", "data-href", "href", "src"];
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
 const TODO_PRIORITY_URGENCY_KEYWORDS: [&str; 19] = [
     "今天",
@@ -295,6 +297,31 @@ struct ActivityFsRecord {
     is_pinned: bool,
     is_expanded: bool,
     folder_name: String,
+}
+
+struct RichTextAssetScope {
+    root_path: PathBuf,
+    document_paths: HashMap<i64, PathBuf>,
+}
+
+struct ActivityCardRow {
+    id: i64,
+    project_id: i64,
+    attribute_option_id: Option<i64>,
+    attribute_label: Option<String>,
+    attribute_color_key: Option<String>,
+    title: String,
+    brief_markdown: String,
+    brief_html: String,
+    activity_time: String,
+    status_option_id: i64,
+    status_label: String,
+    status_color_key: String,
+    status_needs_attention: bool,
+    is_pinned: bool,
+    is_expanded: bool,
+    created_at: String,
+    updated_at: String,
 }
 
 struct ArtifactSkillSpec {
@@ -926,6 +953,10 @@ impl Database {
             self.migrate_todo_ownership_schema()?;
             self.set_schema_version(TODO_OWNERSHIP_SCHEMA_VERSION)?;
         }
+        if self.schema_version()? < RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION {
+            self.migrate_rich_text_asset_paths_to_relative()?;
+            self.set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)?;
+        }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -1040,6 +1071,201 @@ impl Database {
         self.decode_path_ref(value).to_string_lossy().to_string()
     }
 
+    fn project_root_path(&self, project_id: i64) -> Result<PathBuf> {
+        let root_path_ref = self.conn.query_row(
+            "SELECT root_path FROM projects WHERE id = ?1",
+            [project_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        Ok(self.decode_path_ref(&root_path_ref))
+    }
+
+    fn project_rich_text_document_paths(&self, project_id: i64) -> Result<HashMap<i64, PathBuf>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, managed_path FROM documents WHERE project_id = ?1")?;
+        let rows = stmt.query_map([project_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut paths = HashMap::new();
+        for row in rows {
+            let (document_id, managed_path_ref) = row?;
+            paths.insert(document_id, self.decode_path_ref(&managed_path_ref));
+        }
+        Ok(paths)
+    }
+
+    fn persist_project_rich_text_html(&self, project_id: i64, html: &str) -> Result<String> {
+        let project_root = self.project_root_path(project_id)?;
+        let document_paths = self.project_rich_text_document_paths(project_id)?;
+        Ok(persist_rich_text_asset_paths(
+            html,
+            &project_root,
+            &document_paths,
+        ))
+    }
+
+    fn persist_project_rich_text_html_at_root(
+        &self,
+        project_id: i64,
+        project_root: &Path,
+        html: &str,
+    ) -> Result<String> {
+        let document_paths = self.project_rich_text_document_paths(project_id)?;
+        Ok(persist_rich_text_asset_paths(
+            html,
+            project_root,
+            &document_paths,
+        ))
+    }
+
+    fn hydrate_project_rich_text_html(&self, project_id: i64, html: &str) -> Result<String> {
+        Ok(hydrate_rich_text_asset_paths(
+            html,
+            &self.project_root_path(project_id)?,
+        ))
+    }
+
+    fn persist_workspace_rich_text_html(&self, html: &str) -> String {
+        persist_rich_text_asset_paths(html, &self.workspace_root, &HashMap::new())
+    }
+
+    fn hydrate_workspace_rich_text_html(&self, html: &str) -> String {
+        hydrate_rich_text_asset_paths(html, &self.workspace_root)
+    }
+
+    fn collect_project_scoped_rich_text_updates(
+        &self,
+        select_sql: &str,
+        project_scopes: &HashMap<i64, RichTextAssetScope>,
+    ) -> Result<Vec<(i64, String)>> {
+        let mut stmt = self.conn.prepare(select_sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut updates = Vec::new();
+
+        for row in rows {
+            let (id, project_id, content_html) = row?;
+            let Some(scope) = project_scopes.get(&project_id) else {
+                continue;
+            };
+            let next_html = persist_rich_text_asset_paths(
+                &content_html,
+                &scope.root_path,
+                &scope.document_paths,
+            );
+            if next_html != content_html {
+                updates.push((id, next_html));
+            }
+        }
+
+        Ok(updates)
+    }
+
+    fn migrate_rich_text_asset_paths_to_relative(&mut self) -> Result<()> {
+        let project_rows = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, root_path, summary_html FROM projects")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut project_scopes = HashMap::new();
+        let mut project_updates = Vec::new();
+        for (project_id, root_path_ref, summary_html) in project_rows {
+            let project_root = self.decode_path_ref(&root_path_ref);
+            let document_paths = self.project_rich_text_document_paths(project_id)?;
+            let next_html =
+                persist_rich_text_asset_paths(&summary_html, &project_root, &document_paths);
+            if next_html != summary_html {
+                project_updates.push((project_id, next_html));
+            }
+            project_scopes.insert(
+                project_id,
+                RichTextAssetScope {
+                    root_path: project_root,
+                    document_paths,
+                },
+            );
+        }
+
+        let note_updates = self.collect_project_scoped_rich_text_updates(
+            "SELECT id, project_id, content_html FROM notes",
+            &project_scopes,
+        )?;
+        let conclusion_updates = self.collect_project_scoped_rich_text_updates(
+            "SELECT id, project_id, content_html FROM conclusions",
+            &project_scopes,
+        )?;
+        let activity_updates = self.collect_project_scoped_rich_text_updates(
+            "SELECT id, project_id, brief_html FROM activities",
+            &project_scopes,
+        )?;
+
+        let workspace_rows = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, content_html FROM workspace_notes")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let workspace_updates = workspace_rows
+            .into_iter()
+            .filter_map(|(note_id, content_html)| {
+                let recovered_html =
+                    recover_moved_workspace_asset_paths(&content_html, &self.workspace_root);
+                let next_html = self.persist_workspace_rich_text_html(&recovered_html);
+                (next_html != content_html).then_some((note_id, next_html))
+            })
+            .collect::<Vec<_>>();
+
+        let tx = self.conn.transaction()?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE projects SET summary_html = ?1 WHERE id = ?2",
+            &project_updates,
+        )?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE notes SET content_html = ?1 WHERE id = ?2",
+            &note_updates,
+        )?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE conclusions SET content_html = ?1 WHERE id = ?2",
+            &conclusion_updates,
+        )?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE activities SET brief_html = ?1 WHERE id = ?2",
+            &activity_updates,
+        )?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE workspace_notes SET content_html = ?1 WHERE id = ?2",
+            &workspace_updates,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     fn require_secret_password(&self) -> Result<&str> {
         self.secret_password
             .as_deref()
@@ -1106,15 +1332,17 @@ impl Database {
 
         let rows = stmt.query_map([], |row| {
             let root_path_ref = row.get::<_, String>(4)?;
+            let root_path = self.decode_path_ref(&root_path_ref);
+            let summary_html = row.get::<_, String>(7)?;
             Ok(ProjectListItem {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 kind: row.get(2)?,
                 status: row.get(3)?,
-                root_path: self.decode_path_ref_to_string(&root_path_ref),
+                root_path: root_path.to_string_lossy().to_string(),
                 summary: row.get(5)?,
                 summary_markdown: row.get(6)?,
-                summary_html: row.get(7)?,
+                summary_html: hydrate_rich_text_asset_paths(&summary_html, &root_path),
                 summary_code_language: row.get(8)?,
                 is_archived: int_to_bool(row.get::<_, i64>(9)?),
                 created_at: row.get(10)?,
@@ -1336,11 +1564,6 @@ impl Database {
             }
         }
 
-        let note_html_updates =
-            self.collect_note_html_rewrites_for_project(current.id, &current_dir, &next_dir)?;
-        let conclusion_html_updates =
-            self.collect_conclusion_html_rewrites_for_project(current.id, &current_dir, &next_dir)?;
-
         let next_root_path_ref = self.encode_path_ref(&next_dir);
 
         fs::rename(&current_dir, &next_dir).with_context(|| {
@@ -1390,8 +1613,6 @@ impl Database {
                 )?;
             }
 
-            apply_note_html_updates(&tx, &note_html_updates)?;
-            apply_conclusion_html_updates(&tx, &conclusion_html_updates)?;
             tx.commit()?;
             Ok(())
         })();
@@ -1416,9 +1637,6 @@ impl Database {
             }
             None => current.name.clone(),
         };
-        if project_name != current.name {
-            self.rename_project_root(&current, &project_name)?;
-        }
         let next_summary = input.summary.trim().to_string();
         let next_summary_markdown = input
             .summary_markdown
@@ -1444,11 +1662,19 @@ impl Database {
                     rich_text_html_from_markdown(&next_summary_markdown)
                 }
             });
+        let next_summary_html = self.persist_project_rich_text_html_at_root(
+            current.id,
+            Path::new(&current.root_path),
+            &next_summary_html,
+        )?;
         let next_summary_code_language = input
             .summary_code_language
             .as_deref()
             .map(normalize_code_language)
             .unwrap_or_else(|| current.summary_code_language.clone());
+        if project_name != current.name {
+            self.rename_project_root(&current, &project_name)?;
+        }
         self.conn.execute(
             "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, quick_note_code_language = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
             params![
@@ -1572,6 +1798,12 @@ impl Database {
                     current.brief_html.clone()
                 }
             });
+        let project_root = self.project_root_path(current.project_id)?;
+        let mut next_brief_html = self.persist_project_rich_text_html_at_root(
+            current.project_id,
+            &project_root,
+            &next_brief_html,
+        )?;
         let next_attribute_option_id = if input.clear_attribute_option.unwrap_or(false) {
             None
         } else if let Some(option_id) = input.attribute_option_id {
@@ -1593,6 +1825,18 @@ impl Database {
         let next_status = self.resolve_activity_status_option(next_status_option_id)?;
 
         if next_title != current.title {
+            let current_folder = if current.folder_name.trim().is_empty() {
+                self.default_activity_folder_name(&current.title, input.activity_id)
+            } else {
+                current.folder_name.clone()
+            };
+            let next_folder = self.default_activity_folder_name(&next_title, input.activity_id);
+            next_brief_html = rewrite_scoped_rich_text_asset_paths(
+                &next_brief_html,
+                &project_root,
+                &project_root.join(current_folder),
+                &project_root.join(next_folder),
+            );
             self.ensure_project_file_layout(current.project_id)?;
             self.rename_activity_folder(input.activity_id, &current, &next_title, &timestamp)?;
         }
@@ -1891,6 +2135,7 @@ impl Database {
 
     pub fn project_record_upsert(&mut self, input: ProjectRecordUpsertInput) -> Result<NoteRecord> {
         let timestamp = now_iso();
+        let stored_html = self.persist_project_rich_text_html(input.project_id, &input.html)?;
         let default_code_language = input
             .default_code_language
             .as_deref()
@@ -1911,7 +2156,7 @@ impl Database {
                     params![
                         input.title,
                         input.markdown,
-                        input.html,
+                        stored_html,
                         default_code_language,
                         timestamp,
                         note_id
@@ -1931,7 +2176,7 @@ impl Database {
                     "note",
                     input.title.as_deref(),
                     input.markdown.as_str(),
-                    input.html.as_str(),
+                    stored_html.as_str(),
                     default_code_language.as_deref(),
                     &timestamp,
                 )?;
@@ -1979,6 +2224,7 @@ impl Database {
         input: WorkspaceRecordUpsertInput,
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
+        let stored_html = self.persist_workspace_rich_text_html(&input.html);
         let default_code_language = input
             .default_code_language
             .as_deref()
@@ -2000,7 +2246,7 @@ impl Database {
                     params![
                         input.title,
                         input.markdown,
-                        input.html,
+                        stored_html,
                         default_code_language,
                         timestamp,
                         note_id
@@ -2021,7 +2267,7 @@ impl Database {
                         WORKSPACE_NOTE_KIND_STANDARD,
                         input.title,
                         input.markdown,
-                        input.html,
+                        stored_html,
                         default_code_language,
                         timestamp,
                         timestamp
@@ -2061,6 +2307,7 @@ impl Database {
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
         let existing = self.workspace_quick_note_get()?;
+        let stored_html = self.persist_workspace_rich_text_html(&input.html);
         let default_code_language = input
             .default_code_language
             .as_deref()
@@ -2080,7 +2327,7 @@ impl Database {
                     "#,
                     params![
                         input.markdown,
-                        input.html,
+                        stored_html,
                         default_code_language,
                         timestamp,
                         note.id
@@ -2100,7 +2347,7 @@ impl Database {
                     params![
                         WORKSPACE_NOTE_KIND_TODAY_QUICK,
                         input.markdown,
-                        input.html,
+                        stored_html,
                         default_code_language,
                         timestamp,
                         timestamp
@@ -2129,6 +2376,7 @@ impl Database {
 
     pub fn conclusion_create(&mut self, input: ConclusionCreateInput) -> Result<ConclusionRecord> {
         let timestamp = now_iso();
+        let stored_html = self.persist_project_rich_text_html(input.project_id, &input.html)?;
         self.conn.execute(
             r#"
             INSERT INTO conclusions (
@@ -2141,7 +2389,7 @@ impl Database {
                 input.activity_id,
                 input.note_id,
                 input.markdown,
-                input.html,
+                stored_html,
                 input.markdown,
                 bool_to_int(input.promoted_to_project),
                 bool_to_int(input.is_pinned.unwrap_or(false)),
@@ -2181,6 +2429,7 @@ impl Database {
 
     pub fn conclusion_update(&mut self, input: ConclusionUpdateInput) -> Result<ConclusionRecord> {
         let current = self.conclusion_record(input.conclusion_id)?;
+        let stored_html = self.persist_project_rich_text_html(current.project_id, &input.html)?;
         self.conn.execute(
             r#"
             UPDATE conclusions
@@ -2194,7 +2443,7 @@ impl Database {
             "#,
             params![
                 input.markdown,
-                input.html,
+                stored_html,
                 input.markdown,
                 bool_to_int(
                     input
@@ -7297,33 +7546,34 @@ impl Database {
     }
 
     fn project_record(&self, project_id: i64) -> Result<ProjectRecord> {
-        self.conn
-            .query_row(
-                r#"
+        let mut project = self.conn.query_row(
+            r#"
                 SELECT id, name, kind, status, root_path, summary, summary_markdown, summary_html,
                   quick_note_code_language, is_archived, created_at, updated_at
                 FROM projects WHERE id = ?1
                 "#,
-                [project_id],
-                |row| {
-                    let root_path_ref = row.get::<_, String>(4)?;
-                    Ok(ProjectRecord {
-                        id: row.get(0)?,
-                        name: row.get(1)?,
-                        kind: row.get(2)?,
-                        status: row.get(3)?,
-                        root_path: self.decode_path_ref_to_string(&root_path_ref),
-                        summary: row.get(5)?,
-                        summary_markdown: row.get(6)?,
-                        summary_html: row.get(7)?,
-                        summary_code_language: row.get(8)?,
-                        is_archived: int_to_bool(row.get::<_, i64>(9)?),
-                        created_at: row.get(10)?,
-                        updated_at: row.get(11)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
+            [project_id],
+            |row| {
+                Ok(ProjectRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    kind: row.get(2)?,
+                    status: row.get(3)?,
+                    root_path: row.get(4)?,
+                    summary: row.get(5)?,
+                    summary_markdown: row.get(6)?,
+                    summary_html: row.get(7)?,
+                    summary_code_language: row.get(8)?,
+                    is_archived: int_to_bool(row.get::<_, i64>(9)?),
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )?;
+        let root_path = self.decode_path_ref(&project.root_path);
+        project.root_path = root_path.to_string_lossy().to_string();
+        project.summary_html = hydrate_rich_text_asset_paths(&project.summary_html, &root_path);
+        Ok(project)
     }
 
     fn activity_row(&self, activity_id: i64) -> Result<ActivityFsRecord> {
@@ -7356,61 +7606,61 @@ impl Database {
 
     fn note_record(&self, note_id: i64) -> Result<NoteRecord> {
         let tags = self.fetch_note_tags(note_id)?;
-        self.conn
-            .query_row(
-                r#"
+        let mut note = self.conn.query_row(
+            r#"
                 SELECT id, project_id, activity_id, title, content_markdown, content_html,
                   default_code_language, created_at, updated_at
                 FROM notes WHERE id = ?1
                 "#,
-                [note_id],
-                |row| {
-                    Ok(NoteRecord {
-                        id: row.get(0)?,
-                        project_id: row.get(1)?,
-                        activity_id: row.get(2)?,
-                        title: row.get(3)?,
-                        content_markdown: row.get(4)?,
-                        content_html: row.get(5)?,
-                        default_code_language: row.get(6)?,
-                        tags: tags.clone(),
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
+            [note_id],
+            |row| {
+                Ok(NoteRecord {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    title: row.get(3)?,
+                    content_markdown: row.get(4)?,
+                    content_html: row.get(5)?,
+                    default_code_language: row.get(6)?,
+                    tags: tags.clone(),
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )?;
+        note.content_html =
+            self.hydrate_project_rich_text_html(note.project_id, &note.content_html)?;
+        Ok(note)
     }
 
     fn workspace_note_record(&self, note_id: i64) -> Result<WorkspaceRecord> {
         let tags = self.fetch_workspace_note_tags(note_id)?;
-        self.conn
-            .query_row(
-                r#"
+        let mut note = self.conn.query_row(
+            r#"
                 SELECT id, title, content_markdown, content_html, default_code_language, created_at, updated_at
                 FROM workspace_notes WHERE id = ?1
                 "#,
-                [note_id],
-                |row| {
-                    Ok(WorkspaceRecord {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        content_markdown: row.get(2)?,
-                        content_html: row.get(3)?,
-                        default_code_language: row.get(4)?,
-                        tags: tags.clone(),
-                        created_at: row.get(5)?,
-                        updated_at: row.get(6)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
+            [note_id],
+            |row| {
+                Ok(WorkspaceRecord {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    content_markdown: row.get(2)?,
+                    content_html: row.get(3)?,
+                    default_code_language: row.get(4)?,
+                    tags: tags.clone(),
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            },
+        )?;
+        note.content_html = self.hydrate_workspace_rich_text_html(&note.content_html);
+        Ok(note)
     }
 
     fn conclusion_record(&self, conclusion_id: i64) -> Result<ConclusionRecord> {
-        self.conn
-            .query_row(
-                r#"
+        let mut conclusion = self.conn.query_row(
+            r#"
                 SELECT
                   c.id,
                   c.project_id,
@@ -7427,24 +7677,26 @@ impl Database {
                 LEFT JOIN activities a ON a.id = c.activity_id
                 WHERE c.id = ?1
                 "#,
-                [conclusion_id],
-                |row| {
-                    Ok(ConclusionRecord {
-                        id: row.get(0)?,
-                        project_id: row.get(1)?,
-                        activity_id: row.get(2)?,
-                        note_id: row.get(3)?,
-                        content_markdown: row.get(4)?,
-                        content_html: row.get(5)?,
-                        promoted_to_project: int_to_bool(row.get::<_, i64>(6)?),
-                        is_pinned: int_to_bool(row.get::<_, i64>(7)?),
-                        source_activity_title: row.get(8)?,
-                        created_at: row.get(9)?,
-                        updated_at: row.get(10)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
+            [conclusion_id],
+            |row| {
+                Ok(ConclusionRecord {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    activity_id: row.get(2)?,
+                    note_id: row.get(3)?,
+                    content_markdown: row.get(4)?,
+                    content_html: row.get(5)?,
+                    promoted_to_project: int_to_bool(row.get::<_, i64>(6)?),
+                    is_pinned: int_to_bool(row.get::<_, i64>(7)?),
+                    source_activity_title: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            },
+        )?;
+        conclusion.content_html =
+            self.hydrate_project_rich_text_html(conclusion.project_id, &conclusion.content_html)?;
+        Ok(conclusion)
     }
 
     fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
@@ -8066,65 +8318,15 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
-    fn collect_note_html_rewrites_for_project(
+    fn collect_activity_rich_text_path_updates(
         &self,
-        project_id: i64,
-        old_prefix: &Path,
-        new_prefix: &Path,
-    ) -> Result<Vec<(i64, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, content_html FROM notes WHERE project_id = ?1")?;
-        let rows = stmt.query_map([project_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        let mut updates = Vec::new();
-        for row in rows {
-            let (id, content_html) = row?;
-            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
-            if next_html != content_html {
-                updates.push((id, next_html));
-            }
-        }
-
-        Ok(updates)
-    }
-
-    fn collect_conclusion_html_rewrites_for_project(
-        &self,
-        project_id: i64,
-        old_prefix: &Path,
-        new_prefix: &Path,
-    ) -> Result<Vec<(i64, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, content_html FROM conclusions WHERE project_id = ?1")?;
-        let rows = stmt.query_map([project_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        let mut updates = Vec::new();
-        for row in rows {
-            let (id, content_html) = row?;
-            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
-            if next_html != content_html {
-                updates.push((id, next_html));
-            }
-        }
-
-        Ok(updates)
-    }
-
-    fn collect_note_html_rewrites_for_activity(
-        &self,
+        select_sql: &str,
         activity_id: i64,
+        project_root: &Path,
         old_prefix: &Path,
         new_prefix: &Path,
     ) -> Result<Vec<(i64, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, content_html FROM notes WHERE activity_id = ?1")?;
+        let mut stmt = self.conn.prepare(select_sql)?;
         let rows = stmt.query_map([activity_id], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })?;
@@ -8132,7 +8334,12 @@ impl Database {
         let mut updates = Vec::new();
         for row in rows {
             let (id, content_html) = row?;
-            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
+            let next_html = rewrite_scoped_rich_text_asset_paths(
+                &content_html,
+                project_root,
+                old_prefix,
+                new_prefix,
+            );
             if next_html != content_html {
                 updates.push((id, next_html));
             }
@@ -8140,32 +8347,6 @@ impl Database {
 
         Ok(updates)
     }
-
-    fn collect_conclusion_html_rewrites_for_activity(
-        &self,
-        activity_id: i64,
-        old_prefix: &Path,
-        new_prefix: &Path,
-    ) -> Result<Vec<(i64, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, content_html FROM conclusions WHERE activity_id = ?1")?;
-        let rows = stmt.query_map([activity_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        let mut updates = Vec::new();
-        for row in rows {
-            let (id, content_html) = row?;
-            let next_html = rewrite_rich_text_asset_paths(&content_html, old_prefix, new_prefix);
-            if next_html != content_html {
-                updates.push((id, next_html));
-            }
-        }
-
-        Ok(updates)
-    }
-
     fn rewrite_path_ref_prefix_if_within(
         &self,
         path_ref: &str,
@@ -9134,10 +9315,17 @@ impl Database {
                 Ok((document.id, version_updates))
             })
             .collect::<Result<Vec<_>>>()?;
-        let note_html_updates =
-            self.collect_note_html_rewrites_for_activity(activity_id, &current_dir, &next_dir)?;
-        let conclusion_html_updates = self.collect_conclusion_html_rewrites_for_activity(
+        let note_html_updates = self.collect_activity_rich_text_path_updates(
+            "SELECT id, content_html FROM notes WHERE activity_id = ?1",
             activity_id,
+            &project_root,
+            &current_dir,
+            &next_dir,
+        )?;
+        let conclusion_html_updates = self.collect_activity_rich_text_path_updates(
+            "SELECT id, content_html FROM conclusions WHERE activity_id = ?1",
+            activity_id,
+            &project_root,
             &current_dir,
             &next_dir,
         )?;
@@ -9213,8 +9401,16 @@ impl Database {
             }
         }
 
-        apply_note_html_updates(&tx, &note_html_updates)?;
-        apply_conclusion_html_updates(&tx, &conclusion_html_updates)?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE notes SET content_html = ?1 WHERE id = ?2",
+            &note_html_updates,
+        )?;
+        apply_rich_text_html_updates(
+            &tx,
+            "UPDATE conclusions SET content_html = ?1 WHERE id = ?2",
+            &conclusion_html_updates,
+        )?;
 
         if let Err(error) = tx.commit() {
             if renamed_existing_dir {
@@ -9330,7 +9526,7 @@ impl Database {
     }
 
     fn activity_card(&self, activity_id: i64) -> Result<ActivityCardData> {
-        let base = self.conn.query_row(
+        let row = self.conn.query_row(
             r#"
             SELECT
               a.id,
@@ -9361,44 +9557,45 @@ impl Database {
             "#,
             params![activity_id, SYSTEM_ACTIVITY_STATUS_PENDING, DEFAULT_ACTIVITY_STATUS_COLOR_KEY],
             |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, Option<i64>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, i64>(9)?,
-                    row.get::<_, String>(10)?,
-                    row.get::<_, String>(11)?,
-                    int_to_bool(row.get::<_, i64>(12)?),
-                    int_to_bool(row.get::<_, i64>(13)?),
-                    int_to_bool(row.get::<_, i64>(14)?),
-                    row.get::<_, String>(15)?,
-                    row.get::<_, String>(16)?,
-                ))
+                Ok(ActivityCardRow {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    attribute_option_id: row.get(2)?,
+                    attribute_label: row.get(3)?,
+                    attribute_color_key: row.get(4)?,
+                    title: row.get(5)?,
+                    brief_markdown: row.get(6)?,
+                    brief_html: row.get(7)?,
+                    activity_time: row.get(8)?,
+                    status_option_id: row.get(9)?,
+                    status_label: row.get(10)?,
+                    status_color_key: row.get(11)?,
+                    status_needs_attention: int_to_bool(row.get::<_, i64>(12)?),
+                    is_pinned: int_to_bool(row.get::<_, i64>(13)?),
+                    is_expanded: int_to_bool(row.get::<_, i64>(14)?),
+                    created_at: row.get(15)?,
+                    updated_at: row.get(16)?,
+                })
             },
         )?;
         let notes = self.fetch_notes(activity_id)?;
         let conclusions = self.fetch_conclusions(activity_id)?;
         let todos = self.fetch_todos_for_activity(activity_id)?;
         let documents = self.fetch_documents(activity_id)?;
+        let brief_html = self.hydrate_project_rich_text_html(row.project_id, &row.brief_html)?;
         let digest = ActivityDigest {
-            id: base.0,
-            project_id: base.1,
-            attribute_option_id: base.2,
-            attribute_label: base.3.clone(),
-            attribute_color_key: base.4.clone(),
-            title: base.5.clone(),
-            activity_time: base.8.clone(),
-            status_option_id: base.9,
-            status_label: base.10.clone(),
-            status_color_key: base.11.clone(),
-            status_needs_attention: base.12,
-            is_pinned: base.13,
+            id: row.id,
+            project_id: row.project_id,
+            attribute_option_id: row.attribute_option_id,
+            attribute_label: row.attribute_label.clone(),
+            attribute_color_key: row.attribute_color_key.clone(),
+            title: row.title.clone(),
+            activity_time: row.activity_time.clone(),
+            status_option_id: row.status_option_id,
+            status_label: row.status_label.clone(),
+            status_color_key: row.status_color_key.clone(),
+            status_needs_attention: row.status_needs_attention,
+            is_pinned: row.is_pinned,
             note_count: notes.len() as i64,
             conclusion_count: conclusions.len() as i64,
             todo_count: todos.len() as i64,
@@ -9412,23 +9609,23 @@ impl Database {
         };
 
         Ok(ActivityCardData {
-            id: base.0,
-            project_id: base.1,
-            attribute_option_id: base.2,
-            attribute_label: base.3,
-            attribute_color_key: base.4,
-            title: base.5,
-            brief_markdown: base.6,
-            brief_html: base.7,
-            activity_time: base.8,
-            status_option_id: base.9,
-            status_label: base.10,
-            status_color_key: base.11,
-            status_needs_attention: base.12,
-            is_pinned: base.13,
-            is_expanded: base.14,
-            created_at: base.15,
-            updated_at: base.16,
+            id: row.id,
+            project_id: row.project_id,
+            attribute_option_id: row.attribute_option_id,
+            attribute_label: row.attribute_label,
+            attribute_color_key: row.attribute_color_key,
+            title: row.title,
+            brief_markdown: row.brief_markdown,
+            brief_html,
+            activity_time: row.activity_time,
+            status_option_id: row.status_option_id,
+            status_label: row.status_label,
+            status_color_key: row.status_color_key,
+            status_needs_attention: row.status_needs_attention,
+            is_pinned: row.is_pinned,
+            is_expanded: row.is_expanded,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
             digest,
             notes,
             conclusions,
@@ -11508,6 +11705,465 @@ fn rebase_path_prefix(path: &Path, old_prefix: &Path, new_prefix: &Path) -> Opti
     })
 }
 
+#[derive(Clone, Copy)]
+enum RichTextAssetPathMode {
+    Persist,
+    Hydrate,
+}
+
+fn persist_rich_text_asset_paths(
+    html: &str,
+    base_path: &Path,
+    document_paths: &HashMap<i64, PathBuf>,
+) -> String {
+    transform_rich_text_asset_paths(
+        html,
+        base_path,
+        document_paths,
+        RichTextAssetPathMode::Persist,
+    )
+}
+
+fn hydrate_rich_text_asset_paths(html: &str, base_path: &Path) -> String {
+    transform_rich_text_asset_paths(
+        html,
+        base_path,
+        &HashMap::new(),
+        RichTextAssetPathMode::Hydrate,
+    )
+}
+
+fn transform_rich_text_asset_paths(
+    html: &str,
+    base_path: &Path,
+    document_paths: &HashMap<i64, PathBuf>,
+    mode: RichTextAssetPathMode,
+) -> String {
+    let mut attachment_path: Option<String> = None;
+    rewrite_html_tags(html, |tag| {
+        let lower_tag = tag.to_ascii_lowercase();
+
+        if lower_tag.starts_with("</div") && attachment_path.is_some() {
+            attachment_path = None;
+            return finalize_rich_text_asset_tag(tag, mode);
+        }
+
+        if lower_tag.starts_with("<a") {
+            let next_tag = attachment_path
+                .as_deref()
+                .map(|path| replace_html_attribute_value(tag, "href", path))
+                .unwrap_or_else(|| tag.to_string());
+            return finalize_rich_text_asset_tag(&next_tag, mode);
+        }
+
+        let is_image = lower_tag.starts_with("<img");
+        let is_attachment = html_attribute_value(tag, "data-type")
+            .is_some_and(|value| value.eq_ignore_ascii_case("attachment"));
+        let data_path = html_attribute_value(tag, "data-path");
+        let raw_path = data_path.clone().or_else(|| {
+            if is_attachment {
+                return html_attribute_value(tag, "data-href");
+            }
+            if is_image {
+                return html_attribute_value(tag, "src")
+                    .filter(|value| !is_portable_resource_url(&unescape_html_attribute(value)));
+            }
+            None
+        });
+        let Some(raw_path) = raw_path else {
+            return finalize_rich_text_asset_tag(tag, mode);
+        };
+        let decoded_raw_path = unescape_html_attribute(&raw_path);
+        if is_portable_resource_url(&decoded_raw_path) {
+            let escaped_path = escape_html_attribute(&decoded_raw_path);
+            let mut next_tag = tag.to_string();
+            if is_image && data_path.is_some() {
+                let current_src = html_attribute_value(tag, "src")
+                    .map(|value| unescape_html_attribute(&value))
+                    .unwrap_or_default();
+                if current_src.is_empty() || is_nonportable_local_path(&current_src) {
+                    next_tag = replace_html_attribute_value(&next_tag, "src", &escaped_path);
+                }
+            }
+            if is_attachment {
+                next_tag = replace_html_attribute_value(&next_tag, "data-href", &escaped_path);
+                attachment_path = Some(escaped_path);
+            }
+            return finalize_rich_text_asset_tag(&next_tag, mode);
+        }
+        let document_id = html_attribute_value(tag, "data-document-id")
+            .and_then(|value| value.parse::<i64>().ok());
+        let next_path =
+            transform_rich_text_asset_path(&raw_path, document_id, base_path, document_paths, mode);
+        let path_changed = next_path != unescape_html_attribute(&raw_path);
+        let escaped_path = escape_html_attribute(&next_path);
+        let mut next_tag = data_path
+            .is_some()
+            .then(|| replace_html_attribute_value(tag, "data-path", &escaped_path))
+            .unwrap_or_else(|| tag.to_string());
+
+        if is_image {
+            let current_src = html_attribute_value(tag, "src")
+                .map(|value| unescape_html_attribute(&value))
+                .unwrap_or_default();
+            let should_rewrite_src = if next_path.is_empty() {
+                matches!(mode, RichTextAssetPathMode::Persist)
+                    && !current_src.is_empty()
+                    && !is_portable_resource_url(&current_src)
+            } else {
+                path_changed || data_path.is_none()
+            };
+            if should_rewrite_src {
+                next_tag = replace_html_attribute_value(&next_tag, "src", &escaped_path);
+            }
+        }
+
+        if is_attachment {
+            let attachment_href = match (mode, next_path.is_empty()) {
+                (_, true) => String::new(),
+                (RichTextAssetPathMode::Persist, false) => escaped_path,
+                (RichTextAssetPathMode::Hydrate, false) => {
+                    escape_html_attribute(&file_href_from_path(Path::new(&next_path)))
+                }
+            };
+            next_tag = replace_html_attribute_value(&next_tag, "data-href", &attachment_href);
+            attachment_path = Some(attachment_href);
+        }
+
+        finalize_rich_text_asset_tag(&next_tag, mode)
+    })
+}
+
+fn rewrite_html_tags<F>(html: &str, mut rewrite_tag: F) -> String
+where
+    F: FnMut(&str) -> String,
+{
+    if html.is_empty() {
+        return html.to_string();
+    }
+
+    let mut rewritten = String::with_capacity(html.len());
+    let mut cursor = 0usize;
+    while let Some(tag_offset) = html[cursor..].find('<') {
+        let tag_start = cursor + tag_offset;
+        rewritten.push_str(&html[cursor..tag_start]);
+
+        let Some(tag_end_offset) = html[tag_start..].find('>') else {
+            rewritten.push_str(&html[tag_start..]);
+            return rewritten;
+        };
+        let tag_end = tag_start + tag_end_offset + 1;
+        rewritten.push_str(&rewrite_tag(&html[tag_start..tag_end]));
+        cursor = tag_end;
+    }
+
+    rewritten.push_str(&html[cursor..]);
+    rewritten
+}
+
+fn finalize_rich_text_asset_tag(tag: &str, mode: RichTextAssetPathMode) -> String {
+    if matches!(mode, RichTextAssetPathMode::Persist) {
+        sanitize_persisted_rich_text_path_attributes(tag)
+    } else {
+        tag.to_string()
+    }
+}
+
+fn sanitize_persisted_rich_text_path_attributes(tag: &str) -> String {
+    RICH_TEXT_PATH_ATTRIBUTES
+        .into_iter()
+        .fold(tag.to_string(), |current, attribute| {
+            let Some(value) = html_attribute_value(&current, attribute) else {
+                return current;
+            };
+            let decoded = unescape_html_attribute(&value);
+            if !is_nonportable_local_path(&decoded) && !relative_path_escapes_scope(&decoded) {
+                return current;
+            }
+            replace_html_attribute_value(&current, attribute, "")
+        })
+}
+
+fn transform_rich_text_asset_path(
+    raw_path: &str,
+    document_id: Option<i64>,
+    base_path: &Path,
+    document_paths: &HashMap<i64, PathBuf>,
+    mode: RichTextAssetPathMode,
+) -> String {
+    let decoded_path = unescape_html_attribute(raw_path);
+    let document_path = document_id.and_then(|id| document_paths.get(&id));
+
+    match mode {
+        RichTextAssetPathMode::Persist => {
+            if let Some(path) = document_path {
+                return relative_asset_path(path, base_path).unwrap_or_default();
+            }
+
+            if let Some(relative) = relative_asset_path(Path::new(&decoded_path), base_path) {
+                return relative;
+            }
+
+            normalize_relative_asset_path(&decoded_path).unwrap_or_default()
+        }
+        RichTextAssetPathMode::Hydrate => {
+            if let Some(path) = document_path {
+                return path.to_string_lossy().to_string();
+            }
+
+            if let Some(relative) = normalize_relative_asset_path(&decoded_path) {
+                return base_path.join(relative).to_string_lossy().to_string();
+            }
+
+            decoded_path
+        }
+    }
+}
+
+fn relative_asset_path(path: &Path, base_path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(base_path).ok()?;
+    normalize_relative_asset_path(&relative.to_string_lossy())
+}
+
+fn normalize_relative_asset_path(value: &str) -> Option<String> {
+    let normalized = value.trim().replace('\\', "/");
+    if normalized.is_empty()
+        || normalized.starts_with('/')
+        || normalized.starts_with("//")
+        || normalized.starts_with("file:")
+        || normalized.starts_with("asset:")
+        || normalized
+            .split('/')
+            .next()
+            .is_some_and(|segment| segment.contains(':'))
+        || normalized
+            .as_bytes()
+            .get(1)
+            .is_some_and(|value| *value == b':')
+    {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for segment in normalized.split('/') {
+        match segment {
+            "" | "." => continue,
+            ".." => return None,
+            value => segments.push(value),
+        }
+    }
+
+    (!segments.is_empty()).then(|| segments.join("/"))
+}
+
+fn is_portable_resource_url(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized.starts_with("data:")
+        || normalized.starts_with("https://")
+        || normalized.starts_with("http://")
+}
+
+fn is_nonportable_local_path(value: &str) -> bool {
+    let normalized = value.trim().replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    lower.starts_with('/')
+        || lower.starts_with("file:")
+        || lower.starts_with("asset:")
+        || normalized
+            .as_bytes()
+            .get(1)
+            .is_some_and(|value| *value == b':')
+}
+
+fn relative_path_escapes_scope(value: &str) -> bool {
+    if is_portable_resource_url(value) {
+        return false;
+    }
+    value
+        .trim()
+        .replace('\\', "/")
+        .split('/')
+        .any(|segment| segment == "..")
+}
+
+fn recover_moved_workspace_asset_paths(html: &str, workspace_root: &Path) -> String {
+    rewrite_html_tags(html, |tag| {
+        RICH_TEXT_PATH_ATTRIBUTES
+            .into_iter()
+            .fold(tag.to_string(), |current, attribute| {
+                let Some(value) = html_attribute_value(&current, attribute) else {
+                    return current;
+                };
+                let decoded = unescape_html_attribute(&value);
+                let Some(relative) =
+                    recover_moved_workspace_asset_relative_path(&decoded, workspace_root)
+                else {
+                    return current;
+                };
+                let recovered = workspace_root.join(relative);
+                replace_html_attribute_value(
+                    &current,
+                    attribute,
+                    &escape_html_attribute(&recovered.to_string_lossy()),
+                )
+            })
+    })
+}
+
+fn recover_moved_workspace_asset_relative_path(
+    value: &str,
+    workspace_root: &Path,
+) -> Option<String> {
+    if !is_nonportable_local_path(value) {
+        return None;
+    }
+
+    let normalized = value.trim().replace('\\', "/");
+    let managed_prefix =
+        format!("{WORKSPACE_HIDDEN_DIR_NAME}/{PROJECT_NOTE_ASSET_DIR_NAME}/workspace/");
+    let prefix_start = normalized.find(&managed_prefix)?;
+    if prefix_start > 0 && normalized.as_bytes().get(prefix_start - 1) != Some(&b'/') {
+        return None;
+    }
+    let relative = normalize_relative_asset_path(&normalized[prefix_start..])?;
+    if !relative.starts_with(&managed_prefix) || !workspace_root.join(&relative).is_file() {
+        return None;
+    }
+    Some(relative)
+}
+
+fn html_attribute_value(tag: &str, attribute: &str) -> Option<String> {
+    let (value_start, value_end) = html_attribute_value_range(tag, attribute)?;
+    Some(tag[value_start..value_end].to_string())
+}
+
+fn replace_html_attribute_value(tag: &str, attribute: &str, value: &str) -> String {
+    let Some((value_start, value_end)) = html_attribute_value_range(tag, attribute) else {
+        return tag.to_string();
+    };
+
+    let is_quoted = value_start > 0
+        && tag
+            .as_bytes()
+            .get(value_start - 1)
+            .is_some_and(|candidate| *candidate == b'"' || *candidate == b'\'');
+    let replacement = if !is_quoted
+        && value.bytes().any(|candidate| {
+            candidate.is_ascii_whitespace()
+                || matches!(candidate, b'"' | b'\'' | b'`' | b'=' | b'<' | b'>')
+        }) {
+        format!("\"{value}\"")
+    } else {
+        value.to_string()
+    };
+
+    let mut replaced =
+        String::with_capacity(tag.len() - (value_end - value_start) + replacement.len());
+    replaced.push_str(&tag[..value_start]);
+    replaced.push_str(&replacement);
+    replaced.push_str(&tag[value_end..]);
+    replaced
+}
+
+fn html_attribute_value_range(tag: &str, attribute: &str) -> Option<(usize, usize)> {
+    let searchable_tag = tag.to_ascii_lowercase();
+    let searchable_attribute = attribute.to_ascii_lowercase();
+    let bytes = searchable_tag.as_bytes();
+    let attribute_bytes = searchable_attribute.as_bytes();
+    let mut search_start = 0usize;
+
+    while search_start + attribute_bytes.len() <= bytes.len() {
+        let offset = searchable_tag[search_start..].find(&searchable_attribute)?;
+        let name_start = search_start + offset;
+        let name_end = name_start + attribute_bytes.len();
+        let valid_start = name_start == 0
+            || bytes[name_start - 1].is_ascii_whitespace()
+            || bytes[name_start - 1] == b'<';
+        let mut cursor = name_end;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+
+        if !valid_start || bytes.get(cursor) != Some(&b'=') {
+            search_start = name_end;
+            continue;
+        }
+        cursor += 1;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+
+        let first_value_byte = *bytes.get(cursor)?;
+        if first_value_byte == b'"' || first_value_byte == b'\'' {
+            let value_start = cursor + 1;
+            let value_end = bytes[value_start..]
+                .iter()
+                .position(|candidate| *candidate == first_value_byte)
+                .map(|offset| value_start + offset)?;
+            return Some((value_start, value_end));
+        }
+        let value_start = cursor;
+        let value_end = bytes[value_start..]
+            .iter()
+            .position(|candidate| candidate.is_ascii_whitespace() || *candidate == b'>')
+            .map(|offset| value_start + offset)
+            .unwrap_or(bytes.len());
+        return Some((value_start, value_end));
+    }
+
+    None
+}
+
+fn escape_html_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn unescape_html_attribute(value: &str) -> String {
+    unescape_numeric_html_entities(value)
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+fn unescape_numeric_html_entities(value: &str) -> String {
+    let mut decoded = String::with_capacity(value.len());
+    let mut cursor = 0usize;
+
+    while let Some(offset) = value[cursor..].find("&#") {
+        let entity_start = cursor + offset;
+        decoded.push_str(&value[cursor..entity_start]);
+        let digits_start = entity_start + 2;
+        let Some(end_offset) = value[digits_start..].find(';') else {
+            decoded.push_str(&value[entity_start..]);
+            return decoded;
+        };
+        let entity_end = digits_start + end_offset;
+        let entity = &value[digits_start..entity_end];
+        let parsed = entity
+            .strip_prefix('x')
+            .or_else(|| entity.strip_prefix('X'))
+            .and_then(|digits| u32::from_str_radix(digits, 16).ok())
+            .or_else(|| entity.parse::<u32>().ok())
+            .and_then(char::from_u32);
+        if let Some(character) = parsed {
+            decoded.push(character);
+        } else {
+            decoded.push_str(&value[entity_start..=entity_end]);
+        }
+        cursor = entity_end + 1;
+    }
+
+    decoded.push_str(&value[cursor..]);
+    decoded
+}
+
 fn rewrite_rich_text_asset_paths(html: &str, old_prefix: &Path, new_prefix: &Path) -> String {
     if html.is_empty() || old_prefix == new_prefix {
         return html.to_string();
@@ -11518,9 +12174,9 @@ fn rewrite_rich_text_asset_paths(html: &str, old_prefix: &Path, new_prefix: &Pat
     let old_href_prefix = file_href_from_path(old_prefix);
     let new_href_prefix = file_href_from_path(new_prefix);
 
-    ["data-path", "data-href", "href", "src"].into_iter().fold(
-        html.to_string(),
-        |current, attribute| {
+    RICH_TEXT_PATH_ATTRIBUTES
+        .into_iter()
+        .fold(html.to_string(), |current, attribute| {
             rewrite_html_attribute_path_prefix(
                 &current,
                 attribute,
@@ -11529,8 +12185,27 @@ fn rewrite_rich_text_asset_paths(html: &str, old_prefix: &Path, new_prefix: &Pat
                 &old_href_prefix,
                 &new_href_prefix,
             )
-        },
-    )
+        })
+}
+
+fn rewrite_scoped_rich_text_asset_paths(
+    html: &str,
+    scope_root: &Path,
+    old_prefix: &Path,
+    new_prefix: &Path,
+) -> String {
+    let rewritten = rewrite_rich_text_asset_paths(html, old_prefix, new_prefix);
+    let (Ok(old_relative), Ok(new_relative)) = (
+        old_prefix.strip_prefix(scope_root),
+        new_prefix.strip_prefix(scope_root),
+    ) else {
+        return rewritten;
+    };
+    if old_relative.as_os_str().is_empty() {
+        return rewritten;
+    }
+
+    rewrite_rich_text_asset_paths(&rewritten, old_relative, new_relative)
 }
 
 fn rewrite_html_attribute_path_prefix(
@@ -11541,36 +12216,28 @@ fn rewrite_html_attribute_path_prefix(
     old_href_prefix: &str,
     new_href_prefix: &str,
 ) -> String {
-    let needle = format!(r#"{attribute}=""#);
-    let mut rewritten = String::with_capacity(html.len());
-    let mut cursor = 0usize;
-
-    while let Some(start_offset) = html[cursor..].find(&needle) {
-        let start = cursor + start_offset;
-        let value_start = start + needle.len();
-        rewritten.push_str(&html[cursor..value_start]);
-
-        let Some(end_offset) = html[value_start..].find('"') else {
-            rewritten.push_str(&html[value_start..]);
-            return rewritten;
+    rewrite_html_tags(html, |tag| {
+        let Some(value) = html_attribute_value(tag, attribute) else {
+            return tag.to_string();
         };
-        let value_end = value_start + end_offset;
-        let value = &html[value_start..value_end];
-        if let Some(remainder) = value.strip_prefix(old_path_prefix) {
-            rewritten.push_str(new_path_prefix);
-            rewritten.push_str(remainder);
-        } else if let Some(remainder) = value.strip_prefix(old_href_prefix) {
-            rewritten.push_str(new_href_prefix);
-            rewritten.push_str(remainder);
-        } else {
-            rewritten.push_str(value);
-        }
+        let decoded = unescape_html_attribute(&value);
+        let replacement =
+            if let Some(remainder) = strip_complete_path_prefix(&decoded, old_path_prefix) {
+                format!("{new_path_prefix}{remainder}")
+            } else if let Some(remainder) = strip_complete_path_prefix(&decoded, old_href_prefix) {
+                format!("{new_href_prefix}{remainder}")
+            } else {
+                return tag.to_string();
+            };
 
-        cursor = value_end;
-    }
+        replace_html_attribute_value(tag, attribute, &escape_html_attribute(&replacement))
+    })
+}
 
-    rewritten.push_str(&html[cursor..]);
-    rewritten
+fn strip_complete_path_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let remainder = value.strip_prefix(prefix)?;
+    (remainder.is_empty() || remainder.starts_with('/') || remainder.starts_with('\\'))
+        .then_some(remainder)
 }
 
 fn file_href_from_path(path: &Path) -> String {
@@ -11640,23 +12307,13 @@ fn encode_uri_path_preserving_slashes(value: &str) -> String {
     encoded
 }
 
-fn apply_note_html_updates(tx: &Transaction<'_>, updates: &[(i64, String)]) -> Result<()> {
-    for (note_id, content_html) in updates {
-        tx.execute(
-            "UPDATE notes SET content_html = ?1 WHERE id = ?2",
-            params![content_html, note_id],
-        )?;
-    }
-
-    Ok(())
-}
-
-fn apply_conclusion_html_updates(tx: &Transaction<'_>, updates: &[(i64, String)]) -> Result<()> {
-    for (conclusion_id, content_html) in updates {
-        tx.execute(
-            "UPDATE conclusions SET content_html = ?1 WHERE id = ?2",
-            params![content_html, conclusion_id],
-        )?;
+fn apply_rich_text_html_updates(
+    tx: &Transaction<'_>,
+    update_sql: &str,
+    updates: &[(i64, String)],
+) -> Result<()> {
+    for (id, content_html) in updates {
+        tx.execute(update_sql, params![content_html, id])?;
     }
 
     Ok(())
@@ -11950,6 +12607,136 @@ mod tests {
 
         expect_workspace_backup(&harness.workspace_root, "keep me");
         assert_eq!(preserved, "keep me");
+    }
+
+    #[test]
+    fn opening_schema_19_repairs_stale_absolute_rich_text_asset_paths() {
+        let (harness, mut database) = setup_database();
+        let db_path = harness.root.join("app.sqlite3");
+        let project = create_project(&mut database, &harness.workspace_root);
+        let image = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: None,
+                file_name: "legacy.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode(b"legacy-image"),
+            })
+            .unwrap();
+        let renamed = database
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: String::new(),
+                summary_markdown: Some(String::new()),
+                summary_html: Some(String::new()),
+                summary_code_language: None,
+                status: Some(project.status.clone()),
+            })
+            .unwrap();
+        let moved_image = database.document_record(image.id).unwrap();
+        let stale_html = format!(
+            concat!(
+                r#"<p><img src="{}" data-path="{}" "#,
+                r#"data-mime-type="image/png" data-document-id="{}"></p>"#
+            ),
+            image.managed_path, image.managed_path, image.id,
+        );
+        database
+            .conn
+            .execute(
+                "UPDATE projects SET summary_html = ?1 WHERE id = ?2",
+                params![stale_html, project.id],
+            )
+            .unwrap();
+        database.set_schema_version(19).unwrap();
+        drop(database);
+
+        let reopened = Database::open(
+            &db_path,
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        let stored_html = reopened
+            .conn
+            .query_row(
+                "SELECT summary_html FROM projects WHERE id = ?1",
+                [project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        let repaired = reopened.project_record(project.id).unwrap();
+
+        assert_eq!(repaired.root_path, renamed.root_path);
+        assert!(stored_html
+            .contains(r#"data-path=".project-mind/embedded-note-assets/project/legacy.png""#));
+        assert!(!stored_html.contains(&project.root_path));
+        assert!(repaired.summary_html.contains(&moved_image.managed_path));
+        assert!(!repaired.summary_html.contains(&image.managed_path));
+    }
+
+    #[test]
+    fn opening_schema_19_recovers_workspace_images_after_the_workspace_moves() {
+        let (harness, mut database) = setup_database();
+        let db_path = harness.root.join("app.sqlite3");
+        let image = database
+            .workspace_clipboard_note_image_import(WorkspaceClipboardNoteImageImportInput {
+                file_name: "legacy-workspace.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode(b"legacy-workspace-image"),
+            })
+            .unwrap();
+        let old_workspace_path = Path::new("/old-machine/renamed-workspace")
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join(PROJECT_NOTE_ASSET_DIR_NAME)
+            .join("workspace")
+            .join("legacy-workspace.png");
+        let stale_html = format!(
+            r#"<p><img src="asset://{}" data-path="{}" data-mime-type="image/png"></p>"#,
+            old_workspace_path.to_string_lossy(),
+            old_workspace_path.to_string_lossy(),
+        );
+        let note = database
+            .workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
+                markdown: "[图片]".to_string(),
+                html: "<p>[图片]</p>".to_string(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE workspace_notes SET content_html = ?1 WHERE id = ?2",
+                params![stale_html, note.id],
+            )
+            .unwrap();
+        database.set_schema_version(19).unwrap();
+        drop(database);
+
+        let mut reopened = Database::open(
+            &db_path,
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        let stored_html = reopened
+            .conn
+            .query_row(
+                "SELECT content_html FROM workspace_notes WHERE id = ?1",
+                [note.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        let hydrated = reopened.workspace_quick_note_get().unwrap().unwrap();
+
+        assert!(Path::new(&image.path).exists());
+        assert!(stored_html.contains(
+            r#"data-path=".project-mind/embedded-note-assets/workspace/legacy-workspace.png""#
+        ));
+        assert!(!stored_html.contains("old-machine"));
+        assert!(hydrated.content_html.contains(&image.path));
     }
 
     fn expect_workspace_backup(workspace_root: &Path, expected_value: &str) {
@@ -13422,7 +14209,167 @@ mod tests {
     }
 
     #[test]
-    fn project_rename_moves_document_paths_and_rewrites_internal_asset_refs() {
+    fn project_rich_text_assets_are_stored_relative_and_returned_resolved() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let image = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: None,
+                file_name: "quick-note.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode(b"quick-note-image"),
+            })
+            .unwrap();
+        let html = format!(
+            concat!(
+                r#"<p><img src="asset://old" data-path="{}" "#,
+                r#"data-mime-type="image/png" data-document-id="{}"></p>"#
+            ),
+            image.managed_path, image.id,
+        );
+
+        let saved = database
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: None,
+                summary: "[图片]".to_string(),
+                summary_markdown: Some("[图片]".to_string()),
+                summary_html: Some(html),
+                summary_code_language: None,
+                status: Some(project.status.clone()),
+            })
+            .unwrap();
+        let stored_html = database
+            .conn
+            .query_row(
+                "SELECT summary_html FROM projects WHERE id = ?1",
+                [project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+
+        assert!(stored_html
+            .contains(r#"data-path=".project-mind/embedded-note-assets/project/quick-note.png""#));
+        assert!(!stored_html.contains(&project.root_path));
+        assert!(saved.summary_html.contains(&image.managed_path));
+        let listed = database
+            .projects_list(ProjectsListInput {
+                include_archived: Some(true),
+            })
+            .unwrap();
+        assert!(listed[0].summary_html.contains(&image.managed_path));
+    }
+
+    #[test]
+    fn project_rename_keeps_relative_quick_note_and_stale_record_assets_live() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let image = database
+            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
+                project_id: project.id,
+                activity_id: None,
+                file_name: "shared.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode(b"shared-image"),
+            })
+            .unwrap();
+        let html = format!(
+            concat!(
+                r#"<p><img src="asset://old" data-path="{}" "#,
+                r#"data-mime-type="image/png" data-document-id="{}"></p>"#
+            ),
+            image.managed_path, image.id,
+        );
+        let enriched = database
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: None,
+                summary: "[图片]".to_string(),
+                summary_markdown: Some("[图片]".to_string()),
+                summary_html: Some(html.clone()),
+                summary_code_language: None,
+                status: Some(project.status.clone()),
+            })
+            .unwrap();
+        let record = database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                activity_id: None,
+                note_id: None,
+                title: Some("带图记录".to_string()),
+                markdown: "[图片]".to_string(),
+                html,
+                tag_ids: vec![],
+                default_code_language: None,
+            })
+            .unwrap();
+        let stale_record_html = record.content_html.clone();
+        let stored_quick_note_before = database
+            .conn
+            .query_row(
+                "SELECT summary_html FROM projects WHERE id = ?1",
+                [project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+
+        let renamed = database
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: Some("Alpha Prime".to_string()),
+                summary: enriched.summary.clone(),
+                summary_markdown: Some(enriched.summary_markdown.clone()),
+                summary_html: Some(enriched.summary_html.clone()),
+                summary_code_language: enriched.summary_code_language.clone(),
+                status: Some(enriched.status.clone()),
+            })
+            .unwrap();
+        let moved_image = database.document_record(image.id).unwrap();
+        let stored_quick_note_after = database
+            .conn
+            .query_row(
+                "SELECT summary_html FROM projects WHERE id = ?1",
+                [project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+
+        assert_eq!(stored_quick_note_after, stored_quick_note_before);
+        assert!(Path::new(&moved_image.managed_path).exists());
+        assert!(renamed.summary_html.contains(&moved_image.managed_path));
+
+        let resaved = database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                activity_id: None,
+                note_id: Some(record.id),
+                title: record.title.clone(),
+                markdown: record.content_markdown.clone(),
+                html: stale_record_html,
+                tag_ids: vec![],
+                default_code_language: None,
+            })
+            .unwrap();
+        let stored_record_html = database
+            .conn
+            .query_row(
+                "SELECT content_html FROM notes WHERE id = ?1",
+                [record.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+
+        assert!(!stored_record_html.contains(&project.root_path));
+        assert!(
+            stored_record_html.contains(".project-mind/embedded-note-assets/project/shared.png")
+        );
+        assert!(resaved.content_html.contains(&moved_image.managed_path));
+        assert!(!resaved.content_html.contains(&image.managed_path));
+    }
+
+    #[test]
+    fn project_rename_moves_documents_and_resolves_relative_asset_refs() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
         let activity = create_activity(&mut database, project.id, "Kickoff");
@@ -15382,6 +16329,59 @@ mod tests {
     }
 
     #[test]
+    fn workspace_rich_text_assets_are_stored_relative_and_returned_resolved() {
+        let (_harness, mut database) = setup_database();
+        let image = database
+            .workspace_clipboard_note_image_import(WorkspaceClipboardNoteImageImportInput {
+                file_name: "workspace-note.png".to_string(),
+                mime_type: "image/png".to_string(),
+                data_base64: STANDARD.encode("workspace-note-image"),
+            })
+            .unwrap();
+        let html = format!(
+            r#"<p><img src="asset://old" data-path="{}" data-mime-type="image/png"></p>"#,
+            image.path,
+        );
+
+        let quick_note = database
+            .workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
+                markdown: "[图片]".to_string(),
+                html: html.clone(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let record = database
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: None,
+                title: Some("带图 Workspace Record".to_string()),
+                markdown: "[图片]".to_string(),
+                html,
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let stored = database
+            .conn
+            .prepare("SELECT content_html FROM workspace_notes ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        assert_eq!(stored.len(), 2);
+        for stored_html in stored {
+            assert!(stored_html.contains(
+                r#"data-path=".project-mind/embedded-note-assets/workspace/workspace-note.png""#
+            ));
+            assert!(!stored_html.contains(&image.path));
+        }
+        assert!(quick_note.content_html.contains(&image.path));
+        assert!(record.content_html.contains(&image.path));
+    }
+
+    #[test]
     fn activity_rename_moves_folder_and_document_paths() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -15425,7 +16425,7 @@ mod tests {
                 activity_id: Some(activity.id),
                 note_id: Some(note.id),
                 markdown: "[附件] agenda".to_string(),
-                html: rich_html,
+                html: rich_html.clone(),
                 promoted_to_project: false,
                 is_pinned: None,
             })
@@ -15436,8 +16436,8 @@ mod tests {
             .activity_update_meta(ActivityUpdateMetaInput {
                 activity_id: activity.id,
                 title: Some("Review Final".to_string()),
-                brief_markdown: None,
-                brief_html: None,
+                brief_markdown: Some("[附件] agenda".to_string()),
+                brief_html: Some(rich_html),
                 attribute_option_id: None,
                 clear_attribute_option: None,
                 activity_time: None,
@@ -15467,6 +16467,15 @@ mod tests {
             .content_html
             .contains(&updated_document.managed_path));
         assert!(!saved_conclusion.content_html.contains("/Kickoff/"));
+        assert!(updated_activity
+            .brief_html
+            .contains(&updated_document.managed_path));
+        assert!(updated_activity
+            .brief_html
+            .contains(&file_href_from_path(Path::new(
+                &updated_document.managed_path
+            ))));
+        assert!(!updated_activity.brief_html.contains("/Kickoff/"));
     }
 
     #[test]
@@ -16635,7 +17644,7 @@ mod tests {
     }
 
     #[test]
-    fn project_record_upsert_preserves_embedded_image_metadata_html() {
+    fn project_record_upsert_strips_unmanaged_absolute_image_metadata() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
         let activity = create_activity(&mut database, project.id, "Kickoff");
@@ -16657,7 +17666,182 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(saved.content_html, html);
+        assert!(saved.content_html.contains(&data_url));
+        assert!(saved.content_html.contains(r#"data-path="""#));
+        assert!(!saved.content_html.contains("/tmp/managed/clip.png"));
+    }
+
+    #[test]
+    fn persisted_attachment_with_legacy_data_href_uses_a_relative_path() {
+        let base_path = Path::new("/workspace/Project");
+        let managed_path = base_path.join(".project-mind/embedded-note-assets/brief.pdf");
+        let document_paths = HashMap::from([(42, managed_path)]);
+        let html = r#"<div data-type="attachment" data-title="brief.pdf" data-href="file:///workspace/Project/.project-mind/embedded-note-assets/brief.pdf" data-document-id="42"><a href="file:///workspace/Project/.project-mind/embedded-note-assets/brief.pdf">brief.pdf</a></div>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &document_paths);
+
+        assert_eq!(
+            persisted,
+            r#"<div data-type="attachment" data-title="brief.pdf" data-href=".project-mind/embedded-note-assets/brief.pdf" data-document-id="42"><a href=".project-mind/embedded-note-assets/brief.pdf">brief.pdf</a></div>"#
+        );
+    }
+
+    #[test]
+    fn persisted_image_without_data_path_uses_its_document_relative_path() {
+        let base_path = Path::new("/workspace/Project");
+        let managed_path = base_path.join(".project-mind/embedded-note-assets/clip.png");
+        let document_paths = HashMap::from([(18, managed_path)]);
+        let html = r#"<p><img src="asset:///workspace/Project/.project-mind/embedded-note-assets/clip.png" data-document-id="18" alt="截图" /></p>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &document_paths);
+
+        assert_eq!(
+            persisted,
+            r#"<p><img src=".project-mind/embedded-note-assets/clip.png" data-document-id="18" alt="截图" /></p>"#
+        );
+    }
+
+    #[test]
+    fn persisted_remote_attachment_url_is_not_treated_as_a_filesystem_path() {
+        let base_path = Path::new("/workspace/Project");
+        let html = r#"<div data-type="attachment" data-title="brief.pdf" data-href="https://example.com/brief.pdf"><a href="https://example.com/brief.pdf">brief.pdf</a></div>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert_eq!(persisted, html);
+    }
+
+    #[test]
+    fn persisted_remote_attachment_replaces_a_stale_local_nested_href() {
+        let base_path = Path::new("/workspace/Project");
+        let html = r#"<div data-type="attachment" data-title="brief.pdf" data-href="https://example.com/brief.pdf"><a href="file:///Users/alex/brief.pdf">brief.pdf</a></div>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert_eq!(
+            persisted,
+            r#"<div data-type="attachment" data-title="brief.pdf" data-href="https://example.com/brief.pdf"><a href="https://example.com/brief.pdf">brief.pdf</a></div>"#
+        );
+    }
+
+    #[test]
+    fn persisted_tags_sanitize_every_local_path_attribute() {
+        let base_path = Path::new("/workspace/Project");
+        let html = concat!(
+            r#"<p><a href="file:///Users/alex/private.txt">private</a></p>"#,
+            r#"<p><img data-path="https://example.com/image.png" src="asset:///Users/alex/private.png"></p>"#,
+        );
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert!(!persisted.contains("file:///"));
+        assert!(!persisted.contains("asset:///"));
+        assert!(persisted.contains(r#"<a href="">private</a>"#));
+        assert!(persisted.contains(
+            r#"<img data-path="https://example.com/image.png" src="https://example.com/image.png">"#
+        ));
+    }
+
+    #[test]
+    fn persisted_tags_sanitize_case_insensitive_unquoted_local_paths() {
+        let base_path = Path::new("/workspace/Project");
+        let html = r#"<P><A HREF=file:///Users/alex/private.txt>private</A></P>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert_eq!(persisted, r#"<P><A HREF=>private</A></P>"#);
+    }
+
+    #[test]
+    fn persisted_tags_reject_relative_paths_that_escape_the_scope() {
+        let base_path = Path::new("/workspace/Project");
+        let html =
+            r#"<p><a href="../outside.pdf">outside</a><img src="images/../outside.png"></p>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert_eq!(persisted, r#"<p><a href="">outside</a><img src=""></p>"#);
+    }
+
+    #[test]
+    fn persisted_asset_from_another_workspace_is_not_rebound_to_the_current_workspace() {
+        let base_path = Path::new("/workspace/Project");
+        let html = r#"<p><img src="asset:///other/.project-mind/embedded-note-assets/project/clip.png" data-path="/other/.project-mind/embedded-note-assets/project/clip.png" alt="截图" /></p>"#;
+
+        let persisted = persist_rich_text_asset_paths(html, base_path, &HashMap::new());
+
+        assert!(persisted.contains(r#"data-path="""#));
+        assert!(!persisted.contains("/other/"));
+        assert!(!persisted.contains(".project-mind/embedded-note-assets/project/clip.png"));
+    }
+
+    #[test]
+    fn activity_path_rewrite_matches_complete_path_segments_only() {
+        let project_root = Path::new("/workspace/Project");
+        let html = r#"<div data-type="attachment" data-path="Kickoff-old/brief.pdf" data-href="Kickoff-old/brief.pdf"><a href="Kickoff-old/brief.pdf">brief.pdf</a></div>"#;
+
+        let rewritten = rewrite_scoped_rich_text_asset_paths(
+            html,
+            project_root,
+            &project_root.join("Kickoff"),
+            &project_root.join("Review"),
+        );
+
+        assert_eq!(rewritten, html);
+    }
+
+    #[test]
+    fn activity_path_rewrite_supports_single_quotes_and_html_escaped_paths() {
+        let project_root = Path::new("/workspace/Project");
+        let html = r#"<div data-type='attachment' data-path='Kickoff &amp; Notes/brief.pdf' data-href='Kickoff &amp; Notes/brief.pdf'><a href='Kickoff &amp; Notes/brief.pdf'>brief.pdf</a></div>"#;
+
+        let rewritten = rewrite_scoped_rich_text_asset_paths(
+            html,
+            project_root,
+            &project_root.join("Kickoff & Notes"),
+            &project_root.join("Review & Notes"),
+        );
+
+        assert_eq!(
+            rewritten,
+            r#"<div data-type='attachment' data-path='Review &amp; Notes/brief.pdf' data-href='Review &amp; Notes/brief.pdf'><a href='Review &amp; Notes/brief.pdf'>brief.pdf</a></div>"#
+        );
+    }
+
+    #[test]
+    fn activity_path_rewrite_decodes_numeric_html_entities() {
+        let project_root = Path::new("/workspace/Project");
+        let html = r#"<div data-type="attachment" data-path="Kickoff &#38; Notes/brief.pdf" data-href="Kickoff &#x26; Notes/brief.pdf"><a href="Kickoff &#38; Notes/brief.pdf">brief.pdf</a></div>"#;
+
+        let rewritten = rewrite_scoped_rich_text_asset_paths(
+            html,
+            project_root,
+            &project_root.join("Kickoff & Notes"),
+            &project_root.join("Review & Notes"),
+        );
+
+        assert_eq!(
+            rewritten,
+            r#"<div data-type="attachment" data-path="Review &amp; Notes/brief.pdf" data-href="Review &amp; Notes/brief.pdf"><a href="Review &amp; Notes/brief.pdf">brief.pdf</a></div>"#
+        );
+    }
+
+    #[test]
+    fn activity_path_rewrite_quotes_unquoted_values_when_the_new_path_requires_it() {
+        let project_root = Path::new("/workspace/Project");
+        let html = r#"<div data-type=attachment data-path=Kickoff&amp;Notes/brief.pdf></div>"#;
+
+        let rewritten = rewrite_scoped_rich_text_asset_paths(
+            html,
+            project_root,
+            &project_root.join("Kickoff&Notes"),
+            &project_root.join("Review Notes"),
+        );
+
+        assert_eq!(
+            rewritten,
+            r#"<div data-type=attachment data-path="Review Notes/brief.pdf"></div>"#
+        );
     }
 
     #[test]
