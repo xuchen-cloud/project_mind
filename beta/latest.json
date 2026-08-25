@@ -1,31 +1,31 @@
 {
   "version": "0.1.0",
   "notes": "ProjectMind Beta 桌面版本。应用升级不会删除或移动 Workspace；首次安装前仍建议保留一份独立备份。",
-  "pub_date": "2026-08-20T16:55:01.949Z",
+  "pub_date": "2026-08-25T14:45:22.141Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MldoS1kybkNJSUJnTmIxcFpIbk02SmNtaG9kcDJ1cG9OQmFGcFA5ODBVaXp5STUrelhTbXV5bno1RldHdkNJRGtFY3ZQU3RDZUp1aVhhcEk1MWoxL0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0NzMxCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negpLR2tsem8rKzNQRGJFZEw3dWEwemxUdzl4bTZSNDVKZWh5QUVtTUliOFRBNTlGbDFnQnprU0NhMk40RXZJY3lEUS9valJJdHVOZHhnSXRNUVYvc3ZEdz09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522525120"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5Mlkvb1FnczlXOTY3S1QyQ2pwdnNtdEFDMXZCZ1N4QVhRSG9kTnR1bHJtUkQzNEdSMnVJRVJHemI2YnhBQ2tiQkZCOTBNUjhteXFTeHI2NWRRUzR3Tmd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY4ODUwCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negorZzBOZlN3REV2bGFnTDFYNVpaclZDcUhMOTByWVFPWVp0bStWOHlzM1JGRnk1MGVOaTk4Q1orbVdpeVdNdG9ZS0gxQXdFNjl3cFdiRHdYY0JrQTFEZz09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529332086"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MldoS1kybkNJSUJnTmIxcFpIbk02SmNtaG9kcDJ1cG9OQmFGcFA5ODBVaXp5STUrelhTbXV5bno1RldHdkNJRGtFY3ZQU3RDZUp1aVhhcEk1MWoxL0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0NzMxCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negpLR2tsem8rKzNQRGJFZEw3dWEwemxUdzl4bTZSNDVKZWh5QUVtTUliOFRBNTlGbDFnQnprU0NhMk40RXZJY3lEUS9valJJdHVOZHhnSXRNUVYvc3ZEdz09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522525120"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5Mlkvb1FnczlXOTY3S1QyQ2pwdnNtdEFDMXZCZ1N4QVhRSG9kTnR1bHJtUkQzNEdSMnVJRVJHemI2YnhBQ2tiQkZCOTBNUjhteXFTeHI2NWRRUzR3Tmd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY4ODUwCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negorZzBOZlN3REV2bGFnTDFYNVpaclZDcUhMOTByWVFPWVp0bStWOHlzM1JGRnk1MGVOaTk4Q1orbVdpeVdNdG9ZS0gxQXdFNjl3cFdiRHdYY0JrQTFEZz09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529332086"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MmVUYzNucXZ5UThBMDZUdTFUMGxFV0JZTExpcTNrdFIxUHU4bVZLdXhoVHdxeGl4YlZwcGNpV2Y2alNRMy80THdnZ0hiMUQwV2hVUXRRMzgwN3hYbndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0NzUzCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negptVXZZTlVBcks5dEpKWk5lYUR1NUk0QmE1cnNTd1BxVnVUZkxnM1Q0Tjk1c3JEN1dTb3pHd1BMUHRIdkdFd3lPQVowV0NSalFOTEJsLzdhN2QrWGFBZz09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522525444"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MlZuWWlTVVl0UHlSNyswU1lWS1RLSmo5NjF4YkhsQk5nY1U2eUNIZm02V3BQNVlZRDNzZlBSaU91UnVxd3NRNll3RUM5QUh6Zk5rbzRaZEJtMGtFakFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY5MDI4CWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negpYOUMxb3lnRXhPd05FZ3JXbjVRUEZickJ3b2I4aUZpUTdRbTJtUWhaREJERE8wdnkxS0tEWVd5QkR1TDhXWDJ6ejhpMU5YRHJKc3lvZDAvL3pndnJEZz09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529335452"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MmVUYzNucXZ5UThBMDZUdTFUMGxFV0JZTExpcTNrdFIxUHU4bVZLdXhoVHdxeGl4YlZwcGNpV2Y2alNRMy80THdnZ0hiMUQwV2hVUXRRMzgwN3hYbndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0NzUzCWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negptVXZZTlVBcks5dEpKWk5lYUR1NUk0QmE1cnNTd1BxVnVUZkxnM1Q0Tjk1c3JEN1dTb3pHd1BMUHRIdkdFd3lPQVowV0NSalFOTEJsLzdhN2QrWGFBZz09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522525444"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MlZuWWlTVVl0UHlSNyswU1lWS1RLSmo5NjF4YkhsQk5nY1U2eUNIZm02V3BQNVlZRDNzZlBSaU91UnVxd3NRNll3RUM5QUh6Zk5rbzRaZEJtMGtFakFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY5MDI4CWZpbGU6UHJvamVjdE1pbmQuYXBwLnRhci5negpYOUMxb3lnRXhPd05FZ3JXbjVRUEZickJ3b2I4aUZpUTdRbTJtUWhaREJERE8wdnkxS0tEWVd5QkR1TDhXWDJ6ejhpMU5YRHJKc3lvZDAvL3pndnJEZz09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529335452"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MmRDVGFhM1Y3UThuaElvK3Z1S2J5bXZyQnhxLzhsdXRSUnpWYXVuV0k0eG1OcEFLdGZobko1NEhnWUdHdFduamdvNEJhT0Z4TXhzVWIzd2MrMFFoRkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0ODk4CWZpbGU6UHJvamVjdE1pbmRfMC4xLjBfeDY0LXNldHVwLmV4ZQpLK000ZUxEZG0vQ1huNWNzRDd6VmUvUlVBQUt5UmtUbDZiVExFTGJiY0t1WE1jREdRbEhmNkR0czRwNUFPUm1rcER5alU0OGc0aXUzaTFxeEFLT0pEUT09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522528212"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MllKQjVRN2JtM1d5Wm1FY2dMYVF6L1M3TFM0NUpySUlzKzZ5eE1sN3dBek9Ga2lIZXBDeDBmUlUxMmJ3eVl3SURrRlpVZzFvYXNSemFpLzRVVXZMQkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY5MTE4CWZpbGU6UHJvamVjdE1pbmRfMC4xLjBfeDY0LXNldHVwLmV4ZQpNUEo0Y2JHRHBSdHZjK1EvaHJyeDhmN29tdzFVWnB2cHR3ZUttbFliY014eThvc1J1TmtycTVvM3haUWk1RlVjaXBNMzd1VGFaYjFna3M0TGpmSjlDQT09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529337249"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MmRDVGFhM1Y3UThuaElvK3Z1S2J5bXZyQnhxLzhsdXRSUnpWYXVuV0k0eG1OcEFLdGZobko1NEhnWUdHdFduamdvNEJhT0Z4TXhzVWIzd2MrMFFoRkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjQ0ODk4CWZpbGU6UHJvamVjdE1pbmRfMC4xLjBfeDY0LXNldHVwLmV4ZQpLK000ZUxEZG0vQ1huNWNzRDd6VmUvUlVBQUt5UmtUbDZiVExFTGJiY0t1WE1jREdRbEhmNkR0czRwNUFPUm1rcER5alU0OGc0aXUzaTFxeEFLT0pEUT09Cg==",
-      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/522528212"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbmRjMFpmYkV5MllKQjVRN2JtM1d5Wm1FY2dMYVF6L1M3TFM0NUpySUlzKzZ5eE1sN3dBek9Ga2lIZXBDeDBmUlUxMmJ3eVl3SURrRlpVZzFvYXNSemFpLzRVVXZMQkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjY5MTE4CWZpbGU6UHJvamVjdE1pbmRfMC4xLjBfeDY0LXNldHVwLmV4ZQpNUEo0Y2JHRHBSdHZjK1EvaHJyeDhmN29tdzFVWnB2cHR3ZUttbFliY014eThvc1J1TmtycTVvM3haUWk1RlVjaXBNMzd1VGFaYjFna3M0TGpmSjlDQT09Cg==",
+      "url": "https://api.github.com/repos/xuchen-cloud/project_mind/releases/assets/529337249"
     }
   }
 }
