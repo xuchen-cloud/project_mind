@@ -22,12 +22,12 @@
 
 当前实现基线主要对应：
 
-- [src/styles/app.css](/Users/xuchen/On%20My%20Mac/project_mind/src/styles/app.css)
-- [src/ui/components](/Users/xuchen/On%20My%20Mac/project_mind/src/ui/components)
-- [src/components/layout](/Users/xuchen/On%20My%20Mac/project_mind/src/components/layout)
-- [src/components/workspace](/Users/xuchen/On%20My%20Mac/project_mind/src/components/workspace)
-- [src/components/project](/Users/xuchen/On%20My%20Mac/project_mind/src/components/project)
-- [scripts/check-ui-standards.mjs](/Users/xuchen/On%20My%20Mac/project_mind/scripts/check-ui-standards.mjs)
+- [src/styles/app.css](../src/styles/app.css)
+- [src/ui/components](../src/ui/components)
+- [src/components/layout](../src/components/layout)
+- [src/components/workspace](../src/components/workspace)
+- [src/components/project](../src/components/project)
+- [scripts/check-ui-standards.mjs](../scripts/check-ui-standards.mjs)
 
 ## 2. 设计方向
 

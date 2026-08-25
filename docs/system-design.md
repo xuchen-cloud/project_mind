@@ -1,7 +1,7 @@
 # Project Mind System Design
 
 状态：当前正式基线  
-更新时间：2026-06-08
+更新时间：2026-08-25
 
 ## 1. 架构摘要
 
@@ -66,7 +66,28 @@ flowchart LR
 - 记录中托管图片进入 `<project-root>/.project-mind/embedded-note-assets/`
 - 文件历史版本进入该文件对应的 `history_dir_path`
 
-### 2.3 会话与 secrets
+### 2.3 路径可迁移性
+
+路径持久化遵循以下强制规则：
+
+- Workspace 自有的托管文件引用必须以相对于 Workspace、Project 或 Activity 业务作用域根目录的路径持久化，禁止写入机器相关的绝对路径。
+- SQLite 路径字段使用 `workspace:<relative-path>` 作为 Workspace 内文件的规范形式；富文本中的托管图片和附件使用作用域相对路径，例如 `.project-mind/embedded-note-assets/image.png`。
+- SQLite、富文本 HTML、Workspace 元数据、设置、缓存和导出元数据都不得持久化 Unix 用户目录路径、Windows 盘符路径、UNC 路径、`file://` URI 或 Tauri `asset:` URL。
+- Tauri command / API 只允许在读取后的运行时边界临时还原绝对路径。任何回写都必须先重新规范化，不能把已还原路径直接写回持久层。
+- 无法证明属于当前 Workspace 的本地绝对资源引用不得原样保留；写入边界应清空无效引用，避免制造不可迁移数据。远程 HTTP(S) URL 与内嵌 `data:` URL 不属于文件系统路径。
+
+明确例外仅有两类：
+
+- 外部导入源的 `original_path` 可以用显式的 `absolute:` 形式记录，因为它描述 Workspace 外部来源；托管副本的 `managed_path` 仍必须使用 `workspace:` 相对形式。
+- 应用本机的 `Local Session` 可以保存最近打开的 Workspace 根目录，以便重新发现 Workspace；该文件不属于 Workspace 数据，也不得被复制进 Workspace。
+
+重命名规则：
+
+- Project 改名只移动 Project 目录和更新结构化路径字段；相对富文本资源引用保持不变，不做基于旧 Project 名的全文路径重写。
+- Activity 文件夹改名时，只更新该 Activity 作用域内的相对路径前缀。
+- 仓库 Markdown 链接必须使用仓库相对路径。`npm run check:portable-paths` 负责阻止机器本地绝对路径重新进入文档。
+
+### 2.4 会话与 secrets
 
 本地状态分成两层：
 
@@ -87,7 +108,7 @@ flowchart LR
 
 ### 3.1 路由层
 
-当前主路由定义在 [src/main.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/main.tsx)：
+当前主路由定义在 [src/main.tsx](../src/main.tsx)：
 
 - `/workspace`
 - `/projects/:projectId`
@@ -102,7 +123,7 @@ flowchart LR
 
 ### 3.2 Workspace Shell
 
-入口位于 [src/App.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/App.tsx)。
+入口位于 [src/App.tsx](../src/App.tsx)。
 
 职责：
 
@@ -124,9 +145,9 @@ flowchart LR
 
 当前正式主页面包括：
 
-- [src/components/workspace/WorkspacePage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/workspace/WorkspacePage.tsx)
-- [src/components/project/ProjectQuickNotePage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/project/ProjectQuickNotePage.tsx)
-- [src/components/project/ProjectNoteFocusPage.tsx](/Users/xuchen/On%20My%20Mac/project_mind/src/components/project/ProjectNoteFocusPage.tsx)
+- [src/components/workspace/WorkspacePage.tsx](../src/components/workspace/WorkspacePage.tsx)
+- [src/components/project/ProjectQuickNotePage.tsx](../src/components/project/ProjectQuickNotePage.tsx)
+- [src/components/project/ProjectNoteFocusPage.tsx](../src/components/project/ProjectNoteFocusPage.tsx)
 
 职责：
 
@@ -169,7 +190,7 @@ flowchart LR
 
 主要 store：
 
-- [src/state/ui-store.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/state/ui-store.ts)
+- [src/state/ui-store.ts](../src/state/ui-store.ts)
 - `feedback-store`
 - `ai-job-store`
 
@@ -202,7 +223,7 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 
 ### 4.1 desktopApi
 
-位于 [src/services/desktopApi.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/services/desktopApi.ts)。
+位于 [src/services/desktopApi.ts](../src/services/desktopApi.ts)。
 
 职责：
 
@@ -213,7 +234,7 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 
 ### 4.2 projectMindApi
 
-位于 [src/services/projectMindApi.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/services/projectMindApi.ts)。
+位于 [src/services/projectMindApi.ts](../src/services/projectMindApi.ts)。
 
 职责：
 
@@ -234,7 +255,7 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 
 ## 5. 当前数据模型摘要
 
-核心类型定义位于 [src/lib/types.ts](/Users/xuchen/On%20My%20Mac/project_mind/src/lib/types.ts)。
+核心类型定义位于 [src/lib/types.ts](../src/lib/types.ts)。
 
 当前正式主模型包括：
 
