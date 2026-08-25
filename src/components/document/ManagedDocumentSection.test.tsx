@@ -584,7 +584,6 @@ function buildDocument(partial: Partial<DocumentRecord> = {}): DocumentRecord {
   return {
     id: partial.id ?? 1,
     projectId: partial.projectId ?? 1,
-    activityId: partial.activityId ?? null,
     name: partial.name ?? "Roadmap.pdf",
     baseName: partial.baseName ?? "Roadmap.pdf",
     originalPath: partial.originalPath ?? "/tmp/original/Roadmap.pdf",
@@ -595,7 +594,6 @@ function buildDocument(partial: Partial<DocumentRecord> = {}): DocumentRecord {
     isStarred: partial.isStarred ?? false,
     currentVersionNumber: partial.currentVersionNumber ?? 1,
     versionCount: partial.versionCount ?? 1,
-    sourceActivityTitle: partial.sourceActivityTitle ?? null,
     health: partial.health ?? "normal",
     tags: partial.tags ?? [],
     createdAt: partial.createdAt ?? "2026-04-06T08:00:00.000Z",

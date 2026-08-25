@@ -626,6 +626,7 @@ export function WorkspacePage({
               aria-hidden={currentView === "quick-note" ? undefined : true}
             >
               <RichEditor
+                contentIdentity="workspace-quick-note"
                 html={quickNoteDraft.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={quickNoteCodeLanguage}

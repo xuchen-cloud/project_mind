@@ -1350,7 +1350,7 @@ describe("RichEditor images", () => {
         variant="bare"
         defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
         aiSettings={aiSettings}
-        aiRewriteContext={{ scope: "note", noteId: 1 }}
+        contentIdentity="project-record:1"
       />,
     );
     const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
@@ -1411,7 +1411,7 @@ describe("RichEditor images", () => {
         variant="bare"
         defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
         aiSettings={aiSettings}
-        aiRewriteContext={{ scope: "note", noteId: 2 }}
+        contentIdentity="project-record:2"
       />,
     );
     await waitFor(() => expect(screen.queryByText("无法解析的原始模型响应")).not.toBeInTheDocument());
@@ -1430,7 +1430,7 @@ describe("RichEditor images", () => {
         variant="bare"
         html={'<p><img src="asset:///tmp/next-workspace.png" data-path="/tmp/next-workspace.png" data-mime-type="image/png"></p><p>新 Workspace</p>'}
         aiSettings={aiSettings}
-        aiRewriteContext={{ scope: "workspace_record", workspaceRecordId: 9 }}
+        contentIdentity="workspace-record:9"
       />,
     );
     expect(cancelSpy).not.toHaveBeenCalledWith(202);
@@ -1489,7 +1489,7 @@ describe("RichEditor images", () => {
         variant="bare"
         defaultHtml={originalHtml}
         aiSettings={aiSettings}
-        aiRewriteContext={{ scope: "note", noteId: 1 }}
+        contentIdentity="project-record:1"
       />,
     );
     const image = await waitFor(() => rendered.container.querySelector("img.rich-editor__image") as HTMLImageElement);
@@ -1519,7 +1519,7 @@ describe("RichEditor images", () => {
         variant="bare"
         html={'<p><img src="asset:///tmp/other.png" data-path="/tmp/other.png" data-mime-type="image/png"></p><p>其他 Workspace</p>'}
         aiSettings={aiSettings}
-        aiRewriteContext={{ scope: "workspace_record", workspaceRecordId: 8 }}
+        contentIdentity="workspace-record:8"
       />,
     );
     await waitFor(() => {
@@ -2468,7 +2468,6 @@ describe("RichEditor internal references", () => {
         id: 18,
         label: "推进预算审批",
         projectId: 1,
-        activityId: 2,
         subtitle: "Alpha · Kickoff",
         updatedAt: "2026-04-06T10:00:00.000Z",
       },
@@ -2511,7 +2510,6 @@ describe("RichEditor internal references", () => {
         id: 51,
         label: "project-brief.pdf",
         projectId: 1,
-        activityId: 2,
         subtitle: "Alpha · Kickoff",
         updatedAt: "2026-04-06T10:00:00.000Z",
       },

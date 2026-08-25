@@ -14,31 +14,17 @@ export interface ProjectRecord {
 }
 
 export interface ProjectListItem extends ProjectRecord {
-  unorganizedCount: number;
   openTodoCount: number;
 }
 
 export interface NoteRecord {
   id: number;
   projectId: number;
-  activityId?: number | null;
   title?: string | null;
   contentMarkdown: string;
   contentHtml: string;
   defaultCodeLanguage?: string | null;
   tags?: DocumentTagRecord[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ConclusionRecord {
-  id: number;
-  projectId: number;
-  noteId?: number | null;
-  contentMarkdown: string;
-  contentHtml: string;
-  promotedToProject: boolean;
-  isPinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,8 +54,6 @@ export interface TodoRecord {
   scope: TodoScope;
   projectId: number | null;
   projectName?: string | null;
-  activityId?: number | null;
-  sourceActivityTitle?: string | null;
   content: string;
   status: TodoStatus;
   priority: TodoPriority;
@@ -145,28 +129,6 @@ export interface ProjectTagRecord {
   updatedAt: string;
 }
 
-export interface ActivityAttributeOption {
-  id: number;
-  label: string;
-  colorKey: TagColorKey;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ActivityStatusOption {
-  id: number;
-  label: string;
-  colorKey: TagColorKey;
-  isSystem: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ActivitySettingsSnapshot {
-  activityAttributeOptions: ActivityAttributeOption[];
-  activityStatusOptions: ActivityStatusOption[];
-}
-
 export interface ProjectTagSettingsSnapshot {
   tags: ProjectTagRecord[];
 }
@@ -188,27 +150,6 @@ export interface ContactRecord {
   department: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ActivityDigest {
-  id: number;
-  projectId: number;
-  attributeOptionId?: number | null;
-  attributeLabel?: string | null;
-  attributeColorKey?: TagColorKey | null;
-  title: string;
-  activityTime: string;
-  statusOptionId: number;
-  statusLabel: string;
-  statusColorKey: TagColorKey;
-  isPinned: boolean;
-  noteCount: number;
-  conclusionCount: number;
-  todoCount: number;
-  documentCount: number;
-  completedTodoCount: number;
-  totalTodoCount: number;
-  hasOpenTodos: boolean;
 }
 
 export type AiJobKind =
@@ -270,16 +211,6 @@ export interface AiProfileTestJobInput {
   input: AiProfileTestInput;
 }
 
-export type AiEditorSkillScope = "project_note" | "workspace_note";
-
-export interface AiEditorSkillContext {
-  scope: AiEditorSkillScope;
-  projectId?: number | null;
-  noteId?: number | null;
-  workspaceNoteId?: number | null;
-  sourceLabel?: string | null;
-}
-
 export interface AiEditorSkillInput {
   skillId?: string | null;
   skillName?: string | null;
@@ -289,7 +220,6 @@ export interface AiEditorSkillInput {
   expandedMarkdown?: string | null;
   placeholderTokens?: string[];
   documentContext?: string | null;
-  context?: AiEditorSkillContext;
   targetType?: "text" | "image";
   imageTarget?: AiEditorImageTarget | null;
 }
@@ -304,15 +234,9 @@ export type AiJobEnqueueInput =
   | AiProfileTestJobInput
   | AiEditorSkillJobInput;
 
-export interface ConclusionGroup {
-  activityTitle: string;
-  conclusions: ConclusionRecord[];
-}
-
 export interface ProjectPageData {
   project: ProjectRecord;
   projectDocuments: DocumentRecord[];
-  conclusionGroups: ConclusionGroup[];
   recordGroups?: ProjectRecordGroup[];
   records?: NoteRecord[];
   unfinishedTodos: TodoRecord[];
@@ -326,7 +250,7 @@ export interface WorkspacePageData {
   finishedTodos: TodoRecord[];
 }
 
-export type InternalReferenceKind = "note" | "conclusion" | "todo" | "document";
+export type InternalReferenceKind = "note" | "todo" | "document";
 export type InternalReferenceScope = "project" | "workspace";
 
 export interface InternalReferenceContext {
@@ -378,42 +302,27 @@ export type WorkspaceSearchResult =
   | (WorkspaceSearchResultBase & {
       kind: "workspace_quick_note" | "workspace_note";
       projectId: null;
-      activityId?: null;
     })
   | (WorkspaceSearchResultBase & {
       kind: "contact";
       projectId: null;
-      activityId?: null;
     })
   | (WorkspaceSearchResultBase & {
       kind: "project" | "note" | "document";
       projectId: number;
-      activityId?: number | null;
     })
   | (WorkspaceSearchResultBase & {
       kind: "todo";
       scope: "workspace";
       projectId: null;
-      activityId?: null;
       source: "Workspace";
     })
   | (WorkspaceSearchResultBase & {
       kind: "todo";
       scope: "project";
       projectId: number;
-      activityId?: number | null;
       source: string;
     });
-
-export type LegacyWorkspaceSearchResult = WorkspaceSearchResultBase & {
-  kind: "activity" | "conclusion";
-  projectId: number;
-  activityId?: number | null;
-};
-
-export type WorkspaceSearchApiResult =
-  | WorkspaceSearchResult
-  | LegacyWorkspaceSearchResult;
 
 export interface ProjectCreateInput {
   name: string;
@@ -492,7 +401,6 @@ export interface ContactDeleteInput {
 
 export interface ProjectRecordUpsertInput {
   projectId: number;
-  activityId?: number | null;
   noteId?: number;
   title?: string;
   markdown: string;
@@ -525,31 +433,6 @@ export interface WorkspaceRecordDeleteInput {
   noteId: number;
 }
 
-export interface ConclusionCreateInput {
-  projectId: number;
-  noteId?: number;
-  markdown: string;
-  html: string;
-  promotedToProject: boolean;
-  isPinned?: boolean;
-}
-
-export interface ConclusionListInput {
-  projectId: number;
-}
-
-export interface ConclusionUpdateInput {
-  conclusionId: number;
-  markdown: string;
-  html: string;
-  promotedToProject?: boolean;
-  isPinned?: boolean;
-}
-
-export interface ConclusionDeleteInput {
-  conclusionId: number;
-}
-
 interface TodoCreateFields {
   content: string;
   priority: TodoPriority;
@@ -561,12 +444,10 @@ export type TodoCreateInput =
   | (TodoCreateFields & {
       scope: "project";
       projectId: number;
-      activityId?: number | null;
     })
   | (TodoCreateFields & {
       scope: "workspace";
       projectId?: null;
-      activityId?: null;
     });
 
 export interface TodoUpdateContentInput {
@@ -626,7 +507,6 @@ export interface TodoDeleteInput {
 
 export interface DocumentImportInput {
   projectId: number;
-  activityId?: number | null;
   sourcePath: string;
   isStarred: boolean;
   tagIds?: number[];
@@ -634,7 +514,6 @@ export interface DocumentImportInput {
 
 export interface DocumentImportClipboardImageInput {
   projectId: number;
-  activityId?: number | null;
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -644,13 +523,11 @@ export interface DocumentImportClipboardImageInput {
 
 export interface DocumentImportNoteImageInput {
   projectId: number;
-  activityId?: number | null;
   sourcePath: string;
 }
 
 export interface DocumentImportClipboardNoteImageInput {
   projectId: number;
-  activityId?: number | null;
   fileName: string;
   mimeType: string;
   dataBase64: string;

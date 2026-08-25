@@ -6,13 +6,11 @@ import type { RichEditorAsset, RichEditorAssetHandlers, RichEditorValue } from "
 
 export function buildProjectNoteImageAssetHandlers(
   projectId: number,
-  activityId?: number | null,
 ): RichEditorAssetHandlers {
   return {
     insertImage: async (sourcePath) => {
       const document = await projectMindApi.documentImportNoteImage({
         projectId,
-        activityId,
         sourcePath,
       });
 
@@ -24,7 +22,6 @@ export function buildProjectNoteImageAssetHandlers(
       if (nativePath) {
         const document = await projectMindApi.documentImportNoteImage({
           projectId,
-          activityId,
           sourcePath: nativePath,
         });
 
@@ -34,7 +31,6 @@ export function buildProjectNoteImageAssetHandlers(
       const mimeType = file.type.trim() || "image/png";
       const document = await projectMindApi.documentImportClipboardNoteImage({
         projectId,
-        activityId,
         fileName: file.name.trim() || "clipboard-image.png",
         mimeType,
         dataBase64: await readFileAsBase64(file),
@@ -45,7 +41,6 @@ export function buildProjectNoteImageAssetHandlers(
     insertFile: async (sourcePath) => {
       const document = await projectMindApi.documentImport({
         projectId,
-        activityId,
         sourcePath,
         isStarred: false,
         tagIds: [],

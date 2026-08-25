@@ -174,8 +174,18 @@ describe("WorkspacePage", () => {
 
   it("uses a static overview skeleton only for a cold workspace entry", async () => {
     vi.useFakeTimers();
-    let resolveWorkspace!: (value: { quickNote: null; records: never[]; unfinishedTodos: never[]; finishedTodos: never[] }) => void;
-    apiMocks.workspacePageGet.mockImplementationOnce(() => new Promise((resolve) => { resolveWorkspace = resolve; }));
+    let resolveWorkspace!: (value: {
+      quickNote: null;
+      records: never[];
+      unfinishedTodos: never[];
+      finishedTodos: never[];
+    }) => void;
+    apiMocks.workspacePageGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveWorkspace = resolve;
+        }),
+    );
     renderPage();
 
     expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
@@ -186,42 +196,69 @@ describe("WorkspacePage", () => {
     expect(document.querySelector(".animate-spin, .spin")).toBeNull();
 
     vi.useRealTimers();
-    await act(async () => resolveWorkspace({ quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] }));
+    await act(async () =>
+      resolveWorkspace({
+        quickNote: null,
+        records: [],
+        unfinishedTodos: [],
+        finishedTodos: [],
+      }),
+    );
     const page = await screen.findByTestId("workspace-overview-focus-page");
     expect(page.closest(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
   });
 
   it("does not replay cold entry when a cached resident workspace is hidden and restored", async () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(queryKeys.workspacePage, { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] });
-    queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" }, recentWorkspaces: [], aiSecretsUnlocked: true });
+    queryClient.setQueryData(queryKeys.workspacePage, {
+      quickNote: null,
+      records: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    queryClient.setQueryData(queryKeys.workspaceStatus, {
+      currentWorkspace: {
+        rootPath: "/tmp/workspace",
+        displayName: "workspace",
+      },
+      recentWorkspaces: [],
+      aiSecretsUnlocked: true,
+    });
     const page = (visible: boolean) => (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter><WorkspacePage visible={visible} /></MemoryRouter>
+        <MemoryRouter>
+          <WorkspacePage visible={visible} />
+        </MemoryRouter>
       </QueryClientProvider>
     );
     const view = render(page(true));
-    expect((await screen.findByTestId("workspace-overview-focus-page")).closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+    expect(
+      (await screen.findByTestId("workspace-overview-focus-page")).closest(".page-cold-entry"),
+    ).not.toHaveAttribute("data-cold-entry");
     view.rerender(page(false));
     view.rerender(page(true));
     expect(screen.queryByRole("status", { name: "正在加载工作区" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("workspace-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+    expect(screen.getByTestId("workspace-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute(
+      "data-cold-entry",
+    );
   });
 
   it("does not build Workspace Record history until the Record view is active", async () => {
     const user = userEvent.setup();
     apiMocks.workspacePageGet.mockResolvedValueOnce({
       quickNote: null,
-      records: [{
-        id: 41,
-        title: "Workspace history record",
-        contentMarkdown: "Hidden history content",
-        contentHtml: "<p>Hidden history content</p>",
-        defaultCodeLanguage: null,
-        tags: [],
-        createdAt: "2026-08-24T00:00:00.000Z",
-        updatedAt: "2026-08-24T00:00:00.000Z",
-      }],
+      records: [
+        {
+          id: 41,
+          title: "Workspace history record",
+          contentMarkdown: "Hidden history content",
+          contentHtml: "<p>Hidden history content</p>",
+          defaultCodeLanguage: null,
+          tags: [],
+          createdAt: "2026-08-24T00:00:00.000Z",
+          updatedAt: "2026-08-24T00:00:00.000Z",
+        },
+      ],
       unfinishedTodos: [],
       finishedTodos: [],
     });
@@ -248,8 +285,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -308,10 +343,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await screen.findByText("Todo List");
-    expect(screen.getByRole("button", { name: "分组显示" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: "分组显示" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: "当前项目" })).not.toBeInTheDocument();
   });
 
@@ -322,10 +354,7 @@ describe("WorkspacePage", () => {
 
     await screen.findByText("Todo List");
     await user.click(screen.getByRole("button", { name: "新增代办" }));
-    await user.type(
-      screen.getByPlaceholderText("写下要做的事"),
-      "整理复盘 #跨项目",
-    );
+    await user.type(screen.getByPlaceholderText("写下要做的事"), "整理复盘 #跨项目");
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     await waitFor(() => {
@@ -336,7 +365,6 @@ describe("WorkspacePage", () => {
       expect(apiMocks.todoCreate).toHaveBeenCalledWith({
         scope: "workspace",
         projectId: null,
-        activityId: null,
         content: "整理复盘",
         priority: "not_urgent_important",
         dueDate: undefined,
@@ -358,8 +386,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 0,
       },
     ]);
@@ -398,17 +424,13 @@ describe("WorkspacePage", () => {
     await user.click(ownership);
     await user.type(screen.getByRole("searchbox", { name: "筛选 Todo 归属" }), "Alpha");
     await user.click(screen.getByRole("option", { name: "Alpha" }));
-    await user.type(
-      screen.getByPlaceholderText("写下要做的事"),
-      "推进里程碑 #同名",
-    );
+    await user.type(screen.getByPlaceholderText("写下要做的事"), "推进里程碑 #同名");
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     await waitFor(() => {
       expect(apiMocks.todoCreate).toHaveBeenCalledWith({
         scope: "project",
         projectId: 7,
-        activityId: null,
         content: "推进里程碑",
         priority: "not_urgent_important",
         dueDate: undefined,
@@ -485,17 +507,20 @@ describe("WorkspacePage", () => {
     expect(within(workspaceTodoCard!).queryByText("Workspace")).not.toBeInTheDocument();
     const projectTodoCard = screen.getByText("推进 Alpha 发布").closest("article");
     expect(
-      within(projectTodoCard!).queryByRole("button", { name: "打开 Project Alpha" }),
+      within(projectTodoCard!).queryByRole("button", {
+        name: "打开 Project Alpha",
+      }),
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "按优先级" }));
-    expect(
-      Array.from(document.querySelectorAll(".todo-list__collection > article")).map(
-        (card) => card.id,
-      ),
-    ).toEqual(["todo-8", "todo-7"]);
+    expect(Array.from(document.querySelectorAll(".todo-list__collection > article")).map((card) => card.id)).toEqual([
+      "todo-8",
+      "todo-7",
+    ]);
     await user.click(within(projectTodoCard!).getByRole("button", { name: "推进 Alpha 发布" }));
     expect(await within(projectTodoCard!).findByPlaceholderText("# 新增标签")).toBeInTheDocument();
-    expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 1 });
+    expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({
+      projectId: 1,
+    });
   });
 
   it("opens a project in a new window from the sidebar context menu", async () => {
@@ -510,8 +535,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -567,8 +590,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -604,7 +625,9 @@ describe("WorkspacePage", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "删除项目" }));
 
-    expect(projectMutationMocks.deleteProjectMutate).toHaveBeenCalledWith({ projectId: 1 });
+    expect(projectMutationMocks.deleteProjectMutate).toHaveBeenCalledWith({
+      projectId: 1,
+    });
   });
 
   it("closes the matching main-window tab after opening the project in a new window", async () => {
@@ -619,8 +642,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -673,8 +694,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -716,8 +735,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -762,8 +779,6 @@ describe("WorkspacePage", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
       {
@@ -776,8 +791,6 @@ describe("WorkspacePage", () => {
         isArchived: true,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 2,
       },
     ]);
@@ -821,8 +834,6 @@ describe("WorkspacePage", () => {
         isArchived: true,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 2,
       },
     ]);
@@ -864,8 +875,6 @@ describe("WorkspacePage", () => {
         isArchived: true,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 2,
       },
     ]);
@@ -920,9 +929,7 @@ describe("WorkspacePage", () => {
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
 
-    expect(
-      within(screen.getByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目"),
-    ).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目")).toBeInTheDocument();
   });
 
   it("filters record body from the sidebar search and tag pills", async () => {
@@ -1023,19 +1030,14 @@ describe("WorkspacePage", () => {
 
     fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /预算复盘/ }));
 
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/workspace/records/7?recordQuery=budget",
-    );
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=budget");
     expect(useUiStore.getState().workspaceSidebarTab).toBe("records");
 
     page.unmount();
     renderPage(["/workspace/records/7?recordQuery=budget"]);
 
     const remountedSidebar = await screen.findByLabelText("工作区导航侧边栏");
-    expect(within(remountedSidebar).getByRole("tab", { name: "记录" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(within(remountedSidebar).getByRole("tab", { name: "记录" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("creates a workspace record from the sidebar and opens its focus page", async () => {

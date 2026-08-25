@@ -1,6 +1,6 @@
 # ProjectMind
 
-ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并在本地工作区内提供 AI 总结与 Ask 问答。
+ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并提供可配置的编辑器 AI 技能。
 
 ## 当前产品基线
 
@@ -12,8 +12,8 @@ ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当�
 - 在项目页维护项目名称、QuickNote与项目级Record
 - 在项目Record中支持富文本正文、标题、`#标签` 自动同步、内部引用 `[[...]]`、联系人提及 `@...`
 - 在项目侧边栏浏览记录与文件，支持搜索、标签筛选、文件导入、重命名、标星、版本切换、删除与拖拽导入
-- 提供顶栏全局搜索、项目页签、归档项目入口、Ask 入口、设置入口与工作区菜单
-- 提供 `Project Brief` 与 `Daily Brief` 两类 AI artifact，以及基于当前范围的单轮 Ask
+- 提供顶栏全局搜索、项目页签、归档项目入口、设置入口与工作区菜单
+- 提供可配置、可绑定模型的编辑器 AI 技能
 - 提供项目标签、联系人、AI 设置、富文本样式、页面宽度等设置能力
 
 ## 当前主路由
@@ -97,7 +97,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 npm run seed:demo -- --password "demo-password"
 ```
 
-默认会在 `~/Documents/ProjectMind Demo Workspace` 下生成演示数据。也可以直接调用 Rust bin：
+默认会在 `~/Documents/ProjectMind Demo Workspace` 下生成仅包含当前领域对象的演示数据，也可以指定路径：
 
 ```bash
 cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --password "demo-password" --force
@@ -115,7 +115,5 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 
 ## 当前限制
 
-- 当前正式主路由以工作区和项目Workspace为主，仓库中仍有部分旧 Activity 代码与测试遗留，尚未作为当前主产品面暴露
-- Ask 当前只保留最新一条回答，不提供多轮历史
-- AI artifact 当前只保留 `project_brief` 与 `daily_brief`
+- 全新工作区不再创建旧领域表；升级时仍存在的历史 Brief 与结论会复制为当前 Record，v21 迁移不会删除原始行，并会复用旧 v13 已生成的 Brief Record 以避免重复
 - 当前只明确验证了 macOS 桌面工作流，其他平台仍需补完整验收

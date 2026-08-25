@@ -1,20 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildInternalReferenceTarget,
-  buildInternalReferenceToken,
-} from "./internalReferences";
+import { buildInternalReferenceTarget, buildInternalReferenceToken } from "./internalReferences";
 
 describe("internalReferences", () => {
-  it("strips nested internal reference labels and truncates todo/conclusion chips", () => {
-    expect(
-      buildInternalReferenceTarget({
-        kind: "conclusion",
-        id: 9,
-        label: "[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排",
-      }).label,
-    ).toBe("预算审批需要补充材料并确认时间...");
-
+  it("strips nested internal reference labels and truncates Todo chips", () => {
     expect(
       buildInternalReferenceToken({
         refKind: "todo",
@@ -24,7 +13,7 @@ describe("internalReferences", () => {
     ).toBe("[[todo:18|联系财务安排评审并确认后续计划...]]");
   });
 
-  it("keeps note labels readable without applying the compact todo/conclusion limit", () => {
+  it("keeps note labels readable without applying the compact Todo limit", () => {
     expect(
       buildInternalReferenceTarget({
         kind: "note",

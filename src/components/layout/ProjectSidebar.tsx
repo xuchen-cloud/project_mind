@@ -63,7 +63,6 @@ import {
 export interface ProjectSidebarRecordItem {
   id: number;
   projectId?: number;
-  activityId?: number | null;
   title?: string | null;
   typeLabel: string;
   contentMarkdown: string;

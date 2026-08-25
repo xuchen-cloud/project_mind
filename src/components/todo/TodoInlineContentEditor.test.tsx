@@ -106,7 +106,6 @@ describe("TodoInlineContentEditor", () => {
           id: 18,
           label: "推进预算审批",
           projectId: 1,
-          activityId: 2,
           subtitle: "Alpha · Kickoff",
           updatedAt: "2026-04-06T10:00:00.000Z",
         },

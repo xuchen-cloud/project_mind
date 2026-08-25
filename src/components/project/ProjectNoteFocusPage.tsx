@@ -51,7 +51,6 @@ import {
 } from "../record/recordFocusDraft";
 
 interface ProjectRecordDraft {
-  activityId: number | null;
   title: string;
   content: RichEditorValue;
   tagIds: number[];
@@ -86,17 +85,12 @@ export function ProjectNoteFocusPage({
         ) ?? null;
   const initialSnapshot = latestSnapshot?.scope === "project" ? latestSnapshot : null;
   const initialDraft: ProjectRecordDraft | null = initialSnapshot
-    ? {
-        ...recordFocusDraftFromSnapshot(initialSnapshot),
-        activityId: initialSnapshot.activityId,
-      }
+    ? recordFocusDraftFromSnapshot(initialSnapshot)
     : (() => {
         const record = initialProjectPage?.records?.find(
           (candidate) => candidate.id === recordId,
         );
-        return record
-          ? { ...recordFocusDraftFromRecord(record), activityId: record.activityId ?? null }
-          : null;
+        return record ? recordFocusDraftFromRecord(record) : null;
       })();
   const wasProjectPageCachedAtMount = useRef(
     initialProjectPage !== undefined,
@@ -187,14 +181,13 @@ export function ProjectNoteFocusPage({
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const aiSettings = aiSettingsQuery.data ?? null;
   const draftReady = recordId !== null && loadedNoteId === recordId;
-  const activityId = note?.activityId ?? initialDraft?.activityId ?? null;
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !draftReady) {
       return undefined;
     }
 
-    return buildProjectNoteImageAssetHandlers(projectId, activityId);
-  }, [activityId, draftReady, projectId]);
+    return buildProjectNoteImageAssetHandlers(projectId);
+  }, [draftReady, projectId]);
 
   function syncProjectTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
@@ -248,7 +241,6 @@ export function ProjectNoteFocusPage({
         workspaceKey: saveCoordinator.workspaceKey ?? project?.rootPath ?? `project:${projectId}`,
         projectId,
         recordId,
-        activityId,
         title: titleValueRef.current,
         tagIds: [...tagIdsValueRef.current],
         defaultCodeLanguage: codeLanguageValueRef.current,
@@ -258,7 +250,7 @@ export function ProjectNoteFocusPage({
       lastSavedTitleRef.current = titleValueRef.current;
       setPersistState("saving");
       return true;
-    }, [activityId, content, draftReady, recordId, project?.rootPath, projectId, saveCoordinator]);
+    }, [content, draftReady, recordId, project?.rootPath, projectId, saveCoordinator]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
@@ -521,6 +513,7 @@ export function ProjectNoteFocusPage({
             />
             <RichEditor
               key={`${projectId}:${recordId}`}
+              contentIdentity={`project-record:${projectId}:${recordId}`}
               html={content.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}

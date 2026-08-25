@@ -16,7 +16,6 @@ export const queryKeys = {
     projectOwned: (projectId: number) => ["todos", "project-owned", projectId] as const,
     workspaceRail: ["todos", "workspace-rail"] as const,
   },
-  aiArtifacts: ["ai-artifact"] as const,
   aiSettings: ["ai-settings"] as const,
   richTextStyle: ["rich-text-style"] as const,
   projectTags: {

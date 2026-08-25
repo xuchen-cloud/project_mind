@@ -17,7 +17,6 @@ const todo: TodoRecord = {
   id: 7,
   scope: "project",
   projectId: 9,
-  activityId: 11,
   content: "Review the contract draft",
   status: "unfinished",
   priority: "not_urgent_important",
@@ -172,7 +171,6 @@ describe("TodoListItem", () => {
       {
         scope: "workspace",
         projectId: null,
-        activityId: null,
         tags: [],
       },
       {

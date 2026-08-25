@@ -17,7 +17,6 @@ function record(markdown: string, updatedAt: string): NoteRecord {
   return {
     id: 7,
     projectId: 1,
-    activityId: null,
     title: "Record title",
     contentMarkdown: markdown,
     contentHtml: `<p>${markdown}</p>`,
@@ -58,7 +57,6 @@ describe("project Record save runtime", () => {
       workspaceKey: "/tmp/workspace",
       projectId: 1,
       recordId: 7,
-      activityId: 12,
       title: " Latest title ",
       tagIds: [3, 5],
       defaultCodeLanguage: "typescript",
@@ -75,14 +73,12 @@ describe("project Record save runtime", () => {
     finishOld(record("old", "old-time"));
     await Promise.resolve();
 
-    expect(
-      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))?.records?.[0]
-        ?.contentMarkdown,
-    ).toBe("cached");
+    expect(queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))?.records?.[0]?.contentMarkdown).toBe(
+      "cached",
+    );
     await coordinator.flush();
     expect(projectMindApi.projectRecordUpsert).toHaveBeenLastCalledWith({
       projectId: 1,
-      activityId: 12,
       noteId: 7,
       title: "Latest title",
       markdown: "new",
@@ -90,10 +86,9 @@ describe("project Record save runtime", () => {
       defaultCodeLanguage: "typescript",
       tagIds: [3, 5],
     });
-    expect(
-      queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))?.records?.[0]
-        ?.contentMarkdown,
-    ).toBe("new");
+    expect(queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(1))?.records?.[0]?.contentMarkdown).toBe(
+      "new",
+    );
   });
 
   it("persists a Workspace Record snapshot and publishes it to the Workspace cache", async () => {
@@ -145,9 +140,8 @@ describe("project Record save runtime", () => {
       defaultCodeLanguage: null,
       tagIds: [],
     });
-    expect(
-      queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)?.records?.[0]
-        ?.contentMarkdown,
-    ).toBe("new");
+    expect(queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage)?.records?.[0]?.contentMarkdown).toBe(
+      "new",
+    );
   });
 });

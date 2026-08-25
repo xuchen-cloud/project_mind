@@ -21,7 +21,7 @@ Project Mind 当前是一个 `workspace-first` 的本地桌面应用，采用以
 2. `Typed Service Layer`
 3. `Tauri Command Host`
 4. `Workspace Runtime + SQLite + Managed Filesystem`
-5. `AI Job / Artifact Layer`
+5. `AI Job / Provider Layer`
 
 ```mermaid
 flowchart LR
@@ -70,7 +70,7 @@ flowchart LR
 
 路径持久化遵循以下强制规则：
 
-- Workspace 自有的托管文件引用必须以相对于 Workspace、Project 或 Activity 业务作用域根目录的路径持久化，禁止写入机器相关的绝对路径。
+- Workspace 自有的托管文件引用必须以相对于 Workspace 或 Project 业务作用域根目录的路径持久化，禁止写入机器相关的绝对路径。
 - SQLite 路径字段使用 `workspace:<relative-path>` 作为 Workspace 内文件的规范形式；富文本中的托管图片和附件使用作用域相对路径，例如 `.project-mind/embedded-note-assets/image.png`。
 - SQLite、富文本 HTML、Workspace 元数据、设置、缓存和导出元数据都不得持久化 Unix 用户目录路径、Windows 盘符路径、UNC 路径、`file://` URI 或 Tauri `asset:` URL。
 - Tauri command / API 只允许在读取后的运行时边界临时还原绝对路径。任何回写都必须先重新规范化，不能把已还原路径直接写回持久层。
@@ -84,10 +84,16 @@ flowchart LR
 重命名规则：
 
 - Project 改名只移动 Project 目录和更新结构化路径字段；相对富文本资源引用保持不变，不做基于旧 Project 名的全文路径重写。
-- Activity 文件夹改名时，只更新该 Activity 作用域内的相对路径前缀。
 - 仓库 Markdown 链接必须使用仓库相对路径。`npm run check:portable-paths` 负责阻止机器本地绝对路径重新进入文档。
 
-### 2.4 会话与 secrets
+### 2.4 历史数据库兼容边界
+
+- 全新工作区不创建历史领域表、状态选项或关联列；只有检测到旧数据库时才补齐迁移所需的最小兼容结构。
+- v21 在一个 Savepoint 内把仍存在的历史 Brief 与结论复制为 Project Record，并用来源 Tag 和 `legacy_domain_record_migrations` 保存映射；失败会完整回滚后重试。
+- 对已运行旧 v13 迁移的工作区，v21 会识别并复用当时生成的 Brief Record，避免重复。旧 v13 在此前版本中已经删除的结论无法由本版本恢复；除此之外，v21 不删除或清空任何现存历史行及关联。
+- 升级前仍会按 schema 版本创建数据库备份；当前命令、搜索和页面不会读取历史领域对象。
+
+### 2.5 会话与 secrets
 
 本地状态分成两层：
 
@@ -128,7 +134,7 @@ flowchart LR
 职责：
 
 - Workspace Gate 与已进入工作区后的主 shell 切换
-- 顶栏、项目侧边栏、状态栏、Toast、Ask、设置对话框的全局挂载
+- 顶栏、项目侧边栏、状态栏、Toast、设置对话框的全局挂载
 - 工作区切换后清理 scoped query 和 AI job 同步
 - 根据当前路由决定主页面内容
 
@@ -250,7 +256,7 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 - todos
 - documents / project tags
 - contacts
-- AI artifacts / Ask / jobs / settings
+- AI editor skills / jobs / settings
 - rich text style
 
 ## 5. 当前数据模型摘要
@@ -267,18 +273,9 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 - `DocumentRecord`
 - `ProjectTagRecord`
 - `ContactRecord`
-- `AiArtifactRecord`
 - `AiSettingsSnapshot`
 
-当前 overview 聚合结果有两类：
-
-- `ProjectQuickNoteData`
-- `WorkspaceQuickNoteData`
-
-说明：
-
-- 当前 `ProjectQuickNoteData` 仍保留一些历史兼容字段
-- 正式页面当前主要消费项目记录、项目文件与 Todo 聚合
+当前页面聚合结果是 `ProjectPageData` 与 `WorkspacePageData`，页面只消费 Record、Document 与 Todo 等现行对象。
 
 ## 6. 富文本与引用体系
 
@@ -319,25 +316,11 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 
 ### 8.1 当前 AI 能力
 
-当前正式暴露的 AI 能力包括：
+当前正式暴露的 AI 能力是可配置的编辑器技能，包括文字改写、解释与图片文字提取。技能可单独选择模型，也可继承默认模型角色。
 
-- `Ask`
-- `project_brief`
-- `daily_brief`
-- `editor_rewrite`
+### 8.2 Job 模式
 
-### 8.2 Artifact 模式
-
-AI artifact 当前采用“缓存型派生结果”模式：
-
-- 按 `kind + scope` 定位
-- 带 `fresh / stale / error` 状态
-- 带 citations
-- 通过专门命令读取与刷新
-
-### 8.3 Job 模式
-
-Ask 与 editor rewrite 通过 job 机制执行，特点：
+`Editor Skill Job` 通过统一机制执行，特点：
 
 - 前端 enqueue
 - 轮询或同步 job target
@@ -355,6 +338,5 @@ Ask 与 editor rewrite 通过 job 机制执行，特点：
 
 ### 9.2 暂不保证的边界
 
-- 旧 Activity 代码与新项目Workspace流之间尚未完全完成架构清理
-- 并非所有历史类型都已经从主数据模型中剥离
+- 历史数据库结构只保证无损升级和来源追溯，不再提供旧对象的业务 API
 - 跨平台桌面兼容性尚未做完备验收

@@ -148,7 +148,6 @@ export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
     id: -Date.now(),
     scope: input.scope,
     projectId: input.projectId ?? null,
-    activityId: input.activityId ?? null,
     content: input.content,
     status: "unfinished",
     priority: input.priority,

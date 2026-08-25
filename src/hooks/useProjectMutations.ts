@@ -12,7 +12,6 @@ function refreshProjectScope(queryClient: ReturnType<typeof useQueryClient>, pro
     queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }),
     queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
-    queryClient.invalidateQueries({ queryKey: ["ai-artifact"] }),
   ]);
 }
 
@@ -83,7 +82,6 @@ export function useProjectMutations(
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(project.id) });
       await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
       await queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.aiArtifacts });
       if (project.isArchived) {
         const nextProject = visibleProjects.find((item) => item.id !== project.id);
         if (nextProject) navigate(`/projects/${nextProject.id}`);
@@ -105,7 +103,6 @@ export function useProjectMutations(
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
       await queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail });
-      await queryClient.invalidateQueries({ queryKey: ["ai-artifact"] });
       navigate("/workspace");
     },
     onError: (error) => {

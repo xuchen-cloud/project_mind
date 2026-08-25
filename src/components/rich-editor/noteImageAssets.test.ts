@@ -42,7 +42,7 @@ describe("buildProjectNoteImageAssetHandlers", () => {
       mimeType: "image/png",
     });
 
-    const handlers = buildProjectNoteImageAssetHandlers(7, 12);
+    const handlers = buildProjectNoteImageAssetHandlers(7);
     const file = new File(["fake"], "clip.png", { type: "image/png" });
     Object.defineProperty(file, "path", {
       configurable: true,
@@ -53,7 +53,6 @@ describe("buildProjectNoteImageAssetHandlers", () => {
 
     expect(apiMocks.documentImportNoteImage).toHaveBeenCalledWith({
       projectId: 7,
-      activityId: 12,
       sourcePath: "/tmp/source/clip.png",
     });
     expect(apiMocks.documentImportClipboardNoteImage).not.toHaveBeenCalled();
@@ -75,14 +74,13 @@ describe("buildProjectNoteImageAssetHandlers", () => {
       mimeType: "image/png",
     });
 
-    const handlers = buildProjectNoteImageAssetHandlers(8, 15);
+    const handlers = buildProjectNoteImageAssetHandlers(8);
     const file = new File(["hello"], "pasted.png", { type: "image/png" });
 
     const asset = await handlers.insertPastedImage?.(file);
 
     expect(apiMocks.documentImportClipboardNoteImage).toHaveBeenCalledWith({
       projectId: 8,
-      activityId: 15,
       fileName: "pasted.png",
       mimeType: "image/png",
       dataBase64: "aGVsbG8=",
@@ -106,12 +104,11 @@ describe("buildProjectNoteImageAssetHandlers", () => {
       isStarred: false,
     });
 
-    const handlers = buildProjectNoteImageAssetHandlers(9, 16);
+    const handlers = buildProjectNoteImageAssetHandlers(9);
     const asset = await handlers.insertFile?.("/tmp/source/brief.pdf");
 
     expect(apiMocks.documentImport).toHaveBeenCalledWith({
       projectId: 9,
-      activityId: 16,
       sourcePath: "/tmp/source/brief.pdf",
       isStarred: false,
       tagIds: [],
@@ -227,8 +224,7 @@ describe("buildWorkspaceNoteImageAssetHandlers", () => {
     const largeImagePayload = "A".repeat(1_800_000);
     const largeImageHtml = Array.from(
       { length: 5 },
-      (_, index) =>
-        `<p><img src="data:image/png;base64,${largeImagePayload}" alt="large-${index + 1}" /></p>`,
+      (_, index) => `<p><img src="data:image/png;base64,${largeImagePayload}" alt="large-${index + 1}" /></p>`,
     ).join("");
 
     const value = await externalizeEmbeddedImageDataUrls(

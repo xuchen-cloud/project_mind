@@ -13,7 +13,6 @@ interface CommittedRecordSnapshotBase {
 export interface CommittedProjectRecordSnapshot extends CommittedRecordSnapshotBase {
   scope: "project";
   projectId: number;
-  activityId: number | null;
 }
 
 export interface CommittedWorkspaceRecordSnapshot extends CommittedRecordSnapshotBase {

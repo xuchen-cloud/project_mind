@@ -235,7 +235,6 @@ describe("TodoInlineProgressEditor", () => {
           id: 51,
           label: "project-brief.pdf",
           projectId: 1,
-          activityId: 2,
           subtitle: "Alpha · Kickoff",
           updatedAt: "2026-04-06T10:00:00.000Z",
         },

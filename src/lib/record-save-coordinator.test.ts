@@ -26,7 +26,6 @@ function snapshot(
     workspaceKey: "/workspace/alpha",
     projectId: 1,
     recordId,
-    activityId: null,
     title: `Record ${recordId}`,
     tagIds: [2],
     defaultCodeLanguage: "typescript",

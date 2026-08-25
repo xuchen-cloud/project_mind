@@ -1876,17 +1876,6 @@ fn mock_provider_text(user_prompt: &str) -> String {
             return format!("{}（已按技能要求优化）", target.trim());
         }
     }
-    if user_prompt.contains("\"activityTitle\"") {
-        return serde_json::to_string(&json!({
-            "activityTitle": "",
-            "conclusions": ["确认当前阶段目标与约束"],
-            "todos": ["整理本次活动结论并同步下一步"]
-        }))
-        .unwrap_or_else(|_| {
-            "{\"activityTitle\":\"\",\"conclusions\":[],\"todos\":[]}".to_string()
-        });
-    }
-
     if user_prompt.contains("\"overview\"") && user_prompt.contains("\"sections\"") {
         let refs = extract_mock_refs(user_prompt);
         let section_titles = extract_section_titles(user_prompt);

@@ -41,7 +41,6 @@ function project(id: number, name: string, isArchived = false): ProjectListItem 
     rootPath: `/tmp/${name}`,
     quickNote: "",
     isArchived,
-    unorganizedCount: 0,
     openTodoCount: 0,
     createdAt: now,
     updatedAt: now,
@@ -85,7 +84,6 @@ async function loadedProjectTodoModule(openTodoCount = 1) {
   const projectPage = {
     project: active,
     projectDocuments: [],
-    conclusionGroups: [],
     records: [],
     unfinishedTodos: [original],
     finishedTodos: [],
@@ -121,7 +119,6 @@ describe("Todo module", () => {
     const projectPage = {
       project: active,
       projectDocuments: [],
-      conclusionGroups: [],
       records: [],
       unfinishedTodos: [activeTodo],
       finishedTodos: [],
@@ -163,7 +160,6 @@ describe("Todo module", () => {
     const projectPage = {
       project: active,
       projectDocuments: [],
-      conclusionGroups: [],
       records: [],
       unfinishedTodos: [],
       finishedTodos: [],
@@ -537,7 +533,6 @@ describe("Todo module", () => {
     const projectPage = {
       project: active,
       projectDocuments: [],
-      conclusionGroups: [],
       records: [],
       unfinishedTodos: [original],
       finishedTodos: [],

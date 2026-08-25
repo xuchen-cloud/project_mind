@@ -581,6 +581,7 @@ fn skip_gif_sub_blocks(bytes: &[u8], mut offset: usize) -> Result<usize> {
     }
 }
 
+#[cfg(test)]
 fn atomic_write_export(target: &Path, bytes: &[u8], overwrite: bool) -> Result<PathBuf> {
     atomic_write_export_with_cancel(target, bytes, overwrite, None)
 }

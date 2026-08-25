@@ -144,7 +144,7 @@ export function ProjectOverviewPage({
       return undefined;
     }
 
-    return buildProjectNoteImageAssetHandlers(projectId, null);
+    return buildProjectNoteImageAssetHandlers(projectId);
   }, [projectId]);
   const projectPageQuery = useQuery({
     queryKey: queryKeys.projectPage(projectId),
@@ -460,16 +460,12 @@ export function ProjectOverviewPage({
     setSavingRecordId(note.id);
 
     try {
-      const recordAssetHandlers = buildProjectNoteImageAssetHandlers(
-        note.projectId,
-        note.activityId ?? null,
-      );
+      const recordAssetHandlers = buildProjectNoteImageAssetHandlers(note.projectId);
       const externalizedValue = await externalizeEmbeddedImageDataUrls(value, recordAssetHandlers);
       const normalized = normalizeRichEditorValue(externalizedValue);
       const nextTagIds = await ensureTagIdsFromText(normalized.markdown, tagIds);
       const savedRecord = await projectMindApi.projectRecordUpsert({
         projectId: note.projectId,
-        activityId: note.activityId ?? undefined,
         noteId: note.id,
         title: title.trim() || undefined,
         markdown: normalized.markdown,
@@ -501,7 +497,6 @@ export function ProjectOverviewPage({
       );
       const savedRecord = await projectMindApi.projectRecordUpsert({
         projectId: record.projectId,
-        activityId: record.activityId ?? undefined,
         noteId: record.id,
         title: record.title?.trim() || undefined,
         markdown,
@@ -739,6 +734,7 @@ export function ProjectOverviewPage({
           >
             <RichEditor
               key={`project-quick-note-${activeProject.id}`}
+              contentIdentity={`project-quick-note:${activeProject.id}`}
               html={quickNoteDraft.html}
               readOnly={!visible}
               aiSettings={aiSettings}
@@ -821,6 +817,7 @@ export function ProjectOverviewPage({
                     />
                   </div>
                     <RichEditor
+                      contentIdentity={`project-record-draft:${activeProject.id}`}
                       html={recordDraftValue.html}
                       readOnly={!visible}
                       aiSettings={aiSettings}
@@ -895,11 +892,7 @@ export function ProjectOverviewPage({
                         scope={{
                           kind: "project",
                           projectId: note.projectId,
-                          activityId: note.activityId ?? null,
-                          assetHandlers: buildProjectNoteImageAssetHandlers(
-                            note.projectId,
-                            note.activityId ?? null,
-                          ),
+                          assetHandlers: buildProjectNoteImageAssetHandlers(note.projectId),
                         }}
                         focused={focusedRecordId === note.id}
                         availableTags={availableTags}

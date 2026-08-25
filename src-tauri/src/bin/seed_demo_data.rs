@@ -39,9 +39,7 @@ fn run() -> anyhow::Result<()> {
                         .ok_or_else(|| anyhow::anyhow!("--password requires a value"))?,
                 );
             }
-            "--force" => {
-                force = true;
-            }
+            "--force" => force = true,
             "--help" | "-h" => {
                 print_usage();
                 return Ok(());
@@ -59,12 +57,14 @@ fn run() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("--password is required for demo workspace seed"))?;
     let seeded = seed_demo_workspace_at(&workspace_root, &password, force)?;
 
-    let output = SeedCommandOutput {
-        workspace_root: seeded.workspace_root,
-        metadata_path: seeded.metadata_path,
-        summary: seeded.summary,
-    };
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&SeedCommandOutput {
+            workspace_root: seeded.workspace_root,
+            metadata_path: seeded.metadata_path,
+            summary: seeded.summary,
+        })?
+    );
     Ok(())
 }
 

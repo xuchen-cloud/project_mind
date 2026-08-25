@@ -2247,10 +2247,6 @@
   color: #0f766e;
 }
 
-.internal-reference-chip[data-ref-kind="conclusion"] .internal-reference-chip__kind {
-  background: color-mix(in srgb, #b45309 14%, var(--color-bg));
-  color: #b45309;
-}
 
 .internal-reference-chip[data-ref-kind="todo"] .internal-reference-chip__kind {
   background: color-mix(in srgb, #2563eb 14%, var(--color-bg));
@@ -2401,182 +2397,28 @@
   font-size: 12px;
 }
 
-.activity-page__content-shell {
-  container-type: inline-size;
-  container-name: activity-page;
-}
 
-.activity-note-focus {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at top, color-mix(in srgb, var(--color-accent) 6%, transparent) 0%, transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 98%, white) 0%, var(--color-bg) 100%);
-}
 
-.activity-note-focus__chrome {
-  position: relative;
-  z-index: 5;
-  flex: 0 0 auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-bg) 97%, white) 0%,
-      color-mix(in srgb, var(--color-bg) 92%, transparent) 100%
-    );
-  backdrop-filter: blur(16px);
-}
 
-.activity-note-focus__chrome-inner {
-  width: min(100%, 72rem);
-  margin: 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem 1.5rem;
-  padding: 0.95rem 1.5rem 0.9rem;
-}
 
-.activity-note-focus__meta {
-  display: grid;
-  gap: 0.55rem;
-}
 
-.activity-note-focus__breadcrumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-text-soft);
-  font-size: var(--text-ui);
-}
 
-.activity-note-focus__header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-}
 
-.activity-note-focus__status {
-  color: var(--color-text-soft);
-  font-size: var(--text-ui);
-}
 
-.activity-note-focus__scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
 
-.activity-note-focus__page {
-  width: min(100%, 47.5rem);
-  margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
-}
 
-.activity-note-focus__title {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  font-family: var(--rich-text-heading-font-family);
-  font-size: clamp(1.65rem, 3vw, 2.45rem);
-  font-weight: 650;
-  line-height: 1.08;
-  letter-spacing: -0.04em;
-  outline: none;
-}
 
-.activity-note-focus__title:focus,
-.activity-note-focus__title:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
 
-.activity-note-focus__title::placeholder {
-  color: color-mix(in srgb, var(--color-text-soft) 82%, white);
-}
 
-.activity-note-focus__editor {
-  margin-top: 1.1rem;
-}
 
-.activity-note-focus .rich-editor--page {
-  gap: 1rem;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__toolbar {
-  position: sticky;
-  top: 0.85rem;
-  z-index: 4;
-  width: 100%;
-  max-width: none;
-  margin-inline: 0;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 62%, transparent);
-  border-radius: 0.75rem;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-bg) 94%, white) 0%,
-      color-mix(in srgb, var(--color-bg) 88%, transparent) 100%
-    );
-  box-shadow:
-    0 10px 30px color-mix(in srgb, var(--color-text) 8%, transparent),
-    0 2px 10px color-mix(in srgb, var(--color-text) 6%, transparent);
-  backdrop-filter: blur(18px);
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-main,
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-extras {
-  flex-wrap: nowrap;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-main,
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-extras {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-main::-webkit-scrollbar,
-.activity-note-focus .rich-editor--page .rich-editor__toolbar-extras::-webkit-scrollbar {
-  display: none;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__frame {
-  overflow: visible;
-  background: transparent;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__surface {
-  min-height: 18rem;
-  padding: 0 0 10rem;
-  background: transparent;
-}
 
-.activity-note-focus .rich-editor--page.rich-editor--toolbar:focus-within,
-.activity-note-focus .rich-editor--page.rich-editor--toolbar.is-focused {
-  border-color: transparent;
-  box-shadow: none;
-}
 
-.activity-note-focus .rich-editor--page .rich-editor__surface:focus-within,
-.activity-note-focus .rich-editor--page .ProseMirror,
-.activity-note-focus .rich-editor--page .ProseMirror:focus,
-.activity-note-focus .rich-editor--page [contenteditable="true"]:focus,
-.activity-note-focus .rich-editor--page [contenteditable="true"]:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
 
 .project-overview-focus {
   display: flex;
@@ -4764,57 +4606,12 @@
   box-shadow: none;
 }
 
-.activity-page__content-shell--notes-fullpage {
-  position: relative;
-  max-width: none;
-  min-height: 100%;
-  padding-top: 0;
-  padding-bottom: 0;
-}
 
-.activity-page__layout {
-  display: grid;
-  gap: clamp(1.25rem, 1.6vw, 1.9rem);
-}
 
-.activity-page__layout--notes-fullpage {
-  position: relative;
-  min-height: 100%;
-  height: 100%;
-}
 
-.activity-page__notes-column,
-.activity-page__details-column {
-  min-width: 0;
-  align-content: start;
-}
 
-.activity-page__notes-column--fullpage {
-  position: relative;
-  grid-template-rows: minmax(0, 1fr);
-  min-height: 0;
-  align-content: stretch;
-}
 
-.activity-notes {
-  --activity-notes-surface-highlight: var(--inline-object-surface-highlight);
-  --activity-notes-body-padding-block-start: 0.2rem;
-  --activity-notes-body-padding-inline: 0.95rem;
-  --activity-notes-body-padding-block-end: 0.7rem;
-  container-type: inline-size;
-  container-name: activity-notes;
-  display: grid;
-  min-width: 0;
-  gap: 1rem;
-}
 
-.activity-notes--fullpage {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  gap: 0;
-  isolation: isolate;
-}
 
 .inline-object-item {
   display: grid;
@@ -4957,393 +4754,59 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
-.activity-notes__header {
-  align-items: start;
-}
 
-.activity-notes__result-editor {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.75rem 0.85rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-8);
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-item--editing .activity-notes__result-editor {
-  border-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 10%, transparent),
-    0 18px 36px color-mix(in srgb, var(--color-accent) 8%, transparent);
-}
 
-.activity-notes__editor-shell {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
 
-.activity-notes__editor-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0 0 0.18rem;
-  border-bottom: 1px solid var(--color-border);
-  background: transparent;
-}
 
-.activity-notes__editor-title {
-  flex: 1 1 14rem;
-  min-width: 12rem;
-}
 
-.activity-notes__editor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.4rem;
-}
 
-.activity-notes__editor-body {
-  min-width: 0;
-}
 
-.activity-notes__result-editor .rich-editor--toolbar {
-  border-width: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-editor .rich-editor--toolbar:focus-within {
-  border-color: transparent;
-  box-shadow: none;
-}
 
-.activity-notes__result-editor .rich-editor__toolbar {
-  padding: 2px 0 3px 2px;
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-editor .rich-editor__table-toolbar {
-  padding: 2px 0 3px 2px;
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-editor .rich-editor__frame {
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-editor .rich-editor__surface {
-  min-height: 320px;
-  padding:
-    var(--activity-notes-body-padding-block-start)
-    var(--activity-notes-body-padding-inline)
-    var(--activity-notes-body-padding-block-end);
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__rail {
-  display: grid;
-  gap: 0.4rem;
-}
 
-.activity-notes__results {
-  display: grid;
-  gap: 0;
-  min-width: 0;
-}
 
-.activity-notes--fullpage .activity-notes__rail,
-.activity-notes--fullpage .activity-notes__results,
-.activity-notes--fullpage .activity-notes__result-item {
-  min-height: 0;
-  height: auto;
-}
 
-.activity-notes--fullpage .activity-notes__results {
-  min-height: max(32rem, calc(100dvh - 8.5rem));
-}
 
-.activity-notes__result-item {
-  border-bottom: 1px solid var(--color-border);
-  padding: 0.2rem 0 0.35rem;
-}
 
-.activity-notes__result-item--fullpage {
-  position: relative;
-  min-height: inherit;
-  border-bottom-width: 0;
-  padding: 0;
-}
 
-.activity-notes__result-item--expanded {
-  border-bottom-color: var(--color-border);
-}
 
-.activity-notes__result-item--editing {
-  border-bottom-color: transparent;
-}
 
-.activity-notes__result-editor--fullpage {
-  position: relative;
-  inset: auto;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  align-items: stretch;
-  min-height: inherit;
-  padding: 1rem 1.25rem;
-  border-width: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-accent) 4%, var(--color-bg)),
-      color-mix(in srgb, var(--color-bg-subtle) 72%, var(--color-bg)) 22%,
-      var(--color-bg) 100%
-    );
-}
 
-.activity-notes__editor-shell--fullpage {
-  --activity-notes-editor-max-width: 880px;
-  position: relative;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(100%, var(--activity-notes-editor-max-width));
-  max-width: 100%;
-  height: 100%;
-  min-height: inherit;
-  margin: 0 auto;
-  border: 0;
-  border-radius: var(--radius-12);
-  background: transparent;
-  box-shadow: none;
-  z-index: 1;
-}
 
-.activity-notes__result-editor--fullpage::before {
-  content: "";
-  position: absolute;
-  inset: 0.7rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
-  border-radius: var(--radius-12);
-  background: color-mix(in srgb, var(--color-bg) 88%, var(--color-bg-subtle));
-  box-shadow: 0 22px 52px color-mix(in srgb, var(--color-text) 10%, transparent);
-  pointer-events: none;
-}
 
-.activity-notes__result-editor--fullpage .activity-notes__editor-header {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  padding: 1rem 1.15rem 0.65rem;
-  border-bottom-color: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-bg) 92%, var(--color-bg-subtle)),
-      color-mix(in srgb, var(--color-bg) 78%, transparent)
-    );
-  backdrop-filter: blur(10px);
-}
 
-.activity-notes__result-editor--fullpage .activity-notes__editor-body {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-}
 
-.activity-notes__result-editor--fullpage .rich-editor {
-  height: 100%;
-  min-height: 0;
-}
 
-.activity-notes__result-editor--fullpage .rich-editor--toolbar {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-}
 
-.activity-notes__result-editor--fullpage .rich-editor__toolbar {
-  position: sticky;
-  z-index: 2;
-  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-bg-subtle));
-}
 
-.activity-notes__result-editor--fullpage .rich-editor__frame {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
 
-.activity-notes__result-editor--fullpage .rich-editor__surface {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
 
-.activity-notes__editor-width-handle {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 5rem;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-soft);
-  cursor: ew-resize;
-  transform: translate(55%, -50%);
-}
 
-.activity-notes__editor-width-handle:hover,
-.activity-notes__editor-width-handle:focus-visible {
-  color: var(--color-text);
-  outline: none;
-}
 
-.activity-notes__editor-width-handle-grip {
-  display: block;
-  width: 4px;
-  height: 3.25rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-border-strong) 72%, var(--color-bg));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-bg) 85%, transparent);
-}
 
-.activity-notes__result-editor--resizing,
-.activity-notes__result-editor--resizing * {
-  cursor: ew-resize;
-  user-select: none;
-}
 
-.activity-notes__result-browse {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.75rem 0.85rem 0.95rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-8);
-  background: var(--activity-notes-surface-highlight);
-}
 
-.activity-notes__result-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.5rem;
-}
 
-.activity-notes__result-row--expanded {
-  align-items: start;
-  padding: 0 0 0.18rem;
-  background: transparent;
-}
 
-.activity-notes__result-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  cursor: pointer;
-  min-width: 0;
-  padding: 0.8rem 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-}
 
-.activity-notes__result-toggle--expanded {
-  padding: 0;
-}
 
-.activity-notes__result-toggle:hover {
-  background: transparent;
-}
 
-.activity-notes__result-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.2rem;
-}
 
-.activity-notes__pin-button {
-  color: var(--color-text-soft);
-}
 
-.activity-notes__pin-button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-text) 6%, transparent);
-  color: var(--color-text);
-}
 
-.activity-notes__pin-button:hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-}
 
-.activity-notes__result-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-wrap: pretty;
-}
 
-.activity-notes__result-row--expanded .activity-notes__result-title {
-  font-weight: 600;
-  color: var(--color-text);
-}
 
-.activity-notes__result-preview {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0.1rem 0 0;
-}
 
-.activity-notes__result-preview-panel {
-  display: grid;
-  cursor: text;
-  padding: 0;
-  border-radius: var(--radius-8);
-  outline: none;
-  transition: box-shadow var(--duration-standard) var(--ease-soft);
-}
 
-.activity-notes__result-preview-panel:hover {
-  background: transparent;
-}
 
-.activity-notes__result-preview-panel:focus-visible {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
-}
 
-.activity-notes__result-preview-body.rich-editor__surface {
-  min-height: 0;
-  padding:
-    var(--activity-notes-body-padding-block-start)
-    var(--activity-notes-body-padding-inline)
-    var(--activity-notes-body-padding-block-end);
-  background: transparent;
-}
 
-@container activity-page (min-width: 66rem) {
-  .activity-page__layout {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    align-items: start;
-  }
-}
 
 .image-annotation-dialog {
   display: grid;
@@ -5447,13 +4910,7 @@
 }
 
 @media (max-width: 768px) {
-  .activity-notes__header {
-    align-items: start;
-  }
 
-  .activity-notes__rail {
-    gap: 0.25rem;
-  }
 
   .rich-editor__toolbar {
     padding: 4px 6px;
@@ -5495,47 +4952,14 @@
     padding: 14px;
   }
 
-  .activity-notes__result-editor .rich-editor__surface {
-    min-height: 260px;
-    padding:
-      var(--activity-notes-body-padding-block-start)
-      0.8rem
-      0.8rem;
-  }
 
-  .activity-notes__result-row {
-    gap: 0.125rem;
-  }
 
-  .activity-notes__result-row--expanded {
-    padding: 0 0 0.18rem;
-  }
 
-  .activity-notes__result-toggle {
-    padding: 0.625rem 0;
-  }
 
-  .activity-notes__result-toggle--expanded {
-    padding: 0;
-  }
 
-  .activity-notes__result-preview {
-    padding: 0.1rem 0 0;
-  }
 
-  .activity-notes__editor-header {
-    align-items: stretch;
-    padding: 0 0 0.18rem;
-  }
 
-  .activity-notes__editor-title {
-    min-width: 100%;
-  }
 
-  .activity-note-focus__chrome-inner {
-    padding: 0.85rem 1rem 0.8rem;
-    align-items: flex-start;
-  }
 
   .project-overview-focus__chrome-inner {
     padding: 0.85rem 1rem 0.8rem;
@@ -5550,10 +4974,6 @@
     padding-right: max(1rem, 3.85rem);
   }
 
-  .activity-note-focus__page {
-    width: 100%;
-    padding: 1.35rem 1rem 3rem;
-  }
 
   .project-overview-focus__page {
     width: 100%;
@@ -5571,11 +4991,6 @@
     justify-content: flex-start;
   }
 
-  .activity-note-focus .rich-editor--page .rich-editor__toolbar {
-    width: 100%;
-    top: 0.65rem;
-    margin-inline: 0;
-  }
 
   .project-overview-focus .rich-editor--page .rich-editor__toolbar {
     width: 100%;
@@ -5583,41 +4998,12 @@
     margin-inline: 0;
   }
 
-  .activity-notes__editor-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
 
-  .activity-notes__result-editor--fullpage {
-    position: relative;
-    inset: auto;
-    min-height: inherit;
-    padding: 0;
-  }
 
-  .activity-notes__result-item--fullpage {
-    min-height: max(24rem, calc(100dvh - 6.25rem));
-  }
 
-  .activity-notes__editor-shell--fullpage {
-    width: 100%;
-    min-height: inherit;
-  }
 
-  .activity-notes__result-editor--fullpage::before {
-    inset: 0;
-  }
 
-  .activity-notes__editor-width-handle {
-    display: none;
-  }
 
-  .activity-notes__result-preview-body.rich-editor__surface {
-    padding:
-      var(--activity-notes-body-padding-block-start)
-      0.8rem
-      0.8rem;
-  }
 
   .rich-editor__surface td,
   .rich-editor__surface th {
@@ -5626,18 +5012,15 @@
 }
 
 /* Desktop visual-system audit: the editor is the raised plane; resident tools stay flat. */
-.activity-note-focus,
 .project-overview-focus {
   background: var(--color-bg);
 }
 
-.activity-note-focus__chrome,
 .project-overview-focus__chrome {
   background: var(--color-bg);
   backdrop-filter: none;
 }
 
-.activity-note-focus .rich-editor--page .rich-editor__toolbar,
 .project-overview-focus .rich-editor--page .rich-editor__toolbar {
   background: var(--color-bg);
   box-shadow: var(--shadow-sm);
@@ -5708,20 +5091,8 @@
   backdrop-filter: none;
 }
 
-.activity-notes__result-editor--fullpage {
-  background: var(--color-bg);
-}
 
-.activity-notes__result-editor--fullpage::before {
-  border-color: var(--color-border);
-  background: var(--color-bg);
-  box-shadow: none;
-}
 
-.activity-notes__result-editor--fullpage .activity-notes__editor-header {
-  background: var(--color-bg);
-  backdrop-filter: none;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .spin,

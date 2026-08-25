@@ -21,7 +21,6 @@ const activeProject: ProjectListItem = {
   isArchived: false,
   createdAt: "2026-08-01T00:00:00Z",
   updatedAt: "2026-08-01T00:00:00Z",
-  unorganizedCount: 0,
   openTodoCount: 1,
 };
 
@@ -30,7 +29,6 @@ function todo(id: number, scope: "workspace" | "project", status: "unfinished" |
     id,
     scope,
     projectId: scope === "project" ? activeProject.id : null,
-    activityId: null,
     content: `Todo ${id}`,
     status,
     priority: "not_urgent_important",
@@ -50,7 +48,6 @@ function seedClient() {
   const projectPage: ProjectPageData = {
     project: activeProject,
     projectDocuments: [],
-    conclusionGroups: [],
     records: [],
     unfinishedTodos: [projectOpenTodo],
     finishedTodos: [projectFinishedTodo],

@@ -6,7 +6,6 @@ export function refreshAll(queryClient: QueryClient, projectId?: number | null) 
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
     queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.aiArtifacts }),
   ];
 
   if (projectId != null) {

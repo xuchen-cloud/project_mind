@@ -56,16 +56,6 @@ export function roundToHalfHourLocal() {
   return now.toISOString().slice(0, 16);
 }
 
-export function buildConclusionPreview(content: string) {
-  const normalized = content.replace(/\s+/g, " ").trim();
-  if (!normalized) return { heading: "", body: "" };
-  const sentenceMatch = normalized.match(/^(.{1,48}?)[。！？.!?]\s*(.+)$/u);
-  if (sentenceMatch) return { heading: sentenceMatch[1].trim(), body: sentenceMatch[2].trim() };
-  const lineMatch = normalized.match(/^(.{1,48})[:：-]\s*(.+)$/u);
-  if (lineMatch) return { heading: lineMatch[1].trim(), body: lineMatch[2].trim() };
-  return { heading: "", body: normalized };
-}
-
 export function latestTodoSummary(todo: TodoRecord) {
   return todo.progresses[0]?.content || "等待补充进展";
 }
