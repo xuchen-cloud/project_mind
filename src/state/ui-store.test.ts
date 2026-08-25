@@ -48,7 +48,7 @@ describe("useUiStore", () => {
     useUiStore.getState().setTodoRailDisplayMode("flat");
     useUiStore.getState().setProjectTodoViewMode("workspace");
     useUiStore.getState().openSettings("contacts");
-    useUiStore.getState().rememberProjectRoute(9, "/projects/9/activities/11?focus=todo-3");
+    useUiStore.getState().rememberProjectRoute(9, "/projects/9?focus=record-11");
     useUiStore.getState().toggleProjectSidebarCollapsed();
     useUiStore.getState().toggleTodoRailCollapsed();
     useUiStore.getState().closeSettings();
@@ -69,7 +69,7 @@ describe("useUiStore", () => {
     expect(state.settingsSection).toBe("contacts");
     expect(state.projectSidebarCollapsed).toBe(true);
     expect(state.todoRailCollapsed).toBe(true);
-    expect(state.projectRecentPaths[9]).toBe("/projects/9/activities/11?focus=todo-3");
+    expect(state.projectRecentPaths[9]).toBe("/projects/9?focus=record-11");
     expect(state.noteEditorWidthPx).toBe(
       NOTE_EDITOR_WIDTH_DEFAULT_PX,
     );

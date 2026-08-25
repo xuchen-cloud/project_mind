@@ -42,19 +42,16 @@ describe("projectMindApi", () => {
       status: "active",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "project_update",
-      {
-        input: {
-          projectId: 1,
-          name: "Project Prime",
-          summary: "最新项目简介",
-          summaryMarkdown: "## 最新项目简介",
-          summaryHtml: "<h2>最新项目简介</h2>",
-          status: "active",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_update", {
+      input: {
+        projectId: 1,
+        name: "Project Prime",
+        summary: "最新项目简介",
+        summaryMarkdown: "## 最新项目简介",
+        summaryHtml: "<h2>最新项目简介</h2>",
+        status: "active",
       },
-    );
+    });
   });
 
   it("maps workspace search to the correct command", async () => {
@@ -158,64 +155,6 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps conclusion create to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
-
-    await projectMindApi.conclusionCreate({
-      projectId: 1,
-      activityId: 2,
-      markdown: "## 已确认结论",
-      html: "<h2>已确认结论</h2>",
-      promotedToProject: true,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("conclusion_create", {
-      input: {
-        projectId: 1,
-        activityId: 2,
-        markdown: "## 已确认结论",
-        html: "<h2>已确认结论</h2>",
-        promotedToProject: true,
-      },
-    });
-  });
-
-  it("maps conclusion update to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
-
-    await projectMindApi.conclusionUpdate({
-      conclusionId: 11,
-      markdown: "> 调整后的结论",
-      html: "<blockquote><p>调整后的结论</p></blockquote>",
-      promotedToProject: false,
-      isPinned: true,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("conclusion_update", {
-      input: {
-        conclusionId: 11,
-        markdown: "> 调整后的结论",
-        html: "<blockquote><p>调整后的结论</p></blockquote>",
-        promotedToProject: false,
-        isPinned: true,
-      },
-    });
-  });
-
-  it("maps conclusion delete to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 11 });
-
-    await projectMindApi.conclusionDelete({
-      conclusionId: 11,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("conclusion_delete", {
-      input: {
-        conclusionId: 11,
-      },
-    });
-  });
-
   it("maps todo priority update to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 5,
@@ -227,15 +166,12 @@ describe("projectMindApi", () => {
       priority: "urgent_important",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "todo_update_priority",
-      {
-        input: {
-          todoId: 5,
-          priority: "urgent_important",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_priority", {
+      input: {
+        todoId: 5,
+        priority: "urgent_important",
       },
-    );
+    });
   });
 
   it("maps todo delete to the correct command", async () => {
@@ -264,16 +200,13 @@ describe("projectMindApi", () => {
       progressDate: "2026-04-06",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "todo_update_progress",
-      {
-        input: {
-          progressId: 9,
-          content: "已更新进展",
-          progressDate: "2026-04-06",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_progress", {
+      input: {
+        progressId: 9,
+        content: "已更新进展",
+        progressDate: "2026-04-06",
       },
-    );
+    });
   });
 
   it("maps todo progress delete to the correct command", async () => {
@@ -283,16 +216,12 @@ describe("projectMindApi", () => {
       progressId: 9,
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "todo_delete_progress",
-      {
-        input: {
-          progressId: 9,
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete_progress", {
+      input: {
+        progressId: 9,
       },
-    );
+    });
   });
-
 
   it("maps ai settings fetch without payload", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
@@ -319,10 +248,7 @@ describe("projectMindApi", () => {
 
     await projectMindApi.projectTagSettingsGet({ projectId: 7 });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "file_tag_settings_get",
-      { input: { projectId: 7 } },
-    );
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_settings_get", { input: { projectId: 7 } });
   });
 
   it("maps contact search to the correct command", async () => {
@@ -389,17 +315,14 @@ describe("projectMindApi", () => {
       colorKey: "blue",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "file_tag_option_upsert",
-      {
-        input: {
-          projectId: 7,
-          id: 4,
-          label: "法务",
-          colorKey: "blue",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_option_upsert", {
+      input: {
+        projectId: 7,
+        id: 4,
+        label: "法务",
+        colorKey: "blue",
       },
-    );
+    });
   });
 
   it("maps document import with tag ids to the correct command", async () => {
@@ -407,7 +330,6 @@ describe("projectMindApi", () => {
 
     await projectMindApi.documentImport({
       projectId: 1,
-      activityId: 2,
       sourcePath: "/tmp/brief.pdf",
       isStarred: false,
       tagIds: [3, 5],
@@ -416,7 +338,6 @@ describe("projectMindApi", () => {
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import", {
       input: {
         projectId: 1,
-        activityId: 2,
         sourcePath: "/tmp/brief.pdf",
         isStarred: false,
         tagIds: [3, 5],
@@ -429,20 +350,15 @@ describe("projectMindApi", () => {
 
     await projectMindApi.documentImportNoteImage({
       projectId: 1,
-      activityId: 2,
       sourcePath: "/tmp/clip.png",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "document_import_note_image",
-      {
-        input: {
-          projectId: 1,
-          activityId: 2,
-          sourcePath: "/tmp/clip.png",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import_note_image", {
+      input: {
+        projectId: 1,
+        sourcePath: "/tmp/clip.png",
       },
-    );
+    });
   });
 
   it("maps clipboard note image import to the dedicated command", async () => {
@@ -450,24 +366,19 @@ describe("projectMindApi", () => {
 
     await projectMindApi.documentImportClipboardNoteImage({
       projectId: 1,
-      activityId: 2,
       fileName: "pasted-image.png",
       mimeType: "image/png",
       dataBase64: "ZmFrZQ==",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "document_import_clipboard_note_image",
-      {
-        input: {
-          projectId: 1,
-          activityId: 2,
-          fileName: "pasted-image.png",
-          mimeType: "image/png",
-          dataBase64: "ZmFrZQ==",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import_clipboard_note_image", {
+      input: {
+        projectId: 1,
+        fileName: "pasted-image.png",
+        mimeType: "image/png",
+        dataBase64: "ZmFrZQ==",
       },
-    );
+    });
   });
 
   it("maps document add version without source path to the correct command", async () => {
@@ -477,14 +388,11 @@ describe("projectMindApi", () => {
       documentId: 12,
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "document_add_version",
-      {
-        input: {
-          documentId: 12,
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_add_version", {
+      input: {
+        documentId: 12,
       },
-    );
+    });
   });
 
   it("maps document add version with source path to the correct command", async () => {
@@ -495,15 +403,12 @@ describe("projectMindApi", () => {
       sourcePath: "/tmp/brief-v2.pdf",
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "document_add_version",
-      {
-        input: {
-          documentId: 12,
-          sourcePath: "/tmp/brief-v2.pdf",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_add_version", {
+      input: {
+        documentId: 12,
+        sourcePath: "/tmp/brief-v2.pdf",
       },
-    );
+    });
   });
 
   it("maps document delete to the correct command", async () => {
@@ -549,9 +454,7 @@ describe("projectMindApi", () => {
 
     await projectMindApi.richTextStyleGet();
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "rich_text_style_get",
-    );
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("rich_text_style_get");
   });
 
   it("maps rich text style save to the correct command", async () => {
@@ -583,36 +486,33 @@ describe("projectMindApi", () => {
       },
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "rich_text_style_upsert",
-      {
-        input: {
-          body: {
-            fontFamily: { source: "preset", value: "work_sans" },
-            fontSizePx: 15,
-            lineHeight: 1.7,
-            paragraphSpacingBeforePx: 14,
-            paragraphSpacingAfterPx: 2,
-          },
-          headings: {
-            fontFamily: { source: "preset", value: "source_serif" },
-            lineHeight: 1.3,
-            paragraphSpacingBeforePx: 10,
-            paragraphSpacingAfterPx: 4,
-            h1SizePx: 28,
-            h2SizePx: 22,
-            h3SizePx: 18,
-          },
-          list: {
-            fontFamily: { source: "preset", value: "noto_sans_sc" },
-            fontSizePx: 15,
-            lineHeight: 1.65,
-            paragraphSpacingBeforePx: 10,
-            paragraphSpacingAfterPx: 3,
-          },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("rich_text_style_upsert", {
+      input: {
+        body: {
+          fontFamily: { source: "preset", value: "work_sans" },
+          fontSizePx: 15,
+          lineHeight: 1.7,
+          paragraphSpacingBeforePx: 14,
+          paragraphSpacingAfterPx: 2,
+        },
+        headings: {
+          fontFamily: { source: "preset", value: "source_serif" },
+          lineHeight: 1.3,
+          paragraphSpacingBeforePx: 10,
+          paragraphSpacingAfterPx: 4,
+          h1SizePx: 28,
+          h2SizePx: 22,
+          h3SizePx: 18,
+        },
+        list: {
+          fontFamily: { source: "preset", value: "noto_sans_sc" },
+          fontSizePx: 15,
+          lineHeight: 1.65,
+          paragraphSpacingBeforePx: 10,
+          paragraphSpacingAfterPx: 3,
         },
       },
-    );
+    });
   });
 
   it("maps ai binding updates to the correct command", async () => {
@@ -666,20 +566,17 @@ describe("projectMindApi", () => {
       enabled: true,
     });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_editor_skill_upsert",
-      {
-        input: {
-          name: "翻译成英文",
-          icon: "🌐",
-          description: "翻译选区",
-          prompt: "请翻译成自然英文",
-          resultMode: "answer",
-          showInTextMenu: true,
-          enabled: true,
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_editor_skill_upsert", {
+      input: {
+        name: "翻译成英文",
+        icon: "🌐",
+        description: "翻译选区",
+        prompt: "请翻译成自然英文",
+        resultMode: "answer",
+        showInTextMenu: true,
+        enabled: true,
       },
-    );
+    });
   });
 
   it("maps editor skill deletes to the correct command", async () => {
@@ -687,14 +584,11 @@ describe("projectMindApi", () => {
 
     await projectMindApi.aiEditorSkillDelete({ skillId: "translate" });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_editor_skill_delete",
-      {
-        input: {
-          skillId: "translate",
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_editor_skill_delete", {
+      input: {
+        skillId: "translate",
       },
-    );
+    });
   });
 
   it("maps editor skill reorders to the correct command", async () => {
@@ -702,14 +596,11 @@ describe("projectMindApi", () => {
 
     await projectMindApi.aiEditorSkillReorder({ skillIds: ["b", "a"] });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_editor_skill_reorder",
-      {
-        input: {
-          skillIds: ["b", "a"],
-        },
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_editor_skill_reorder", {
+      input: {
+        skillIds: ["b", "a"],
       },
-    );
+    });
   });
 
   it("maps ai job enqueue to the correct command", async () => {
@@ -767,9 +658,7 @@ describe("projectMindApi", () => {
 
     await projectMindApi.aiJobsListActive();
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_jobs_list_active",
-    );
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_jobs_list_active");
   });
 
   it("maps ai execution settings updates to the correct command", async () => {
@@ -777,11 +666,8 @@ describe("projectMindApi", () => {
 
     await projectMindApi.aiExecutionSettingsUpsert({ maxConcurrency: 3 });
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith(
-      "ai_execution_settings_upsert",
-      {
-        input: { maxConcurrency: 3 },
-      },
-    );
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_execution_settings_upsert", {
+      input: { maxConcurrency: 3 },
+    });
   });
 });

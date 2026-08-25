@@ -30,12 +30,9 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - `Workspace Tag`
 - `Project Tag`
 - `Contact`
-- `AI Artifact`
+- `AI Editor Skill`
 
-说明：
-
-- 当前正式主路由不再把 `Activity` 作为一等页面暴露
-- 仓库里仍存在部分 Activity 相关代码与测试，但不应视为当前产品主基线
+历史工作区中仍存在的旧领域数据只通过数据库迁移兼容层读取并复制为 Record，不进入当前产品模型；全新工作区不创建旧领域结构，v21 升级也不会删除任何现存历史行。
 
 ## 3. 当前页面与入口
 
@@ -64,7 +61,6 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 
 `QuickNote` 视图当前承载：
 
-- 工作区级 `Daily Brief` AI 总结卡
 - 固定单例 `Workspace QuickNote`
 
 `Record` 视图当前承载：
@@ -122,7 +118,6 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 - Workspace 入口
 - 项目页签
 - 新建项目
-- Ask
 - 全局搜索
 - 归档项目入口
 - 工作区菜单
@@ -217,23 +212,7 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 
 ### 4.7 AI
 
-当前 AI 能力分成三类：
-
-- `Ask`
-- `Artifacts`
-- `Editor Rewrite / Suggestion Generation`
-
-当前正式暴露的 AI artifact：
-
-- `project_brief`
-- `daily_brief`
-
-Ask 当前特征：
-
-- 单轮问答
-- 只保留最新一条回答
-- 根据当前范围检索本地对象
-- 尽量附带可跳转引用
+当前正式 AI 能力是 `AI Editor Skill`：用户可配置技能提示词、结果模式、菜单入口和模型绑定，并对已提交的编辑器内容执行改写、解释或图片文字提取。
 
 ## 5. 当前设置面板
 
@@ -301,7 +280,7 @@ Ask 当前特征：
 - 同步到远端知识库
 - 完整多主题系统
 - 面向团队协作的多人实时同步
-- 以 Activity 为主页面的旧流程继续作为默认入口
+- 将历史领域对象重新作为当前页面或命令入口
 
 ## 8. 文档维护原则
 

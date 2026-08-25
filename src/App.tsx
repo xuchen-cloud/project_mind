@@ -7,7 +7,6 @@ import type { BlockerFunction } from "react-router-dom";
 import type {
   DocumentRecord,
   NoteRecord,
-  WorkspaceSearchApiResult,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
 } from "./lib/types";
@@ -89,7 +88,6 @@ function workspaceScopedQueryKeys() {
     queryKeys.todoCollections.all,
     ["workspace-page"],
     ["ai-settings"],
-    ["ai-artifact"],
     ["rich-text-style"],
     ["project-tag-settings"],
   ] as const;
@@ -101,7 +99,6 @@ function toProjectSidebarRecords(
   return records.map((record) => ({
     id: record.id,
     projectId: record.projectId,
-    activityId: record.activityId,
     title: record.title,
     typeLabel: "记录",
     contentMarkdown: record.contentMarkdown,
@@ -175,12 +172,6 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
     case "document":
       return projectPath(result.projectId);
   }
-}
-
-export function isCurrentWorkspaceSearchResult(
-  result: WorkspaceSearchApiResult,
-): result is WorkspaceSearchResult {
-  return result.kind !== "activity" && result.kind !== "conclusion";
 }
 
 export function WorkspaceLayout({
@@ -429,7 +420,7 @@ export function WorkspaceLayout({
   const currentSearchResults = useMemo(
     () =>
       searchQueryIsCurrent
-        ? (searchQuery.data ?? []).filter(isCurrentWorkspaceSearchResult)
+        ? (searchQuery.data ?? [])
         : [],
     [searchQuery.data, searchQueryIsCurrent],
   );
@@ -823,7 +814,6 @@ export function WorkspaceLayout({
 
       await projectMindApi.projectRecordUpsert({
         projectId,
-        activityId: record.activityId ?? undefined,
         noteId: record.id,
         title: title.trim() || undefined,
         markdown: record.contentMarkdown,

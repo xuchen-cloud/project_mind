@@ -6,42 +6,34 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::{Local, Utc};
+use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
-use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use crate::{
     ai_provider::{self, ResolvedAiProfile},
     models::{
-        ActivityAttributeOption, ActivityAttributeOptionUpsertInput, ActivityCardData,
-        ActivityCreateInput, ActivityDigest, ActivityStatusOption, ActivityStatusOptionUpsertInput,
-        ActivityUpdateMetaInput, AiAnswerQuestionInput, AiAnswerResult, AiAnswerScope,
-        AiArtifactCitationRecord, AiArtifactGetInput, AiArtifactPayload, AiArtifactRecord,
-        AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput, AiEditorSkillActionDeleteInput,
-        AiEditorSkillActionRecord, AiEditorSkillActionUpsertInput, AiEditorSkillDeleteInput,
-        AiEditorSkillInput, AiEditorSkillRecord, AiEditorSkillReorderInput, AiEditorSkillResult,
-        AiEditorSkillUpsertInput, AiExecutionSettings, AiFeatureSettings, AiJobEnqueueInput,
-        AiJobResult, AiProfileTestInput, AiProfileTestResult, AiProviderProfileDeleteInput,
-        AiProviderProfileRecord, AiProviderProfileUpsertInput, AiSettingsSnapshot,
-        AiSuggestionRecord, ConclusionCreateInput, ConclusionDeleteInput, ConclusionGroup,
-        ConclusionListInput, ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput,
-        ContactRecord, ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput,
-        DocumentDeleteInput, DocumentImportClipboardImageInput,
-        DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
-        DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
-        DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
-        FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput, FileTagSettingsSnapshot,
-        InternalReferenceResolveInput, InternalReferenceResolveResult,
-        InternalReferenceSearchInput, InternalReferenceSearchResult, NoteRecord,
-        ProjectArchiveInput, ProjectCreateInput, ProjectDashboard, ProjectDeleteInput,
-        ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
-        ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput, RichTextFontSelection,
-        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
-        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
-        TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput, TodoUpdatePriorityInput,
-        TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
-        WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
+        AiCapabilityBindingRecord, AiCapabilityBindingUpsertInput, AiEditorSkillActionRecord,
+        AiEditorSkillDeleteInput, AiEditorSkillInput, AiEditorSkillRecord,
+        AiEditorSkillReorderInput, AiEditorSkillResult, AiEditorSkillUpsertInput,
+        AiExecutionSettings, AiJobEnqueueInput, AiJobResult, AiProfileTestInput,
+        AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
+        AiProviderProfileUpsertInput, AiSettingsSnapshot, ContactDeleteInput, ContactRecord,
+        ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
+        DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
+        DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
+        DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
+        DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+        FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
+        InternalReferenceResolveResult, InternalReferenceSearchInput,
+        InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
+        ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
+        ProjectRecordDeleteInput, ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput,
+        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
+        RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+        TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput,
+        TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
+        TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
         WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput,
         WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordUpsertInput,
         WorkspaceSearchInput, WorkspaceSearchResult,
@@ -68,21 +60,10 @@ const AI_REWRITE_ONLY_SCHEMA_VERSION: i64 = 17;
 const TODO_DUE_DATE_SCHEMA_VERSION: i64 = 18;
 const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
 const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
-const CURRENT_SCHEMA_VERSION: i64 = RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION;
+const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
+const CURRENT_SCHEMA_VERSION: i64 = LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
-const AI_VISIBLE_CAPABILITIES: [&str; 4] = [
-    "assistant",
-    "summary",
-    "suggestion_generation",
-    "editor_rewrite",
-];
-const AI_FEATURE_KEYS: [&str; 4] = [
-    "summary.project_brief",
-    "summary.daily_brief",
-    "suggestion_generation.conclusion",
-    "suggestion_generation.todo",
-];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
     "workspace_sans",
     "work_sans",
@@ -98,37 +79,14 @@ const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
 ];
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
 const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
-const APP_SETTING_KEY_AI_FEATURE_SETTINGS: &str = "ai_feature_settings";
 const APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS: &str = "ai_editor_rewrite_actions";
 const APP_SETTING_KEY_AI_EDITOR_SKILLS: &str = "ai_editor_skills";
 const APP_SETTING_KEY_AI_IMAGE_SKILL_MIGRATED: &str = "ai_image_skill_migrated";
 const AI_EDITOR_SKILL_LIMIT: usize = 24;
-const AI_EDITOR_REWRITE_ACTION_LIMIT: usize = 5;
 const MANAGED_NOTE_IMAGE_STORAGE_MODE: &str = "managed_note_image";
 const PROJECT_NOTE_ASSET_DIR_NAME: &str = "embedded-note-assets";
 const RICH_TEXT_PATH_ATTRIBUTES: [&str; 4] = ["data-path", "data-href", "href", "src"];
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
-const TODO_PRIORITY_URGENCY_KEYWORDS: [&str; 19] = [
-    "今天",
-    "今日",
-    "当天",
-    "明天",
-    "本周",
-    "周内",
-    "周五前",
-    "尽快",
-    "尽早",
-    "立即",
-    "马上",
-    "立刻",
-    "紧急",
-    "加急",
-    "asap",
-    "urgent",
-    "immediately",
-    "today",
-    "tomorrow",
-];
 
 #[derive(Clone, Copy)]
 enum AiDefaultRole {
@@ -148,28 +106,20 @@ impl AiDefaultRole {
         matches!(self, Self::Image)
     }
 }
-const TODO_PRIORITY_IMPORTANCE_KEYWORDS: [&str; 20] = [
-    "预算", "合同", "法务", "审批", "客户", "上线", "发布", "交付", "回款", "付款", "风险", "合规",
-    "方案", "决策", "评审", "blocking", "blocker", "launch", "release", "legal",
-];
 const SYSTEM_ACTIVITY_STATUS_PENDING: &str = "pending";
 const INTERNAL_REFERENCE_PRIORITY_NOTE_TITLE: u8 = 0;
-const INTERNAL_REFERENCE_PRIORITY_CONCLUSION_CONTENT: u8 = 1;
 const INTERNAL_REFERENCE_PRIORITY_TODO_CONTENT: u8 = 2;
 const INTERNAL_REFERENCE_PRIORITY_DOCUMENT_NAME: u8 = 3;
 const INTERNAL_REFERENCE_PRIORITY_NOTE_CONTENT: u8 = 4;
 const INTERNAL_REFERENCE_COMPACT_LABEL_MAX_CHARS: usize = 15;
 const WORKSPACE_SEARCH_PRIORITY_PROJECT_NAME: u8 = 0;
-const WORKSPACE_SEARCH_PRIORITY_ACTIVITY_TITLE: u8 = 1;
 const WORKSPACE_SEARCH_PRIORITY_CONTACT_NAME: u8 = 1;
 const WORKSPACE_SEARCH_PRIORITY_WORKSPACE_NOTE_TITLE: u8 = 2;
 const WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE: u8 = 2;
-const WORKSPACE_SEARCH_PRIORITY_CONCLUSION_CONTENT: u8 = 3;
 const WORKSPACE_SEARCH_PRIORITY_TODO_CONTENT: u8 = 4;
 const WORKSPACE_SEARCH_PRIORITY_DOCUMENT_NAME: u8 = 5;
 const WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT: u8 = 6;
 const WORKSPACE_SEARCH_PRIORITY_TODO_PROGRESS: u8 = 6;
-const WORKSPACE_SEARCH_PRIORITY_ACTIVITY_BRIEF: u8 = 7;
 const WORKSPACE_SEARCH_PRIORITY_PROJECT_SUMMARY: u8 = 8;
 const WORKSPACE_SEARCH_PRIORITY_CONTACT_META: u8 = 8;
 const WORKSPACE_SEARCH_PRIORITY_DOCUMENT_VERSION: u8 = 8;
@@ -178,7 +128,6 @@ const WORKSPACE_SEARCH_PRIORITY_TAG: u8 = 9;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InternalReferenceFilterKind {
     Note,
-    Conclusion,
     Todo,
     Document,
 }
@@ -187,10 +136,7 @@ impl InternalReferenceFilterKind {
     fn matches_result_kind(self, kind: &str) -> bool {
         matches!(
             (self, kind),
-            (Self::Note, "note")
-                | (Self::Conclusion, "conclusion")
-                | (Self::Todo, "todo")
-                | (Self::Document, "document")
+            (Self::Note, "note") | (Self::Todo, "todo") | (Self::Document, "document")
         )
     }
 }
@@ -245,27 +191,32 @@ struct WorkspaceSearchRank {
     match_kind: InternalReferenceMatchKind,
 }
 const SYSTEM_ACTIVITY_STATUS_PENDING_LABEL: &str = "待启动";
-const UNTITLED_ACTIVITY_PREFIX: &str = "未命名 Activity";
 const LEGACY_ACTIVITY_STATUS_REVIEW_LABEL: &str = "待复核";
 const LEGACY_ACTIVITY_STATUS_ORGANIZED_LABEL: &str = "已整理";
 const DEFAULT_ACTIVITY_ATTRIBUTE_COLOR_KEY: &str = "slate";
 const DEFAULT_ACTIVITY_STATUS_COLOR_KEY: &str = "amber";
 const LEGACY_ACTIVITY_STATUS_REVIEW_COLOR_KEY: &str = "orange";
 const LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY: &str = "green";
-const AI_ARTIFACT_STATUS_FRESH: &str = "fresh";
-const AI_ARTIFACT_STATUS_STALE: &str = "stale";
-const AI_ARTIFACT_STATUS_ERROR: &str = "error";
 const WORKSPACE_NOTE_KIND_STANDARD: &str = "workspace_note";
 const WORKSPACE_NOTE_KIND_TODAY_QUICK: &str = "today_quick_note";
 const WORKSPACE_PATH_PREFIX: &str = "workspace:";
 const ABSOLUTE_PATH_PREFIX: &str = "absolute:";
-const PROJECT_BRIEF_SECTIONS: [&str; 4] = ["最近变化", "关键决策", "阻塞", "建议下一步"];
-const DAILY_BRIEF_SECTIONS: [&str; 3] = ["优先做的 3 件事", "等待 / 阻塞项", "建议跟进行动"];
 
 pub struct Database {
     conn: Connection,
     workspace_root: PathBuf,
     secret_password: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoSeedResult {
+    pub workspace_root: String,
+    pub project_count: i64,
+    pub project_record_count: i64,
+    pub workspace_record_count: i64,
+    pub todo_count: i64,
+    pub file_count: i64,
 }
 
 struct AiProfileStorage {
@@ -286,162 +237,9 @@ struct AiProfileStorage {
     updated_at: String,
 }
 
-struct ActivityFsRecord {
-    project_id: i64,
-    attribute_option_id: Option<i64>,
-    title: String,
-    brief_markdown: String,
-    brief_html: String,
-    activity_time: String,
-    status_option_id: Option<i64>,
-    is_pinned: bool,
-    is_expanded: bool,
-    folder_name: String,
-}
-
 struct RichTextAssetScope {
     root_path: PathBuf,
     document_paths: HashMap<i64, PathBuf>,
-}
-
-struct ActivityCardRow {
-    id: i64,
-    project_id: i64,
-    attribute_option_id: Option<i64>,
-    attribute_label: Option<String>,
-    attribute_color_key: Option<String>,
-    title: String,
-    brief_markdown: String,
-    brief_html: String,
-    activity_time: String,
-    status_option_id: i64,
-    status_label: String,
-    status_color_key: String,
-    status_needs_attention: bool,
-    is_pinned: bool,
-    is_expanded: bool,
-    created_at: String,
-    updated_at: String,
-}
-
-struct ArtifactSkillSpec {
-    kind: &'static str,
-    skill_key: &'static str,
-    skill_version: &'static str,
-    artifact_name: &'static str,
-    section_titles: &'static [&'static str],
-}
-
-struct AskSkillSpec {
-    skill_key: &'static str,
-    skill_version: &'static str,
-}
-
-const PROJECT_BRIEF_SKILL: ArtifactSkillSpec = ArtifactSkillSpec {
-    kind: "project_brief",
-    skill_key: "builtin.project_brief",
-    skill_version: "1.0.0",
-    artifact_name: "Project Brief",
-    section_titles: &PROJECT_BRIEF_SECTIONS,
-};
-
-const DAILY_BRIEF_SKILL: ArtifactSkillSpec = ArtifactSkillSpec {
-    kind: "daily_brief",
-    skill_key: "builtin.daily_brief",
-    skill_version: "1.0.0",
-    artifact_name: "Daily Brief",
-    section_titles: &DAILY_BRIEF_SECTIONS,
-};
-
-const ASK_SKILL: AskSkillSpec = AskSkillSpec {
-    skill_key: "builtin.ask",
-    skill_version: "1.0.0",
-};
-
-#[derive(Clone)]
-struct ArtifactSource {
-    ref_code: String,
-    source_kind: String,
-    source_id: i64,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    label: String,
-    excerpt: String,
-}
-
-struct ArtifactGenerationContext {
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    artifact_date: Option<String>,
-    source_updated_at: String,
-    context_text: String,
-    sources: Vec<ArtifactSource>,
-}
-
-#[derive(Clone)]
-struct AskSource {
-    ref_code: String,
-    source_kind: String,
-    source_id: i64,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    label: String,
-    excerpt: String,
-    body_text: String,
-    updated_at: String,
-}
-
-struct ResolvedArtifactRequest {
-    spec: &'static ArtifactSkillSpec,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    artifact_date: Option<String>,
-}
-
-struct ResolvedAskRequest {
-    scope: AiAnswerScope,
-    question: String,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DemoSeedResult {
-    pub workspace_root: String,
-    pub project_count: i64,
-    pub activity_count: i64,
-    pub note_count: i64,
-    pub conclusion_count: i64,
-    pub todo_count: i64,
-    pub document_count: i64,
-    pub ai_profile_mode: String,
-}
-
-struct DemoSeedCatalog {
-    attribute_ids: HashMap<String, i64>,
-    status_ids: HashMap<String, i64>,
-}
-
-impl DemoSeedCatalog {
-    fn attribute_id(&self, label: &str) -> Result<i64> {
-        self.attribute_ids
-            .get(label)
-            .copied()
-            .ok_or_else(|| anyhow!("missing demo activity attribute: {label}"))
-    }
-
-    fn status_id(&self, label: &str) -> Result<i64> {
-        self.status_ids
-            .get(label)
-            .copied()
-            .ok_or_else(|| anyhow!("missing demo activity status: {label}"))
-    }
-}
-
-struct SeededProjectRefs {
-    project_id: i64,
-    activity_ids: Vec<i64>,
 }
 
 impl Database {
@@ -473,6 +271,8 @@ impl Database {
     }
 
     pub fn migrate(&mut self) -> Result<()> {
+        let initial_schema_version = self.schema_version()?;
+        let is_fresh_workspace = initial_schema_version == 0 && !self.table_exists("projects")?;
         self.conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS projects (
@@ -490,57 +290,16 @@ impl Database {
               updated_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS activity_attribute_options (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              label TEXT NOT NULL COLLATE NOCASE,
-              color_key TEXT NOT NULL DEFAULT 'slate',
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS activity_status_options (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              system_key TEXT UNIQUE,
-              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
-              color_key TEXT NOT NULL DEFAULT 'amber',
-              needs_attention INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS activities (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id INTEGER NOT NULL,
-              category TEXT NOT NULL,
-              attribute_option_id INTEGER,
-              title TEXT NOT NULL DEFAULT '',
-              brief_markdown TEXT NOT NULL DEFAULT '',
-              brief_html TEXT NOT NULL DEFAULT '',
-              folder_name TEXT NOT NULL DEFAULT '',
-              activity_time TEXT NOT NULL,
-              is_pinned INTEGER NOT NULL DEFAULT 0,
-              is_expanded INTEGER NOT NULL DEFAULT 0,
-              organize_status TEXT NOT NULL DEFAULT 'needs_review',
-              status_option_id INTEGER,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(attribute_option_id) REFERENCES activity_attribute_options(id) ON DELETE SET NULL,
-              FOREIGN KEY(status_option_id) REFERENCES activity_status_options(id) ON DELETE SET NULL
-            );
-
             CREATE TABLE IF NOT EXISTS notes (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
-              activity_id INTEGER,
               title TEXT,
               content_markdown TEXT NOT NULL DEFAULT '',
               content_html TEXT NOT NULL DEFAULT '',
               default_code_language TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS workspace_notes (
@@ -554,28 +313,10 @@ impl Database {
               updated_at TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS conclusions (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id INTEGER NOT NULL,
-              activity_id INTEGER,
-              note_id INTEGER,
-              content_markdown TEXT NOT NULL DEFAULT '',
-              content_html TEXT NOT NULL DEFAULT '',
-              content TEXT NOT NULL,
-              promoted_to_project INTEGER NOT NULL DEFAULT 0,
-              is_pinned INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE,
-              FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE SET NULL
-            );
-
             CREATE TABLE IF NOT EXISTS todos (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               scope TEXT NOT NULL DEFAULT 'project',
               project_id INTEGER,
-              activity_id INTEGER,
               content TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'unfinished',
               priority TEXT NOT NULL,
@@ -583,12 +324,11 @@ impl Database {
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               CHECK (
-                (scope = 'workspace' AND project_id IS NULL AND activity_id IS NULL)
+                (scope = 'workspace' AND project_id IS NULL)
                 OR
                 (scope = 'project' AND project_id IS NOT NULL)
               ),
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS todo_progresses (
@@ -607,7 +347,6 @@ impl Database {
             CREATE TABLE IF NOT EXISTS documents (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_id INTEGER NOT NULL,
-              activity_id INTEGER,
               name TEXT NOT NULL,
               base_name TEXT NOT NULL DEFAULT '',
               original_path TEXT NOT NULL,
@@ -621,8 +360,7 @@ impl Database {
               health TEXT NOT NULL DEFAULT 'normal',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
-              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS document_versions (
@@ -732,246 +470,246 @@ impl Database {
 
             "#,
         )?;
-        self.ensure_column(
-            "projects",
-            "is_archived",
-            "ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
-        )?;
-        self.ensure_column(
-            "projects",
-            "kind",
-            "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'",
-        )?;
-        self.ensure_column(
-            "projects",
-            "summary_markdown",
-            "ALTER TABLE projects ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "projects",
-            "summary_html",
-            "ALTER TABLE projects ADD COLUMN summary_html TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "projects",
-            "quick_note_code_language",
-            "ALTER TABLE projects ADD COLUMN quick_note_code_language TEXT",
-        )?;
-        self.ensure_column(
-            "notes",
-            "default_code_language",
-            "ALTER TABLE notes ADD COLUMN default_code_language TEXT",
-        )?;
-        self.ensure_column(
+
+        if is_fresh_workspace {
+            self.set_schema_version(CURRENT_SCHEMA_VERSION)?;
+        } else if initial_schema_version < CURRENT_SCHEMA_VERSION {
+            self.ensure_legacy_domain_schema()?;
+            self.ensure_column(
+                "projects",
+                "is_archived",
+                "ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+            )?;
+            self.ensure_column(
+                "projects",
+                "kind",
+                "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'",
+            )?;
+            self.ensure_column(
+                "projects",
+                "summary_markdown",
+                "ALTER TABLE projects ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "projects",
+                "summary_html",
+                "ALTER TABLE projects ADD COLUMN summary_html TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "projects",
+                "quick_note_code_language",
+                "ALTER TABLE projects ADD COLUMN quick_note_code_language TEXT",
+            )?;
+            self.ensure_column(
+                "notes",
+                "default_code_language",
+                "ALTER TABLE notes ADD COLUMN default_code_language TEXT",
+            )?;
+            self.ensure_column(
             "workspace_notes",
             "note_kind",
             "ALTER TABLE workspace_notes ADD COLUMN note_kind TEXT NOT NULL DEFAULT 'workspace_note'",
         )?;
-        self.ensure_column(
-            "workspace_notes",
-            "default_code_language",
-            "ALTER TABLE workspace_notes ADD COLUMN default_code_language TEXT",
-        )?;
-        self.ensure_column(
-            "activities",
-            "folder_name",
-            "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "activities",
-            "brief_markdown",
-            "ALTER TABLE activities ADD COLUMN brief_markdown TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "activities",
-            "brief_html",
-            "ALTER TABLE activities ADD COLUMN brief_html TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
+            self.ensure_column(
+                "workspace_notes",
+                "default_code_language",
+                "ALTER TABLE workspace_notes ADD COLUMN default_code_language TEXT",
+            )?;
+            self.ensure_column(
+                "activities",
+                "folder_name",
+                "ALTER TABLE activities ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "activities",
+                "brief_markdown",
+                "ALTER TABLE activities ADD COLUMN brief_markdown TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "activities",
+                "brief_html",
+                "ALTER TABLE activities ADD COLUMN brief_html TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
             "activity_attribute_options",
             "color_key",
             "ALTER TABLE activity_attribute_options ADD COLUMN color_key TEXT NOT NULL DEFAULT 'slate'",
         )?;
-        self.ensure_column(
+            self.ensure_column(
             "activity_status_options",
             "color_key",
             "ALTER TABLE activity_status_options ADD COLUMN color_key TEXT NOT NULL DEFAULT 'amber'",
         )?;
-        self.ensure_column(
+            self.ensure_column(
             "activities",
             "attribute_option_id",
             "ALTER TABLE activities ADD COLUMN attribute_option_id INTEGER REFERENCES activity_attribute_options(id) ON DELETE SET NULL",
         )?;
-        self.ensure_column(
-            "conclusions",
-            "content_markdown",
-            "ALTER TABLE conclusions ADD COLUMN content_markdown TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "conclusions",
-            "content_html",
-            "ALTER TABLE conclusions ADD COLUMN content_html TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "conclusions",
-            "is_pinned",
-            "ALTER TABLE conclusions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
-        )?;
-        self.ensure_column(
-            "documents",
-            "base_name",
-            "ALTER TABLE documents ADD COLUMN base_name TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
-            "documents",
-            "history_dir_path",
-            "ALTER TABLE documents ADD COLUMN history_dir_path TEXT NOT NULL DEFAULT ''",
-        )?;
-        self.ensure_column(
+            self.ensure_column(
+                "conclusions",
+                "content_markdown",
+                "ALTER TABLE conclusions ADD COLUMN content_markdown TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "conclusions",
+                "content_html",
+                "ALTER TABLE conclusions ADD COLUMN content_html TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "conclusions",
+                "is_pinned",
+                "ALTER TABLE conclusions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
+            )?;
+            self.ensure_column(
+                "documents",
+                "base_name",
+                "ALTER TABLE documents ADD COLUMN base_name TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
+                "documents",
+                "history_dir_path",
+                "ALTER TABLE documents ADD COLUMN history_dir_path TEXT NOT NULL DEFAULT ''",
+            )?;
+            self.ensure_column(
             "documents",
             "current_version_number",
             "ALTER TABLE documents ADD COLUMN current_version_number INTEGER NOT NULL DEFAULT 1",
         )?;
-        self.ensure_column(
-            "documents",
-            "version_count",
-            "ALTER TABLE documents ADD COLUMN version_count INTEGER NOT NULL DEFAULT 1",
-        )?;
-        self.ensure_column(
+            self.ensure_column(
+                "documents",
+                "version_count",
+                "ALTER TABLE documents ADD COLUMN version_count INTEGER NOT NULL DEFAULT 1",
+            )?;
+            self.ensure_column(
             "activities",
             "status_option_id",
             "ALTER TABLE activities ADD COLUMN status_option_id INTEGER REFERENCES activity_status_options(id) ON DELETE SET NULL",
         )?;
-        self.ensure_column(
-            "todo_progresses",
-            "status",
-            "ALTER TABLE todo_progresses ADD COLUMN status TEXT NOT NULL DEFAULT 'unfinished'",
-        )?;
-        self.ensure_column(
-            "todo_progresses",
-            "completed_at",
-            "ALTER TABLE todo_progresses ADD COLUMN completed_at TEXT",
-        )?;
-        self.ensure_column(
-            "todo_progresses",
-            "order_index",
-            "ALTER TABLE todo_progresses ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
-        )?;
-        self.ensure_column(
-            "file_tag_options",
-            "project_id",
-            "ALTER TABLE file_tag_options ADD COLUMN project_id INTEGER",
-        )?;
-        self.conn.execute(
+            self.ensure_column(
+                "todo_progresses",
+                "status",
+                "ALTER TABLE todo_progresses ADD COLUMN status TEXT NOT NULL DEFAULT 'unfinished'",
+            )?;
+            self.ensure_column(
+                "todo_progresses",
+                "completed_at",
+                "ALTER TABLE todo_progresses ADD COLUMN completed_at TEXT",
+            )?;
+            self.ensure_column(
+                "todo_progresses",
+                "order_index",
+                "ALTER TABLE todo_progresses ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
+            )?;
+            self.ensure_column(
+                "file_tag_options",
+                "project_id",
+                "ALTER TABLE file_tag_options ADD COLUMN project_id INTEGER",
+            )?;
+            self.conn.execute(
             "UPDATE activities SET organize_status = 'needs_review' WHERE organize_status = 'unorganized'",
             [],
         )?;
-        self.conn.execute(
-            r#"
+            self.conn.execute(
+                r#"
             UPDATE conclusions
             SET content_markdown = content
             WHERE TRIM(COALESCE(content_markdown, '')) = ''
               AND TRIM(COALESCE(content, '')) <> ''
             "#,
-            [],
-        )?;
-        self.conn.execute(
-            r#"
+                [],
+            )?;
+            self.conn.execute(
+                r#"
             UPDATE projects
             SET summary_markdown = summary
             WHERE TRIM(COALESCE(summary_markdown, '')) = ''
               AND TRIM(COALESCE(summary, '')) <> ''
             "#,
-            [],
-        )?;
-        self.backfill_project_summary_html()?;
-        if self.schema_version()? < TODO_SCHEMA_VERSION {
-            self.rebuild_todo_schema()?;
-            self.set_schema_version(TODO_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < FILE_LAYOUT_SCHEMA_VERSION {
-            self.set_schema_version(FILE_LAYOUT_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < DOCUMENT_SCHEMA_VERSION {
-            self.rebuild_document_schema()?;
-            self.set_schema_version(DOCUMENT_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < ACTIVITY_SETTINGS_SCHEMA_VERSION {
-            self.migrate_activity_settings_schema()?;
-            self.set_schema_version(ACTIVITY_SETTINGS_SCHEMA_VERSION)?;
-        } else {
-            self.ensure_activity_settings_seeded()?;
-        }
-        if self.schema_version()? < FILE_TAG_SCHEMA_VERSION {
-            self.set_schema_version(FILE_TAG_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION {
-            self.migrate_activity_attribute_color_schema()?;
-            self.set_schema_version(ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < ACTIVITY_STATUS_COLOR_SCHEMA_VERSION {
-            self.migrate_activity_status_color_schema()?;
-            self.set_schema_version(ACTIVITY_STATUS_COLOR_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < TODO_SUBITEM_SCHEMA_VERSION {
-            self.migrate_todo_subitem_schema()?;
-            self.set_schema_version(TODO_SUBITEM_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < PROJECT_KIND_SCHEMA_VERSION {
-            self.migrate_project_kind_schema()?;
-            self.set_schema_version(PROJECT_KIND_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < PROJECT_ENTITY_TAG_SCHEMA_VERSION {
-            self.migrate_project_entity_tags_schema()?;
-            self.set_schema_version(PROJECT_ENTITY_TAG_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < ACTIVITY_RETIRE_SCHEMA_VERSION {
-            self.migrate_activity_retire_schema()?;
-            self.set_schema_version(ACTIVITY_RETIRE_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < FILE_TAG_PROJECT_UNIQUENESS_SCHEMA_VERSION {
-            self.migrate_file_tag_project_uniqueness_schema()?;
-            self.set_schema_version(FILE_TAG_PROJECT_UNIQUENESS_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < NOTE_TYPE_REMOVAL_SCHEMA_VERSION {
-            self.migrate_note_type_removal_schema()?;
-            self.set_schema_version(NOTE_TYPE_REMOVAL_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < WORKSPACE_NOTE_TAG_SCHEMA_VERSION {
-            self.migrate_workspace_note_tag_schema()?;
-            self.set_schema_version(WORKSPACE_NOTE_TAG_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < AI_REWRITE_ONLY_SCHEMA_VERSION {
-            self.migrate_ai_rewrite_only_schema()?;
-            self.set_schema_version(AI_REWRITE_ONLY_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < TODO_DUE_DATE_SCHEMA_VERSION {
-            self.migrate_todo_due_date_schema()?;
-            self.set_schema_version(TODO_DUE_DATE_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < TODO_OWNERSHIP_SCHEMA_VERSION {
-            self.migrate_todo_ownership_schema()?;
-            self.set_schema_version(TODO_OWNERSHIP_SCHEMA_VERSION)?;
-        }
-        if self.schema_version()? < RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION {
-            self.migrate_rich_text_asset_paths_to_relative()?;
-            self.set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)?;
+                [],
+            )?;
+            self.backfill_project_summary_html()?;
+            if self.schema_version()? < TODO_SCHEMA_VERSION {
+                self.rebuild_todo_schema()?;
+                self.set_schema_version(TODO_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < FILE_LAYOUT_SCHEMA_VERSION {
+                self.set_schema_version(FILE_LAYOUT_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < DOCUMENT_SCHEMA_VERSION {
+                self.rebuild_document_schema()?;
+                self.set_schema_version(DOCUMENT_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < ACTIVITY_SETTINGS_SCHEMA_VERSION {
+                self.migrate_activity_settings_schema()?;
+                self.set_schema_version(ACTIVITY_SETTINGS_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < FILE_TAG_SCHEMA_VERSION {
+                self.set_schema_version(FILE_TAG_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION {
+                self.migrate_activity_attribute_color_schema()?;
+                self.set_schema_version(ACTIVITY_ATTRIBUTE_COLOR_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < ACTIVITY_STATUS_COLOR_SCHEMA_VERSION {
+                self.migrate_activity_status_color_schema()?;
+                self.set_schema_version(ACTIVITY_STATUS_COLOR_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < TODO_SUBITEM_SCHEMA_VERSION {
+                self.migrate_todo_subitem_schema()?;
+                self.set_schema_version(TODO_SUBITEM_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < PROJECT_KIND_SCHEMA_VERSION {
+                self.migrate_project_kind_schema()?;
+                self.set_schema_version(PROJECT_KIND_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < PROJECT_ENTITY_TAG_SCHEMA_VERSION {
+                self.migrate_project_entity_tags_schema()?;
+                self.set_schema_version(PROJECT_ENTITY_TAG_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < ACTIVITY_RETIRE_SCHEMA_VERSION {
+                self.migrate_activity_retire_schema()?;
+                self.set_schema_version(ACTIVITY_RETIRE_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < FILE_TAG_PROJECT_UNIQUENESS_SCHEMA_VERSION {
+                self.migrate_file_tag_project_uniqueness_schema()?;
+                self.set_schema_version(FILE_TAG_PROJECT_UNIQUENESS_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < NOTE_TYPE_REMOVAL_SCHEMA_VERSION {
+                self.migrate_note_type_removal_schema()?;
+                self.set_schema_version(NOTE_TYPE_REMOVAL_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < WORKSPACE_NOTE_TAG_SCHEMA_VERSION {
+                self.migrate_workspace_note_tag_schema()?;
+                self.set_schema_version(WORKSPACE_NOTE_TAG_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < AI_REWRITE_ONLY_SCHEMA_VERSION {
+                self.migrate_ai_rewrite_only_schema()?;
+                self.set_schema_version(AI_REWRITE_ONLY_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < TODO_DUE_DATE_SCHEMA_VERSION {
+                self.migrate_todo_due_date_schema()?;
+                self.set_schema_version(TODO_DUE_DATE_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < TODO_OWNERSHIP_SCHEMA_VERSION {
+                self.migrate_todo_ownership_schema()?;
+                self.set_schema_version(TODO_OWNERSHIP_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION {
+                self.migrate_rich_text_asset_paths_to_relative()?;
+                self.set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)?;
+            }
+            if self.schema_version()? < LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION {
+                self.migrate_legacy_domain_records(true)?;
+                self.set_schema_version(LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION)?;
+            }
         }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_projects_archived_updated ON projects(is_archived, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_activities_project_time ON activities(project_id, activity_time DESC);
-            CREATE INDEX IF NOT EXISTS idx_activities_project_folder ON activities(project_id, folder_name);
-            CREATE INDEX IF NOT EXISTS idx_activities_attribute_option ON activities(attribute_option_id);
-            CREATE INDEX IF NOT EXISTS idx_activities_status_option ON activities(status_option_id);
-            CREATE INDEX IF NOT EXISTS idx_notes_activity ON notes(activity_id, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_conclusions_project ON conclusions(project_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id, status, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_todos_activity ON todos(activity_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_todo_progresses_todo_date ON todo_progresses(todo_id, progress_date DESC, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_documents_project_activity_base ON documents(project_id, activity_id, base_name);
             CREATE INDEX IF NOT EXISTS idx_documents_project_starred ON documents(project_id, is_starred, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_document_versions_document_version ON document_versions(document_id, version_number DESC);
             CREATE INDEX IF NOT EXISTS idx_file_tag_options_created ON file_tag_options(created_at ASC, id ASC);
@@ -1124,6 +862,127 @@ impl Database {
             html,
             &self.project_root_path(project_id)?,
         ))
+    }
+
+    pub fn seed_demo_data(&mut self, workspace_root: &Path) -> Result<DemoSeedResult> {
+        fs::create_dir_all(workspace_root).with_context(|| {
+            format!(
+                "failed to create demo workspace root at {}",
+                workspace_root.display()
+            )
+        })?;
+        let source_root = workspace_root
+            .join(WORKSPACE_HIDDEN_DIR_NAME)
+            .join("demo-sources");
+        fs::create_dir_all(&source_root)?;
+
+        let fixtures = [
+            (
+                "智能客服知识库升级",
+                "退款、物流和账户问题已经统一到同一工作现场，下一步验证检索口径。",
+                "法务边界与知识库口径",
+                "已确认敏感字段必须在进入模型前脱敏，FAQ 由业务负责人维护。",
+                "确认退款场景的最终验收样例",
+                "customer-service-guidelines.md",
+            ),
+            (
+                "海外销售线索评分 Copilot",
+                "目标是缩短 SDR 首次筛选时间，当前聚焦 CRM 字段稳定性。",
+                "评分字段评审记录",
+                "公司规模、地区和最近互动是首版评分的核心输入，解释文本必须可追溯。",
+                "补齐 CRM 沙箱字段映射",
+                "lead-scoring-fields.csv",
+            ),
+            (
+                "合同审阅 AI 助手试点",
+                "试点聚焦红线条款识别、审阅意见归类和标准修改建议。",
+                "试点范围与复核流程",
+                "所有建议都由法务确认后写回 Record，AI 结果不能自动覆盖已提交正文。",
+                "安排下一轮法务复核",
+                "contract-review-checklist.md",
+            ),
+        ];
+
+        for (index, (name, quick_note, record_title, record_body, todo, file_name)) in
+            fixtures.into_iter().enumerate()
+        {
+            let project = self.project_create(ProjectCreateInput {
+                name: name.to_string(),
+                summary: Some(quick_note.to_string()),
+                status: Some("active".to_string()),
+            })?;
+            self.project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: None,
+                title: Some(record_title.to_string()),
+                markdown: record_body.to_string(),
+                html: rich_text_html_from_markdown(record_body),
+                default_code_language: None,
+                tag_ids: Vec::new(),
+            })?;
+            self.todo_create(TodoCreateInput {
+                scope: TodoScope::Project,
+                project_id: Some(project.id),
+                content: todo.to_string(),
+                priority: if index == 0 {
+                    "urgent_important".to_string()
+                } else {
+                    "not_urgent_important".to_string()
+                },
+                due_date: None,
+                tag_ids: Vec::new(),
+            })?;
+            let source_path = source_root.join(file_name);
+            fs::write(&source_path, format!("{record_title}\n\n{record_body}\n"))?;
+            self.document_import(DocumentImportInput {
+                project_id: project.id,
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: index == 0,
+                tag_ids: None,
+            })?;
+        }
+
+        self.workspace_record_upsert(WorkspaceRecordUpsertInput {
+            note_id: None,
+            title: Some("跨项目复盘框架".to_string()),
+            markdown: "每周汇总风险、依据和下一步，并把需要持续保留的信息沉淀为 Record。"
+                .to_string(),
+            html: rich_text_html_from_markdown(
+                "每周汇总风险、依据和下一步，并把需要持续保留的信息沉淀为 Record。",
+            ),
+            default_code_language: None,
+            tag_ids: Vec::new(),
+        })?;
+        self.workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
+            markdown: "检查三个 Project 的本周 Todo。".to_string(),
+            html: rich_text_html_from_markdown("检查三个 Project 的本周 Todo。"),
+            default_code_language: None,
+            tag_ids: Vec::new(),
+        })?;
+
+        let count = |table: &str| -> Result<i64> {
+            self.conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .map_err(Into::into)
+        };
+        Ok(DemoSeedResult {
+            workspace_root: workspace_root.to_string_lossy().to_string(),
+            project_count: count("projects")?,
+            project_record_count: count("notes")?,
+            workspace_record_count: self.conn.query_row(
+                "SELECT COUNT(*) FROM workspace_notes WHERE note_kind = ?1",
+                [WORKSPACE_NOTE_KIND_STANDARD],
+                |row| row.get(0),
+            )?,
+            todo_count: count("todos")?,
+            file_count: self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE storage_mode != ?1",
+                [MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                |row| row.get(0),
+            )?,
+        })
     }
 
     fn persist_workspace_rich_text_html(&self, html: &str) -> String {
@@ -1315,8 +1174,6 @@ impl Database {
             SELECT
               p.id, p.name, p.kind, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
               p.quick_note_code_language, p.is_archived, p.created_at, p.updated_at,
-              0 AS activity_count,
-              0 AS unorganized_count,
               (SELECT COUNT(*) FROM todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
@@ -1347,9 +1204,7 @@ impl Database {
                 is_archived: int_to_bool(row.get::<_, i64>(9)?),
                 created_at: row.get(10)?,
                 updated_at: row.get(11)?,
-                activity_count: row.get(12)?,
-                unorganized_count: row.get(13)?,
-                open_todo_count: row.get(14)?,
+                open_todo_count: row.get(12)?,
             })
         })?;
 
@@ -1413,9 +1268,7 @@ impl Database {
         self.ensure_project_file_layout(input.project_id)?;
         self.refresh_document_health(input.project_id)?;
         let project = self.project_record(input.project_id)?;
-        let activity_feed = self.activity_digests(input.project_id, None)?;
         let project_documents = self.fetch_project_documents_for_project(input.project_id)?;
-        let conclusion_groups = self.fetch_conclusion_groups(input.project_id)?;
         let records = self.fetch_project_notes(input.project_id)?;
         let record_groups = Vec::new(); // deprecated, kept for compatibility
         let unfinished_todos = self.fetch_project_todos(input.project_id, false)?;
@@ -1423,9 +1276,7 @@ impl Database {
 
         Ok(ProjectPageData {
             project,
-            activity_feed,
             project_documents,
-            conclusion_groups,
             record_groups,
             records,
             unfinished_todos,
@@ -1446,39 +1297,6 @@ impl Database {
             records,
             unfinished_todos,
             finished_todos,
-        })
-    }
-
-    pub fn project_get_dashboard(&mut self, input: ProjectIdInput) -> Result<ProjectDashboard> {
-        self.ensure_project_file_layout(input.project_id)?;
-        self.refresh_document_health(input.project_id)?;
-
-        let project = self.project_record(input.project_id)?;
-        let key_conclusions = self.list_project_conclusions(input.project_id, true)?;
-        let open_todos = self.todo_list_open(input.clone())?;
-        let starred_documents = self.fetch_documents_for_project(input.project_id, true)?;
-        let recent_activities = self.activity_digests(input.project_id, Some(6))?;
-        let unorganized_count: i64 = self.conn.query_row(
-            r#"
-            SELECT COUNT(*)
-            FROM activities a
-            WHERE a.project_id = ?1
-              AND COALESCE(
-                a.status_option_id,
-                (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)
-              ) = (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)
-            "#,
-            params![input.project_id, SYSTEM_ACTIVITY_STATUS_PENDING],
-            |row| row.get(0),
-        )?;
-
-        Ok(ProjectDashboard {
-            project,
-            key_conclusions,
-            open_todos,
-            starred_documents,
-            recent_activities,
-            unorganized_count,
         })
     }
 
@@ -1688,8 +1506,6 @@ impl Database {
                 input.project_id
             ],
         )?;
-        self.mark_project_artifacts_stale(input.project_id)?;
-        self.mark_daily_artifacts_stale()?;
         self.project_record(input.project_id)
     }
 
@@ -1698,8 +1514,6 @@ impl Database {
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
         )?;
-        self.mark_project_artifacts_stale(input.project_id)?;
-        self.mark_daily_artifacts_stale()?;
         self.project_record(input.project_id)
     }
 
@@ -1715,224 +1529,8 @@ impl Database {
         move_paths_to_trash(&cleanup_paths)?;
         self.conn
             .execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
-        self.mark_daily_artifacts_stale()?;
 
         Ok(current)
-    }
-
-    pub fn activity_create(&mut self, input: ActivityCreateInput) -> Result<ActivityCardData> {
-        self.project_record(input.project_id)?;
-        self.ensure_project_file_layout(input.project_id)?;
-        let timestamp = now_iso();
-        let requested_title = input.title.unwrap_or_default();
-        let attribute_option = match input.attribute_option_id {
-            Some(option_id) => Some(self.activity_attribute_option_record(option_id)?),
-            None => None,
-        };
-        let pending_status = self.pending_activity_status_option()?;
-        self.conn.execute(
-            r#"
-            INSERT INTO activities (
-              project_id, category, attribute_option_id, title, brief_markdown, brief_html,
-              folder_name, activity_time, is_pinned, is_expanded, organize_status,
-              status_option_id, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, '', '', '', ?5, 0, 0, ?6, NULL, ?7, ?8)
-            "#,
-            params![
-                input.project_id,
-                attribute_option
-                    .as_ref()
-                    .map(|option| option.label.as_str())
-                    .unwrap_or(""),
-                input.attribute_option_id,
-                requested_title.trim(),
-                input.activity_time,
-                legacy_organize_status_for_system(pending_status.is_system),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let activity_id = self.conn.last_insert_rowid();
-        let activity_title = normalize_activity_title(&requested_title, activity_id);
-        let project = self.project_record(input.project_id)?;
-        let folder_name = self.default_activity_folder_name(&activity_title, activity_id);
-        self.create_activity_directory(&project.root_path, &folder_name)?;
-        self.conn.execute(
-            "UPDATE activities SET title = ?1, folder_name = ?2 WHERE id = ?3",
-            params![activity_title, folder_name, activity_id],
-        )?;
-        self.touch_project(input.project_id)?;
-        self.activity_card(activity_id)
-    }
-
-    pub fn activity_update_meta(
-        &mut self,
-        input: ActivityUpdateMetaInput,
-    ) -> Result<ActivityCardData> {
-        let timestamp = now_iso();
-        let current = self.activity_row(input.activity_id)?;
-        let next_title = input
-            .title
-            .as_deref()
-            .map(|title| normalize_activity_title(title, input.activity_id))
-            .unwrap_or_else(|| current.title.clone());
-        let next_brief_markdown = input
-            .brief_markdown
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string)
-            .unwrap_or_else(|| current.brief_markdown.clone());
-        let next_activity_time = input
-            .activity_time
-            .unwrap_or_else(|| current.activity_time.clone());
-        let next_brief_html = input
-            .brief_html
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                if input.brief_markdown.is_some() {
-                    rich_text_html_from_markdown(&next_brief_markdown)
-                } else {
-                    current.brief_html.clone()
-                }
-            });
-        let project_root = self.project_root_path(current.project_id)?;
-        let mut next_brief_html = self.persist_project_rich_text_html_at_root(
-            current.project_id,
-            &project_root,
-            &next_brief_html,
-        )?;
-        let next_attribute_option_id = if input.clear_attribute_option.unwrap_or(false) {
-            None
-        } else if let Some(option_id) = input.attribute_option_id {
-            self.activity_attribute_option_record(option_id)?;
-            Some(option_id)
-        } else {
-            current.attribute_option_id
-        };
-        let next_attribute_label = match next_attribute_option_id {
-            Some(option_id) => Some(self.activity_attribute_option_record(option_id)?.label),
-            None => None,
-        };
-        let next_status_option_id = if let Some(option_id) = input.status_option_id {
-            self.activity_status_option_record(option_id)?;
-            Some(option_id)
-        } else {
-            current.status_option_id
-        };
-        let next_status = self.resolve_activity_status_option(next_status_option_id)?;
-
-        if next_title != current.title {
-            let current_folder = if current.folder_name.trim().is_empty() {
-                self.default_activity_folder_name(&current.title, input.activity_id)
-            } else {
-                current.folder_name.clone()
-            };
-            let next_folder = self.default_activity_folder_name(&next_title, input.activity_id);
-            next_brief_html = rewrite_scoped_rich_text_asset_paths(
-                &next_brief_html,
-                &project_root,
-                &project_root.join(current_folder),
-                &project_root.join(next_folder),
-            );
-            self.ensure_project_file_layout(current.project_id)?;
-            self.rename_activity_folder(input.activity_id, &current, &next_title, &timestamp)?;
-        }
-        self.conn.execute(
-            r#"
-            UPDATE activities
-            SET title = ?1,
-                brief_markdown = ?2,
-                brief_html = ?3,
-                category = ?4,
-                attribute_option_id = ?5,
-                activity_time = ?6,
-                is_pinned = ?7,
-                is_expanded = ?8,
-                organize_status = ?9,
-                status_option_id = ?10,
-                updated_at = ?11
-            WHERE id = ?12
-            "#,
-            params![
-                next_title,
-                next_brief_markdown,
-                next_brief_html,
-                next_attribute_label.unwrap_or_default(),
-                next_attribute_option_id,
-                next_activity_time,
-                bool_to_int(input.is_pinned.unwrap_or(current.is_pinned)),
-                bool_to_int(input.is_expanded.unwrap_or(current.is_expanded)),
-                legacy_organize_status_for_system(next_status.is_system),
-                next_status_option_id,
-                timestamp,
-                input.activity_id
-            ],
-        )?;
-        self.touch_activity(input.activity_id)?;
-        self.activity_card(input.activity_id)
-    }
-
-    pub fn activity_attribute_option_upsert(
-        &mut self,
-        input: ActivityAttributeOptionUpsertInput,
-    ) -> Result<ActivityAttributeOption> {
-        let label = validate_activity_option_label(&input.label)?;
-        let color_key = validate_activity_attribute_color_key(&input.color_key)?;
-        let now = now_iso();
-
-        if let Some(option_id) = input.id {
-            self.activity_attribute_option_record(option_id)?;
-            self.conn.execute(
-                "UPDATE activity_attribute_options SET label = ?1, color_key = ?2, updated_at = ?3 WHERE id = ?4",
-                params![label, color_key, now, option_id],
-            )?;
-            return self.activity_attribute_option_record(option_id);
-        }
-
-        self.conn.execute(
-            r#"
-            INSERT INTO activity_attribute_options (label, color_key, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4)
-            "#,
-            params![label, color_key, now, now],
-        )?;
-
-        self.activity_attribute_option_record(self.conn.last_insert_rowid())
-    }
-
-    pub fn activity_status_option_upsert(
-        &mut self,
-        input: ActivityStatusOptionUpsertInput,
-    ) -> Result<ActivityStatusOption> {
-        let label = validate_activity_option_label(&input.label)?;
-        let color_key = validate_activity_status_color_key(&input.color_key)?;
-        let needs_attention = bool_to_int(color_key_implies_attention(&color_key));
-        let now = now_iso();
-
-        if let Some(option_id) = input.id {
-            self.conn.execute(
-                r#"
-                UPDATE activity_status_options
-                SET label = ?1, color_key = ?2, needs_attention = ?3, updated_at = ?4
-                WHERE id = ?5
-                "#,
-                params![label, color_key, needs_attention, now, option_id],
-            )?;
-            return self.activity_status_option_record(option_id);
-        }
-
-        self.conn.execute(
-            r#"
-            INSERT INTO activity_status_options (system_key, label, color_key, needs_attention, created_at, updated_at)
-            VALUES (NULL, ?1, ?2, ?3, ?4, ?5)
-            "#,
-            params![label, color_key, needs_attention, now, now],
-        )?;
-
-        self.activity_status_option_record(self.conn.last_insert_rowid())
     }
 
     pub fn file_tag_settings_get(
@@ -2164,16 +1762,11 @@ impl Database {
                 )?;
                 self.replace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.touch_project(current.project_id)?;
-                if let Some(activity_id) = input.activity_id {
-                    self.touch_activity(activity_id)?;
-                }
                 self.note_record(note_id)
             }
             None => {
                 self.insert_project_note(
                     input.project_id,
-                    input.activity_id,
-                    "note",
                     input.title.as_deref(),
                     input.markdown.as_str(),
                     stored_html.as_str(),
@@ -2183,9 +1776,6 @@ impl Database {
                 let note_id = self.conn.last_insert_rowid();
                 self.replace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.touch_project(input.project_id)?;
-                if let Some(activity_id) = input.activity_id {
-                    self.touch_activity(activity_id)?;
-                }
                 self.note_record(note_id)
             }
         }
@@ -2196,9 +1786,6 @@ impl Database {
         self.conn
             .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
         self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         Ok(current)
     }
 
@@ -2374,107 +1961,6 @@ impl Database {
         Ok(current)
     }
 
-    pub fn conclusion_create(&mut self, input: ConclusionCreateInput) -> Result<ConclusionRecord> {
-        let timestamp = now_iso();
-        let stored_html = self.persist_project_rich_text_html(input.project_id, &input.html)?;
-        self.conn.execute(
-            r#"
-            INSERT INTO conclusions (
-              project_id, activity_id, note_id, content_markdown, content_html, content, promoted_to_project, is_pinned, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-            params![
-                input.project_id,
-                input.activity_id,
-                input.note_id,
-                input.markdown,
-                stored_html,
-                input.markdown,
-                bool_to_int(input.promoted_to_project),
-                bool_to_int(input.is_pinned.unwrap_or(false)),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let id = self.conn.last_insert_rowid();
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        self.touch_project(input.project_id)?;
-        self.conclusion_record(id)
-    }
-
-    pub fn conclusion_list(&mut self, input: ConclusionListInput) -> Result<Vec<ConclusionRecord>> {
-        if let Some(activity_id) = input.activity_id {
-            let mut stmt = self.conn.prepare(
-                r#"
-                SELECT id FROM conclusions
-                WHERE project_id = ?1 AND activity_id = ?2
-                ORDER BY is_pinned DESC, created_at DESC
-                "#,
-            )?;
-            let ids = stmt
-                .query_map(params![input.project_id, activity_id], |row| {
-                    row.get::<_, i64>(0)
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            ids.into_iter()
-                .map(|id| self.conclusion_record(id))
-                .collect()
-        } else {
-            self.list_project_conclusions(input.project_id, false)
-        }
-    }
-
-    pub fn conclusion_update(&mut self, input: ConclusionUpdateInput) -> Result<ConclusionRecord> {
-        let current = self.conclusion_record(input.conclusion_id)?;
-        let stored_html = self.persist_project_rich_text_html(current.project_id, &input.html)?;
-        self.conn.execute(
-            r#"
-            UPDATE conclusions
-            SET content_markdown = ?1,
-                content_html = ?2,
-                content = ?3,
-                promoted_to_project = ?4,
-                is_pinned = ?5,
-                updated_at = ?6
-            WHERE id = ?7
-            "#,
-            params![
-                input.markdown,
-                stored_html,
-                input.markdown,
-                bool_to_int(
-                    input
-                        .promoted_to_project
-                        .unwrap_or(current.promoted_to_project)
-                ),
-                bool_to_int(input.is_pinned.unwrap_or(current.is_pinned)),
-                now_iso(),
-                input.conclusion_id
-            ],
-        )?;
-        self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        self.conclusion_record(input.conclusion_id)
-    }
-
-    pub fn conclusion_delete(&mut self, input: ConclusionDeleteInput) -> Result<ConclusionRecord> {
-        let current = self.conclusion_record(input.conclusion_id)?;
-        self.conn.execute(
-            "DELETE FROM conclusions WHERE id = ?1",
-            [input.conclusion_id],
-        )?;
-        self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        Ok(current)
-    }
-
     pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
         let scope = input.scope;
         self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
@@ -2491,14 +1977,13 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO todos (
-              scope, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
+              scope, project_id, content, status, priority, due_date, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, 'unfinished', ?5, ?6, ?7, ?8)
+            VALUES (?1, ?2, ?3, 'unfinished', ?4, ?5, ?6, ?7)
             "#,
             params![
                 scope_value,
                 input.project_id,
-                input.activity_id,
                 input.content,
                 input.priority,
                 input.due_date,
@@ -2753,14 +2238,14 @@ impl Database {
         }
 
         let project = self.project_record(input.project_id)?;
-        let target_dir = self.document_target_dir(input.project_id, input.activity_id)?;
+        let target_dir = self.document_target_dir(input.project_id)?;
 
         let file_name = source
             .file_name()
             .and_then(|value| value.to_str())
             .ok_or_else(|| anyhow!("invalid file name"))?
             .to_string();
-        self.ensure_document_name_available(input.project_id, input.activity_id, &file_name, None)?;
+        self.ensure_document_name_available(input.project_id, &file_name, None)?;
         let managed_path = target_dir.join(&file_name);
         let storage_mode = self.materialize_file_for_target(
             Path::new(&project.root_path),
@@ -2776,13 +2261,12 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO documents (
-              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9, 1, 1, 'normal', ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
             "#,
             params![
                 input.project_id,
-                input.activity_id,
                 file_name,
                 file_name,
                 self.encode_path_ref(&source),
@@ -2819,9 +2303,6 @@ impl Database {
             self.replace_document_tags(id, tag_ids, &timestamp)?;
         }
         self.touch_project(input.project_id)?;
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         self.document_record(id)
     }
 
@@ -2846,13 +2327,9 @@ impl Database {
             .ok_or_else(|| anyhow!("invalid file name"))?
             .to_string();
         let sanitized_name = sanitize_import_file_name(&file_name, &mime)?;
-        let target_dir = self.note_image_target_dir(input.project_id, input.activity_id)?;
-        let resolved_name = self.resolve_internal_document_name(
-            input.project_id,
-            input.activity_id,
-            &sanitized_name,
-            &target_dir,
-        )?;
+        let target_dir = self.note_image_target_dir(input.project_id)?;
+        let resolved_name =
+            self.resolve_internal_document_name(input.project_id, &sanitized_name, &target_dir)?;
         let managed_path = target_dir.join(&resolved_name);
 
         if let Some(parent) = managed_path.parent() {
@@ -2870,13 +2347,12 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO documents (
-              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, 0, 1, 1, 'normal', ?9, ?10)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, 0, 1, 1, 'normal', ?8, ?9)
             "#,
             params![
                 input.project_id,
-                input.activity_id,
                 resolved_name,
                 resolved_name,
                 self.encode_path_ref(&source),
@@ -2909,9 +2385,6 @@ impl Database {
             ],
         )?;
         self.touch_project(input.project_id)?;
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         self.document_record(id)
     }
 
@@ -2921,10 +2394,10 @@ impl Database {
     ) -> Result<DocumentRecord> {
         self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
-        let target_dir = self.document_target_dir(input.project_id, input.activity_id)?;
+        let target_dir = self.document_target_dir(input.project_id)?;
         let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
 
-        self.ensure_document_name_available(input.project_id, input.activity_id, &file_name, None)?;
+        self.ensure_document_name_available(input.project_id, &file_name, None)?;
 
         let managed_path = target_dir.join(&file_name);
         if let Some(parent) = managed_path.parent() {
@@ -2945,13 +2418,12 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO documents (
-              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9, 1, 1, 'normal', ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
             "#,
             params![
                 input.project_id,
-                input.activity_id,
                 file_name,
                 file_name,
                 self.encode_path_ref(&managed_path),
@@ -2988,9 +2460,6 @@ impl Database {
             self.replace_document_tags(id, tag_ids, &timestamp)?;
         }
         self.touch_project(input.project_id)?;
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         self.document_record(id)
     }
 
@@ -3000,14 +2469,10 @@ impl Database {
     ) -> Result<DocumentRecord> {
         self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
-        let target_dir = self.note_image_target_dir(input.project_id, input.activity_id)?;
+        let target_dir = self.note_image_target_dir(input.project_id)?;
         let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
-        let resolved_name = self.resolve_internal_document_name(
-            input.project_id,
-            input.activity_id,
-            &file_name,
-            &target_dir,
-        )?;
+        let resolved_name =
+            self.resolve_internal_document_name(input.project_id, &file_name, &target_dir)?;
         let managed_path = target_dir.join(&resolved_name);
         if let Some(parent) = managed_path.parent() {
             fs::create_dir_all(parent)?;
@@ -3023,13 +2488,12 @@ impl Database {
         self.conn.execute(
             r#"
             INSERT INTO documents (
-              project_id, activity_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
+              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, 0, 1, 1, 'normal', ?9, ?10)
+            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, 0, 1, 1, 'normal', ?8, ?9)
             "#,
             params![
                 input.project_id,
-                input.activity_id,
                 resolved_name,
                 resolved_name,
                 self.encode_path_ref(&managed_path),
@@ -3062,9 +2526,6 @@ impl Database {
             ],
         )?;
         self.touch_project(input.project_id)?;
-        if let Some(activity_id) = input.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         self.document_record(id)
     }
 
@@ -3139,20 +2600,18 @@ impl Database {
         let timestamp = now_iso();
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
-        let next_activity_id = input.activity_id.unwrap_or(current.activity_id);
         let next_base_name = match input.base_name.as_deref() {
             Some(base_name) => self.normalize_document_base_name(base_name, &current.base_name)?,
             None => current.base_name.clone(),
         };
 
-        if next_activity_id != current.activity_id || next_base_name != current.base_name {
-            self.move_document_storage(&current, next_activity_id, &next_base_name)?;
+        if next_base_name != current.base_name {
+            self.move_document_storage(&current, &next_base_name)?;
         }
 
         self.conn.execute(
-            "UPDATE documents SET activity_id = ?1, base_name = ?2, is_starred = ?3, updated_at = ?4 WHERE id = ?5",
+            "UPDATE documents SET base_name = ?1, is_starred = ?2, updated_at = ?3 WHERE id = ?4",
             params![
-                next_activity_id,
                 next_base_name,
                 bool_to_int(input.is_starred.unwrap_or(current.is_starred)),
                 timestamp,
@@ -3163,14 +2622,6 @@ impl Database {
             self.replace_document_tags(input.document_id, tag_ids, &timestamp)?;
         }
         self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        if let Some(activity_id) = next_activity_id {
-            if Some(activity_id) != current.activity_id {
-                self.touch_activity(activity_id)?;
-            }
-        }
         self.document_record(input.document_id)
     }
 
@@ -3212,11 +2663,7 @@ impl Database {
                 current.current_version_number
             ],
         )?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        } else {
-            self.touch_project(current.project_id)?;
-        }
+        self.touch_project(current.project_id)?;
         self.document_record(input.document_id)
     }
 
@@ -3244,7 +2691,7 @@ impl Database {
         }
 
         let project = self.project_record(current.project_id)?;
-        let target_dir = self.document_target_dir(current.project_id, current.activity_id)?;
+        let target_dir = self.document_target_dir(current.project_id)?;
         let history_dir = PathBuf::from(&current.history_dir_path);
         let previous_version_name =
             versioned_file_name(&current.base_name, current.current_version_number);
@@ -3385,9 +2832,6 @@ impl Database {
         )?;
 
         self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
         self.document_record(input.document_id)
     }
 
@@ -3402,10 +2846,6 @@ impl Database {
             .execute("DELETE FROM documents WHERE id = ?1", [input.document_id])?;
 
         self.touch_project(current.project_id)?;
-        if let Some(activity_id) = current.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-
         Ok(current)
     }
 
@@ -3742,83 +3182,6 @@ impl Database {
         Ok(actions)
     }
 
-    pub fn ai_editor_rewrite_action_upsert(
-        &mut self,
-        input: AiEditorSkillActionUpsertInput,
-    ) -> Result<AiEditorSkillActionRecord> {
-        validate_ai_editor_rewrite_action_fields(&input.label, &input.prompt)?;
-
-        let mut actions = self.ai_editor_rewrite_actions_get()?;
-        let now = now_iso();
-
-        let saved = if let Some(action_id) = input.id {
-            let action = actions
-                .iter_mut()
-                .find(|action| action.id == action_id)
-                .ok_or_else(|| anyhow!("AI editor rewrite action does not exist"))?;
-            action.label = input.label.trim().to_string();
-            action.prompt = input.prompt.trim().to_string();
-            action.enabled = input.enabled;
-            action.updated_at = now.clone();
-            action.clone()
-        } else {
-            if actions.len() >= AI_EDITOR_REWRITE_ACTION_LIMIT {
-                return Err(anyhow!(
-                    "AI editor rewrite actions cannot exceed {}",
-                    AI_EDITOR_REWRITE_ACTION_LIMIT
-                ));
-            }
-            let next_id = actions.iter().map(|action| action.id).max().unwrap_or(0) + 1;
-            let action = AiEditorSkillActionRecord {
-                id: next_id,
-                label: input.label.trim().to_string(),
-                prompt: input.prompt.trim().to_string(),
-                enabled: input.enabled,
-                created_at: now.clone(),
-                updated_at: now,
-            };
-            actions.push(action.clone());
-            action
-        };
-
-        self.persist_ai_editor_rewrite_actions(&actions)?;
-        Ok(saved)
-    }
-
-    pub fn ai_editor_rewrite_action_delete(
-        &mut self,
-        input: AiEditorSkillActionDeleteInput,
-    ) -> Result<Vec<AiEditorSkillActionRecord>> {
-        let mut actions = self.ai_editor_rewrite_actions_get()?;
-        let initial_len = actions.len();
-        actions.retain(|action| action.id != input.action_id);
-        if actions.len() == initial_len {
-            return Err(anyhow!("AI editor rewrite action does not exist"));
-        }
-
-        self.persist_ai_editor_rewrite_actions(&actions)?;
-        Ok(actions)
-    }
-
-    fn persist_ai_editor_rewrite_actions(
-        &mut self,
-        actions: &[AiEditorSkillActionRecord],
-    ) -> Result<()> {
-        let value_json = serde_json::to_string(actions)?;
-        let now = now_iso();
-        self.conn.execute(
-            r#"
-            INSERT INTO app_settings (key, value_json, updated_at)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(key) DO UPDATE SET
-              value_json = excluded.value_json,
-              updated_at = excluded.updated_at
-            "#,
-            params![APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS, value_json, now],
-        )?;
-        Ok(())
-    }
-
     fn persist_ai_editor_skills(&mut self, skills: &[AiEditorSkillRecord]) -> Result<()> {
         let value_json = serde_json::to_string(skills)?;
         let now = now_iso();
@@ -3838,56 +3201,40 @@ impl Database {
     fn insert_project_note(
         &self,
         project_id: i64,
-        activity_id: Option<i64>,
-        note_type: &str,
         title: Option<&str>,
         markdown: &str,
         html: &str,
         default_code_language: Option<&str>,
         timestamp: &str,
     ) -> Result<()> {
-        if self.has_column("notes", "note_type")? {
-            self.conn.execute(
-                r#"
-                INSERT INTO notes (
-                  project_id, activity_id, note_type, title, content_markdown, content_html,
-                  default_code_language, created_at, updated_at
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                "#,
-                params![
-                    project_id,
-                    activity_id,
-                    note_type,
-                    title,
-                    markdown,
-                    html,
-                    default_code_language,
-                    timestamp,
-                    timestamp
-                ],
-            )?;
-        } else {
-            self.conn.execute(
-                r#"
-                INSERT INTO notes (
-                  project_id, activity_id, title, content_markdown, content_html,
-                  default_code_language, created_at, updated_at
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                "#,
-                params![
-                    project_id,
-                    activity_id,
-                    title,
-                    markdown,
-                    html,
-                    default_code_language,
-                    timestamp,
-                    timestamp
-                ],
-            )?;
-        }
+        let has_note_type = self.has_column("notes", "note_type")?;
+        let has_activity_id = self.has_column("notes", "activity_id")?;
+        let sql = match (has_note_type, has_activity_id) {
+            (true, true) => {
+                "INSERT INTO notes (project_id, activity_id, note_type, title, content_markdown, content_html, default_code_language, created_at, updated_at) VALUES (?1, NULL, 'note', ?2, ?3, ?4, ?5, ?6, ?7)"
+            }
+            (true, false) => {
+                "INSERT INTO notes (project_id, note_type, title, content_markdown, content_html, default_code_language, created_at, updated_at) VALUES (?1, 'note', ?2, ?3, ?4, ?5, ?6, ?7)"
+            }
+            (false, true) => {
+                "INSERT INTO notes (project_id, activity_id, title, content_markdown, content_html, default_code_language, created_at, updated_at) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7)"
+            }
+            (false, false) => {
+                "INSERT INTO notes (project_id, title, content_markdown, content_html, default_code_language, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+            }
+        };
+        self.conn.execute(
+            sql,
+            params![
+                project_id,
+                title,
+                markdown,
+                html,
+                default_code_language,
+                timestamp,
+                timestamp
+            ],
+        )?;
         Ok(())
     }
 
@@ -3906,102 +3253,6 @@ impl Database {
     fn clear_ai_profiles_and_bindings(&self) -> Result<()> {
         self.clear_ai_bindings()?;
         self.conn.execute("DELETE FROM ai_provider_profiles", [])?;
-        Ok(())
-    }
-
-    pub fn ai_feature_settings_get(&mut self) -> Result<AiFeatureSettings> {
-        let stored = self
-            .conn
-            .query_row(
-                "SELECT value_json FROM app_settings WHERE key = ?1",
-                params![APP_SETTING_KEY_AI_FEATURE_SETTINGS],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-
-        if let Some(value_json) = stored {
-            return parse_ai_feature_settings_json(&value_json);
-        }
-
-        Ok(default_ai_feature_settings())
-    }
-
-    pub fn ai_feature_settings_upsert(
-        &mut self,
-        input: AiFeatureSettings,
-    ) -> Result<AiFeatureSettings> {
-        let now = now_iso();
-        let mut value = serde_json::to_value(&input)?;
-        normalize_ai_feature_settings_value(&mut value)?;
-        let settings: AiFeatureSettings = serde_json::from_value(value.clone())
-            .context("failed to decode AI feature settings")?;
-        let value_json = serde_json::to_string(&value)?;
-
-        self.conn.execute(
-            r#"
-            INSERT INTO app_settings (key, value_json, updated_at)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(key) DO UPDATE SET
-              value_json = excluded.value_json,
-              updated_at = excluded.updated_at
-            "#,
-            params![APP_SETTING_KEY_AI_FEATURE_SETTINGS, value_json, now],
-        )?;
-
-        Ok(settings)
-    }
-
-    fn ensure_ai_capability_enabled(&mut self, capability: &str) -> Result<()> {
-        if capability == "default" {
-            return Ok(());
-        }
-
-        let settings = self.ai_feature_settings_get()?;
-        if !settings.master_enabled {
-            return Err(anyhow!("AI is disabled in workspace settings"));
-        }
-
-        if !settings
-            .capabilities
-            .get(capability)
-            .copied()
-            .unwrap_or(true)
-        {
-            return Err(anyhow!(
-                "AI capability '{}' is disabled in workspace settings",
-                capability
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn ensure_ai_feature_enabled(&mut self, feature_key: &str) -> Result<()> {
-        let settings = self.ai_feature_settings_get()?;
-        if !settings.master_enabled {
-            return Err(anyhow!("AI is disabled in workspace settings"));
-        }
-
-        let capability = ai_capability_for_feature(feature_key)?;
-        if !settings
-            .capabilities
-            .get(capability)
-            .copied()
-            .unwrap_or(true)
-        {
-            return Err(anyhow!(
-                "AI capability '{}' is disabled in workspace settings",
-                capability
-            ));
-        }
-
-        if !ai_feature_enabled(&settings, feature_key)? {
-            return Err(anyhow!(
-                "AI feature '{}' is disabled in workspace settings",
-                feature_key
-            ));
-        }
-
         Ok(())
     }
 
@@ -4354,7 +3605,6 @@ impl Database {
         input: AiEditorSkillInput,
         mut on_stream: impl FnMut(String),
     ) -> Result<AiEditorSkillResult> {
-        self.ensure_ai_capability_enabled("editor_rewrite")?;
         let result_mode = normalize_ai_editor_skill_result_mode(&input.result_mode)?;
         let skill_id = input
             .skill_id
@@ -4372,27 +3622,10 @@ impl Database {
         let skill_prompt = input
             .prompt
             .as_deref()
-            .or(input.prompt_override.as_deref())
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-        let skill_prompt = match (skill_prompt, input.action_id) {
-            (Some(prompt), _) => prompt,
-            (None, Some(action_id)) => {
-                let actions = self.ai_editor_rewrite_actions_get()?;
-                let action = actions
-                    .iter()
-                    .find(|candidate| candidate.id == action_id)
-                    .ok_or_else(|| anyhow!("AI editor rewrite action does not exist"))?;
-                if !action.enabled {
-                    return Err(anyhow!("AI editor rewrite action is disabled"));
-                }
-                action.prompt.clone()
-            }
-            (None, None) => {
-                return Err(anyhow!("AI editor skill prompt cannot be empty"));
-            }
-        };
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| anyhow!("AI editor skill prompt cannot be empty"))?;
 
         let is_image =
             input.target_type.as_deref() == Some("image") || input.image_target.is_some();
@@ -4522,7 +3755,6 @@ impl Database {
                     id: row.get(0)?,
                     scope: None,
                     project_id: Some(row.get(0)?),
-                    activity_id: None,
                     source: None,
                     title: title.clone(),
                     subtitle: summary.clone(),
@@ -4536,53 +3768,6 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_PROJECT_SUMMARY, summary),
                 ]),
                 updated_at: row.get(3)?,
-            })
-        })?;
-        candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
-
-        let activity_sql = format!(
-            r#"
-            SELECT
-              a.id,
-              a.project_id,
-              a.title,
-              COALESCE(NULLIF(TRIM(a.brief_markdown), ''), '') AS brief_match_text,
-              p.name,
-              a.updated_at
-            FROM activities a
-            INNER JOIN projects p ON p.id = a.project_id
-            WHERE (
-              a.title LIKE ?1
-              OR COALESCE(NULLIF(TRIM(a.brief_markdown), ''), '') LIKE ?1
-            ) {}
-            "#,
-            project_filter
-        );
-        let mut stmt = self.conn.prepare(&activity_sql)?;
-        let rows = stmt.query_map([pattern.as_str()], |row| {
-            let activity_id: i64 = row.get(0)?;
-            let title: String = row.get(2)?;
-            let brief: String = row.get(3)?;
-            Ok(WorkspaceSearchCandidate {
-                result: WorkspaceSearchResult {
-                    kind: "activity".to_string(),
-                    id: activity_id,
-                    scope: None,
-                    project_id: Some(row.get(1)?),
-                    activity_id: Some(activity_id),
-                    source: None,
-                    title: normalize_activity_title(&title, activity_id),
-                    subtitle: row.get(4)?,
-                    matched_text: workspace_search_match_excerpt(
-                        &[title.as_str(), brief.as_str()],
-                        query,
-                    ),
-                },
-                fields: build_workspace_search_fields([
-                    (WORKSPACE_SEARCH_PRIORITY_ACTIVITY_TITLE, title),
-                    (WORKSPACE_SEARCH_PRIORITY_ACTIVITY_BRIEF, brief),
-                ]),
-                updated_at: row.get(5)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4637,7 +3822,6 @@ impl Database {
                     id: note_id,
                     scope: None,
                     project_id: None,
-                    activity_id: None,
                     source: None,
                     title: display_title,
                     subtitle: "Workspace".to_string(),
@@ -4697,7 +3881,6 @@ impl Database {
                     id: row.get(0)?,
                     scope: None,
                     project_id: None,
-                    activity_id: None,
                     source: None,
                     title: name.clone(),
                     subtitle,
@@ -4733,7 +3916,6 @@ impl Database {
             SELECT
               n.id,
               n.project_id,
-              n.activity_id,
               CASE
                 WHEN NULLIF(TRIM(n.title), '') IS NOT NULL AND TRIM(n.title) != '记录'
                   THEN TRIM(n.title)
@@ -4775,18 +3957,17 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&note_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let title: String = row.get(3)?;
-            let title_match_text: String = row.get(4)?;
-            let content_match_text: String = row.get(5)?;
-            let tag_match_text: String = row.get(6)?;
-            let project_name: String = row.get(7)?;
+            let title: String = row.get(2)?;
+            let title_match_text: String = row.get(3)?;
+            let content_match_text: String = row.get(4)?;
+            let tag_match_text: String = row.get(5)?;
+            let project_name: String = row.get(6)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "note".to_string(),
                     id: row.get(0)?,
                     scope: None,
                     project_id: Some(row.get(1)?),
-                    activity_id: row.get(2)?,
                     source: None,
                     title: truncate_text(&normalize_internal_reference_label("note", &title), 72),
                     subtitle: project_name,
@@ -4804,52 +3985,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, content_match_text),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
                 ]),
-                updated_at: row.get(8)?,
-            })
-        })?;
-        candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
-
-        let conclusion_sql = format!(
-            r#"
-            SELECT
-              c.id,
-              c.project_id,
-              c.activity_id,
-              COALESCE(NULLIF(c.content_markdown, ''), c.content),
-              p.name,
-              c.updated_at
-            FROM conclusions c
-            INNER JOIN projects p ON p.id = c.project_id
-            WHERE (
-              COALESCE(NULLIF(c.content_markdown, ''), c.content) LIKE ?1
-            ) {}
-            "#,
-            project_filter
-        );
-        let mut stmt = self.conn.prepare(&conclusion_sql)?;
-        let rows = stmt.query_map([pattern.as_str()], |row| {
-            let content: String = row.get(3)?;
-            let project_title: String = row.get(4)?;
-            Ok(WorkspaceSearchCandidate {
-                result: WorkspaceSearchResult {
-                    kind: "conclusion".to_string(),
-                    id: row.get(0)?,
-                    scope: None,
-                    project_id: Some(row.get(1)?),
-                    activity_id: row.get(2)?,
-                    source: None,
-                    title: truncate_text(
-                        &normalize_internal_reference_label("conclusion", &content),
-                        72,
-                    ),
-                    subtitle: project_title.clone(),
-                    matched_text: workspace_search_match_excerpt(&[content.as_str()], query),
-                },
-                fields: build_workspace_search_fields([(
-                    WORKSPACE_SEARCH_PRIORITY_CONCLUSION_CONTENT,
-                    content,
-                )]),
-                updated_at: row.get(5)?,
+                updated_at: row.get(7)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4860,7 +3996,6 @@ impl Database {
               t.id,
               t.scope,
               t.project_id,
-              t.activity_id,
               t.content,
               COALESCE((
                 SELECT GROUP_CONCAT(tp.content, ' ')
@@ -4900,17 +4035,16 @@ impl Database {
         let mut stmt = self.conn.prepare(&todo_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
             let scope: String = row.get(1)?;
-            let content: String = row.get(4)?;
-            let progress_text: String = row.get(5)?;
-            let tag_match_text: String = row.get(6)?;
-            let source: String = row.get(7)?;
+            let content: String = row.get(3)?;
+            let progress_text: String = row.get(4)?;
+            let tag_match_text: String = row.get(5)?;
+            let source: String = row.get(6)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "todo".to_string(),
                     id: row.get(0)?,
                     scope: Some(scope),
                     project_id: row.get(2)?,
-                    activity_id: row.get(3)?,
                     source: Some(source.clone()),
                     title: truncate_text(&normalize_internal_reference_label("todo", &content), 72),
                     subtitle: String::new(),
@@ -4928,7 +4062,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_TODO_PROGRESS, progress_text),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
                 ]),
-                updated_at: row.get(8)?,
+                updated_at: row.get(7)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -4938,7 +4072,6 @@ impl Database {
             SELECT
               d.id,
               d.project_id,
-              d.activity_id,
               d.name,
               d.base_name,
               COALESCE((
@@ -4977,18 +4110,17 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&document_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
-            let title: String = row.get(3)?;
-            let base_name: String = row.get(4)?;
-            let version_name_match_text: String = row.get(5)?;
-            let tag_match_text: String = row.get(6)?;
-            let project_title: String = row.get(7)?;
+            let title: String = row.get(2)?;
+            let base_name: String = row.get(3)?;
+            let version_name_match_text: String = row.get(4)?;
+            let tag_match_text: String = row.get(5)?;
+            let project_title: String = row.get(6)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "document".to_string(),
                     id: row.get(0)?,
                     scope: None,
                     project_id: Some(row.get(1)?),
-                    activity_id: row.get(2)?,
                     source: None,
                     title: title.clone(),
                     subtitle: project_title,
@@ -5011,7 +4143,7 @@ impl Database {
                     ),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
                 ]),
-                updated_at: row.get(8)?,
+                updated_at: row.get(7)?,
             })
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -5113,7 +4245,6 @@ impl Database {
                         id: row.get(0)?,
                         scope: TodoScope::Project,
                         project_id: Some(row.get(1)?),
-                        activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label("note", &row.get::<_, String>(2)?),
                             72,
@@ -5131,55 +4262,6 @@ impl Database {
                             row.get::<_, String>(4)?,
                         ),
                     ]),
-                })
-            })?;
-            candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
-        }
-
-        if parsed_query.kind_filter.is_none()
-            || parsed_query
-                .kind_filter
-                .is_some_and(|kind| kind.matches_result_kind("conclusion"))
-        {
-            let conclusion_sql = r#"
-            SELECT
-              c.id,
-              c.project_id,
-              COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '结论') AS label,
-              COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '') AS content_match_text,
-              p.name AS project_name,
-              c.updated_at
-            FROM conclusions c
-            INNER JOIN projects p ON p.id = c.project_id
-            WHERE p.is_archived = 0
-              AND (?1 IS NULL OR c.project_id = ?1)
-            ORDER BY c.updated_at DESC
-            "#
-            .to_string();
-            let mut stmt = self.conn.prepare(&conclusion_sql)?;
-            let rows = stmt.query_map(params![project_id], |row| {
-                let project_name: String = row.get(4)?;
-                Ok(InternalReferenceSearchCandidate {
-                    result: InternalReferenceSearchResult {
-                        kind: "conclusion".to_string(),
-                        id: row.get(0)?,
-                        scope: TodoScope::Project,
-                        project_id: Some(row.get(1)?),
-                        activity_id: None,
-                        label: truncate_text(
-                            &normalize_internal_reference_label(
-                                "conclusion",
-                                &row.get::<_, String>(2)?,
-                            ),
-                            72,
-                        ),
-                        subtitle: project_name,
-                        updated_at: row.get(5)?,
-                    },
-                    fields: build_internal_reference_search_fields([(
-                        INTERNAL_REFERENCE_PRIORITY_CONCLUSION_CONTENT,
-                        row.get::<_, String>(3)?,
-                    )]),
                 })
             })?;
             candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -5221,7 +4303,6 @@ impl Database {
                         id: row.get(0)?,
                         scope: todo_scope_from_sql(row.get(1)?, 1)?,
                         project_id: row.get(2)?,
-                        activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label("todo", &row.get::<_, String>(3)?),
                             72,
@@ -5269,7 +4350,6 @@ impl Database {
                         id: row.get(0)?,
                         scope: TodoScope::Project,
                         project_id: Some(row.get(1)?),
-                        activity_id: None,
                         label: truncate_text(
                             &normalize_internal_reference_label(
                                 "document",
@@ -5364,45 +4444,8 @@ impl Database {
                             label,
                             scope: TodoScope::Project,
                             project_id: Some(project_id),
-                            activity_id: None,
                             route: format!("/projects/{project_id}/records/{id}"),
                             focus_id: None,
-                            managed_path: None,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(Into::into),
-            "conclusion" => self
-                .conn
-                .query_row(
-                    r#"
-                    SELECT
-                      c.id,
-                      c.project_id,
-                      COALESCE(NULLIF(TRIM(c.content_markdown), ''), NULLIF(TRIM(c.content), ''), '结论')
-                    FROM conclusions c
-                    WHERE c.id = ?1
-                    "#,
-                    [input.id],
-                    |row| {
-                        let id: i64 = row.get(0)?;
-                        let project_id: i64 = row.get(1)?;
-                        Ok(InternalReferenceResolveResult {
-                            kind: "conclusion".to_string(),
-                            id,
-                            label: truncate_text(
-                                &normalize_internal_reference_label(
-                                    "conclusion",
-                                    &row.get::<_, String>(2)?,
-                                ),
-                                72,
-                            ),
-                            scope: TodoScope::Project,
-                            project_id: Some(project_id),
-                            activity_id: None,
-                            route: build_internal_reference_route(project_id, None, &format!("conclusion-{id}")),
-                            focus_id: Some(format!("conclusion-{id}")),
                             managed_path: None,
                         })
                     },
@@ -5431,7 +4474,6 @@ impl Database {
                         } else {
                             build_internal_reference_route(
                                 project_id.expect("Project Todo must have project_id"),
-                                None,
                                 &format!("todo-{id}"),
                             )
                         };
@@ -5447,7 +4489,6 @@ impl Database {
                             ),
                             scope,
                             project_id,
-                            activity_id: None,
                             route,
                             focus_id: Some(format!("todo-{id}")),
                             managed_path: None,
@@ -5457,8 +4498,10 @@ impl Database {
                 .optional()
                 .map_err(Into::into),
             "document" => {
-                let resolved = self.conn.query_row(
-                    r#"
+                let resolved = self
+                    .conn
+                    .query_row(
+                        r#"
                     SELECT
                       d.id,
                       d.project_id,
@@ -5468,16 +4511,16 @@ impl Database {
                     WHERE d.id = ?1
                       AND d.storage_mode != ?2
                     "#,
-                    params![input.id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
-                    |row| {
-                        let id: i64 = row.get(0)?;
-                        let project_id: i64 = row.get(1)?;
-                        let name: String = row.get(2)?;
-                        let managed_path_ref: String = row.get(3)?;
-                        Ok((id, project_id, name, managed_path_ref))
-                    },
-                )
-                .optional()?;
+                        params![input.id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
+                        |row| {
+                            let id: i64 = row.get(0)?;
+                            let project_id: i64 = row.get(1)?;
+                            let name: String = row.get(2)?;
+                            let managed_path_ref: String = row.get(3)?;
+                            Ok((id, project_id, name, managed_path_ref))
+                        },
+                    )
+                    .optional()?;
 
                 Ok(resolved.map(|(id, project_id, name, managed_path_ref)| {
                     InternalReferenceResolveResult {
@@ -5489,10 +4532,8 @@ impl Database {
                         ),
                         scope: TodoScope::Project,
                         project_id: Some(project_id),
-                        activity_id: None,
                         route: build_internal_reference_route(
                             project_id,
-                            None,
                             &format!("document-{id}"),
                         ),
                         focus_id: Some(format!("document-{id}")),
@@ -5502,2047 +4543,6 @@ impl Database {
             }
             other => Err(anyhow!("unsupported internal reference kind: {other}")),
         }
-    }
-
-    pub fn reset_and_seed_demo_data(&mut self, workspace_root: &Path) -> Result<DemoSeedResult> {
-        fs::create_dir_all(workspace_root).with_context(|| {
-            format!(
-                "failed to create demo workspace root at {}",
-                workspace_root.display()
-            )
-        })?;
-
-        self.remove_existing_project_roots_from_disk()?;
-        self.clear_seedable_data()?;
-        self.ensure_activity_settings_seeded()?;
-
-        let source_root = workspace_root.join("__demo_seed_sources");
-        remove_path_if_exists(&source_root)?;
-        for project_name in [
-            "智能客服知识库升级",
-            "海外销售线索评分 Copilot",
-            "合同审阅 AI 助手试点",
-        ] {
-            remove_path_if_exists(
-                &workspace_root.join(normalize_windows_safe_component(project_name)),
-            )?;
-        }
-        fs::create_dir_all(&source_root)?;
-
-        let catalog = self.build_demo_seed_catalog()?;
-        let _project_a =
-            self.seed_demo_customer_service_project(workspace_root, &source_root, &catalog)?;
-        let _project_b =
-            self.seed_demo_lead_scoring_project(workspace_root, &source_root, &catalog)?;
-        let _project_c =
-            self.seed_demo_contract_review_project(workspace_root, &source_root, &catalog)?;
-
-        let mock_ai_profile_created = self.ensure_demo_mock_ai_profile_if_needed()?;
-        Ok(DemoSeedResult {
-            workspace_root: workspace_root.to_string_lossy().to_string(),
-            project_count: self.count_table_rows("projects")?,
-            activity_count: self.count_table_rows("activities")?,
-            note_count: self.count_table_rows("notes")?,
-            conclusion_count: self.count_table_rows("conclusions")?,
-            todo_count: self.count_table_rows("todos")?,
-            document_count: self.count_table_rows("documents")?,
-            ai_profile_mode: if mock_ai_profile_created {
-                "mock_seeded".to_string()
-            } else {
-                "preserved".to_string()
-            },
-        })
-    }
-
-    fn remove_existing_project_roots_from_disk(&self) -> Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT root_path FROM projects ORDER BY id ASC")?;
-        let roots = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        for root_ref in roots {
-            let root = self.decode_path_ref(&root_ref);
-            remove_path_if_exists(&root).with_context(|| {
-                format!(
-                    "failed to remove existing project root at {}",
-                    root.display()
-                )
-            })?;
-        }
-
-        Ok(())
-    }
-
-    fn clear_seedable_data(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute_batch(
-            r#"
-            DELETE FROM document_tag_links;
-            DELETE FROM document_versions;
-            DELETE FROM documents;
-            DELETE FROM todo_progresses;
-            DELETE FROM todos;
-            DELETE FROM conclusions;
-            DELETE FROM notes;
-            DELETE FROM activities;
-            DELETE FROM projects;
-            DELETE FROM file_tag_options;
-            DELETE FROM activity_attribute_options;
-            DELETE FROM activity_status_options;
-            DELETE FROM sqlite_sequence
-            WHERE name IN (
-              'ai_artifact_citations',
-              'ai_artifacts',
-              'ai_suggestions',
-              'documents',
-              'document_versions',
-              'todos',
-              'todo_progresses',
-              'conclusions',
-              'notes',
-              'activities',
-              'projects',
-              'file_tag_options',
-              'activity_attribute_options',
-              'activity_status_options'
-            );
-            "#,
-        )?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn build_demo_seed_catalog(&mut self) -> Result<DemoSeedCatalog> {
-        let mut attribute_ids = HashMap::new();
-        for (label, color_key) in [
-            ("会议", "blue"),
-            ("需求澄清", "teal"),
-            ("数据分析", "amber"),
-            ("法务评审", "rose"),
-            ("实验验证", "green"),
-            ("用户反馈", "orange"),
-        ] {
-            let option =
-                self.activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
-                    id: None,
-                    label: label.to_string(),
-                    color_key: color_key.to_string(),
-                })?;
-            attribute_ids.insert(label.to_string(), option.id);
-        }
-
-        let mut status_ids = HashMap::new();
-        let pending = self.pending_activity_status_option()?;
-        status_ids.insert(pending.label.clone(), pending.id);
-        for (label, color_key) in [
-            ("信息已整理", "green"),
-            ("进行中", "blue"),
-            ("待跟进", "amber"),
-            ("需升级处理", "red"),
-            ("已验证", "teal"),
-        ] {
-            let option = self.activity_status_option_upsert(ActivityStatusOptionUpsertInput {
-                id: None,
-                label: label.to_string(),
-                color_key: color_key.to_string(),
-            })?;
-            status_ids.insert(label.to_string(), option.id);
-        }
-
-        Ok(DemoSeedCatalog {
-            attribute_ids,
-            status_ids,
-        })
-    }
-
-    fn ensure_demo_mock_ai_profile_if_needed(&mut self) -> Result<bool> {
-        if !self.fetch_ai_profiles()?.is_empty() {
-            return Ok(false);
-        }
-
-        let profile = self.ai_profile_upsert(AiProviderProfileUpsertInput {
-            id: None,
-            name: "Demo Mock AI".to_string(),
-            provider_family: "openai_compatible".to_string(),
-            base_url: "https://mock.local/v1".to_string(),
-            api_key: Some("demo-mock-key".to_string()),
-            default_model: "mock-model".to_string(),
-            supports_text: true,
-            supports_image: false,
-            supports_file: false,
-            enabled: true,
-        })?;
-
-        self.ai_binding_upsert(AiCapabilityBindingUpsertInput {
-            capability: "default".to_string(),
-            use_default: false,
-            profile_id: Some(profile.id),
-            model: None,
-        })?;
-        Ok(true)
-    }
-
-    fn count_table_rows(&self, table: &str) -> Result<i64> {
-        let sql = format!("SELECT COUNT(*) FROM {table}");
-        self.conn
-            .query_row(&sql, [], |row| row.get(0))
-            .map_err(Into::into)
-    }
-
-    fn create_demo_note(
-        &mut self,
-        project_id: i64,
-        activity_id: i64,
-        title: &str,
-        markdown: &str,
-    ) -> Result<NoteRecord> {
-        self.project_record_upsert(ProjectRecordUpsertInput {
-            project_id,
-            activity_id: Some(activity_id),
-            note_id: None,
-            title: Some(title.to_string()),
-            markdown: markdown.to_string(),
-            html: rich_text_html_from_markdown(markdown),
-            default_code_language: None,
-            tag_ids: vec![],
-        })
-    }
-
-    fn create_demo_conclusion(
-        &mut self,
-        project_id: i64,
-        activity_id: Option<i64>,
-        note_id: Option<i64>,
-        markdown: &str,
-        promoted_to_project: bool,
-    ) -> Result<ConclusionRecord> {
-        self.conclusion_create(ConclusionCreateInput {
-            project_id,
-            activity_id,
-            note_id,
-            markdown: markdown.to_string(),
-            html: rich_text_html_from_markdown(markdown),
-            promoted_to_project,
-            is_pinned: None,
-        })
-    }
-
-    fn create_demo_todo(
-        &mut self,
-        project_id: i64,
-        activity_id: Option<i64>,
-        content: &str,
-        priority: &str,
-        progresses: &[(&str, &str)],
-        finished: bool,
-    ) -> Result<TodoRecord> {
-        let todo = self.todo_create(TodoCreateInput {
-            scope: TodoScope::Project,
-            project_id: Some(project_id),
-            activity_id,
-            content: content.to_string(),
-            priority: priority.to_string(),
-            due_date: None,
-            tag_ids: vec![],
-        })?;
-
-        for (progress_date, progress_content) in progresses {
-            self.todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: (*progress_content).to_string(),
-                progress_date: (*progress_date).to_string(),
-                due_date: None,
-            })?;
-        }
-
-        if finished {
-            self.todo_update_status(TodoUpdateStatusInput {
-                todo_id: todo.id,
-                status: "finished".to_string(),
-            })?;
-        }
-
-        self.todo_record(todo.id)
-    }
-
-    fn write_demo_source_file(
-        &self,
-        source_root: &Path,
-        scope: &str,
-        file_name: &str,
-        contents: &str,
-    ) -> Result<PathBuf> {
-        let target_dir = source_root.join(scope);
-        fs::create_dir_all(&target_dir)?;
-        let path = target_dir.join(file_name);
-        fs::write(&path, contents)
-            .with_context(|| format!("failed to write demo source file at {}", path.display()))?;
-        Ok(path)
-    }
-
-    fn import_demo_document(
-        &mut self,
-        project_id: i64,
-        activity_id: Option<i64>,
-        source_path: &Path,
-        is_starred: bool,
-        tag_labels: &[&str],
-    ) -> Result<DocumentRecord> {
-        let timestamp = now_iso();
-        let mut tag_ids = Vec::with_capacity(tag_labels.len());
-        for label in tag_labels {
-            let tag_id = self.upsert_project_tag_by_label(
-                project_id,
-                label,
-                DEFAULT_RECORD_TYPE_COLOR_KEY,
-                &timestamp,
-            )?;
-            tag_ids.push(tag_id);
-        }
-
-        self.document_import(DocumentImportInput {
-            project_id,
-            activity_id,
-            source_path: source_path.to_string_lossy().to_string(),
-            is_starred,
-            tag_ids: if tag_ids.is_empty() {
-                None
-            } else {
-                Some(tag_ids.to_vec())
-            },
-        })
-    }
-
-    fn seed_demo_customer_service_project(
-        &mut self,
-        _workspace_root: &Path,
-        source_root: &Path,
-        catalog: &DemoSeedCatalog,
-    ) -> Result<SeededProjectRefs> {
-        let project = self.project_create(ProjectCreateInput {
-            name: "智能客服知识库升级".to_string(),
-            summary: Some("目标是在 6 周内把退款、物流、账户三类高频问题沉淀为可检索知识库，并让 AI 助手引用统一口径。当前处于数据清洗与法务边界确认阶段。".to_string()),
-            status: Some("active".to_string()),
-        })?;
-
-        let kickoff = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("会议")?),
-            title: Some("Kickoff 范围对齐".to_string()),
-            activity_time: "2026-04-02T01:30:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: kickoff.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(true),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("信息已整理")?),
-        })?;
-        let kickoff_note = self.create_demo_note(
-            project.id,
-            kickoff.id,
-            "Kickoff 纪要",
-            "## 背景\n现有客服知识分散在 FAQ 表、培训录屏和飞书文档中，回复口径不一致。\n\n## 讨论要点\n- 本期范围统一为退款、物流、账户三类高频问题。\n- 先做知识清洗，再接 AI 引用，不直接开放自动回复。\n- 知识条目统一采用四段式：问题定义、标准回复、边界条件、升级路径。\n\n## 初步结论\n- 确认第一阶段只覆盖中文场景。\n- 建议把退款时效与物流异常拆成独立知识条目。\n- 需要法务确认赔付承诺相关措辞边界。\n\n## 行动项\n- 待产品在周三前补齐高频问题 Top 50。\n- 需要客服主管输出现有标准话术。\n- 安排法务参加下一轮边界评审。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(kickoff.id),
-            Some(kickoff_note.id),
-            "第一阶段范围锁定为退款、物流、账户问题，先支持辅助检索，不直接自动回复。",
-            true,
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(kickoff.id),
-            Some(kickoff_note.id),
-            "知识条目统一采用“问题定义 / 标准回复 / 边界条件 / 升级路径”四段式模板。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(kickoff.id),
-            "整理近 30 天高频工单 Top 50",
-            "urgent_important",
-            &[(
-                &current_workspace_date(),
-                "已从工单系统导出 4,812 条样本，并完成首轮去重。",
-            )],
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(kickoff.id),
-            "补齐退款与物流场景标准回复草案",
-            "not_urgent_important",
-            &[(
-                &current_workspace_date(),
-                "客服主管已补充 12 条标准口径，待产品统一格式。",
-            )],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(kickoff.id),
-            "与法务确认赔付类敏感措辞",
-            "urgent_not_important",
-            &[("2026-04-07", "已预约本周五法务评审会。")],
-            false,
-        )?;
-
-        let prd_v1 = self.write_demo_source_file(
-            source_root,
-            "customer_service",
-            "kb-upgrade-prd-v1.md",
-            "# 智能客服知识库升级 PRD v1\n\n## 目标\n- 将高频问题从人工经验整理为标准知识条目。\n- 为后续 AI 辅助检索提供统一引用源。\n\n## 首期范围\n- 退款\n- 物流\n- 账户\n\n## 成功指标\n- 首次响应时间下降 20%\n- 口径偏差投诉下降 30%\n",
-        )?;
-        let kickoff_doc = self.import_demo_document(
-            project.id,
-            Some(kickoff.id),
-            &prd_v1,
-            true,
-            &["PRD", "评审材料"],
-        )?;
-        let prd_v2 = self.write_demo_source_file(
-            source_root,
-            "customer_service",
-            "kb-upgrade-prd-v2.md",
-            "# 智能客服知识库升级 PRD v2\n\n## 目标\n- 在首期知识清洗完成后接入 AI 检索引用。\n- 回复内容必须可追溯到知识条目。\n\n## 新增约束\n- 敏感话术必须增加“禁止表达”字段。\n- 所有赔付结论默认走人工复核。\n\n## 成功指标\n- 首次响应时间下降 20%\n- 升级工单占比下降 15%\n",
-        )?;
-        self.document_add_version(DocumentAddVersionInput {
-            document_id: kickoff_doc.id,
-            source_path: Some(prd_v2.to_string_lossy().to_string()),
-        })?;
-
-        let labeling = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("数据分析")?),
-            title: Some("历史工单标签梳理".to_string()),
-            activity_time: "2026-04-04T06:00:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: labeling.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("进行中")?),
-        })?;
-        let labeling_note = self.create_demo_note(
-            project.id,
-            labeling.id,
-            "标签映射实验",
-            "## 目标\n验证现有工单标签能否直接映射为知识库一级 / 二级分类。\n\n## 样本与方法\n- 抽样退款工单 1200 条、物流工单 900 条、账户工单 600 条。\n- 比较现有 87 个标签与知识条目候选结构的一致性。\n\n## 观察\n- “退款失败”“退款处理中”“退款超时”需要拆成状态维度。\n- 物流问题里“揽收延迟”和“在途异常”被混用。\n- 建议保留一级大类 + 二级问题码，不再沿用自然语言标签。\n\n## 下一步\n- 需要输出旧标签到新问题码的映射表。\n- 待客服团队补充近两周新增标签样本。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(labeling.id),
-            Some(labeling_note.id),
-            "二级问题码需要独立维护，不能直接复用现有工单自然语言标签。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(labeling.id),
-            "输出旧标签到新问题码映射表",
-            "urgent_important",
-            &[("2026-04-08", "已完成 87 个旧标签的首轮聚类。")],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(labeling.id),
-            "补充最近两周新增标签样本",
-            "urgent_not_important",
-            &[("2026-04-08", "客服团队承诺今晚补齐新增标签导出。")],
-            false,
-        )?;
-        let label_mapping = self.write_demo_source_file(
-            source_root,
-            "customer_service",
-            "ticket-tag-mapping.csv",
-            "old_tag,new_code,new_label\n退款失败,refund_status_failed,退款失败\n退款处理中,refund_status_processing,退款处理中\n物流延迟,logistics_delay,物流延迟\n在途异常,logistics_exception,在途异常\n账号冻结,account_locked,账号冻结\n",
-        )?;
-        self.import_demo_document(
-            project.id,
-            Some(labeling.id),
-            &label_mapping,
-            false,
-            &["数据样本", "评审材料"],
-        )?;
-
-        let legal = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("法务评审")?),
-            title: Some("敏感问题回复边界评审".to_string()),
-            activity_time: "2026-04-07T02:00:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: legal.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("需升级处理")?),
-        })?;
-        let legal_note = self.create_demo_note(
-            project.id,
-            legal.id,
-            "敏感话术法务审查",
-            "## 审查范围\n赔付、退款承诺、平台责任、时效承诺。\n\n## 风险点\n- 不能使用“保证到账”“一定补偿”这类绝对表述。\n- 若物流责任未判定，AI 只能使用条件式回应。\n- 涉及现金补偿需引导人工确认，不允许直接承诺金额。\n\n## 建议口径\n- 可使用“我们将协助核查并在 24 小时内同步处理结果”。\n- 需要在知识条目里增加“禁止表达”字段。\n\n## 结论\n所有赔付与责任认定类问题均需人工复核。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(legal.id),
-            Some(legal_note.id),
-            "所有赔付与责任认定类问题必须增加“禁止表达”字段，并走人工复核。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(legal.id),
-            "整理禁止表达黑名单",
-            "urgent_important",
-            &[(
-                "2026-04-08",
-                "法务已圈定 18 条高风险表达，待整理成结构化清单。",
-            )],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(legal.id),
-            "在提示词中加入人工复核 gate",
-            "not_urgent_important",
-            &[("2026-04-08", "已在 prompt 草案中增加 escalation 条件。")],
-            false,
-        )?;
-        let legal_doc = self.write_demo_source_file(
-            source_root,
-            "customer_service",
-            "legal-language-boundary.md",
-            "# 客服敏感话术边界\n\n## 禁止表达\n- 保证到账\n- 一定赔付\n- 平台全责\n\n## 可替代表达\n- 我们将协助核查并同步处理结果\n- 该问题需要人工进一步确认\n",
-        )?;
-        self.import_demo_document(
-            project.id,
-            Some(legal.id),
-            &legal_doc,
-            true,
-            &["法务条款", "Prompt草案"],
-        )?;
-
-        self.create_demo_conclusion(
-            project.id,
-            None,
-            None,
-            "知识库升级的首期上线条件已经明确：标签映射表完成、敏感话术黑名单确认、标准回复模板统一。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            None,
-            "输出首期上线 checklist",
-            "not_urgent_important",
-            &[("2026-04-08", "已汇总产品、客服、法务三方 gating 条件。")],
-            false,
-        )?;
-
-        Ok(SeededProjectRefs {
-            project_id: project.id,
-            activity_ids: vec![kickoff.id, labeling.id, legal.id],
-        })
-    }
-
-    fn seed_demo_lead_scoring_project(
-        &mut self,
-        _workspace_root: &Path,
-        source_root: &Path,
-        catalog: &DemoSeedCatalog,
-    ) -> Result<SeededProjectRefs> {
-        let project = self.project_create(ProjectCreateInput {
-            name: "海外销售线索评分 Copilot".to_string(),
-            summary: Some("为北美 SMB 销售团队做一套线索评分 Copilot，目标是把 SDR 首次筛选时间从 12 分钟降到 4 分钟。当前在验证 CRM 接入与特征字段稳定性。".to_string()),
-            status: Some("active".to_string()),
-        })?;
-
-        let alignment = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("会议")?),
-            title: Some("北美销售与市场对齐会".to_string()),
-            activity_time: "2026-04-03T00:00:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: alignment.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(true),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("信息已整理")?),
-        })?;
-        let alignment_note = self.create_demo_note(
-            project.id,
-            alignment.id,
-            "销售与市场对齐纪要",
-            "## 背景\nSDR 认为当前线索筛选完全依赖个人经验，优先级不稳定。\n\n## 讨论要点\n- 第一阶段只覆盖北美 inbound demo / ebook / webinar 三类线索。\n- 输出建议分，不自动改写 CRM 原始 score。\n- 评分解释必须能追溯到字段与规则。\n\n## 初步结论\n- 确认先做建议分 + 推荐动作，不触发自动分配。\n- 需要市场补齐 campaign taxonomy 与 lead source 映射。\n- 销售只接受 5 档评分，不接受纯文本建议。\n\n## 行动项\n- 待 RevOps 输出字段字典。\n- 需要 SDR 主管提供最近 50 条高转化样本。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(alignment.id),
-            Some(alignment_note.id),
-            "第一阶段只覆盖北美 inbound demo / ebook / webinar leads，先给建议分，不自动改写 CRM 原始 score。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(alignment.id),
-            "让 RevOps 输出字段字典与评分口径说明",
-            "urgent_important",
-            &[(
-                "2026-04-08",
-                "RevOps 已确认 23 个可用字段，并补充字段释义。",
-            )],
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(alignment.id),
-            "补齐 campaign taxonomy 与 lead source 映射",
-            "not_urgent_important",
-            &[("2026-04-08", "市场团队已交付首版渠道映射，待清洗历史别名。")],
-            false,
-        )?;
-
-        let project_scope = self.write_demo_source_file(
-            source_root,
-            "lead_scoring",
-            "lead-scoring-scope.md",
-            "# Lead Scoring Copilot Scope\n\n## Phase 1\n- North America inbound demo\n- Ebook download\n- Webinar registration\n\n## Output\n- 推荐评分档位\n- 推荐动作\n- 解释字段\n",
-        )?;
-        self.import_demo_document(project.id, None, &project_scope, true, &["PRD", "流程清单"])?;
-
-        let feature_review = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("实验验证")?),
-            title: Some("评分特征初版评审".to_string()),
-            activity_time: "2026-04-05T02:30:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: feature_review.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("进行中")?),
-        })?;
-        let feature_note = self.create_demo_note(
-            project.id,
-            feature_review.id,
-            "评分特征评审记录",
-            "## 目标\n验证首版评分特征是否具备业务解释性与字段稳定性。\n\n## 样本与方法\n- 使用近 90 天 3,200 条北美 inbound leads。\n- 对比行业、员工数、官网质量、回复速度、渠道来源等字段。\n\n## 观察\n- 官网缺失但来自高 intent 渠道的线索不应被直接降分。\n- 员工数字段缺失率高，需要 fallback 规则。\n- 建议把“最近 7 天互动次数”作为单独的加分项。\n\n## 下一步\n- 待数据团队补齐员工数缺失值策略。\n- 需要销售确认各档评分的 follow-up SLA。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(feature_review.id),
-            Some(feature_note.id),
-            "官网质量、渠道来源、最近 7 天互动次数应作为首版评分的核心解释字段。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(feature_review.id),
-            "补齐员工数缺失值 fallback 规则",
-            "urgent_important",
-            &[("2026-04-08", "数据团队建议回退到公司域名解析 + 手工补全。")],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(feature_review.id),
-            "确认 5 档评分对应的 follow-up SLA",
-            "urgent_not_important",
-            &[(
-                "2026-04-08",
-                "SDR 主管已接受 P1/P2/P3 三档差异化 SLA 方案。",
-            )],
-            false,
-        )?;
-        let features_v1 = self.write_demo_source_file(
-            source_root,
-            "lead_scoring",
-            "lead-score-features-v1.csv",
-            "feature,weight,comment\nwebsite_quality,0.25,官网信息完整度\nlead_source,0.20,渠道意图强度\nemployee_size,0.15,公司规模\nrecent_activity_7d,0.10,最近 7 天互动次数\njob_title_match,0.10,职位匹配度\n",
-        )?;
-        let feature_doc = self.import_demo_document(
-            project.id,
-            Some(feature_review.id),
-            &features_v1,
-            false,
-            &["数据样本", "评审材料"],
-        )?;
-        let features_v2 = self.write_demo_source_file(
-            source_root,
-            "lead_scoring",
-            "lead-score-features-v2.csv",
-            "feature,weight,comment\nwebsite_quality,0.22,官网信息完整度\nlead_source,0.22,渠道意图强度\nemployee_size,0.12,公司规模\nrecent_activity_7d,0.16,最近 7 天互动次数\njob_title_match,0.10,职位匹配度\ncampaign_fit,0.08,活动匹配度\n",
-        )?;
-        self.document_add_version(DocumentAddVersionInput {
-            document_id: feature_doc.id,
-            source_path: Some(features_v2.to_string_lossy().to_string()),
-        })?;
-
-        let crm = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("需求澄清")?),
-            title: Some("CRM 接入可行性确认".to_string()),
-            activity_time: "2026-04-07T08:30:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: crm.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("待跟进")?),
-        })?;
-        let crm_note = self.create_demo_note(
-            project.id,
-            crm.id,
-            "CRM 接入可行性记录",
-            "## 背景\n当前 HubSpot webhook 无法稳定覆盖所有 lead 更新事件。\n\n## 关键发现\n- 新增线索事件实时可用，但字段修订事件存在延迟。\n- 若直接做实时重算，会出现解释字段与 CRM 页面不一致。\n- 建议 nightly full sync + webhook incremental 的混合方案。\n\n## 下一步\n- 需要 RevOps 确认 nightly sync 窗口。\n- 待工程确认 webhook 限流策略。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(crm.id),
-            Some(crm_note.id),
-            "CRM 接入采用 webhook 增量 + nightly full sync 的混合方案，优先保证评分解释与页面字段一致。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(crm.id),
-            "确认 nightly sync 时间窗口",
-            "urgent_not_important",
-            &[("2026-04-08", "RevOps 倾向每天美西时间 02:00 执行全量同步。")],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(crm.id),
-            "评估 webhook 限流与补偿重试策略",
-            "not_urgent_important",
-            &[("2026-04-08", "工程建议先做 3 次指数退避重试。")],
-            false,
-        )?;
-        let crm_doc = self.write_demo_source_file(
-            source_root,
-            "lead_scoring",
-            "crm-integration-checklist.md",
-            "# CRM Integration Checklist\n\n- Confirm webhook event coverage\n- Define nightly full sync window\n- Add retry and dead-letter handling\n- Align score explanation fields with CRM UI\n",
-        )?;
-        self.import_demo_document(
-            project.id,
-            Some(crm.id),
-            &crm_doc,
-            false,
-            &["流程清单", "评审材料"],
-        )?;
-
-        self.create_demo_conclusion(
-            project.id,
-            None,
-            None,
-            "Lead Scoring Copilot 的首版落地前提已经明确：评分可解释、字段稳定、CRM 同步一致。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            None,
-            "准备北美 SDR 内测说明页",
-            "not_urgent_important",
-            &[("2026-04-08", "已收集需要展示的评分解释示例。")],
-            false,
-        )?;
-
-        Ok(SeededProjectRefs {
-            project_id: project.id,
-            activity_ids: vec![alignment.id, feature_review.id, crm.id],
-        })
-    }
-
-    fn seed_demo_contract_review_project(
-        &mut self,
-        _workspace_root: &Path,
-        source_root: &Path,
-        catalog: &DemoSeedCatalog,
-    ) -> Result<SeededProjectRefs> {
-        let project = self.project_create(ProjectCreateInput {
-            name: "合同审阅 AI 助手试点".to_string(),
-            summary: Some("面向法务与采购的合同审阅 AI 助手试点，聚焦红线条款识别、审阅意见归类和标准修改建议。当前已完成试点范围确认，Prompt 与复核流程仍在迭代。".to_string()),
-            status: Some("active".to_string()),
-        })?;
-
-        let scope = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("会议")?),
-            title: Some("试点范围确认".to_string()),
-            activity_time: "2026-04-01T07:30:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: scope.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(true),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("信息已整理")?),
-        })?;
-        let scope_note = self.create_demo_note(
-            project.id,
-            scope.id,
-            "试点范围纪要",
-            "## 背景\n法务希望优先验证红线条款识别与修改建议，不希望一开始覆盖所有合同类型。\n\n## 讨论要点\n- 试点仅覆盖 NDA 与采购合同，不覆盖劳动合同。\n- 输出需包含风险等级、风险依据、建议修改文本。\n- 所有 AI 建议必须由法务二次确认后才能对外发送。\n\n## 初步结论\n- 先用匿名化历史合同做离线验证。\n- 红线条款模板由法务统一维护。\n- 采购合同优先关注责任限制、付款条件、自动续约。\n\n## 行动项\n- 待法务提供 20 份匿名化样本。\n- 需要整理红线条款模板 v1。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(scope.id),
-            Some(scope_note.id),
-            "试点仅覆盖 NDA 与采购合同，所有 AI 建议必须经过法务二次确认后才能输出。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(scope.id),
-            "收集 20 份匿名化历史合同样本",
-            "urgent_important",
-            &[("2026-04-08", "法务已完成 12 份 NDA 样本脱敏。")],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(scope.id),
-            "整理红线条款模板 v1",
-            "not_urgent_important",
-            &[("2026-04-08", "已完成责任限制与自动续约两类条款模板。")],
-            false,
-        )?;
-        let scope_doc = self.write_demo_source_file(
-            source_root,
-            "contract_review",
-            "pilot-scope.md",
-            "# 合同审阅 AI 助手试点范围\n\n## Included\n- NDA\n- Procurement Agreement\n\n## Excluded\n- Employment Contract\n- Equity Agreement\n\n## Output Fields\n- 风险等级\n- 风险依据\n- 建议修改文本\n",
-        )?;
-        self.import_demo_document(project.id, None, &scope_doc, true, &["PRD", "法务条款"])?;
-
-        let prompt = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("实验验证")?),
-            title: Some("红线条款 Prompt 调整".to_string()),
-            activity_time: "2026-04-06T03:30:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: prompt.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("进行中")?),
-        })?;
-        let prompt_note = self.create_demo_note(
-            project.id,
-            prompt.id,
-            "Prompt 调整记录",
-            "## 目标\n减少泛化建议，提升红线条款识别的准确率与依据可读性。\n\n## 样本与方法\n- 使用 12 份匿名 NDA 与 8 份采购合同做离线评估。\n- 对比 prompt v1 / v2 在风险条款召回率上的差异。\n\n## 观察\n- 若不提供条款类别清单，模型会把普通商务条款误判为高风险。\n- 要求输出“风险依据”后，法务对结果的信任度明显提高。\n- 建议把建议修改文本限制在标准模板候选集合内。\n\n## 下一步\n- 待法务补充付款条件与赔偿责任模板。\n- 需要增加拒答条件：当证据不足时输出“需人工判断”。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(prompt.id),
-            Some(prompt_note.id),
-            "Prompt 必须同时输出风险等级与风险依据，并在证据不足时明确回退为“需人工判断”。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(prompt.id),
-            "补充付款条件与赔偿责任模板",
-            "urgent_important",
-            &[("2026-04-08", "法务已提供 6 条标准修改建议模板。")],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(prompt.id),
-            "增加证据不足时的拒答条件",
-            "not_urgent_important",
-            &[("2026-04-08", "prompt v3 已增加“需人工判断”回退语。")],
-            true,
-        )?;
-        let prompt_doc = self.write_demo_source_file(
-            source_root,
-            "contract_review",
-            "clause-risk-matrix.json",
-            "{\n  \"liability_cap\": {\"risk\": \"high\", \"template\": \"责任上限不应低于合同金额 100%\"},\n  \"auto_renewal\": {\"risk\": \"medium\", \"template\": \"自动续约需提供明确取消窗口\"},\n  \"payment_terms\": {\"risk\": \"medium\", \"template\": \"付款条件需与验收节点绑定\"}\n}\n",
-        )?;
-        self.import_demo_document(
-            project.id,
-            Some(prompt.id),
-            &prompt_doc,
-            false,
-            &["Prompt草案", "法务条款"],
-        )?;
-
-        let review_flow = self.activity_create(ActivityCreateInput {
-            project_id: project.id,
-            attribute_option_id: Some(catalog.attribute_id("法务评审")?),
-            title: Some("法务复核机制设计".to_string()),
-            activity_time: "2026-04-08T01:00:00.000Z".to_string(),
-        })?;
-        self.activity_update_meta(ActivityUpdateMetaInput {
-            activity_id: review_flow.id,
-            title: None,
-            brief_markdown: None,
-            brief_html: None,
-            attribute_option_id: None,
-            clear_attribute_option: None,
-            activity_time: None,
-            is_pinned: Some(false),
-            is_expanded: Some(true),
-            status_option_id: Some(catalog.status_id("待跟进")?),
-        })?;
-        let review_note = self.create_demo_note(
-            project.id,
-            review_flow.id,
-            "复核流程设计记录",
-            "## 审查范围\nAI 输出的风险等级、风险依据、建议修改文本、拒答原因。\n\n## 风险点\n- 若没有统一复核清单，不同法务对相同结果的判断会不一致。\n- 采购合同的付款与违约条款更依赖业务上下文，不能只看单条条款。\n\n## 建议口径\n- 先按“高风险必审、中风险抽审、低风险 spot check”设计。\n- 对所有拒答结果保留原因与证据片段。\n\n## 结论\n需要一套标准复核清单与升级规则，才能支持试点上线。",
-        )?;
-        self.create_demo_conclusion(
-            project.id,
-            Some(review_flow.id),
-            Some(review_note.id),
-            "试点上线前必须先落地标准复核清单与升级规则，避免同类条款出现不同判定口径。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(review_flow.id),
-            "输出高 / 中 / 低风险分级复核清单",
-            "urgent_important",
-            &[(
-                "2026-04-08",
-                "已初步按责任限制、付款条件、续约条款划分风险级别。",
-            )],
-            false,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            Some(review_flow.id),
-            "定义拒答结果的记录字段",
-            "not_urgent_important",
-            &[("2026-04-08", "建议记录触发原因、证据片段和建议升级人。")],
-            false,
-        )?;
-        let review_doc = self.write_demo_source_file(
-            source_root,
-            "contract_review",
-            "review-checklist.md",
-            "# 法务复核清单\n\n## High Risk\n- Liability cap below threshold\n- One-sided indemnity\n\n## Medium Risk\n- Auto renewal without cancellation window\n- Payment terms detached from acceptance\n\n## Low Risk\n- Standard template wording changes\n",
-        )?;
-        self.import_demo_document(
-            project.id,
-            Some(review_flow.id),
-            &review_doc,
-            false,
-            &["流程清单", "法务条款"],
-        )?;
-
-        self.create_demo_conclusion(
-            project.id,
-            None,
-            None,
-            "合同审阅试点已经具备离线验证条件，下一阶段的关键不再是继续堆 prompt，而是把复核机制和升级规则做扎实。",
-            true,
-        )?;
-        self.create_demo_todo(
-            project.id,
-            None,
-            "准备第二批匿名采购合同样本",
-            "not_urgent_important",
-            &[("2026-04-08", "采购团队答应补充 8 份不同付款模式样本。")],
-            false,
-        )?;
-
-        Ok(SeededProjectRefs {
-            project_id: project.id,
-            activity_ids: vec![scope.id, prompt.id, review_flow.id],
-        })
-    }
-
-    fn resolve_artifact_request(
-        &self,
-        input: AiArtifactGetInput,
-    ) -> Result<ResolvedArtifactRequest> {
-        if input.activity_id.is_some() {
-            return Err(anyhow!(
-                "activity artifacts are no longer supported; use project_brief or daily_brief"
-            ));
-        }
-
-        let kind = input.kind.trim();
-        let spec = artifact_skill_spec(kind)?;
-
-        match kind {
-            "project_brief" => {
-                let project_id = input
-                    .project_id
-                    .ok_or_else(|| anyhow!("project_brief requires projectId"))?;
-                Ok(ResolvedArtifactRequest {
-                    spec,
-                    project_id: Some(project_id),
-                    activity_id: None,
-                    artifact_date: None,
-                })
-            }
-            "daily_brief" => Ok(ResolvedArtifactRequest {
-                spec,
-                project_id: None,
-                activity_id: None,
-                artifact_date: Some(
-                    nullable_trimmed(input.artifact_date.as_deref())
-                        .unwrap_or_else(current_workspace_date),
-                ),
-            }),
-            _ => Err(anyhow!("unsupported artifact kind")),
-        }
-    }
-
-    fn resolve_ai_answer_request(
-        &self,
-        input: AiAnswerQuestionInput,
-    ) -> Result<ResolvedAskRequest> {
-        if input.activity_id.is_some() {
-            return Err(anyhow!(
-                "activity scope is no longer supported; use project scope instead"
-            ));
-        }
-
-        let question = input.question.trim().to_string();
-        if question.is_empty() {
-            return Err(anyhow!("question is required"));
-        }
-
-        match input.scope {
-            AiAnswerScope::Activity => Err(anyhow!(
-                "activity scope is no longer supported; use project scope instead"
-            )),
-            AiAnswerScope::Project => {
-                let project_id = input
-                    .project_id
-                    .ok_or_else(|| anyhow!("project scope requires projectId"))?;
-                self.project_record(project_id)?;
-                Ok(ResolvedAskRequest {
-                    scope: AiAnswerScope::Project,
-                    question,
-                    project_id: Some(project_id),
-                    activity_id: None,
-                })
-            }
-            AiAnswerScope::Workspace => Ok(ResolvedAskRequest {
-                scope: AiAnswerScope::Workspace,
-                question,
-                project_id: None,
-                activity_id: None,
-            }),
-        }
-    }
-
-    fn build_ai_answer_sources(
-        &mut self,
-        scope: &AiAnswerScope,
-        project_id: Option<i64>,
-        _activity_id: Option<i64>,
-    ) -> Result<Vec<AskSource>> {
-        match scope {
-            AiAnswerScope::Activity => Err(anyhow!(
-                "activity scope is no longer supported; use project scope instead"
-            )),
-            AiAnswerScope::Project => self
-                .build_project_ask_sources(project_id.ok_or_else(|| anyhow!("missing projectId"))?),
-            AiAnswerScope::Workspace => self.build_workspace_ask_sources(),
-        }
-    }
-
-    fn build_artifact_context(
-        &mut self,
-        spec: &ArtifactSkillSpec,
-        project_id: Option<i64>,
-        _activity_id: Option<i64>,
-        artifact_date: Option<String>,
-    ) -> Result<ArtifactGenerationContext> {
-        match spec.kind {
-            "project_brief" => self.build_project_brief_context(
-                project_id.ok_or_else(|| anyhow!("missing projectId"))?,
-            ),
-            "daily_brief" => {
-                self.build_daily_brief_context(artifact_date.unwrap_or_else(current_workspace_date))
-            }
-            _ => Err(anyhow!("unsupported artifact kind")),
-        }
-    }
-
-    fn build_project_brief_context(
-        &mut self,
-        project_id: i64,
-    ) -> Result<ArtifactGenerationContext> {
-        let dashboard = self.project_get_dashboard(ProjectIdInput { project_id })?;
-        let mut sources = Vec::new();
-        let mut latest = dashboard.project.updated_at.clone();
-
-        push_artifact_source(
-            &mut sources,
-            &mut latest,
-            Some(dashboard.project.id),
-            None,
-            "PROJECT",
-            dashboard.project.id,
-            "project",
-            format!("Project · {}", dashboard.project.name),
-            format!(
-                "状态：{}；简介：{}",
-                dashboard.project.status,
-                if dashboard.project.summary.trim().is_empty() {
-                    "暂无项目简介"
-                } else {
-                    dashboard.project.summary.trim()
-                }
-            ),
-            &dashboard.project.updated_at,
-        );
-
-        for activity in &dashboard.recent_activities {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(activity.project_id),
-                Some(activity.id),
-                "ACTIVITY",
-                activity.id,
-                "activity",
-                format!("Recent Activity · {}", activity.title),
-                format!(
-                    "时间：{}；状态：{}；开放 Todo：{}；记录数：{}",
-                    activity.activity_time,
-                    activity.status_label,
-                    activity.todo_count,
-                    activity.note_count
-                ),
-                &dashboard.project.updated_at,
-            );
-        }
-
-        for conclusion in &dashboard.key_conclusions {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(conclusion.project_id),
-                conclusion.activity_id,
-                "CONCLUSION",
-                conclusion.id,
-                "conclusion",
-                "Project Conclusion".to_string(),
-                conclusion.content_markdown.clone(),
-                &conclusion.updated_at,
-            );
-        }
-
-        for todo in &dashboard.open_todos {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                todo.project_id,
-                todo.activity_id,
-                "TODO",
-                todo.id,
-                "todo",
-                "Open Todo".to_string(),
-                format!(
-                    "{}；优先级：{}；最近进展：{}",
-                    todo.content,
-                    todo.priority,
-                    todo.progresses
-                        .first()
-                        .map(|item| item.content.clone())
-                        .unwrap_or_else(|| "暂无进展".to_string())
-                ),
-                &todo.updated_at,
-            );
-        }
-
-        for document in &dashboard.starred_documents {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(document.project_id),
-                document.activity_id,
-                "DOCUMENT",
-                document.id,
-                "document",
-                format!("Starred Document · {}", document.name),
-                format!(
-                    "文件：{}；类型：{}；状态：{}",
-                    document.name, document.mime_type, document.health
-                ),
-                &document.updated_at,
-            );
-        }
-
-        Ok(ArtifactGenerationContext {
-            project_id: Some(project_id),
-            activity_id: None,
-            artifact_date: None,
-            source_updated_at: latest,
-            context_text: render_artifact_context(
-                "Project Brief",
-                &format!("Project: {}", dashboard.project.name),
-                &sources,
-            ),
-            sources,
-        })
-    }
-
-    fn build_daily_brief_context(
-        &mut self,
-        artifact_date: String,
-    ) -> Result<ArtifactGenerationContext> {
-        let visible_projects = self.projects_list(ProjectsListInput {
-            include_archived: Some(false),
-        })?;
-        let todo_sources = self.workspace_open_todo_sources(10)?;
-        let activity_sources = self.workspace_recent_activity_sources(10)?;
-        let mut sources = Vec::new();
-        let mut latest = now_iso();
-
-        for project in visible_projects.iter().take(6) {
-            push_artifact_source(
-                &mut sources,
-                &mut latest,
-                Some(project.id),
-                None,
-                "PROJECT",
-                project.id,
-                "project",
-                format!("Project · {}", project.name),
-                format!(
-                    "状态：{}；简介：{}；未完成 Todo：{}",
-                    project.status,
-                    if project.summary.trim().is_empty() {
-                        "暂无项目简介"
-                    } else {
-                        project.summary.trim()
-                    },
-                    project.open_todo_count
-                ),
-                &project.updated_at,
-            );
-        }
-
-        for source in todo_sources {
-            push_existing_artifact_source(&mut sources, &mut latest, source, None);
-        }
-
-        for source in activity_sources {
-            push_existing_artifact_source(&mut sources, &mut latest, source, None);
-        }
-
-        Ok(ArtifactGenerationContext {
-            project_id: None,
-            activity_id: None,
-            artifact_date: Some(artifact_date.clone()),
-            source_updated_at: latest,
-            context_text: render_artifact_context(
-                "Daily Brief",
-                &format!("Workspace day: {artifact_date}"),
-                &sources,
-            ),
-            sources,
-        })
-    }
-
-    fn build_project_ask_sources(&mut self, project_id: i64) -> Result<Vec<AskSource>> {
-        let dashboard = self.project_get_dashboard(ProjectIdInput { project_id })?;
-        let mut sources = Vec::new();
-
-        push_ask_source(
-            &mut sources,
-            Some(dashboard.project.id),
-            None,
-            "PROJECT",
-            dashboard.project.id,
-            "project",
-            format!("Project · {}", dashboard.project.name),
-            format!(
-                "状态：{}；简介：{}",
-                dashboard.project.status,
-                if dashboard.project.summary.trim().is_empty() {
-                    "暂无项目简介"
-                } else {
-                    dashboard.project.summary.trim()
-                }
-            ),
-            format!(
-                "Project: {}\nStatus: {}\nSummary: {}",
-                dashboard.project.name,
-                dashboard.project.status,
-                if dashboard.project.summary.trim().is_empty() {
-                    "暂无项目简介"
-                } else {
-                    dashboard.project.summary.trim()
-                }
-            ),
-            &dashboard.project.updated_at,
-        );
-
-        for activity in &dashboard.recent_activities {
-            push_ask_source(
-                &mut sources,
-                Some(activity.project_id),
-                Some(activity.id),
-                "ACTIVITY",
-                activity.id,
-                "activity",
-                format!("Recent Activity · {}", activity.title),
-                format!(
-                    "时间：{}；状态：{}；记录数：{}；开放 Todo：{}",
-                    activity.activity_time,
-                    activity.status_label,
-                    activity.note_count,
-                    activity.todo_count
-                ),
-                format!(
-                    "Activity: {}\nTime: {}\nStatus: {}\nNote count: {}\nTodo count: {}",
-                    activity.title,
-                    activity.activity_time,
-                    activity.status_label,
-                    activity.note_count,
-                    activity.todo_count
-                ),
-                &dashboard.project.updated_at,
-            );
-        }
-
-        for conclusion in &dashboard.key_conclusions {
-            push_ask_source(
-                &mut sources,
-                Some(conclusion.project_id),
-                conclusion.activity_id,
-                "CONCLUSION",
-                conclusion.id,
-                "conclusion",
-                "Project Conclusion".to_string(),
-                conclusion.content_markdown.clone(),
-                conclusion.content_markdown.clone(),
-                &conclusion.updated_at,
-            );
-        }
-
-        for todo in &dashboard.open_todos {
-            let progress = todo
-                .progresses
-                .first()
-                .map(|item| item.content.clone())
-                .unwrap_or_else(|| "暂无进展".to_string());
-            push_ask_source(
-                &mut sources,
-                todo.project_id,
-                todo.activity_id,
-                "TODO",
-                todo.id,
-                "todo",
-                "Open Todo".to_string(),
-                format!(
-                    "{}；优先级：{}；最近进展：{}",
-                    todo.content, todo.priority, progress
-                ),
-                format!(
-                    "Todo: {}\nPriority: {}\nStatus: {}\nLatest progress: {}",
-                    todo.content, todo.priority, todo.status, progress
-                ),
-                &todo.updated_at,
-            );
-        }
-
-        for document in self
-            .fetch_project_documents_for_project(project_id)?
-            .into_iter()
-            .take(8)
-        {
-            let tags = if document.tags.is_empty() {
-                "无标签".to_string()
-            } else {
-                document
-                    .tags
-                    .iter()
-                    .map(|tag| tag.label.clone())
-                    .collect::<Vec<_>>()
-                    .join("、")
-            };
-            push_ask_source(
-                &mut sources,
-                Some(document.project_id),
-                document.activity_id,
-                "DOCUMENT",
-                document.id,
-                "document",
-                format!("Project Document · {}", document.name),
-                format!(
-                    "文件：{}；类型：{}；状态：{}；标签：{}",
-                    document.name, document.mime_type, document.health, tags
-                ),
-                format!(
-                    "Document: {}\nType: {}\nHealth: {}\nTags: {}",
-                    document.name, document.mime_type, document.health, tags
-                ),
-                &document.updated_at,
-            );
-        }
-
-        let mut note_count = 0usize;
-        for activity in dashboard.recent_activities.iter().take(4) {
-            if note_count >= 6 {
-                break;
-            }
-            for note in self.fetch_notes(activity.id)?.into_iter().take(2) {
-                let label = note
-                    .title
-                    .clone()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| "记录".to_string());
-                let note_excerpt = truncate_text(&note.content_markdown, 360);
-                push_ask_source(
-                    &mut sources,
-                    Some(note.project_id),
-                    note.activity_id,
-                    "NOTE",
-                    note.id,
-                    "note",
-                    format!("Recent Note · {}", label),
-                    note_excerpt.clone(),
-                    note_excerpt,
-                    &note.updated_at,
-                );
-                note_count += 1;
-                if note_count >= 6 {
-                    break;
-                }
-            }
-        }
-
-        Ok(sources)
-    }
-
-    fn build_workspace_ask_sources(&mut self) -> Result<Vec<AskSource>> {
-        let visible_projects = self.projects_list(ProjectsListInput {
-            include_archived: Some(false),
-        })?;
-        let mut sources = Vec::new();
-
-        for project in visible_projects.iter().take(8) {
-            push_ask_source(
-                &mut sources,
-                Some(project.id),
-                None,
-                "PROJECT",
-                project.id,
-                "project",
-                format!("Project · {}", project.name),
-                format!(
-                    "状态：{}；简介：{}；未完成 Todo：{}",
-                    project.status,
-                    if project.summary.trim().is_empty() {
-                        "暂无项目简介"
-                    } else {
-                        project.summary.trim()
-                    },
-                    project.open_todo_count
-                ),
-                format!(
-                    "Project: {}\nStatus: {}\nSummary: {}\nOpen todos: {}",
-                    project.name,
-                    project.status,
-                    if project.summary.trim().is_empty() {
-                        "暂无项目简介"
-                    } else {
-                        project.summary.trim()
-                    },
-                    project.open_todo_count
-                ),
-                &project.updated_at,
-            );
-
-            for conclusion in self
-                .list_project_conclusions(project.id, true)?
-                .into_iter()
-                .take(2)
-            {
-                push_ask_source(
-                    &mut sources,
-                    Some(conclusion.project_id),
-                    conclusion.activity_id,
-                    "CONCLUSION",
-                    conclusion.id,
-                    "conclusion",
-                    format!("Project Conclusion · {}", project.name),
-                    conclusion.content_markdown.clone(),
-                    conclusion.content_markdown.clone(),
-                    &conclusion.updated_at,
-                );
-            }
-        }
-
-        sources.extend(self.workspace_open_todo_ask_sources(12)?);
-        sources.extend(self.workspace_recent_activity_ask_sources(10)?);
-        sources.extend(self.workspace_starred_document_ask_sources(10)?);
-
-        Ok(sources)
-    }
-
-    fn workspace_open_todo_sources(&self, limit: i64) -> Result<Vec<ArtifactSource>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-              t.id,
-              t.project_id,
-              t.activity_id,
-              t.content,
-              t.priority,
-              t.updated_at,
-              p.name,
-              COALESCE(a.title, '')
-            FROM todos t
-            INNER JOIN projects p ON p.id = t.project_id
-            LEFT JOIN activities a ON a.id = t.activity_id
-            WHERE p.is_archived = 0
-              AND t.status = 'unfinished'
-            ORDER BY
-              CASE t.priority
-                WHEN 'urgent_important' THEN 0
-                WHEN 'urgent_not_important' THEN 1
-                WHEN 'not_urgent_important' THEN 2
-                ELSE 3
-              END,
-              t.updated_at DESC
-            LIMIT ?1
-            "#,
-        )?;
-        let rows = stmt.query_map([limit], |row| {
-            Ok(ArtifactSource {
-                ref_code: format!("TODO-{}", row.get::<_, i64>(0)?),
-                source_kind: "todo".to_string(),
-                source_id: row.get(0)?,
-                project_id: Some(row.get(1)?),
-                activity_id: row.get(2)?,
-                label: format!(
-                    "Todo · {} · {}",
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?
-                ),
-                excerpt: format!(
-                    "{}；优先级：{}",
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?
-                ),
-            })
-        })?;
-        let sources = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(sources)
-    }
-
-    fn workspace_recent_activity_sources(&self, limit: i64) -> Result<Vec<ArtifactSource>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-              a.id,
-              a.project_id,
-              a.title,
-              a.activity_time,
-              a.updated_at,
-              p.name,
-              COALESCE(aso.label, '')
-            FROM activities a
-            INNER JOIN projects p ON p.id = a.project_id
-            LEFT JOIN activity_status_options aso ON aso.id = a.status_option_id
-            WHERE p.is_archived = 0
-            ORDER BY a.updated_at DESC
-            LIMIT ?1
-            "#,
-        )?;
-        let rows = stmt.query_map([limit], |row| {
-            Ok(ArtifactSource {
-                ref_code: format!("ACTIVITY-{}", row.get::<_, i64>(0)?),
-                source_kind: "activity".to_string(),
-                source_id: row.get(0)?,
-                project_id: Some(row.get(1)?),
-                activity_id: Some(row.get(0)?),
-                label: format!(
-                    "Activity · {} · {}",
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(2)?
-                ),
-                excerpt: format!(
-                    "时间：{}；状态：{}；最近更新：{}",
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(4)?
-                ),
-            })
-        })?;
-        let sources = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(sources)
-    }
-
-    fn workspace_open_todo_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-              t.id,
-              t.project_id,
-              t.activity_id,
-              t.content,
-              t.priority,
-              t.status,
-              t.updated_at,
-              p.name,
-              COALESCE(a.title, '')
-            FROM todos t
-            INNER JOIN projects p ON p.id = t.project_id
-            LEFT JOIN activities a ON a.id = t.activity_id
-            WHERE p.is_archived = 0
-              AND t.status = 'unfinished'
-            ORDER BY
-              CASE t.priority
-                WHEN 'urgent_important' THEN 0
-                WHEN 'urgent_not_important' THEN 1
-                WHEN 'not_urgent_important' THEN 2
-                ELSE 3
-              END,
-              t.updated_at DESC
-            LIMIT ?1
-            "#,
-        )?;
-        let rows = stmt.query_map([limit], |row| {
-            let source_id = row.get::<_, i64>(0)?;
-            let content = row.get::<_, String>(3)?;
-            let priority = row.get::<_, String>(4)?;
-            let status = row.get::<_, String>(5)?;
-            let project_name = row.get::<_, String>(7)?;
-            let activity_title = row.get::<_, String>(8)?;
-            Ok(AskSource {
-                ref_code: format!("TODO-{source_id}"),
-                source_kind: "todo".to_string(),
-                source_id,
-                project_id: Some(row.get(1)?),
-                activity_id: row.get(2)?,
-                label: if activity_title.trim().is_empty() {
-                    format!("Todo · {project_name}")
-                } else {
-                    format!("Todo · {project_name} · {activity_title}")
-                },
-                excerpt: truncate_text(&format!("{content}；优先级：{priority}"), 280),
-                body_text: format!(
-                    "Todo: {content}\nPriority: {priority}\nStatus: {status}\nProject: {project_name}\nActivity: {activity_title}"
-                ),
-                updated_at: row.get(6)?,
-            })
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
-    }
-
-    fn workspace_recent_activity_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-              a.id,
-              a.project_id,
-              a.title,
-              a.activity_time,
-              a.updated_at,
-              p.name,
-              COALESCE(aso.label, '')
-            FROM activities a
-            INNER JOIN projects p ON p.id = a.project_id
-            LEFT JOIN activity_status_options aso ON aso.id = a.status_option_id
-            WHERE p.is_archived = 0
-            ORDER BY a.updated_at DESC
-            LIMIT ?1
-            "#,
-        )?;
-        let rows = stmt.query_map([limit], |row| {
-            let activity_id = row.get::<_, i64>(0)?;
-            let title = row.get::<_, String>(2)?;
-            let project_name = row.get::<_, String>(5)?;
-            let status_label = row.get::<_, String>(6)?;
-            Ok(AskSource {
-                ref_code: format!("ACTIVITY-{activity_id}"),
-                source_kind: "activity".to_string(),
-                source_id: activity_id,
-                project_id: Some(row.get(1)?),
-                activity_id: Some(activity_id),
-                label: format!("Activity · {project_name} · {title}"),
-                excerpt: truncate_text(
-                    &format!(
-                        "时间：{}；状态：{}；最近更新：{}",
-                        row.get::<_, String>(3)?,
-                        status_label,
-                        row.get::<_, String>(4)?
-                    ),
-                    280,
-                ),
-                body_text: format!(
-                    "Activity: {title}\nProject: {project_name}\nTime: {}\nStatus: {status_label}",
-                    row.get::<_, String>(3)?
-                ),
-                updated_at: row.get(4)?,
-            })
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
-    }
-
-    fn workspace_starred_document_ask_sources(&self, limit: i64) -> Result<Vec<AskSource>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-              d.id,
-              d.project_id,
-              d.activity_id,
-              d.name,
-              d.mime_type,
-              d.health,
-              d.updated_at,
-              p.name,
-              COALESCE(a.title, '')
-            FROM documents d
-            INNER JOIN projects p ON p.id = d.project_id
-            LEFT JOIN activities a ON a.id = d.activity_id
-            WHERE p.is_archived = 0
-              AND d.is_starred = 1
-            ORDER BY d.updated_at DESC
-            LIMIT ?1
-            "#,
-        )?;
-        let rows = stmt.query_map([limit], |row| {
-            let source_id = row.get::<_, i64>(0)?;
-            let document_name = row.get::<_, String>(3)?;
-            let project_name = row.get::<_, String>(7)?;
-            let activity_title = row.get::<_, String>(8)?;
-            Ok(AskSource {
-                ref_code: format!("DOCUMENT-{source_id}"),
-                source_kind: "document".to_string(),
-                source_id,
-                project_id: Some(row.get(1)?),
-                activity_id: row.get(2)?,
-                label: if activity_title.trim().is_empty() {
-                    format!("Starred Document · {project_name} · {document_name}")
-                } else {
-                    format!("Starred Document · {project_name} · {activity_title} · {document_name}")
-                },
-                excerpt: truncate_text(
-                    &format!(
-                        "文件：{}；类型：{}；状态：{}",
-                        document_name,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?
-                    ),
-                    280,
-                ),
-                body_text: format!(
-                    "Document: {document_name}\nProject: {project_name}\nActivity: {activity_title}\nType: {}\nHealth: {}",
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?
-                ),
-                updated_at: row.get(6)?,
-            })
-        })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(Into::into)
-    }
-
-    fn ai_artifact_record_by_scope(
-        &self,
-        kind: &str,
-        project_id: Option<i64>,
-        activity_id: Option<i64>,
-        artifact_date: Option<&str>,
-    ) -> Result<Option<AiArtifactRecord>> {
-        let scope_key = ai_artifact_scope_key(kind, project_id, activity_id, artifact_date);
-        let artifact_id = self
-            .conn
-            .query_row(
-                "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
-                params![scope_key],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-
-        artifact_id
-            .map(|id| self.ai_artifact_record(id))
-            .transpose()
-    }
-
-    fn ai_artifact_record(&self, artifact_id: i64) -> Result<AiArtifactRecord> {
-        let mut record = self.conn.query_row(
-            r#"
-                SELECT
-                  id, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
-                  status, markdown, json_payload, source_updated_at, generated_at, error_message,
-                  created_at, updated_at
-                FROM ai_artifacts
-                WHERE id = ?1
-                "#,
-            [artifact_id],
-            |row| {
-                let payload_json: String = row.get(9)?;
-                let json_payload =
-                    serde_json::from_str::<Value>(&payload_json).unwrap_or_else(|_| {
-                        json!({
-                            "overview": "",
-                            "sections": []
-                        })
-                    });
-
-                Ok(AiArtifactRecord {
-                    id: row.get(0)?,
-                    kind: row.get(1)?,
-                    skill_key: row.get(2)?,
-                    skill_version: row.get(3)?,
-                    project_id: row.get(4)?,
-                    activity_id: row.get(5)?,
-                    artifact_date: row.get(6)?,
-                    status: row.get(7)?,
-                    markdown: row.get(8)?,
-                    json_payload,
-                    source_updated_at: row.get(10)?,
-                    generated_at: row.get(11)?,
-                    error_message: row.get(12)?,
-                    citations: Vec::new(),
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
-                })
-            },
-        )?;
-        record.citations = self.fetch_ai_artifact_citations(artifact_id)?;
-        Ok(record)
-    }
-
-    fn fetch_ai_artifact_citations(
-        &self,
-        artifact_id: i64,
-    ) -> Result<Vec<AiArtifactCitationRecord>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT id, artifact_id, source_kind, source_id, project_id, activity_id, label, excerpt, order_index
-            FROM ai_artifact_citations
-            WHERE artifact_id = ?1
-            ORDER BY order_index ASC, id ASC
-            "#,
-        )?;
-        let rows = stmt.query_map([artifact_id], |row| {
-            Ok(AiArtifactCitationRecord {
-                id: row.get(0)?,
-                artifact_id: row.get(1)?,
-                source_kind: row.get(2)?,
-                source_id: row.get(3)?,
-                project_id: row.get(4)?,
-                activity_id: row.get(5)?,
-                label: row.get(6)?,
-                excerpt: row.get(7)?,
-                order_index: row.get(8)?,
-            })
-        })?;
-        let citations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(citations)
-    }
-
-    fn upsert_ai_artifact_success(
-        &mut self,
-        _spec: &ArtifactSkillSpec,
-        _context: ArtifactGenerationContext,
-        _payload: AiArtifactPayload,
-        _timestamp: &str,
-    ) -> Result<AiArtifactRecord> {
-        Err(anyhow!("AI artifacts have been removed"))
-    }
-
-    fn upsert_ai_artifact_error(
-        &mut self,
-        spec: &ArtifactSkillSpec,
-        project_id: Option<i64>,
-        activity_id: Option<i64>,
-        artifact_date: Option<&str>,
-        source_updated_at: &str,
-        timestamp: &str,
-        error_message: &str,
-    ) -> Result<AiArtifactRecord> {
-        let scope_key = ai_artifact_scope_key(spec.kind, project_id, activity_id, artifact_date);
-        let existing_id = self
-            .conn
-            .query_row(
-                "SELECT id FROM ai_artifacts WHERE scope_key = ?1",
-                params![scope_key.clone()],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-
-        if let Some(artifact_id) = existing_id {
-            self.conn.execute(
-                r#"
-                UPDATE ai_artifacts
-                SET kind = ?1,
-                    skill_key = ?2,
-                    skill_version = ?3,
-                    project_id = ?4,
-                    activity_id = ?5,
-                    artifact_date = ?6,
-                    status = ?7,
-                    source_updated_at = ?8,
-                    error_message = ?9,
-                    updated_at = ?10
-                WHERE id = ?11
-                "#,
-                params![
-                    spec.kind,
-                    spec.skill_key,
-                    spec.skill_version,
-                    project_id,
-                    activity_id,
-                    artifact_date,
-                    AI_ARTIFACT_STATUS_ERROR,
-                    source_updated_at,
-                    error_message,
-                    timestamp,
-                    artifact_id
-                ],
-            )?;
-            return self.ai_artifact_record(artifact_id);
-        }
-
-        let empty_payload = serde_json::to_string(&AiArtifactPayload {
-            overview: String::new(),
-            sections: Vec::new(),
-        })?;
-        self.conn.execute(
-            r#"
-            INSERT INTO ai_artifacts (
-              scope_key, kind, skill_key, skill_version, project_id, activity_id, artifact_date,
-              status, markdown, json_payload, source_updated_at, generated_at, error_message,
-              created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', ?9, ?10, NULL, ?11, ?12, ?13)
-            "#,
-            params![
-                scope_key,
-                spec.kind,
-                spec.skill_key,
-                spec.skill_version,
-                project_id,
-                activity_id,
-                artifact_date,
-                AI_ARTIFACT_STATUS_ERROR,
-                empty_payload,
-                source_updated_at,
-                error_message,
-                timestamp,
-                timestamp
-            ],
-        )?;
-        self.ai_artifact_record(self.conn.last_insert_rowid())
-    }
-
-    fn replace_ai_artifact_citations(
-        &mut self,
-        artifact_id: i64,
-        sources: &[ArtifactSource],
-        citation_refs: &[String],
-    ) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM ai_artifact_citations WHERE artifact_id = ?1",
-            params![artifact_id],
-        )?;
-
-        let resolved_refs = if citation_refs.is_empty() {
-            sources
-                .iter()
-                .take(3)
-                .map(|source| source.ref_code.clone())
-                .collect::<Vec<_>>()
-        } else {
-            citation_refs.to_vec()
-        };
-
-        let mut unique_refs = Vec::new();
-        for reference in resolved_refs {
-            if !unique_refs.contains(&reference) {
-                unique_refs.push(reference);
-            }
-        }
-
-        for (index, reference) in unique_refs.iter().enumerate() {
-            if let Some(source) = sources.iter().find(|item| item.ref_code == *reference) {
-                self.conn.execute(
-                    r#"
-                    INSERT INTO ai_artifact_citations (
-                      artifact_id, source_kind, source_id, project_id, activity_id,
-                      label, excerpt, order_index
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                    "#,
-                    params![
-                        artifact_id,
-                        source.source_kind,
-                        source.source_id,
-                        source.project_id,
-                        source.activity_id,
-                        source.label,
-                        source.excerpt,
-                        index as i64
-                    ],
-                )?;
-            }
-        }
-
-        Ok(())
     }
 
     fn project_record(&self, project_id: i64) -> Result<ProjectRecord> {
@@ -7576,39 +4576,11 @@ impl Database {
         Ok(project)
     }
 
-    fn activity_row(&self, activity_id: i64) -> Result<ActivityFsRecord> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT
-                  project_id, attribute_option_id, title, brief_markdown, brief_html,
-                  activity_time, status_option_id, is_pinned, is_expanded, folder_name
-                FROM activities WHERE id = ?1
-                "#,
-                [activity_id],
-                |row| {
-                    Ok(ActivityFsRecord {
-                        project_id: row.get(0)?,
-                        attribute_option_id: row.get(1)?,
-                        title: row.get(2)?,
-                        brief_markdown: row.get(3)?,
-                        brief_html: row.get(4)?,
-                        activity_time: row.get(5)?,
-                        status_option_id: row.get(6)?,
-                        is_pinned: int_to_bool(row.get::<_, i64>(7)?),
-                        is_expanded: int_to_bool(row.get::<_, i64>(8)?),
-                        folder_name: row.get(9)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
-    }
-
     fn note_record(&self, note_id: i64) -> Result<NoteRecord> {
         let tags = self.fetch_note_tags(note_id)?;
         let mut note = self.conn.query_row(
             r#"
-                SELECT id, project_id, activity_id, title, content_markdown, content_html,
+                SELECT id, project_id, title, content_markdown, content_html,
                   default_code_language, created_at, updated_at
                 FROM notes WHERE id = ?1
                 "#,
@@ -7617,14 +4589,13 @@ impl Database {
                 Ok(NoteRecord {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
-                    activity_id: row.get(2)?,
-                    title: row.get(3)?,
-                    content_markdown: row.get(4)?,
-                    content_html: row.get(5)?,
-                    default_code_language: row.get(6)?,
+                    title: row.get(2)?,
+                    content_markdown: row.get(3)?,
+                    content_html: row.get(4)?,
+                    default_code_language: row.get(5)?,
                     tags: tags.clone(),
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             },
         )?;
@@ -7658,47 +4629,6 @@ impl Database {
         Ok(note)
     }
 
-    fn conclusion_record(&self, conclusion_id: i64) -> Result<ConclusionRecord> {
-        let mut conclusion = self.conn.query_row(
-            r#"
-                SELECT
-                  c.id,
-                  c.project_id,
-                  c.activity_id,
-                  c.note_id,
-                  COALESCE(NULLIF(c.content_markdown, ''), c.content),
-                  c.content_html,
-                  c.promoted_to_project,
-                  c.is_pinned,
-                  a.title,
-                  c.created_at,
-                  c.updated_at
-                FROM conclusions c
-                LEFT JOIN activities a ON a.id = c.activity_id
-                WHERE c.id = ?1
-                "#,
-            [conclusion_id],
-            |row| {
-                Ok(ConclusionRecord {
-                    id: row.get(0)?,
-                    project_id: row.get(1)?,
-                    activity_id: row.get(2)?,
-                    note_id: row.get(3)?,
-                    content_markdown: row.get(4)?,
-                    content_html: row.get(5)?,
-                    promoted_to_project: int_to_bool(row.get::<_, i64>(6)?),
-                    is_pinned: int_to_bool(row.get::<_, i64>(7)?),
-                    source_activity_title: row.get(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
-                })
-            },
-        )?;
-        conclusion.content_html =
-            self.hydrate_project_rich_text_html(conclusion.project_id, &conclusion.content_html)?;
-        Ok(conclusion)
-    }
-
     fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
         self.conn
             .query_row(
@@ -7728,10 +4658,9 @@ impl Database {
         let base = self.conn.query_row(
             r#"
             SELECT
-              t.id, t.scope, t.project_id, p.name, t.activity_id, a.title, t.content, t.status, t.priority, t.due_date, t.created_at, t.updated_at
+              t.id, t.scope, t.project_id, p.name, t.content, t.status, t.priority, t.due_date, t.created_at, t.updated_at
             FROM todos t
             LEFT JOIN projects p ON p.id = t.project_id
-            LEFT JOIN activities a ON a.id = t.activity_id
             WHERE t.id = ?1
             "#,
             [todo_id],
@@ -7741,14 +4670,12 @@ impl Database {
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<i64>>(2)?,
                     row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, String>(10)?,
-                    row.get::<_, String>(11)?,
+                    row.get::<_, String>(9)?,
                 ))
             },
         )?;
@@ -7764,15 +4691,13 @@ impl Database {
             scope,
             project_id: base.2,
             project_name: base.3,
-            activity_id: base.4,
-            source_activity_title: base.5,
-            content: base.6,
-            status: base.7,
-            priority: base.8,
-            due_date: base.9,
+            content: base.4,
+            status: base.5,
+            priority: base.6,
+            due_date: base.7,
             tags,
-            created_at: base.10,
-            updated_at: base.11,
+            created_at: base.8,
+            updated_at: base.9,
             progresses,
         })
     }
@@ -7783,11 +4708,10 @@ impl Database {
             .query_row(
                 r#"
                 SELECT
-                  d.id, d.project_id, d.activity_id, d.name, d.base_name, d.original_path, d.managed_path,
+                  d.id, d.project_id, d.name, d.base_name, d.original_path, d.managed_path,
                   d.history_dir_path, d.storage_mode, d.mime_type, d.is_starred, d.current_version_number,
-                  d.version_count, d.health, a.title, d.created_at, d.updated_at
+                  d.version_count, d.health, d.created_at, d.updated_at
                 FROM documents d
-                LEFT JOIN activities a ON a.id = d.activity_id
                 WHERE d.id = ?1
                 "#,
                 [document_id],
@@ -7795,21 +4719,19 @@ impl Database {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
-                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, String>(2)?,
                         row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
                         row.get::<_, String>(6)?,
                         row.get::<_, String>(7)?,
                         row.get::<_, String>(8)?,
-                        row.get::<_, String>(9)?,
-                        int_to_bool(row.get::<_, i64>(10)?),
+                        int_to_bool(row.get::<_, i64>(9)?),
+                        row.get::<_, i64>(10)?,
                         row.get::<_, i64>(11)?,
-                        row.get::<_, i64>(12)?,
+                        row.get::<_, String>(12)?,
                         row.get::<_, String>(13)?,
-                        row.get::<_, Option<String>>(14)?,
-                        row.get::<_, String>(15)?,
-                        row.get::<_, String>(16)?,
+                        row.get::<_, String>(14)?,
                     ))
                 },
             )?;
@@ -7817,53 +4739,21 @@ impl Database {
         Ok(DocumentRecord {
             id: base.0,
             project_id: base.1,
-            activity_id: base.2,
-            name: base.3,
-            base_name: base.4,
-            original_path: self.decode_path_ref_to_string(&base.5),
-            managed_path: self.decode_path_ref_to_string(&base.6),
-            history_dir_path: self.decode_path_ref_to_string(&base.7),
-            storage_mode: base.8,
-            mime_type: base.9,
-            is_starred: base.10,
-            current_version_number: base.11,
-            version_count: base.12,
-            health: base.13,
-            source_activity_title: base.14,
+            name: base.2,
+            base_name: base.3,
+            original_path: self.decode_path_ref_to_string(&base.4),
+            managed_path: self.decode_path_ref_to_string(&base.5),
+            history_dir_path: self.decode_path_ref_to_string(&base.6),
+            storage_mode: base.7,
+            mime_type: base.8,
+            is_starred: base.9,
+            current_version_number: base.10,
+            version_count: base.11,
+            health: base.12,
             tags,
-            created_at: base.15,
-            updated_at: base.16,
+            created_at: base.13,
+            updated_at: base.14,
         })
-    }
-
-    fn ai_suggestion_record(&self, suggestion_id: i64) -> Result<AiSuggestionRecord> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT
-                  id, project_id, activity_id, note_id, suggestion_type, title, preview, payload_json, status, created_at, accepted_at
-                FROM ai_suggestions WHERE id = ?1
-                "#,
-                [suggestion_id],
-                |row| {
-                    let payload_json: String = row.get(7)?;
-                    let payload = serde_json::from_str::<Value>(&payload_json).unwrap_or_else(|_| json!({}));
-                    Ok(AiSuggestionRecord {
-                        id: row.get(0)?,
-                        project_id: row.get(1)?,
-                        activity_id: row.get(2)?,
-                        note_id: row.get(3)?,
-                        suggestion_type: row.get(4)?,
-                        title: row.get(5)?,
-                        preview: row.get(6)?,
-                        payload,
-                        status: row.get(8)?,
-                        created_at: row.get(9)?,
-                        accepted_at: row.get(10)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
     }
 
     fn ai_profile_storage(&self, profile_id: i64) -> Result<AiProfileStorage> {
@@ -8074,48 +4964,6 @@ impl Database {
         })
     }
 
-    fn insert_ai_suggestion(
-        &self,
-        project_id: i64,
-        activity_id: Option<i64>,
-        note_id: Option<i64>,
-        suggestion_type: &str,
-        title: &str,
-        preview: &str,
-        payload: Value,
-        created_at: &str,
-    ) -> Result<()> {
-        self.conn.execute(
-            r#"
-            INSERT INTO ai_suggestions (
-              project_id, activity_id, note_id, suggestion_type, title, preview, payload_json, status, created_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)
-            "#,
-            params![
-                project_id,
-                activity_id,
-                note_id,
-                suggestion_type,
-                title,
-                preview,
-                payload.to_string(),
-                created_at
-            ],
-        )?;
-        Ok(())
-    }
-
-    fn fetch_notes(&self, activity_id: i64) -> Result<Vec<NoteRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.note_record(id)).collect()
-    }
-
     fn fetch_project_notes(&self, project_id: i64) -> Result<Vec<NoteRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
@@ -8124,28 +4972,6 @@ impl Database {
             .query_map([project_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.note_record(id)).collect()
-    }
-
-    fn fetch_conclusions(&self, activity_id: i64) -> Result<Vec<ConclusionRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM conclusions WHERE activity_id = ?1 ORDER BY is_pinned DESC, created_at DESC",
-        )?;
-        let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter()
-            .map(|id| self.conclusion_record(id))
-            .collect()
-    }
-
-    fn fetch_todos_for_activity(&self, activity_id: i64) -> Result<Vec<TodoRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM todos WHERE activity_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map([activity_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
 
     fn fetch_todo_progresses(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
@@ -8170,19 +4996,6 @@ impl Database {
             )?
             .unwrap_or(-1);
         Ok(current_max + 1)
-    }
-
-    fn fetch_documents(&self, activity_id: i64) -> Result<Vec<DocumentRecord>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id FROM documents WHERE activity_id = ?1 AND storage_mode != ?2 ORDER BY created_at DESC, id DESC",
-        )?;
-        let ids = stmt
-            .query_map(
-                params![activity_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
-                |row| row.get::<_, i64>(0),
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
     fn fetch_all_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
@@ -8279,26 +5092,6 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn fetch_documents_for_project(
-        &self,
-        project_id: i64,
-        starred_only: bool,
-    ) -> Result<Vec<DocumentRecord>> {
-        let query = if starred_only {
-            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 AND is_starred = 1 ORDER BY created_at DESC, id DESC"
-        } else {
-            "SELECT id FROM documents WHERE project_id = ?1 AND storage_mode != ?2 ORDER BY created_at DESC, id DESC"
-        };
-        let mut stmt = self.conn.prepare(query)?;
-        let ids = stmt
-            .query_map(
-                params![project_id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
-                |row| row.get::<_, i64>(0),
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.document_record(id)).collect()
-    }
-
     fn fetch_project_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
@@ -8318,35 +5111,6 @@ impl Database {
         ids.into_iter().map(|id| self.document_record(id)).collect()
     }
 
-    fn collect_activity_rich_text_path_updates(
-        &self,
-        select_sql: &str,
-        activity_id: i64,
-        project_root: &Path,
-        old_prefix: &Path,
-        new_prefix: &Path,
-    ) -> Result<Vec<(i64, String)>> {
-        let mut stmt = self.conn.prepare(select_sql)?;
-        let rows = stmt.query_map([activity_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
-
-        let mut updates = Vec::new();
-        for row in rows {
-            let (id, content_html) = row?;
-            let next_html = rewrite_scoped_rich_text_asset_paths(
-                &content_html,
-                project_root,
-                old_prefix,
-                new_prefix,
-            );
-            if next_html != content_html {
-                updates.push((id, next_html));
-            }
-        }
-
-        Ok(updates)
-    }
     fn rewrite_path_ref_prefix_if_within(
         &self,
         path_ref: &str,
@@ -8737,21 +5501,6 @@ impl Database {
         ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
 
-    fn fetch_ai_suggestions(&self, activity_id: Option<i64>) -> Result<Vec<AiSuggestionRecord>> {
-        let mut ids = Vec::new();
-        if let Some(activity_id) = activity_id {
-            let mut stmt = self.conn.prepare(
-                "SELECT id FROM ai_suggestions WHERE activity_id = ?1 ORDER BY created_at DESC",
-            )?;
-            ids = stmt
-                .query_map([activity_id], |row| row.get::<_, i64>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-        }
-        ids.into_iter()
-            .map(|id| self.ai_suggestion_record(id))
-            .collect()
-    }
-
     fn backfill_file_layout_metadata(&self) -> Result<()> {
         self.conn.execute(
             "UPDATE documents SET base_name = name WHERE base_name = ''",
@@ -8779,85 +5528,21 @@ impl Database {
         self.backfill_file_layout_metadata()
     }
 
-    fn default_activity_folder_name(&self, title: &str, activity_id: i64) -> String {
-        let raw = normalize_activity_title(title, activity_id);
-        let sanitized = normalize_windows_safe_component(&raw);
-
-        if sanitized.is_empty() {
-            normalize_windows_safe_component(&untitled_activity_title(activity_id))
-        } else {
-            sanitized
-        }
-    }
-
-    fn create_activity_directory(&self, project_root: &str, folder_name: &str) -> Result<PathBuf> {
-        let activity_dir = PathBuf::from(project_root).join(folder_name);
-        if activity_dir.exists() {
-            return Err(anyhow!(
-                "activity folder rename failed: target folder already exists at {}",
-                activity_dir.display()
-            ));
-        }
-        fs::create_dir_all(&activity_dir)?;
-        Ok(activity_dir)
-    }
-
-    fn document_target_dir(
-        &mut self,
-        project_id: i64,
-        activity_id: Option<i64>,
-    ) -> Result<PathBuf> {
+    fn document_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
         let project = self.project_record(project_id)?;
         let project_root = PathBuf::from(&project.root_path);
         fs::create_dir_all(&project_root)?;
-
-        if let Some(activity_id) = activity_id {
-            let activity = self.activity_row(activity_id)?;
-            if activity.project_id != project_id {
-                return Err(anyhow!("activity does not belong to the selected project"));
-            }
-            let folder_name = if activity.folder_name.trim().is_empty() {
-                let computed = self.default_activity_folder_name(&activity.title, activity_id);
-                self.conn.execute(
-                    "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
-                    params![computed, activity_id],
-                )?;
-                computed
-            } else {
-                activity.folder_name
-            };
-            let activity_dir = project_root.join(folder_name);
-            fs::create_dir_all(&activity_dir)?;
-            Ok(activity_dir)
-        } else {
-            Ok(project_root)
-        }
+        Ok(project_root)
     }
 
-    fn note_image_target_dir(
-        &mut self,
-        project_id: i64,
-        activity_id: Option<i64>,
-    ) -> Result<PathBuf> {
+    fn note_image_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
         let project = self.project_record(project_id)?;
         let project_root = PathBuf::from(&project.root_path);
         fs::create_dir_all(&project_root)?;
-
-        if let Some(activity_id) = activity_id {
-            let activity = self.activity_row(activity_id)?;
-            if activity.project_id != project_id {
-                return Err(anyhow!("activity does not belong to the selected project"));
-            }
-        }
-
         let target_dir = project_root
             .join(WORKSPACE_HIDDEN_DIR_NAME)
             .join(PROJECT_NOTE_ASSET_DIR_NAME)
-            .join(
-                activity_id
-                    .map(|value| format!("activity-{value}"))
-                    .unwrap_or_else(|| "project".to_string()),
-            );
+            .join("project");
         fs::create_dir_all(&target_dir)?;
         Ok(target_dir)
     }
@@ -8875,7 +5560,6 @@ impl Database {
     fn document_name_exists(
         &self,
         project_id: i64,
-        activity_id: Option<i64>,
         base_name: &str,
         exclude_document_id: Option<i64>,
     ) -> Result<bool> {
@@ -8885,17 +5569,11 @@ impl Database {
                 SELECT id
                 FROM documents
                 WHERE project_id = ?1
-                  AND ((activity_id IS NULL AND ?2 IS NULL) OR activity_id = ?2)
-                  AND base_name = ?3
-                  AND id != ?4
+                  AND base_name = ?2
+                  AND id != ?3
                 LIMIT 1
                 "#,
-                params![
-                    project_id,
-                    activity_id,
-                    base_name,
-                    exclude_document_id.unwrap_or(-1)
-                ],
+                params![project_id, base_name, exclude_document_id.unwrap_or(-1)],
                 |row| row.get::<_, i64>(0),
             )
             .optional()
@@ -8906,11 +5584,10 @@ impl Database {
     fn ensure_document_name_available(
         &self,
         project_id: i64,
-        activity_id: Option<i64>,
         base_name: &str,
         exclude_document_id: Option<i64>,
     ) -> Result<()> {
-        if self.document_name_exists(project_id, activity_id, base_name, exclude_document_id)? {
+        if self.document_name_exists(project_id, base_name, exclude_document_id)? {
             return Err(anyhow!(
                 "a file named '{}' already exists in the target location; rename it or add a new version instead",
                 base_name
@@ -8923,7 +5600,6 @@ impl Database {
     fn resolve_internal_document_name(
         &self,
         project_id: i64,
-        activity_id: Option<i64>,
         desired_name: &str,
         target_dir: &Path,
     ) -> Result<String> {
@@ -8950,7 +5626,7 @@ impl Database {
                 format!("{stem}-{suffix}")
             };
 
-            if !self.document_name_exists(project_id, activity_id, &candidate, None)?
+            if !self.document_name_exists(project_id, &candidate, None)?
                 && !target_dir.join(&candidate).exists()
             {
                 return Ok(candidate);
@@ -9049,7 +5725,6 @@ impl Database {
     fn move_document_storage(
         &mut self,
         document: &DocumentRecord,
-        next_activity_id: Option<i64>,
         next_base_name: &str,
     ) -> Result<()> {
         struct VersionStoragePlan {
@@ -9061,10 +5736,9 @@ impl Database {
             final_path_ref: String,
         }
 
-        let target_dir = self.document_target_dir(document.project_id, next_activity_id)?;
+        let target_dir = self.document_target_dir(document.project_id)?;
         self.ensure_document_name_available(
             document.project_id,
-            next_activity_id,
             next_base_name,
             Some(document.id),
         )?;
@@ -9231,454 +5905,6 @@ impl Database {
         Ok(())
     }
 
-    fn rename_activity_folder(
-        &mut self,
-        activity_id: i64,
-        current: &ActivityFsRecord,
-        next_title: &str,
-        _timestamp: &str,
-    ) -> Result<()> {
-        let project = self.project_record(current.project_id)?;
-        let project_root = PathBuf::from(&project.root_path);
-        let current_folder = if current.folder_name.trim().is_empty() {
-            self.default_activity_folder_name(&current.title, activity_id)
-        } else {
-            current.folder_name.clone()
-        };
-        let next_folder = self.default_activity_folder_name(next_title, activity_id);
-
-        if current_folder == next_folder {
-            if current.folder_name != next_folder {
-                self.conn.execute(
-                    "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
-                    params![next_folder, activity_id],
-                )?;
-            }
-            return Ok(());
-        }
-
-        let current_dir = project_root.join(&current_folder);
-        let next_dir = project_root.join(&next_folder);
-        if next_dir.exists() {
-            return Err(anyhow!("文件夹名称已被占用，activity 名称未保存"));
-        }
-
-        let documents = self.fetch_documents(activity_id)?;
-        let mut document_versions = Vec::new();
-        let mut next_document_paths = Vec::new();
-        for document in &documents {
-            document_versions.push((document.id, self.fetch_document_versions(document.id)?));
-            let next_current_path = next_dir.join(&document.name);
-            let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
-            next_document_paths.push((document.id, next_current_path, next_history_dir));
-        }
-        let encoded_path_updates = next_document_paths
-            .iter()
-            .map(|(document_id, next_current_path, next_history_dir)| {
-                (
-                    *document_id,
-                    self.encode_path_ref(next_current_path),
-                    self.encode_path_ref(next_history_dir),
-                )
-            })
-            .collect::<Vec<_>>();
-        let encoded_version_updates = documents
-            .iter()
-            .map(|document| {
-                let (_, _, next_history_dir) = next_document_paths
-                    .iter()
-                    .find(|(document_id, _, _)| *document_id == document.id)
-                    .cloned()
-                    .ok_or_else(|| anyhow!("missing path update for document {}", document.id))?;
-                let versions = document_versions
-                    .iter()
-                    .find(|(document_id, _)| *document_id == document.id)
-                    .map(|(_, versions)| versions.clone())
-                    .unwrap_or_default();
-                let version_updates = versions
-                    .into_iter()
-                    .map(|version| {
-                        let file_name = Path::new(&version.managed_path)
-                            .file_name()
-                            .and_then(|value| value.to_str())
-                            .map(ToOwned::to_owned)
-                            .unwrap_or_else(|| version.name.clone());
-                        let next_version_path =
-                            if version.version_number == document.current_version_number {
-                                next_dir.join(file_name)
-                            } else {
-                                next_history_dir.join(file_name)
-                            };
-                        Ok((version.id, self.encode_path_ref(&next_version_path)))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok((document.id, version_updates))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let note_html_updates = self.collect_activity_rich_text_path_updates(
-            "SELECT id, content_html FROM notes WHERE activity_id = ?1",
-            activity_id,
-            &project_root,
-            &current_dir,
-            &next_dir,
-        )?;
-        let conclusion_html_updates = self.collect_activity_rich_text_path_updates(
-            "SELECT id, content_html FROM conclusions WHERE activity_id = ?1",
-            activity_id,
-            &project_root,
-            &current_dir,
-            &next_dir,
-        )?;
-
-        let renamed_existing_dir = current_dir.exists();
-        if renamed_existing_dir {
-            fs::rename(&current_dir, &next_dir).with_context(|| {
-                format!(
-                    "failed to rename activity folder from {} to {}",
-                    current_dir.display(),
-                    next_dir.display()
-                )
-            })?;
-        } else {
-            fs::create_dir_all(&next_dir)?;
-        }
-
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "UPDATE activities SET folder_name = ?1 WHERE id = ?2",
-            params![next_folder, activity_id],
-        )?;
-        for document in &documents {
-            let (_, _next_current_path, _next_history_dir) = next_document_paths
-                .iter()
-                .find(|(document_id, _, _)| *document_id == document.id)
-                .cloned()
-                .ok_or_else(|| anyhow!("missing path update for document {}", document.id))?;
-            tx.execute(
-                "UPDATE documents SET managed_path = ?1, history_dir_path = ?2 WHERE id = ?3",
-                params![
-                    encoded_path_updates
-                        .iter()
-                        .find(|(document_id, _, _)| *document_id == document.id)
-                        .map(|(_, managed_path_ref, _)| managed_path_ref.clone())
-                        .ok_or_else(|| anyhow!(
-                            "missing managed path ref for document {}",
-                            document.id
-                        ))?,
-                    encoded_path_updates
-                        .iter()
-                        .find(|(document_id, _, _)| *document_id == document.id)
-                        .map(|(_, _, history_dir_ref)| history_dir_ref.clone())
-                        .ok_or_else(|| anyhow!(
-                            "missing history path ref for document {}",
-                            document.id
-                        ))?,
-                    document.id
-                ],
-            )?;
-            let versions = document_versions
-                .iter()
-                .find(|(document_id, _)| *document_id == document.id)
-                .map(|(_, versions)| versions.clone())
-                .unwrap_or_default();
-            for version in versions {
-                let next_version_path_ref = encoded_version_updates
-                    .iter()
-                    .find(|(document_id, _)| *document_id == document.id)
-                    .and_then(|(_, version_updates)| {
-                        version_updates
-                            .iter()
-                            .find(|(version_id, _)| *version_id == version.id)
-                            .map(|(_, path_ref)| path_ref.clone())
-                    })
-                    .ok_or_else(|| {
-                        anyhow!("missing version path ref for version {}", version.id)
-                    })?;
-                tx.execute(
-                    "UPDATE document_versions SET managed_path = ?1 WHERE id = ?2",
-                    params![next_version_path_ref, version.id],
-                )?;
-            }
-        }
-
-        apply_rich_text_html_updates(
-            &tx,
-            "UPDATE notes SET content_html = ?1 WHERE id = ?2",
-            &note_html_updates,
-        )?;
-        apply_rich_text_html_updates(
-            &tx,
-            "UPDATE conclusions SET content_html = ?1 WHERE id = ?2",
-            &conclusion_html_updates,
-        )?;
-
-        if let Err(error) = tx.commit() {
-            if renamed_existing_dir {
-                let _ = fs::rename(&next_dir, &current_dir);
-            } else {
-                let _ = fs::remove_dir(&next_dir);
-            }
-            return Err(error.into());
-        }
-
-        Ok(())
-    }
-
-    fn fetch_conclusion_groups(&self, project_id: i64) -> Result<Vec<ConclusionGroup>> {
-        let mut groups = Vec::new();
-
-        let mut project_stmt = self.conn.prepare(
-            "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id IS NULL ORDER BY is_pinned DESC, created_at DESC",
-        )?;
-        let project_ids = project_stmt
-            .query_map([project_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if !project_ids.is_empty() {
-            let conclusions = project_ids
-                .into_iter()
-                .map(|id| self.conclusion_record(id))
-                .collect::<Result<Vec<_>>>()?;
-            groups.push(ConclusionGroup {
-                activity_id: None,
-                activity_title: "Project-Level".to_string(),
-                conclusions,
-            });
-        }
-
-        let mut stmt = self.conn.prepare(
-            "SELECT id, title FROM activities WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
-        )?;
-        let activities = stmt
-            .query_map([project_id], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        for (activity_id, activity_title) in activities {
-            let mut conclusion_stmt = self.conn.prepare(
-                "SELECT id FROM conclusions WHERE project_id = ?1 AND activity_id = ?2 AND promoted_to_project = 1 ORDER BY is_pinned DESC, created_at DESC",
-            )?;
-            let conclusion_ids = conclusion_stmt
-                .query_map(params![project_id, activity_id], |row| row.get::<_, i64>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            if conclusion_ids.is_empty() {
-                continue;
-            }
-            let conclusions = conclusion_ids
-                .into_iter()
-                .map(|id| self.conclusion_record(id))
-                .collect::<Result<Vec<_>>>()?;
-            groups.push(ConclusionGroup {
-                activity_id: Some(activity_id),
-                activity_title: normalize_activity_title(&activity_title, activity_id),
-                conclusions,
-            });
-        }
-
-        Ok(groups)
-    }
-
-    fn activity_digests(&self, project_id: i64, limit: Option<i64>) -> Result<Vec<ActivityDigest>> {
-        let base = format!(
-            r#"
-            SELECT
-              a.id,
-              a.project_id,
-              a.attribute_option_id,
-              ao.label,
-              ao.color_key,
-              a.title,
-              a.activity_time,
-              COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_option_id,
-              COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1)) AS status_label,
-              COALESCE(so.color_key, (SELECT color_key FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1), '{DEFAULT_ACTIVITY_STATUS_COLOR_KEY}') AS status_color_key,
-              COALESCE(
-                so.needs_attention,
-                (SELECT needs_attention FROM activity_status_options WHERE system_key = '{SYSTEM_ACTIVITY_STATUS_PENDING}' LIMIT 1),
-                1
-              ) AS status_needs_attention,
-              a.is_pinned,
-              (SELECT COUNT(*) FROM notes n WHERE n.activity_id = a.id) AS note_count,
-              (SELECT COUNT(*) FROM conclusions c WHERE c.activity_id = a.id) AS conclusion_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS todo_count,
-              (SELECT COUNT(*) FROM documents d WHERE d.activity_id = a.id AND d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}') AS document_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id AND t.status = 'finished') AS completed_todo_count,
-              (SELECT COUNT(*) FROM todos t WHERE t.activity_id = a.id) AS total_todo_count,
-              EXISTS(SELECT 1 FROM todos t WHERE t.activity_id = a.id AND t.status = 'unfinished') AS has_open_todos
-            FROM activities a
-            LEFT JOIN activity_attribute_options ao ON ao.id = a.attribute_option_id
-            LEFT JOIN activity_status_options so ON so.id = a.status_option_id
-            WHERE a.project_id = ?1
-            ORDER BY a.activity_time DESC, a.updated_at DESC
-            {}
-            "#,
-            limit.map(|_| "LIMIT ?2").unwrap_or("")
-        );
-        let mut stmt = self.conn.prepare(&base)?;
-        let rows = if let Some(limit) = limit {
-            stmt.query_map(params![project_id, limit], activity_digest_from_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        } else {
-            stmt.query_map([project_id], activity_digest_from_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        Ok(rows)
-    }
-
-    fn activity_card(&self, activity_id: i64) -> Result<ActivityCardData> {
-        let row = self.conn.query_row(
-            r#"
-            SELECT
-              a.id,
-              a.project_id,
-              a.attribute_option_id,
-              ao.label,
-              ao.color_key,
-              a.title,
-              a.brief_markdown,
-              a.brief_html,
-              a.activity_time,
-              COALESCE(a.status_option_id, (SELECT id FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
-              COALESCE(so.label, (SELECT label FROM activity_status_options WHERE system_key = ?2 LIMIT 1)),
-              COALESCE(so.color_key, (SELECT color_key FROM activity_status_options WHERE system_key = ?2 LIMIT 1), ?3),
-              COALESCE(
-                so.needs_attention,
-                (SELECT needs_attention FROM activity_status_options WHERE system_key = ?2 LIMIT 1),
-                1
-              ),
-              a.is_pinned,
-              a.is_expanded,
-              a.created_at,
-              a.updated_at
-            FROM activities a
-            LEFT JOIN activity_attribute_options ao ON ao.id = a.attribute_option_id
-            LEFT JOIN activity_status_options so ON so.id = a.status_option_id
-            WHERE a.id = ?1
-            "#,
-            params![activity_id, SYSTEM_ACTIVITY_STATUS_PENDING, DEFAULT_ACTIVITY_STATUS_COLOR_KEY],
-            |row| {
-                Ok(ActivityCardRow {
-                    id: row.get(0)?,
-                    project_id: row.get(1)?,
-                    attribute_option_id: row.get(2)?,
-                    attribute_label: row.get(3)?,
-                    attribute_color_key: row.get(4)?,
-                    title: row.get(5)?,
-                    brief_markdown: row.get(6)?,
-                    brief_html: row.get(7)?,
-                    activity_time: row.get(8)?,
-                    status_option_id: row.get(9)?,
-                    status_label: row.get(10)?,
-                    status_color_key: row.get(11)?,
-                    status_needs_attention: int_to_bool(row.get::<_, i64>(12)?),
-                    is_pinned: int_to_bool(row.get::<_, i64>(13)?),
-                    is_expanded: int_to_bool(row.get::<_, i64>(14)?),
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
-                })
-            },
-        )?;
-        let notes = self.fetch_notes(activity_id)?;
-        let conclusions = self.fetch_conclusions(activity_id)?;
-        let todos = self.fetch_todos_for_activity(activity_id)?;
-        let documents = self.fetch_documents(activity_id)?;
-        let brief_html = self.hydrate_project_rich_text_html(row.project_id, &row.brief_html)?;
-        let digest = ActivityDigest {
-            id: row.id,
-            project_id: row.project_id,
-            attribute_option_id: row.attribute_option_id,
-            attribute_label: row.attribute_label.clone(),
-            attribute_color_key: row.attribute_color_key.clone(),
-            title: row.title.clone(),
-            activity_time: row.activity_time.clone(),
-            status_option_id: row.status_option_id,
-            status_label: row.status_label.clone(),
-            status_color_key: row.status_color_key.clone(),
-            status_needs_attention: row.status_needs_attention,
-            is_pinned: row.is_pinned,
-            note_count: notes.len() as i64,
-            conclusion_count: conclusions.len() as i64,
-            todo_count: todos.len() as i64,
-            document_count: documents.len() as i64,
-            completed_todo_count: todos
-                .iter()
-                .filter(|todo| todo.status == "finished")
-                .count() as i64,
-            total_todo_count: todos.len() as i64,
-            has_open_todos: todos.iter().any(|todo| todo.status == "unfinished"),
-        };
-
-        Ok(ActivityCardData {
-            id: row.id,
-            project_id: row.project_id,
-            attribute_option_id: row.attribute_option_id,
-            attribute_label: row.attribute_label,
-            attribute_color_key: row.attribute_color_key,
-            title: row.title,
-            brief_markdown: row.brief_markdown,
-            brief_html,
-            activity_time: row.activity_time,
-            status_option_id: row.status_option_id,
-            status_label: row.status_label,
-            status_color_key: row.status_color_key,
-            status_needs_attention: row.status_needs_attention,
-            is_pinned: row.is_pinned,
-            is_expanded: row.is_expanded,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            digest,
-            notes,
-            conclusions,
-            todos,
-            documents,
-        })
-    }
-
-    fn list_project_conclusions(
-        &self,
-        project_id: i64,
-        promoted_only: bool,
-    ) -> Result<Vec<ConclusionRecord>> {
-        let query = if promoted_only {
-            "SELECT id FROM conclusions WHERE project_id = ?1 AND promoted_to_project = 1 ORDER BY is_pinned DESC, created_at DESC LIMIT 8"
-        } else {
-            "SELECT id FROM conclusions WHERE project_id = ?1 ORDER BY is_pinned DESC, created_at DESC"
-        };
-        let mut stmt = self.conn.prepare(query)?;
-        let ids = stmt
-            .query_map([project_id], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter()
-            .map(|id| self.conclusion_record(id))
-            .collect()
-    }
-
-    fn ai_source(
-        &self,
-        project_id: i64,
-        activity_id: i64,
-        note_id: Option<i64>,
-    ) -> Result<(String, String)> {
-        let title: String = self.conn.query_row(
-            "SELECT title FROM activities WHERE id = ?1 AND project_id = ?2",
-            params![activity_id, project_id],
-            |row| row.get::<_, String>(0),
-        )?;
-
-        if let Some(note_id) = note_id {
-            let note = self.note_record(note_id)?;
-            return Ok((title, note.content_markdown));
-        }
-
-        let notes = self.fetch_notes(activity_id)?;
-        let source = notes
-            .iter()
-            .map(|note| note.content_markdown.clone())
-            .collect::<Vec<_>>()
-            .join("\n");
-        Ok((title, source))
-    }
-
     fn refresh_document_health(&mut self, project_id: i64) -> Result<()> {
         let mut stmt = self
             .conn
@@ -9711,28 +5937,6 @@ impl Database {
             "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
             params![now_iso(), project_id],
         )?;
-        self.mark_project_artifacts_stale(project_id)?;
-        self.mark_daily_artifacts_stale()?;
-        Ok(())
-    }
-
-    fn touch_activity(&self, activity_id: i64) -> Result<()> {
-        let project_id: i64 = self.conn.query_row(
-            "SELECT project_id FROM activities WHERE id = ?1",
-            [activity_id],
-            |row| row.get(0),
-        )?;
-        self.conn.execute(
-            "UPDATE activities SET updated_at = ?1 WHERE id = ?2",
-            params![now_iso(), activity_id],
-        )?;
-        self.mark_activity_artifacts_stale(project_id, activity_id)?;
-        self.conn.execute(
-            "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
-            params![now_iso(), project_id],
-        )?;
-        self.mark_project_artifacts_stale(project_id)?;
-        self.mark_daily_artifacts_stale()?;
         Ok(())
     }
 
@@ -9740,21 +5944,6 @@ impl Database {
         if let Some(project_id) = todo.project_id {
             self.touch_project(project_id)?;
         }
-        if let Some(activity_id) = todo.activity_id {
-            self.touch_activity(activity_id)?;
-        }
-        Ok(())
-    }
-
-    fn mark_project_artifacts_stale(&self, _project_id: i64) -> Result<()> {
-        Ok(())
-    }
-
-    fn mark_activity_artifacts_stale(&self, _project_id: i64, _activity_id: i64) -> Result<()> {
-        Ok(())
-    }
-
-    fn mark_daily_artifacts_stale(&self) -> Result<()> {
         Ok(())
     }
 
@@ -9944,11 +6133,6 @@ impl Database {
                 LEGACY_ACTIVITY_STATUS_ORGANIZED_COLOR_KEY,
             ],
         )?;
-        Ok(())
-    }
-
-    fn ensure_activity_settings_seeded(&mut self) -> Result<()> {
-        self.ensure_system_pending_activity_status()?;
         Ok(())
     }
 
@@ -10159,8 +6343,6 @@ impl Database {
         )?;
 
         self.migrate_legacy_file_tags_to_project_scope()?;
-        self.migrate_activity_titles_to_project_tags()?;
-        self.conn.execute("DELETE FROM conclusions", [])?;
         Ok(())
     }
 
@@ -10333,85 +6515,38 @@ impl Database {
         Ok(())
     }
 
-    fn migrate_activity_titles_to_project_tags(&mut self) -> Result<()> {
-        let timestamp = now_iso();
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, project_id, title FROM activities ORDER BY id ASC")?;
-        let activities = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        drop(stmt);
-
-        for (activity_id, project_id, title) in activities {
-            let label = title.trim();
-            let label = if label.is_empty() {
-                format!("{UNTITLED_ACTIVITY_PREFIX} {activity_id}")
-            } else {
-                label.to_string()
-            };
-            let tag_id = self.upsert_project_tag_by_label(
-                project_id,
-                &label,
-                DEFAULT_RECORD_TYPE_COLOR_KEY,
-                &timestamp,
-            )?;
-
-            self.conn.execute(
-                r#"
-                INSERT OR IGNORE INTO note_tag_links (note_id, tag_id, created_at)
-                SELECT id, ?1, ?2 FROM notes WHERE activity_id = ?3
-                "#,
-                params![tag_id, timestamp, activity_id],
-            )?;
-            self.conn.execute(
-                r#"
-                INSERT OR IGNORE INTO todo_tag_links (todo_id, tag_id, created_at)
-                SELECT id, ?1, ?2 FROM todos WHERE activity_id = ?3
-                "#,
-                params![tag_id, timestamp, activity_id],
-            )?;
-            self.conn.execute(
-                r#"
-                INSERT OR IGNORE INTO document_tag_links (document_id, tag_id, created_at)
-                SELECT id, ?1, ?2
-                FROM documents
-                WHERE activity_id = ?3 AND storage_mode != ?4
-                "#,
-                params![
-                    tag_id,
-                    timestamp,
-                    activity_id,
-                    MANAGED_NOTE_IMAGE_STORAGE_MODE
-                ],
-            )?;
-        }
-
-        self.conn
-            .execute("UPDATE notes SET activity_id = NULL", [])?;
-        self.conn
-            .execute("UPDATE todos SET activity_id = NULL", [])?;
-        self.conn
-            .execute("UPDATE documents SET activity_id = NULL", [])?;
-        Ok(())
+    fn migrate_activity_retire_schema(&mut self) -> Result<()> {
+        self.migrate_legacy_domain_records(false)
     }
 
-    fn migrate_activity_retire_schema(&mut self) -> Result<()> {
+    fn migrate_legacy_domain_records(&mut self, recognize_v13_records: bool) -> Result<()> {
+        self.conn
+            .execute_batch("SAVEPOINT migrate_legacy_domain_records")?;
+        let result = self.migrate_legacy_domain_records_inner(recognize_v13_records);
+        match result {
+            Ok(()) => {
+                self.conn
+                    .execute_batch("RELEASE SAVEPOINT migrate_legacy_domain_records")?;
+                Ok(())
+            }
+            Err(error) => {
+                if let Err(rollback_error) = self.conn.execute_batch(
+                    "ROLLBACK TO SAVEPOINT migrate_legacy_domain_records; RELEASE SAVEPOINT migrate_legacy_domain_records;",
+                ) {
+                    return Err(error.context(format!(
+                        "legacy domain migration rollback also failed: {rollback_error}"
+                    )));
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn migrate_legacy_domain_records_inner(&mut self, recognize_v13_records: bool) -> Result<()> {
         let timestamp = now_iso();
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT
-              id,
-              project_id,
-              title,
-              brief_markdown,
-              brief_html
+            SELECT id, project_id, title, brief_markdown, brief_html, created_at, updated_at
             FROM activities
             ORDER BY project_id ASC, id ASC
             "#,
@@ -10424,37 +6559,31 @@ impl Database {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         drop(stmt);
 
-        for (activity_id, project_id, title, brief_markdown, brief_html) in activities {
-            let base_label = if title.trim().is_empty() {
-                format!("来源: {} {}", UNTITLED_ACTIVITY_PREFIX, activity_id)
+        let mut activity_tags = HashMap::new();
+        let mut activity_titles = HashMap::new();
+        for (activity_id, project_id, title, brief_markdown, brief_html, created_at, updated_at) in
+            activities
+        {
+            let display_title = if title.trim().is_empty() {
+                "未命名".to_string()
             } else {
-                format!("来源: {}", title.trim())
-            };
-            let label = if self
-                .conn
-                .query_row(
-                    "SELECT id FROM file_tag_options WHERE project_id = ?1 AND label = ?2 COLLATE NOCASE",
-                    params![project_id, base_label.as_str()],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?
-                .is_some()
-            {
-                format!("{base_label} (#{activity_id})")
-            } else {
-                base_label
+                title.trim().to_string()
             };
             let tag_id = self.upsert_project_tag_by_label(
                 project_id,
-                &label,
+                &format!("来源: 旧 Activity #{activity_id} · {display_title}"),
                 DEFAULT_RECORD_TYPE_COLOR_KEY,
                 &timestamp,
             )?;
+            activity_tags.insert(activity_id, (project_id, tag_id));
+            activity_titles.insert(activity_id, display_title.clone());
 
             self.conn.execute(
                 r#"
@@ -10485,7 +6614,20 @@ impl Database {
                 ],
             )?;
 
-            if !brief_markdown.trim().is_empty() || !brief_html.trim().is_empty() {
+            let has_brief = !brief_markdown.trim().is_empty() || !brief_html.trim().is_empty();
+            let migrated_record_id = self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT record_id
+                    FROM legacy_domain_record_migrations
+                    WHERE legacy_kind = 'activity_brief' AND legacy_id = ?1
+                    "#,
+                    [activity_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            if has_brief && migrated_record_id.is_none() {
                 let resolved_markdown = if brief_markdown.trim().is_empty() {
                     title.trim().to_string()
                 } else {
@@ -10496,43 +6638,210 @@ impl Database {
                 } else {
                     brief_html.clone()
                 };
-                self.insert_project_note(
-                    project_id,
-                    None,
-                    "note",
-                    if title.trim().is_empty() {
-                        None
-                    } else {
-                        Some(title.as_str())
-                    },
-                    resolved_markdown.as_str(),
-                    resolved_html.as_str(),
-                    None,
-                    &timestamp,
-                )?;
-                let note_id = self.conn.last_insert_rowid();
+                let existing_record_id = if recognize_v13_records {
+                    self.find_v13_activity_brief_record(
+                        activity_id,
+                        project_id,
+                        &title,
+                        &resolved_markdown,
+                        &resolved_html,
+                    )?
+                } else {
+                    None
+                };
+                let record_id = if let Some(record_id) = existing_record_id {
+                    record_id
+                } else {
+                    self.insert_legacy_domain_record(
+                        project_id,
+                        Some(&display_title),
+                        &resolved_markdown,
+                        &resolved_html,
+                        &created_at,
+                        &updated_at,
+                    )?
+                };
                 self.conn.execute(
                     "INSERT OR IGNORE INTO note_tag_links (note_id, tag_id, created_at) VALUES (?1, ?2, ?3)",
-                    params![note_id, tag_id, timestamp],
+                    params![record_id, tag_id, timestamp],
+                )?;
+                self.conn.execute(
+                    r#"
+                    INSERT INTO legacy_domain_record_migrations (
+                      legacy_kind, legacy_id, record_id, created_at
+                    ) VALUES ('activity_brief', ?1, ?2, ?3)
+                    "#,
+                    params![activity_id, record_id, timestamp],
                 )?;
             }
+        }
 
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              id, project_id, activity_id, content_markdown, content_html, content,
+              created_at, updated_at
+            FROM conclusions
+            ORDER BY project_id ASC, id ASC
+            "#,
+        )?;
+        let conclusions = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        for (
+            conclusion_id,
+            project_id,
+            activity_id,
+            content_markdown,
+            content_html,
+            legacy_content,
+            created_at,
+            updated_at,
+        ) in conclusions
+        {
+            let already_migrated = self
+                .conn
+                .query_row(
+                    r#"
+                    SELECT record_id
+                    FROM legacy_domain_record_migrations
+                    WHERE legacy_kind = 'conclusion' AND legacy_id = ?1
+                    "#,
+                    [conclusion_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .is_some();
+            if already_migrated {
+                continue;
+            }
+
+            let markdown = if content_markdown.trim().is_empty() {
+                legacy_content
+            } else {
+                content_markdown
+            };
+            let html = if content_html.trim().is_empty() {
+                rich_text_html_from_markdown(&markdown)
+            } else {
+                content_html
+            };
+            let title = activity_id
+                .and_then(|id| activity_titles.get(&id))
+                .map(|activity_title| format!("迁移的旧结论：{activity_title}"))
+                .unwrap_or_else(|| format!("迁移的旧结论 #{conclusion_id}"));
+            let tag_id = match activity_id.and_then(|id| activity_tags.get(&id).copied()) {
+                Some((activity_project_id, tag_id)) if activity_project_id == project_id => tag_id,
+                _ => self.upsert_project_tag_by_label(
+                    project_id,
+                    "来源: 旧结论",
+                    DEFAULT_RECORD_TYPE_COLOR_KEY,
+                    &timestamp,
+                )?,
+            };
+            let record_id = self.insert_legacy_domain_record(
+                project_id,
+                Some(&title),
+                &markdown,
+                &html,
+                &created_at,
+                &updated_at,
+            )?;
             self.conn.execute(
-                "DELETE FROM conclusions WHERE activity_id = ?1",
-                params![activity_id],
+                "INSERT OR IGNORE INTO note_tag_links (note_id, tag_id, created_at) VALUES (?1, ?2, ?3)",
+                params![record_id, tag_id, timestamp],
+            )?;
+            self.conn.execute(
+                r#"
+                INSERT INTO legacy_domain_record_migrations (
+                  legacy_kind, legacy_id, record_id, created_at
+                ) VALUES ('conclusion', ?1, ?2, ?3)
+                "#,
+                params![conclusion_id, record_id, timestamp],
             )?;
         }
 
-        self.conn
-            .execute("UPDATE notes SET activity_id = NULL", [])?;
-        self.conn
-            .execute("UPDATE todos SET activity_id = NULL", [])?;
-        self.conn
-            .execute("UPDATE documents SET activity_id = NULL", [])?;
         Ok(())
     }
 
-    fn ensure_system_pending_activity_status(&mut self) -> Result<ActivityStatusOption> {
+    fn find_v13_activity_brief_record(
+        &self,
+        activity_id: i64,
+        project_id: i64,
+        activity_title: &str,
+        markdown: &str,
+        html: &str,
+    ) -> Result<Option<i64>> {
+        let trimmed_title = activity_title.trim();
+        let source_label = if trimmed_title.is_empty() {
+            format!("来源: 未命名 Activity {activity_id}")
+        } else {
+            format!("来源: {trimmed_title}")
+        };
+        let collision_label = format!("{source_label} (#{activity_id})");
+        let record_title = (!trimmed_title.is_empty()).then_some(activity_title);
+
+        self.conn
+            .query_row(
+                r#"
+                SELECT note.id
+                FROM notes note
+                INNER JOIN note_tag_links link ON link.note_id = note.id
+                INNER JOIN file_tag_options tag ON tag.id = link.tag_id
+                WHERE note.project_id = ?1
+                  AND ((?2 IS NULL AND note.title IS NULL) OR note.title = ?2)
+                  AND note.content_markdown = ?3
+                  AND note.content_html = ?4
+                  AND tag.label IN (?5, ?6)
+                ORDER BY note.id DESC
+                LIMIT 1
+                "#,
+                params![
+                    project_id,
+                    record_title,
+                    markdown,
+                    html,
+                    source_label,
+                    collision_label
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    fn insert_legacy_domain_record(
+        &self,
+        project_id: i64,
+        title: Option<&str>,
+        markdown: &str,
+        html: &str,
+        created_at: &str,
+        updated_at: &str,
+    ) -> Result<i64> {
+        self.insert_project_note(project_id, title, markdown, html, None, created_at)?;
+        let record_id = self.conn.last_insert_rowid();
+        self.conn.execute(
+            "UPDATE notes SET created_at = ?1, updated_at = ?2 WHERE id = ?3",
+            params![created_at, updated_at, record_id],
+        )?;
+        Ok(record_id)
+    }
+
+    fn ensure_system_pending_activity_status(&mut self) -> Result<()> {
         let now = now_iso();
         self.conn.execute(
             r#"
@@ -10549,7 +6858,7 @@ impl Database {
                 now
             ],
         )?;
-        self.pending_activity_status_option()
+        Ok(())
     }
 
     fn find_or_create_activity_attribute_option(&mut self, label: &str) -> Result<i64> {
@@ -10618,70 +6927,76 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
-    fn activity_attribute_option_record(&self, option_id: i64) -> Result<ActivityAttributeOption> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT id, label, color_key, created_at, updated_at
-                FROM activity_attribute_options
-                WHERE id = ?1
-                "#,
-                [option_id],
-                |row| {
-                    Ok(ActivityAttributeOption {
-                        id: row.get(0)?,
-                        label: row.get(1)?,
-                        color_key: row.get(2)?,
-                        created_at: row.get(3)?,
-                        updated_at: row.get(4)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
-    }
+    fn ensure_legacy_domain_schema(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS activity_attribute_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              label TEXT NOT NULL COLLATE NOCASE,
+              color_key TEXT NOT NULL DEFAULT 'slate',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
 
-    fn activity_status_option_record(&self, option_id: i64) -> Result<ActivityStatusOption> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT id, label, color_key, needs_attention, system_key, created_at, updated_at
-                FROM activity_status_options
-                WHERE id = ?1
-                "#,
-                [option_id],
-                |row| {
-                    let system_key = row.get::<_, Option<String>>(4)?;
-                    Ok(ActivityStatusOption {
-                        id: row.get(0)?,
-                        label: row.get(1)?,
-                        color_key: row.get(2)?,
-                        needs_attention: int_to_bool(row.get::<_, i64>(3)?),
-                        is_system: system_key.is_some(),
-                        created_at: row.get(5)?,
-                        updated_at: row.get(6)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
-    }
+            CREATE TABLE IF NOT EXISTS activity_status_options (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              system_key TEXT UNIQUE,
+              label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              color_key TEXT NOT NULL DEFAULT 'amber',
+              needs_attention INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
 
-    fn pending_activity_status_option(&self) -> Result<ActivityStatusOption> {
-        let option_id = self.conn.query_row(
-            "SELECT id FROM activity_status_options WHERE system_key = ?1 LIMIT 1",
-            params![SYSTEM_ACTIVITY_STATUS_PENDING],
-            |row| row.get::<_, i64>(0),
+            CREATE TABLE IF NOT EXISTS activities (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              category TEXT NOT NULL,
+              attribute_option_id INTEGER,
+              title TEXT NOT NULL DEFAULT '',
+              brief_markdown TEXT NOT NULL DEFAULT '',
+              brief_html TEXT NOT NULL DEFAULT '',
+              folder_name TEXT NOT NULL DEFAULT '',
+              activity_time TEXT NOT NULL,
+              is_pinned INTEGER NOT NULL DEFAULT 0,
+              is_expanded INTEGER NOT NULL DEFAULT 0,
+              organize_status TEXT NOT NULL DEFAULT 'needs_review',
+              status_option_id INTEGER,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(attribute_option_id) REFERENCES activity_attribute_options(id) ON DELETE SET NULL,
+              FOREIGN KEY(status_option_id) REFERENCES activity_status_options(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS conclusions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              activity_id INTEGER,
+              note_id INTEGER,
+              content_markdown TEXT NOT NULL DEFAULT '',
+              content_html TEXT NOT NULL DEFAULT '',
+              content TEXT NOT NULL,
+              promoted_to_project INTEGER NOT NULL DEFAULT 0,
+              is_pinned INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+              FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE,
+              FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS legacy_domain_record_migrations (
+              legacy_kind TEXT NOT NULL,
+              legacy_id INTEGER NOT NULL,
+              record_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(legacy_kind, legacy_id),
+              FOREIGN KEY(record_id) REFERENCES notes(id) ON DELETE CASCADE
+            );
+            "#,
         )?;
-        self.activity_status_option_record(option_id)
-    }
-
-    fn resolve_activity_status_option(
-        &self,
-        option_id: Option<i64>,
-    ) -> Result<ActivityStatusOption> {
-        match option_id {
-            Some(option_id) => self.activity_status_option_record(option_id),
-            None => self.pending_activity_status_option(),
-        }
+        Ok(())
     }
 
     fn schema_version(&self) -> Result<i64> {
@@ -10693,6 +7008,16 @@ impl Database {
     fn set_schema_version(&self, version: i64) -> Result<()> {
         self.conn.pragma_update(None, "user_version", version)?;
         Ok(())
+    }
+
+    fn table_exists(&self, table: &str) -> Result<bool> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+                [table],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
     }
 
     fn has_column(&self, table: &str, column: &str) -> Result<bool> {
@@ -10773,30 +7098,6 @@ fn backup_before_migration(conn: &Connection, workspace_root: &Path) -> Result<O
     Ok(Some(backup_path))
 }
 
-fn activity_digest_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActivityDigest> {
-    Ok(ActivityDigest {
-        id: row.get(0)?,
-        project_id: row.get(1)?,
-        attribute_option_id: row.get(2)?,
-        attribute_label: row.get(3)?,
-        attribute_color_key: row.get(4)?,
-        title: row.get(5)?,
-        activity_time: row.get(6)?,
-        status_option_id: row.get(7)?,
-        status_label: row.get(8)?,
-        status_color_key: row.get(9)?,
-        status_needs_attention: int_to_bool(row.get::<_, i64>(10)?),
-        is_pinned: int_to_bool(row.get::<_, i64>(11)?),
-        note_count: row.get(12)?,
-        conclusion_count: row.get(13)?,
-        todo_count: row.get(14)?,
-        document_count: row.get(15)?,
-        completed_todo_count: row.get(16)?,
-        total_todo_count: row.get(17)?,
-        has_open_todos: int_to_bool(row.get::<_, i64>(18)?),
-    })
-}
-
 fn bool_to_int(value: bool) -> i64 {
     if value {
         1
@@ -10816,14 +7117,6 @@ fn normalize_code_language(value: &str) -> Option<String> {
         None
     } else {
         Some(trimmed)
-    }
-}
-
-fn legacy_organize_status_for_system(is_system: bool) -> &'static str {
-    if is_system {
-        "needs_review"
-    } else {
-        "organized"
     }
 }
 
@@ -10914,39 +7207,11 @@ fn resolve_unique_file_name(target_dir: &Path, file_name: &str) -> String {
     unreachable!("unbounded suffix search should always return")
 }
 
-fn current_workspace_date() -> String {
-    Local::now().format("%Y-%m-%d").to_string()
-}
-
-fn artifact_skill_spec(kind: &str) -> Result<&'static ArtifactSkillSpec> {
-    match kind {
-        "project_brief" => Ok(&PROJECT_BRIEF_SKILL),
-        "daily_brief" => Ok(&DAILY_BRIEF_SKILL),
-        _ => Err(anyhow!("unsupported artifact kind")),
-    }
-}
-
-fn ai_artifact_scope_key(
-    kind: &str,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    artifact_date: Option<&str>,
-) -> String {
-    format!(
-        "{}|{}|{}|{}",
-        kind.trim(),
-        project_id.unwrap_or_default(),
-        activity_id.unwrap_or_default(),
-        artifact_date.unwrap_or_default().trim()
-    )
-}
-
 fn normalize_internal_reference_label(kind: &str, value: &str) -> String {
     let normalized =
         normalize_internal_reference_match_text(&strip_internal_reference_label_tokens(value));
     let fallback = match kind {
         "note" => "记录",
-        "conclusion" => "结论",
         "todo" => "Todo",
         "document" => "文件",
         _ => "未命名引用",
@@ -10957,7 +7222,7 @@ fn normalize_internal_reference_label(kind: &str, value: &str) -> String {
         normalized
     };
 
-    if matches!(kind, "conclusion" | "todo") {
+    if kind == "todo" {
         truncate_text(&resolved, INTERNAL_REFERENCE_COMPACT_LABEL_MAX_CHARS)
     } else {
         resolved
@@ -11026,7 +7291,6 @@ fn parse_internal_reference_search_query(raw: &str) -> ParsedInternalReferenceSe
     let kind_filter = match normalized_prefix.as_str() {
         "note" => Some(InternalReferenceFilterKind::Note),
         "todo" => Some(InternalReferenceFilterKind::Todo),
-        "con" | "conclusion" => Some(InternalReferenceFilterKind::Conclusion),
         "doc" | "document" => Some(InternalReferenceFilterKind::Document),
         _ => None,
     };
@@ -11062,7 +7326,7 @@ fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
         let Some((kind, id)) = target.split_once(':') else {
             continue;
         };
-        if matches!(kind, "note" | "conclusion" | "todo" | "document") {
+        if matches!(kind, "note" | "todo" | "document") {
             if let Ok(id) = id.parse::<i64>() {
                 references.push((kind.to_string(), id));
             }
@@ -11254,424 +7518,8 @@ fn rank_workspace_search_candidate(
     None
 }
 
-fn untitled_activity_title(activity_id: i64) -> String {
-    format!("{UNTITLED_ACTIVITY_PREFIX} {activity_id}")
-}
-
-fn normalize_activity_title(value: &str, activity_id: i64) -> String {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        untitled_activity_title(activity_id)
-    } else {
-        normalized.to_string()
-    }
-}
-
-fn build_internal_reference_route(
-    project_id: i64,
-    activity_id: Option<i64>,
-    focus_id: &str,
-) -> String {
-    match activity_id {
-        Some(activity_id) => {
-            format!("/projects/{project_id}/activities/{activity_id}?focus={focus_id}")
-        }
-        None => format!("/projects/{project_id}?focus={focus_id}"),
-    }
-}
-
-fn push_artifact_source(
-    sources: &mut Vec<ArtifactSource>,
-    latest: &mut String,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    ref_prefix: &str,
-    source_id: i64,
-    source_kind: &str,
-    label: String,
-    excerpt: String,
-    updated_at: &str,
-) {
-    let normalized_excerpt = truncate_text(&excerpt.replace('\n', " "), 280);
-    sources.push(ArtifactSource {
-        ref_code: format!("{ref_prefix}-{source_id}"),
-        source_kind: source_kind.to_string(),
-        source_id,
-        project_id,
-        activity_id,
-        label,
-        excerpt: normalized_excerpt,
-    });
-    if updated_at > latest.as_str() {
-        *latest = updated_at.to_string();
-    }
-}
-
-fn push_existing_artifact_source(
-    sources: &mut Vec<ArtifactSource>,
-    latest: &mut String,
-    source: ArtifactSource,
-    updated_at: Option<&str>,
-) {
-    if let Some(value) = updated_at {
-        if value > latest.as_str() {
-            *latest = value.to_string();
-        }
-    }
-    sources.push(ArtifactSource {
-        excerpt: truncate_text(&source.excerpt.replace('\n', " "), 280),
-        ..source
-    });
-}
-
-fn render_artifact_context(title: &str, scope: &str, sources: &[ArtifactSource]) -> String {
-    let rendered_sources = sources
-        .iter()
-        .map(|source| {
-            format!(
-                "{} | {} | {}",
-                source.ref_code, source.label, source.excerpt
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    format!("Artifact:\n{title}\n\nScope:\n{scope}\n\nSources:\n{rendered_sources}")
-}
-
-fn render_artifact_markdown(payload: &AiArtifactPayload) -> String {
-    let mut markdown = String::new();
-    if !payload.overview.trim().is_empty() {
-        markdown.push_str(payload.overview.trim());
-    }
-
-    for section in &payload.sections {
-        if section.title.trim().is_empty() {
-            continue;
-        }
-        if !markdown.is_empty() {
-            markdown.push_str("\n\n");
-        }
-        markdown.push_str("## ");
-        markdown.push_str(section.title.trim());
-        for item in &section.items {
-            markdown.push('\n');
-            markdown.push_str("- ");
-            markdown.push_str(item.trim());
-        }
-    }
-
-    markdown
-}
-
-fn merge_ai_suggestion_payload(base: &Value, override_payload: Option<&Value>) -> Value {
-    let mut merged = match base {
-        Value::Object(map) => map.clone(),
-        _ => Map::new(),
-    };
-
-    if let Some(Value::Object(override_map)) = override_payload {
-        for (key, value) in override_map {
-            merged.insert(key.clone(), value.clone());
-        }
-    }
-
-    Value::Object(merged)
-}
-
-fn suggestion_payload_string<'a>(
-    payload: &'a Value,
-    key: &str,
-    error_message: &str,
-) -> Result<&'a str> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!(error_message.to_string()))
-}
-
-fn ai_suggestion_preview(suggestion_type: &str, payload: &Value) -> Result<String> {
-    match suggestion_type {
-        "activity_title" => {
-            Ok(
-                suggestion_payload_string(payload, "proposedTitle", "missing proposedTitle")?
-                    .to_string(),
-            )
-        }
-        "conclusion" | "todo" => {
-            Ok(
-                suggestion_payload_string(payload, "content", "missing suggestion content")?
-                    .to_string(),
-            )
-        }
-        _ => Err(anyhow!("unsupported suggestion type")),
-    }
-}
-
-fn is_todo_priority(value: &str) -> bool {
-    matches!(
-        value,
-        "urgent_important"
-            | "urgent_not_important"
-            | "not_urgent_important"
-            | "not_urgent_not_important"
-    )
-}
-
-fn infer_todo_priority(content: &str) -> &'static str {
-    let normalized = content.trim().to_lowercase();
-    let has_urgency = TODO_PRIORITY_URGENCY_KEYWORDS
-        .iter()
-        .any(|keyword| normalized.contains(keyword));
-    let has_importance = TODO_PRIORITY_IMPORTANCE_KEYWORDS
-        .iter()
-        .any(|keyword| normalized.contains(keyword));
-
-    if has_urgency && has_importance {
-        "urgent_important"
-    } else if has_urgency {
-        "urgent_not_important"
-    } else if has_importance {
-        "not_urgent_important"
-    } else {
-        "not_urgent_not_important"
-    }
-}
-
-fn push_ask_source(
-    sources: &mut Vec<AskSource>,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    ref_prefix: &str,
-    source_id: i64,
-    source_kind: &str,
-    label: String,
-    excerpt: String,
-    body_text: String,
-    updated_at: &str,
-) {
-    sources.push(AskSource {
-        ref_code: format!("{ref_prefix}-{source_id}"),
-        source_kind: source_kind.to_string(),
-        source_id,
-        project_id,
-        activity_id,
-        label,
-        excerpt: truncate_text(&excerpt.replace('\n', " "), 280),
-        body_text: truncate_text(&body_text.replace('\n', " "), 2400),
-        updated_at: updated_at.to_string(),
-    });
-}
-
-fn render_ask_context(
-    scope: &str,
-    project_id: Option<i64>,
-    activity_id: Option<i64>,
-    question: &str,
-    sources: &[AskSource],
-) -> String {
-    let rendered_sources = sources
-        .iter()
-        .map(|source| {
-            format!(
-                "{} | {} | {} | updatedAt={}\nExcerpt: {}\nBody: {}",
-                source.ref_code,
-                source.source_kind,
-                source.label,
-                source.updated_at,
-                source.excerpt,
-                source.body_text
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    format!(
-        "Scope:\n{}\n\nProjectId:\n{}\n\nActivityId:\n{}\n\nQuestion:\n{}\n\nSources:\n{}",
-        scope,
-        project_id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-        activity_id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-        question.trim(),
-        rendered_sources
-    )
-}
-
-fn insufficient_ai_answer(scope: AiAnswerScope, message: &str) -> AiAnswerResult {
-    AiAnswerResult {
-        answer_markdown: message.trim().to_string(),
-        citations: Vec::new(),
-        scope,
-        generated_at: now_iso(),
-        skill_key: ASK_SKILL.skill_key.to_string(),
-        skill_version: ASK_SKILL.skill_version.to_string(),
-    }
-}
-
-fn rank_ask_sources(question: &str, sources: Vec<AskSource>) -> Vec<(i64, AskSource)> {
-    let phrase = compact_ask_text(question);
-    let terms = ask_query_terms(question);
-    let mut ranked = sources
-        .into_iter()
-        .filter_map(|source| {
-            let label = normalize_ask_text(&source.label);
-            let excerpt = normalize_ask_text(&source.excerpt);
-            let body = normalize_ask_text(&source.body_text);
-            let label_compact = compact_ask_text(&source.label);
-            let excerpt_compact = compact_ask_text(&source.excerpt);
-            let body_compact = compact_ask_text(&source.body_text);
-
-            let mut score = ask_source_type_weight(&source.source_kind);
-            let mut hits = 0_i64;
-
-            if phrase.chars().count() >= 2 {
-                if label_compact.contains(&phrase) {
-                    score += 30;
-                    hits += 1;
-                } else if excerpt_compact.contains(&phrase) {
-                    score += 22;
-                    hits += 1;
-                } else if body_compact.contains(&phrase) {
-                    score += 16;
-                    hits += 1;
-                }
-            }
-
-            for term in &terms {
-                if term.chars().count() < 2 {
-                    continue;
-                }
-                if label.contains(term) {
-                    score += 10;
-                    hits += 1;
-                } else if excerpt.contains(term) {
-                    score += 6;
-                    hits += 1;
-                } else if body.contains(term) {
-                    score += 4;
-                    hits += 1;
-                }
-            }
-
-            if hits == 0 {
-                return None;
-            }
-
-            Some((score, source))
-        })
-        .collect::<Vec<_>>();
-
-    ranked.sort_by(|left, right| {
-        right
-            .0
-            .cmp(&left.0)
-            .then_with(|| right.1.updated_at.cmp(&left.1.updated_at))
-            .then_with(|| left.1.ref_code.cmp(&right.1.ref_code))
-    });
-    ranked
-}
-
-fn select_ask_sources(ranked: Vec<(i64, AskSource)>, total_limit: usize) -> Vec<AskSource> {
-    let mut per_kind = HashMap::<String, usize>::new();
-    let mut selected = Vec::new();
-
-    for (_, source) in ranked {
-        let current = per_kind.get(&source.source_kind).copied().unwrap_or(0);
-        if current >= ask_source_type_cap(&source.source_kind) {
-            continue;
-        }
-
-        per_kind.insert(source.source_kind.clone(), current + 1);
-        selected.push(source);
-        if selected.len() >= total_limit {
-            break;
-        }
-    }
-
-    selected
-}
-
-fn ask_source_type_weight(source_kind: &str) -> i64 {
-    match source_kind {
-        "conclusion" => 8,
-        "todo" => 7,
-        "note" => 6,
-        "activity" => 5,
-        "project" => 4,
-        "document" => 3,
-        _ => 1,
-    }
-}
-
-fn ask_source_type_cap(source_kind: &str) -> usize {
-    match source_kind {
-        "note" | "todo" | "conclusion" => 3,
-        "activity" | "document" => 2,
-        "project" => 2,
-        _ => 1,
-    }
-}
-
-fn normalize_ask_text(value: &str) -> String {
-    let mut normalized = String::new();
-    let mut last_space = false;
-    for ch in value.to_lowercase().chars() {
-        if is_ask_lexical_char(ch) {
-            normalized.push(ch);
-            last_space = false;
-        } else if !last_space {
-            normalized.push(' ');
-            last_space = true;
-        }
-    }
-    normalized.trim().to_string()
-}
-
-fn compact_ask_text(value: &str) -> String {
-    normalize_ask_text(value)
-        .split_whitespace()
-        .collect::<String>()
-}
-
-fn ask_query_terms(question: &str) -> Vec<String> {
-    let mut terms = Vec::new();
-    for segment in normalize_ask_text(question).split_whitespace() {
-        push_unique_term(&mut terms, segment.to_string());
-
-        let chars = segment.chars().collect::<Vec<_>>();
-        if chars.len() > 2 && chars.iter().all(|ch| is_cjk_char(*ch)) {
-            for window in chars.windows(2) {
-                push_unique_term(&mut terms, window.iter().collect());
-            }
-        }
-    }
-    terms
-}
-
-fn push_unique_term(terms: &mut Vec<String>, term: String) {
-    let normalized = term.trim();
-    if normalized.chars().count() < 2 {
-        return;
-    }
-    if !terms.iter().any(|existing| existing == normalized) {
-        terms.push(normalized.to_string());
-    }
-}
-
-fn is_ask_lexical_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || is_cjk_char(ch)
-}
-
-fn is_cjk_char(ch: char) -> bool {
-    let code = ch as u32;
-    (0x4E00..=0x9FFF).contains(&code)
-        || (0x3400..=0x4DBF).contains(&code)
-        || (0xF900..=0xFAFF).contains(&code)
+fn build_internal_reference_route(project_id: i64, focus_id: &str) -> String {
+    format!("/projects/{project_id}?focus={focus_id}")
 }
 
 fn truncate_text(value: &str, max_chars: usize) -> String {
@@ -12164,82 +8012,6 @@ fn unescape_numeric_html_entities(value: &str) -> String {
     decoded
 }
 
-fn rewrite_rich_text_asset_paths(html: &str, old_prefix: &Path, new_prefix: &Path) -> String {
-    if html.is_empty() || old_prefix == new_prefix {
-        return html.to_string();
-    }
-
-    let old_path_prefix = old_prefix.to_string_lossy().to_string();
-    let new_path_prefix = new_prefix.to_string_lossy().to_string();
-    let old_href_prefix = file_href_from_path(old_prefix);
-    let new_href_prefix = file_href_from_path(new_prefix);
-
-    RICH_TEXT_PATH_ATTRIBUTES
-        .into_iter()
-        .fold(html.to_string(), |current, attribute| {
-            rewrite_html_attribute_path_prefix(
-                &current,
-                attribute,
-                &old_path_prefix,
-                &new_path_prefix,
-                &old_href_prefix,
-                &new_href_prefix,
-            )
-        })
-}
-
-fn rewrite_scoped_rich_text_asset_paths(
-    html: &str,
-    scope_root: &Path,
-    old_prefix: &Path,
-    new_prefix: &Path,
-) -> String {
-    let rewritten = rewrite_rich_text_asset_paths(html, old_prefix, new_prefix);
-    let (Ok(old_relative), Ok(new_relative)) = (
-        old_prefix.strip_prefix(scope_root),
-        new_prefix.strip_prefix(scope_root),
-    ) else {
-        return rewritten;
-    };
-    if old_relative.as_os_str().is_empty() {
-        return rewritten;
-    }
-
-    rewrite_rich_text_asset_paths(&rewritten, old_relative, new_relative)
-}
-
-fn rewrite_html_attribute_path_prefix(
-    html: &str,
-    attribute: &str,
-    old_path_prefix: &str,
-    new_path_prefix: &str,
-    old_href_prefix: &str,
-    new_href_prefix: &str,
-) -> String {
-    rewrite_html_tags(html, |tag| {
-        let Some(value) = html_attribute_value(tag, attribute) else {
-            return tag.to_string();
-        };
-        let decoded = unescape_html_attribute(&value);
-        let replacement =
-            if let Some(remainder) = strip_complete_path_prefix(&decoded, old_path_prefix) {
-                format!("{new_path_prefix}{remainder}")
-            } else if let Some(remainder) = strip_complete_path_prefix(&decoded, old_href_prefix) {
-                format!("{new_href_prefix}{remainder}")
-            } else {
-                return tag.to_string();
-            };
-
-        replace_html_attribute_value(tag, attribute, &escape_html_attribute(&replacement))
-    })
-}
-
-fn strip_complete_path_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let remainder = value.strip_prefix(prefix)?;
-    (remainder.is_empty() || remainder.starts_with('/') || remainder.starts_with('\\'))
-        .then_some(remainder)
-}
-
 fn file_href_from_path(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace('\\', "/");
 
@@ -12394,6 +8166,7 @@ fn append_suffix_before_extension(value: &str, suffix: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn remove_path_if_exists(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
@@ -12581,9 +8354,77 @@ mod tests {
         )
     }
 
+    fn enable_legacy_domain_fixture_schema(database: &Database) {
+        database.ensure_legacy_domain_schema().unwrap();
+        for (table, sql) in [
+            ("notes", "ALTER TABLE notes ADD COLUMN activity_id INTEGER"),
+            ("todos", "ALTER TABLE todos ADD COLUMN activity_id INTEGER"),
+            (
+                "documents",
+                "ALTER TABLE documents ADD COLUMN activity_id INTEGER",
+            ),
+        ] {
+            if !database.has_column(table, "activity_id").unwrap() {
+                database.conn.execute(sql, []).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn fresh_workspace_schema_omits_legacy_domain_tables_and_columns() {
+        let (harness, database) = setup_database();
+        let db_path = harness.root.join("app.sqlite3");
+
+        for table in [
+            "activities",
+            "activity_attribute_options",
+            "activity_status_options",
+            "conclusions",
+            "legacy_domain_record_migrations",
+        ] {
+            assert!(!database.table_exists(table).unwrap(), "unexpected {table}");
+        }
+        for table in ["notes", "todos", "documents"] {
+            assert!(!database.has_column(table, "activity_id").unwrap());
+        }
+        assert_eq!(database.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+        drop(database);
+
+        let reopened = Database::open(&db_path, &harness.workspace_root, None).unwrap();
+        for table in [
+            "activities",
+            "activity_attribute_options",
+            "activity_status_options",
+            "conclusions",
+            "legacy_domain_record_migrations",
+        ] {
+            assert!(!reopened.table_exists(table).unwrap(), "unexpected {table}");
+        }
+        for table in ["notes", "todos", "documents"] {
+            assert!(!reopened.has_column(table, "activity_id").unwrap());
+        }
+        assert_eq!(reopened.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn demo_seed_uses_only_current_workspace_domain_objects() {
+        let (harness, mut database) = setup_database();
+
+        let summary = database.seed_demo_data(&harness.workspace_root).unwrap();
+
+        assert_eq!(summary.project_count, 3);
+        assert_eq!(summary.project_record_count, 3);
+        assert_eq!(summary.workspace_record_count, 1);
+        assert_eq!(summary.todo_count, 3);
+        assert_eq!(summary.file_count, 3);
+        assert!(!database.table_exists("activities").unwrap());
+        assert!(!database.table_exists("conclusions").unwrap());
+    }
+
     #[test]
     fn opening_an_older_workspace_backs_up_and_preserves_its_database() {
         let (harness, database) = setup_database();
+        enable_legacy_domain_fixture_schema(&database);
         let db_path = harness.root.join("app.sqlite3");
         database
             .conn
@@ -12617,7 +8458,6 @@ mod tests {
         let image = database
             .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
                 project_id: project.id,
-                activity_id: None,
                 file_name: "legacy.png".to_string(),
                 mime_type: "image/png".to_string(),
                 data_base64: STANDARD.encode(b"legacy-image"),
@@ -12785,21 +8625,9 @@ mod tests {
             .unwrap()
     }
 
-    fn create_activity(database: &mut Database, project_id: i64, title: &str) -> ActivityCardData {
-        database
-            .activity_create(ActivityCreateInput {
-                project_id,
-                attribute_option_id: None,
-                title: Some(title.to_string()),
-                activity_time: "2026-04-06T08:00:00.000Z".to_string(),
-            })
-            .unwrap()
-    }
-
     fn create_todo(
         database: &mut Database,
         project_id: i64,
-        activity_id: Option<i64>,
         content: &str,
         priority: &str,
     ) -> TodoRecord {
@@ -12807,7 +8635,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(project_id),
-                activity_id,
                 content: content.to_string(),
                 priority: priority.to_string(),
                 due_date: None,
@@ -12820,7 +8647,6 @@ mod tests {
     fn todo_creation_contract_requires_explicit_scope() {
         let input = serde_json::json!({
             "projectId": 1,
-            "activityId": null,
             "content": "Legacy implicit Project Todo",
             "priority": "not_urgent_important",
             "dueDate": null,
@@ -12828,91 +8654,6 @@ mod tests {
         });
 
         assert!(serde_json::from_value::<TodoCreateInput>(input).is_err());
-    }
-
-    fn downgrade_todos_to_legacy_schema(database: &Database) {
-        database
-            .conn
-            .execute_batch(
-                r#"
-                PRAGMA foreign_keys = OFF;
-                PRAGMA legacy_alter_table = ON;
-                BEGIN IMMEDIATE;
-
-                CREATE TABLE todos_legacy (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  project_id INTEGER NOT NULL,
-                  activity_id INTEGER,
-                  content TEXT NOT NULL,
-                  status TEXT NOT NULL DEFAULT 'unfinished',
-                  priority TEXT NOT NULL,
-                  due_date TEXT,
-                  created_at TEXT NOT NULL,
-                  updated_at TEXT NOT NULL,
-                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                  FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
-                );
-                INSERT INTO todos_legacy (
-                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
-                )
-                SELECT
-                  id, project_id, activity_id, content, status, priority, due_date, created_at, updated_at
-                FROM todos;
-                DROP TABLE todos;
-                ALTER TABLE todos_legacy RENAME TO todos;
-
-                COMMIT;
-                PRAGMA legacy_alter_table = OFF;
-                PRAGMA foreign_keys = ON;
-                "#,
-            )
-            .unwrap();
-        database
-            .set_schema_version(TODO_DUE_DATE_SCHEMA_VERSION)
-            .unwrap();
-    }
-
-    fn create_note(
-        database: &mut Database,
-        project_id: i64,
-        activity_id: i64,
-        _legacy_note_type: &str,
-        markdown: &str,
-    ) -> NoteRecord {
-        database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id,
-                activity_id: Some(activity_id),
-                note_id: None,
-                title: Some("记录".to_string()),
-                markdown: markdown.to_string(),
-                html: format!("<p>{markdown}</p>"),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap()
-    }
-
-    fn create_note_with_title(
-        database: &mut Database,
-        project_id: i64,
-        activity_id: i64,
-        _legacy_note_type: &str,
-        title: &str,
-        markdown: &str,
-    ) -> NoteRecord {
-        database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id,
-                activity_id: Some(activity_id),
-                note_id: None,
-                title: Some(title.to_string()),
-                markdown: markdown.to_string(),
-                html: format!("<p>{markdown}</p>"),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap()
     }
 
     fn configure_editor_rewrite_profile(database: &mut Database) -> AiProviderProfileRecord {
@@ -12973,55 +8714,6 @@ mod tests {
             Some("CON_")
         );
         assert!(Path::new(&project.root_path).exists());
-    }
-
-    #[test]
-    fn reset_and_seed_demo_data_replaces_existing_workspace_data_with_demo_fixture() {
-        let (harness, mut database) = setup_database();
-        let legacy_project = create_project(&mut database, &harness.workspace_root);
-        create_activity(&mut database, legacy_project.id, "Legacy Activity");
-        let legacy_root = PathBuf::from(&legacy_project.root_path);
-
-        let summary = database
-            .reset_and_seed_demo_data(&harness.workspace_root)
-            .unwrap();
-
-        assert_eq!(summary.project_count, 3);
-        assert!(summary.activity_count >= 9);
-        assert!(summary.note_count >= 9);
-        assert!(summary.conclusion_count >= 9);
-        assert!(summary.todo_count >= 12);
-        assert!(summary.document_count >= 8);
-        assert_eq!(summary.ai_profile_mode, "mock_seeded");
-        assert!(!legacy_root.exists());
-
-        let projects = database
-            .projects_list(ProjectsListInput {
-                include_archived: Some(true),
-            })
-            .unwrap();
-        let project_names = projects
-            .iter()
-            .map(|project| project.name.clone())
-            .collect::<Vec<_>>();
-        assert!(project_names.contains(&"智能客服知识库升级".to_string()));
-        assert!(project_names.contains(&"海外销售线索评分 Copilot".to_string()));
-        assert!(project_names.contains(&"合同审阅 AI 助手试点".to_string()));
-
-        let search_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "法务".to_string(),
-                include_archived: Some(true),
-                project_id: None,
-            })
-            .unwrap();
-        assert!(!search_results.is_empty());
-        assert!(search_results.iter().any(|item| {
-            matches!(
-                item.kind.as_str(),
-                "activity" | "conclusion" | "document" | "todo"
-            )
-        }));
     }
 
     #[test]
@@ -13107,20 +8799,32 @@ mod tests {
     #[test]
     fn ai_editor_skills_migrate_legacy_rewrite_actions() {
         let (_harness, mut database) = setup_database();
-        let action = database
-            .ai_editor_rewrite_action_upsert(AiEditorSkillActionUpsertInput {
-                id: None,
-                label: "旧动作".to_string(),
-                prompt: "请改写当前选区".to_string(),
-                enabled: true,
-            })
+        let action_id = 7;
+        database
+            .conn
+            .execute(
+                "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS,
+                    serde_json::json!([{
+                        "id": action_id,
+                        "label": "旧动作",
+                        "prompt": "请改写当前选区",
+                        "enabled": true,
+                        "createdAt": "2026-04-06T08:00:00.000Z",
+                        "updatedAt": "2026-04-06T08:00:00.000Z"
+                    }])
+                    .to_string(),
+                    now_iso(),
+                ],
+            )
             .unwrap();
 
         let skills = database.ai_editor_skills_get().unwrap();
         assert_eq!(skills.len(), 2);
         let migrated = skills
             .iter()
-            .find(|skill| skill.id == format!("rewrite-action-{}", action.id))
+            .find(|skill| skill.id == format!("rewrite-action-{action_id}"))
             .unwrap();
         assert_eq!(migrated.result_mode, "modify");
         assert!(migrated.show_in_text_menu);
@@ -13130,19 +8834,31 @@ mod tests {
     #[test]
     fn image_interpretation_settings_seed_ocr_and_keep_legacy_skills_out_of_image_menu() {
         let (_harness, mut database) = setup_database();
-        let action = database
-            .ai_editor_rewrite_action_upsert(AiEditorSkillActionUpsertInput {
-                id: None,
-                label: "旧动作".to_string(),
-                prompt: "请改写当前选区".to_string(),
-                enabled: true,
-            })
+        let action_id = 9;
+        database
+            .conn
+            .execute(
+                "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS,
+                    serde_json::json!([{
+                        "id": action_id,
+                        "label": "旧动作",
+                        "prompt": "请改写当前选区",
+                        "enabled": true,
+                        "createdAt": "2026-04-06T08:00:00.000Z",
+                        "updatedAt": "2026-04-06T08:00:00.000Z"
+                    }])
+                    .to_string(),
+                    now_iso(),
+                ],
+            )
             .unwrap();
 
         let skills = database.ai_editor_skills_get().unwrap();
         let legacy = skills
             .iter()
-            .find(|skill| skill.id == format!("rewrite-action-{}", action.id))
+            .find(|skill| skill.id == format!("rewrite-action-{action_id}"))
             .unwrap();
         let ocr = skills
             .iter()
@@ -13284,13 +9000,10 @@ mod tests {
                     skill_name: Some(skill.name.clone()),
                     prompt: Some(skill.prompt.clone()),
                     result_mode: "modify".to_string(),
-                    action_id: None,
-                    prompt_override: None,
                     selected_text: "第一段".to_string(),
                     expanded_markdown: None,
                     placeholder_tokens: Vec::new(),
                     document_context: None,
-                    context: None,
                     target_type: None,
                     image_target: None,
                 },
@@ -13309,37 +9022,6 @@ mod tests {
     }
 
     #[test]
-    fn ai_editor_skill_runs_answer_prompt_override() {
-        let (_harness, mut database) = setup_database();
-        configure_editor_rewrite_profile(&mut database);
-
-        let result = database
-            .ai_editor_skill_execute(
-                AiEditorSkillInput {
-                    skill_id: None,
-                    skill_name: Some("解释".to_string()),
-                    prompt: Some("请解释这段话".to_string()),
-                    result_mode: "answer".to_string(),
-                    action_id: None,
-                    prompt_override: None,
-                    selected_text: "第一段".to_string(),
-                    expanded_markdown: None,
-                    placeholder_tokens: Vec::new(),
-                    document_context: None,
-                    context: None,
-                    target_type: None,
-                    image_target: None,
-                },
-                |_| {},
-            )
-            .unwrap();
-
-        assert_eq!(result.skill_id, None);
-        assert_eq!(result.result_mode, "answer");
-        assert!(result.content.contains("AI 回答"));
-    }
-
-    #[test]
     fn ai_editor_skill_auto_can_return_a_replacement_and_answer() {
         let (_harness, mut database) = setup_database();
         configure_editor_rewrite_profile(&mut database);
@@ -13351,13 +9033,10 @@ mod tests {
                     skill_name: Some("AI 编辑".to_string()),
                     prompt: Some("请润色并解释修改原因".to_string()),
                     result_mode: "auto".to_string(),
-                    action_id: None,
-                    prompt_override: None,
                     selected_text: "第一段".to_string(),
                     expanded_markdown: None,
                     placeholder_tokens: Vec::new(),
                     document_context: None,
-                    context: None,
                     target_type: None,
                     image_target: None,
                 },
@@ -13383,7 +9062,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_todo_can_be_created_without_project_or_activity_ownership() {
+    fn workspace_todo_can_be_created_without_project_ownership() {
         let (_harness, mut database) = setup_database();
         let workspace_tag = database
             .file_tag_option_upsert(FileTagOptionUpsertInput {
@@ -13398,7 +9077,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "整理跨项目复盘模板".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: Some("2026-08-01".to_string()),
@@ -13408,7 +9086,6 @@ mod tests {
 
         assert_eq!(created.scope, TodoScope::Workspace);
         assert_eq!(created.project_id, None);
-        assert_eq!(created.activity_id, None);
         assert_eq!(created.content, "整理跨项目复盘模板");
         assert_eq!(created.due_date.as_deref(), Some("2026-08-01"));
         assert_eq!(created.tags[0].id, workspace_tag.id);
@@ -13487,7 +9164,6 @@ mod tests {
         let result = database.todo_create(TodoCreateInput {
             scope: TodoScope::Workspace,
             project_id: None,
-            activity_id: None,
             content: "整理跨项目复盘".to_string(),
             priority: "not_urgent_important".to_string(),
             due_date: None,
@@ -13514,7 +9190,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "整理 Workspace 复盘".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -13544,7 +9219,6 @@ mod tests {
         let project_todo = create_todo(
             &mut database,
             project.id,
-            None,
             "随 Project 删除",
             "not_urgent_important",
         );
@@ -13552,7 +9226,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "保留 Workspace Todo".to_string(),
                 priority: "urgent_important".to_string(),
                 due_date: None,
@@ -13583,421 +9256,6 @@ mod tests {
     }
 
     #[test]
-    fn todo_creation_rejects_invalid_scope_ownership_combinations() {
-        let (harness, mut database) = setup_database();
-        let first_project =
-            create_project_named(&mut database, &harness.workspace_root, "First", None);
-        let second_project =
-            create_project_named(&mut database, &harness.workspace_root, "Second", None);
-        let second_activity = create_activity(&mut database, second_project.id, "Second Activity");
-
-        let cases = [
-            (
-                TodoScope::Workspace,
-                Some(first_project.id),
-                None,
-                "Workspace Todo with Project",
-            ),
-            (
-                TodoScope::Workspace,
-                None,
-                Some(second_activity.id),
-                "Workspace Todo with Activity",
-            ),
-            (
-                TodoScope::Project,
-                None,
-                None,
-                "Project Todo without Project",
-            ),
-            (
-                TodoScope::Project,
-                Some(first_project.id),
-                Some(second_activity.id),
-                "Project Todo with another Project's Activity",
-            ),
-        ];
-
-        for (scope, project_id, activity_id, content) in cases {
-            let result = database.todo_create(TodoCreateInput {
-                scope,
-                project_id,
-                activity_id,
-                content: content.to_string(),
-                priority: "not_urgent_important".to_string(),
-                due_date: None,
-                tag_ids: vec![],
-            });
-
-            assert!(result.is_err(), "{content} should be rejected");
-        }
-    }
-
-    #[test]
-    fn legacy_workspace_todos_migrate_to_project_scope_without_losing_data() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Legacy Activity");
-        let tag = database
-            .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: Some(project.id),
-                id: None,
-                label: "旧标签".to_string(),
-                color_key: "blue".to_string(),
-            })
-            .unwrap();
-        let todo = database
-            .todo_create(TodoCreateInput {
-                scope: TodoScope::Project,
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-                content: "曾从 Workspace 入口创建的旧 Todo".to_string(),
-                priority: "urgent_important".to_string(),
-                due_date: Some("2026-08-15".to_string()),
-                tag_ids: vec![tag.id],
-            })
-            .unwrap();
-        let progress = database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "保留旧 Subtask".to_string(),
-                progress_date: "2026-07-29".to_string(),
-                due_date: Some("2026-08-02".to_string()),
-            })
-            .unwrap();
-        let expected = database
-            .todo_update_status(TodoUpdateStatusInput {
-                todo_id: todo.id,
-                status: "finished".to_string(),
-            })
-            .unwrap();
-
-        downgrade_todos_to_legacy_schema(&database);
-        let db_path = harness.root.join("app.sqlite3");
-        drop(database);
-
-        let reopened = Database::open(
-            &db_path,
-            &harness.workspace_root,
-            Some("test-secret".to_string()),
-        )
-        .unwrap();
-        let migrated = reopened.todo_record(todo.id).unwrap();
-
-        assert_eq!(migrated.id, expected.id);
-        assert_eq!(migrated.scope, TodoScope::Project);
-        assert_eq!(migrated.project_id, Some(project.id));
-        assert_eq!(migrated.activity_id, Some(activity.id));
-        assert_eq!(migrated.content, expected.content);
-        assert_eq!(migrated.status, expected.status);
-        assert_eq!(migrated.priority, expected.priority);
-        assert_eq!(migrated.due_date, expected.due_date);
-        assert_eq!(migrated.created_at, expected.created_at);
-        assert_eq!(migrated.updated_at, expected.updated_at);
-        assert_eq!(migrated.tags.len(), 1);
-        assert_eq!(migrated.tags[0].id, tag.id);
-        assert_eq!(migrated.progresses.len(), 1);
-        assert_eq!(migrated.progresses[0].id, progress.id);
-        assert_eq!(migrated.progresses[0].content, progress.content);
-        assert_eq!(migrated.progresses[0].due_date, progress.due_date);
-    }
-
-    #[test]
-    fn legacy_todo_with_cross_project_activity_migrates_without_invalid_activity() {
-        let (harness, mut database) = setup_database();
-        let first_project =
-            create_project_named(&mut database, &harness.workspace_root, "First", None);
-        let second_project =
-            create_project_named(&mut database, &harness.workspace_root, "Second", None);
-        let second_activity = create_activity(&mut database, second_project.id, "Second Activity");
-        let todo = create_todo(
-            &mut database,
-            first_project.id,
-            None,
-            "旧 Todo 的 Activity 归属已损坏",
-            "not_urgent_important",
-        );
-
-        downgrade_todos_to_legacy_schema(&database);
-        database
-            .conn
-            .execute(
-                "UPDATE todos SET activity_id = ?1 WHERE id = ?2",
-                params![second_activity.id, todo.id],
-            )
-            .unwrap();
-        let db_path = harness.root.join("app.sqlite3");
-        drop(database);
-
-        let reopened = Database::open(
-            &db_path,
-            &harness.workspace_root,
-            Some("test-secret".to_string()),
-        )
-        .unwrap();
-        let migrated = reopened.todo_record(todo.id).unwrap();
-
-        assert_eq!(migrated.scope, TodoScope::Project);
-        assert_eq!(migrated.project_id, Some(first_project.id));
-        assert_eq!(migrated.activity_id, None);
-        assert_eq!(migrated.content, todo.content);
-    }
-
-    #[test]
-    fn todo_update_priority_persists_new_priority_and_returns_updated_record() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-
-        thread::sleep(Duration::from_millis(5));
-
-        let updated = database
-            .todo_update_priority(TodoUpdatePriorityInput {
-                todo_id: todo.id,
-                priority: "urgent_important".to_string(),
-            })
-            .unwrap();
-
-        assert_eq!(updated.id, todo.id);
-        assert_eq!(updated.priority, "urgent_important");
-        assert_ne!(updated.updated_at, todo.updated_at);
-
-        let refreshed = database.todo_record(todo.id).unwrap();
-        assert_eq!(refreshed.priority, "urgent_important");
-        assert_eq!(refreshed.updated_at, updated.updated_at);
-    }
-
-    #[test]
-    fn conclusion_list_orders_pinned_first_then_created_at() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-
-        let pinned_older = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "较早置顶结论".to_string(),
-                html: "<p>较早置顶结论</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: Some(true),
-            })
-            .unwrap();
-        thread::sleep(Duration::from_millis(5));
-
-        let unpinned_newer = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "较新普通结论".to_string(),
-                html: "<p>较新普通结论</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: Some(false),
-            })
-            .unwrap();
-        thread::sleep(Duration::from_millis(5));
-
-        let pinned_newest = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "最新置顶结论".to_string(),
-                html: "<p>最新置顶结论</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: Some(true),
-            })
-            .unwrap();
-
-        let conclusions = database
-            .conclusion_list(ConclusionListInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-            })
-            .unwrap();
-
-        let ids = conclusions.iter().map(|item| item.id).collect::<Vec<_>>();
-        assert_eq!(
-            ids,
-            vec![pinned_newest.id, pinned_older.id, unpinned_newer.id]
-        );
-    }
-
-    #[test]
-    fn project_overview_groups_prioritize_pinned_project_conclusions() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-
-        let pinned_older = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: None,
-                note_id: None,
-                markdown: "较早置顶项目结论".to_string(),
-                html: "<p>较早置顶项目结论</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: Some(true),
-            })
-            .unwrap();
-        thread::sleep(Duration::from_millis(5));
-
-        let unpinned_newer = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: None,
-                note_id: None,
-                markdown: "较新普通项目结论".to_string(),
-                html: "<p>较新普通项目结论</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: Some(false),
-            })
-            .unwrap();
-
-        let overview = database
-            .project_page_get(ProjectIdInput {
-                project_id: project.id,
-            })
-            .unwrap();
-        let project_group = overview
-            .conclusion_groups
-            .iter()
-            .find(|group| group.activity_id.is_none())
-            .unwrap();
-        let ids = project_group
-            .conclusions
-            .iter()
-            .map(|item| item.id)
-            .collect::<Vec<_>>();
-
-        assert_eq!(ids, vec![pinned_older.id, unpinned_newer.id]);
-    }
-
-    #[test]
-    fn conclusion_delete_removes_record_and_returns_deleted_conclusion() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "确认第一阶段只覆盖中文场景".to_string(),
-                html: "<p>确认第一阶段只覆盖中文场景</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: None,
-            })
-            .unwrap();
-
-        let deleted = database
-            .conclusion_delete(ConclusionDeleteInput {
-                conclusion_id: conclusion.id,
-            })
-            .unwrap();
-
-        assert_eq!(deleted.id, conclusion.id);
-        assert!(database.conclusion_record(conclusion.id).is_err());
-        assert!(database
-            .conclusion_list(ConclusionListInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-            })
-            .unwrap()
-            .is_empty());
-    }
-
-    #[test]
-    fn todo_delete_removes_record_and_cascades_progresses() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-        database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "已同步法务".to_string(),
-                progress_date: "2026-04-06".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-
-        let deleted = database
-            .todo_delete(TodoDeleteInput { todo_id: todo.id })
-            .unwrap();
-
-        assert_eq!(deleted.id, todo.id);
-        assert!(database.todo_record(todo.id).is_err());
-
-        let progress_count = database
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM todo_progresses WHERE todo_id = ?1",
-                [todo.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap();
-        assert_eq!(progress_count, 0);
-    }
-
-    #[test]
-    fn todo_update_progress_persists_changes_and_refreshes_todo_timestamp() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-        let progress = database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "已同步法务".to_string(),
-                progress_date: "2026-04-06".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-
-        thread::sleep(Duration::from_millis(5));
-
-        let updated = database
-            .todo_update_progress(TodoUpdateProgressInput {
-                progress_id: progress.id,
-                content: "已同步法务并补充截止时间".to_string(),
-                progress_date: "2026-04-07".to_string(),
-                due_date: None,
-                status: None,
-            })
-            .unwrap();
-
-        assert_eq!(updated.id, progress.id);
-        assert_eq!(updated.content, "已同步法务并补充截止时间");
-        assert_eq!(updated.progress_date, "2026-04-07");
-
-        let refreshed = database.todo_record(todo.id).unwrap();
-        assert_eq!(refreshed.progresses[0].content, "已同步法务并补充截止时间");
-        assert_eq!(refreshed.progresses[0].progress_date, "2026-04-07");
-        assert_ne!(refreshed.updated_at, todo.updated_at);
-    }
-
-    #[test]
     fn todo_due_dates_are_stored_separately_from_creation_and_progress_dates() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -14005,7 +9263,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(project.id),
-                activity_id: None,
                 content: "提交方案".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: Some("2027-03-15".to_string()),
@@ -14027,101 +9284,6 @@ mod tests {
 
         assert_eq!(progress.progress_date, "2026-07-14");
         assert_eq!(progress.due_date.as_deref(), Some("2027-03-16"));
-    }
-
-    #[test]
-    fn todo_progress_status_tracks_subitem_completion() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-        let progress = database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "等待财务确认".to_string(),
-                progress_date: "2026-04-05".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-
-        assert_eq!(progress.status, "unfinished");
-        assert_eq!(progress.completed_at, None);
-        assert_eq!(progress.order_index, 0);
-
-        let finished = database
-            .todo_update_progress(TodoUpdateProgressInput {
-                progress_id: progress.id,
-                content: progress.content.clone(),
-                progress_date: progress.progress_date.clone(),
-                due_date: progress.due_date.clone(),
-                status: Some("finished".to_string()),
-            })
-            .unwrap();
-
-        assert_eq!(finished.status, "finished");
-        assert!(finished.completed_at.is_some());
-
-        let reopened = database
-            .todo_update_progress(TodoUpdateProgressInput {
-                progress_id: progress.id,
-                content: progress.content,
-                progress_date: progress.progress_date,
-                due_date: progress.due_date,
-                status: Some("unfinished".to_string()),
-            })
-            .unwrap();
-
-        assert_eq!(reopened.status, "unfinished");
-        assert_eq!(reopened.completed_at, None);
-    }
-
-    #[test]
-    fn todo_delete_progress_removes_only_target_progress() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Budget Review");
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "Prepare legal summary",
-            "not_urgent_important",
-        );
-        let progress_a = database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "已同步法务".to_string(),
-                progress_date: "2026-04-06".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-        let progress_b = database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "等待财务确认".to_string(),
-                progress_date: "2026-04-05".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-
-        let deleted = database
-            .todo_delete_progress(TodoDeleteProgressInput {
-                progress_id: progress_b.id,
-            })
-            .unwrap();
-
-        assert_eq!(deleted.id, progress_b.id);
-        assert!(database.todo_progress_record(progress_b.id).is_err());
-
-        let refreshed = database.todo_record(todo.id).unwrap();
-        assert_eq!(refreshed.progresses.len(), 1);
-        assert_eq!(refreshed.progresses[0].id, progress_a.id);
     }
 
     #[test]
@@ -14215,7 +9377,6 @@ mod tests {
         let image = database
             .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
                 project_id: project.id,
-                activity_id: None,
                 file_name: "quick-note.png".to_string(),
                 mime_type: "image/png".to_string(),
                 data_base64: STANDARD.encode(b"quick-note-image"),
@@ -14268,7 +9429,6 @@ mod tests {
         let image = database
             .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
                 project_id: project.id,
-                activity_id: None,
                 file_name: "shared.png".to_string(),
                 mime_type: "image/png".to_string(),
                 data_base64: STANDARD.encode(b"shared-image"),
@@ -14295,7 +9455,6 @@ mod tests {
         let record = database
             .project_record_upsert(ProjectRecordUpsertInput {
                 project_id: project.id,
-                activity_id: None,
                 note_id: None,
                 title: Some("带图记录".to_string()),
                 markdown: "[图片]".to_string(),
@@ -14342,7 +9501,6 @@ mod tests {
         let resaved = database
             .project_record_upsert(ProjectRecordUpsertInput {
                 project_id: project.id,
-                activity_id: None,
                 note_id: Some(record.id),
                 title: record.title.clone(),
                 markdown: record.content_markdown.clone(),
@@ -14366,239 +9524,6 @@ mod tests {
         );
         assert!(resaved.content_html.contains(&moved_image.managed_path));
         assert!(!resaved.content_html.contains(&image.managed_path));
-    }
-
-    #[test]
-    fn project_rename_moves_documents_and_resolves_relative_asset_refs() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let project_source = PathBuf::from(&project.root_path).join("brief.pdf");
-        fs::write(&project_source, b"brief-v1").unwrap();
-        let project_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: None,
-                source_path: project_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-        let versioned_project_document = database
-            .document_add_version(DocumentAddVersionInput {
-                document_id: project_document.id,
-                source_path: None,
-            })
-            .unwrap();
-
-        let activity_source = PathBuf::from(&project.root_path)
-            .join("Kickoff")
-            .join("agenda.pdf");
-        fs::write(&activity_source, b"agenda").unwrap();
-        let activity_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: activity_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let external_source = harness.root.join("outside.pdf");
-        fs::write(&external_source, b"outside").unwrap();
-        let external_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: external_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let note_image = database
-            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                file_name: "clip.png".to_string(),
-                mime_type: "image/png".to_string(),
-                data_base64: STANDARD.encode(b"clip-image"),
-            })
-            .unwrap();
-
-        let old_note_image_path = note_image.managed_path.clone();
-        let old_project_document_path = versioned_project_document.managed_path.clone();
-        let old_activity_document_path = activity_document.managed_path.clone();
-        let project_document_href =
-            file_href_from_path(Path::new(&versioned_project_document.managed_path));
-        let activity_document_href =
-            file_href_from_path(Path::new(&activity_document.managed_path));
-        let old_project_document_href = project_document_href.clone();
-        let old_activity_document_href = activity_document_href.clone();
-        let rich_html = format!(
-            concat!(
-                r#"<p><img src="data:image/png;base64,AAAA" data-path="{note_image_path}" data-mime-type="image/png" alt="截图" /></p>"#,
-                r#"<div data-type="attachment" data-path="{project_document_path}" data-href="{project_document_href}">"#,
-                r#"<a class="rich-editor__attachment-link" href="{project_document_href}">项目附件</a></div>"#,
-                r#"<div data-type="attachment" data-path="{activity_document_path}" data-href="{activity_document_href}">"#,
-                r#"<a class="rich-editor__attachment-link" href="{activity_document_href}">活动附件</a></div>"#
-            ),
-            note_image_path = note_image.managed_path,
-            project_document_path = versioned_project_document.managed_path,
-            project_document_href = project_document_href,
-            activity_document_path = activity_document.managed_path,
-            activity_document_href = activity_document_href,
-        );
-
-        let note = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                title: Some("路径联动记录".to_string()),
-                markdown: "[图片] 截图\n[附件] 项目附件\n[附件] 活动附件".to_string(),
-                html: rich_html.clone(),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap();
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "[附件] 活动附件".to_string(),
-                html: rich_html.clone(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-
-        let old_root = PathBuf::from(&project.root_path);
-        let updated_project = database
-            .project_update(ProjectUpdateInput {
-                project_id: project.id,
-                name: Some("Alpha Prime".to_string()),
-                summary: project.summary.clone(),
-                summary_markdown: None,
-                summary_html: None,
-                summary_code_language: None,
-                status: Some(project.status.clone()),
-            })
-            .unwrap();
-
-        let new_root = PathBuf::from(&updated_project.root_path);
-        let renamed_project_document = database.document_record(project_document.id).unwrap();
-        let renamed_activity_document = database.document_record(activity_document.id).unwrap();
-        let renamed_external_document = database.document_record(external_document.id).unwrap();
-        let renamed_note_image = database.document_record(note_image.id).unwrap();
-        let project_versions = database
-            .document_list_versions(DocumentListVersionsInput {
-                document_id: project_document.id,
-            })
-            .unwrap();
-        let activity_versions = database
-            .document_list_versions(DocumentListVersionsInput {
-                document_id: activity_document.id,
-            })
-            .unwrap();
-        let external_versions = database
-            .document_list_versions(DocumentListVersionsInput {
-                document_id: external_document.id,
-            })
-            .unwrap();
-        let saved_note = database.note_record(note.id).unwrap();
-        let saved_conclusion = database.conclusion_record(conclusion.id).unwrap();
-
-        assert!(!old_root.exists());
-        assert!(new_root.exists());
-        assert!(renamed_project_document
-            .managed_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_project_document
-            .history_dir_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_project_document
-            .original_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_activity_document
-            .managed_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_activity_document
-            .original_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_note_image
-            .managed_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert!(renamed_note_image
-            .original_path
-            .starts_with(updated_project.root_path.as_str()));
-        assert_eq!(
-            renamed_external_document.original_path,
-            external_source.to_string_lossy().to_string()
-        );
-        assert!(project_versions.iter().all(|version| version
-            .managed_path
-            .starts_with(updated_project.root_path.as_str())));
-        assert!(project_versions.iter().all(|version| version
-            .source_path
-            .starts_with(updated_project.root_path.as_str())));
-        assert!(activity_versions.iter().all(|version| version
-            .managed_path
-            .starts_with(updated_project.root_path.as_str())));
-        assert!(activity_versions.iter().all(|version| version
-            .source_path
-            .starts_with(updated_project.root_path.as_str())));
-        assert_eq!(
-            external_versions[0].source_path,
-            external_source.to_string_lossy().to_string()
-        );
-        assert!(saved_note
-            .content_html
-            .contains(&renamed_note_image.managed_path));
-        assert!(saved_note
-            .content_html
-            .contains(&renamed_project_document.managed_path));
-        assert!(saved_note
-            .content_html
-            .contains(&renamed_activity_document.managed_path));
-        assert!(saved_note
-            .content_html
-            .contains(&file_href_from_path(Path::new(
-                &renamed_project_document.managed_path
-            ))));
-        assert!(saved_note
-            .content_html
-            .contains(&file_href_from_path(Path::new(
-                &renamed_activity_document.managed_path
-            ))));
-        assert!(!saved_note.content_html.contains(&old_note_image_path));
-        assert!(!saved_note.content_html.contains(&old_project_document_path));
-        assert!(!saved_note
-            .content_html
-            .contains(&old_activity_document_path));
-        assert!(!saved_note.content_html.contains(&old_project_document_href));
-        assert!(!saved_note
-            .content_html
-            .contains(&old_activity_document_href));
-        assert!(saved_conclusion
-            .content_html
-            .contains(&renamed_note_image.managed_path));
-        assert!(saved_conclusion
-            .content_html
-            .contains(&renamed_activity_document.managed_path));
-        assert!(!saved_conclusion.content_html.contains(&old_note_image_path));
-        assert!(!saved_conclusion
-            .content_html
-            .contains(&old_activity_document_path));
-        assert!(!saved_conclusion
-            .content_html
-            .contains(&old_project_document_href));
-        assert!(!saved_conclusion
-            .content_html
-            .contains(&old_activity_document_href));
     }
 
     #[test]
@@ -14627,94 +9552,6 @@ mod tests {
         let refreshed = database.project_record(project.id).unwrap();
         assert_eq!(refreshed.name, project.name);
         assert_eq!(refreshed.root_path, project.root_path);
-    }
-
-    #[test]
-    fn activity_update_meta_persists_brief_and_preserves_it_on_title_changes() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let updated = database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
-                title: None,
-                brief_markdown: Some("## 当前背景\n- 已完成范围澄清".to_string()),
-                brief_html: Some("<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>".to_string()),
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: None,
-            })
-            .unwrap();
-
-        assert_eq!(updated.brief_markdown, "## 当前背景\n- 已完成范围澄清");
-        assert_eq!(
-            updated.brief_html,
-            "<h2>当前背景</h2><ul><li>已完成范围澄清</li></ul>"
-        );
-
-        let renamed = database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
-                title: Some("Kickoff Review".to_string()),
-                brief_markdown: None,
-                brief_html: None,
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: None,
-            })
-            .unwrap();
-
-        assert_eq!(renamed.title, "Kickoff Review");
-        assert_eq!(renamed.brief_markdown, updated.brief_markdown);
-        assert_eq!(renamed.brief_html, updated.brief_html);
-    }
-
-    #[test]
-    fn activity_create_assigns_unique_default_title_when_blank() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-
-        let created = database
-            .activity_create(ActivityCreateInput {
-                project_id: project.id,
-                attribute_option_id: None,
-                title: Some("   ".to_string()),
-                activity_time: "2026-04-06T10:00:00.000Z".to_string(),
-            })
-            .unwrap();
-
-        assert_eq!(created.title, format!("未命名 Activity {}", created.id));
-    }
-
-    #[test]
-    fn activity_update_meta_assigns_unique_default_title_when_cleared() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let updated = database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
-                title: Some("   ".to_string()),
-                brief_markdown: None,
-                brief_html: None,
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: None,
-            })
-            .unwrap();
-
-        assert_eq!(updated.title, format!("未命名 Activity {}", activity.id));
     }
 
     #[test]
@@ -14915,286 +9752,6 @@ mod tests {
     }
 
     #[test]
-    fn document_import_moves_project_file_into_activity_folder() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let source_path = PathBuf::from(&project.root_path).join("brief.pdf");
-        fs::write(&source_path, b"brief").unwrap();
-
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: source_path.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        assert!(!source_path.exists());
-        assert!(Path::new(&document.managed_path).exists());
-        assert!(document.managed_path.contains("Kickoff"));
-        assert_eq!(document.base_name, "brief.pdf");
-        assert_eq!(document.version_count, 1);
-    }
-
-    #[test]
-    fn note_image_import_copies_source_into_hidden_project_folder() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let source_path = PathBuf::from(&project.root_path).join("cover.png");
-        fs::write(&source_path, b"cover-image").unwrap();
-
-        let document = database
-            .document_import_note_image(DocumentImportNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: source_path.to_string_lossy().to_string(),
-            })
-            .unwrap();
-
-        assert!(source_path.exists());
-        assert!(Path::new(&document.managed_path).exists());
-        assert_eq!(fs::read(&source_path).unwrap(), b"cover-image");
-        assert_eq!(fs::read(&document.managed_path).unwrap(), b"cover-image");
-        assert_eq!(document.storage_mode, MANAGED_NOTE_IMAGE_STORAGE_MODE);
-        assert!(document
-            .managed_path
-            .contains(".project-mind/embedded-note-assets/activity-"));
-        assert!(!document.managed_path.contains("/Kickoff/"));
-    }
-
-    #[test]
-    fn note_image_imports_are_hidden_from_activity_and_project_document_queries() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let image_source = harness.root.join("embedded-diagram.png");
-        fs::write(&image_source, b"embedded-image").unwrap();
-        let hidden_document = database
-            .document_import_note_image(DocumentImportNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: image_source.to_string_lossy().to_string(),
-            })
-            .unwrap();
-
-        let visible_source = harness.root.join("brief.pdf");
-        fs::write(&visible_source, b"brief").unwrap();
-        let visible_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: visible_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let root_source = harness.root.join("root-doc.pdf");
-        fs::write(&root_source, b"root").unwrap();
-        let root_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: None,
-                source_path: root_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let activity_documents = database.fetch_documents(activity.id).unwrap();
-        let all_project_documents = database
-            .fetch_documents_for_project(project.id, false)
-            .unwrap();
-        let project_documents = database
-            .fetch_project_documents_for_project(project.id)
-            .unwrap();
-        let activity_card = database.activity_card(activity.id).unwrap();
-        let search_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "embedded-diagram".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-
-        assert_eq!(
-            activity_documents
-                .iter()
-                .map(|document| document.id)
-                .collect::<Vec<_>>(),
-            vec![visible_document.id]
-        );
-        assert_eq!(all_project_documents.len(), 2);
-        assert!(all_project_documents
-            .iter()
-            .any(|document| document.id == visible_document.id));
-        assert!(all_project_documents
-            .iter()
-            .any(|document| document.id == root_document.id));
-        assert_eq!(project_documents.len(), 2);
-        assert!(project_documents
-            .iter()
-            .any(|item| item.id == root_document.id));
-        assert!(project_documents
-            .iter()
-            .any(|item| item.id == visible_document.id));
-        assert_eq!(activity_card.digest.document_count, 1);
-        assert!(!activity_card
-            .documents
-            .iter()
-            .any(|document| document.id == hidden_document.id));
-        assert!(!search_results
-            .iter()
-            .any(|result| result.id == hidden_document.id));
-    }
-
-    #[test]
-    fn internal_reference_search_supports_scope_and_all_supported_kinds() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let other_project = database
-            .project_create(ProjectCreateInput {
-                name: "Beta".to_string(),
-                summary: None,
-                status: None,
-            })
-            .unwrap();
-        let other_activity = create_activity(&mut database, other_project.id, "Retro");
-
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "预算讨论纪要",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "已确认预算审批路径".to_string(),
-                html: "<p>已确认预算审批路径</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "推进预算审批",
-            "not_urgent_important",
-        );
-        let document_source = harness.root.join("project-brief.pdf");
-        fs::write(&document_source, b"brief").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-        let other_todo = create_todo(
-            &mut database,
-            other_project.id,
-            Some(other_activity.id),
-            "跨项目事项",
-            "not_urgent_important",
-        );
-        let workspace_todo = database
-            .todo_create(TodoCreateInput {
-                scope: TodoScope::Workspace,
-                project_id: None,
-                activity_id: None,
-                content: "工作区预算统筹".to_string(),
-                priority: "not_urgent_important".to_string(),
-                due_date: None,
-                tag_ids: Vec::new(),
-            })
-            .unwrap();
-
-        let project_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 20,
-            })
-            .unwrap();
-        let workspace_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "".to_string(),
-                project_id: None,
-                scope: "workspace".to_string(),
-                limit: 20,
-            })
-            .unwrap();
-
-        assert!(project_results
-            .iter()
-            .any(|result| result.kind == "note" && result.id == note.id));
-        assert!(project_results
-            .iter()
-            .any(|result| result.kind == "conclusion" && result.id == conclusion.id));
-        assert!(project_results
-            .iter()
-            .any(|result| result.kind == "todo" && result.id == todo.id));
-        assert!(project_results
-            .iter()
-            .any(|result| result.kind == "document" && result.id == document.id));
-        assert!(!project_results
-            .iter()
-            .any(|result| result.id == other_todo.id));
-        assert!(workspace_results
-            .iter()
-            .any(|result| result.kind == "todo" && result.id == other_todo.id));
-        let workspace_todo_result = workspace_results
-            .iter()
-            .find(|result| result.kind == "todo" && result.id == workspace_todo.id)
-            .unwrap();
-        assert_eq!(workspace_todo_result.scope, TodoScope::Workspace);
-        assert_eq!(workspace_todo_result.project_id, None);
-
-        database
-            .project_set_archive(ProjectArchiveInput {
-                project_id: other_project.id,
-                is_archived: true,
-            })
-            .unwrap();
-        let active_workspace_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "".to_string(),
-                project_id: None,
-                scope: "workspace".to_string(),
-                limit: 20,
-            })
-            .unwrap();
-        assert!(!active_workspace_results
-            .iter()
-            .any(|result| result.kind == "todo" && result.id == other_todo.id));
-        let resolved_archived_todo = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "todo".to_string(),
-                id: other_todo.id,
-            })
-            .unwrap()
-            .unwrap();
-        assert_eq!(resolved_archived_todo.scope, TodoScope::Project);
-        assert_eq!(resolved_archived_todo.project_id, Some(other_project.id));
-    }
-
-    #[test]
     fn todo_content_rejects_internal_references_outside_its_scope() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -15209,7 +9766,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "Workspace target".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15219,7 +9775,6 @@ mod tests {
         let other_todo = create_todo(
             &mut database,
             other_project.id,
-            None,
             "Other Project target",
             "not_urgent_important",
         );
@@ -15231,7 +9786,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: other_project_reference.clone(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15243,7 +9797,6 @@ mod tests {
         let project_to_workspace = database.todo_create(TodoCreateInput {
             scope: TodoScope::Project,
             project_id: Some(project.id),
-            activity_id: None,
             content: workspace_reference,
             priority: "not_urgent_important".to_string(),
             due_date: None,
@@ -15257,7 +9810,6 @@ mod tests {
         let project_to_other_project = database.todo_create(TodoCreateInput {
             scope: TodoScope::Project,
             project_id: Some(project.id),
-            activity_id: None,
             content: other_project_reference.clone(),
             priority: "not_urgent_important".to_string(),
             due_date: None,
@@ -15277,7 +9829,6 @@ mod tests {
         let new_archived_reference = database.todo_create(TodoCreateInput {
             scope: TodoScope::Workspace,
             project_id: None,
-            activity_id: None,
             content: other_project_reference.clone(),
             priority: "not_urgent_important".to_string(),
             due_date: None,
@@ -15309,298 +9860,6 @@ mod tests {
     }
 
     #[test]
-    fn workspace_search_prioritizes_fields_match_strength_and_notes() {
-        let (harness, mut database) = setup_database();
-        let project_exact =
-            create_project_named(&mut database, &harness.workspace_root, "预算", None);
-        let project_prefix =
-            create_project_named(&mut database, &harness.workspace_root, "预算平台", None);
-        let project_contains =
-            create_project_named(&mut database, &harness.workspace_root, "推进预算系统", None);
-        let project_summary = create_project_named(
-            &mut database,
-            &harness.workspace_root,
-            "Alpha",
-            Some("预算摘要"),
-        );
-
-        let activity = create_activity(&mut database, project_exact.id, "预算");
-        let note = create_note_with_title(
-            &mut database,
-            project_exact.id,
-            activity.id,
-            "quick_note",
-            "预算",
-            "标题精确匹配",
-        );
-        let note_body = create_note_with_title(
-            &mut database,
-            project_exact.id,
-            activity.id,
-            "quick_note",
-            "正文记录",
-            "预算只写在正文里",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project_exact.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "预算结论已确认".to_string(),
-                html: "<p>预算结论已确认</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project_exact.id,
-            Some(activity.id),
-            "预算待办推进",
-            "not_urgent_important",
-        );
-        let document_source = harness.root.join("预算材料.pdf");
-        fs::write(&document_source, b"budget-doc").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project_exact.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "预算".to_string(),
-                include_archived: Some(true),
-                project_id: None,
-            })
-            .unwrap();
-
-        let ordered = results
-            .iter()
-            .map(|result| (result.kind.as_str(), result.id))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            ordered,
-            vec![
-                ("project", project_exact.id),
-                ("project", project_prefix.id),
-                ("project", project_contains.id),
-                ("activity", activity.id),
-                ("note", note.id),
-                ("conclusion", conclusion.id),
-                ("todo", todo.id),
-                ("document", document.id),
-                ("note", note_body.id),
-                ("project", project_summary.id),
-            ]
-        );
-
-        let activity_result = results
-            .iter()
-            .find(|result| result.kind == "activity" && result.id == activity.id)
-            .unwrap();
-        assert_eq!(activity_result.activity_id, Some(activity.id));
-        assert_eq!(activity_result.matched_text, "预算");
-
-        let note_body_result = results
-            .iter()
-            .find(|result| result.kind == "note" && result.id == note_body.id)
-            .unwrap();
-        assert_eq!(note_body_result.matched_text, "预算只写在正文里");
-
-        database
-            .conn
-            .execute(
-                "UPDATE activities SET brief_markdown = ?1 WHERE id = ?2",
-                params!["本次复盘讨论长期现金流预测", activity.id],
-            )
-            .unwrap();
-        let brief_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "现金流".to_string(),
-                include_archived: Some(true),
-                project_id: None,
-            })
-            .unwrap();
-        let brief_activity = brief_results
-            .iter()
-            .find(|result| result.kind == "activity" && result.id == activity.id)
-            .unwrap();
-        assert_eq!(brief_activity.matched_text, "本次复盘讨论长期现金流预测");
-    }
-
-    #[test]
-    fn workspace_search_includes_workspace_notes_todo_progress_and_tags() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "搜索补全");
-        let workspace_tag = database
-            .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: None,
-                id: None,
-                label: "专项检索标签".to_string(),
-                color_key: "blue".to_string(),
-            })
-            .unwrap();
-        let project_tag = database
-            .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: Some(project.id),
-                id: None,
-                label: "专项检索标签".to_string(),
-                color_key: "blue".to_string(),
-            })
-            .unwrap();
-
-        let quick_note = database
-            .workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
-                markdown: "Workspace 快速笔记中的跨域关键词".to_string(),
-                html: "<p>Workspace 快速笔记中的跨域关键词</p>".to_string(),
-                default_code_language: None,
-                tag_ids: vec![],
-            })
-            .unwrap();
-        let workspace_note = database
-            .workspace_record_upsert(WorkspaceRecordUpsertInput {
-                note_id: None,
-                title: Some("Workspace 搜索记录".to_string()),
-                markdown: "记录正文".to_string(),
-                html: "<p>记录正文</p>".to_string(),
-                default_code_language: None,
-                tag_ids: vec![workspace_tag.id],
-            })
-            .unwrap();
-        let contact = database
-            .contact_upsert(ContactUpsertInput {
-                id: None,
-                name: "张三".to_string(),
-                pinyin_full: Some("zhangsan".to_string()),
-                pinyin_abbr: Some("zs".to_string()),
-                email: Some("zhangsan@example.com".to_string()),
-                employee_id: Some("EMP-SEARCH".to_string()),
-                role: Some("产品负责人".to_string()),
-                department: Some("创新中心".to_string()),
-            })
-            .unwrap();
-
-        let project_note = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                title: Some("项目记录".to_string()),
-                markdown: "项目正文".to_string(),
-                html: "<p>项目正文</p>".to_string(),
-                default_code_language: None,
-                tag_ids: vec![project_tag.id],
-            })
-            .unwrap();
-        let todo = database
-            .todo_create(TodoCreateInput {
-                scope: TodoScope::Project,
-                project_id: Some(project.id),
-                activity_id: Some(activity.id),
-                content: "跟进搜索覆盖".to_string(),
-                priority: "not_urgent_important".to_string(),
-                due_date: None,
-                tag_ids: vec![project_tag.id],
-            })
-            .unwrap();
-        database
-            .todo_add_progress(TodoAddProgressInput {
-                todo_id: todo.id,
-                content: "Todo 进展里的独有检索词".to_string(),
-                progress_date: "2026-07-14".to_string(),
-                due_date: None,
-            })
-            .unwrap();
-
-        let document_source = harness.root.join("search-coverage.pdf");
-        fs::write(&document_source, b"coverage").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: Some(vec![project_tag.id]),
-            })
-            .unwrap();
-
-        let quick_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "跨域关键词".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-        let quick_result = quick_results
-            .iter()
-            .find(|result| result.kind == "workspace_quick_note" && result.id == quick_note.id)
-            .unwrap();
-        assert_eq!(quick_result.project_id, None);
-
-        let title_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "搜索记录".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-        assert!(title_results
-            .iter()
-            .any(|result| result.kind == "workspace_note" && result.id == workspace_note.id));
-
-        let contact_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "zhangsan".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-        assert!(contact_results
-            .iter()
-            .any(|result| result.kind == "contact" && result.id == contact.id));
-
-        let progress_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "独有检索词".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-        let progress_result = progress_results
-            .iter()
-            .find(|result| result.kind == "todo" && result.id == todo.id)
-            .unwrap();
-        assert_eq!(progress_result.matched_text, "Todo 进展里的独有检索词");
-
-        let tag_results = database
-            .workspace_search(WorkspaceSearchInput {
-                query: "专项检索标签".to_string(),
-                include_archived: None,
-                project_id: None,
-            })
-            .unwrap();
-        assert!(tag_results
-            .iter()
-            .any(|result| result.kind == "workspace_note" && result.id == workspace_note.id));
-        assert!(tag_results
-            .iter()
-            .any(|result| result.kind == "note" && result.id == project_note.id));
-        assert!(tag_results
-            .iter()
-            .any(|result| result.kind == "todo" && result.id == todo.id));
-        assert!(tag_results
-            .iter()
-            .any(|result| result.kind == "document" && result.id == document.id));
-    }
-
-    #[test]
     fn workspace_search_distinguishes_todo_scopes_and_applies_archive_semantics() {
         let (harness, mut database) = setup_database();
         let active_project =
@@ -15618,7 +9877,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "共同检索词 Workspace Todo".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15629,7 +9887,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(active_project.id),
-                activity_id: None,
                 content: "共同检索词 Project Todo".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15640,7 +9897,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(archived_project.id),
-                activity_id: None,
                 content: "共同检索词 Archived Todo".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15693,7 +9949,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "统一排序".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15704,7 +9959,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(active_project.id),
-                activity_id: None,
                 content: "统一排序 Project Todo".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15756,7 +10010,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Workspace,
                 project_id: None,
-                activity_id: None,
                 content: "Workspace 专属正文".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15767,7 +10020,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(project.id),
-                activity_id: None,
                 content: "Current 专属正文".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15786,7 +10038,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(other_project.id),
-                activity_id: None,
                 content: "Current 专属正文也出现在其他 Project".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -15813,487 +10064,6 @@ mod tests {
                 .any(|result| result.kind == "todo" && result.id == other_todo.id));
             assert!(results.iter().all(|result| result.kind == "todo"));
         }
-    }
-
-    #[test]
-    fn internal_reference_search_prioritizes_fields_and_match_strength() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let activity_only = create_activity(&mut database, project.id, "预算复盘");
-
-        let note_exact = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "预算",
-            "完全匹配标题",
-        );
-        let note_prefix = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "预算审批排期",
-            "前缀匹配标题",
-        );
-        let note_contains = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "推进预算审批",
-            "包含匹配标题",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note_exact.id),
-                markdown: "预算结论已确认".to_string(),
-                html: "<p>预算结论已确认</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "预算待办推进",
-            "not_urgent_important",
-        );
-        let document_source = harness.root.join("预算材料.pdf");
-        fs::write(&document_source, b"budget-doc").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-        let note_body = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "正文记录",
-            "预算只写在正文里",
-        );
-        create_todo(
-            &mut database,
-            project.id,
-            Some(activity_only.id),
-            "无关内容",
-            "not_urgent_important",
-        );
-
-        let results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "预算".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-
-        let ordered = results
-            .iter()
-            .map(|result| (result.kind.as_str(), result.id))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            ordered,
-            vec![
-                ("note", note_exact.id),
-                ("note", note_prefix.id),
-                ("note", note_contains.id),
-                ("conclusion", conclusion.id),
-                ("todo", todo.id),
-                ("document", document.id),
-                ("note", note_body.id),
-            ]
-        );
-    }
-
-    #[test]
-    fn internal_reference_search_supports_type_prefix_aliases_and_empty_queries() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let note = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "审批记录",
-            "记录正文",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "审批结论".to_string(),
-                html: "<p>审批结论</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "审批待办",
-            "not_urgent_important",
-        );
-        let todo_recent = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            "后续跟进",
-            "not_urgent_important",
-        );
-        let document_source = harness.root.join("审批材料.pdf");
-        fs::write(&document_source, b"approval-doc").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        database
-            .todo_update_content(TodoUpdateContentInput {
-                todo_id: todo_recent.id,
-                content: "后续跟进".to_string(),
-                due_date: None,
-                tag_ids: vec![],
-            })
-            .unwrap();
-
-        let note_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "note:审批".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert_eq!(
-            note_results
-                .iter()
-                .map(|result| result.kind.as_str())
-                .collect::<Vec<_>>(),
-            vec!["note"]
-        );
-        assert_eq!(note_results[0].id, note.id);
-
-        let todo_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "todo：审批".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert_eq!(
-            todo_results
-                .iter()
-                .map(|result| result.kind.as_str())
-                .collect::<Vec<_>>(),
-            vec!["todo"]
-        );
-        assert_eq!(todo_results[0].id, todo.id);
-
-        let conclusion_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "con:审批".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert_eq!(
-            conclusion_results
-                .iter()
-                .map(|result| result.kind.as_str())
-                .collect::<Vec<_>>(),
-            vec!["conclusion"]
-        );
-        assert_eq!(conclusion_results[0].id, conclusion.id);
-
-        let document_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "doc:审批".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert_eq!(
-            document_results
-                .iter()
-                .map(|result| result.kind.as_str())
-                .collect::<Vec<_>>(),
-            vec!["document"]
-        );
-        assert_eq!(document_results[0].id, document.id);
-
-        let empty_todo_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "todo:".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert!(empty_todo_results
-            .iter()
-            .all(|result| result.kind == "todo"));
-        assert_eq!(empty_todo_results[0].id, todo_recent.id);
-
-        let invalid_prefix_results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "abc:审批".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        assert!(invalid_prefix_results.is_empty());
-    }
-
-    #[test]
-    fn internal_reference_labels_compact_todo_and_conclusion_content() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let note = create_note_with_title(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "预算记录",
-            "讨论正文",
-        );
-
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排".to_string(),
-                html: "<p>[[note:1|预算记录]] 预算审批需要补充材料并确认时间安排</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let todo = create_todo(
-            &mut database,
-            project.id,
-            Some(activity.id),
-            &format!(
-                "[[note:{}|预算记录]] 联系财务安排评审并确认后续计划时间",
-                note.id
-            ),
-            "not_urgent_important",
-        );
-
-        let results = database
-            .internal_reference_search(InternalReferenceSearchInput {
-                query: "安排".to_string(),
-                project_id: Some(project.id),
-                scope: "project".to_string(),
-                limit: 16,
-            })
-            .unwrap();
-        let conclusion_result = results
-            .iter()
-            .find(|result| result.kind == "conclusion" && result.id == conclusion.id)
-            .unwrap();
-        let todo_result = results
-            .iter()
-            .find(|result| result.kind == "todo" && result.id == todo.id)
-            .unwrap();
-
-        assert_eq!(conclusion_result.label, "预算审批需要补充材料并确认时间...");
-        assert!(!conclusion_result.label.contains("[["));
-        assert_eq!(todo_result.label, "联系财务安排评审并确认后续计划...");
-        assert!(!todo_result.label.contains("[["));
-
-        let resolved_conclusion = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "conclusion".to_string(),
-                id: conclusion.id,
-            })
-            .unwrap()
-            .unwrap();
-        let resolved_todo = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "todo".to_string(),
-                id: todo.id,
-            })
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(
-            resolved_conclusion.label,
-            "预算审批需要补充材料并确认时间..."
-        );
-        assert!(!resolved_conclusion.label.contains("[["));
-        assert_eq!(resolved_todo.label, "联系财务安排评审并确认后续计划...");
-        assert!(!resolved_todo.label.contains("[["));
-    }
-
-    #[test]
-    fn internal_reference_resolve_returns_current_routes_after_document_moves() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let next_activity = create_activity(&mut database, project.id, "Delivery");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            "quick_note",
-            "预算讨论纪要",
-        );
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "已确认预算审批路径".to_string(),
-                html: "<p>已确认预算审批路径</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-        let document_source = harness.root.join("delivery-brief.pdf");
-        fs::write(&document_source, b"brief").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: document_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        database
-            .document_update_meta(DocumentUpdateMetaInput {
-                document_id: document.id,
-                activity_id: Some(Some(next_activity.id)),
-                base_name: None,
-                is_starred: None,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let resolved_note = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "note".to_string(),
-                id: note.id,
-            })
-            .unwrap()
-            .unwrap();
-        let resolved_conclusion = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "conclusion".to_string(),
-                id: conclusion.id,
-            })
-            .unwrap()
-            .unwrap();
-        let resolved_document = database
-            .internal_reference_resolve(InternalReferenceResolveInput {
-                kind: "document".to_string(),
-                id: document.id,
-            })
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(
-            resolved_note.route,
-            format!("/projects/{}/records/{}", project.id, note.id)
-        );
-        assert_eq!(
-            resolved_conclusion.route,
-            format!(
-                "/projects/{}?focus=conclusion-{}",
-                project.id, conclusion.id
-            )
-        );
-        assert_eq!(
-            resolved_document.route,
-            format!("/projects/{}?focus=document-{}", project.id, document.id)
-        );
-        let current_document = database.document_record(document.id).unwrap();
-        assert_eq!(
-            resolved_document.managed_path.as_deref(),
-            Some(current_document.managed_path.as_str())
-        );
-    }
-
-    #[test]
-    fn clipboard_note_image_import_uses_hidden_folder_and_internal_storage_mode() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let document = database
-            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                file_name: "clipboard-image.png".to_string(),
-                mime_type: "image/png".to_string(),
-                data_base64: STANDARD.encode("clipboard-note-image"),
-            })
-            .unwrap();
-
-        assert!(Path::new(&document.managed_path).exists());
-        assert_eq!(
-            fs::read(&document.managed_path).unwrap(),
-            b"clipboard-note-image"
-        );
-        assert_eq!(document.storage_mode, MANAGED_NOTE_IMAGE_STORAGE_MODE);
-        assert!(document
-            .managed_path
-            .contains(".project-mind/embedded-note-assets/activity-"));
-        assert!(database.fetch_documents(activity.id).unwrap().is_empty());
-    }
-
-    #[test]
-    fn clipboard_note_image_import_preserves_heic_extension_when_name_is_blank() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let document = database
-            .document_import_clipboard_note_image(DocumentImportClipboardNoteImageInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                file_name: "".to_string(),
-                mime_type: "image/heic".to_string(),
-                data_base64: STANDARD.encode("clipboard-note-image"),
-            })
-            .unwrap();
-
-        assert!(Path::new(&document.managed_path).exists());
-        assert_eq!(
-            fs::read(&document.managed_path).unwrap(),
-            b"clipboard-note-image"
-        );
-        assert!(document.name.ends_with(".heic"));
-        assert!(document.managed_path.ends_with(".heic"));
     }
 
     #[test]
@@ -16382,134 +10152,6 @@ mod tests {
     }
 
     #[test]
-    fn activity_rename_moves_folder_and_document_paths() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let source_path = harness.root.join("agenda.pdf");
-        fs::write(&source_path, b"agenda").unwrap();
-        let document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: source_path.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-        let document_href = file_href_from_path(Path::new(&document.managed_path));
-        let rich_html = format!(
-            concat!(
-                r#"<div data-type="attachment" data-path="{document_path}" data-href="{document_href}">"#,
-                r#"<a class="rich-editor__attachment-link" href="{document_href}">agenda</a></div>"#
-            ),
-            document_path = document.managed_path,
-            document_href = document_href,
-        );
-        let note = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                title: Some("活动附件记录".to_string()),
-                markdown: "[附件] agenda".to_string(),
-                html: rich_html.clone(),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap();
-        let conclusion = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: Some(note.id),
-                markdown: "[附件] agenda".to_string(),
-                html: rich_html.clone(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-
-        let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
-        let updated_activity = database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
-                title: Some("Review Final".to_string()),
-                brief_markdown: Some("[附件] agenda".to_string()),
-                brief_html: Some(rich_html),
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: None,
-            })
-            .unwrap();
-        let updated_document = database.document_record(document.id).unwrap();
-        let saved_note = database.note_record(note.id).unwrap();
-        let saved_conclusion = database.conclusion_record(conclusion.id).unwrap();
-
-        assert_eq!(updated_activity.title, "Review Final");
-        assert!(!old_folder.exists());
-        assert!(updated_document.managed_path.contains("Review Final"));
-        assert!(Path::new(&updated_document.managed_path).exists());
-        assert!(saved_note
-            .content_html
-            .contains(&updated_document.managed_path));
-        assert!(saved_note
-            .content_html
-            .contains(&file_href_from_path(Path::new(
-                &updated_document.managed_path
-            ))));
-        assert!(!saved_note.content_html.contains("/Kickoff/"));
-        assert!(saved_conclusion
-            .content_html
-            .contains(&updated_document.managed_path));
-        assert!(!saved_conclusion.content_html.contains("/Kickoff/"));
-        assert!(updated_activity
-            .brief_html
-            .contains(&updated_document.managed_path));
-        assert!(updated_activity
-            .brief_html
-            .contains(&file_href_from_path(Path::new(
-                &updated_document.managed_path
-            ))));
-        assert!(!updated_activity.brief_html.contains("/Kickoff/"));
-    }
-
-    #[test]
-    fn activity_rename_fails_when_target_folder_already_exists_without_mutating_state() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let old_folder = PathBuf::from(&project.root_path).join("Kickoff");
-        let conflicting_folder = PathBuf::from(&project.root_path).join("Review Final");
-        fs::create_dir_all(&conflicting_folder).unwrap();
-
-        let error = database
-            .activity_update_meta(ActivityUpdateMetaInput {
-                activity_id: activity.id,
-                title: Some("Review Final".to_string()),
-                brief_markdown: None,
-                brief_html: None,
-                attribute_option_id: None,
-                clear_attribute_option: None,
-                activity_time: None,
-                is_pinned: None,
-                is_expanded: None,
-                status_option_id: None,
-            })
-            .unwrap_err();
-
-        assert!(error.to_string().contains("文件夹名称已被占用"));
-        assert!(old_folder.exists());
-        assert!(conflicting_folder.exists());
-        let refreshed = database.activity_card(activity.id).unwrap();
-        assert_eq!(refreshed.title, "Kickoff");
-    }
-
-    #[test]
     fn document_add_version_moves_previous_current_into_history_dir() {
         let (harness, mut database) = setup_database();
         let project = create_project(&mut database, &harness.workspace_root);
@@ -16519,7 +10161,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: true,
                 tag_ids: None,
@@ -16565,7 +10206,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -16611,7 +10251,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -16630,7 +10269,6 @@ mod tests {
         let renamed_document = database
             .document_update_meta(DocumentUpdateMetaInput {
                 document_id: document.id,
-                activity_id: None,
                 base_name: Some("final-summary.pdf".to_string()),
                 is_starred: None,
                 tag_ids: None,
@@ -16672,7 +10310,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![tag.id]),
@@ -16734,7 +10371,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -16768,108 +10404,6 @@ mod tests {
         assert!(!history_dir.exists());
         assert!(Path::new(&deleted.original_path).exists());
         assert!(database.document_record(document.id).is_err());
-    }
-
-    #[test]
-    fn project_overview_lists_project_root_documents_and_starred_activity_documents() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let root_source = harness.root.join("root-brief.pdf");
-        fs::write(&root_source, b"root").unwrap();
-        let root_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: None,
-                source_path: root_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let activity_source = harness.root.join("activity-note.pdf");
-        fs::write(&activity_source, b"activity").unwrap();
-        let activity_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: activity_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let starred_source = harness.root.join("activity-starred.pdf");
-        fs::write(&starred_source, b"starred").unwrap();
-        let starred_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: starred_source.to_string_lossy().to_string(),
-                is_starred: true,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let overview = database
-            .project_page_get(ProjectIdInput {
-                project_id: project.id,
-            })
-            .unwrap();
-        let document_ids = overview
-            .project_documents
-            .iter()
-            .map(|document| document.id)
-            .collect::<Vec<_>>();
-
-        assert!(document_ids.contains(&root_document.id));
-        assert!(document_ids.contains(&starred_document.id));
-        assert!(document_ids.contains(&activity_document.id));
-    }
-
-    #[test]
-    fn project_overview_only_lists_promoted_activity_conclusions() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let promoted = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "这是项目级结论".to_string(),
-                html: "<p>这是项目级结论</p>".to_string(),
-                promoted_to_project: true,
-                is_pinned: None,
-            })
-            .unwrap();
-        let hidden = database
-            .conclusion_create(ConclusionCreateInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                markdown: "这条只留在活动里".to_string(),
-                html: "<p>这条只留在活动里</p>".to_string(),
-                promoted_to_project: false,
-                is_pinned: None,
-            })
-            .unwrap();
-
-        let overview = database
-            .project_page_get(ProjectIdInput {
-                project_id: project.id,
-            })
-            .unwrap();
-        let conclusion_ids = overview
-            .conclusion_groups
-            .iter()
-            .flat_map(|group| group.conclusions.iter().map(|conclusion| conclusion.id))
-            .collect::<Vec<_>>();
-
-        assert_eq!(conclusion_ids, vec![promoted.id]);
-        assert!(!conclusion_ids.contains(&hidden.id));
     }
 
     #[test]
@@ -16966,7 +10500,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![legal_tag.id, urgent_tag.id, legal_tag.id]),
@@ -17103,7 +10636,6 @@ mod tests {
             .todo_create(TodoCreateInput {
                 scope: TodoScope::Project,
                 project_id: Some(first_project.id),
-                activity_id: None,
                 content: "跨项目标签".to_string(),
                 priority: "not_urgent_important".to_string(),
                 due_date: None,
@@ -17150,7 +10682,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![draft_tag.id, review_tag.id]),
@@ -17160,7 +10691,6 @@ mod tests {
         let updated = database
             .document_update_meta(DocumentUpdateMetaInput {
                 document_id: document.id,
-                activity_id: None,
                 base_name: Some("brief-final.pdf".to_string()),
                 is_starred: Some(true),
                 tag_ids: Some(vec![final_tag.id]),
@@ -17223,7 +10753,6 @@ mod tests {
         let document = database
             .document_import(DocumentImportInput {
                 project_id: project.id,
-                activity_id: None,
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![tag.id]),
@@ -17259,261 +10788,6 @@ mod tests {
         assert!(error
             .to_string()
             .contains("file tag color is not supported"));
-    }
-
-    #[test]
-    fn activity_attribute_color_key_is_validated() {
-        let (_harness, mut database) = setup_database();
-
-        let error = database
-            .activity_attribute_option_upsert(ActivityAttributeOptionUpsertInput {
-                id: None,
-                label: "非法属性颜色".to_string(),
-                color_key: "purple".to_string(),
-            })
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("activity attribute color is not supported"));
-    }
-
-    #[test]
-    fn project_record_delete_removes_note_from_activity_results() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let note = create_note(
-            &mut database,
-            project.id,
-            activity.id,
-            "",
-            "Captured detail",
-        );
-
-        let deleted = database
-            .project_record_delete(ProjectRecordDeleteInput { note_id: note.id })
-            .unwrap();
-
-        assert_eq!(deleted.id, note.id);
-        assert!(database.note_record(note.id).is_err());
-        assert!(database.fetch_notes(activity.id).unwrap().is_empty());
-    }
-
-    #[test]
-    fn project_archive_only_changes_workspace_todo_visibility() {
-        let (harness, mut database) = setup_database();
-        let active_project = create_project(&mut database, &harness.workspace_root);
-        let archived_project = database
-            .project_create(ProjectCreateInput {
-                name: "Archived".to_string(),
-                summary: None,
-                status: None,
-            })
-            .unwrap();
-        let activity = create_activity(&mut database, active_project.id, "Kickoff");
-        let active_todo = create_todo(
-            &mut database,
-            active_project.id,
-            Some(activity.id),
-            "跟进预算",
-            "urgent_important",
-        );
-        let finished_project_todo = create_todo(
-            &mut database,
-            active_project.id,
-            None,
-            "完成发布复盘",
-            "not_urgent_important",
-        );
-        let archived_open_todo = create_todo(
-            &mut database,
-            archived_project.id,
-            None,
-            "归档项目未完成 Todo",
-            "not_urgent_not_important",
-        );
-        let archived_finished_todo = create_todo(
-            &mut database,
-            archived_project.id,
-            None,
-            "归档项目已完成 Todo",
-            "not_urgent_important",
-        );
-        database
-            .todo_update_status(TodoUpdateStatusInput {
-                todo_id: archived_finished_todo.id,
-                status: "finished".to_string(),
-            })
-            .unwrap();
-        let workspace_todo = database
-            .todo_create(TodoCreateInput {
-                scope: TodoScope::Workspace,
-                project_id: None,
-                activity_id: None,
-                content: "跨项目复盘".to_string(),
-                priority: "not_urgent_important".to_string(),
-                due_date: None,
-                tag_ids: vec![],
-            })
-            .unwrap();
-        let finished_workspace_todo = database
-            .todo_create(TodoCreateInput {
-                scope: TodoScope::Workspace,
-                project_id: None,
-                activity_id: None,
-                content: format!("回顾 Project {}", active_project.name),
-                priority: "not_urgent_not_important".to_string(),
-                due_date: None,
-                tag_ids: vec![],
-            })
-            .unwrap();
-        database
-            .todo_update_status(TodoUpdateStatusInput {
-                todo_id: finished_project_todo.id,
-                status: "finished".to_string(),
-            })
-            .unwrap();
-        database
-            .todo_update_status(TodoUpdateStatusInput {
-                todo_id: finished_workspace_todo.id,
-                status: "finished".to_string(),
-            })
-            .unwrap();
-        let before_archive = database.workspace_todo_rail_list().unwrap();
-        assert!(before_archive
-            .iter()
-            .any(|todo| todo.id == archived_open_todo.id));
-        assert!(before_archive
-            .iter()
-            .any(|todo| todo.id == archived_finished_todo.id));
-        database
-            .project_set_archive(ProjectArchiveInput {
-                project_id: archived_project.id,
-                is_archived: true,
-            })
-            .unwrap();
-
-        let todos = database.workspace_todo_rail_list().unwrap();
-
-        assert_eq!(todos.len(), 4);
-        let listed_workspace_todo = todos
-            .iter()
-            .find(|todo| todo.id == workspace_todo.id)
-            .unwrap();
-        assert_eq!(listed_workspace_todo.project_name, None);
-        assert!(!todos.iter().any(|todo| todo.id == archived_open_todo.id));
-        assert!(!todos
-            .iter()
-            .any(|todo| todo.id == archived_finished_todo.id));
-        let listed_project_todo = todos.iter().find(|todo| todo.id == active_todo.id).unwrap();
-        assert_eq!(
-            listed_project_todo.project_name.as_deref(),
-            Some(active_project.name.as_str())
-        );
-        assert_eq!(
-            listed_project_todo.source_activity_title.as_deref(),
-            Some("Kickoff")
-        );
-
-        let project_page = database
-            .project_page_get(ProjectIdInput {
-                project_id: active_project.id,
-            })
-            .unwrap();
-        assert_eq!(project_page.unfinished_todos.len(), 1);
-        assert_eq!(project_page.unfinished_todos[0].id, active_todo.id);
-        assert_eq!(project_page.finished_todos.len(), 1);
-        assert_eq!(project_page.finished_todos[0].id, finished_project_todo.id);
-        assert!(project_page
-            .unfinished_todos
-            .iter()
-            .chain(project_page.finished_todos.iter())
-            .all(|todo| todo.scope == TodoScope::Project
-                && todo.project_id == Some(active_project.id)));
-
-        let workspace_page = database.workspace_page_get().unwrap();
-        assert!(workspace_page
-            .unfinished_todos
-            .iter()
-            .any(|todo| todo.id == workspace_todo.id));
-        assert!(workspace_page
-            .unfinished_todos
-            .iter()
-            .any(|todo| todo.id == active_todo.id));
-        assert!(workspace_page
-            .finished_todos
-            .iter()
-            .any(|todo| todo.id == finished_workspace_todo.id));
-        assert!(workspace_page
-            .finished_todos
-            .iter()
-            .any(|todo| todo.id == finished_project_todo.id));
-
-        let active_project_list_item = database
-            .projects_list(ProjectsListInput {
-                include_archived: Some(false),
-            })
-            .unwrap()
-            .into_iter()
-            .find(|project| project.id == active_project.id)
-            .unwrap();
-        assert_eq!(active_project_list_item.open_todo_count, 1);
-
-        let archived_page = database
-            .project_page_get(ProjectIdInput {
-                project_id: archived_project.id,
-            })
-            .unwrap();
-        assert_eq!(archived_page.unfinished_todos[0].id, archived_open_todo.id);
-        assert_eq!(archived_page.unfinished_todos[0].status, "unfinished");
-        assert_eq!(
-            archived_page.finished_todos[0].id,
-            archived_finished_todo.id
-        );
-        assert_eq!(archived_page.finished_todos[0].status, "finished");
-
-        database
-            .project_set_archive(ProjectArchiveInput {
-                project_id: archived_project.id,
-                is_archived: false,
-            })
-            .unwrap();
-        let restored = database.workspace_todo_rail_list().unwrap();
-        assert!(restored.iter().any(|todo| todo.id == workspace_todo.id));
-        assert!(restored
-            .iter()
-            .any(|todo| todo.id == finished_workspace_todo.id));
-        assert_eq!(
-            restored
-                .iter()
-                .find(|todo| todo.id == archived_open_todo.id)
-                .unwrap()
-                .status,
-            "unfinished"
-        );
-        assert_eq!(
-            restored
-                .iter()
-                .find(|todo| todo.id == archived_finished_todo.id)
-                .unwrap()
-                .status,
-            "finished"
-        );
-
-        let projects = database
-            .projects_list(ProjectsListInput {
-                include_archived: Some(true),
-            })
-            .unwrap();
-        assert_eq!(
-            projects
-                .iter()
-                .find(|project| project.id == archived_project.id)
-                .unwrap()
-                .open_todo_count,
-            1
-        );
     }
 
     #[test]
@@ -17617,58 +10891,6 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, workspace_note.id);
         assert_eq!(listed[0].title.as_deref(), Some("工作区记录"));
-    }
-
-    #[test]
-    fn project_record_upsert_preserves_embedded_image_html() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let data_url = format!("data:image/png;base64,{}", "A".repeat(256));
-        let html = format!(r#"<p><img src="{data_url}" alt="截图" /></p>"#);
-
-        let saved = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                title: Some("带图片记录".to_string()),
-                markdown: "[图片] 截图".to_string(),
-                html: html.clone(),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap();
-
-        assert_eq!(saved.content_html, html);
-    }
-
-    #[test]
-    fn project_record_upsert_strips_unmanaged_absolute_image_metadata() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-        let data_url = format!("data:image/png;base64,{}", "B".repeat(384));
-        let html = format!(
-            r#"<p><img src="{data_url}" data-path="/tmp/managed/clip.png" data-mime-type="image/png" data-document-id="18" alt="截图" /></p>"#,
-        );
-
-        let saved = database
-            .project_record_upsert(ProjectRecordUpsertInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                note_id: None,
-                title: Some("带图片元数据记录".to_string()),
-                markdown: "[图片] 截图".to_string(),
-                html: html.clone(),
-                tag_ids: vec![],
-                default_code_language: None,
-            })
-            .unwrap();
-
-        assert!(saved.content_html.contains(&data_url));
-        assert!(saved.content_html.contains(r#"data-path="""#));
-        assert!(!saved.content_html.contains("/tmp/managed/clip.png"));
     }
 
     #[test]
@@ -17776,244 +10998,333 @@ mod tests {
     }
 
     #[test]
-    fn activity_path_rewrite_matches_complete_path_segments_only() {
-        let project_root = Path::new("/workspace/Project");
-        let html = r#"<div data-type="attachment" data-path="Kickoff-old/brief.pdf" data-href="Kickoff-old/brief.pdf"><a href="Kickoff-old/brief.pdf">brief.pdf</a></div>"#;
-
-        let rewritten = rewrite_scoped_rich_text_asset_paths(
-            html,
-            project_root,
-            &project_root.join("Kickoff"),
-            &project_root.join("Review"),
-        );
-
-        assert_eq!(rewritten, html);
-    }
-
-    #[test]
-    fn activity_path_rewrite_supports_single_quotes_and_html_escaped_paths() {
-        let project_root = Path::new("/workspace/Project");
-        let html = r#"<div data-type='attachment' data-path='Kickoff &amp; Notes/brief.pdf' data-href='Kickoff &amp; Notes/brief.pdf'><a href='Kickoff &amp; Notes/brief.pdf'>brief.pdf</a></div>"#;
-
-        let rewritten = rewrite_scoped_rich_text_asset_paths(
-            html,
-            project_root,
-            &project_root.join("Kickoff & Notes"),
-            &project_root.join("Review & Notes"),
-        );
-
-        assert_eq!(
-            rewritten,
-            r#"<div data-type='attachment' data-path='Review &amp; Notes/brief.pdf' data-href='Review &amp; Notes/brief.pdf'><a href='Review &amp; Notes/brief.pdf'>brief.pdf</a></div>"#
-        );
-    }
-
-    #[test]
-    fn activity_path_rewrite_decodes_numeric_html_entities() {
-        let project_root = Path::new("/workspace/Project");
-        let html = r#"<div data-type="attachment" data-path="Kickoff &#38; Notes/brief.pdf" data-href="Kickoff &#x26; Notes/brief.pdf"><a href="Kickoff &#38; Notes/brief.pdf">brief.pdf</a></div>"#;
-
-        let rewritten = rewrite_scoped_rich_text_asset_paths(
-            html,
-            project_root,
-            &project_root.join("Kickoff & Notes"),
-            &project_root.join("Review & Notes"),
-        );
-
-        assert_eq!(
-            rewritten,
-            r#"<div data-type="attachment" data-path="Review &amp; Notes/brief.pdf" data-href="Review &amp; Notes/brief.pdf"><a href="Review &amp; Notes/brief.pdf">brief.pdf</a></div>"#
-        );
-    }
-
-    #[test]
-    fn activity_path_rewrite_quotes_unquoted_values_when_the_new_path_requires_it() {
-        let project_root = Path::new("/workspace/Project");
-        let html = r#"<div data-type=attachment data-path=Kickoff&amp;Notes/brief.pdf></div>"#;
-
-        let rewritten = rewrite_scoped_rich_text_asset_paths(
-            html,
-            project_root,
-            &project_root.join("Kickoff&Notes"),
-            &project_root.join("Review Notes"),
-        );
-
-        assert_eq!(
-            rewritten,
-            r#"<div data-type=attachment data-path="Review Notes/brief.pdf"></div>"#
-        );
-    }
-
-    #[test]
-    fn reopening_pre_note_type_removal_workspace_runs_note_migrations() {
+    fn legacy_domain_migration_preserves_source_rows_and_is_idempotent() {
         let (harness, mut database) = setup_database();
+        enable_legacy_domain_fixture_schema(&database);
+        let db_path = harness.root.join("app.sqlite3");
         let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
+        let legacy_created_at = "2025-01-02T03:04:05.000Z";
+        let legacy_updated_at = "2025-02-03T04:05:06.000Z";
         database
             .conn
             .execute(
-                "UPDATE activities SET brief_markdown = ?1, brief_html = ?2 WHERE id = ?3",
-                params!["需要沉淀的简报", "<p>需要沉淀的简报</p>", activity.id],
+                r#"
+            INSERT INTO activities (
+              project_id, category, title, brief_markdown, brief_html, folder_name,
+              activity_time, created_at, updated_at
+            ) VALUES (?1, 'legacy', '历史条目', '旧简报正文', '<p>旧简报正文</p>',
+              'legacy-entry', ?2, ?2, ?3)
+            "#,
+                params![project.id, legacy_created_at, legacy_updated_at],
+            )
+            .unwrap();
+        let legacy_activity_id = database.conn.last_insert_rowid();
+
+        // Released schema v13 already converted Activity Briefs. Schema v21 must recognize that
+        // Record instead of creating a duplicate, while still migrating legacy rows created later.
+        let v13_tag_id = database
+            .upsert_project_tag_by_label(
+                project.id,
+                "来源: 历史条目",
+                DEFAULT_RECORD_TYPE_COLOR_KEY,
+                legacy_created_at,
+            )
+            .unwrap();
+        let v13_brief_record = database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: None,
+                title: Some("历史条目".to_string()),
+                markdown: "旧简报正文".to_string(),
+                html: "<p>旧简报正文</p>".to_string(),
+                tag_ids: vec![v13_tag_id],
+                default_code_language: None,
+            })
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE notes SET created_at = ?1, updated_at = ?1 WHERE id = ?2",
+                params![legacy_created_at, v13_brief_record.id],
+            )
+            .unwrap();
+
+        let linked_record = database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: None,
+                title: Some("已有记录".to_string()),
+                markdown: "已有记录正文".to_string(),
+                html: "<p>已有记录正文</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
+            })
+            .unwrap();
+        let linked_todo = database
+            .todo_create(TodoCreateInput {
+                scope: TodoScope::Project,
+                project_id: Some(project.id),
+                content: "已有 Todo".to_string(),
+                priority: "not_urgent_important".to_string(),
+                due_date: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let source_path = harness.root.join("legacy.pdf");
+        fs::write(&source_path, b"legacy-document").unwrap();
+        let linked_document = database
+            .document_import(DocumentImportInput {
+                project_id: project.id,
+                source_path: source_path.to_string_lossy().to_string(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE notes SET activity_id = ?1 WHERE id = ?2",
+                params![legacy_activity_id, linked_record.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE todos SET activity_id = ?1 WHERE id = ?2",
+                params![legacy_activity_id, linked_todo.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE documents SET activity_id = ?1 WHERE id = ?2",
+                params![legacy_activity_id, linked_document.id],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                r#"
+            INSERT INTO conclusions (
+              project_id, activity_id, note_id, content_markdown, content_html, content,
+              created_at, updated_at
+            ) VALUES (?1, ?2, ?3, '旧结论正文', '<p>旧结论正文</p>', '旧结论正文', ?4, ?5)
+            "#,
+                params![
+                    project.id,
+                    legacy_activity_id,
+                    linked_record.id,
+                    legacy_created_at,
+                    legacy_updated_at,
+                ],
+            )
+            .unwrap();
+        let legacy_conclusion_id = database.conn.last_insert_rowid();
+        database
+            .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
+            .unwrap();
+        drop(database);
+
+        let mut reopened = Database::open(
+            &db_path,
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+
+        let activity_source: (String, String, String) = reopened
+            .conn
+            .query_row(
+                "SELECT brief_markdown, created_at, updated_at FROM activities WHERE id = ?1",
+                [legacy_activity_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            activity_source,
+            (
+                "旧简报正文".to_string(),
+                legacy_created_at.to_string(),
+                legacy_updated_at.to_string(),
+            )
+        );
+        let conclusion_source: (String, Option<i64>) = reopened
+            .conn
+            .query_row(
+                "SELECT content_markdown, activity_id FROM conclusions WHERE id = ?1",
+                [legacy_conclusion_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            conclusion_source,
+            ("旧结论正文".to_string(), Some(legacy_activity_id))
+        );
+        for (table, id) in [
+            ("notes", linked_record.id),
+            ("todos", linked_todo.id),
+            ("documents", linked_document.id),
+        ] {
+            let activity_id: Option<i64> = reopened
+                .conn
+                .query_row(
+                    &format!("SELECT activity_id FROM {table} WHERE id = ?1"),
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(activity_id, Some(legacy_activity_id));
+        }
+
+        let migrated_records: Vec<(String, String, String, String)> = {
+            let mut stmt = reopened
+                .conn
+                .prepare(
+                    r#"
+                SELECT migration.legacy_kind, note.title, note.content_markdown, note.updated_at
+                FROM legacy_domain_record_migrations migration
+                INNER JOIN notes note ON note.id = migration.record_id
+                ORDER BY migration.legacy_kind
+                "#,
+                )
+                .unwrap();
+            stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+        };
+        assert_eq!(migrated_records.len(), 2);
+        assert!(migrated_records
+            .iter()
+            .any(
+                |(kind, title, markdown, updated_at)| kind == "activity_brief"
+                    && title == "历史条目"
+                    && markdown == "旧简报正文"
+                    && updated_at == legacy_created_at
+            ));
+        assert!(migrated_records
+            .iter()
+            .any(|(kind, title, markdown, updated_at)| kind == "conclusion"
+                && title == "迁移的旧结论：历史条目"
+                && markdown == "旧结论正文"
+                && updated_at == legacy_updated_at));
+        let mapped_brief_record_id: i64 = reopened
+            .conn
+            .query_row(
+                "SELECT record_id FROM legacy_domain_record_migrations WHERE legacy_kind = 'activity_brief' AND legacy_id = ?1",
+                [legacy_activity_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(mapped_brief_record_id, v13_brief_record.id);
+
+        let before_repeat: i64 = reopened
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE project_id = ?1",
+                [project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        reopened.migrate_legacy_domain_records(true).unwrap();
+        let after_repeat: i64 = reopened
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM notes WHERE project_id = ?1",
+                [project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(before_repeat, 3);
+        assert_eq!(after_repeat, before_repeat);
+
+        let search_results = reopened
+            .workspace_search(WorkspaceSearchInput {
+                query: "旧结论正文".to_string(),
+                include_archived: None,
+                project_id: None,
+            })
+            .unwrap();
+        assert!(search_results.iter().any(|result| result.kind == "note"));
+        assert!(search_results
+            .iter()
+            .all(|result| !matches!(result.kind.as_str(), "activity" | "conclusion")));
+    }
+
+    #[test]
+    fn legacy_domain_migration_rolls_back_partial_records_before_retry() {
+        let (harness, mut database) = setup_database();
+        enable_legacy_domain_fixture_schema(&database);
+        let db_path = harness.root.join("app.sqlite3");
+        let project = create_project(&mut database, &harness.workspace_root);
+        database
+            .conn
+            .execute(
+                r#"
+                INSERT INTO activities (
+                  project_id, category, title, brief_markdown, brief_html, folder_name,
+                  activity_time, created_at, updated_at
+                ) VALUES (?1, 'legacy', '原子迁移', '必须只生成一次', '<p>必须只生成一次</p>',
+                  'atomic-migration', ?2, ?2, ?2)
+                "#,
+                params![project.id, "2025-03-04T05:06:07.000Z"],
             )
             .unwrap();
         database
             .conn
             .execute_batch(
                 r#"
-                PRAGMA foreign_keys = OFF;
-                CREATE TABLE notes_legacy (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  project_id INTEGER NOT NULL,
-                  activity_id INTEGER,
-                  note_type TEXT NOT NULL,
-                  title TEXT,
-                  content_markdown TEXT NOT NULL DEFAULT '',
-                  content_html TEXT NOT NULL DEFAULT '',
-                  created_at TEXT NOT NULL,
-                  updated_at TEXT NOT NULL,
-                  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                  FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE SET NULL
-                );
-                INSERT INTO notes_legacy (
-                  id, project_id, activity_id, note_type, title, content_markdown, content_html, created_at, updated_at
-                )
-                SELECT id, project_id, activity_id, 'note', title, content_markdown, content_html, created_at, updated_at
-                FROM notes;
-                DROP TABLE notes;
-                ALTER TABLE notes_legacy RENAME TO notes;
-                PRAGMA foreign_keys = ON;
+                CREATE TRIGGER fail_legacy_mapping
+                BEFORE INSERT ON legacy_domain_record_migrations
+                BEGIN
+                  SELECT RAISE(ABORT, 'injected mapping failure');
+                END;
+                PRAGMA user_version = 20;
                 "#,
             )
             .unwrap();
-        database
-            .set_schema_version(PROJECT_KIND_SCHEMA_VERSION)
-            .unwrap();
-
         drop(database);
-        let mut reopened = Database::open(
-            &harness.root.join("app.sqlite3"),
-            &harness.workspace_root,
-            Some("test-secret".to_string()),
-        )
-        .unwrap();
 
-        assert!(!reopened.has_column("notes", "note_type").unwrap());
-        let project_page = reopened
-            .project_page_get(ProjectIdInput {
-                project_id: project.id,
-            })
+        assert!(Database::open(&db_path, &harness.workspace_root, None).is_err());
+
+        let raw = Connection::open(&db_path).unwrap();
+        let note_count: i64 = raw
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
             .unwrap();
-        assert!(project_page
-            .records
-            .iter()
-            .any(|record| record.content_markdown.contains("需要沉淀的简报")));
-    }
-
-    #[test]
-    fn document_schema_migration_folds_legacy_priority_flags_into_starred() {
-        let (harness, mut database) = setup_database();
-        let project = create_project(&mut database, &harness.workspace_root);
-        let activity = create_activity(&mut database, project.id, "Kickoff");
-
-        let role_source = harness.root.join("role-key.pdf");
-        fs::write(&role_source, b"role").unwrap();
-        let role_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: role_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let promoted_source = harness.root.join("promoted.pdf");
-        fs::write(&promoted_source, b"promoted").unwrap();
-        let promoted_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: promoted_source.to_string_lossy().to_string(),
-                is_starred: false,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        let starred_source = harness.root.join("starred.pdf");
-        fs::write(&starred_source, b"starred").unwrap();
-        let starred_document = database
-            .document_import(DocumentImportInput {
-                project_id: project.id,
-                activity_id: Some(activity.id),
-                source_path: starred_source.to_string_lossy().to_string(),
-                is_starred: true,
-                tag_ids: None,
-            })
-            .unwrap();
-
-        database
-            .conn
-            .execute(
-                "ALTER TABLE documents ADD COLUMN role TEXT NOT NULL DEFAULT 'reference_material'",
+        let mapping_count: i64 = raw
+            .query_row(
+                "SELECT COUNT(*) FROM legacy_domain_record_migrations",
                 [],
+                |row| row.get(0),
             )
             .unwrap();
-        database
-            .conn
-            .execute(
-                "ALTER TABLE documents ADD COLUMN promoted_to_project INTEGER NOT NULL DEFAULT 0",
+        let migrated_tag_count: i64 = raw
+            .query_row(
+                "SELECT COUNT(*) FROM file_tag_options WHERE label LIKE '来源: 旧 Activity %'",
                 [],
+                |row| row.get(0),
             )
             .unwrap();
-        database
-            .conn
-            .execute(
-                "UPDATE documents SET role = 'key_material' WHERE id = ?1",
-                params![role_document.id],
-            )
-            .unwrap();
-        database
-            .conn
-            .execute(
-                "UPDATE documents SET promoted_to_project = 1 WHERE id = ?1",
-                params![promoted_document.id],
-            )
-            .unwrap();
-        database
-            .set_schema_version(FILE_LAYOUT_SCHEMA_VERSION)
-            .unwrap();
+        assert_eq!((note_count, mapping_count, migrated_tag_count), (0, 0, 0));
+        raw.execute("DROP TRIGGER fail_legacy_mapping", []).unwrap();
+        drop(raw);
 
-        drop(database);
-        let reopened = Database::open(
-            &harness.root.join("app.sqlite3"),
-            &harness.workspace_root,
-            Some("test-secret".to_string()),
-        )
-        .unwrap();
-
-        assert!(!reopened.has_column("documents", "role").unwrap());
-        assert!(!reopened
-            .has_column("documents", "promoted_to_project")
-            .unwrap());
-        assert!(
-            reopened
-                .document_record(role_document.id)
-                .unwrap()
-                .is_starred
-        );
-        assert!(
-            reopened
-                .document_record(promoted_document.id)
-                .unwrap()
-                .is_starred
-        );
-        assert!(
-            reopened
-                .document_record(starred_document.id)
-                .unwrap()
-                .is_starred
-        );
+        let reopened = Database::open(&db_path, &harness.workspace_root, None).unwrap();
+        let migrated: (i64, i64) = reopened
+            .conn
+            .query_row(
+                r#"
+                SELECT
+                  (SELECT COUNT(*) FROM notes WHERE project_id = ?1),
+                  (SELECT COUNT(*) FROM legacy_domain_record_migrations)
+                "#,
+                [project.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(migrated, (1, 1));
     }
 }
 
@@ -18052,136 +11363,6 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
 
 fn default_ai_execution_settings() -> AiExecutionSettings {
     AiExecutionSettings { max_concurrency: 1 }
-}
-
-fn default_ai_feature_settings() -> AiFeatureSettings {
-    AiFeatureSettings {
-        master_enabled: true,
-        capabilities: BTreeMap::from([
-            ("assistant".to_string(), true),
-            ("summary".to_string(), true),
-            ("suggestion_generation".to_string(), true),
-            ("editor_rewrite".to_string(), true),
-        ]),
-        features: BTreeMap::from([
-            ("summary.project_brief".to_string(), true),
-            ("summary.daily_brief".to_string(), true),
-            ("suggestion_generation.conclusion".to_string(), true),
-            ("suggestion_generation.todo".to_string(), true),
-        ]),
-    }
-}
-
-fn parse_ai_feature_settings_json(value_json: &str) -> Result<AiFeatureSettings> {
-    let mut value: Value =
-        serde_json::from_str(value_json).context("failed to parse AI feature settings")?;
-    normalize_ai_feature_settings_value(&mut value)?;
-    serde_json::from_value(value).context("failed to decode AI feature settings")
-}
-
-fn normalize_ai_feature_settings_value(value: &mut Value) -> Result<()> {
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("AI feature settings must be an object"))?;
-
-    for key in object.keys() {
-        if !matches!(key.as_str(), "masterEnabled" | "capabilities" | "features") {
-            return Err(anyhow!(
-                "AI feature settings contains unsupported key '{}'",
-                key
-            ));
-        }
-    }
-
-    if !object.contains_key("masterEnabled") {
-        object.insert("masterEnabled".to_string(), json!(true));
-    }
-    if !object
-        .get("masterEnabled")
-        .is_some_and(serde_json::Value::is_boolean)
-    {
-        return Err(anyhow!(
-            "AI feature settings masterEnabled must be a boolean"
-        ));
-    }
-
-    if !object.contains_key("capabilities") {
-        object.insert("capabilities".to_string(), json!({}));
-    }
-    if !object.contains_key("features") {
-        object.insert("features".to_string(), json!({}));
-    }
-
-    normalize_ai_toggle_map_value(
-        object.get_mut("capabilities"),
-        &AI_VISIBLE_CAPABILITIES,
-        "AI feature settings capabilities",
-    )?;
-    normalize_ai_toggle_map_value(
-        object.get_mut("features"),
-        &AI_FEATURE_KEYS,
-        "AI feature settings features",
-    )?;
-
-    Ok(())
-}
-
-fn normalize_ai_toggle_map_value(
-    value: Option<&mut Value>,
-    allowed_keys: &[&str],
-    field: &str,
-) -> Result<()> {
-    let Some(value) = value else {
-        return Err(anyhow!("{field} is missing"));
-    };
-
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("{field} must be an object"))?;
-
-    for key in object.keys() {
-        if !allowed_keys.contains(&key.as_str()) {
-            return Err(anyhow!("{field} contains unsupported key '{}'", key));
-        }
-    }
-
-    for &key in allowed_keys {
-        match object.get(key) {
-            Some(existing) if existing.is_boolean() => {}
-            Some(_) => return Err(anyhow!("{field} key '{}' must be a boolean", key)),
-            None => {
-                object.insert(key.to_string(), json!(true));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn ai_capability_for_feature(feature_key: &str) -> Result<&'static str> {
-    if feature_key.starts_with("summary.") {
-        return Ok("summary");
-    }
-    if feature_key.starts_with("suggestion_generation.") {
-        return Ok("suggestion_generation");
-    }
-    Err(anyhow!("unsupported AI feature '{}'", feature_key))
-}
-
-fn ai_feature_key_for_artifact_kind(kind: &str) -> Result<&'static str> {
-    match kind {
-        "project_brief" => Ok("summary.project_brief"),
-        "daily_brief" => Ok("summary.daily_brief"),
-        _ => Err(anyhow!("unsupported artifact kind")),
-    }
-}
-
-fn ai_feature_enabled(settings: &AiFeatureSettings, feature_key: &str) -> Result<bool> {
-    if !AI_FEATURE_KEYS.contains(&feature_key) {
-        return Err(anyhow!("unsupported AI feature '{}'", feature_key));
-    }
-
-    Ok(settings.features.get(feature_key).copied().unwrap_or(true))
 }
 
 fn normalize_rich_text_style_value(value: &mut Value) -> Result<()> {
@@ -18434,14 +11615,6 @@ fn validate_file_tag_color_key(value: &str) -> Result<String> {
     let normalized = value.trim();
     if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
         return Err(anyhow!("file tag color is not supported"));
-    }
-    Ok(normalized.to_string())
-}
-
-fn validate_activity_attribute_color_key(value: &str) -> Result<String> {
-    let normalized = value.trim();
-    if !FILE_TAG_COLOR_KEYS.contains(&normalized) {
-        return Err(anyhow!("activity attribute color is not supported"));
     }
     Ok(normalized.to_string())
 }

@@ -140,7 +140,6 @@ const markdownSerializer = new MarkdownSerializer(
       state.write(
         buildInternalReferenceToken({
           refKind:
-            node.attrs.refKind === "conclusion" ||
             node.attrs.refKind === "todo" ||
             node.attrs.refKind === "document"
               ? node.attrs.refKind

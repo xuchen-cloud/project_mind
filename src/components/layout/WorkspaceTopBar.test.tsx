@@ -2,10 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  WorkspaceTopBar,
-  shouldDetachProjectTabRelease,
-} from "./WorkspaceTopBar";
+import { WorkspaceTopBar, shouldDetachProjectTabRelease } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
   it("prefetches a project from pointer and keyboard intent without opening it", () => {
@@ -14,7 +11,20 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 0 }]}
+        projects={[
+          {
+            id: 2,
+            name: "Beta",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 0,
+          },
+        ]}
         activeProjectId={1}
         searchInput=""
         onSearchInput={vi.fn()}
@@ -43,7 +53,20 @@ describe("WorkspaceTopBar", () => {
   it("does not expose the internal Project status in navigation tabs", () => {
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[
+          {
+            id: 1,
+            name: "Alpha",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
+        ]}
         activeProjectId={1}
         searchInput=""
         onSearchInput={vi.fn()}
@@ -66,7 +89,20 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[
+          {
+            id: 1,
+            name: "Alpha",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
+        ]}
         activeProjectId={1}
         workspaceActive={false}
         searchInput="bet"
@@ -94,13 +130,9 @@ describe("WorkspaceTopBar", () => {
     expect(screen.queryByText("ProjectMind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("combobox", { name: "全局搜索" }),
-    );
+    await user.click(screen.getByRole("combobox", { name: "全局搜索" }));
     await user.click(screen.getByRole("option", { name: /beta/i }));
-    expect(onSearchSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "project", projectId: 2 }),
-    );
+    expect(onSearchSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: "project", projectId: 2 }));
   });
 
   it("exposes global search as a combobox and selects the active result with the keyboard", async () => {
@@ -148,9 +180,7 @@ describe("WorkspaceTopBar", () => {
 
     await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
 
-    expect(onSearchSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "note", id: 8 }),
-    );
+    expect(onSearchSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: "note", id: 8 }));
   });
 
   it("shows localized result kinds and the matched context", () => {
@@ -179,9 +209,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    fireEvent.focus(
-      screen.getByRole("combobox", { name: "全局搜索" }),
-    );
+    fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
     expect(screen.getByText("记录")).toBeInTheDocument();
     expect(screen.getByText("…讨论下一季度预算和交付节奏…")).toBeInTheDocument();
   });
@@ -225,9 +253,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    fireEvent.focus(
-      screen.getByRole("combobox", { name: "全局搜索" }),
-    );
+    fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
     expect(screen.getAllByText("Workspace")).toHaveLength(2);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
 
@@ -235,7 +261,11 @@ describe("WorkspaceTopBar", () => {
     expect(results).toHaveLength(2);
     await user.click(results[0]);
     expect(onSearchSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "todo", scope: "workspace", projectId: null }),
+      expect.objectContaining({
+        kind: "todo",
+        scope: "workspace",
+        projectId: null,
+      }),
     );
   });
 
@@ -257,9 +287,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    fireEvent.focus(
-      screen.getByRole("combobox", { name: "全局搜索" }),
-    );
+    fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
     expect(screen.getByText("搜索失败，请稍后重试")).toBeInTheDocument();
     expect(screen.queryByText("没有匹配结果")).not.toBeInTheDocument();
   });
@@ -281,12 +309,8 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    fireEvent.focus(
-      screen.getByRole("combobox", { name: "全局搜索" }),
-    );
-    expect(
-      screen.getByText("输入关键词，搜索 Workspace、项目、记录、Todo、文件和联系人"),
-    ).toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
+    expect(screen.getByText("输入关键词，搜索 Workspace、项目、记录、Todo、文件和联系人")).toBeInTheDocument();
   });
 
   it("detects when a dragged tab is released outside the tab list", () => {
@@ -325,7 +349,20 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[
+          {
+            id: 1,
+            name: "Alpha",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
+        ]}
         activeProjectId={1}
         workspaceActive={false}
         searchInput=""
@@ -352,7 +389,20 @@ describe("WorkspaceTopBar", () => {
 
     render(
       <WorkspaceTopBar
-        projects={[{ id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 1, unorganizedCount: 0, openTodoCount: 1 }]}
+        projects={[
+          {
+            id: 1,
+            name: "Alpha",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
+        ]}
         activeProjectId={1}
         workspaceActive={false}
         searchInput=""
@@ -392,8 +442,6 @@ describe("WorkspaceTopBar", () => {
             isArchived: false,
             createdAt: "",
             updatedAt: "",
-            activityCount: 1,
-            unorganizedCount: 0,
             openTodoCount: 1,
           },
           {
@@ -406,8 +454,6 @@ describe("WorkspaceTopBar", () => {
             isArchived: false,
             createdAt: "",
             updatedAt: "",
-            activityCount: 1,
-            unorganizedCount: 0,
             openTodoCount: 1,
           },
         ]}
@@ -430,16 +476,21 @@ describe("WorkspaceTopBar", () => {
       "title",
       "Alpha project with a very long title",
     );
-    expect(screen.getByRole("tab", { name: "Beta project with another very long title" })).toHaveAttribute(
-      "title",
-      "Beta project with another very long title",
-    );
+    expect(
+      screen.getByRole("tab", {
+        name: "Beta project with another very long title",
+      }),
+    ).toHaveAttribute("title", "Beta project with another very long title");
 
     expect(
-      screen.getByRole("button", { name: "关闭 Alpha project with a very long title" }),
+      screen.getByRole("button", {
+        name: "关闭 Alpha project with a very long title",
+      }),
     ).toHaveClass("workspace-topbar__tab-close--persistent");
     expect(
-      screen.getByRole("button", { name: "关闭 Beta project with another very long title" }),
+      screen.getByRole("button", {
+        name: "关闭 Beta project with another very long title",
+      }),
     ).not.toHaveClass("workspace-topbar__tab-close--persistent");
   });
 
@@ -450,8 +501,30 @@ describe("WorkspaceTopBar", () => {
     render(
       <WorkspaceTopBar
         projects={[
-          { id: 1, name: "Alpha", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 },
-          { id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 1 },
+          {
+            id: 1,
+            name: "Alpha",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
+          {
+            id: 2,
+            name: "Beta",
+            kind: "normal",
+            status: "active",
+            rootPath: "/",
+            quickNote: "",
+            isArchived: false,
+            createdAt: "",
+            updatedAt: "",
+            openTodoCount: 1,
+          },
         ]}
         activeProjectId={1}
         workspaceActive={false}

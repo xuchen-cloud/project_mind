@@ -30,7 +30,6 @@ flowchart TD
   B --> E["项目页"]
   B --> F["Record Focus"]
   B --> G["Settings Dialog"]
-  B --> H["Ask Panel"]
   D --> I["QuickNote"]
   D --> J["Record"]
   I --> L["Workspace QuickNote"]
@@ -105,7 +104,6 @@ Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
 
 - Workspace
 - 项目页签
-- Ask
 - 全局搜索
 - 归档项目
 - 工作区菜单
@@ -262,7 +260,7 @@ AI 不可用时：
 
 - Workspace 仍应可用
 - Project 仍应可用
-- Ask 应显示受控空态
+- 编辑器 AI 技能应显示受控错误状态
 - 不应让用户误以为主功能被锁死
 
 ## 8. 当前 UX 风险

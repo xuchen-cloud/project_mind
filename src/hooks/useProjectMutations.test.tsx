@@ -48,7 +48,6 @@ const project: ProjectListItem = {
   isArchived: false,
   createdAt: "2026-08-01T00:00:00Z",
   updatedAt: "2026-08-01T00:00:00Z",
-  unorganizedCount: 0,
   openTodoCount: 1,
 };
 
@@ -56,7 +55,6 @@ const workspaceTodo: TodoRecord = {
   id: 1,
   scope: "workspace",
   projectId: null,
-  activityId: null,
   content: "Workspace Todo",
   status: "unfinished",
   priority: "not_urgent_important",
@@ -86,7 +84,6 @@ describe("useProjectMutations", () => {
     const projectPage: ProjectPageData = {
       project,
       projectDocuments: [],
-      conclusionGroups: [],
       records: [],
       unfinishedTodos: [projectTodo],
       finishedTodos: [],
@@ -122,7 +119,6 @@ describe("useProjectMutations", () => {
     const projectPage: ProjectPageData = {
       project,
       projectDocuments: [],
-      conclusionGroups: [],
       records: [],
       unfinishedTodos: [projectTodo],
       finishedTodos: [],

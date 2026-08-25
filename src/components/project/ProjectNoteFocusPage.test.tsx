@@ -164,7 +164,6 @@ const project: ProjectRecord = {
 const baseNote: NoteRecord = {
   id: 7,
   projectId: 1,
-  activityId: null,
   title: "旧标题",
   contentMarkdown: "正文",
   contentHtml: "<p>正文</p>",
@@ -800,7 +799,6 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       workspaceKey: "/tmp/workspace",
       projectId: 1,
       recordId: 70,
-      activityId: null,
       title: "失败快照标题",
       tagIds: [],
       defaultCodeLanguage: "typescript",

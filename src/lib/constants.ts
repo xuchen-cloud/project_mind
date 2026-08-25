@@ -7,10 +7,6 @@ export const PROJECT_STATUS_OPTIONS = [
   { value: "completed", label: "已完成" },
 ] as const;
 
-export const EMPTY_ACTIVITY_ATTRIBUTE_LABEL = "未设置属性";
-export const DEFAULT_ACTIVITY_STATUS_LABEL = "待启动";
-export const UNTITLED_ACTIVITY_PREFIX = "未命名 Record";
-
 export const TODO_STATUS_OPTIONS = [
   { value: "unfinished", label: "未完成" },
   { value: "finished", label: "已完成" },
@@ -62,42 +58,12 @@ export const FILE_TAG_COLOR_OPTIONS: Array<{
   { value: "rose", label: "Rose", colorValue: "var(--color-file-tag-rose)" },
 ];
 
-export function activityAttributeLabel(value?: string | null) {
-  const normalized = value?.trim();
-  return normalized ? normalized : EMPTY_ACTIVITY_ATTRIBUTE_LABEL;
-}
-
-export function activityStatusLabel(value?: string | null) {
-  const normalized = value?.trim();
-  return normalized ? normalized : DEFAULT_ACTIVITY_STATUS_LABEL;
-}
-
-export function untitledActivityTitle(activityId: number) {
-  return `${UNTITLED_ACTIVITY_PREFIX} ${activityId}`;
-}
-
-export function resolveActivityTitle(value: string | null | undefined, activityId: number) {
-  const normalized = value?.trim();
-  return normalized ? normalized : untitledActivityTitle(activityId);
-}
-
 export function todoStatusLabel(value: string) {
   return TODO_STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
 export function priorityLabel(value: string) {
   return todoPriorityLabel(value as Parameters<typeof todoPriorityLabel>[0]);
-}
-
-export function suggestionLabel(type: string) {
-  switch (type) {
-    case "conclusion":
-      return "Record 建议";
-    case "todo":
-      return "Todo 建议";
-    default:
-      return type;
-  }
 }
 
 export function aiProviderLabel(value: string) {

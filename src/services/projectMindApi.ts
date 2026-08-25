@@ -15,11 +15,6 @@ import type {
   AiProviderProfileRecord,
   AiProviderProfileUpsertInput,
   AiSettingsSnapshot,
-  ConclusionCreateInput,
-  ConclusionDeleteInput,
-  ConclusionListInput,
-  ConclusionRecord,
-  ConclusionUpdateInput,
   ContactDeleteInput,
   ContactRecord,
   ContactSearchInput,
@@ -80,7 +75,7 @@ import type {
   WorkspaceCreateInput,
   WorkspaceOpenInput,
   WorkspaceSearchInput,
-  WorkspaceSearchApiResult,
+  WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
   WorkspaceUnlockInput,
 } from "../lib/types";
@@ -129,14 +124,6 @@ export const projectMindApi = {
     desktopApi.command<NoteRecord>("project_record_upsert", { input }),
   projectRecordDelete: (input: ProjectRecordDeleteInput) =>
     desktopApi.command<NoteRecord>("project_record_delete", { input }),
-  conclusionCreate: (input: ConclusionCreateInput) =>
-    desktopApi.command<ConclusionRecord>("conclusion_create", { input }),
-  conclusionList: (input: ConclusionListInput) =>
-    desktopApi.command<ConclusionRecord[]>("conclusion_list", { input }),
-  conclusionUpdate: (input: ConclusionUpdateInput) =>
-    desktopApi.command<ConclusionRecord>("conclusion_update", { input }),
-  conclusionDelete: (input: ConclusionDeleteInput) =>
-    desktopApi.command<ConclusionRecord>("conclusion_delete", { input }),
   todoCreate: (input: TodoCreateInput) =>
     desktopApi.command<TodoRecord>("todo_create", { input }),
   todoUpdateContent: (input: TodoUpdateContentInput) =>
@@ -260,5 +247,5 @@ export const projectMindApi = {
       input,
     }),
   workspaceSearch: (input: WorkspaceSearchInput) =>
-    desktopApi.command<WorkspaceSearchApiResult[]>("workspace_search", { input }),
+    desktopApi.command<WorkspaceSearchResult[]>("workspace_search", { input }),
 };

@@ -199,6 +199,7 @@ export function WorkspaceOverviewHistory({
               />
             </div>
             <RichEditor
+              contentIdentity="workspace-record-draft"
               html={recordDraftValue.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={recordDraftCodeLanguage}

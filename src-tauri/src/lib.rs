@@ -28,25 +28,24 @@ use models::{
     AiEditorSkillRecord, AiEditorSkillReorderInput, AiEditorSkillUpsertInput, AiExecutionSettings,
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
-    AiSettingsSnapshot, ConclusionCreateInput, ConclusionDeleteInput, ConclusionListInput,
-    ConclusionRecord, ConclusionUpdateInput, ContactDeleteInput, ContactRecord, ContactSearchInput,
-    ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
-    DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput, DocumentImportInput,
-    DocumentImportNoteImageInput, DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput,
-    DocumentUpdateMetaInput, DocumentVersionRecord, FileTagOptionDeleteInput,
-    FileTagOptionUpsertInput, FileTagRecord, FileTagSettingsGetInput, FileTagSettingsSnapshot,
-    InternalReferenceResolveInput, InternalReferenceResolveResult, InternalReferenceSearchInput,
-    InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
-    ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
-    ProjectRecordDeleteInput, ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput,
-    RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput,
-    TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
-    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
-    TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput,
-    WorkspaceCreateInput, WorkspaceNoteImageAsset, WorkspaceNoteImageImportInput,
-    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
-    WorkspaceRecordDeleteInput, WorkspaceRecordUpsertInput, WorkspaceSearchInput,
-    WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
+    AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput, ContactUpsertInput,
+    DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+    DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
+    DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
+    DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+    FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
+    InternalReferenceResolveResult, InternalReferenceSearchInput, InternalReferenceSearchResult,
+    NoteRecord, ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput,
+    ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
+    ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput, RichTextStyleSettings,
+    RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
+    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
+    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
+    WorkspaceClipboardNoteImageImportInput, WorkspaceCreateInput, WorkspaceNoteImageAsset,
+    WorkspaceNoteImageImportInput, WorkspaceOpenInput, WorkspacePageData,
+    WorkspaceQuickNoteUpsertInput, WorkspaceRecord, WorkspaceRecordDeleteInput,
+    WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
+    WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
 };
 use record_export::{
     desktop_cancel_export_image, desktop_cancel_export_write, desktop_export_available_bytes,
@@ -264,15 +263,6 @@ fn reveal_path_in_explorer(path: &Path) -> Result<()> {
     reveal_item_in_dir(path).map_err(Into::into)
 }
 
-fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u32) -> String {
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-    len.hash(&mut hasher);
-    modified_millis.hash(&mut hasher);
-    max_edge.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
-}
-
 pub fn default_demo_workspace_root() -> Result<PathBuf> {
     Ok(default_home_dir()?
         .join("Documents")
@@ -295,13 +285,22 @@ pub fn seed_demo_workspace_at(
 
     let (_, paths) = create_workspace(workspace_root, password)?;
     let mut db = Database::open(&paths.db_path, workspace_root, Some(password.to_string()))?;
-    let summary = db.reset_and_seed_demo_data(workspace_root)?;
+    let summary = db.seed_demo_data(workspace_root)?;
 
     Ok(SeedDemoWorkspaceResult {
         workspace_root: workspace_root.to_string_lossy().to_string(),
         metadata_path: paths.metadata_path.to_string_lossy().to_string(),
         summary,
     })
+}
+
+fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u32) -> String {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    len.hash(&mut hasher);
+    modified_millis.hash(&mut hasher);
+    max_edge.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn default_app_data_dir() -> Result<PathBuf> {
@@ -668,38 +667,6 @@ fn project_record_delete(
     input: ProjectRecordDeleteInput,
 ) -> CommandResult<NoteRecord> {
     with_db(state, |db| db.project_record_delete(input))
-}
-
-#[tauri::command]
-fn conclusion_create(
-    state: State<'_, AppState>,
-    input: ConclusionCreateInput,
-) -> CommandResult<ConclusionRecord> {
-    with_db(state, |db| db.conclusion_create(input))
-}
-
-#[tauri::command]
-fn conclusion_list(
-    state: State<'_, AppState>,
-    input: ConclusionListInput,
-) -> CommandResult<Vec<ConclusionRecord>> {
-    with_db(state, |db| db.conclusion_list(input))
-}
-
-#[tauri::command]
-fn conclusion_update(
-    state: State<'_, AppState>,
-    input: ConclusionUpdateInput,
-) -> CommandResult<ConclusionRecord> {
-    with_db(state, |db| db.conclusion_update(input))
-}
-
-#[tauri::command]
-fn conclusion_delete(
-    state: State<'_, AppState>,
-    input: ConclusionDeleteInput,
-) -> CommandResult<ConclusionRecord> {
-    with_db(state, |db| db.conclusion_delete(input))
 }
 
 #[tauri::command]
@@ -1112,10 +1079,6 @@ pub fn run() {
             contact_delete,
             project_record_upsert,
             project_record_delete,
-            conclusion_create,
-            conclusion_list,
-            conclusion_update,
-            conclusion_delete,
             todo_create,
             todo_update_status,
             todo_update_priority,

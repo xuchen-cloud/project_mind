@@ -79,7 +79,6 @@ vi.mock("../../services/projectMindApi", () => ({
     projectRecordUpsert: vi.fn(async (input) => ({
       id: input.noteId ?? 99,
       projectId: input.projectId,
-      activityId: input.activityId ?? null,
       title: input.title ?? null,
       contentMarkdown: input.markdown,
       contentHtml: input.html,
@@ -413,7 +412,6 @@ describe("ProjectOverviewPage", () => {
       quickNoteMarkdown: "",
       quickNoteHtml: "",
       status: "active",
-      unorganizedCount: 0,
       openTodoCount: 0,
       createdAt: "2026-08-06T00:00:00.000Z",
       updatedAt: "2026-08-06T00:00:00.000Z",
@@ -426,7 +424,6 @@ describe("ProjectOverviewPage", () => {
         unfinishedTodos: [],
         finishedTodos: [],
         projectDocuments: [],
-        conclusionGroups: [],
       } satisfies ProjectPageData,
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -623,6 +623,7 @@ export function WorkspaceRecordFocusPage({
               />
               <RichEditor
                 key={recordId}
+                contentIdentity={`workspace-record:${recordId}`}
                 html={content.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}

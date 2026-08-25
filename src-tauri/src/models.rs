@@ -1,7 +1,4 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,8 +40,6 @@ pub struct ProjectListItem {
     pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
-    pub activity_count: i64,
-    pub unorganized_count: i64,
     pub open_todo_count: i64,
 }
 
@@ -53,28 +48,11 @@ pub struct ProjectListItem {
 pub struct NoteRecord {
     pub id: i64,
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub title: Option<String>,
     pub content_markdown: String,
     pub content_html: String,
     pub default_code_language: Option<String>,
     pub tags: Vec<DocumentTagRecord>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConclusionRecord {
-    pub id: i64,
-    pub project_id: i64,
-    pub activity_id: Option<i64>,
-    pub note_id: Option<i64>,
-    pub content_markdown: String,
-    pub content_html: String,
-    pub promoted_to_project: bool,
-    pub is_pinned: bool,
-    pub source_activity_title: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -107,8 +85,6 @@ pub struct TodoRecord {
     pub scope: TodoScope,
     pub project_id: Option<i64>,
     pub project_name: Option<String>,
-    pub activity_id: Option<i64>,
-    pub source_activity_title: Option<String>,
     pub content: String,
     pub status: String,
     pub priority: String,
@@ -137,7 +113,6 @@ pub struct WorkspaceRecord {
 pub struct DocumentRecord {
     pub id: i64,
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub name: String,
     pub base_name: String,
     pub original_path: String,
@@ -148,7 +123,6 @@ pub struct DocumentRecord {
     pub is_starred: bool,
     pub current_version_number: i64,
     pub version_count: i64,
-    pub source_activity_title: Option<String>,
     pub health: String,
     pub tags: Vec<DocumentTagRecord>,
     pub created_at: String,
@@ -219,68 +193,6 @@ pub struct ContactRecord {
     pub department: String,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityAttributeOption {
-    pub id: i64,
-    pub label: String,
-    pub color_key: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityStatusOption {
-    pub id: i64,
-    pub label: String,
-    pub color_key: String,
-    pub needs_attention: bool,
-    pub is_system: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityDigest {
-    pub id: i64,
-    pub project_id: i64,
-    pub attribute_option_id: Option<i64>,
-    pub attribute_label: Option<String>,
-    pub attribute_color_key: Option<String>,
-    pub title: String,
-    pub activity_time: String,
-    pub status_option_id: i64,
-    pub status_label: String,
-    pub status_color_key: String,
-    pub status_needs_attention: bool,
-    pub is_pinned: bool,
-    pub note_count: i64,
-    pub conclusion_count: i64,
-    pub todo_count: i64,
-    pub document_count: i64,
-    pub completed_todo_count: i64,
-    pub total_todo_count: i64,
-    pub has_open_todos: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiSuggestionRecord {
-    pub id: i64,
-    pub project_id: i64,
-    pub activity_id: Option<i64>,
-    pub note_id: Option<i64>,
-    pub suggestion_type: String,
-    pub title: String,
-    pub preview: String,
-    pub payload: Value,
-    pub status: String,
-    pub created_at: String,
-    pub accepted_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -375,107 +287,6 @@ pub struct WorkspaceStatusSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiArtifactSection {
-    pub title: String,
-    pub items: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiArtifactPayload {
-    pub overview: String,
-    pub sections: Vec<AiArtifactSection>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiArtifactCitationRecord {
-    pub id: i64,
-    pub artifact_id: i64,
-    pub source_kind: String,
-    pub source_id: i64,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
-    pub label: String,
-    pub excerpt: String,
-    pub order_index: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiArtifactRecord {
-    pub id: i64,
-    pub kind: String,
-    pub skill_key: String,
-    pub skill_version: String,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
-    pub artifact_date: Option<String>,
-    pub status: String,
-    pub markdown: String,
-    pub json_payload: Value,
-    pub source_updated_at: String,
-    pub generated_at: Option<String>,
-    pub error_message: Option<String>,
-    pub citations: Vec<AiArtifactCitationRecord>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AiAnswerScope {
-    Workspace,
-    Project,
-    Activity,
-}
-
-impl AiAnswerScope {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Workspace => "workspace",
-            Self::Project => "project",
-            Self::Activity => "activity",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiAnswerCitationRecord {
-    pub ref_code: String,
-    pub source_kind: String,
-    pub source_id: i64,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
-    pub label: String,
-    pub excerpt: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiAnswerResult {
-    pub answer_markdown: String,
-    pub citations: Vec<AiAnswerCitationRecord>,
-    pub scope: AiAnswerScope,
-    pub generated_at: String,
-    pub skill_key: String,
-    pub skill_version: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiEditorSkillContext {
-    pub scope: String,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
-    pub note_id: Option<i64>,
-    pub workspace_record_id: Option<i64>,
-    pub source_label: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AiEditorImageTarget {
     pub path: String,
     pub mime_type: String,
@@ -527,14 +338,6 @@ impl AiJobStatus {
 #[serde(rename_all = "camelCase")]
 pub struct AiExecutionSettings {
     pub max_concurrency: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct AiFeatureSettings {
-    pub master_enabled: bool,
-    pub capabilities: BTreeMap<String, bool>,
-    pub features: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -611,57 +414,9 @@ pub struct AiProfileTestResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivityCardData {
-    pub id: i64,
-    pub project_id: i64,
-    pub attribute_option_id: Option<i64>,
-    pub attribute_label: Option<String>,
-    pub attribute_color_key: Option<String>,
-    pub title: String,
-    pub brief_markdown: String,
-    pub brief_html: String,
-    pub activity_time: String,
-    pub status_option_id: i64,
-    pub status_label: String,
-    pub status_color_key: String,
-    pub status_needs_attention: bool,
-    pub is_pinned: bool,
-    pub is_expanded: bool,
-    pub created_at: String,
-    pub updated_at: String,
-    pub digest: ActivityDigest,
-    pub notes: Vec<NoteRecord>,
-    pub conclusions: Vec<ConclusionRecord>,
-    pub todos: Vec<TodoRecord>,
-    pub documents: Vec<DocumentRecord>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectDashboard {
-    pub project: ProjectRecord,
-    pub key_conclusions: Vec<ConclusionRecord>,
-    pub open_todos: Vec<TodoRecord>,
-    pub starred_documents: Vec<DocumentRecord>,
-    pub recent_activities: Vec<ActivityDigest>,
-    pub unorganized_count: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConclusionGroup {
-    pub activity_id: Option<i64>,
-    pub activity_title: String,
-    pub conclusions: Vec<ConclusionRecord>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectPageData {
     pub project: ProjectRecord,
-    pub activity_feed: Vec<ActivityDigest>,
     pub project_documents: Vec<DocumentRecord>,
-    pub conclusion_groups: Vec<ConclusionGroup>,
     pub record_groups: Vec<ProjectRecordGroup>,
     pub records: Vec<NoteRecord>,
     pub unfinished_todos: Vec<TodoRecord>,
@@ -685,7 +440,6 @@ pub struct InternalReferenceSearchResult {
     pub label: String,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
     pub subtitle: String,
     pub updated_at: String,
 }
@@ -698,7 +452,6 @@ pub struct InternalReferenceResolveResult {
     pub label: String,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
     pub route: String,
     pub focus_id: Option<String>,
     pub managed_path: Option<String>,
@@ -711,7 +464,6 @@ pub struct WorkspaceSearchResult {
     pub id: i64,
     pub scope: Option<String>,
     pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
     pub source: Option<String>,
     pub title: String,
     pub subtitle: String,
@@ -813,46 +565,6 @@ pub struct ProjectDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivityCreateInput {
-    pub project_id: i64,
-    pub attribute_option_id: Option<i64>,
-    pub title: Option<String>,
-    pub activity_time: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityUpdateMetaInput {
-    pub activity_id: i64,
-    pub title: Option<String>,
-    pub brief_markdown: Option<String>,
-    pub brief_html: Option<String>,
-    pub attribute_option_id: Option<i64>,
-    pub clear_attribute_option: Option<bool>,
-    pub activity_time: Option<String>,
-    pub is_pinned: Option<bool>,
-    pub is_expanded: Option<bool>,
-    pub status_option_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityAttributeOptionUpsertInput {
-    pub id: Option<i64>,
-    pub label: String,
-    pub color_key: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityStatusOptionUpsertInput {
-    pub id: Option<i64>,
-    pub label: String,
-    pub color_key: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct FileTagOptionUpsertInput {
     pub project_id: Option<i64>,
     pub id: Option<i64>,
@@ -897,7 +609,6 @@ pub struct ContactDeleteInput {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRecordUpsertInput {
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub note_id: Option<i64>,
     pub title: Option<String>,
     pub markdown: String,
@@ -943,45 +654,9 @@ pub struct WorkspaceRecordDeleteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConclusionCreateInput {
-    pub project_id: i64,
-    pub activity_id: Option<i64>,
-    pub note_id: Option<i64>,
-    pub markdown: String,
-    pub html: String,
-    pub promoted_to_project: bool,
-    pub is_pinned: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConclusionListInput {
-    pub project_id: i64,
-    pub activity_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConclusionUpdateInput {
-    pub conclusion_id: i64,
-    pub markdown: String,
-    pub html: String,
-    pub promoted_to_project: Option<bool>,
-    pub is_pinned: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConclusionDeleteInput {
-    pub conclusion_id: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TodoCreateInput {
     pub scope: TodoScope,
     pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
     pub content: String,
     pub priority: String,
     pub due_date: Option<String>,
@@ -1056,7 +731,6 @@ pub struct TodoDeleteInput {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportInput {
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub source_path: String,
     pub is_starred: bool,
     pub tag_ids: Option<Vec<i64>>,
@@ -1066,7 +740,6 @@ pub struct DocumentImportInput {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportClipboardImageInput {
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub file_name: String,
     pub mime_type: String,
     pub data_base64: String,
@@ -1078,7 +751,6 @@ pub struct DocumentImportClipboardImageInput {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportNoteImageInput {
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub source_path: String,
 }
 
@@ -1086,7 +758,6 @@ pub struct DocumentImportNoteImageInput {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportClipboardNoteImageInput {
     pub project_id: i64,
-    pub activity_id: Option<i64>,
     pub file_name: String,
     pub mime_type: String,
     pub data_base64: String,
@@ -1118,7 +789,6 @@ pub struct WorkspaceNoteImageAsset {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentUpdateMetaInput {
     pub document_id: i64,
-    pub activity_id: Option<Option<i64>>,
     pub base_name: Option<String>,
     pub is_starred: Option<bool>,
     pub tag_ids: Option<Vec<i64>>,
@@ -1158,36 +828,15 @@ pub struct AiEditorSkillInput {
     pub prompt: Option<String>,
     #[serde(default = "default_ai_editor_skill_result_mode")]
     pub result_mode: String,
-    pub action_id: Option<i64>,
-    pub prompt_override: Option<String>,
     #[serde(default)]
     pub selected_text: String,
     pub expanded_markdown: Option<String>,
     #[serde(default)]
     pub placeholder_tokens: Vec<String>,
     pub document_context: Option<String>,
-    pub context: Option<AiEditorSkillContext>,
     #[serde(default)]
     pub target_type: Option<String>,
     pub image_target: Option<AiEditorImageTarget>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiArtifactGetInput {
-    pub kind: String,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
-    pub artifact_date: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiAnswerQuestionInput {
-    pub scope: AiAnswerScope,
-    pub question: String,
-    pub project_id: Option<i64>,
-    pub activity_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1272,21 +921,6 @@ pub struct AiCapabilityBindingUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiEditorSkillActionUpsertInput {
-    pub id: Option<i64>,
-    pub label: String,
-    pub prompt: String,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiEditorSkillActionDeleteInput {
-    pub action_id: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AiEditorSkillUpsertInput {
     pub id: Option<String>,
     pub name: String,
@@ -1334,7 +968,7 @@ mod tests {
                 "selectedText": "hello",
                 "expandedMarkdown": "hello",
                 "placeholderTokens": [],
-                "promptOverride": "请润色"
+                "prompt": "请润色"
             }
         }))
         .expect("camelCase ai job payload should deserialize");
@@ -1344,7 +978,7 @@ mod tests {
                 assert_eq!(target_key, "editor-rewrite:test");
                 assert_eq!(input.selected_text, "hello");
                 assert_eq!(input.expanded_markdown.as_deref(), Some("hello"));
-                assert_eq!(input.prompt_override.as_deref(), Some("请润色"));
+                assert_eq!(input.prompt.as_deref(), Some("请润色"));
                 assert_eq!(input.result_mode, "modify");
             }
             other => panic!("expected answer question payload, got {other:?}"),

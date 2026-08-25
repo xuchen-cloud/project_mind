@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Lightbulb, ListTodo, NotebookPen } from "lucide-react";
+import { FileText, ListTodo, NotebookPen } from "lucide-react";
 
 import type {
   InternalReferenceContext,
@@ -166,8 +166,6 @@ function renderKindIcon(kind: InternalReferenceSearchResult["kind"]) {
   switch (kind) {
     case "note":
       return <NotebookPen size={13} />;
-    case "conclusion":
-      return <Lightbulb size={13} />;
     case "todo":
       return <ListTodo size={13} />;
     case "document":

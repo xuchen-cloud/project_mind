@@ -58,7 +58,7 @@ interface UiStoreState {
   settingsOpen: boolean;
   settingsSection: SettingsSection;
   settingsProjectId: number | null;
-  projectComposer: "conclusion" | "todo" | null;
+  projectComposer: "todo" | null;
   workspaceSidebarTab: WorkspaceSidebarTab;
   workspaceProjectQuery: string;
   projectSidebarTab: ProjectSidebarTab;
@@ -84,7 +84,7 @@ interface UiStore extends UiStoreState {
   setSettingsProjectId: (projectId: number | null) => void;
   openSettings: (section?: SettingsSection, projectId?: number | null) => void;
   closeSettings: () => void;
-  setProjectComposer: (value: "conclusion" | "todo" | null) => void;
+  setProjectComposer: (value: "todo" | null) => void;
   setWorkspaceSidebarTab: (tab: WorkspaceSidebarTab) => void;
   setWorkspaceProjectQuery: (query: string) => void;
   setProjectSidebarTab: (tab: ProjectSidebarTab) => void;

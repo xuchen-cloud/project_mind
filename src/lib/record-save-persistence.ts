@@ -13,7 +13,7 @@ export async function persistRecordSnapshot(
 ) {
   const assetHandlers =
     snapshot.scope === "project"
-      ? buildProjectNoteImageAssetHandlers(snapshot.projectId, snapshot.activityId)
+      ? buildProjectNoteImageAssetHandlers(snapshot.projectId)
       : buildWorkspaceNoteImageAssetHandlers();
   const externalized = await externalizeEmbeddedImageDataUrls(
     snapshot.committedContent,
@@ -34,7 +34,6 @@ export async function persistRecordSnapshot(
       ? await projectMindApi.projectRecordUpsert({
           ...input,
           projectId: snapshot.projectId,
-          activityId: snapshot.activityId ?? undefined,
         })
       : await projectMindApi.workspaceRecordUpsert(input);
   return { updatedAt: record.updatedAt, record };

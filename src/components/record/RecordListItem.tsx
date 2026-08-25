@@ -62,7 +62,6 @@ export type RecordListItemScope =
   | {
       kind: "project";
       projectId: number;
-      activityId?: number | null;
       assetHandlers: RichEditorAssetHandlers;
     };
 
@@ -547,6 +546,9 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
           {renderHeaderStack()}
           <div className="project-history-record__content">
             <RichEditor
+              contentIdentity={scope.kind === "project"
+                ? `project-record:${scope.projectId}:${record.id}`
+                : `workspace-record:${record.id}`}
               html={value.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}

@@ -106,7 +106,7 @@ export const InternalReference = Node.create({
 });
 
 function asKind(value: unknown) {
-  return value === "conclusion" || value === "todo" || value === "document" ? value : "note";
+  return value === "todo" || value === "document" ? value : "note";
 }
 
 function asId(value: unknown) {

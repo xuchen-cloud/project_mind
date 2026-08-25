@@ -1,18 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  RouterProvider,
-  createMemoryRouter,
-  useLocation,
-} from "react-router-dom";
+import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
@@ -65,87 +54,6 @@ vi.mock("./services/projectMindApi", () => ({
     })),
     projectsList: vi.fn(async () => []),
     workspaceSearch: vi.fn(async () => []),
-    activityList: vi.fn(async () => []),
-    activityCreate: vi.fn(async () => ({
-      id: 88,
-      projectId: 1,
-      attributeOptionId: null,
-      attributeLabel: null,
-      attributeColorKey: null,
-      title: "",
-      activityTime: "2026-04-11T00:00:00.000Z",
-      statusOptionId: 1,
-      statusLabel: "待启动",
-      statusColorKey: "amber",
-      isPinned: false,
-      isExpanded: false,
-      createdAt: "",
-      updatedAt: "",
-      digest: {
-        id: 88,
-        projectId: 1,
-        attributeOptionId: null,
-        attributeLabel: null,
-        attributeColorKey: null,
-        title: "",
-        activityTime: "2026-04-11T00:00:00.000Z",
-        statusOptionId: 1,
-        statusLabel: "待启动",
-        statusColorKey: "amber",
-        isPinned: false,
-        noteCount: 0,
-        conclusionCount: 0,
-        todoCount: 0,
-        documentCount: 0,
-        completedTodoCount: 0,
-        totalTodoCount: 0,
-        hasOpenTodos: false,
-      },
-      notes: [],
-      conclusions: [],
-      todos: [],
-      documents: [],
-    })),
-    activityDelete: vi.fn(async ({ activityId }: { activityId: number }) => ({
-      id: activityId,
-      projectId: 1,
-      attributeOptionId: null,
-      attributeLabel: null,
-      attributeColorKey: null,
-      title: "Kickoff Review",
-      activityTime: "2026-04-11T00:00:00.000Z",
-      statusOptionId: 1,
-      statusLabel: "待启动",
-      statusColorKey: "amber",
-      isPinned: false,
-      isExpanded: false,
-      createdAt: "",
-      updatedAt: "",
-      digest: {
-        id: activityId,
-        projectId: 1,
-        attributeOptionId: null,
-        attributeLabel: null,
-        attributeColorKey: null,
-        title: "Kickoff Review",
-        activityTime: "2026-04-11T00:00:00.000Z",
-        statusOptionId: 1,
-        statusLabel: "待启动",
-        statusColorKey: "amber",
-        isPinned: false,
-        noteCount: 0,
-        conclusionCount: 0,
-        todoCount: 0,
-        documentCount: 0,
-        completedTodoCount: 0,
-        totalTodoCount: 0,
-        hasOpenTodos: false,
-      },
-      notes: [],
-      conclusions: [],
-      todos: [],
-      documents: [],
-    })),
     workspaceRecordList: vi.fn(async () => []),
     workspacePageGet: vi.fn(async () => ({
       quickNote: null,
@@ -194,19 +102,6 @@ vi.mock("./services/projectMindApi", () => ({
         paragraphSpacingAfterPx: 0,
       },
     })),
-    activitySettingsGet: vi.fn(async () => ({
-      activityAttributeOptions: [],
-      activityStatusOptions: [
-        {
-          id: 1,
-          label: "待启动",
-          colorKey: "amber",
-          isSystem: true,
-          createdAt: "",
-          updatedAt: "",
-        },
-      ],
-    })),
     projectTagSettingsGet: vi.fn(async () => ({
       tags: [],
     })),
@@ -240,16 +135,13 @@ vi.mock("./services/projectMindApi", () => ({
     })),
     projectPageGet: vi.fn(async () => ({
       project: null,
-      activityFeed: [],
       projectDocuments: [],
-      conclusionGroups: [],
       unfinishedTodos: [],
       finishedTodos: [],
     })),
     projectRecordUpsert: vi.fn(async () => ({
       id: 99,
       projectId: 1,
-      activityId: null,
       title: null,
       contentMarkdown: "",
       contentHtml: "<p></p>",
@@ -260,11 +152,7 @@ vi.mock("./services/projectMindApi", () => ({
   },
 }));
 
-import {
-  WorkspaceLayout,
-  isCurrentWorkspaceSearchResult,
-  workspaceSearchResultRoute,
-} from "./App";
+import { WorkspaceLayout, workspaceSearchResultRoute } from "./App";
 import { getCurrentWindowLabel, isProjectWindow } from "./lib/project-window";
 import { desktopApi } from "./services/desktopApi";
 import { projectMindApi } from "./services/projectMindApi";
@@ -303,18 +191,16 @@ describe("workspaceSearchResultRoute", () => {
         projectId: null,
       }),
     ).toBeNull();
-    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe(
-      "/projects/3?focus=record-8",
-    );
-    expect(workspaceSearchResultRoute({
-      ...baseResult,
-      kind: "todo",
-      id: 10,
-      scope: "project",
-      source: "Project",
-    })).toBe(
-      "/projects/3?focus=todo-10",
-    );
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe("/projects/3?focus=record-8");
+    expect(
+      workspaceSearchResultRoute({
+        ...baseResult,
+        kind: "todo",
+        id: 10,
+        scope: "project",
+        source: "Project",
+      }),
+    ).toBe("/projects/3?focus=todo-10");
     expect(
       workspaceSearchResultRoute({
         ...baseResult,
@@ -325,18 +211,8 @@ describe("workspaceSearchResultRoute", () => {
         projectId: null,
       }),
     ).toBe("/workspace?focus=todo-10");
-    expect(
-      workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 }),
-    ).toBe("/projects/3");
-    expect(
-      workspaceSearchResultRoute({ ...baseResult, kind: "project", id: 3 }),
-    ).toBeNull();
-  });
-
-  it("keeps legacy Activity and Conclusion hits out of the current search interface", () => {
-    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "activity", id: 7 })).toBe(false);
-    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "conclusion", id: 9 })).toBe(false);
-    expect(isCurrentWorkspaceSearchResult({ ...baseResult, kind: "note", id: 8 })).toBe(true);
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 })).toBe("/projects/3");
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "project", id: 3 })).toBeNull();
   });
 });
 
@@ -384,9 +260,7 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "创建项目" }));
     expect(await screen.findByText("project route body")).toBeInTheDocument();
@@ -395,9 +269,7 @@ describe("WorkspaceLayout", () => {
       quickNote: "",
       status: "active",
     });
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/1?renameProject=1",
-    );
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1?renameProject=1");
   });
 
   it("flushes the old Workspace queue before opening another Workspace", async () => {
@@ -439,14 +311,22 @@ describe("WorkspaceLayout", () => {
       workspaceKey: "/tmp/old-workspace",
       projectId: 1,
       recordId: 7,
-      activityId: null,
       title: "Record",
       tagIds: [],
       defaultCodeLanguage: null,
-      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+      committedContent: {
+        html: "<p>pending</p>",
+        text: "pending",
+        markdown: "pending",
+      },
     });
     const router = createMemoryRouter(
-      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout recordSaveCoordinator={coordinator} />,
+        },
+      ],
       { initialEntries: ["/"] },
     );
     render(
@@ -484,14 +364,22 @@ describe("WorkspaceLayout", () => {
       workspaceKey: "/tmp/workspace",
       projectId: 1,
       recordId: 7,
-      activityId: null,
       title: "Record",
       tagIds: [],
       defaultCodeLanguage: null,
-      committedContent: { html: "<p>pending</p>", text: "pending", markdown: "pending" },
+      committedContent: {
+        html: "<p>pending</p>",
+        text: "pending",
+        markdown: "pending",
+      },
     });
     const router = createMemoryRouter(
-      [{ path: "/", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout recordSaveCoordinator={coordinator} />,
+        },
+      ],
       { initialEntries: ["/"] },
     );
     render(
@@ -536,9 +424,7 @@ describe("WorkspaceLayout", () => {
 
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     await user.click(screen.getByRole("button", { name: "设置" }));
-    expect(
-      await screen.findByRole("dialog", { name: "设置" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 模型配置/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 技能/ })).toBeInTheDocument();
@@ -566,15 +452,9 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByRole("dialog", { name: "设置" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /富文本样式/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("region", { name: "富文本样式" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /富文本样式/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "富文本样式" })).toBeInTheDocument();
   });
 
   it("opens workspace tag settings from a workspace route", async () => {
@@ -599,9 +479,7 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByRole("dialog", { name: "设置" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Workspace 标签" })).toBeInTheDocument();
   });
@@ -621,8 +499,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
       {
@@ -635,16 +511,12 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 0,
       },
     ]);
     const LocationDisplay = () => {
       const location = useLocation();
-      return (
-        <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>
-      );
+      return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
     };
 
     const router = createMemoryRouter(
@@ -675,26 +547,14 @@ describe("WorkspaceLayout", () => {
     );
 
     expect(await screen.findByText("project route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/1?focus=todo-3",
-    );
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1?focus=todo-3");
 
-    await user.click(
-      await screen.findByRole("tab", { name: "Beta Project" }),
-    );
+    await user.click(await screen.findByRole("tab", { name: "Beta Project" }));
     expect(await screen.findByText("project route body")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByTestId("location-display")).toHaveTextContent(
-        "/projects/2",
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/2"));
 
     await user.click(screen.getByRole("tab", { name: "Alpha Project" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("location-display")).toHaveTextContent(
-        "/projects/1?focus=todo-3",
-      ),
-    );
+    await waitFor(() => expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1?focus=todo-3"));
   });
 
   it("keeps Workspace visible without an Ask entry", async () => {
@@ -719,9 +579,7 @@ describe("WorkspaceLayout", () => {
     );
 
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
-    expect(
-      screen.queryByRole("button", { name: "Ask" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
   });
 
@@ -764,8 +622,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
       {
@@ -778,8 +634,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 0,
-        unorganizedCount: 0,
         openTodoCount: 0,
       },
     ]);
@@ -817,12 +671,45 @@ describe("WorkspaceLayout", () => {
   it("prefetches project page data before a non-active tab is opened", async () => {
     useUiStore.setState({ openProjectIds: [1, 2] });
     vi.mocked(projectMindApi.projectsList).mockResolvedValue([
-      { id: 1, name: "Alpha Project", kind: "normal", status: "active", rootPath: "/tmp/alpha", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
-      { id: 2, name: "Beta Project", kind: "normal", status: "active", rootPath: "/tmp/beta", summary: "", isArchived: false, createdAt: "", updatedAt: "", activityCount: 0, unorganizedCount: 0, openTodoCount: 0 },
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        openTodoCount: 0,
+      },
+      {
+        id: 2,
+        name: "Beta Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/beta",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        openTodoCount: 0,
+      },
     ]);
 
     const router = createMemoryRouter(
-      [{ path: "/", element: <WorkspaceLayout />, children: [{ path: "projects/:projectId", element: <div>project route body</div> }] }],
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            {
+              path: "projects/:projectId",
+              element: <div>project route body</div>,
+            },
+          ],
+        },
+      ],
       { initialEntries: ["/projects/1"] },
     );
 
@@ -839,7 +726,9 @@ describe("WorkspaceLayout", () => {
     fireEvent.pointerEnter(betaTab);
 
     await waitFor(() =>
-      expect(projectMindApi.projectPageGet).toHaveBeenCalledWith({ projectId: 2 }),
+      expect(projectMindApi.projectPageGet).toHaveBeenCalledWith({
+        projectId: 2,
+      }),
     );
     expect(router.state.location.pathname).toBe("/projects/1");
   });
@@ -856,8 +745,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -874,14 +761,10 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
-      activityFeed: [],
       records: [],
       projectDocuments: [],
-      conclusionGroups: [],
       unfinishedTodos: [],
       finishedTodos: [],
     });
@@ -893,7 +776,12 @@ describe("WorkspaceLayout", () => {
         {
           path: "/",
           element: <WorkspaceLayout />,
-          children: [{ path: "projects/:projectId", element: <div>project route body</div> }],
+          children: [
+            {
+              path: "projects/:projectId",
+              element: <div>project route body</div>,
+            },
+          ],
         },
       ],
       { initialEntries: ["/projects/1"] },
@@ -927,8 +815,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -945,14 +831,10 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
-      activityFeed: [],
       records: [],
       projectDocuments: [],
-      conclusionGroups: [],
       unfinishedTodos: [],
       finishedTodos: [],
     });
@@ -1024,8 +906,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -1042,16 +922,12 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
-      activityFeed: [],
       records: [
         {
           id: 7,
           projectId: 1,
-          activityId: null,
           title: "Kickoff Review",
           contentMarkdown: "记录内容",
           contentHtml: "<p>记录内容</p>",
@@ -1062,7 +938,6 @@ describe("WorkspaceLayout", () => {
         },
       ],
       projectDocuments: [],
-      conclusionGroups: [],
       unfinishedTodos: [],
       finishedTodos: [],
     });
@@ -1107,9 +982,7 @@ describe("WorkspaceLayout", () => {
     fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
 
     expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent(
-      "/projects/1/records/7?recordQuery=kickoff",
-    );
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7?recordQuery=kickoff");
   });
 
   it("commits Record navigation before a delayed forced save resolves", async () => {
@@ -1129,8 +1002,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
     ]);
@@ -1147,16 +1018,12 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: "",
         updatedAt: "",
-        activityCount: 1,
-        unorganizedCount: 0,
         openTodoCount: 1,
       },
-      activityFeed: [],
       records: [
         {
           id: 7,
           projectId: 1,
-          activityId: null,
           title: "Current Record",
           contentMarkdown: "当前记录",
           contentHtml: "<p>当前记录</p>",
@@ -1168,7 +1035,6 @@ describe("WorkspaceLayout", () => {
         {
           id: 8,
           projectId: 1,
-          activityId: null,
           title: "Next Record",
           contentMarkdown: "下一条记录",
           contentHtml: "<p>下一条记录</p>",
@@ -1179,7 +1045,6 @@ describe("WorkspaceLayout", () => {
         },
       ],
       projectDocuments: [],
-      conclusionGroups: [],
       unfinishedTodos: [],
       finishedTodos: [],
     });
@@ -1227,7 +1092,6 @@ describe("WorkspaceLayout", () => {
         workspaceKey: "/tmp/workspace",
         projectId: detail.projectId,
         recordId: detail.recordId,
-        activityId: null,
         title: "Current Record",
         tagIds: [],
         defaultCodeLanguage: null,
@@ -1249,23 +1113,24 @@ describe("WorkspaceLayout", () => {
     expect(persist).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: 7,
-        committedContent: expect.objectContaining({ markdown: "最后一个字符！" }),
+        committedContent: expect.objectContaining({
+          markdown: "最后一个字符！",
+        }),
       }),
     );
-    expect(coordinator.getStatus()).toMatchObject({ phase: "saving", pendingCount: 1 });
+    expect(coordinator.getStatus()).toMatchObject({
+      phase: "saving",
+      pendingCount: 1,
+    });
     finishSave();
     await coordinator.flush();
 
     await router.navigate(-1);
     await waitFor(() => {
-      expect(screen.getByTestId("location-display")).toHaveTextContent(
-        "/projects/1/records/7",
-      );
+      expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7");
     });
     await Promise.resolve();
-    expect(persist).toHaveBeenLastCalledWith(
-      expect.objectContaining({ recordId: 8 }),
-    );
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ recordId: 8 }));
     await coordinator.flush();
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
@@ -1282,14 +1147,12 @@ describe("WorkspaceLayout", () => {
       isArchived: false,
       createdAt: timestamp,
       updatedAt: timestamp,
-      unorganizedCount: 0,
       openTodoCount: 0,
     });
     const projects = [project(1, "Alpha"), project(2, "Beta")];
     const record = (projectId: number, id: number, title: string) => ({
       id,
       projectId,
-      activityId: null,
       title,
       contentMarkdown: `${title} 正文`,
       contentHtml: `<p>${title} 正文</p>`,
@@ -1299,35 +1162,41 @@ describe("WorkspaceLayout", () => {
       updatedAt: timestamp,
     });
     const projectPages = new Map([
-      [1, {
-        project: projects[0],
-        records: [record(1, 7, "Alpha A"), record(1, 8, "Alpha B")],
-        projectDocuments: [],
-        conclusionGroups: [],
-        unfinishedTodos: [],
-        finishedTodos: [],
-      }],
-      [2, {
-        project: projects[1],
-        records: [record(2, 17, "Beta A")],
-        projectDocuments: [],
-        conclusionGroups: [],
-        unfinishedTodos: [],
-        finishedTodos: [],
-      }],
+      [
+        1,
+        {
+          project: projects[0],
+          records: [record(1, 7, "Alpha A"), record(1, 8, "Alpha B")],
+          projectDocuments: [],
+          unfinishedTodos: [],
+          finishedTodos: [],
+        },
+      ],
+      [
+        2,
+        {
+          project: projects[1],
+          records: [record(2, 17, "Beta A")],
+          projectDocuments: [],
+          unfinishedTodos: [],
+          finishedTodos: [],
+        },
+      ],
     ]);
     const workspacePage = {
       quickNote: null,
-      records: [{
-        id: 27,
-        title: "Workspace A",
-        contentMarkdown: "Workspace A 正文",
-        contentHtml: "<p>Workspace A 正文</p>",
-        defaultCodeLanguage: null,
-        tags: [],
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }],
+      records: [
+        {
+          id: 27,
+          title: "Workspace A",
+          contentMarkdown: "Workspace A 正文",
+          contentHtml: "<p>Workspace A 正文</p>",
+          defaultCodeLanguage: null,
+          tags: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
       unfinishedTodos: [],
       finishedTodos: [],
     };
@@ -1343,9 +1212,7 @@ describe("WorkspaceLayout", () => {
       securityMode: "workspace_password_encrypted" as const,
     };
     vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
-    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) =>
-      projectPages.get(projectId)!,
-    );
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) => projectPages.get(projectId)!);
     vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue(workspacePage);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchOnMount: false } },
@@ -1365,20 +1232,26 @@ describe("WorkspaceLayout", () => {
       adapter: { persist },
     });
     const router = createMemoryRouter(
-      [{
-        path: "/",
-        element: (
-          <WorkspaceLayout
-            cacheProjectOverviewPages
-            recordSaveCoordinator={coordinator}
-          />
-        ),
-        children: [
-          { path: "projects/:projectId/records/:noteId", element: <div>legacy project route</div> },
-          { path: "workspace/records/:noteId", element: <div>legacy workspace route</div> },
-          { path: "workspace", element: <div>legacy workspace overview</div> },
-        ],
-      }],
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
+          children: [
+            {
+              path: "projects/:projectId/records/:noteId",
+              element: <div>legacy project route</div>,
+            },
+            {
+              path: "workspace/records/:noteId",
+              element: <div>legacy workspace route</div>,
+            },
+            {
+              path: "workspace",
+              element: <div>legacy workspace overview</div>,
+            },
+          ],
+        },
+      ],
       { initialEntries: ["/projects/1/records/7"] },
     );
 
@@ -1390,9 +1263,7 @@ describe("WorkspaceLayout", () => {
 
     const fallback = document.querySelector("[data-record-focus-cached-fallback]");
     expect(fallback).toHaveTextContent("Alpha A 正文");
-    expect(
-      screen.queryByRole("status", { name: "正在打开记录" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "正在打开记录" })).not.toBeInTheDocument();
     await screen.findByPlaceholderText("记录标题");
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
     expect(alphaA).not.toBeNull();
@@ -1406,9 +1277,7 @@ describe("WorkspaceLayout", () => {
     await act(() => router.navigate("/projects/2/records/17"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
     expect(
-      document
-        .querySelector('[data-focus-page-key="2:17"]')
-        ?.closest('[data-project-resident-id="2"]'),
+      document.querySelector('[data-focus-page-key="2:17"]')?.closest('[data-project-resident-id="2"]'),
     ).not.toBeNull();
     await act(() => router.navigate("/projects/1/records/7"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
@@ -1416,17 +1285,13 @@ describe("WorkspaceLayout", () => {
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
     expect(
-      document
-        .querySelector('[data-focus-page-key="workspace:27"]')
-        ?.closest("[data-workspace-resident-shell]"),
+      document.querySelector('[data-focus-page-key="workspace:27"]')?.closest("[data-workspace-resident-shell]"),
     ).not.toBeNull();
     await act(() => router.navigate("/workspace"));
     expect(router.state.location.pathname).toBe("/workspace");
     await waitFor(() => {
       expect(
-        persist.mock.calls.filter(([snapshot]) =>
-          snapshot.scope === "workspace" && snapshot.recordId === 27,
-        ),
+        persist.mock.calls.filter(([snapshot]) => snapshot.scope === "workspace" && snapshot.recordId === 27),
       ).toHaveLength(1);
     });
     await act(() => router.navigate("/workspace/records/27"));
@@ -1456,7 +1321,6 @@ describe("WorkspaceLayout", () => {
         isArchived: false,
         createdAt: timestamp,
         updatedAt: timestamp,
-        unorganizedCount: 0,
         openTodoCount: 0,
       };
     });
@@ -1465,30 +1329,30 @@ describe("WorkspaceLayout", () => {
         project.id,
         {
           project,
-          records: [{
-            id: project.id * 10,
-            projectId: project.id,
-            activityId: null,
-            title: `Record ${project.id}`,
-            contentMarkdown: `Record body ${project.id}`,
-            contentHtml: `<p>Record body ${project.id}</p>`,
-            defaultCodeLanguage: null,
-            tags: [],
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          }],
+          records: [
+            {
+              id: project.id * 10,
+              projectId: project.id,
+              title: `Record ${project.id}`,
+              contentMarkdown: `Record body ${project.id}`,
+              contentHtml: `<p>Record body ${project.id}</p>`,
+              defaultCodeLanguage: null,
+              tags: [],
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
           projectDocuments: [],
-          conclusionGroups: [],
           unfinishedTodos: [],
           finishedTodos: [],
         },
       ]),
     );
     vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
-    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) =>
-      projectPages.get(projectId)!,
-    );
-    useUiStore.setState({ openProjectIds: projects.map((project) => project.id) });
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) => projectPages.get(projectId)!);
+    useUiStore.setState({
+      openProjectIds: projects.map((project) => project.id),
+    });
 
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchOnMount: false } },
@@ -1496,7 +1360,9 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.projects.all, projects);
     for (const project of projects) {
       queryClient.setQueryData(queryKeys.projectPage(project.id), projectPages.get(project.id));
-      queryClient.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+      queryClient.setQueryData(queryKeys.projectTags.project(project.id), {
+        tags: [],
+      });
     }
     queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
@@ -1508,22 +1374,19 @@ describe("WorkspaceLayout", () => {
     });
 
     const router = createMemoryRouter(
-      [{
-        path: "/",
-        element: (
-          <WorkspaceLayout
-            cacheProjectOverviewPages
-            recordSaveCoordinator={coordinator}
-          />
-        ),
-        children: [
-          { path: "projects/:projectId", element: <div>legacy route</div> },
-          {
-            path: "projects/:projectId/records/:noteId",
-            element: <div>legacy Focus route</div>,
-          },
-        ],
-      }],
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
+          children: [
+            { path: "projects/:projectId", element: <div>legacy route</div> },
+            {
+              path: "projects/:projectId/records/:noteId",
+              element: <div>legacy Focus route</div>,
+            },
+          ],
+        },
+      ],
       { initialEntries: ["/projects/1?view=record"] },
     );
     render(
@@ -1532,22 +1395,19 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-project-resident-id="1"]')).not.toBeNull(),
-    );
+    await waitFor(() => expect(document.querySelector('[data-project-resident-id="1"]')).not.toBeNull());
     const projectA = document.querySelector('[data-project-resident-id="1"]');
 
     for (const projectId of [2, 3, 4, 5]) {
       await act(() => router.navigate(`/projects/${projectId}`));
       await waitFor(() =>
-        expect(
-          document.querySelector(`[data-project-resident-id="${projectId}"]`),
-        ).toHaveAttribute("data-project-resident-active", "true"),
+        expect(document.querySelector(`[data-project-resident-id="${projectId}"]`)).toHaveAttribute(
+          "data-project-resident-active",
+          "true",
+        ),
       );
     }
-    await waitFor(() =>
-      expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5),
-    );
+    await waitFor(() => expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5));
     expect(projectA).toHaveAttribute("aria-hidden", "true");
     expect(projectA).toHaveAttribute("inert");
 
@@ -1567,9 +1427,7 @@ describe("WorkspaceLayout", () => {
     expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
 
     await userEvent.setup().click(screen.getByRole("button", { name: "关闭 Project 3" }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull(),
-    );
+    await waitFor(() => expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull());
 
     for (const projectId of [7, 8, 9, 10, 11, 12]) {
       const recordId = projectId * 10;
@@ -1578,9 +1436,7 @@ describe("WorkspaceLayout", () => {
         await coordinator.flush();
       });
       await waitFor(() =>
-        expect(
-          document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`),
-        ).not.toBeNull(),
+        expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`)).not.toBeNull(),
       );
     }
     expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
@@ -1588,5 +1444,4 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
   }, 15_000);
-
 });

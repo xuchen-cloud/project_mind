@@ -299,7 +299,6 @@ export function createTodoModule({
         ? {
             scope: "workspace",
             projectId: null,
-            activityId: null,
             content: synced.content,
             priority: command.priority,
             dueDate: command.dueDate,
@@ -308,7 +307,6 @@ export function createTodoModule({
         : {
             scope: "project",
             projectId: command.ownership.projectId,
-            activityId: null,
             content: synced.content,
             priority: command.priority,
             dueDate: command.dueDate,

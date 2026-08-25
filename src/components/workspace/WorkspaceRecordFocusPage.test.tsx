@@ -417,7 +417,6 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     const projectNote: NoteRecord = {
       id: 70,
       projectId: 1,
-      activityId: null,
       title: "Project Record",
       contentMarkdown: "Project 正文",
       contentHtml: "<p>Project 正文</p>",

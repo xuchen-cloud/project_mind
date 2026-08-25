@@ -13,7 +13,7 @@ describe("WorkspaceOverviewSidebar", () => {
     render(
       <WorkspaceOverviewSidebar
         workspaceRootPath="/tmp/workspace"
-        projects={[{ id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/tmp/beta", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", unorganizedCount: 0, openTodoCount: 0 }]}
+        projects={[{ id: 2, name: "Beta", kind: "normal", status: "active", rootPath: "/tmp/beta", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 }]}
         archivedProjects={[]}
         records={[]}
         recordQuery=""

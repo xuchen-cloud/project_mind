@@ -92,7 +92,6 @@ import {
   trimTrailingCodeBlockNewline,
 } from "../../lib/richTextContent";
 import type {
-  AiEditorSkillContext,
   AiEditorSkillResultMode,
   AiSettingsSnapshot,
   ContactRecord,
@@ -331,7 +330,7 @@ interface EditorSkillSessionState {
   resolvedProfileName?: string | null;
   usedDefaultFallback?: boolean;
   jobId?: number | null;
-  contextKey: string;
+  contentIdentity: string | null;
   contextStale?: boolean;
   parseError?: string | null;
 }
@@ -388,7 +387,7 @@ interface RichEditorProps {
   contactMentions?: RichEditorContactMentionOptions;
   tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot | null;
-  aiRewriteContext?: AiEditorSkillContext;
+  contentIdentity?: string;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -448,7 +447,7 @@ export function RichEditor({
   contactMentions,
   tagMentions,
   aiSettings,
-  aiRewriteContext,
+  contentIdentity,
   onOpenAiSettings,
   selectionActions,
   renderToolbarExtras,
@@ -2303,7 +2302,7 @@ export function RichEditor({
           onBlurPersisted?.(result);
         })
         .catch(() => {
-          // The activity page handles error feedback with a toast.
+          // The owning page handles error feedback with a toast.
         });
     }, 48);
   }, [
@@ -2977,9 +2976,12 @@ export function RichEditor({
   }, [editor, rollbackRewritePreview]);
 
   useEffect(() => {
-    const contextKey = JSON.stringify(aiRewriteContext ?? null);
+    const nextContentIdentity = contentIdentity ?? null;
     const sessions = rewriteSessionsRef.current;
-    if (sessions.length === 0 || sessions.every((session) => session.contextKey === contextKey)) {
+    if (
+      sessions.length === 0
+      || sessions.every((session) => session.contentIdentity === nextContentIdentity)
+    ) {
       return;
     }
     for (const session of [...sessions].reverse()) {
@@ -2994,7 +2996,7 @@ export function RichEditor({
     rewriteSessionRef.current = null;
     rewriteSessionsRef.current = [];
     setRewriteSessions([]);
-  }, [aiRewriteContext, editor, rollbackRewritePreview]);
+  }, [contentIdentity, editor, rollbackRewritePreview]);
 
   const startEditorSkill = useCallback(
     async (options: {
@@ -3109,7 +3111,7 @@ export function RichEditor({
         targetType,
         imageTarget: options.imageTarget,
         jobId: null,
-        contextKey: JSON.stringify(aiRewriteContext ?? null),
+        contentIdentity: contentIdentity ?? null,
         contextStale: false,
       };
       preserveEditorViewport(editor);
@@ -3149,7 +3151,6 @@ export function RichEditor({
             expandedMarkdown: selectionSnapshot.markdown,
             placeholderTokens: selectionSnapshot.placeholders.map((placeholder) => placeholder.token),
             documentContext: null,
-            context: aiRewriteContext,
             targetType,
             imageTarget: imagePath && signature
               ? {
@@ -3189,8 +3190,8 @@ export function RichEditor({
       }
     },
     [
-      aiRewriteContext,
       aiSettings?.aiSecretsUnlocked,
+      contentIdentity,
       editor,
       imageInterpretationReady,
       onOpenAiSettings,
