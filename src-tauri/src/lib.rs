@@ -37,15 +37,16 @@ use models::{
     InternalReferenceResolveResult, InternalReferenceSearchInput, InternalReferenceSearchResult,
     NoteRecord, ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput,
     ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
-    ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput, RichTextStyleSettings,
-    RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-    TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoUpdateContentInput,
-    TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
-    WorkspaceClipboardNoteImageImportInput, WorkspaceCreateInput, WorkspaceNoteImageAsset,
-    WorkspaceNoteImageImportInput, WorkspaceOpenInput, WorkspacePageData,
-    WorkspaceQuickNoteUpsertInput, WorkspaceRecord, WorkspaceRecordDeleteInput,
-    WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
-    WorkspaceStatusSnapshot, WorkspaceSummary, WorkspaceUnlockInput,
+    ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput, ProjectUpdateInput,
+    ProjectsListInput, RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput,
+    TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
+    TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
+    TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput,
+    WorkspaceCreateInput, WorkspaceNoteImageAsset, WorkspaceNoteImageImportInput,
+    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
+    WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput, WorkspaceRecordUpsertInput,
+    WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
+    WorkspaceUnlockInput,
 };
 use record_export::{
     desktop_cancel_export_image, desktop_cancel_export_write, desktop_export_available_bytes,
@@ -662,6 +663,14 @@ fn project_record_upsert(
 }
 
 #[tauri::command]
+fn project_record_metadata_apply(
+    state: State<'_, AppState>,
+    input: ProjectRecordMetadataApplyInput,
+) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.project_record_metadata_apply(input))
+}
+
+#[tauri::command]
 fn project_record_delete(
     state: State<'_, AppState>,
     input: ProjectRecordDeleteInput,
@@ -767,6 +776,14 @@ fn workspace_record_upsert(
     input: WorkspaceRecordUpsertInput,
 ) -> CommandResult<WorkspaceRecord> {
     with_db(state, |db| db.workspace_record_upsert(input))
+}
+
+#[tauri::command]
+fn workspace_record_metadata_apply(
+    state: State<'_, AppState>,
+    input: WorkspaceRecordMetadataApplyInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_record_metadata_apply(input))
 }
 
 #[tauri::command]
@@ -1078,6 +1095,7 @@ pub fn run() {
             contact_upsert,
             contact_delete,
             project_record_upsert,
+            project_record_metadata_apply,
             project_record_delete,
             todo_create,
             todo_update_status,
@@ -1093,6 +1111,7 @@ pub fn run() {
             workspace_quick_note_upsert,
             workspace_record_list,
             workspace_record_upsert,
+            workspace_record_metadata_apply,
             workspace_record_delete,
             workspace_note_image_import,
             workspace_clipboard_note_image_import,

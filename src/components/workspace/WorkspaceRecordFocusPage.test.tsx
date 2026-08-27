@@ -25,9 +25,19 @@ const apiMocks = vi.hoisted(() => ({
   projectTagSettingsGet: vi.fn(),
   projectTagUpsert: vi.fn(),
   workspaceRecordUpsert: vi.fn(),
+  workspaceRecordMetadataApply: vi.fn(),
   aiSettingsGet: vi.fn(),
   projectPageGet: vi.fn(),
   projectRecordUpsert: vi.fn(),
+}));
+
+const aiMetadataMocks = vi.hoisted(() => ({
+  enqueueAndWait: vi.fn(),
+}));
+
+vi.mock("../../lib/aiJobs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/aiJobs")>()),
+  enqueueAndWait: aiMetadataMocks.enqueueAndWait,
 }));
 
 const recordExportMocks = vi.hoisted(() => ({
@@ -265,9 +275,11 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
     apiMocks.workspaceRecordUpsert.mockReset();
+    apiMocks.workspaceRecordMetadataApply.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.projectPageGet.mockReset();
     apiMocks.projectRecordUpsert.mockReset();
+    aiMetadataMocks.enqueueAndWait.mockReset();
 
     apiMocks.workspacePageGet.mockResolvedValue(buildWorkspacePage());
     apiMocks.projectsList.mockResolvedValue([]);
@@ -292,6 +304,18 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       title: input.title,
       contentMarkdown: input.markdown ?? "",
       contentHtml: input.html ?? "",
+    }));
+    apiMocks.workspaceRecordMetadataApply.mockImplementation(async (input: {
+      title: string;
+      tagIds: number[];
+      newTags: Array<{ label: string }>;
+    }) => ({
+      ...noteA,
+      title: input.title,
+      tags: [
+        ...input.tagIds.map((id) => ({ id, label: `Tag ${id}`, colorKey: "blue" as const })),
+        ...input.newTags.map((tag, index) => ({ id: 30 + index, label: tag.label, colorKey: "teal" as const })),
+      ],
     }));
   });
 
@@ -325,6 +349,57 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文 A");
     expect(view.container.querySelector(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+  });
+
+  it("offers AI title and Tag filling in a Workspace Record", async () => {
+    renderPage(<WorkspaceRecordFocusPage />);
+
+    expect(
+      await screen.findByRole("button", { name: "AI 填写标题和标签" }),
+    ).toBeEnabled();
+  });
+
+  it("applies AI metadata through the Workspace Record atomic save path", async () => {
+    apiMocks.aiSettingsGet.mockResolvedValue({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: true,
+      hasUsableImageDefault: false,
+      securityMode: "workspace",
+      aiSecretsUnlocked: true,
+      execution: { maxConcurrency: 1 },
+      editorSkills: [],
+    });
+    apiMocks.projectTagSettingsGet.mockResolvedValue({
+      tags: [{ id: 12, label: "长期方法", colorKey: "teal", usageCount: 2, createdAt: "", updatedAt: "" }],
+    });
+    aiMetadataMocks.enqueueAndWait.mockResolvedValue({
+      id: 9,
+      kind: "record_metadata",
+      targetKey: "record-ai-metadata:workspace:7",
+      status: "succeeded",
+      queuedAt: "",
+      result: {
+        kind: "record_metadata",
+        metadata: { title: "Workspace 方法总结", existingTagIds: [12], newTags: ["复盘"] },
+      },
+    });
+    renderPage(<WorkspaceRecordFocusPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "AI 填写标题和标签" }));
+
+    await waitFor(() => expect(apiMocks.workspaceRecordMetadataApply).toHaveBeenCalledWith({
+      noteId: 7,
+      title: "Workspace 方法总结",
+      tagIds: [12],
+      newTags: [{ label: "复盘", colorKey: expect.any(String) }],
+    }));
+    expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "record_metadata",
+      input: expect.objectContaining({ markdown: "正文 A" }),
+    }));
+    expect(screen.getByDisplayValue("Workspace 方法总结")).toBeInTheDocument();
   });
 
   it("exports the Workspace Record from committed content and excludes pending AI preview", async () => {

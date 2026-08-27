@@ -154,7 +154,8 @@ export interface ContactRecord {
 
 export type AiJobKind =
   | "profile_test"
-  | "editor_skill";
+  | "editor_skill"
+  | "record_metadata";
 
 export type AiJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -188,9 +189,23 @@ export interface AiEditorSkillJobResult extends AiJobBase {
   rewrite: AiEditorSkillResult;
 }
 
+export interface AiRecordMetadataResult {
+  title: string;
+  existingTagIds: number[];
+  newTags: string[];
+  resolvedModel?: string | null;
+  resolvedProfileName?: string | null;
+}
+
+export interface AiRecordMetadataJobResult extends AiJobBase {
+  kind: "record_metadata";
+  metadata: AiRecordMetadataResult;
+}
+
 export type AiJobResult =
   | AiProfileTestJobResult
-  | AiEditorSkillJobResult;
+  | AiEditorSkillJobResult
+  | AiRecordMetadataJobResult;
 
 export interface AiJobSnapshot {
   id: number;
@@ -230,9 +245,19 @@ export interface AiEditorSkillJobInput {
   input: AiEditorSkillInput;
 }
 
+export interface AiRecordMetadataJobInput {
+  kind: "record_metadata";
+  targetKey: string;
+  input: {
+    markdown: string;
+    existingTags: Array<{ id: number; label: string }>;
+  };
+}
+
 export type AiJobEnqueueInput =
   | AiProfileTestJobInput
-  | AiEditorSkillJobInput;
+  | AiEditorSkillJobInput
+  | AiRecordMetadataJobInput;
 
 export interface ProjectPageData {
   project: ProjectRecord;
@@ -409,6 +434,19 @@ export interface ProjectRecordUpsertInput {
   tagIds?: number[];
 }
 
+export interface RecordMetadataNewTagInput {
+  label: string;
+  colorKey: TagColorKey;
+}
+
+export interface ProjectRecordMetadataApplyInput {
+  projectId: number;
+  noteId: number;
+  title: string;
+  tagIds: number[];
+  newTags: RecordMetadataNewTagInput[];
+}
+
 export interface ProjectRecordDeleteInput {
   noteId: number;
 }
@@ -420,6 +458,13 @@ export interface WorkspaceRecordUpsertInput {
   html: string;
   defaultCodeLanguage?: string | null;
   tagIds?: number[];
+}
+
+export interface WorkspaceRecordMetadataApplyInput {
+  noteId: number;
+  title: string;
+  tagIds: number[];
+  newTags: RecordMetadataNewTagInput[];
 }
 
 export interface WorkspaceQuickNoteUpsertInput {

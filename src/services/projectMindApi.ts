@@ -40,6 +40,7 @@ import type {
   InternalReferenceSearchInput,
   InternalReferenceSearchResult,
   ProjectRecordDeleteInput,
+  ProjectRecordMetadataApplyInput,
   NoteRecord,
   ProjectRecordUpsertInput,
   ProjectArchiveInput,
@@ -70,6 +71,7 @@ import type {
   WorkspaceNoteImageAsset,
   WorkspaceNoteImageImportInput,
   WorkspaceRecordDeleteInput,
+  WorkspaceRecordMetadataApplyInput,
   WorkspaceRecord,
   WorkspaceRecordUpsertInput,
   WorkspaceCreateInput,
@@ -122,6 +124,8 @@ export const projectMindApi = {
     desktopApi.command<ContactRecord>("contact_delete", { input }),
   projectRecordUpsert: (input: ProjectRecordUpsertInput) =>
     desktopApi.command<NoteRecord>("project_record_upsert", { input }),
+  projectRecordMetadataApply: (input: ProjectRecordMetadataApplyInput) =>
+    desktopApi.command<NoteRecord>("project_record_metadata_apply", { input }),
   projectRecordDelete: (input: ProjectRecordDeleteInput) =>
     desktopApi.command<NoteRecord>("project_record_delete", { input }),
   todoCreate: (input: TodoCreateInput) =>
@@ -152,6 +156,8 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceRecord[]>("workspace_record_list"),
   workspaceRecordUpsert: (input: WorkspaceRecordUpsertInput) =>
     desktopApi.command<WorkspaceRecord>("workspace_record_upsert", { input }),
+  workspaceRecordMetadataApply: (input: WorkspaceRecordMetadataApplyInput) =>
+    desktopApi.command<WorkspaceRecord>("workspace_record_metadata_apply", { input }),
   workspaceRecordDelete: (input: WorkspaceRecordDeleteInput) =>
     desktopApi.command<WorkspaceRecord>("workspace_record_delete", { input }),
   workspaceNoteImageImport: (input: WorkspaceNoteImageImportInput) =>

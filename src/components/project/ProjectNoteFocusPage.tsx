@@ -49,6 +49,7 @@ import {
   recordFocusDraftFromRecord,
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
+import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 
 interface ProjectRecordDraft {
   title: string;
@@ -179,7 +180,7 @@ export function ProjectNoteFocusPage({
   }, [projectPageQuery.data, recordId]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
-  const aiSettings = aiSettingsQuery.data ?? null;
+  const aiSettings = aiSettingsQuery.data;
   const draftReady = recordId !== null && loadedNoteId === recordId;
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !draftReady) {
@@ -486,18 +487,46 @@ export function ProjectNoteFocusPage({
           )}
         >
           <div className="grid gap-4">
-            <TextField
-              ref={titleInputRef}
-              value={title}
-              placeholder="记录标题"
-              onChange={(event) => {
-                setTitle(event.target.value);
-                titleValueRef.current = event.target.value;
-              }}
-              onBlur={() => void saveTitleIfChanged().catch(() => undefined)}
-              onKeyDown={handleTitleKeyDown}
-              className="text-lg font-medium"
-            />
+            <div className="flex min-w-0 items-center gap-2">
+              <TextField
+                ref={titleInputRef}
+                value={title}
+                placeholder="记录标题"
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  titleValueRef.current = event.target.value;
+                }}
+                onBlur={() => void saveTitleIfChanged().catch(() => undefined)}
+                onKeyDown={handleTitleKeyDown}
+                className="min-w-0 flex-1 text-lg font-medium"
+              />
+              <RecordAiMetadataAction
+                target={{ scope: "project", projectId, recordId }}
+                aiSettings={aiSettings}
+                availableTags={availableTags}
+                currentTagIds={tagIds}
+                getCommittedMarkdown={() =>
+                  editorControllerRef.current?.getCommittedValue().markdown ??
+                  normalizeRichEditorValue(content).markdown
+                }
+                beforeApply={async () => {
+                  if (!(await saveCurrentRecord())) {
+                    throw new Error("应用标题和标签前保存正文失败");
+                  }
+                }}
+                onApplied={(value) => {
+                  setTitle(value.title);
+                  titleValueRef.current = value.title;
+                  lastSavedTitleRef.current = value.title;
+                  const nextTagIds = value.tags.map((tag) => tag.id);
+                  setTagIds(nextTagIds);
+                  tagIdsValueRef.current = nextTagIds;
+                  void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
+                  void queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.project(projectId) });
+                }}
+                onOpenAiSettings={() => openSettings("ai-rewrite")}
+              />
+            </div>
             <EntityTagEditor
               projectId={projectId}
               availableTags={availableTags}
