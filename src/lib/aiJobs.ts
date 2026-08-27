@@ -8,6 +8,7 @@ import type {
   AiJobStatus,
   AiProfileTestInput,
   AiProfileTestResult,
+  AiRecordMetadataResult,
 } from "./types";
 import { projectMindApi } from "../services/projectMindApi";
 import { useAiJobStore } from "../state/ai-job-store";
@@ -121,6 +122,14 @@ export function readEditorSkillJobResult(job: AiJobSnapshot): AiEditorSkillResul
   }
 
   return job.result.rewrite;
+}
+
+export function readRecordMetadataJobResult(job: AiJobSnapshot): AiRecordMetadataResult {
+  if (job.result?.kind !== "record_metadata") {
+    throw new Error("AI Record metadata job did not return metadata");
+  }
+
+  return job.result.metadata;
 }
 
 async function waitForAiJob(jobId: number) {

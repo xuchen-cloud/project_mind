@@ -140,6 +140,10 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 编辑器中已经由用户确认、允许保存的正文视图，不包含任何仍待确认的 AI Modification 或 AI Answer。
 _Avoid_：实时预览内容、编辑器 DOM 快照
 
+**AI Metadata Fill**：
+用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。
+_Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag 推荐
+
 ### 内容携带
 
 **Record Export**：

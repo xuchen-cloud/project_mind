@@ -28,13 +28,23 @@ const recordExportMocks = vi.hoisted(() => ({
   sources: [] as Array<{ committedHtml: string; recordKind: string }>,
 }));
 
+const aiMetadataMocks = vi.hoisted(() => ({
+  enqueueAndWait: vi.fn(),
+}));
+
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   projectPageGet: vi.fn(),
   projectTagSettingsGet: vi.fn(),
   projectTagUpsert: vi.fn(),
   projectRecordUpsert: vi.fn(),
+  projectRecordMetadataApply: vi.fn(),
   aiSettingsGet: vi.fn(),
+}));
+
+vi.mock("../../lib/aiJobs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/aiJobs")>()),
+  enqueueAndWait: aiMetadataMocks.enqueueAndWait,
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
@@ -308,7 +318,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
     apiMocks.projectRecordUpsert.mockReset();
+    apiMocks.projectRecordMetadataApply.mockReset();
     apiMocks.aiSettingsGet.mockReset();
+    aiMetadataMocks.enqueueAndWait.mockReset();
 
     apiMocks.projectsList.mockResolvedValue([project]);
     apiMocks.aiSettingsGet.mockResolvedValue(null);
@@ -329,6 +341,21 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         contentMarkdown: input.markdown ?? currentNote.contentMarkdown,
         contentHtml: input.html ?? currentNote.contentHtml,
         tags: input.tagIds?.map((id) => ({ id, label: id === 22 ? "紧急" : `Tag ${id}`, colorKey: "blue" })) ?? currentNote.tags,
+      };
+      return currentNote;
+    });
+    apiMocks.projectRecordMetadataApply.mockImplementation(async (input: {
+      title: string;
+      tagIds: number[];
+      newTags: Array<{ label: string }>;
+    }) => {
+      currentNote = {
+        ...currentNote,
+        title: input.title,
+        tags: [
+          ...input.tagIds.map((id) => ({ id, label: `Tag ${id}`, colorKey: "blue" as const })),
+          ...input.newTags.map((tag, index) => ({ id: 30 + index, label: tag.label, colorKey: "teal" as const })),
+        ],
       };
       return currentNote;
     });
@@ -364,6 +391,58 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文");
     expect(view.container.querySelector("[data-focus-page-key]")).not.toHaveAttribute("data-cold-entry");
+  });
+
+  it("offers AI title and Tag filling in a Project Record", async () => {
+    render(<ProjectNoteFocusPage />);
+
+    expect(
+      await screen.findByRole("button", { name: "AI 填写标题和标签" }),
+    ).toBeEnabled();
+  });
+
+  it("applies AI metadata through the Project Record atomic save path", async () => {
+    apiMocks.aiSettingsGet.mockResolvedValue({
+      profiles: [],
+      bindings: [],
+      hasUsableDefault: true,
+      hasUsableImageDefault: false,
+      securityMode: "workspace",
+      aiSecretsUnlocked: true,
+      execution: { maxConcurrency: 1 },
+      editorSkills: [],
+    });
+    apiMocks.projectTagSettingsGet.mockResolvedValue({
+      tags: [{ id: 12, label: "用户研究", colorKey: "teal", usageCount: 2, createdAt: "", updatedAt: "" }],
+    });
+    aiMetadataMocks.enqueueAndWait.mockResolvedValue({
+      id: 9,
+      kind: "record_metadata",
+      targetKey: "record-ai-metadata:project:1:7",
+      status: "succeeded",
+      queuedAt: "",
+      result: {
+        kind: "record_metadata",
+        metadata: { title: "访谈结论", existingTagIds: [12], newTags: ["可用性"] },
+      },
+    });
+    render(<ProjectNoteFocusPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "AI 填写标题和标签" }));
+
+    await waitFor(() => expect(apiMocks.projectRecordMetadataApply).toHaveBeenCalledWith({
+      projectId: 1,
+      noteId: 7,
+      title: "访谈结论",
+      tagIds: [12],
+      newTags: [{ label: "可用性", colorKey: expect.any(String) }],
+    }));
+    expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "record_metadata",
+      input: expect.objectContaining({ markdown: "正文" }),
+    }));
+    expect(screen.getByDisplayValue("访谈结论")).toBeInTheDocument();
   });
 
   it("does not refetch cached Project Labels when a Warm Focus becomes Active", async () => {

@@ -214,6 +214,8 @@ Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工�
 
 当前正式 AI 能力是 `AI Editor Skill`：用户可配置技能提示词、结果模式、菜单入口和模型绑定，并对已提交的编辑器内容执行改写、解释或图片文字提取。
 
+Workspace Record 与 Project Record 还提供 `AI Metadata Fill`：用户在标题区域显式发起后，系统从 Committed Content 生成标题，优先复用同作用域现有 Tag，并可新增最多 3 个 Tag；标题、Tag 新建与 Tag 关联以一次原子变更写入。
+
 ## 5. 当前设置面板
 
 设置面板当前包含 5 个分区：

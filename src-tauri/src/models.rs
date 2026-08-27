@@ -310,12 +310,23 @@ pub struct AiEditorSkillResult {
     pub parse_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRecordMetadataResult {
+    pub title: String,
+    pub existing_tag_ids: Vec<i64>,
+    pub new_tags: Vec<String>,
+    pub resolved_model: Option<String>,
+    pub resolved_profile_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AiJobKind {
     ProfileTest,
     #[serde(rename = "editor_skill", alias = "editor_rewrite")]
     EditorSkill,
+    RecordMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -348,7 +359,12 @@ pub enum AiJobResult {
         test_result: AiProfileTestResult,
     },
     #[serde(rename = "editor_skill")]
-    EditorSkill { rewrite: AiEditorSkillResult },
+    EditorSkill {
+        rewrite: AiEditorSkillResult,
+    },
+    RecordMetadata {
+        metadata: AiRecordMetadataResult,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -620,6 +636,25 @@ pub struct ProjectRecordUpsertInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RecordMetadataNewTagInput {
+    pub label: String,
+    pub color_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRecordMetadataApplyInput {
+    pub project_id: i64,
+    pub note_id: i64,
+    pub title: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+    #[serde(default)]
+    pub new_tags: Vec<RecordMetadataNewTagInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectRecordDeleteInput {
     pub note_id: i64,
 }
@@ -634,6 +669,17 @@ pub struct WorkspaceRecordUpsertInput {
     pub default_code_language: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRecordMetadataApplyInput {
+    pub note_id: i64,
+    pub title: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+    #[serde(default)]
+    pub new_tags: Vec<RecordMetadataNewTagInput>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -840,6 +886,21 @@ pub struct AiEditorSkillInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRecordMetadataTagOption {
+    pub id: i64,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRecordMetadataInput {
+    pub markdown: String,
+    #[serde(default)]
+    pub existing_tags: Vec<AiRecordMetadataTagOption>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiJobEnqueueInput {
     ProfileTest {
@@ -853,6 +914,11 @@ pub enum AiJobEnqueueInput {
         target_key: String,
         input: AiEditorSkillInput,
     },
+    RecordMetadata {
+        #[serde(rename = "targetKey", alias = "target_key")]
+        target_key: String,
+        input: AiRecordMetadataInput,
+    },
 }
 
 impl AiJobEnqueueInput {
@@ -860,14 +926,15 @@ impl AiJobEnqueueInput {
         match self {
             Self::ProfileTest { .. } => AiJobKind::ProfileTest,
             Self::EditorSkill { .. } => AiJobKind::EditorSkill,
+            Self::RecordMetadata { .. } => AiJobKind::RecordMetadata,
         }
     }
 
     pub fn target_key(&self) -> &str {
         match self {
-            Self::ProfileTest { target_key, .. } | Self::EditorSkill { target_key, .. } => {
-                target_key
-            }
+            Self::ProfileTest { target_key, .. }
+            | Self::EditorSkill { target_key, .. }
+            | Self::RecordMetadata { target_key, .. } => target_key,
         }
     }
 }

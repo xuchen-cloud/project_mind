@@ -59,6 +59,7 @@ import {
   recordFocusDraftFromRecord,
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
+import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -161,7 +162,7 @@ export function WorkspaceRecordFocusPage({
   }, [recordId, workspacePageQuery.data]);
 
   const availableTags = tagSettingsQuery.data?.tags ?? [];
-  const aiSettings = aiSettingsQuery.data ?? null;
+  const aiSettings = aiSettingsQuery.data;
   const draftReady = recordId !== null && loadedNoteId === recordId;
   const visibleProjects = useMemo(
     () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
@@ -600,20 +601,47 @@ export function WorkspaceRecordFocusPage({
         <div ref={scrollRef} className="project-overview-focus__scroll">
           <div className={withPageWidthClass("mx-auto w-full px-6 py-6", pageWidthMode, "focus")}>
             <div className="grid gap-4">
-              <TextField
-                value={title}
-                placeholder="记录标题"
-                onChange={(event) => {
-                  setTitle(event.target.value);
-                  titleValueRef.current = event.target.value;
-                }}
-                onBlur={() => {
-                  if (draftReady && title !== (note?.title ?? initialDraft?.title ?? "")) {
-                    void handleSave(editorControllerRef.current?.getValue() ?? content);
+              <div className="flex min-w-0 items-center gap-2">
+                <TextField
+                  value={title}
+                  placeholder="记录标题"
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                    titleValueRef.current = event.target.value;
+                  }}
+                  onBlur={() => {
+                    if (draftReady && title !== (note?.title ?? initialDraft?.title ?? "")) {
+                      void handleSave(editorControllerRef.current?.getValue() ?? content);
+                    }
+                  }}
+                  className="min-w-0 flex-1 text-lg font-medium"
+                />
+                <RecordAiMetadataAction
+                  target={{ scope: "workspace", recordId }}
+                  aiSettings={aiSettings}
+                  availableTags={availableTags}
+                  currentTagIds={tagIds}
+                  getCommittedMarkdown={() =>
+                    editorControllerRef.current?.getCommittedValue().markdown ??
+                    normalizeRichEditorValue(content).markdown
                   }
-                }}
-                className="text-lg font-medium"
-              />
+                  beforeApply={async () => {
+                    if (!(await saveCurrentRecord())) {
+                      throw new Error("应用标题和标签前保存正文失败");
+                    }
+                  }}
+                  onApplied={(value) => {
+                    setTitle(value.title);
+                    titleValueRef.current = value.title;
+                    const nextTagIds = value.tags.map((tag) => tag.id);
+                    setTagIds(nextTagIds);
+                    tagIdsValueRef.current = nextTagIds;
+                    void queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                    void queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+                  }}
+                  onOpenAiSettings={() => openSettings("ai-rewrite")}
+                />
+              </div>
               <EntityTagEditor
                 projectId={null}
                 availableTags={availableTags}

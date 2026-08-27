@@ -316,7 +316,10 @@ Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinat
 
 ### 8.1 当前 AI 能力
 
-当前正式暴露的 AI 能力是可配置的编辑器技能，包括文字改写、解释与图片文字提取。技能可单独选择模型，也可继承默认模型角色。
+当前正式暴露的 AI 能力包括：
+
+- 可配置的 AI Editor Skill，包括文字改写、解释与图片文字提取；技能可单独选择模型，也可继承默认模型角色。
+- Record 的 AI Metadata Fill；它使用通用默认模型，通过独立 `record_metadata` Job 从 Committed Content 生成标题与同作用域 Tag 建议，并由原子命令写入。
 
 ### 8.2 Job 模式
 

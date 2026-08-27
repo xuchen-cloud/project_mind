@@ -18,8 +18,9 @@ use crate::{
         AiEditorSkillReorderInput, AiEditorSkillResult, AiEditorSkillUpsertInput,
         AiExecutionSettings, AiJobEnqueueInput, AiJobResult, AiProfileTestInput,
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
-        AiProviderProfileUpsertInput, AiSettingsSnapshot, ContactDeleteInput, ContactRecord,
-        ContactSearchInput, ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
+        AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
+        AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
+        ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
         DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
@@ -28,15 +29,16 @@ use crate::{
         InternalReferenceResolveResult, InternalReferenceSearchInput,
         InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
         ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
-        ProjectRecordDeleteInput, ProjectRecordUpsertInput, ProjectUpdateInput, ProjectsListInput,
-        RichTextFontSelection, RichTextStyleBlockSettings, RichTextStyleSettings,
-        RichTextStyleUpsertInput, TodoAddProgressInput, TodoCreateInput, TodoDeleteInput,
-        TodoDeleteProgressInput, TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput,
-        TodoUpdatePriorityInput, TodoUpdateProgressInput, TodoUpdateStatusInput,
-        TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
+        ProjectRecordDeleteInput, ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput,
+        ProjectUpdateInput, ProjectsListInput, RecordMetadataNewTagInput, RichTextFontSelection,
+        RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
+        TodoAddProgressInput, TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput,
+        TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput, TodoUpdatePriorityInput,
+        TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
+        WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
         WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput,
-        WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordUpsertInput,
-        WorkspaceSearchInput, WorkspaceSearchResult,
+        WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput,
+        WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
@@ -1782,6 +1784,38 @@ impl Database {
         }
     }
 
+    pub fn project_record_metadata_apply(
+        &mut self,
+        input: ProjectRecordMetadataApplyInput,
+    ) -> Result<NoteRecord> {
+        let current = self.note_record(input.note_id)?;
+        if current.project_id != input.project_id {
+            return Err(anyhow!(
+                "Project Record does not belong to the requested Project"
+            ));
+        }
+        let title = validate_record_metadata_title(&input.title)?;
+        let timestamp = now_iso();
+        self.conn.execute_batch("SAVEPOINT record_metadata_apply")?;
+        let result = (|| -> Result<()> {
+            let tag_ids = self.resolve_record_metadata_tag_ids(
+                Some(input.project_id),
+                &input.tag_ids,
+                &input.new_tags,
+                &timestamp,
+            )?;
+            self.conn.execute(
+                "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![title, timestamp, input.note_id],
+            )?;
+            self.replace_note_tags(input.note_id, &tag_ids, &timestamp)?;
+            self.touch_project(input.project_id)?;
+            Ok(())
+        })();
+        self.finish_record_metadata_savepoint(result)?;
+        self.note_record(input.note_id)
+    }
+
     pub fn project_record_delete(&mut self, input: ProjectRecordDeleteInput) -> Result<NoteRecord> {
         let current = self.note_record(input.note_id)?;
         self.conn
@@ -1864,6 +1898,80 @@ impl Database {
                 let note_id = self.conn.last_insert_rowid();
                 self.replace_workspace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note_id)
+            }
+        }
+    }
+
+    pub fn workspace_record_metadata_apply(
+        &mut self,
+        input: WorkspaceRecordMetadataApplyInput,
+    ) -> Result<WorkspaceRecord> {
+        let note_kind = self.conn.query_row(
+            "SELECT note_kind FROM workspace_notes WHERE id = ?1",
+            [input.note_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if note_kind != WORKSPACE_NOTE_KIND_STANDARD {
+            return Err(anyhow!(
+                "AI metadata can only be applied to a Workspace Record"
+            ));
+        }
+        let title = validate_record_metadata_title(&input.title)?;
+        let timestamp = now_iso();
+        self.conn.execute_batch("SAVEPOINT record_metadata_apply")?;
+        let result = (|| -> Result<()> {
+            let tag_ids = self.resolve_record_metadata_tag_ids(
+                None,
+                &input.tag_ids,
+                &input.new_tags,
+                &timestamp,
+            )?;
+            self.conn.execute(
+                "UPDATE workspace_notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![title, timestamp, input.note_id],
+            )?;
+            self.replace_workspace_note_tags(input.note_id, &tag_ids, &timestamp)?;
+            Ok(())
+        })();
+        self.finish_record_metadata_savepoint(result)?;
+        self.workspace_note_record(input.note_id)
+    }
+
+    fn resolve_record_metadata_tag_ids(
+        &mut self,
+        project_id: Option<i64>,
+        tag_ids: &[i64],
+        new_tags: &[RecordMetadataNewTagInput],
+        timestamp: &str,
+    ) -> Result<Vec<i64>> {
+        if new_tags.len() > 3 {
+            return Err(anyhow!("AI metadata can create at most 3 Tags"));
+        }
+        let mut resolved = normalize_file_tag_ids(tag_ids);
+        for tag_id in &resolved {
+            self.scoped_file_tag_record(project_id, *tag_id)?;
+        }
+        for tag in new_tags {
+            let tag_id =
+                self.upsert_file_tag_by_label(project_id, &tag.label, &tag.color_key, timestamp)?;
+            if !resolved.contains(&tag_id) {
+                resolved.push(tag_id);
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn finish_record_metadata_savepoint(&self, result: Result<()>) -> Result<()> {
+        match result {
+            Ok(()) => self
+                .conn
+                .execute_batch("RELEASE SAVEPOINT record_metadata_apply")
+                .map_err(Into::into),
+            Err(error) => {
+                let _ = self.conn.execute_batch(
+                    "ROLLBACK TO SAVEPOINT record_metadata_apply; RELEASE SAVEPOINT record_metadata_apply",
+                );
+                Err(error)
             }
         }
     }
@@ -3722,7 +3830,38 @@ impl Database {
                     self.ai_editor_skill_execute(input, |stream_text| on_stream(stream_text))?;
                 Ok(AiJobResult::EditorSkill { rewrite })
             }
+            AiJobEnqueueInput::RecordMetadata { input, .. } => {
+                let metadata =
+                    self.ai_record_metadata_execute(input, |stream_text| on_stream(stream_text))?;
+                Ok(AiJobResult::RecordMetadata { metadata })
+            }
         }
+    }
+
+    fn ai_record_metadata_execute(
+        &mut self,
+        input: AiRecordMetadataInput,
+        on_stream: impl FnMut(String),
+    ) -> Result<AiRecordMetadataResult> {
+        let markdown = input.markdown.trim();
+        if markdown.is_empty() {
+            return Err(anyhow!("Record committed content cannot be empty"));
+        }
+        let profile = self.resolve_default_role(AiDefaultRole::General)?;
+        let existing_tags = input
+            .existing_tags
+            .into_iter()
+            .map(|tag| (tag.id, tag.label))
+            .collect::<Vec<_>>();
+        let payload =
+            ai_provider::run_record_metadata(&profile, markdown, &existing_tags, on_stream)?;
+        Ok(AiRecordMetadataResult {
+            title: payload.title,
+            existing_tag_ids: payload.existing_tag_ids,
+            new_tags: payload.new_tags,
+            resolved_model: payload.resolved_model,
+            resolved_profile_name: Some(profile.profile_name),
+        })
     }
 
     pub fn workspace_search(
@@ -10851,6 +10990,91 @@ mod tests {
     }
 
     #[test]
+    fn workspace_record_metadata_atomically_creates_and_selects_tags() {
+        let (_harness, mut database) = setup_database();
+        let existing = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: None,
+                id: None,
+                label: "已有标签".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+        let record = database
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: None,
+                title: Some("旧标题".to_string()),
+                markdown: "正文".to_string(),
+                html: "<p>正文</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
+            })
+            .unwrap();
+
+        let updated = database
+            .workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
+                note_id: record.id,
+                title: "AI 标题".to_string(),
+                tag_ids: vec![existing.id],
+                new_tags: vec![RecordMetadataNewTagInput {
+                    label: "新标签".to_string(),
+                    color_key: "teal".to_string(),
+                }],
+            })
+            .unwrap();
+
+        assert_eq!(updated.title.as_deref(), Some("AI 标题"));
+        assert_eq!(
+            updated
+                .tags
+                .iter()
+                .map(|tag| tag.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["已有标签", "新标签"]
+        );
+    }
+
+    #[test]
+    fn record_metadata_failure_rolls_back_title_tags_and_new_options() {
+        let (_harness, mut database) = setup_database();
+        let record = database
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: None,
+                title: Some("旧标题".to_string()),
+                markdown: "正文".to_string(),
+                html: "<p>正文</p>".to_string(),
+                tag_ids: vec![],
+                default_code_language: None,
+            })
+            .unwrap();
+
+        let result = database.workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
+            note_id: record.id,
+            title: "不应保留".to_string(),
+            tag_ids: vec![],
+            new_tags: vec![
+                RecordMetadataNewTagInput {
+                    label: "不应保留的新标签".to_string(),
+                    color_key: "blue".to_string(),
+                },
+                RecordMetadataNewTagInput {
+                    label: "非法颜色标签".to_string(),
+                    color_key: "purple".to_string(),
+                },
+            ],
+        });
+        assert!(result.is_err());
+
+        let unchanged = database.workspace_note_record(record.id).unwrap();
+        assert_eq!(unchanged.title.as_deref(), Some("旧标题"));
+        assert!(unchanged.tags.is_empty());
+        let settings = database
+            .file_tag_settings_get(FileTagSettingsGetInput { project_id: None })
+            .unwrap();
+        assert!(settings.tags.is_empty());
+    }
+
+    #[test]
     fn today_quick_note_is_singleton_and_stays_out_of_workspace_notes() {
         let (_harness, mut database) = setup_database();
 
@@ -11621,6 +11845,17 @@ fn validate_file_tag_label(value: &str) -> Result<String> {
     }
     if normalized.chars().count() > TAG_LABEL_MAX_CHARS {
         return Err(anyhow!("file tag label must be 32 characters or fewer"));
+    }
+    Ok(normalized.to_string())
+}
+
+fn validate_record_metadata_title(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(anyhow!("AI Record title cannot be empty"));
+    }
+    if normalized.chars().count() > 80 {
+        return Err(anyhow!("AI Record title must be 80 characters or fewer"));
     }
     Ok(normalized.to_string())
 }
