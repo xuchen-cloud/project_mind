@@ -10,6 +10,7 @@ import { projectMindApi } from "../../services/projectMindApi";
 import { desktopApi } from "../../services/desktopApi";
 import { useAiJobStore } from "../../state/ai-job-store";
 import { useFeedbackStore } from "../../state/feedback-store";
+import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
 
@@ -518,6 +519,41 @@ describe("RichEditor tables", () => {
       expect(container.querySelector("col")?.style.minWidth).toBe("48px");
       expect(container.querySelector("table")?.style.minWidth).toBe("96px");
     });
+  });
+
+  it("keeps an explicitly wide page table inside its managed scroll wrapper", async () => {
+    const { container } = render(
+      <RichEditor
+        variant="page"
+        defaultHtml={
+          '<table style="width: 1200px;"><tbody>' +
+          "<tr><th>项目</th><th>状态</th></tr>" +
+          "<tr><td>Alpha</td><td>进行中</td></tr>" +
+          "</tbody></table>"
+        }
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("table")?.style.width).toBe("1200px");
+    });
+
+    const table = container.querySelector("table");
+    const scrollWrapper = table?.closest(".tableWrapper");
+
+    expect(scrollWrapper).toHaveClass("rich-editor__table-node");
+    expect(container.querySelector(".rich-editor--page")).toContainElement(scrollWrapper);
+
+    const scrollStyleRule = appStyles.match(
+      /\.rich-editor__surface \.tableWrapper\s*\{(?<declarations>[^}]*)\}/u,
+    )?.groups?.declarations;
+
+    expect(scrollStyleRule).toContain("width: 100%;");
+    expect(scrollStyleRule).toContain("max-width: 100%;");
+    expect(scrollStyleRule).toContain("min-width: 0;");
+    expect(scrollStyleRule).toContain("overflow-x: auto;");
+    expect(scrollStyleRule).toContain("overscroll-behavior-inline: contain;");
+    expect(scrollStyleRule).toContain("contain: inline-size;");
   });
 
   it("pastes html tables from clipboard rich content", async () => {
