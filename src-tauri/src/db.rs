@@ -87,6 +87,7 @@ const MANAGED_NOTE_IMAGE_STORAGE_MODE: &str = "managed_note_image";
 const PROJECT_NOTE_ASSET_DIR_NAME: &str = "embedded-note-assets";
 const RICH_TEXT_PATH_ATTRIBUTES: [&str; 4] = ["data-path", "data-href", "href", "src"];
 const DEFAULT_RECORD_TYPE_COLOR_KEY: &str = "slate";
+const TAG_LABEL_MAX_CHARS: usize = 32;
 
 #[derive(Clone, Copy)]
 enum AiDefaultRole {
@@ -6578,7 +6579,7 @@ impl Database {
             };
             let tag_id = self.upsert_project_tag_by_label(
                 project_id,
-                &format!("来源: 旧 Activity #{activity_id} · {display_title}"),
+                &legacy_activity_source_tag_label(activity_id, &display_title),
                 DEFAULT_RECORD_TYPE_COLOR_KEY,
                 &timestamp,
             )?;
@@ -11254,6 +11255,65 @@ mod tests {
     }
 
     #[test]
+    fn opening_legacy_workspace_accepts_long_activity_titles() {
+        let (harness, mut database) = setup_database();
+        enable_legacy_domain_fixture_schema(&database);
+        let db_path = harness.root.join("app.sqlite3");
+        let project = create_project(&mut database, &harness.workspace_root);
+        let long_title =
+            "这是一个超过三十二个字符但在旧版中完全合法的 Activity 标题，用来复现升级失败";
+        database
+            .conn
+            .execute(
+                r#"
+                INSERT INTO activities (
+                  project_id, category, title, brief_markdown, brief_html, folder_name,
+                  activity_time, created_at, updated_at
+                ) VALUES (?1, 'legacy', ?2, '旧简报正文', '<p>旧简报正文</p>',
+                  'long-title', ?3, ?3, ?3)
+                "#,
+                params![project.id, long_title, "2025-03-04T05:06:07.000Z"],
+            )
+            .unwrap();
+        let legacy_activity_id = database.conn.last_insert_rowid();
+        database
+            .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
+            .unwrap();
+        drop(database);
+
+        let reopened = Database::open(&db_path, &harness.workspace_root, None).unwrap();
+        let migrated_tag: String = reopened
+            .conn
+            .query_row(
+                "SELECT label FROM file_tag_options WHERE project_id = ?1",
+                [project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(migrated_tag.chars().count() <= TAG_LABEL_MAX_CHARS);
+        assert!(migrated_tag.contains(&format!("#{legacy_activity_id}")));
+        let preserved_activity_title: String = reopened
+            .conn
+            .query_row(
+                "SELECT title FROM activities WHERE id = ?1",
+                [legacy_activity_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(preserved_activity_title, long_title);
+        let migrated_record_title: String = reopened
+            .conn
+            .query_row(
+                "SELECT title FROM notes WHERE project_id = ?1",
+                [project.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(migrated_record_title, long_title);
+    }
+
+    #[test]
     fn legacy_domain_migration_rolls_back_partial_records_before_retry() {
         let (harness, mut database) = setup_database();
         enable_legacy_domain_fixture_schema(&database);
@@ -11559,10 +11619,27 @@ fn validate_file_tag_label(value: &str) -> Result<String> {
     if normalized.is_empty() {
         return Err(anyhow!("file tag label cannot be empty"));
     }
-    if normalized.chars().count() > 32 {
+    if normalized.chars().count() > TAG_LABEL_MAX_CHARS {
         return Err(anyhow!("file tag label must be 32 characters or fewer"));
     }
     Ok(normalized.to_string())
+}
+
+fn legacy_activity_source_tag_label(activity_id: i64, display_title: &str) -> String {
+    let identity = format!("来源: 旧 Activity #{activity_id}");
+    let identity_len = identity.chars().count();
+    if identity_len >= TAG_LABEL_MAX_CHARS {
+        return format!("旧Activity#{activity_id}");
+    }
+
+    let separator = " · ";
+    let title_budget = TAG_LABEL_MAX_CHARS.saturating_sub(identity_len + separator.chars().count());
+    let truncated_title = display_title.chars().take(title_budget).collect::<String>();
+    if truncated_title.is_empty() {
+        identity
+    } else {
+        format!("{identity}{separator}{truncated_title}")
+    }
 }
 
 fn validate_contact_name(value: &str) -> Result<String> {
