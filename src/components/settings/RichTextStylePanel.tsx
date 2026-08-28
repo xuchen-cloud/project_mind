@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle } from "lucide-react";
+import { Check, LoaderCircle, RotateCcw } from "lucide-react";
 
 import {
   buildRichTextStyleInlineCssVariables,
@@ -20,7 +20,6 @@ import {
   Button,
   EmptyState,
   SectionHeader,
-  StatusBadge,
   SurfaceCard,
   TextField,
 } from "../../ui/components";
@@ -142,24 +141,33 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
   }
 
   return (
-    <div className="grid gap-3">
-      <SurfaceCard subtle className="px-3.5 py-3 sm:px-4">
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
+    <div className="grid gap-5">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+        <div className="max-w-2xl">
           <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
-            Rich Text Style
+            Typography
           </p>
-          <div className="flex flex-wrap gap-1.5">
-            <StatusBadge tone="neutral">实时预览</StatusBadge>
-            <StatusBadge tone={saveMutation.isPending || isDirty ? "warning" : "success"}>
-              {saveMutation.isPending ? "同步中" : isDirty ? "待同步" : "已同步"}
-            </StatusBadge>
-          </div>
+          <h2 className="mt-1 text-title font-semibold text-text">文档排版</h2>
+          <p className="mt-1.5 text-body leading-6 text-text-muted">
+            统一正文、四级标题与列表的阅读节奏。更改会自动保存，并立即应用到所有 Record 和 QuickNote。
+          </p>
         </div>
-      </SurfaceCard>
+        <div
+          className="inline-flex items-center gap-2 rounded-[var(--radius-6)] bg-bg-subtle px-2.5 py-1.5 text-ui text-text-muted"
+          role="status"
+        >
+          {saveMutation.isPending || isDirty ? (
+            <LoaderCircle className="spin text-warning" size={13} />
+          ) : (
+            <Check className="text-success" size={13} />
+          )}
+          {saveMutation.isPending ? "正在保存" : isDirty ? "等待保存" : "已保存"}
+        </div>
+      </header>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.08fr)_minmax(20rem,0.92fr)]">
-        <div className="grid gap-3">
-          <StyleSectionCard eyebrow="Body" title="正文">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(20rem,0.92fr)]">
+        <div className="grid gap-4">
+          <StyleSectionCard eyebrow="Reading" title="正文" description="连续阅读的排版基准">
             <div className="grid gap-2.5">
               <CompactFieldRow>
                 <FontSelectionField
@@ -204,7 +212,7 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
               </CompactFieldRow>
 
               <NumericPairField
-                label="段距"
+                label="段落间距"
                 firstLabel="段前"
                 firstValue={draft.body.paragraphSpacingBeforePx}
                 secondLabel="段后"
@@ -229,7 +237,7 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
             </div>
           </StyleSectionCard>
 
-          <StyleSectionCard eyebrow="Headings" title="标题">
+          <StyleSectionCard eyebrow="Hierarchy" title="标题层级" description="四级标题共用字体、行距与段距">
             <div className="grid gap-2.5">
               <CompactFieldRow className="md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
                 <FontSelectionField
@@ -260,7 +268,7 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
               </CompactFieldRow>
 
               <NumericPairField
-                label="段距"
+                label="标题段落间距"
                 firstLabel="段前"
                 firstValue={draft.headings.paragraphSpacingBeforePx}
                 secondLabel="段后"
@@ -283,13 +291,14 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
                 }
               />
 
-              <NumericTripleField
-                label="标题字号"
+              <NumericItemsField
+                label="四级字号"
                 items={[
                   {
                     itemLabel: "H1",
+                    detail: "一级标题",
                     value: draft.headings.h1SizePx,
-                    min: 14,
+                    min: Math.max(14, draft.headings.h2SizePx),
                     max: 48,
                     step: 1,
                     suffix: "px",
@@ -301,9 +310,10 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
                   },
                   {
                     itemLabel: "H2",
+                    detail: "二级标题",
                     value: draft.headings.h2SizePx,
-                    min: 14,
-                    max: 40,
+                    min: Math.max(14, draft.headings.h3SizePx),
+                    max: Math.min(40, draft.headings.h1SizePx),
                     step: 1,
                     suffix: "px",
                     onChange: (h2SizePx) =>
@@ -314,9 +324,10 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
                   },
                   {
                     itemLabel: "H3",
+                    detail: "三级标题",
                     value: draft.headings.h3SizePx,
-                    min: 12,
-                    max: 32,
+                    min: Math.max(12, draft.headings.h4SizePx),
+                    max: Math.min(32, draft.headings.h2SizePx),
                     step: 1,
                     suffix: "px",
                     onChange: (h3SizePx) =>
@@ -325,12 +336,26 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
                         headings: { ...current.headings, h3SizePx },
                       })),
                   },
+                  {
+                    itemLabel: "H4",
+                    detail: "默认与正文同号、加粗",
+                    value: draft.headings.h4SizePx,
+                    min: 12,
+                    max: Math.min(28, draft.headings.h3SizePx),
+                    step: 1,
+                    suffix: "px",
+                    onChange: (h4SizePx) =>
+                      setDraft((current) => ({
+                        ...current,
+                        headings: { ...current.headings, h4SizePx },
+                      })),
+                  },
                 ]}
               />
             </div>
           </StyleSectionCard>
 
-          <StyleSectionCard eyebrow="Lists" title="列表">
+          <StyleSectionCard eyebrow="Lists" title="列表" description="项目符号、有序列表与 Todo">
             <div className="grid gap-2.5">
               <CompactFieldRow>
                 <FontSelectionField
@@ -375,7 +400,7 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
               </CompactFieldRow>
 
               <NumericPairField
-                label="段距"
+                label="列表段落间距"
                 firstLabel="段前"
                 firstValue={draft.list.paragraphSpacingBeforePx}
                 secondLabel="段后"
@@ -404,33 +429,37 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
         <div className="grid content-start gap-3 xl:sticky xl:top-0">
           <SurfaceCard className="overflow-hidden">
             <div className={settingsCardClassName}>
-              <SectionHeader eyebrow="Preview" title="实时预览" />
+              <SectionHeader
+                eyebrow="Preview"
+                title="实时预览"
+                description="用完整内容结构检查层级与阅读密度。"
+              />
 
-              <div className="mt-3 overflow-hidden rounded-[var(--radius-8)] border border-border bg-bg">
+              <div className="mt-4 overflow-hidden rounded-[var(--radius-8)] border border-border bg-[color-mix(in_srgb,var(--color-bg)_92%,var(--color-bg-subtle))]">
                 <div
                   className="rich-editor__surface min-h-0 bg-transparent"
                   style={{
                     ...buildRichTextStyleInlineCssVariables(draft),
                     minHeight: 0,
-                    padding: "12px 14px",
+                    padding: "18px 20px 22px",
                   }}
                   dangerouslySetInnerHTML={{ __html: RICH_TEXT_STYLE_PREVIEW_HTML }}
                 />
               </div>
             </div>
 
-            <div className="border-t border-border bg-bg-subtle px-3.5 py-3 sm:px-4">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={styleSignature(draft) === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS)}
-                  onClick={() => setDraft(cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
-                >
-                  恢复默认
-                </Button>
-              </div>
+            <div className="flex items-center justify-between gap-3 border-t border-border bg-bg-subtle px-3.5 py-3 sm:px-4">
+              <p className="text-ui text-text-soft">标题默认使用加粗字重</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={styleSignature(draft) === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS)}
+                onClick={() => setDraft(cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
+              >
+                <RotateCcw size={13} />
+                恢复默认
+              </Button>
             </div>
           </SurfaceCard>
         </div>
@@ -442,16 +471,18 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
 function StyleSectionCard({
   eyebrow,
   title,
+  description,
   children,
 }: {
   eyebrow: string;
   title: string;
+  description: string;
   children: ReactNode;
 }) {
   return (
     <SurfaceCard className={settingsCardClassName}>
-      <SectionHeader eyebrow={eyebrow} title={title} />
-      <div className="mt-2.5">{children}</div>
+      <SectionHeader eyebrow={eyebrow} title={title} description={description} />
+      <div className="mt-4 border-t border-border pt-4">{children}</div>
     </SurfaceCard>
   );
 }
@@ -518,15 +549,15 @@ function FontSelectionField({
           ))}
         </optgroup>
       </select>
-      <span className="text-ui text-text-soft">
-        {systemFontsState === "pending"
-          ? "正在读取本机字体..."
-          : systemFontsState === "error"
-            ? "读取系统字体失败，仍可继续使用预设字体。"
-            : currentSystemFontMissing
-              ? "当前工作区保存了这款字体，但本机暂未检测到。"
-              : "系统字体来自当前设备，Windows 和 macOS 会分别读取本机安装结果。"}
-      </span>
+      {systemFontsState !== "success" || currentSystemFontMissing ? (
+        <span className="text-ui text-text-soft">
+          {systemFontsState === "pending"
+            ? "正在读取本机字体..."
+            : systemFontsState === "error"
+              ? "读取系统字体失败，仍可继续使用预设字体。"
+              : "当前工作区保存了这款字体，但本机暂未检测到。"}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -615,13 +646,14 @@ function NumericPairField({
   );
 }
 
-function NumericTripleField({
+function NumericItemsField({
   label,
   items,
 }: {
   label: string;
   items: Array<{
     itemLabel: string;
+    detail?: string;
     value: number;
     min: number;
     max: number;
@@ -633,11 +665,12 @@ function NumericTripleField({
   return (
     <div className={settingsFieldClassName}>
       <span className={settingsFieldLabelClassName}>{label}</span>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {items.map((item) => (
           <NumericSubField
             key={item.itemLabel}
             label={item.itemLabel}
+            detail={item.detail}
             value={item.value}
             min={item.min}
             max={item.max}
@@ -653,6 +686,7 @@ function NumericTripleField({
 
 function NumericSubField({
   label,
+  detail,
   value,
   min,
   max,
@@ -661,6 +695,7 @@ function NumericSubField({
   onChange,
 }: {
   label: string;
+  detail?: string;
   value: number;
   min: number;
   max: number;
@@ -669,9 +704,14 @@ function NumericSubField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="grid gap-1">
-      <span className="text-caption font-medium uppercase tracking-[0.12em] text-text-soft">
-        {label}
+    <label className="grid gap-1 rounded-[var(--radius-6)] bg-bg-subtle px-2.5 py-2">
+      <span className="flex items-baseline justify-between gap-2 text-caption font-medium uppercase tracking-[0.12em] text-text-soft">
+        <span>{label}</span>
+        {detail ? (
+          <span className="truncate text-ui font-normal normal-case tracking-normal text-text-soft">
+            {detail}
+          </span>
+        ) : null}
       </span>
       <NumericInputControl
         value={value}

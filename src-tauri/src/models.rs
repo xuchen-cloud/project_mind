@@ -409,6 +409,7 @@ pub struct RichTextHeadingStyleSettings {
     pub h1_size_px: i64,
     pub h2_size_px: i64,
     pub h3_size_px: i64,
+    pub h4_size_px: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -9709,6 +9709,7 @@ mod tests {
         assert_eq!(settings.headings.h1_size_px, 24);
         assert_eq!(settings.headings.h2_size_px, 20);
         assert_eq!(settings.headings.h3_size_px, 16);
+        assert_eq!(settings.headings.h4_size_px, 14);
         assert_eq!(settings.list.font_family.value, "workspace_sans");
     }
 
@@ -9739,6 +9740,7 @@ mod tests {
                     h1_size_px: 28,
                     h2_size_px: 22,
                     h3_size_px: 18,
+                    h4_size_px: 15,
                 },
                 list: RichTextStyleBlockSettings {
                     font_family: RichTextFontSelection {
@@ -9759,6 +9761,7 @@ mod tests {
         assert_eq!(loaded.headings.font_family.source, "system");
         assert_eq!(loaded.headings.font_family.value, "SF Pro Text");
         assert_eq!(loaded.headings.h1_size_px, 28);
+        assert_eq!(loaded.headings.h4_size_px, 15);
         assert_eq!(loaded.list.font_family.value, "noto_sans_sc");
         assert_eq!(loaded.list.paragraph_spacing_before_px, 10);
         assert_eq!(loaded.list.paragraph_spacing_after_px, 3);
@@ -9778,7 +9781,7 @@ mod tests {
                     json!({
                         "body": {
                             "fontPreset": "workspace_sans",
-                            "fontSizePx": 14,
+                            "fontSizePx": 15,
                             "lineHeight": 1.6,
                             "paragraphSpacingPx": 12
                         },
@@ -9811,6 +9814,7 @@ mod tests {
         assert_eq!(settings.headings.font_family.value, "workspace_sans");
         assert_eq!(settings.headings.paragraph_spacing_before_px, 10);
         assert_eq!(settings.headings.paragraph_spacing_after_px, 0);
+        assert_eq!(settings.headings.h4_size_px, 15);
         assert_eq!(settings.list.font_family.value, "workspace_sans");
         assert_eq!(settings.list.paragraph_spacing_before_px, 8);
         assert_eq!(settings.list.paragraph_spacing_after_px, 0);
@@ -11673,6 +11677,7 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             h1_size_px: 24,
             h2_size_px: 20,
             h3_size_px: 16,
+            h4_size_px: 14,
         },
         list: RichTextStyleBlockSettings {
             font_family: preset_font_selection("workspace_sans"),
@@ -11694,7 +11699,13 @@ fn normalize_rich_text_style_value(value: &mut Value) -> Result<()> {
         .ok_or_else(|| anyhow!("rich text style must be an object"))?;
 
     normalize_rich_text_style_block_value(object.get_mut("body"))?;
-    normalize_rich_text_style_heading_value(object.get_mut("headings"))?;
+    let body_font_size_px = object
+        .get("body")
+        .and_then(Value::as_object)
+        .and_then(|body| body.get("fontSizePx"))
+        .and_then(Value::as_i64)
+        .unwrap_or(14);
+    normalize_rich_text_style_heading_value(object.get_mut("headings"), body_font_size_px)?;
     normalize_rich_text_style_block_value(object.get_mut("list"))?;
 
     Ok(())
@@ -11745,8 +11756,27 @@ fn normalize_rich_text_style_block_value(value: Option<&mut Value>) -> Result<()
     Ok(())
 }
 
-fn normalize_rich_text_style_heading_value(value: Option<&mut Value>) -> Result<()> {
-    normalize_rich_text_style_block_value(value)
+fn normalize_rich_text_style_heading_value(
+    value: Option<&mut Value>,
+    body_font_size_px: i64,
+) -> Result<()> {
+    let Some(value) = value else {
+        return Err(anyhow!("rich text heading style is missing"));
+    };
+    normalize_rich_text_style_block_value(Some(&mut *value))?;
+
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("rich text heading style must be an object"))?;
+    if !object.contains_key("h4SizePx") {
+        let h3_size_px = object.get("h3SizePx").and_then(Value::as_i64).unwrap_or(16);
+        object.insert(
+            "h4SizePx".to_string(),
+            json!(body_font_size_px.min(h3_size_px).clamp(12, 28)),
+        );
+    }
+
+    Ok(())
 }
 
 fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result<()> {
@@ -11772,11 +11802,13 @@ fn validate_rich_text_style_settings(settings: &RichTextStyleSettings) -> Result
     validate_px_value(settings.headings.h1_size_px, "headings.h1SizePx", 14, 48)?;
     validate_px_value(settings.headings.h2_size_px, "headings.h2SizePx", 14, 40)?;
     validate_px_value(settings.headings.h3_size_px, "headings.h3SizePx", 12, 32)?;
+    validate_px_value(settings.headings.h4_size_px, "headings.h4SizePx", 12, 28)?;
 
     if settings.headings.h1_size_px < settings.headings.h2_size_px
         || settings.headings.h2_size_px < settings.headings.h3_size_px
+        || settings.headings.h3_size_px < settings.headings.h4_size_px
     {
-        return Err(anyhow!("heading sizes must descend from h1 to h3"));
+        return Err(anyhow!("heading sizes must descend from h1 to h4"));
     }
 
     validate_rich_text_style_block(&settings.list, "list")?;

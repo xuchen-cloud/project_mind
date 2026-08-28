@@ -97,6 +97,7 @@ vi.mock("./services/projectMindApi", () => ({
         h1SizePx: 24,
         h2SizePx: 20,
         h3SizePx: 16,
+        h4SizePx: 14,
       },
       list: {
         fontFamily: { source: "preset", value: "workspace_sans" },

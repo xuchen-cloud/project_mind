@@ -3469,7 +3469,7 @@ describe("RichEditor context menus", () => {
       within(blockShortcutGroup)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["标题 1", "标题 2", "标题 3", "引用", "Todo"]);
+    ).toEqual(["标题 1", "标题 2", "标题 3", "标题 4", "引用", "Todo"]);
     expect(within(menu).getByRole("group", { name: "剪贴板" })).toBeInTheDocument();
     const insertBlockGroup = within(menu).getByRole("group", {
       name: "新增区块",
@@ -3486,6 +3486,29 @@ describe("RichEditor context menus", () => {
     expect(within(menu).queryByRole("menuitem", { name: /使用 AI 编辑/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "图片操作" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "表格操作" })).not.toBeInTheDocument();
+  });
+
+  it("applies a fourth-level heading from the block shortcuts", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <RichEditor variant="bare" defaultHtml="<p>执行项</p>" onChange={onChange} />,
+    );
+
+    const paragraph = await waitFor(() => {
+      const nextParagraph = container.querySelector(".ProseMirror p");
+      expect(nextParagraph).toBeTruthy();
+      return nextParagraph as HTMLParagraphElement;
+    });
+
+    fireEvent.contextMenu(paragraph, { clientX: 20, clientY: 20 });
+    const menu = await screen.findByRole("menu", { name: "文本操作" });
+    const shortcutGroup = within(menu).getByRole("group", { name: "常用块样式" });
+    await user.click(within(shortcutGroup).getByRole("button", { name: "标题 4" }));
+
+    await waitFor(() => {
+      expect(getLatestHtml(onChange)).toContain("<h4>执行项</h4>");
+    });
   });
 
   it("enables file insertion from the context menu when project file handlers are available", async () => {
@@ -3696,7 +3719,7 @@ describe("RichEditor context menus", () => {
     expect(selectedItem.dataset.selected).toBe("true");
     expect(within(submenu).getByRole("menuitem", { name: "文本" })).toBeInTheDocument();
     expect(within(submenu).getByRole("menuitem", { name: "代码" })).toBeInTheDocument();
-    expect(within(submenu).queryByRole("menuitem", { name: "标题 4" })).not.toBeInTheDocument();
+    expect(within(submenu).getByRole("menuitem", { name: "标题 4" })).toBeInTheDocument();
     expect(within(submenu).queryByRole("menuitem", { name: "公式块" })).not.toBeInTheDocument();
   });
 

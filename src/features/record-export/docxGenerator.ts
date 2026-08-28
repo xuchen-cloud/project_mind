@@ -159,7 +159,7 @@ async function renderBlock(
       return [new Paragraph({ children: inlineChildren(block.content, fonts.bodyFont) })];
     case "heading":
       return [new Paragraph({
-        heading: [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3][block.level - 1],
+        heading: [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4][block.level - 1],
         children: inlineChildren(block.content, fonts.headingFont),
       })];
     case "bulletList":
@@ -302,6 +302,7 @@ function buildStyles(
       heading1: headingStyle(fonts.headingFont, document.style.headings.h1SizePx, document),
       heading2: headingStyle(fonts.headingFont, document.style.headings.h2SizePx, document),
       heading3: headingStyle(fonts.headingFont, document.style.headings.h3SizePx, document),
+      heading4: headingStyle(fonts.headingFont, document.style.headings.h4SizePx, document),
     },
     paragraphStyles: [
       {

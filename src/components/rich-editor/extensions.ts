@@ -145,7 +145,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     StarterKit.configure({
       link: false,
       heading: {
-        levels: [1, 2, 3],
+        levels: [1, 2, 3, 4],
       },
       codeBlock: {
         HTMLAttributes: {

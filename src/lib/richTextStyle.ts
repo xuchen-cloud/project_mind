@@ -22,6 +22,7 @@ export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
     h1SizePx: 24,
     h2SizePx: 20,
     h3SizePx: 16,
+    h4SizePx: 14,
   },
   list: {
     fontFamily: createPresetFontSelection("workspace_sans"),
@@ -72,6 +73,7 @@ type RichTextStyleCssVarName =
   | "--rich-text-h1-font-size"
   | "--rich-text-h2-font-size"
   | "--rich-text-h3-font-size"
+  | "--rich-text-h4-font-size"
   | "--rich-text-list-font-family"
   | "--rich-text-list-font-size"
   | "--rich-text-list-line-height"
@@ -84,6 +86,7 @@ export const RICH_TEXT_STYLE_PREVIEW_HTML = [
   "<h2>关键判断</h2>",
   "<p>当前方案优先保证记录效率，再通过统一排版让判断和行动项更容易被快速扫描。</p>",
   "<h3>接下来</h3>",
+  "<h4>执行清单</h4>",
   "<ul><li>确认评审时间与参与人</li><li>补充预算拆分与风险说明</li><li>同步判断到项目总览</li></ul>",
   "<ol><li>更新材料</li><li>完成复盘</li></ol>",
 ].join("");
@@ -167,6 +170,7 @@ export function buildRichTextStyleCssVariables(
     "--rich-text-h1-font-size": `${settings.headings.h1SizePx}px`,
     "--rich-text-h2-font-size": `${settings.headings.h2SizePx}px`,
     "--rich-text-h3-font-size": `${settings.headings.h3SizePx}px`,
+    "--rich-text-h4-font-size": `${settings.headings.h4SizePx}px`,
     "--rich-text-list-font-family": resolveFontFamilySelection(settings.list.fontFamily),
     "--rich-text-list-font-size": `${settings.list.fontSizePx}px`,
     "--rich-text-list-line-height": String(settings.list.lineHeight),

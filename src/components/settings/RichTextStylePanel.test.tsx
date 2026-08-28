@@ -86,8 +86,10 @@ describe("RichTextStylePanel", () => {
       { timeout: 1500 },
     );
 
-    expect(screen.getAllByText("段距").length).toBeGreaterThan(0);
-    expect(screen.getByText("标题字号")).toBeInTheDocument();
+    expect(screen.getAllByText(/段落间距/u).length).toBeGreaterThan(0);
+    expect(screen.getByText("四级字号")).toBeInTheDocument();
+    expect(screen.getByText("H4")).toBeInTheDocument();
+    expect(screen.getAllByText("默认与正文同号、加粗").length).toBeGreaterThan(0);
   });
 
   it("saves a system font selection when the current device reports installed fonts", async () => {

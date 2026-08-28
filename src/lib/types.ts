@@ -737,6 +737,7 @@ export interface RichTextHeadingStyleSettings {
   h1SizePx: number;
   h2SizePx: number;
   h3SizePx: number;
+  h4SizePx: number;
 }
 
 export interface RichTextStyleSettings {

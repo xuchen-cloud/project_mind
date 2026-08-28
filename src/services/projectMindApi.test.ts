@@ -453,6 +453,7 @@ describe("projectMindApi", () => {
         h1SizePx: 24,
         h2SizePx: 20,
         h3SizePx: 16,
+        h4SizePx: 14,
       },
       list: {
         fontFamily: { source: "preset", value: "workspace_sans" },
@@ -487,6 +488,7 @@ describe("projectMindApi", () => {
         h1SizePx: 28,
         h2SizePx: 22,
         h3SizePx: 18,
+        h4SizePx: 15,
       },
       list: {
         fontFamily: { source: "preset", value: "noto_sans_sc" },
@@ -514,6 +516,7 @@ describe("projectMindApi", () => {
           h1SizePx: 28,
           h2SizePx: 22,
           h3SizePx: 18,
+          h4SizePx: 15,
         },
         list: {
           fontFamily: { source: "preset", value: "noto_sans_sc" },

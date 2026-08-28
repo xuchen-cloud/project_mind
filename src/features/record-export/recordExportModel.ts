@@ -26,7 +26,7 @@ export interface ExportListItem {
 
 export type ExportBlock =
   | { type: "paragraph"; content: ExportInline[] }
-  | { type: "heading"; level: 1 | 2 | 3; content: ExportInline[] }
+  | { type: "heading"; level: 1 | 2 | 3 | 4; content: ExportInline[] }
   | { type: "bulletList" | "orderedList" | "taskList"; items: ExportListItem[] }
   | { type: "blockquote"; blocks: ExportBlock[] }
   | { type: "table"; rows: Array<{ cells: Array<{ header: boolean; blocks: ExportBlock[] }> }> }
@@ -68,10 +68,10 @@ function projectBlock(node: Node): ExportBlock[] {
 
   const tag = node.tagName.toLowerCase();
   if (tag === "p") return projectParagraph(node);
-  if (tag === "h1" || tag === "h2" || tag === "h3") {
+  if (tag === "h1" || tag === "h2" || tag === "h3" || tag === "h4") {
     return [{
       type: "heading",
-      level: Number(tag.slice(1)) as 1 | 2 | 3,
+      level: Number(tag.slice(1)) as 1 | 2 | 3 | 4,
       content: projectInlineChildren(node),
     }];
   }

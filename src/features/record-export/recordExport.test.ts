@@ -64,6 +64,8 @@ updated: "2026-08-19T15:20:30+08:00"
 
 ### 细节
 
+#### 执行项
+
 - 普通项
 
 - [x] 已完成
@@ -218,6 +220,7 @@ const answer = 42;
     const documentXml = new TextDecoder().decode(archive["word/document.xml"]);
     expect(documentXml).toContain('w:val="Title"');
     expect(documentXml).toContain('w:val="Heading1"');
+    expect(documentXml).toContain('w:val="Heading4"');
     expect(documentXml).toContain("阶段总结");
     expect(documentXml).toContain("已确认");
     expect(documentXml).toContain("w:numPr");
@@ -295,6 +298,7 @@ const answer = 42;
     expect(structureTrees.some((tree) => tree && findStructurePath(tree, ["L", "LI", "LBody", "BlockQuote"]))).toBe(true);
     expect(structureTrees.some((tree) => tree && findStructurePath(tree, ["Table", "TR", "TD", "Figure"]))).toBe(true);
     expect(structureTrees.some((tree) => tree && findStructureNode(tree, "H3"))).toBe(true);
+    expect(structureTrees.some((tree) => tree && findStructureNode(tree, "H4"))).toBe(true);
     const operators = (await Promise.all(
       Array.from({ length: pdf.numPages }, async (_, index) => (await (await pdf.getPage(index + 1)).getOperatorList()).fnArray),
     )).flat();
@@ -322,11 +326,11 @@ const answer = 42;
     expectImageTileSignatureCloseTo(imageTileSignature(pixels, canvas.width, canvas.height), [
       [0.052, 0.064, 0.029, 0.025, 0.001, 0],
       [0.122, 0.129, 0.11, 0.03, 0.001, 0],
-      [0.076, 0.033, 0, 0, 0, 0],
-      [0.115, 0.166, 0.141, 0.141, 0.141, 0.061],
-      [0.269, 0.587, 0.593, 0.605, 0.587, 0.26],
-      [0.153, 0.366, 0.251, 0.206, 0.206, 0.086],
-      [0.135, 0.385, 0.381, 0.381, 0.381, 0.196],
+      [0.08, 0.022, 0, 0, 0, 0],
+      [0.073, 0.037, 0, 0, 0, 0],
+      [0.244, 0.524, 0.529, 0.541, 0.524, 0.236],
+      [0.245, 0.553, 0.471, 0.429, 0.429, 0.179],
+      [0.13, 0.401, 0.365, 0.365, 0.365, 0.188],
       [0, 0, 0.004, 0.004, 0, 0],
     ]);
     await pdf.cleanup();
@@ -543,6 +547,7 @@ const representativeSource: RecordExportSource = {
     "<p>这是<strong>已确认</strong>的<em>正文</em>，还有<s>删除</s>和<code>inline()</code>。</p>",
     "<h2>清单</h2>",
     "<h3>细节</h3>",
+    "<h4>执行项</h4>",
     "<ul><li><p>普通项</p></li></ul>",
     '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>已完成</p></li><li data-type="taskItem" data-checked="false"><p>未完成</p></li></ul>',
     "<ol><li><p>第一步</p></li><li><p>第二步</p></li></ol>",

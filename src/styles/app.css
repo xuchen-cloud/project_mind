@@ -91,6 +91,7 @@
   --rich-text-h1-font-size: 24px;
   --rich-text-h2-font-size: 20px;
   --rich-text-h3-font-size: 16px;
+  --rich-text-h4-font-size: 14px;
   --rich-text-list-font-family: var(--font-editor-workspace-sans);
   --rich-text-list-font-size: 14px;
   --rich-text-list-line-height: 1.6;
@@ -892,7 +893,7 @@
   transition: opacity var(--duration-standard) var(--ease-soft);
 }
 
-.rich-editor__rewrite-origin-block :is(p, li, h1, h2, h3, blockquote, pre, code, a, span, strong, em, mark) {
+.rich-editor__rewrite-origin-block :is(p, li, h1, h2, h3, h4, blockquote, pre, code, a, span, strong, em, mark) {
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
 }
@@ -1764,7 +1765,8 @@
 
 .rich-editor__surface h1,
 .rich-editor__surface h2,
-.rich-editor__surface h3 {
+.rich-editor__surface h3,
+.rich-editor__surface h4 {
   margin-block-start: var(--rich-text-heading-paragraph-spacing-before);
   margin-block-end: var(--rich-text-heading-paragraph-spacing-after);
   color: var(--color-text);
@@ -1783,6 +1785,10 @@
 
 .rich-editor__surface h3 {
   font-size: var(--rich-text-h3-font-size);
+}
+
+.rich-editor__surface h4 {
+  font-size: var(--rich-text-h4-font-size);
 }
 
 .rich-editor__surface p {

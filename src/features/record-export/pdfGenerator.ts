@@ -268,7 +268,7 @@ function measureBlocks(
     if (block.type === "paragraph" || block.type === "heading") {
       const text = block.content.map((inline) => inline.text).join("") || " ";
       const fontSize = block.type === "heading"
-        ? pxToPoints([document.style.headings.h1SizePx, document.style.headings.h2SizePx, document.style.headings.h3SizePx][block.level - 1])
+        ? pxToPoints([document.style.headings.h1SizePx, document.style.headings.h2SizePx, document.style.headings.h3SizePx, document.style.headings.h4SizePx][block.level - 1])
         : bodySize;
       pdf.font(FONT_NAME).fontSize(fontSize);
       return total + pdf.heightOfString(text, { width, lineGap: 2 }) + 8;
@@ -305,7 +305,7 @@ async function renderBlock(
       addInlines(pdf, parent, block.content, bodySize, document.style.body.lineHeight, width);
       return;
     case "heading": {
-      const sizes = [document.style.headings.h1SizePx, document.style.headings.h2SizePx, document.style.headings.h3SizePx];
+      const sizes = [document.style.headings.h1SizePx, document.style.headings.h2SizePx, document.style.headings.h3SizePx, document.style.headings.h4SizePx];
       addHeading(pdf, parent, block.content.map((inline) => inline.text).join(""), `H${block.level}`, pxToPoints(sizes[block.level - 1]), 6, width);
       return;
     }
