@@ -198,7 +198,6 @@ export function WorkspaceRecordFocusPage({
     [queryClient],
   );
   const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
-    visibleProjects,
     (path, options) => navigate(path, options),
   );
 
