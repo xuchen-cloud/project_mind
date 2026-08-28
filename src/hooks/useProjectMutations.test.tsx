@@ -16,6 +16,10 @@ const apiMocks = vi.hoisted(() => ({
   projectSetArchive: vi.fn(),
 }));
 
+const uiStoreMocks = vi.hoisted(() => ({
+  closeProjectTab: vi.fn(),
+}));
+
 vi.mock("../services/projectMindApi", () => ({
   projectMindApi: {
     projectUpdate: apiMocks.projectUpdate,
@@ -32,6 +36,7 @@ vi.mock("../state/feedback-store", () => ({
 
 vi.mock("../state/ui-store", () => ({
   useUiStore: () => ({
+    closeProjectTab: uiStoreMocks.closeProjectTab,
     setCreateProjectOpen: vi.fn(),
   }),
 }));
@@ -76,9 +81,59 @@ const projectTodo: TodoRecord = {
 beforeEach(() => {
   apiMocks.projectUpdate.mockReset();
   apiMocks.projectSetArchive.mockReset();
+  uiStoreMocks.closeProjectTab.mockReset();
 });
 
 describe("useProjectMutations", () => {
+  it("keeps the Workspace route in place and closes an archived Project tab", async () => {
+    const otherProject: ProjectListItem = {
+      ...project,
+      id: 2,
+      name: "Next Project",
+      rootPath: "/tmp/next-project",
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projects.all, [project, otherProject]);
+    apiMocks.projectSetArchive.mockResolvedValueOnce({ ...project, isArchived: true });
+    const navigate = vi.fn();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useProjectMutations(navigate),
+      { wrapper },
+    );
+
+    await act(() =>
+      result.current.archiveMutation.mutateAsync({ projectId: project.id, isArchived: true }),
+    );
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(uiStoreMocks.closeProjectTab).toHaveBeenCalledWith(project.id);
+  });
+
+  it("returns to the Workspace after archiving the currently viewed Project", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projects.all, [project]);
+    apiMocks.projectSetArchive.mockResolvedValueOnce({ ...project, isArchived: true });
+    const navigate = vi.fn();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useProjectMutations(navigate, project.id),
+      { wrapper },
+    );
+
+    await act(() =>
+      result.current.archiveMutation.mutateAsync({ projectId: project.id, isArchived: true }),
+    );
+
+    expect(uiStoreMocks.closeProjectTab).toHaveBeenCalledWith(project.id);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith("/workspace");
+  });
+
   it("keeps Project Status consistent in shared Project caches", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const projectPage: ProjectPageData = {
@@ -94,7 +149,7 @@ describe("useProjectMutations", () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { result } = renderHook(() => useProjectMutations([project], vi.fn()), { wrapper });
+    const { result } = renderHook(() => useProjectMutations(vi.fn()), { wrapper });
 
     await act(() =>
       result.current.projectUpdateMutation.mutateAsync({
@@ -141,7 +196,7 @@ describe("useProjectMutations", () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { result } = renderHook(() => useProjectMutations([project], navigate), { wrapper });
+    const { result } = renderHook(() => useProjectMutations(navigate), { wrapper });
 
     await act(() =>
       result.current.archiveMutation.mutateAsync({ projectId: project.id, isArchived: true }),
@@ -192,7 +247,7 @@ describe("useProjectMutations", () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { result } = renderHook(() => useProjectMutations([], vi.fn()), { wrapper });
+    const { result } = renderHook(() => useProjectMutations(vi.fn()), { wrapper });
 
     await act(async () => {
       await result.current.archiveMutation.mutateAsync({
