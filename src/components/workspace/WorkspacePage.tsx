@@ -168,8 +168,8 @@ export function WorkspacePage({
   const { workspaceQuickNoteMutation } = useWorkspaceQuickNoteMutations();
   const { workspaceRecordMutation, workspaceRecordDeleteMutation } = useWorkspaceRecordMutations();
   const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
-    visibleProjects,
     (path, options) => navigate(path, options),
+    activeProjectId,
   );
 
   useEffect(() => {

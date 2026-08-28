@@ -29,12 +29,12 @@ function syncProjectCaches(
 }
 
 export function useProjectMutations(
-  visibleProjects: ProjectListItem[],
   navigate: (path: string, options?: { replace?: boolean }) => void,
+  activeProjectId: number | null = null,
 ) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
-  const { setCreateProjectOpen } = useUiStore();
+  const { closeProjectTab, setCreateProjectOpen } = useUiStore();
 
   const createProjectMutation = useMutation({
     mutationFn: projectMindApi.projectCreate,
@@ -83,8 +83,10 @@ export function useProjectMutations(
       await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
       await queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.workspaceRail });
       if (project.isArchived) {
-        const nextProject = visibleProjects.find((item) => item.id !== project.id);
-        if (nextProject) navigate(`/projects/${nextProject.id}`);
+        closeProjectTab(project.id);
+        if (activeProjectId === project.id) {
+          navigate("/workspace");
+        }
       } else {
         navigate(`/projects/${project.id}`);
       }

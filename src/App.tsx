@@ -444,8 +444,8 @@ export function WorkspaceLayout({
   const workspaceVisible = hasWorkspace;
 
   const { createProjectMutation, refreshProjectScope } = useProjectMutations(
-    visibleProjects,
     (path, options) => navigate(path, options),
+    activeProjectId,
   );
 
   const createProjectQuickly = useCallback(async () => {

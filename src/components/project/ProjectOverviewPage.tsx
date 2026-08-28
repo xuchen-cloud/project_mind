@@ -163,7 +163,7 @@ export function ProjectOverviewPage({
     queryFn: projectMindApi.aiSettingsGet,
     enabled: visible,
   });
-  const { projectUpdateMutation } = useProjectMutations(visibleProjects, (path) => navigate(path));
+  const { projectUpdateMutation } = useProjectMutations((path) => navigate(path), projectId);
 
   const [nameDraft, setNameDraft] = useState("");
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
