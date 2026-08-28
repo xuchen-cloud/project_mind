@@ -10124,6 +10124,45 @@ mod tests {
     }
 
     #[test]
+    fn workspace_search_matches_project_record_titles_and_tags() {
+        let (harness, mut database) = setup_database();
+        let project = create_project_named(&mut database, &harness.workspace_root, "Active", None);
+        let tag = database
+            .file_tag_option_upsert(FileTagOptionUpsertInput {
+                project_id: Some(project.id),
+                id: None,
+                label: "客户标签".to_string(),
+                color_key: "blue".to_string(),
+            })
+            .unwrap();
+        let record = database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: None,
+                title: Some("季度复盘".to_string()),
+                markdown: "正文没有检索词".to_string(),
+                html: "<p>正文没有检索词</p>".to_string(),
+                default_code_language: None,
+                tag_ids: vec![tag.id],
+            })
+            .unwrap();
+
+        for query in ["季度复盘", "客户标签"] {
+            let results = database
+                .workspace_search(WorkspaceSearchInput {
+                    query: query.to_string(),
+                    include_archived: None,
+                    project_id: None,
+                })
+                .unwrap();
+
+            assert!(results
+                .iter()
+                .any(|result| result.kind == "note" && result.id == record.id));
+        }
+    }
+
+    #[test]
     fn project_search_returns_only_current_project_todos_with_scoped_matches() {
         let (harness, mut database) = setup_database();
         let project = create_project_named(&mut database, &harness.workspace_root, "Current", None);

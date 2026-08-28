@@ -390,11 +390,10 @@ export function WorkspaceLayout({
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 260);
   const searchQuery = useQuery({
-    queryKey: queryKeys.search(debouncedSearch, activeProjectId),
+    queryKey: queryKeys.search(debouncedSearch),
     queryFn: () =>
       projectMindApi.workspaceSearch({
         query: debouncedSearch,
-        projectId: activeProjectId,
       }),
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
   });

@@ -234,6 +234,81 @@ describe("WorkspaceLayout", () => {
     useUiStore.setState(createUiStoreState());
   });
 
+  it("keeps the top-bar search global while a Project is active", async () => {
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([
+      {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        openTodoCount: 0,
+      },
+    ]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({
+      project: {
+        id: 1,
+        name: "Alpha Project",
+        kind: "normal",
+        status: "active",
+        rootPath: "/tmp/alpha",
+        summary: "",
+        summaryMarkdown: "",
+        summaryHtml: "",
+        isArchived: false,
+        createdAt: "",
+        updatedAt: "",
+        openTodoCount: 0,
+      },
+      records: [],
+      projectDocuments: [],
+      unfinishedTodos: [],
+      finishedTodos: [],
+    });
+    vi.mocked(projectMindApi.workspaceSearch).mockImplementation(async (input) =>
+      input.projectId === undefined
+        ? [
+            {
+              kind: "note",
+              id: 7,
+              projectId: 1,
+              title: "季度复盘",
+              subtitle: "Alpha Project",
+              matchedText: "客户标签",
+            },
+          ]
+        : [],
+    );
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: <WorkspaceLayout />,
+          children: [
+            { path: "projects/:projectId", element: <div>project route body</div> },
+          ],
+        },
+      ],
+      { initialEntries: ["/projects/1"] },
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.setup().type(await screen.findByLabelText("全局搜索"), "客户标签");
+
+    expect(await screen.findByText("季度复盘")).toBeInTheDocument();
+    expect(projectMindApi.workspaceSearch).toHaveBeenLastCalledWith({ query: "客户标签" });
+  });
+
   it("creates a project immediately from the empty state", async () => {
     const user = userEvent.setup();
     const LocationDisplay = () => {
