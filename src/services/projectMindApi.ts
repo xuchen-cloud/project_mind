@@ -89,6 +89,8 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_create", { input }),
   workspaceOpen: (input: WorkspaceOpenInput) =>
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_open", { input }),
+  workspaceClose: () =>
+    desktopApi.command<WorkspaceStatusSnapshot>("workspace_close"),
   workspaceUnlock: (input: WorkspaceUnlockInput) =>
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_unlock", { input }),
   workspaceLock: () =>

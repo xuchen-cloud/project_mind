@@ -262,6 +262,11 @@ export const createUiStore = () =>
         clearProjectRecentPaths: () => set({ projectRecentPaths: {} }),
         clearWorkspaceScopedUiState: () =>
           set({
+            createProjectOpen: false,
+            settingsOpen: false,
+            settingsProjectId: null,
+            projectComposer: null,
+            openProjectIds: [],
             projectRecentPaths: {},
             projectFileFilters: {},
             workspaceProjectQuery: "",

@@ -13,6 +13,17 @@ vi.mock("./desktopApi", () => ({
 import { projectMindApi } from "./projectMindApi";
 
 describe("projectMindApi", () => {
+  it("maps leaving the current Workspace to the close command", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce({
+      currentWorkspace: null,
+      recentWorkspaces: [],
+    });
+
+    await projectMindApi.workspaceClose();
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_close");
+  });
+
   it("maps project create to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 1, name: "Project" });
 

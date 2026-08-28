@@ -8,6 +8,7 @@ const tauriMocks = vi.hoisted(() => ({
   readClipboardTextMock: vi.fn(),
   readClipboardImageMock: vi.fn(),
   onCloseRequestedMock: vi.fn(),
+  exitMock: vi.fn(async () => undefined),
   destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
     innerSize: vi.fn(async () => ({
@@ -23,6 +24,7 @@ const tauriMocks = vi.hoisted(() => ({
     destroy: tauriMocks.destroyWindowMock,
   })),
   getByLabelMock: vi.fn(),
+  getAllWebviewWindowsMock: vi.fn(async () => []),
   webviewWindowInstances: [] as Array<{
     label: string;
     options?: Record<string, unknown>;
@@ -52,6 +54,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   readText: tauriMocks.readClipboardTextMock,
   readImage: tauriMocks.readClipboardImageMock,
+}));
+
+vi.mock("@tauri-apps/plugin-process", () => ({
+  exit: tauriMocks.exitMock,
 }));
 
 vi.mock("@tauri-apps/api", () => {
@@ -84,6 +90,7 @@ vi.mock("@tauri-apps/api", () => {
     webviewWindow: {
       WebviewWindow: MockWebviewWindow,
       getCurrentWebviewWindow: tauriMocks.getCurrentWebviewWindowMock,
+      getAllWebviewWindows: tauriMocks.getAllWebviewWindowsMock,
     },
   };
 });
@@ -102,9 +109,13 @@ describe("desktopApi", () => {
     tauriMocks.getCurrentWindowMock.mockClear();
     tauriMocks.onCloseRequestedMock.mockReset();
     tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
+    tauriMocks.exitMock.mockClear();
     tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
-    tauriMocks.getCurrentWebviewWindowMock.mockClear();
+    tauriMocks.getAllWebviewWindowsMock.mockReset();
+    tauriMocks.getAllWebviewWindowsMock.mockResolvedValue([]);
+    tauriMocks.getCurrentWebviewWindowMock.mockReset();
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main" });
     tauriMocks.webviewWindowInstances.length = 0;
   });
 
@@ -117,7 +128,7 @@ describe("desktopApi", () => {
     });
   });
 
-  it("prevents a close request until the lifecycle barrier allows destruction", async () => {
+  it("exits the whole app after the main-window lifecycle barrier succeeds", async () => {
     const allowClose = vi.fn(async () => true);
     const unlisten = await desktopApi.listenForCloseRequest(allowClose);
     const handler = tauriMocks.onCloseRequestedMock.mock.calls[0]?.[0] as (
@@ -129,8 +140,109 @@ describe("desktopApi", () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(allowClose).toHaveBeenCalledTimes(1);
-    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledTimes(1);
+    expect(tauriMocks.exitMock).toHaveBeenCalledWith(0);
     expect(unlisten).toBeTypeOf("function");
+  });
+
+  it("lets Tauri close only the current detached Project window", async () => {
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "project-7" });
+    const allowClose = vi.fn(async () => true);
+    await desktopApi.listenForCloseRequest(allowClose);
+    const handler = tauriMocks.onCloseRequestedMock.mock.calls[0]?.[0] as (
+      event: { preventDefault: () => void },
+    ) => Promise<void>;
+    const preventDefault = vi.fn();
+
+    await handler({ preventDefault });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
+  });
+
+  it("prevents a close request when the lifecycle barrier fails", async () => {
+    const allowClose = vi.fn(async () => false);
+    await desktopApi.listenForCloseRequest(allowClose);
+    const handler = tauriMocks.onCloseRequestedMock.mock.calls[0]?.[0] as (
+      event: { preventDefault: () => void },
+    ) => Promise<void>;
+    const preventDefault = vi.fn();
+
+    await handler({ preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
+  });
+
+  it("flushes and then destroys detached Project windows for a Workspace switch", async () => {
+    let responseHandler:
+      | ((event: { payload: { requestId: string; windowLabel: string; ok: boolean } }) => void)
+      | undefined;
+    const currentWindow = {
+      label: "main",
+      listen: vi.fn(async (_event: string, handler: typeof responseHandler) => {
+        responseHandler = handler;
+        return () => undefined;
+      }),
+    };
+    const projectWindow = {
+      label: "project-7",
+      emit: vi.fn(async (_event: string, request: { requestId: string }) => {
+        responseHandler?.({
+          payload: {
+            requestId: request.requestId,
+            windowLabel: "project-7",
+            ok: true,
+          },
+        });
+      }),
+      destroy: vi.fn(async () => undefined),
+    };
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue(currentWindow);
+    tauriMocks.getAllWebviewWindowsMock.mockResolvedValue([
+      currentWindow,
+      projectWindow,
+    ]);
+
+    await desktopApi.flushOtherWorkspaceWindows();
+    await desktopApi.destroyOtherWorkspaceWindows();
+
+    expect(projectWindow.emit).toHaveBeenCalledWith(
+      "workspace-lifecycle:flush-request",
+      expect.objectContaining({ requesterLabel: "main" }),
+    );
+    expect(projectWindow.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("responds to a Workspace lifecycle flush request from another window", async () => {
+    let requestHandler:
+      | ((event: { payload: { requestId: string; requesterLabel: string } }) => Promise<void>)
+      | undefined;
+    const projectWindow = {
+      label: "project-7",
+      listen: vi.fn(async (_event: string, handler: typeof requestHandler) => {
+        requestHandler = handler;
+        return () => undefined;
+      }),
+    };
+    const mainWindow = { emit: vi.fn(async () => undefined) };
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue(projectWindow);
+    tauriMocks.getByLabelMock.mockResolvedValue(mainWindow);
+    const flush = vi.fn(async () => undefined);
+
+    await desktopApi.listenForWorkspaceLifecycleFlush(flush);
+    await requestHandler?.({
+      payload: { requestId: "request-1", requesterLabel: "main" },
+    });
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(mainWindow.emit).toHaveBeenCalledWith(
+      "workspace-lifecycle:flush-response",
+      {
+        requestId: "request-1",
+        windowLabel: "project-7",
+        ok: true,
+      },
+    );
   });
 
   it("reads clipboard HTML and text through their native adapter boundaries", async () => {

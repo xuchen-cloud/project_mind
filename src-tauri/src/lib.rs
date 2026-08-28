@@ -202,6 +202,11 @@ impl AppState {
         self.open_workspace_root(root_path)
     }
 
+    fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
+        close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
+        self.status_snapshot()
+    }
+
     fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         verify_workspace_password(&runtime.metadata, password)?;
@@ -223,6 +228,18 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
+}
+
+fn close_workspace_runtime<T>(
+    local_session_path: &Path,
+    current_workspace: &Mutex<Option<T>>,
+) -> Result<()> {
+    let mut session = load_local_session(local_session_path)?;
+    session.clear_current_workspace();
+    save_local_session(local_session_path, &session)?;
+    let mut current = lock_mutex(current_workspace);
+    *current = None;
+    Ok(())
 }
 
 fn with_db<T>(
@@ -524,6 +541,13 @@ fn workspace_open(
 ) -> CommandResult<WorkspaceStatusSnapshot> {
     state
         .open_workspace_root(Path::new(input.root_path.trim()))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state
+        .close_current_workspace()
         .map_err(|error| error.to_string())
 }
 
@@ -1078,6 +1102,7 @@ pub fn run() {
             workspace_status_get,
             workspace_create,
             workspace_open,
+            workspace_close,
             workspace_unlock,
             workspace_lock,
             projects_list,
@@ -1167,5 +1192,31 @@ mod clipboard_tests {
             None
         );
         assert!(normalize_clipboard_html_result(Err(arboard::Error::ClipboardOccupied)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod workspace_lifecycle_tests {
+    use std::{path::Path, sync::Mutex};
+
+    use crate::workspace::LocalSessionState;
+
+    use super::{close_workspace_runtime, load_local_session, save_local_session};
+
+    #[test]
+    fn closing_workspace_releases_runtime_and_persists_only_recent_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let session_path = temp.path().join("workspace-session.json");
+        let mut session = LocalSessionState::default();
+        session.record_recent_workspace(Path::new("active-workspace"));
+        save_local_session(&session_path, &session).unwrap();
+        let current_runtime = Mutex::new(Some("active-runtime"));
+
+        close_workspace_runtime(&session_path, &current_runtime).unwrap();
+
+        assert!(current_runtime.lock().unwrap().is_none());
+        let session = load_local_session(&session_path).unwrap();
+        assert_eq!(session.last_opened_workspace_root, None);
+        assert_eq!(session.recent_workspace_roots.len(), 1);
     }
 }

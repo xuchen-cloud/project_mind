@@ -58,6 +58,10 @@ impl LocalSessionState {
         self.recent_workspace_roots.truncate(8);
         self.last_opened_workspace_root = Some(root);
     }
+
+    pub fn clear_current_workspace(&mut self) {
+        self.last_opened_workspace_root = None;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,5 +284,30 @@ fn set_hidden_attribute(path: &Path) -> Result<()> {
             "failed to mark workspace metadata directory hidden at {}",
             path.display()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::LocalSessionState;
+
+    #[test]
+    fn leaving_workspace_clears_auto_restore_but_preserves_recents() {
+        let mut session = LocalSessionState::default();
+        session.record_recent_workspace(Path::new("first-workspace"));
+        session.record_recent_workspace(Path::new("second-workspace"));
+
+        session.clear_current_workspace();
+
+        assert_eq!(session.last_opened_workspace_root, None);
+        assert_eq!(
+            session.recent_workspace_roots,
+            vec![
+                "second-workspace".to_string(),
+                "first-workspace".to_string()
+            ]
+        );
     }
 }

@@ -79,20 +79,6 @@ import {
   RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
 
-function workspaceScopedQueryKeys() {
-  return [
-    ["projects"],
-    ["project-page"],
-    ["search"],
-    queryKeys.todoViews.all,
-    queryKeys.todoCollections.all,
-    ["workspace-page"],
-    ["ai-settings"],
-    ["rich-text-style"],
-    ["project-tag-settings"],
-  ] as const;
-}
-
 function toProjectSidebarRecords(
   records: NoteRecord[],
 ): ProjectSidebarRecordItem[] {
@@ -467,12 +453,14 @@ export function WorkspaceLayout({
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
       if (clearScopedState) {
-        for (const key of workspaceScopedQueryKeys()) {
+        for (const key of queryKeys.workspaceScoped) {
           queryClient.removeQueries({ queryKey: key });
         }
         clearWorkspaceScopedUiState();
         clearAllTodoComposerDrafts();
         resetAiJobSync();
+        setSearchInput("");
+        setWorkspaceOverviewRoute(workspacePath());
       }
       queryClient.setQueryData(queryKeys.workspaceStatus, snapshot);
       if (!clearScopedState) {
@@ -600,6 +588,41 @@ export function WorkspaceLayout({
       setCreateWorkspaceRoot(selected);
     }
   }, []);
+
+  const handleSwitchWorkspace = useCallback(async () => {
+    try {
+      await flushRecordSaves();
+      await desktopApi.flushOtherWorkspaceWindows();
+      await desktopApi.destroyOtherWorkspaceWindows();
+      const snapshot = await projectMindApi.workspaceClose();
+      await applyWorkspaceStatus(snapshot, true);
+      closeUnlockDialog(false);
+      setCreateWorkspaceOpen(false);
+      skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
+      navigate(workspacePath(), { replace: true });
+    } catch (error) {
+      const detail = String(error);
+      setStatus({
+        tone: "error",
+        label: "Save failed",
+        message: "切换 Workspace 已暂停；请重试 Record 保存",
+      });
+      pushToast({
+        tone: "error",
+        title: "切换 Workspace 失败",
+        detail,
+      });
+    }
+  }, [
+    applyWorkspaceStatus,
+    closeUnlockDialog,
+    flushRecordSaves,
+    location.pathname,
+    location.search,
+    navigate,
+    pushToast,
+    setStatus,
+  ]);
 
   const handleCreateWorkspace = useCallback(async () => {
     if (!createWorkspaceRoot.trim()) {
@@ -1123,6 +1146,28 @@ export function WorkspaceLayout({
     if (!hasWorkspace) {
       return;
     }
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void desktopApi
+      .listenForWorkspaceLifecycleFlush(flushRecordSaves)
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [flushRecordSaves, hasWorkspace]);
+
+  useEffect(() => {
+    if (!hasWorkspace) {
+      return;
+    }
 
     void ensureAiJobSync();
   }, [hasWorkspace]);
@@ -1137,6 +1182,9 @@ export function WorkspaceLayout({
       .listenForCloseRequest(async () => {
         try {
           await flushRecordSaves();
+          if (!projectWindow) {
+            await desktopApi.flushOtherWorkspaceWindows();
+          }
           return true;
         } catch (error) {
           setStatus({
@@ -1166,6 +1214,7 @@ export function WorkspaceLayout({
     };
   }, [
     hasWorkspace,
+    projectWindow,
     pushToast,
     flushRecordSaves,
     setStatus,
@@ -1241,6 +1290,9 @@ export function WorkspaceLayout({
       }}
       onOpenWorkspace={() => {
         navigate(workspacePath());
+      }}
+      onSwitchWorkspace={() => {
+        void handleSwitchWorkspace();
       }}
       onOpenSettings={() => openSettings("project-tags", activeProjectId)}
       onSearchSelect={handleSearchSelect}
