@@ -3,6 +3,22 @@ import { describe, expect, it } from "vitest";
 import { queryKeys } from "./queryKeys";
 
 describe("search query keys", () => {
+  it("centralizes every Workspace-scoped cache root for lifecycle cleanup", () => {
+    expect(queryKeys.workspaceScoped).toEqual([
+      ["projects"],
+      ["project-page"],
+      ["search"],
+      ["todo-views"],
+      ["todos"],
+      ["workspace-page"],
+      ["ai-settings"],
+      ["rich-text-style"],
+      ["project-tag-settings"],
+      ["contacts"],
+      ["documentVersions"],
+    ]);
+  });
+
   it("keeps Workspace and Project Todo search caches distinct", () => {
     expect(queryKeys.search("todo", null)).toEqual([
       "search",

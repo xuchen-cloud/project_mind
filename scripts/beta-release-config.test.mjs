@@ -30,6 +30,22 @@ describe("Beta release configuration", () => {
     expect(html).not.toContain("Project Mind Alpha");
   });
 
+  it("builds Windows releases as GUI-subsystem executables", async () => {
+    const main = await readFile("src-tauri/src/main.rs", "utf8");
+
+    expect(main).toContain(
+      '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]',
+    );
+  });
+
+  it("allows native window destruction after close lifecycle barriers", async () => {
+    const capability = JSON.parse(
+      await readFile("src-tauri/capabilities/default.json", "utf8"),
+    );
+
+    expect(capability.permissions).toContain("core:window:allow-destroy");
+  });
+
   it("uses ProjectMind consistently across user-visible product surfaces", async () => {
     const visibleProductFiles = [
       ".github/workflows/publish-beta.yml",

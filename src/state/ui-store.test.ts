@@ -47,6 +47,7 @@ describe("useUiStore", () => {
     useUiStore.getState().setTodoRailSortMode("priority");
     useUiStore.getState().setTodoRailDisplayMode("flat");
     useUiStore.getState().setProjectTodoViewMode("workspace");
+    useUiStore.getState().openProjectTab(9);
     useUiStore.getState().openSettings("contacts");
     useUiStore.getState().rememberProjectRoute(9, "/projects/9?focus=record-11");
     useUiStore.getState().toggleProjectSidebarCollapsed();
@@ -66,6 +67,7 @@ describe("useUiStore", () => {
     expect(state.todoRailDisplayMode).toBe("flat");
     expect(state.projectTodoViewMode).toBe("workspace");
     expect(state.settingsOpen).toBe(true);
+    expect(state.openProjectIds).toEqual([9]);
     expect(state.settingsSection).toBe("contacts");
     expect(state.projectSidebarCollapsed).toBe(true);
     expect(state.todoRailCollapsed).toBe(true);
@@ -76,10 +78,16 @@ describe("useUiStore", () => {
 
     useUiStore.getState().clearProjectRecentPaths();
     expect(useUiStore.getState().projectRecentPaths).toEqual({});
+    useUiStore.getState().rememberProjectRoute(9, "/projects/9?focus=record-12");
 
     useUiStore.getState().clearWorkspaceScopedUiState();
     expect(useUiStore.getState().projectFileFilters).toEqual({});
     expect(useUiStore.getState().workspaceProjectQuery).toBe("");
+    expect(useUiStore.getState().openProjectIds).toEqual([]);
+    expect(useUiStore.getState().projectRecentPaths).toEqual({});
+    expect(useUiStore.getState().settingsOpen).toBe(false);
+    expect(useUiStore.getState().settingsProjectId).toBeNull();
+    expect(useUiStore.getState().projectComposer).toBeNull();
   });
 
   it("clamps the persisted note editor width preference", () => {

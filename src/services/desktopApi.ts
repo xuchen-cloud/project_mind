@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { exit } from "@tauri-apps/plugin-process";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
@@ -12,6 +13,7 @@ import {
   getCurrentWindowLabel,
   isProjectWindow,
   projectWindowLabel,
+  parseProjectWindowProjectId,
 } from "../lib/project-window";
 import {
   WORKSPACE_WINDOW_MIN_HEIGHT_PX,
@@ -25,6 +27,34 @@ interface PickFilter {
 interface PickFileOptions {
   title?: string;
   filters?: PickFilter[];
+}
+
+interface WorkspaceLifecycleFlushRequest {
+  requestId: string;
+  requesterLabel: string;
+}
+
+interface WorkspaceLifecycleFlushResponse {
+  requestId: string;
+  windowLabel: string;
+  ok: boolean;
+  error?: string;
+}
+
+const WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT =
+  "workspace-lifecycle:flush-request";
+const WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT =
+  "workspace-lifecycle:flush-response";
+const WORKSPACE_LIFECYCLE_FLUSH_TIMEOUT_MS = 30_000;
+let workspaceLifecycleRequestSequence = 0;
+
+async function otherProjectWindows() {
+  const currentLabel = webviewWindow.getCurrentWebviewWindow().label;
+  return (await webviewWindow.getAllWebviewWindows()).filter(
+    (candidate) =>
+      candidate.label !== currentLabel &&
+      parseProjectWindowProjectId(candidate.label) !== null,
+  );
 }
 
 function projectWindowUrl(route: string) {
@@ -45,11 +75,127 @@ export const desktopApi = {
   async listenForCloseRequest(onClose: () => Promise<boolean>) {
     const currentWindow = getCurrentWindow();
     return currentWindow.onCloseRequested(async (event) => {
-      event.preventDefault();
-      if (await onClose()) {
-        await currentWindow.destroy();
+      if (!(await onClose())) {
+        event.preventDefault();
+        return;
+      }
+
+      if (!isProjectWindow()) {
+        event.preventDefault();
+        try {
+          await exit(0);
+        } catch {
+          const windows = await webviewWindow.getAllWebviewWindows();
+          await Promise.all(windows.map((candidate) => candidate.destroy()));
+        }
       }
     });
+  },
+
+  async listenForWorkspaceLifecycleFlush(onFlush: () => Promise<void>) {
+    const currentWindow = webviewWindow.getCurrentWebviewWindow();
+    return currentWindow.listen<WorkspaceLifecycleFlushRequest>(
+      WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT,
+      async ({ payload }) => {
+        let response: WorkspaceLifecycleFlushResponse;
+        try {
+          await onFlush();
+          response = {
+            requestId: payload.requestId,
+            windowLabel: currentWindow.label,
+            ok: true,
+          };
+        } catch (error) {
+          response = {
+            requestId: payload.requestId,
+            windowLabel: currentWindow.label,
+            ok: false,
+            error: getErrorMessage(error, "Record 保存失败"),
+          };
+        }
+
+        const requester = await webviewWindow.WebviewWindow.getByLabel(
+          payload.requesterLabel,
+        );
+        await requester?.emit(
+          WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT,
+          response,
+        );
+      },
+    );
+  },
+
+  async flushOtherWorkspaceWindows() {
+    const currentWindow = webviewWindow.getCurrentWebviewWindow();
+    const targets = await otherProjectWindows();
+    if (targets.length === 0) {
+      return;
+    }
+
+    workspaceLifecycleRequestSequence += 1;
+    const requestId = [
+      "workspace-lifecycle",
+      Date.now(),
+      workspaceLifecycleRequestSequence,
+    ].join("-");
+    const pendingLabels = new Set(targets.map((target) => target.label));
+    const failures: string[] = [];
+    let resolveResponses!: () => void;
+    let rejectResponses!: (error: Error) => void;
+    const responses = new Promise<void>((resolve, reject) => {
+      resolveResponses = resolve;
+      rejectResponses = reject;
+    });
+    const unlisten = await currentWindow.listen<WorkspaceLifecycleFlushResponse>(
+      WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT,
+      ({ payload }) => {
+        if (
+          payload.requestId !== requestId ||
+          !pendingLabels.delete(payload.windowLabel)
+        ) {
+          return;
+        }
+        if (!payload.ok) {
+          failures.push(
+            `${payload.windowLabel}: ${payload.error ?? "Record 保存失败"}`,
+          );
+        }
+        if (pendingLabels.size === 0) {
+          resolveResponses();
+        }
+      },
+    );
+    const timeoutId = window.setTimeout(() => {
+      rejectResponses(
+        new Error(
+          `等待 Project 窗口保存超时：${[...pendingLabels].join(", ")}`,
+        ),
+      );
+    }, WORKSPACE_LIFECYCLE_FLUSH_TIMEOUT_MS);
+
+    try {
+      await Promise.all(
+        targets.map((target) =>
+          target.emit(WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT, {
+            requestId,
+            requesterLabel: currentWindow.label,
+          } satisfies WorkspaceLifecycleFlushRequest),
+        ),
+      );
+      await responses;
+    } finally {
+      window.clearTimeout(timeoutId);
+      unlisten();
+    }
+
+    if (failures.length > 0) {
+      throw new Error(failures.join("\n"));
+    }
+  },
+
+  async destroyOtherWorkspaceWindows() {
+    const targets = await otherProjectWindows();
+    await Promise.all(targets.map((target) => target.destroy()));
   },
 
   async command<T>(name: string, payload?: Record<string, unknown>) {

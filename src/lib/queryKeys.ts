@@ -1,4 +1,17 @@
 export const queryKeys = {
+  workspaceScoped: [
+    ["projects"],
+    ["project-page"],
+    ["search"],
+    ["todo-views"],
+    ["todos"],
+    ["workspace-page"],
+    ["ai-settings"],
+    ["rich-text-style"],
+    ["project-tag-settings"],
+    ["contacts"],
+    ["documentVersions"],
+  ] as const,
   workspaceStatus: ["workspace-status"] as const,
   projects: {
     all: ["projects", "all"] as const,

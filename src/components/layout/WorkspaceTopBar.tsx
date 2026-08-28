@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRight,
   CircleX,
   LoaderCircle,
   PanelsTopLeft,
@@ -42,6 +43,7 @@ interface WorkspaceTopBarProps {
   onPrefetchProject?: (projectId: number) => void;
   onCloseProject?: (projectId: number) => void;
   onOpenWorkspace: () => void;
+  onSwitchWorkspace: () => void;
   onOpenSettings: () => void;
   onSearchSelect: (result: WorkspaceSearchResult) => void;
   onDetachProject?: (projectId: number) => void;
@@ -78,6 +80,7 @@ export function WorkspaceTopBar({
   onPrefetchProject,
   onCloseProject,
   onOpenWorkspace,
+  onSwitchWorkspace,
   onOpenSettings,
   onSearchSelect,
   onDetachProject,
@@ -505,6 +508,16 @@ export function WorkspaceTopBar({
             </PopoverPanel>
           ) : null}
         </div>
+
+        <IconButton
+          type="button"
+          size="md"
+          aria-label="切换 Workspace"
+          title="切换 Workspace"
+          onClick={onSwitchWorkspace}
+        >
+          <ArrowLeftRight size={14} />
+        </IconButton>
 
         <IconButton
           type="button"

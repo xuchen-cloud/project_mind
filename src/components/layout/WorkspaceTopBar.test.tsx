@@ -5,6 +5,31 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkspaceTopBar, shouldDetachProjectTabRelease } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
+  it("exposes an explicit Workspace switch action", async () => {
+    const user = userEvent.setup();
+    const onSwitchWorkspace = vi.fn();
+
+    render(
+      <WorkspaceTopBar
+        projects={[]}
+        activeProjectId={null}
+        searchInput=""
+        onSearchInput={vi.fn()}
+        searchResults={[]}
+        searching={false}
+        onOpenProject={vi.fn()}
+        onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onOpenSettings={vi.fn()}
+        onSearchSelect={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "切换 Workspace" }));
+
+    expect(onSwitchWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it("prefetches a project from pointer and keyboard intent without opening it", () => {
     const onPrefetchProject = vi.fn();
     const onOpenProject = vi.fn();
@@ -33,6 +58,7 @@ describe("WorkspaceTopBar", () => {
         onOpenProject={onOpenProject}
         onPrefetchProject={onPrefetchProject}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -121,6 +147,7 @@ describe("WorkspaceTopBar", () => {
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
       />,
@@ -166,6 +193,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
       />,
@@ -204,6 +232,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -248,6 +277,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={onSearchSelect}
       />,
@@ -282,6 +312,7 @@ describe("WorkspaceTopBar", () => {
         searchError
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -304,6 +335,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -372,6 +404,7 @@ describe("WorkspaceTopBar", () => {
         onOpenProject={onOpenProject}
         onCloseProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
         onDetachProject={onDetachProject}
@@ -412,6 +445,7 @@ describe("WorkspaceTopBar", () => {
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
         onDetachProject={onDetachProject}
@@ -466,6 +500,7 @@ describe("WorkspaceTopBar", () => {
         onOpenProject={vi.fn()}
         onCloseProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -534,6 +569,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={onOpenProject}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,
@@ -567,6 +603,7 @@ describe("WorkspaceTopBar", () => {
         searching={false}
         onOpenProject={vi.fn()}
         onOpenWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
         onOpenSettings={vi.fn()}
         onSearchSelect={vi.fn()}
       />,

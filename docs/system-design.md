@@ -136,6 +136,7 @@ flowchart LR
 - Workspace Gate 与已进入工作区后的主 shell 切换
 - 顶栏、项目侧边栏、状态栏、Toast、设置对话框的全局挂载
 - 工作区切换后清理 scoped query 和 AI job 同步
+- 主窗口退出和顶栏“切换 Workspace”会先要求全部主/Project 窗口完成 Record 保存屏障；退出会终止整个应用，切换会关闭 Project 子窗口，再通过 `workspace_close` 释放当前 runtime、清除自动恢复指针并返回 Workspace Gate；最近使用列表继续保留
 - 根据当前路由决定主页面内容
 
 当前 shell 级关键查询包括：

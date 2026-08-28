@@ -20,6 +20,9 @@ vi.mock("./services/desktopApi", () => ({
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
     listenForCloseRequest: vi.fn(async () => () => undefined),
+    listenForWorkspaceLifecycleFlush: vi.fn(async () => () => undefined),
+    flushOtherWorkspaceWindows: vi.fn(async () => undefined),
+    destroyOtherWorkspaceWindows: vi.fn(async () => undefined),
   },
 }));
 
@@ -64,6 +67,7 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
     workspaceOpen: vi.fn(),
+    workspaceClose: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -219,6 +223,12 @@ describe("workspaceSearchResultRoute", () => {
 describe("WorkspaceLayout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(desktopApi.listenForCloseRequest).mockResolvedValue(() => undefined);
+    vi.mocked(desktopApi.listenForWorkspaceLifecycleFlush).mockResolvedValue(
+      () => undefined,
+    );
+    vi.mocked(desktopApi.flushOtherWorkspaceWindows).mockResolvedValue(undefined);
+    vi.mocked(desktopApi.destroyOtherWorkspaceWindows).mockResolvedValue(undefined);
     vi.mocked(isProjectWindow).mockReturnValue(false);
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState(createUiStoreState());
@@ -345,6 +355,81 @@ describe("WorkspaceLayout", () => {
     });
   });
 
+  it("flushes saves and returns to the Workspace Gate when switching Workspace", async () => {
+    const user = userEvent.setup();
+    vi.mocked(projectMindApi.workspaceClose).mockResolvedValue({
+      currentWorkspace: null,
+      recentWorkspaces: [
+        {
+          rootPath: "/tmp/workspace",
+          metadataPath: "/tmp/workspace/.project-mind/workspace.json",
+          displayName: "Test Workspace",
+          createdAt: "2026-04-11T00:00:00.000Z",
+        },
+      ],
+      aiSecretsUnlocked: false,
+      securityMode: "workspace_password_encrypted",
+    });
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn() },
+    });
+    const flush = vi.spyOn(coordinator, "flush");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.contacts.all, [{ id: 1, name: "Old Contact" }]);
+    queryClient.setQueryData(queryKeys.documentVersions(7), [{ id: 3 }]);
+    useUiStore.getState().openProjectTab(9);
+    useUiStore.getState().openSettings("contacts", 9);
+    const router = createMemoryRouter(
+      [{ path: "*", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "切换 Workspace" }));
+
+    await waitFor(() => expect(projectMindApi.workspaceClose).toHaveBeenCalledTimes(1));
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(desktopApi.flushOtherWorkspaceWindows).toHaveBeenCalledTimes(1);
+    expect(desktopApi.destroyOtherWorkspaceWindows).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(desktopApi.destroyOtherWorkspaceWindows).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(projectMindApi.workspaceClose).mock.invocationCallOrder[0]);
+    expect(queryClient.getQueryData(queryKeys.contacts.all)).toBeUndefined();
+    expect(queryClient.getQueryData(queryKeys.documentVersions(7))).toBeUndefined();
+    expect(useUiStore.getState().openProjectIds).toEqual([]);
+    expect(useUiStore.getState().settingsOpen).toBe(false);
+    expect(await screen.findByRole("heading", { name: "打开你的 Workspace" })).toBeInTheDocument();
+  });
+
+  it("keeps the current Workspace open when the switch save barrier fails", async () => {
+    const user = userEvent.setup();
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn() },
+    });
+    vi.spyOn(coordinator, "flush").mockRejectedValue(new Error("save failed"));
+    const router = createMemoryRouter(
+      [{ path: "*", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "切换 Workspace" }));
+
+    expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
+    expect(await screen.findByText("切换 Workspace 失败")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+  });
+
   it("waits for pending Record saves before allowing a normal window close", async () => {
     let requestClose: (() => Promise<boolean>) | undefined;
     vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
@@ -398,6 +483,7 @@ describe("WorkspaceLayout", () => {
 
     finishSave();
     await expect(closeResult).resolves.toBe(true);
+    expect(desktopApi.flushOtherWorkspaceWindows).toHaveBeenCalledTimes(1);
   });
 
   it("opens settings as a dialog even when there are no projects", async () => {
