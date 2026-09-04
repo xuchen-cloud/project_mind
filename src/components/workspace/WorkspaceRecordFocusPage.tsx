@@ -12,6 +12,7 @@ import {
 import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -339,6 +340,45 @@ export function WorkspaceRecordFocusPage({
     navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
   }
 
+  async function renameWorkspaceSidebarRecord(nextRecordId: number, nextTitle: string) {
+    if (nextRecordId === recordId) {
+      const normalizedTitle = nextTitle.trim();
+      setTitle(normalizedTitle);
+      titleValueRef.current = normalizedTitle;
+      await saveCurrentRecord();
+      return;
+    }
+
+    const record = (workspacePageQuery.data?.records ?? []).find(
+      (candidate) => candidate.id === nextRecordId,
+    );
+    if (!record) {
+      return;
+    }
+
+    await projectMindApi.workspaceRecordUpsert(
+      buildWorkspaceRecordRenameInput(record, nextTitle),
+    );
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+  }
+
+  async function deleteWorkspaceSidebarRecord(nextRecordId: number) {
+    if (nextRecordId === recordId) {
+      const saved = await saveCurrentRecord();
+      if (!saved) {
+        return;
+      }
+    }
+
+    await projectMindApi.workspaceRecordDelete({ noteId: nextRecordId });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+
+    if (nextRecordId === recordId) {
+      navigate(preserveRecordFilters(`${workspacePath()}?view=record`, searchParams));
+    }
+  }
+
   function setWorkspaceRecordQuery(value: string) {
     const nextSearchParams = new URLSearchParams(searchParams);
     if (value.trim()) {
@@ -528,6 +568,10 @@ export function WorkspaceRecordFocusPage({
             }
           }}
           onCreateRecord={() => void createWorkspaceRecordInFocus()}
+          onRenameRecord={(record, nextTitle) =>
+            renameWorkspaceSidebarRecord(record.id, nextTitle)
+          }
+          onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}
         />
       ) : null}
 

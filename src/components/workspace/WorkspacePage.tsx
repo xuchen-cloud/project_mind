@@ -45,6 +45,7 @@ import {
 } from "../rich-editor/noteImageAssets";
 import { TodoModuleRail } from "../../todo";
 import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
@@ -399,6 +400,30 @@ export function WorkspacePage({
     navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
   }
 
+  async function renameWorkspaceSidebarRecord(recordId: number, title: string) {
+    const record = workspaceRecords.find((candidate) => candidate.id === recordId);
+    if (!record) {
+      return;
+    }
+
+    await workspaceRecordMutation.mutateAsync(
+      buildWorkspaceRecordRenameInput(record, title),
+    );
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+  }
+
+  async function deleteWorkspaceSidebarRecord(recordId: number) {
+    await workspaceRecordDeleteMutation.mutateAsync({ noteId: recordId });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+
+    if (focusedRecordId === recordId) {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.set("view", "record");
+      nextSearchParams.delete("focus");
+      setWorkspaceSearchParams(nextSearchParams, { replace: true });
+    }
+  }
+
   function closeComposeRecord() {
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("compose");
@@ -538,6 +563,8 @@ export function WorkspacePage({
           navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams))
         }
         onCreateRecord={() => void createWorkspaceRecordInFocus()}
+        onRenameRecord={(record, title) => renameWorkspaceSidebarRecord(record.id, title)}
+        onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}
       />
 
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">
