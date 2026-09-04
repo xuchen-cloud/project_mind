@@ -1344,7 +1344,7 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
-  it("runs an image free prompt in auto mode and keeps malformed output copy-only", async () => {
+  it("keeps Windows IME input and surrounding content intact before running an image free prompt with copy-only fallback", async () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
@@ -1384,7 +1384,7 @@ describe("RichEditor images", () => {
     const { container, rerender } = render(
       <RichEditor
         variant="bare"
-        defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
+        defaultHtml={'<p>前文不能丢失</p><p><img src="asset:///C:/Users/demo/free.png" data-path="C:\\Users\\demo\\free.png" data-mime-type="image/png"></p><p>附近内容不能丢失</p>'}
         aiSettings={aiSettings}
         contentIdentity="project-record:1"
       />,
@@ -1394,6 +1394,26 @@ describe("RichEditor images", () => {
     await user.click(await screen.findByRole("menuitem", { name: "使用 AI 解读" }));
     const prompt = await screen.findByPlaceholderText("使用 AI 解读图片");
     await user.type(prompt, "判断图中风险");
+
+    const composingEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
+    Object.defineProperty(composingEnter, "isComposing", { value: true });
+    fireEvent(prompt, composingEnter);
+    await act(async () => Promise.resolve());
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prompt).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror")).toHaveTextContent("前文不能丢失附近内容不能丢失");
+    expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+
+    const windowsImeEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
+    Object.defineProperty(windowsImeEnter, "keyCode", { value: 229 });
+    Object.defineProperty(windowsImeEnter, "which", { value: 229 });
+    fireEvent(prompt, windowsImeEnter);
+    await act(async () => Promise.resolve());
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prompt).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror")).toHaveTextContent("前文不能丢失附近内容不能丢失");
+    expect(container.querySelector("img.rich-editor__image")).toBeInTheDocument();
+
     fireEvent.keyDown(prompt, { key: "Enter" });
 
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
@@ -1406,9 +1426,13 @@ describe("RichEditor images", () => {
       prompt: "判断图中风险",
       resultMode: "auto",
       targetType: "image",
+      imageTarget: {
+        path: "C:\\Users\\demo\\free.png",
+      },
     });
 
-    const nearbyParagraph = container.querySelectorAll<HTMLParagraphElement>(".ProseMirror p")[1];
+    const nearbyParagraph = container.querySelector<HTMLParagraphElement>(".ProseMirror p:last-child");
+    expect(nearbyParagraph).toBeTruthy();
     await user.click(nearbyParagraph);
     await user.type(nearbyParagraph, " 已更新");
     useAiJobStore.getState().upsertJob({
@@ -1445,7 +1469,7 @@ describe("RichEditor images", () => {
     rerender(
       <RichEditor
         variant="bare"
-        defaultHtml={'<p><img src="asset:///tmp/free.png" data-path="/tmp/free.png" data-mime-type="image/png"></p><p>附近内容</p>'}
+        defaultHtml={'<p>前文不能丢失</p><p><img src="asset:///C:/Users/demo/free.png" data-path="C:\\Users\\demo\\free.png" data-mime-type="image/png"></p><p>附近内容不能丢失</p>'}
         aiSettings={aiSettings}
         contentIdentity="project-record:2"
       />,
