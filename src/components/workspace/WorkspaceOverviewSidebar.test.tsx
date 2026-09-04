@@ -48,4 +48,63 @@ describe("WorkspaceOverviewSidebar", () => {
     expect(onPrefetchProject).toHaveBeenLastCalledWith(2);
     expect(onOpenProject).not.toHaveBeenCalled();
   });
+
+  it("opens record actions when a Workspace Record is right clicked", () => {
+    useUiStore.setState({ workspaceSidebarTab: "records" });
+    const onRenameRecord = vi.fn();
+    const onDeleteRecord = vi.fn();
+
+    render(
+      <WorkspaceOverviewSidebar
+        workspaceRootPath="/tmp/workspace"
+        projects={[]}
+        archivedProjects={[]}
+        records={[
+          {
+            id: 11,
+            title: "长期方法",
+            contentMarkdown: "记录内容",
+            tags: [],
+            updatedAt: "2026-09-04T08:00:00.000Z",
+          },
+        ]}
+        recordQuery=""
+        onRecordQueryChange={vi.fn()}
+        activeRecordTagId={null}
+        onActiveRecordTagIdChange={vi.fn()}
+        onOpenOverview={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenProjectInNewWindow={vi.fn()}
+        onCreateProject={vi.fn()}
+        onOpenArchivedProject={vi.fn()}
+        onRestoreArchivedProject={vi.fn()}
+        onRenameProject={vi.fn()}
+        onArchiveProject={vi.fn()}
+        onDeleteProject={vi.fn()}
+        onOpenRecord={vi.fn()}
+        onCreateRecord={vi.fn()}
+        onRenameRecord={onRenameRecord}
+        onDeleteRecord={onDeleteRecord}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("长期方法"));
+
+    expect(screen.getByRole("menu", { name: "记录操作" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /重命名/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /删除/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /重命名/ }));
+    const titleInput = screen.getByDisplayValue("长期方法");
+    fireEvent.change(titleInput, { target: { value: "长期实践" } });
+    fireEvent.keyDown(titleInput, { key: "Enter" });
+    expect(onRenameRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 11 }),
+      "长期实践",
+    );
+
+    fireEvent.contextMenu(screen.getByText("长期方法"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /删除/ }));
+    expect(onDeleteRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+  });
 });

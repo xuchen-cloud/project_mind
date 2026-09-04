@@ -67,6 +67,13 @@ interface WorkspaceOverviewSidebarProps {
   onOpenRecord: (recordId: number) => void;
   onFocusRecord?: (recordId: number) => void;
   onCreateRecord: () => void;
+  onRenameRecord?: (
+    record: WorkspaceOverviewSidebarRecordItem,
+    title: string,
+  ) => Promise<unknown> | unknown;
+  onDeleteRecord?: (
+    record: WorkspaceOverviewSidebarRecordItem,
+  ) => Promise<unknown> | unknown;
 }
 
 export function WorkspaceOverviewSidebar({
@@ -93,6 +100,8 @@ export function WorkspaceOverviewSidebar({
   onOpenRecord,
   onFocusRecord,
   onCreateRecord,
+  onRenameRecord,
+  onDeleteRecord,
 }: WorkspaceOverviewSidebarProps) {
   const {
     projectSidebarCollapsed,
@@ -111,6 +120,13 @@ export function WorkspaceOverviewSidebar({
   } | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [projectNameDraft, setProjectNameDraft] = useState("");
+  const [recordContextMenu, setRecordContextMenu] = useState<{
+    recordId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [recordTitleDraft, setRecordTitleDraft] = useState("");
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<ProjectListItem | null>(null);
   const normalizedProjectQuery = projectQuery.trim().toLowerCase();
@@ -144,6 +160,9 @@ export function WorkspaceOverviewSidebar({
   const projectContextProject = projectContextMenu
     ? projects.find((project) => project.id === projectContextMenu.projectId) ?? null
     : null;
+  const contextMenuRecord = recordContextMenu
+    ? records.find((record) => record.id === recordContextMenu.recordId) ?? null
+    : null;
 
   function beginRenameProject(project: ProjectListItem) {
     setProjectContextMenu(null);
@@ -163,6 +182,26 @@ export function WorkspaceOverviewSidebar({
       return;
     }
     void onRenameProject(project, nextName);
+  }
+
+  function beginRenameRecord(record: WorkspaceOverviewSidebarRecordItem) {
+    setRecordContextMenu(null);
+    setEditingRecordId(record.id);
+    setRecordTitleDraft(record.title ?? "");
+  }
+
+  function cancelRenameRecord() {
+    setEditingRecordId(null);
+    setRecordTitleDraft("");
+  }
+
+  function commitRenameRecord(record: WorkspaceOverviewSidebarRecordItem) {
+    const nextTitle = recordTitleDraft.trim();
+    cancelRenameRecord();
+    if (nextTitle === (record.title ?? "")) {
+      return;
+    }
+    void onRenameRecord?.(record, nextTitle);
   }
 
   const projectContextMenuActions = useMemo<ContextMenuAction[]>(
@@ -414,33 +453,81 @@ export function WorkspaceOverviewSidebar({
             ) : (
               <div className="grid gap-1.5">
                 {records.length > 0 ? (
-                  records.map((record) => (
-                    <button
-                      key={record.id}
-                      type="button"
-                      className={cn(
-                        "flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
-                        record.id === activeRecordId
-                          ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))]"
-                          : "border-transparent hover:border-border hover:bg-bg",
-                      )}
-                      onClick={() => onOpenRecord(record.id)}
-                      onDoubleClick={(event) => {
-                        event.preventDefault();
-                        onFocusRecord?.(record.id);
-                      }}
-                    >
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                        <NotebookText size={15} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <p className="truncate text-body font-medium text-text">
-                          {record.title || "未命名记录"}
-                        </p>
-                        <p className="mt-1 truncate text-ui text-text-soft">{record.contentMarkdown || "空记录"}</p>
-                      </span>
-                    </button>
-                  ))
+                  records.map((record) => {
+                    const isEditingRecord = editingRecordId === record.id;
+                    const isRecordContextOpen = recordContextMenu?.recordId === record.id;
+
+                    return (
+                      <button
+                        key={record.id}
+                        type="button"
+                        className={cn(
+                          "flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          isRecordContextOpen
+                            ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]"
+                            : record.id === activeRecordId
+                              ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))]"
+                              : "border-transparent hover:border-border hover:bg-bg",
+                        )}
+                        onClick={() => {
+                          if (!isEditingRecord) {
+                            onOpenRecord(record.id);
+                          }
+                        }}
+                        onDoubleClick={(event) => {
+                          if (isEditingRecord) {
+                            return;
+                          }
+                          event.preventDefault();
+                          onFocusRecord?.(record.id);
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          if (isEditingRecord) {
+                            return;
+                          }
+                          setRecordContextMenu({
+                            recordId: record.id,
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }}
+                      >
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
+                          <NotebookText size={15} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          {isEditingRecord ? (
+                            <input
+                              autoFocus
+                              value={recordTitleDraft}
+                              placeholder="未命名记录"
+                              className="inline-object-input h-6 min-w-0 w-full px-1.5 text-body font-medium text-text outline-none"
+                              onChange={(event) => setRecordTitleDraft(event.target.value)}
+                              onClick={(event) => event.stopPropagation()}
+                              onBlur={() => commitRenameRecord(record)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  cancelRenameRecord();
+                                } else if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  commitRenameRecord(record);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <p className="truncate text-body font-medium text-text">
+                              {record.title || "未命名记录"}
+                            </p>
+                          )}
+                          <p className="mt-1 truncate text-ui text-text-soft">
+                            {record.contentMarkdown || "空记录"}
+                          </p>
+                        </span>
+                      </button>
+                    );
+                  })
                 ) : (
                   <p className="rounded-[var(--radius-8)] border border-dashed border-border px-3 py-4 text-ui text-text-soft">
                     没有匹配的记录。
@@ -483,6 +570,31 @@ export function WorkspaceOverviewSidebar({
           actions={projectContextMenuActions}
           ariaLabel="项目操作"
           onClose={() => setProjectContextMenu(null)}
+        />
+      ) : null}
+
+      {contextMenuRecord && recordContextMenu ? (
+        <ActionContextMenu
+          x={recordContextMenu.x}
+          y={recordContextMenu.y}
+          ariaLabel="记录操作"
+          actions={[
+            {
+              label: "重命名",
+              icon: Pencil,
+              onSelect: () => beginRenameRecord(contextMenuRecord),
+            },
+            {
+              label: "删除",
+              icon: Trash2,
+              tone: "danger",
+              onSelect: () => {
+                setRecordContextMenu(null);
+                void onDeleteRecord?.(contextMenuRecord);
+              },
+            },
+          ]}
+          onClose={() => setRecordContextMenu(null)}
         />
       ) : null}
 
