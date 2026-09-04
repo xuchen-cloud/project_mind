@@ -4,7 +4,7 @@
   "version": "0.1.1",
   "identifier": "com.xuchen.projectmind.alpha",
   "build": {
-    "beforeDevCommand": "npm run dev:tauri",
+    "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
