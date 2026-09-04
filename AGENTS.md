@@ -12,6 +12,6 @@
 
 本仓库使用单上下文（single-context）领域文档布局。详见 `docs/agents/domain.md`。
 
-## Development workflow
+### Publish flow
 
-实现需求或缺陷、持久化调研与原型结果、推送分支、自动合并或发布 Release 时，遵循按风险分级的 Issue → `develop` 分支开发 → review → PR 工作流；`main` 只接收 Release 和紧急生产修复。详见 `docs/agents/development-flow.md`。
+本仓库当前没有 CI 或外部 PR review 门禁。实现通过完整验证和 Standards / Spec 双轴 review 后，使用最小发布流程自动合并并关闭对应 Issue。详见 `docs/agents/publish-flow.md`。
