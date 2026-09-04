@@ -8,9 +8,4 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-command = "npm run dev:tauri"
-
-[[actions]]
-name = "run"
-icon = "tool"
 command = "npm run tauri dev"

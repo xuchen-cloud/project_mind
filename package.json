@@ -1,11 +1,11 @@
 {
   "name": "project-mind-alpha",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 1420",
-    "dev:tauri": "node scripts/start-tauri-dev-server.mjs",
+    "dev:tauri": "tauri dev",
     "build": "tsc && vite build",
     "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
