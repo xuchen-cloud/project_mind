@@ -45,6 +45,7 @@ import {
 } from "../rich-editor/noteImageAssets";
 import { TodoModuleRail } from "../../todo";
 import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
@@ -405,14 +406,9 @@ export function WorkspacePage({
       return;
     }
 
-    await workspaceRecordMutation.mutateAsync({
-      noteId: record.id,
-      title: title.trim() || undefined,
-      markdown: record.contentMarkdown,
-      html: record.contentHtml,
-      defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-      tagIds: (record.tags ?? []).map((tag) => tag.id),
-    });
+    await workspaceRecordMutation.mutateAsync(
+      buildWorkspaceRecordRenameInput(record, title),
+    );
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
   }
 
