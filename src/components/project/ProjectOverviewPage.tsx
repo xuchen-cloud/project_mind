@@ -421,10 +421,6 @@ export function ProjectOverviewPage({
       quickNoteCodeLanguage,
       status: activeProject.status,
     });
-    // Query refresh is asynchronous; publish the successful snapshot to the
-    // controlled editor immediately to avoid replaying a stale draft while an
-    // AI image session is being created.
-    setQuickNoteDraft(normalized);
   }
 
   async function createRecord() {

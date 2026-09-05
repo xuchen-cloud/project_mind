@@ -586,6 +586,76 @@ describe("RichEditor tables", () => {
 });
 
 describe("RichEditor images", () => {
+  it.each(["pending", "completed"])("preserves newer blurred edits when a %s save echoes an older snapshot", async (phase) => {
+    const user = userEvent.setup();
+    const controllerRef = { current: null as RichEditorController | null };
+    let finishSave!: () => void;
+    const onSave = vi.fn((_value: { html: string }) => Promise.resolve())
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    const rendered = render(<RichEditor variant="bare" html="<p>initial</p>" onSave={onSave} controllerRef={controllerRef} autosave={false} />);
+    const surface = await getEditorSurface(rendered.container);
+    await user.click(surface);
+    await user.type(surface, " saved-A");
+    let saving: Promise<unknown> | undefined;
+    act(() => { saving = controllerRef.current?.save({ force: true }); });
+    const saved = onSave.mock.calls[0][0];
+    await user.type(surface, " newer-B");
+    fireEvent.blur(surface);
+    if (phase === "completed") {
+      await act(async () => { finishSave(); await saving; });
+    }
+    rendered.rerender(<RichEditor variant="bare" html={saved.html} onSave={onSave} controllerRef={controllerRef} autosave={false} />);
+    const afterEcho = surface.textContent;
+    await act(async () => { finishSave(); await saving; });
+    expect(afterEcho).toContain("newer-B");
+    expect(controllerRef.current?.getCommittedValue().html).toContain("newer-B");
+    await act(async () => { await controllerRef.current?.save({ force: true }); });
+    expect(onSave.mock.calls.at(-1)?.[0].html).toContain("newer-B");
+  });
+
+  it("keeps an image answer job alive when saving nearby edits echoes committed content", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(904);
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const controllerRef = { current: null as RichEditorController | null };
+    let finishSave!: () => void;
+    const onSave = vi.fn((_value: { html: string }) => new Promise<void>((resolve) => { finishSave = resolve; }));
+    const props = {
+      variant: "bare" as const,
+      onSave,
+      controllerRef,
+      autosave: false as const,
+      aiSettings: {
+        profiles: [], bindings: [], editorSkills: [],
+        hasUsableDefault: false, hasUsableImageDefault: true,
+        securityMode: "workspace_password_encrypted" as const,
+        aiSecretsUnlocked: true, execution: { maxConcurrency: 1 },
+      },
+    };
+    const rendered = render(<RichEditor {...props} html={'<p><img src="asset:///tmp/answer.png" data-path="/tmp/answer.png" data-mime-type="image/png"></p><p>nearby</p>'} />);
+    const surface = await getEditorSurface(rendered.container);
+    fireEvent.contextMenu(rendered.container.querySelector("img.rich-editor__image")!, { clientX: 30, clientY: 30 });
+    await user.click(await screen.findByRole("menuitem", { name: "使用 AI 解读" }));
+    const prompt = await screen.findByPlaceholderText("使用 AI 解读图片");
+    await user.type(prompt, "解释图片");
+    fireEvent.keyDown(prompt, { key: "Enter" });
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+    const paragraph = rendered.container.querySelector(".ProseMirror p:last-child")!;
+    await user.click(paragraph);
+    await user.type(paragraph, " new edit");
+    fireEvent.blur(surface);
+    let saving: Promise<unknown> | undefined;
+    act(() => { saving = controllerRef.current?.save({ force: true }); });
+    rendered.rerender(<RichEditor {...props} html={onSave.mock.calls[0][0].html} />);
+    await act(async () => { finishSave(); await saving; });
+    expect(cancelSpy).not.toHaveBeenCalledWith(904);
+    expect(surface).toHaveTextContent("new edit");
+    signatureSpy.mockRestore();
+    cancelSpy.mockRestore();
+    job.restore();
+  });
+
   it("renders image resize controls and updates width", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
