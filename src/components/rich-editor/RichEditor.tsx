@@ -3255,7 +3255,10 @@ export function RichEditor({
         skillId: null,
         skillName: "AI 解读图片",
         prompt,
-        resultMode: "auto",
+        // Image Interpretation is an answer-producing action.  The generic
+        // auto mode requires strict JSON and turns ordinary model answers into
+        // parse errors, even when the image request itself succeeded.
+        resultMode: "answer",
         targetType: "image",
         imageTarget: aiMenu.imageTarget,
       });

@@ -1592,7 +1592,7 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
-  it("keeps Windows IME input and surrounding content intact before running an image free prompt with copy-only fallback", async () => {
+  it("keeps Windows IME input and surrounding content intact when an image answer result is malformed", async () => {
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
@@ -1672,7 +1672,7 @@ describe("RichEditor images", () => {
       skillId: null,
       skillName: "AI 解读图片",
       prompt: "判断图中风险",
-      resultMode: "auto",
+      resultMode: "answer",
       targetType: "image",
       imageTarget: {
         path: "C:\\Users\\demo\\free.png",
@@ -1697,7 +1697,7 @@ describe("RichEditor images", () => {
         kind: "editor_skill",
         rewrite: {
           skillId: null,
-          resultMode: "auto",
+          resultMode: "answer",
           content: "无法解析的原始模型响应",
           answerMarkdown: "无法解析的原始模型响应",
           parseError: "invalid JSON",
@@ -1748,6 +1748,65 @@ describe("RichEditor images", () => {
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
     ensureSyncSpy.mockRestore();
+  });
+
+  it("accepts a plain-text answer from the image free prompt", async () => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(204);
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///tmp/free-answer.png" data-path="/tmp/free-answer.png" data-mime-type="image/png"></p><p>结尾</p>'}
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [],
+        }}
+      />,
+    );
+    const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.click(await screen.findByRole("menuitem", { name: "使用 AI 解读" }));
+    const prompt = await screen.findByPlaceholderText("使用 AI 解读图片");
+    await user.type(prompt, "判断图中风险");
+    fireEvent.keyDown(prompt, { key: "Enter" });
+
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+    useAiJobStore.getState().upsertJob({
+      id: 204,
+      kind: "editor_skill",
+      targetKey: job.getTargetKey(),
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "图片存在安全风险",
+      result: {
+        kind: "editor_skill",
+        rewrite: {
+          skillId: null,
+          resultMode: "answer",
+          content: "图片存在安全风险",
+          answerMarkdown: "图片存在安全风险",
+          usedDefaultFallback: false,
+        },
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText("图片存在安全风险")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "插入" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "插入" }));
+    await waitFor(() => expect(container.querySelector(".ProseMirror blockquote")).toHaveTextContent("图片存在安全风险"));
+
+    signatureSpy.mockRestore();
+    job.restore();
   });
 
   it("rolls back a streamed image preview before a dirty Workspace switch", async () => {
