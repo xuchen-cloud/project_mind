@@ -237,6 +237,10 @@ export function ProjectNoteFocusPage({
         value ??
         editorControllerRef.current?.getCommittedValue() ??
         Object.freeze({ ...content });
+      // Keep the controlled prop in lockstep with the exact snapshot sent to
+      // the save coordinator so a pending AI session cannot reconcile against
+      // the focus page's mount-time HTML.
+      setContent(committed);
       saveCoordinator.submit({
         scope: "project",
         workspaceKey: saveCoordinator.workspaceKey ?? project?.rootPath ?? `project:${projectId}`,

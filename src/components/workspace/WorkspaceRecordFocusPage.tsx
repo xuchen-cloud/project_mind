@@ -239,6 +239,13 @@ export function WorkspaceRecordFocusPage({
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue) => {
       if (!draftReady || recordId === null) return false;
+      const committedContent =
+        value ?? editorControllerRef.current?.getCommittedValue() ?? content;
+      // Keep the controlled prop in lockstep with the exact snapshot sent to
+      // the save coordinator.  The editor can start an AI session before the
+      // query cache refreshes; leaving this prop at the mount-time HTML would
+      // let controlled reconciliation reapply that stale document.
+      setContent(committedContent);
       saveCoordinator.submit({
         scope: "workspace",
         workspaceKey:
@@ -247,8 +254,7 @@ export function WorkspaceRecordFocusPage({
         title: titleValueRef.current,
         tagIds: tagIdsValueRef.current,
         defaultCodeLanguage: codeLanguageValueRef.current,
-        committedContent:
-          value ?? editorControllerRef.current?.getCommittedValue() ?? content,
+        committedContent,
       });
       setPersistState("saving");
       return true;

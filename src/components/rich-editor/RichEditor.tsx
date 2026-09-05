@@ -560,6 +560,8 @@ export function RichEditor({
   const autoFocusAppliedRef = useRef(false);
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
+  const lastControlledHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
+  const reconciledContentIdentityRef = useRef(contentIdentity);
   const pendingChangeSnapshotRef = useRef<RichEditorValue | null>(null);
   const latestCommittedValueRef = useRef<Readonly<RichEditorValue> | null>(null);
   const isFocusedRef = useRef(false);
@@ -670,8 +672,6 @@ export function RichEditor({
     Boolean(aiSettings) && (aiSettings?.hasUsableDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "default"));
   const imageInterpretationReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
-  const aiModifySessionActive =
-    rewriteSessions.some((session) => session.skill.resultMode === "modify" || session.skill.resultMode === "auto");
   const effectiveReadOnly = readOnly;
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
@@ -1926,9 +1926,11 @@ export function RichEditor({
         const result = await onSave(snapshot);
         saveSucceeded = true;
         lastPersistedHtmlRef.current = snapshot.html;
-        lastResolvedHtmlRef.current = snapshot.html;
+        const latest = normalizeRichEditorValue(captureCommittedValue(editor));
+        const hasNewerEdits = latest.html !== snapshot.html;
+        if (!hasNewerEdits) lastResolvedHtmlRef.current = snapshot.html;
         if (saveCycleRef.current) saveCycleRef.current.error = null;
-        updatePersistState(snapshot.html === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
+        updatePersistState(hasNewerEdits ? "dirty" : snapshot.html === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
         return result;
       } catch (error) {
         if (saveCycleRef.current) saveCycleRef.current.error = error;
@@ -2028,13 +2030,45 @@ export function RichEditor({
 
     const nextHtml = normalizeHtml(html ?? defaultHtml);
     let currentHtml = normalizeHtml(editor.getHTML());
+    const identityChanged = contentIdentity !== reconciledContentIdentityRef.current;
 
     if (aiPreviewMutationRef.current || internalEditorCommitInFlightRef.current) {
       return;
     }
+    reconciledContentIdentityRef.current = contentIdentity;
 
-    if (nextHtml === lastResolvedHtmlRef.current) {
+    // A generation can be requested by an internal editor commit while the
+    // parent still holds its previous controlled value.  That value is not an
+    // external update and must never be replayed over the live document.
+    const controlledHtmlChanged = nextHtml !== lastControlledHtmlRef.current;
+    lastControlledHtmlRef.current = nextHtml;
+    if (!identityChanged && !controlledHtmlChanged && nextHtml !== lastResolvedHtmlRef.current) {
       return;
+    }
+
+    if (!identityChanged && nextHtml === lastResolvedHtmlRef.current) {
+      return;
+    }
+
+    if (!identityChanged) {
+      // A save acknowledgement refers to committed content, not the live AI
+      // preview. Recognize it before cancelling or rolling back any sessions.
+      const committedHtml = normalizeRichEditorValue(captureCommittedValue(editor)).html;
+      if (nextHtml === committedHtml) {
+        lastResolvedHtmlRef.current = nextHtml;
+        return;
+      }
+      // Blur does not make local edits disposable. A delayed save/cache echo
+      // must not replace them, including while a failed save is awaiting retry.
+      if (
+        saveInFlightRef.current ||
+        (onSave && committedHtml !== lastPersistedHtmlRef.current) ||
+        persistStateRef.current === "dirty" ||
+        persistStateRef.current === "saving" ||
+        persistStateRef.current === "error"
+      ) {
+        return;
+      }
     }
 
     if (rewriteSessionsRef.current.length > 0 || getEditorRewriteProtectedRange(editor)) {
@@ -2069,13 +2103,6 @@ export function RichEditor({
       return;
     }
 
-    if (
-      isFocusedRef.current &&
-      (persistStateRef.current === "dirty" || persistStateRef.current === "saving")
-    ) {
-      return;
-    }
-
     lastResolvedHtmlRef.current = nextHtml;
     lastPersistedHtmlRef.current = nextHtml;
 
@@ -2086,11 +2113,12 @@ export function RichEditor({
 
     updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
   }, [
-    aiModifySessionActive,
     controlledHtmlReconcileGeneration,
+    contentIdentity,
     defaultHtml,
     editor,
     html,
+    onSave,
     captureCommittedValue,
     updatePersistState,
   ]);
@@ -3248,7 +3276,10 @@ export function RichEditor({
         skillId: null,
         skillName: "AI 解读图片",
         prompt,
-        resultMode: "auto",
+        // Image Interpretation is an answer-producing action.  The generic
+        // auto mode requires strict JSON and turns ordinary model answers into
+        // parse errors, even when the image request itself succeeded.
+        resultMode: "answer",
         targetType: "image",
         imageTarget: aiMenu.imageTarget,
       });
