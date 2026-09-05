@@ -227,6 +227,10 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
     const nextSignature = buildRecordSaveSignature(nextValue, nextTitle, nextTagIds, codeLanguage);
     if (nextSignature === saveSignatureRef.current) return;
     await onSave(record, nextValue, nextTitle, nextTagIds, codeLanguage);
+    // The editor is controlled by this local draft while editing.  Reflect a
+    // successful save immediately instead of waiting for the parent record
+    // query to refresh, which may otherwise echo an older HTML snapshot.
+    setValue(nextValue);
     saveSignatureRef.current = nextSignature;
   }
 

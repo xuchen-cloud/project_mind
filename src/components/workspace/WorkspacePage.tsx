@@ -712,6 +712,11 @@ export function WorkspacePage({
                     defaultCodeLanguage: quickNoteCodeLanguage,
                     tagIds,
                   });
+                  // The query invalidation below is asynchronous. Keep the
+                  // controlled editor value aligned with the snapshot that
+                  // just succeeded so AI-session state changes cannot replay
+                  // an older cached document.
+                  setQuickNoteDraft(externalizedValue);
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}

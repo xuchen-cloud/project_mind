@@ -560,6 +560,7 @@ export function RichEditor({
   const autoFocusAppliedRef = useRef(false);
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
+  const lastControlledHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const pendingChangeSnapshotRef = useRef<RichEditorValue | null>(null);
   const latestCommittedValueRef = useRef<Readonly<RichEditorValue> | null>(null);
   const isFocusedRef = useRef(false);
@@ -670,8 +671,6 @@ export function RichEditor({
     Boolean(aiSettings) && (aiSettings?.hasUsableDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "default"));
   const imageInterpretationReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
-  const aiModifySessionActive =
-    rewriteSessions.some((session) => session.skill.resultMode === "modify" || session.skill.resultMode === "auto");
   const effectiveReadOnly = readOnly;
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
@@ -2033,6 +2032,15 @@ export function RichEditor({
       return;
     }
 
+    // A generation can be requested by an internal editor commit while the
+    // parent still holds its previous controlled value.  That value is not an
+    // external update and must never be replayed over the live document.
+    const controlledHtmlChanged = nextHtml !== lastControlledHtmlRef.current;
+    lastControlledHtmlRef.current = nextHtml;
+    if (!controlledHtmlChanged && nextHtml !== lastResolvedHtmlRef.current) {
+      return;
+    }
+
     if (nextHtml === lastResolvedHtmlRef.current) {
       return;
     }
@@ -2086,7 +2094,6 @@ export function RichEditor({
 
     updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
   }, [
-    aiModifySessionActive,
     controlledHtmlReconcileGeneration,
     defaultHtml,
     editor,

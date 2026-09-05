@@ -1239,6 +1239,254 @@ describe("RichEditor images", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it("does not replace saved edits when an image skill session starts with a stale controlled html prop", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: 901,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const initialHtml = '<p>历史版本之前</p><p><img src="asset:///tmp/stale.png" data-path="/tmp/stale.png" data-mime-type="image/png"></p><p>历史版本内容</p>';
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        html={initialHtml}
+        onSave={onSave}
+        controllerRef={controllerRef}
+        contentIdentity="workspace-record:91"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "extract-image-text",
+            name: "文字提取",
+            icon: null,
+            description: null,
+            prompt: "提取文字",
+            resultMode: "modify",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+    const trailingParagraph = container.querySelector<HTMLParagraphElement>(".ProseMirror p:last-child");
+    expect(trailingParagraph).toBeTruthy();
+    await user.click(trailingParagraph as HTMLParagraphElement);
+    await user.type(trailingParagraph as HTMLParagraphElement, " 最近编辑");
+    await controllerRef.current?.save({ force: true });
+
+    expect(onSave.mock.calls.at(-1)?.[0].html).toContain("最近编辑");
+    expect(surface).toHaveTextContent("最近编辑");
+
+    const image = container.querySelector("img.rich-editor__image") as HTMLImageElement;
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.click(
+      within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", {
+        name: "文字提取",
+      }),
+    );
+
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    expect(surface).toHaveTextContent("最近编辑");
+    expect(surface).toHaveTextContent("历史版本之前");
+    expect(cancelSpy).not.toHaveBeenCalledWith(901);
+
+    cancelSpy.mockRestore();
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("does not replace saved edits after inserting an image answer while the controlled prop is stale", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const controllerRef = { current: null as RichEditorController | null };
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: 902,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const initialHtml = '<p>历史版本之前</p><p><img src="asset:///tmp/stale-answer.png" data-path="/tmp/stale-answer.png" data-mime-type="image/png"></p><p>历史版本内容</p>';
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        html={initialHtml}
+        onSave={onSave}
+        controllerRef={controllerRef}
+        contentIdentity="workspace-record:92"
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "explain-image",
+            name: "图片问答",
+            icon: null,
+            description: null,
+            prompt: "解释图片",
+            resultMode: "answer",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const surface = await getEditorSurface(container);
+    const trailingParagraph = container.querySelector<HTMLParagraphElement>(".ProseMirror p:last-child");
+    await user.click(trailingParagraph as HTMLParagraphElement);
+    await user.type(trailingParagraph as HTMLParagraphElement, " 最近编辑");
+    await controllerRef.current?.save({ force: true });
+    fireEvent.blur(surface);
+    expect(surface).toHaveTextContent("最近编辑");
+
+    const image = container.querySelector("img.rich-editor__image") as HTMLImageElement;
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.click(
+      within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", {
+        name: "图片问答",
+      }),
+    );
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    const request = enqueueSpy.mock.calls[0]?.[0];
+    useAiJobStore.getState().upsertJob({
+      id: 902,
+      kind: "editor_skill",
+      targetKey: request?.targetKey ?? "",
+      status: "succeeded",
+      queuedAt: "",
+      startedAt: "",
+      finishedAt: "",
+      errorMessage: null,
+      streamText: "这是一张流程图",
+      result: {
+        kind: "editor_skill",
+        rewrite: {
+          skillId: "explain-image",
+          resultMode: "answer",
+          content: "这是一张流程图",
+          answerMarkdown: "这是一张流程图",
+          usedDefaultFallback: false,
+        },
+      },
+    });
+    await user.click(await screen.findByRole("button", { name: "插入" }));
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror blockquote")).toHaveTextContent("这是一张流程图"));
+    expect(surface).toHaveTextContent("最近编辑");
+    expect(surface).toHaveTextContent("历史版本之前");
+
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
+  it("resolves legacy asset-only image markup for Windows image AI requests", async () => {
+    const user = userEvent.setup();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("legacy-signature");
+    const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
+      id: 903,
+      kind: "editor_skill",
+      targetKey: input.targetKey,
+      status: "queued",
+      queuedAt: "",
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      streamText: null,
+      result: null,
+    }));
+    const { container } = render(
+      <RichEditor
+        variant="bare"
+        defaultHtml={'<p><img src="asset:///C:/Users/demo/legacy.png" alt="历史图片"></p>'}
+        aiSettings={{
+          profiles: [],
+          bindings: [],
+          hasUsableDefault: false,
+          hasUsableImageDefault: true,
+          securityMode: "workspace_password_encrypted",
+          aiSecretsUnlocked: true,
+          execution: { maxConcurrency: 1 },
+          editorSkills: [{
+            id: "extract-image-text",
+            name: "文字提取",
+            icon: null,
+            description: null,
+            prompt: "提取文字",
+            resultMode: "modify",
+            showInTextMenu: false,
+            showInImageMenu: true,
+            profileId: null,
+            sortOrder: 1,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+          }],
+        }}
+      />,
+    );
+    const image = await waitFor(() => container.querySelector("img.rich-editor__image") as HTMLImageElement);
+    fireEvent.contextMenu(image, { clientX: 30, clientY: 30 });
+    await user.click(
+      within(await screen.findByRole("group", { name: "图片 AI 技能列表" })).getByRole("menuitem", {
+        name: "文字提取",
+      }),
+    );
+
+    await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
+    expect(signatureSpy).toHaveBeenCalledWith({
+      path: "C:\\Users\\demo\\legacy.png",
+      annotationState: null,
+    });
+
+    enqueueSpy.mockRestore();
+    signatureSpy.mockRestore();
+    ensureSyncSpy.mockRestore();
+  });
+
   it("keeps delayed concurrent image jobs attached to their own sessions", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
