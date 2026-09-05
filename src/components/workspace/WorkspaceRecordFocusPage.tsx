@@ -12,6 +12,7 @@ import {
 import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -361,14 +362,9 @@ export function WorkspaceRecordFocusPage({
       return;
     }
 
-    await projectMindApi.workspaceRecordUpsert({
-      noteId: record.id,
-      title: nextTitle.trim() || undefined,
-      markdown: record.contentMarkdown,
-      html: record.contentHtml,
-      defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-      tagIds: (record.tags ?? []).map((tag) => tag.id),
-    });
+    await projectMindApi.workspaceRecordUpsert(
+      buildWorkspaceRecordRenameInput(record, nextTitle),
+    );
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 

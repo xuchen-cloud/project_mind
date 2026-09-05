@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -78,5 +79,43 @@ describe("Beta release configuration", () => {
     expect(tauriConfig.plugins.updater.endpoints).toEqual([
       "https://raw.githubusercontent.com/xuchen-cloud/project_mind/main/beta/latest.json",
     ]);
+  });
+
+  it("supports a manual Windows-only patch release without advancing the Beta channel", async () => {
+    const workflow = await readFile(
+      ".github/workflows/publish-windows-patch.yml",
+      "utf8",
+    );
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("runs-on: windows-latest");
+    expect(workflow).toContain("--target x86_64-pc-windows-msvc --bundles nsis");
+    expect(workflow).toContain("uploadUpdaterJson: false");
+    expect(workflow).toContain("uploadUpdaterSignatures: true");
+    expect(workflow).toContain("prerelease: true");
+    expect(workflow).toContain("RELEASE_TAG: ${{ inputs.tag }}");
+    expect(workflow).not.toContain('"${{ inputs.tag }}"');
+    expect(workflow).not.toContain("macos-latest");
+    expect(workflow).not.toContain("beta/latest.json");
+    expect(workflow).not.toContain("publish-channel");
+  });
+
+  it("requires Windows patch tags to match the application version", async () => {
+    const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+    const validTag = `v${packageJson.version}-windows.1`;
+    const valid = spawnSync(
+      process.execPath,
+      ["scripts/validate-windows-patch-version.mjs", validTag],
+      { encoding: "utf8" },
+    );
+    const invalid = spawnSync(
+      process.execPath,
+      ["scripts/validate-windows-patch-version.mjs", "v999.0.0-windows.1"],
+      { encoding: "utf8" },
+    );
+
+    expect(valid.status, valid.stderr).toBe(0);
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain("does not match application version");
   });
 });
