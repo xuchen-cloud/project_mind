@@ -44,7 +44,7 @@ use crate::{
     voice::{
         contracts::{
             RecordTarget, VoicePlaybackChunk, VoicePlaybackSnapshot, VoiceRecordLookup,
-            VoiceSettings,
+            VoiceSettings, VoiceTranscriptCursor, VoiceTranscriptPage, VoiceTranscriptSegment,
         },
         storage::{AudioChunkManifest, PersistedVoiceSession},
     },
@@ -970,36 +970,7 @@ impl Database {
         &self,
         target: &VoiceRecordLookup,
     ) -> Result<Option<VoicePlaybackSnapshot>> {
-        let (where_clause, project_id, record_id) = match target {
-            VoiceRecordLookup::Workspace { record_id } => {
-                ("vr.workspace_note_id = ?2 AND ?1 IS NULL", None, *record_id)
-            }
-            VoiceRecordLookup::Project {
-                project_id,
-                record_id,
-            } => (
-                "vr.project_note_id = ?2 AND n.project_id = ?1",
-                Some(*project_id),
-                *record_id,
-            ),
-        };
-        let session = self
-            .conn
-            .query_row(
-                &format!(
-                    r#"
-                    SELECT s.id, s.lifecycle
-                    FROM voice_records vr
-                    INNER JOIN recording_sessions s ON s.voice_record_id = vr.id
-                    LEFT JOIN notes n ON n.id = vr.project_note_id
-                    WHERE {where_clause}
-                    "#
-                ),
-                params![project_id, record_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .optional()?;
-        let Some((session_id, phase)) = session else {
+        let Some((session_id, phase)) = self.voice_session_for_target(target)? else {
             return Ok(None);
         };
         let mut statement = self.conn.prepare(
@@ -1056,6 +1027,181 @@ impl Database {
             session_id,
             phase,
             chunks,
+        }))
+    }
+
+    fn voice_session_for_target(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<(String, String)>> {
+        let (where_clause, project_id, record_id) = match target {
+            VoiceRecordLookup::Workspace { record_id } => {
+                ("vr.workspace_note_id = ?2 AND ?1 IS NULL", None, *record_id)
+            }
+            VoiceRecordLookup::Project {
+                project_id,
+                record_id,
+            } => (
+                "vr.project_note_id = ?2 AND n.project_id = ?1",
+                Some(*project_id),
+                *record_id,
+            ),
+        };
+        self.conn
+            .query_row(
+                &format!(
+                    r#"
+                    SELECT s.id, s.lifecycle
+                    FROM voice_records vr
+                    INNER JOIN recording_sessions s ON s.voice_record_id = vr.id
+                    LEFT JOIN notes n ON n.id = vr.project_note_id
+                    WHERE {where_clause}
+                    "#
+                ),
+                params![project_id, record_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Final Transcript text is immutable for a provider key. Replayed or
+    /// late cloud events may retry, but may not silently replace source truth.
+    pub fn voice_transcript_append_final(
+        &self,
+        session_id: &str,
+        provider_key: &str,
+        start_ms: u64,
+        end_ms: u64,
+        text: &str,
+        language: Option<&str>,
+    ) -> Result<VoiceTranscriptSegment> {
+        let provider_key = provider_key.trim();
+        let text = text.trim();
+        if provider_key.is_empty()
+            || provider_key.len() > 256
+            || text.is_empty()
+            || text.len() > 16_384
+        {
+            return Err(anyhow!("invalid final Transcript segment"));
+        }
+        if start_ms >= end_ms {
+            return Err(anyhow!("final Transcript time range must be positive"));
+        }
+        let start = i64::try_from(start_ms)?;
+        let end = i64::try_from(end_ms)?;
+        let id = format!("{session_id}:{provider_key}");
+        self.conn.execute(
+            r#"
+            INSERT INTO voice_transcript_segments
+              (id, session_id, provider_key, start_ms, end_ms, text, language, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(session_id, provider_key) DO NOTHING
+            "#,
+            params![
+                id,
+                session_id,
+                provider_key,
+                start,
+                end,
+                text,
+                language,
+                now_iso()
+            ],
+        )?;
+        let stored = self.conn.query_row(
+            r#"
+            SELECT id, start_ms, end_ms, text, language
+            FROM voice_transcript_segments
+            WHERE session_id = ?1 AND provider_key = ?2
+            "#,
+            params![session_id, provider_key],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )?;
+        if stored.1 != start
+            || stored.2 != end
+            || stored.3 != text
+            || stored.4.as_deref() != language
+        {
+            return Err(anyhow!(
+                "provider key conflicts with an existing final Transcript segment"
+            ));
+        }
+        Ok(VoiceTranscriptSegment {
+            id: stored.0,
+            start_ms,
+            end_ms,
+            text: stored.3,
+            language: stored.4,
+        })
+    }
+
+    pub fn voice_transcript_list(
+        &self,
+        target: &VoiceRecordLookup,
+        after: Option<&VoiceTranscriptCursor>,
+        limit: u16,
+    ) -> Result<Option<VoiceTranscriptPage>> {
+        if !(1..=200).contains(&limit) {
+            return Err(anyhow!("Transcript page size must be between 1 and 200"));
+        }
+        let Some((session_id, _)) = self.voice_session_for_target(target)? else {
+            return Ok(None);
+        };
+        let after_start = after
+            .map(|cursor| i64::try_from(cursor.start_ms))
+            .transpose()?;
+        let after_id = after.map(|cursor| cursor.id.as_str());
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT id, start_ms, end_ms, text, language
+            FROM voice_transcript_segments
+            WHERE session_id = ?1 AND
+              (?2 IS NULL OR start_ms > ?2 OR (start_ms = ?2 AND id > ?3))
+            ORDER BY start_ms, id
+            LIMIT ?4
+            "#,
+        )?;
+        let mut segments = statement
+            .query_map(
+                params![session_id, after_start, after_id, i64::from(limit) + 1],
+                |row| {
+                    let start: i64 = row.get(1)?;
+                    let end: i64 = row.get(2)?;
+                    if start < 0 || end <= start {
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                    Ok(VoiceTranscriptSegment {
+                        id: row.get(0)?,
+                        start_ms: start as u64,
+                        end_ms: end as u64,
+                        text: row.get(3)?,
+                        language: row.get(4)?,
+                    })
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = segments.len() > usize::from(limit);
+        segments.truncate(usize::from(limit));
+        let next_cursor = if has_more {
+            segments.last().map(|segment| VoiceTranscriptCursor {
+                start_ms: segment.start_ms,
+                id: segment.id.clone(),
+            })
+        } else {
+            None
+        };
+        Ok(Some(VoiceTranscriptPage {
+            segments,
+            next_cursor,
         }))
     }
 
@@ -5138,7 +5284,11 @@ impl Database {
             [note_id],
             |row| {
                 Ok(NoteRecord {
-                    is_voice: self.conn.query_row("SELECT EXISTS(SELECT 1 FROM voice_records WHERE project_note_id = ?1)", [note_id], |row| row.get(0))?,
+                    is_voice: self.conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM voice_records WHERE project_note_id = ?1)",
+                        [note_id],
+                        |row| row.get(0),
+                    )?,
                     id: row.get(0)?,
                     project_id: row.get(1)?,
                     title: row.get(2)?,
@@ -9018,6 +9168,104 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idempotent.session_id, created.session_id);
+    }
+
+    #[test]
+    fn final_voice_transcript_is_idempotent_scoped_and_pageable_after_session_end() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "transcript-request",
+                "transcript-session",
+                "Voice",
+            )
+            .unwrap();
+        database
+            .voice_session_transition(&session.session_id, session.revision, "ended", None, 0, 1)
+            .unwrap();
+        let first = database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-1",
+                100,
+                350,
+                "第一句",
+                Some("zh"),
+            )
+            .unwrap();
+        assert_eq!(first.start_ms, 100);
+        assert_eq!(first.end_ms, 350);
+        assert_eq!(
+            database
+                .voice_transcript_append_final(
+                    &session.session_id,
+                    "epoch-1:provider-1",
+                    100,
+                    350,
+                    "第一句",
+                    Some("zh")
+                )
+                .unwrap()
+                .id,
+            first.id
+        );
+        assert!(database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-1",
+                100,
+                350,
+                "changed",
+                Some("zh")
+            )
+            .is_err());
+        assert!(database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "invalid",
+                500,
+                500,
+                "empty range",
+                None
+            )
+            .is_err());
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-2",
+                400,
+                700,
+                "second",
+                Some("en"),
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        let page = database
+            .voice_transcript_list(&target, None, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(page.segments.len(), 1);
+        assert_eq!(page.segments[0].id, first.id);
+        let next = database
+            .voice_transcript_list(&target, page.next_cursor.as_ref(), 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.segments[0].text, "second");
+        assert!(next.next_cursor.is_none());
+        assert!(database
+            .voice_transcript_list(
+                &VoiceRecordLookup::Project {
+                    project_id: 1,
+                    record_id: session.workspace_note_id.unwrap()
+                },
+                None,
+                10
+            )
+            .unwrap()
+            .is_none());
     }
 
     fn enable_legacy_domain_fixture_schema(database: &Database) {

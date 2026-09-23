@@ -8,6 +8,11 @@ export interface VoiceAvailability {
   implemented: boolean;
   reason: string;
 }
+export interface VoiceModelPackageStatus {
+  packageId: string;
+  ready: boolean;
+  detail: string;
+}
 
 export interface VoiceSettings {
   speechProfile: SpeechProfile | null;
@@ -54,8 +59,18 @@ export interface VoiceTranscriptSegment {
   text: string;
   language: string | null;
 }
+export interface VoiceTranscriptCursor { startMs: number; id: string }
+export interface VoiceTranscriptPage {
+  segments: VoiceTranscriptSegment[];
+  nextCursor: VoiceTranscriptCursor | null;
+}
+export interface VoiceTranscriptListInput {
+  target: VoiceRecordLookup;
+  after: VoiceTranscriptCursor | null;
+  limit: number;
+}
 
-// TODO(VR-03): add persisted coverage ranges, audio manifest, derivative statuses,
+// TODO(VR-03): add persisted coverage ranges, derivative statuses,
 // lexicon and minutes revisions once the database contracts are implemented.
 // TODO(VR-12): events carry workspace/session/epoch/sequence; detect sequence gaps
 // and reload authoritative snapshot. Never transport raw PCM through React state.

@@ -77,6 +77,38 @@ pub struct VoicePlaybackSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceTranscriptCursor {
+    pub start_ms: u64,
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceTranscriptListInput {
+    pub target: VoiceRecordLookup,
+    pub after: Option<VoiceTranscriptCursor>,
+    pub limit: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceTranscriptSegment {
+    pub id: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceTranscriptPage {
+    pub segments: Vec<VoiceTranscriptSegment>,
+    pub next_cursor: Option<VoiceTranscriptCursor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SpeechProfile {
     Paraformer {

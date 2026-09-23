@@ -464,8 +464,16 @@ mod tests {
             }),
         };
 
-        assert!(runtime.end(&mut db, "session", persisted.revision + 1).is_err());
-        assert_eq!(runtime.active.as_ref().unwrap().persisted.session_id, "session");
-        assert_eq!(db.voice_session_get("session").unwrap().unwrap().lifecycle, "preparing");
+        assert!(runtime
+            .end(&mut db, "session", persisted.revision + 1)
+            .is_err());
+        assert_eq!(
+            runtime.active.as_ref().unwrap().persisted.session_id,
+            "session"
+        );
+        assert_eq!(
+            db.voice_session_get("session").unwrap().unwrap().lifecycle,
+            "preparing"
+        );
     }
 }

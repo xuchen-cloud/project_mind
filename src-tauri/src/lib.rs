@@ -1104,6 +1104,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             voice::commands::voice_availability_get,
+            voice::commands::voice_model_status_get,
+            voice::commands::voice_model_import,
             voice::commands::voice_settings_get,
             voice::commands::voice_settings_upsert,
             voice::commands::voice_start,
@@ -1112,6 +1114,7 @@ pub fn run() {
             voice::commands::voice_end,
             voice::commands::voice_snapshot_get,
             voice::commands::voice_playback_get,
+            voice::commands::voice_transcript_list,
             desktop_open_file,
             desktop_open_folder,
             desktop_reveal_in_explorer,

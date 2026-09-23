@@ -1,5 +1,6 @@
 //! Registered IPC boundaries for the authoritative Voice runtime.
 use super::contracts::*;
+use super::model_package::{self, ModelPackageStatus};
 use crate::{lock_mutex, AppState};
 use tauri::{Manager, State};
 
@@ -51,6 +52,27 @@ fn failed(operation: &'static str, error: impl std::fmt::Display) -> VoiceError 
         operation,
         message: error.to_string(),
     }
+}
+
+#[tauri::command]
+pub(crate) async fn voice_model_status_get() -> VoiceResult<ModelPackageStatus> {
+    let cache = crate::default_app_data_dir().map_err(|error| failed("model_status", error))?;
+    tauri::async_runtime::spawn_blocking(move || model_package::status(&cache))
+        .await
+        .map_err(|error| failed("model_status", error))
+}
+
+#[tauri::command]
+pub(crate) async fn voice_model_import(
+    source_directory: String,
+) -> VoiceResult<ModelPackageStatus> {
+    let cache = crate::default_app_data_dir().map_err(|error| failed("model_import", error))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        model_package::import_sense_voice(std::path::Path::new(&source_directory), &cache)
+    })
+    .await
+    .map_err(|error| failed("model_import", error))?
+    .map_err(|error| failed("model_import", error))
 }
 
 #[tauri::command]
@@ -205,4 +227,18 @@ pub(crate) fn voice_playback_get(
         }
     }
     Ok(result)
+}
+
+#[tauri::command]
+pub(crate) fn voice_transcript_list(
+    state: State<'_, AppState>,
+    input: VoiceTranscriptListInput,
+) -> VoiceResult<Option<VoiceTranscriptPage>> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("transcript_list", error))?;
+    let result = lock_mutex(&workspace.db)
+        .voice_transcript_list(&input.target, input.after.as_ref(), input.limit)
+        .map_err(|error| failed("transcript_list", error));
+    result
 }

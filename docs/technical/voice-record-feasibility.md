@@ -141,14 +141,24 @@ archive: 155 MiB; extracted int8 ONNX: 241 MiB. Checksums:
 - archive SHA-256: `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`
 - ONNX SHA-256: `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51`
 - tokens SHA-256: `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc`
+- LICENSE SHA-256: `221c6df10b0931a5629adad671ea48fb7747e034c414b6d2bfa275bc3dd4ea17`
 
 The [sherpa-onnx Tauri example](https://k2-fsa.github.io/sherpa/onnx/tauri/vad-asr-mic.html)
 documents this model/runtime combination. The model archive's `LICENSE` points
 to FunASR; before product distribution, retain the exact model attribution and
 check the [FunASR model license](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)
 for the packaged conversion. The probe verifies local inference only. It is not
-yet connected to the product session, model manager, or Transcript.
+yet connected to the product session or Transcript. The product can now import
+this exact model package with SHA-256 checks and atomic activation.
 
-FSMN-VAD, Paraformer streaming/final events, gap recovery, AEC, resampling,
+FSMN-VAD, live Paraformer streaming/final events, gap recovery, AEC, resampling,
 and long-run performance remain without executable product evidence. Do not use
 the capture or recognition probe as evidence for those capabilities.
+
+The Paraformer wire contract is now encoded in `src-tauri/src/voice/paraformer.rs`
+against Alibaba Cloud's [client events](https://help.aliyun.com/zh/model-studio/paraformer-client-events),
+[server events](https://help.aliyun.com/zh/model-studio/paraformer-server-events), and
+[WebSocket sequence](https://help.aliyun.com/zh/model-studio/websocket-for-paraformer-real-time-service).
+The state machine tests cover start gating, partial/final distinction, nullable
+final `end_time`, finish, wrong task IDs, and provider failure. No live service
+connection has been made, so this is protocol-shape evidence only.

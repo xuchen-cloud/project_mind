@@ -9,7 +9,11 @@
 
 2026-09-23 M2 / VR-08 起步：新增仅消费真实 VAD 判定结果的 PCM 分段状态机，具备前置缓冲、尾部保留、最小语音长度、输入上限、强制切段重叠、暂停/结束 flush 与时间轴缺口拒绝。纯逻辑测试覆盖静音、句首句尾、连续讲话强制切段和音频 gap。它尚未连接 FSMN-VAD 推理或实时采集分支，不能据此宣称 VR-08 或 M2 已完成。
 
-2026-09-23 M2 / VR-09 技术验证：`sherpa-onnx` 1.13.8 的独立 CPU 探针在本机实际加载 SenseVoice int8 ONNX，并完成中英两段 16 kHz fixture 推理；RTF 分别为 0.155 和 0.137。英文例句有一个词识别错误。模型仍放在仓库外，产品下载、校验、激活、worker、两平台打包和长会议准确率尚未完成；详细产物校验和与复现命令见 `docs/technical/voice-record-feasibility.md`。
+2026-09-23 M2 / VR-09 技术验证：`sherpa-onnx` 1.13.8 的独立 CPU 探针在本机实际加载 SenseVoice int8 ONNX，并完成中英两段 16 kHz fixture 推理；RTF 分别为 0.155 和 0.137。英文例句有一个词识别错误。模型探针文件仍放在仓库外；产品下载、识别 worker、两平台打包和长会议准确率尚未完成。详细产物校验和与复现命令见 `docs/technical/voice-record-feasibility.md`。
+
+2026-09-23 M2 / VR-09、VR-13 增量：应用现在允许导入固定 SenseVoice int8 模型目录，逐文件 SHA-256 校验 ONNX、tokens 和 LICENSE，暂存目录通过校验后才原子激活；设置页可查询状态和选择目录。Transcript 最终片段具备按 provider key 幂等落盘、冲突拒绝、Record 作用域隔离与 keyset 分页；详情页按页显示原文并可点击跳转音频。识别 worker 尚未接入，录音不会自动生成这些片段；模型下载/取消、FSMN-VAD、Paraformer、浮窗和断网补转写仍未完成，M2 不能验收。
+
+2026-09-23 M2 / VR-10 协议契约：依据阿里云当前 Paraformer WebSocket 文档增加 `run-task`/`finish-task` 消息构造及服务端事件状态机测试。它强制等待 `task-started` 后才允许发送 PCM，区分中间句/最终句，并在最终句 `end_time=null` 时使用最后一个词的结束时间；对错 task ID、错误事件顺序和 `task-failed` 显式失败。尚未接 WebSocket 传输、凭据、重连或 gap 补转写。
 
 本次 M2 基础改动通过 Rust 全套 123 项测试、`cargo check`、识别探针 `cargo check --locked` 与中英文实测。M2 仍处于进行中。
 

@@ -1,7 +1,8 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { SpeechProfile, VoiceSettings } from "../../lib/voice-types";
+import type { SpeechProfile, VoiceModelPackageStatus, VoiceSettings } from "../../lib/voice-types";
+import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { Button, TextField } from "../../ui/components";
@@ -19,6 +20,8 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [modelStatus, setModelStatus] = useState<VoiceModelPackageStatus | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -27,6 +30,9 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       .then(setSettings)
       .catch((error) => pushToast({ tone: "error", title: "读取语音设置失败", detail: String(error) }))
       .finally(() => setLoading(false));
+    void voiceApi.modelStatusGet()
+      .then(setModelStatus)
+      .catch((error) => pushToast({ tone: "error", title: "读取本地模型状态失败", detail: String(error) }));
   }, [open, pushToast]);
 
   function setProfile(kind: "none" | "paraformer" | "sense_voice_onnx") {
@@ -34,8 +40,23 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       ? null
       : kind === "paraformer"
         ? { kind, endpoint: "", model: "paraformer-realtime-v2" }
-        : { kind, modelPackageId: "sensevoice-small" };
+        : { kind, modelPackageId: "sensevoice-small-int8-2024-07-17" };
     setSettings((current) => ({ ...current, speechProfile }));
+  }
+
+  async function importModel() {
+    const selected = await desktopApi.pickDirectory("选择已解压的 SenseVoice 模型文件夹");
+    if (!selected) return;
+    setImporting(true);
+    try {
+      const status = await voiceApi.modelImport(selected);
+      setModelStatus(status);
+      pushToast({ tone: "success", title: "本地模型已校验并导入" });
+    } catch (error) {
+      pushToast({ tone: "error", title: "模型导入失败", detail: String(error) });
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function save() {
@@ -78,6 +99,17 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-body"><span className="font-medium">服务地址</span><TextField value={settings.speechProfile.endpoint} onChange={(event) => setSettings((current) => ({ ...current, speechProfile: { ...current.speechProfile as Extract<SpeechProfile, { kind: "paraformer" }>, endpoint: event.target.value } }))} /></label>
           <label className="grid gap-1.5 text-body"><span className="font-medium">模型</span><TextField value={settings.speechProfile.model} onChange={(event) => setSettings((current) => ({ ...current, speechProfile: { ...current.speechProfile as Extract<SpeechProfile, { kind: "paraformer" }>, model: event.target.value } }))} /></label>
+        </div>
+      ) : null}
+
+      {settings.speechProfile?.kind === "sense_voice_onnx" ? (
+        <div className="grid gap-2 rounded-[var(--radius-8)] border border-border p-3 text-body text-text">
+          <p>{modelStatus?.detail ?? "正在检查本地模型…"}</p>
+          <p className="text-text-muted">导入已解压模型目录，需包含 model.int8.onnx、tokens.txt 和 LICENSE。导入时会校验固定版本的 SHA-256。</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="secondary" disabled={importing} onClick={() => void importModel()}>{importing ? "导入并校验中…" : "导入本地模型"}</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2")}>获取指定模型包</Button>
+          </div>
         </div>
       ) : null}
 
