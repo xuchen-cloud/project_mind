@@ -1,7 +1,7 @@
 /** Wire contracts mirror src-tauri/src/voice/contracts.rs. */
 export type VoiceTarget = { scope: "workspace" } | { scope: "project"; projectId: number };
 export type SpeechProfile =
-  | { kind: "paraformer"; endpoint: string; model: string }
+  | { kind: "paraformer"; endpoint: string; model: string; credentialProfileId: number | null }
   | { kind: "sense_voice_onnx"; modelPackageId: string };
 
 export interface VoiceAvailability {
@@ -12,6 +12,10 @@ export interface VoiceModelPackageStatus {
   packageId: string;
   ready: boolean;
   detail: string;
+}
+export interface VoiceProfileTestInput {
+  endpoint: string;
+  credentialProfileId: number;
 }
 
 export interface VoiceSettings {
@@ -69,6 +73,7 @@ export interface VoiceTranscriptListInput {
   after: VoiceTranscriptCursor | null;
   limit: number;
 }
+export interface VoiceTranscriptTailInput { sessionId: string; limit: number }
 
 // TODO(VR-03): add persisted coverage ranges, derivative statuses,
 // lexicon and minutes revisions once the database contracts are implemented.

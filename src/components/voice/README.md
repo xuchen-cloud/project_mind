@@ -7,7 +7,7 @@ M1 双轨录音已经接入正式页面：当前项目或 Workspace 可直接开
 1. `VoiceSettingsPanel` 已接入 SettingsDialog，并持久化 workspace 级配置。
 2. `VoiceFloatingPanel` 已接入主界面，创建 Voice Record 后定位对应 Record。
 3. `VoiceRecordPanel` 已接入两种 Record 焦点页：以单一控制条同步混合底层双轨，支持播放、暂停、拖动和倍速；保持现有富文本编辑器独立。
-4. 后续可将 `VoiceFloatingPanel` 拆为独立 Tauri entry/window；后端已经持有唯一会话。
+4. `VoiceFloatingPanel` 可按设置的行数展示当前会话最新的最终字幕；后续仍需拆为独立 Tauri entry/window，并接入云端临时句。后端已经持有唯一会话。
 5. 后端事件 → 前端轻量状态镜像；刷新/漏事件后读取 snapshot，不能在每个窗口各建一个录音引擎。
 6. 退出、更新重启和 Workspace 切换 → 现有保存屏障加语音结束保存步骤。
 

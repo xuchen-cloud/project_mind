@@ -1,7 +1,13 @@
 //! Paraformer realtime-v2 event contract. Transport must enforce this gate
 //! before sending PCM and must persist Final events by provider key.
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use std::time::Duration;
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParaformerEvent {
@@ -158,6 +164,100 @@ impl ParaformerTask {
     }
 }
 
+fn validate_endpoint(endpoint: &str) -> Result<()> {
+    let url = reqwest::Url::parse(endpoint).context("invalid Paraformer endpoint")?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow!("Paraformer endpoint has no host"))?;
+    if url.scheme() != "wss"
+        || !(host == "dashscope.aliyuncs.com" || host.ends_with(".cn-beijing.maas.aliyuncs.com"))
+        || url.path() != "/api-ws/v1/inference"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(anyhow!(
+            "Paraformer endpoint must use the official Beijing WSS API"
+        ));
+    }
+    Ok(())
+}
+
+/// Validates the encrypted credential against the actual provider handshake
+/// and finish flow. The key is only placed in the WebSocket handshake header.
+pub async fn test_connection(endpoint: &str, api_key: &str) -> Result<()> {
+    validate_endpoint(endpoint)?;
+    run_connection_probe(endpoint, api_key).await
+}
+
+async fn run_connection_probe(endpoint: &str, api_key: &str) -> Result<()> {
+    if api_key.trim().is_empty() {
+        return Err(anyhow!("Paraformer API key is empty"));
+    }
+    let mut request = endpoint.into_client_request()?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Bearer {api_key}"))?,
+    );
+    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(10), connect_async(request))
+        .await
+        .context("Paraformer handshake timed out")??;
+    let task_id = format!(
+        "{:08x}-{:04x}-4{:03x}-a{:03x}-{:012x}",
+        rand::random::<u32>(),
+        rand::random::<u16>(),
+        rand::random::<u16>() & 0x0fff,
+        rand::random::<u16>() & 0x0fff,
+        rand::random::<u64>() & 0x0000_ffff_ffff_ffff
+    );
+    let mut task = ParaformerTask::new(task_id)?;
+    socket
+        .send(Message::Text(task.run_task().to_string().into()))
+        .await?;
+    let started = read_event(&mut socket, &mut task).await?;
+    if started != ParaformerEvent::Started {
+        return Err(anyhow!("Paraformer did not start"));
+    }
+    // A short silent PCM buffer exercises the required binary audio path.
+    socket
+        .send(Message::Binary(vec![0_u8; 3_200].into()))
+        .await?;
+    socket
+        .send(Message::Text(task.finish_task()?.to_string().into()))
+        .await?;
+    loop {
+        if read_event(&mut socket, &mut task).await? == ParaformerEvent::Finished {
+            break;
+        }
+    }
+    let _ = socket.close(None).await;
+    Ok(())
+}
+
+async fn read_event(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    task: &mut ParaformerTask,
+) -> Result<ParaformerEvent> {
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(15), socket.next())
+            .await
+            .context("Paraformer event timed out")?
+            .ok_or_else(|| anyhow!("Paraformer connection closed before task finished"))??;
+        match message {
+            Message::Text(text) => {
+                if let Some(event) = task.accept_event(text.as_str())? {
+                    return Ok(event);
+                }
+            }
+            Message::Close(_) => {
+                return Err(anyhow!("Paraformer connection closed before task finished"))
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +306,49 @@ mod tests {
             .is_err());
         assert!(task.accept_event(r#"{"header":{"task_id":"task-1","event":"task-failed","error_code":"Unauthorized"}}"#).is_err());
         assert!(!task.can_send_audio());
+    }
+
+    #[test]
+    fn endpoint_rejects_insecure_or_foreign_hosts_before_credentials_are_used() {
+        assert!(validate_endpoint("wss://dashscope.aliyuncs.com/api-ws/v1/inference").is_ok());
+        assert!(validate_endpoint(
+            "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+        )
+        .is_ok());
+        assert!(validate_endpoint("ws://dashscope.aliyuncs.com/api-ws/v1/inference").is_err());
+        assert!(
+            validate_endpoint("wss://dashscope.aliyuncs.com.evil.test/api-ws/v1/inference")
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn websocket_probe_waits_for_start_sends_pcm_and_drains_finish() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            let run = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            let run: Value = serde_json::from_str(&run).unwrap();
+            assert_eq!(run["header"]["action"], "run-task");
+            let task_id = run["header"]["task_id"].as_str().unwrap();
+            socket
+                .send(Message::Text(
+                    json!({"header": {"task_id": task_id, "event": "task-started"}, "payload": {}})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+            let audio = socket.next().await.unwrap().unwrap();
+            assert_eq!(audio.into_data().len(), 3_200);
+            let finish = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            let finish: Value = serde_json::from_str(&finish).unwrap();
+            assert_eq!(finish["header"]["action"], "finish-task");
+            socket.send(Message::Text(json!({"header": {"task_id": task_id, "event": "task-finished"}, "payload": {}}).to_string().into())).await.unwrap();
+        });
+        run_connection_probe(&endpoint, "test-key").await.unwrap();
+        server.await.unwrap();
     }
 }

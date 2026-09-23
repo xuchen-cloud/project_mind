@@ -15,6 +15,12 @@
 
 2026-09-23 M2 / VR-10 协议契约：依据阿里云当前 Paraformer WebSocket 文档增加 `run-task`/`finish-task` 消息构造及服务端事件状态机测试。它强制等待 `task-started` 后才允许发送 PCM，区分中间句/最终句，并在最终句 `end_time=null` 时使用最后一个词的结束时间；对错 task ID、错误事件顺序和 `task-failed` 显式失败。尚未接 WebSocket 传输、凭据、重连或 gap 补转写。
 
+2026-09-23 M2 / VR-10、VR-11 连接测试增量：语音设置可选择已有、已加密保存的 AI Profile 作为 DashScope 凭据引用，后端只在 Workspace 解锁后读取密钥；WebSocket 连接测试严格限制阿里云北京官方 WSS 域名，执行握手、`run-task`、等待 `task-started`、发送短 PCM、`finish-task` 和等待 `task-finished`。本地模拟 WebSocket 测试通过。当前 Workspace 尚未通过真实 DashScope 凭据测试，且录音 PCM 仍未连接该传输，断网补转写未实现。
+
+2026-09-23 M2 / VR-09 worker 增量：产品构建接入固定版本 `sherpa-onnx`，以独立 CPU 线程加载已校验的 SenseVoice 包，限定 30 秒输入和 8 段有界队列；队列满时显式报错，原始录音由独立 writer 保存。当前分段器与实际采集/VAD 尚未连接 worker，故录音仍不会自动产出 Transcript。
+
+2026-09-23 M2 / VR-12 字幕增量：当前主窗口底部录音控制区可按语音设置的 2–8 行数读取当前会话最后的最终 Transcript，每秒用会话 ID 查询，且不拉取完整会议记录；真实独立 Tauri 浮窗、折叠/拖动/跨屏和云端临时句仍待实现。没有识别输入时字幕区为空。
+
 本次 M2 基础改动通过 Rust 全套 123 项测试、`cargo check`、识别探针 `cargo check --locked` 与中英文实测。M2 仍处于进行中。
 
 2026-09-23 回归检查：普通 Record 不再请求语音回放或初始化 Web Audio；无音频分片时播放器也不初始化。修复过期结束请求提前取走进程内 Session 所有权的问题。前端单元测试 728 项通过，Rust 测试与构建验证见本轮提交记录。
@@ -86,7 +92,9 @@
 
 数据库已升级至 schema v22，持久化 Voice Record、Recording Session、音频 manifest、时间线事件和转写段表。录音期间会阻止关闭或切换 Workspace；进程异常后，下一次快照会修复已写入的 WAV 并将会话恢复为暂停状态。麦克风始终采用开始/继续时的 macOS 系统默认输入。
 
-当前验证：Rust lib **119 项完整测试通过**，新补充的 Session 所有权回归测试单独通过（合计 120 项）；前端 728 项单元测试、生产构建、UI 标准、路径和 bundle 边界检查通过。`screencapturekit` 10.0.3（`macos_15_0` feature）、权限 plist、Swift runtime rpath 与产品 Session Manager 均进入默认构建。ONNX 实际推理与 Windows 实机测试尚未执行。
+当前验证：Rust lib **131 项完整测试通过**，随后新增的旧模型设置迁移测试单独通过（当前合计 132 项；另有一项需外部模型的测试默认跳过，但本轮已用官方中文 fixture 实际运行通过）；前端 **731 项**全量测试、生产构建、UI 标准、路径和 bundle 边界检查通过。`screencapturekit` 10.0.3（`macos_15_0` feature）、权限 plist、Swift runtime rpath 与产品 Session Manager 均进入默认构建。SenseVoice 已完成 Apple Silicon 的真实推理；Windows 实机测试尚未执行。
+
+Windows 目标交叉检查在当前 macOS 主机的 `ring` C 构建步骤被工具链阻断：针对 `x86_64-pc-windows-msvc` 的 `cc` 找不到目标环境的 `assert.h`。这不是产品代码的 Windows 通过或失败证据；仍需 Windows MSVC 构建环境与真实音频设备完成验证。
 
 1. 继续验证权限拒绝/恢复、设备变化与长时漂移，并在设备预检中识别系统默认输入不可用和合盖硬件断开；设备选择继续由系统设置负责。
 2. 验证 Windows WASAPI 原生适配器与干净安装包。

@@ -2,7 +2,9 @@ import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { SpeechProfile, VoiceModelPackageStatus, VoiceSettings } from "../../lib/voice-types";
+import type { AiProviderProfileRecord } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
+import { projectMindApi } from "../../services/projectMindApi";
 import { voiceApi } from "../../services/voiceApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { Button, TextField } from "../../ui/components";
@@ -22,6 +24,8 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [modelStatus, setModelStatus] = useState<VoiceModelPackageStatus | null>(null);
+  const [credentialProfiles, setCredentialProfiles] = useState<AiProviderProfileRecord[]>([]);
+  const [testingProfile, setTestingProfile] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -33,13 +37,16 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     void voiceApi.modelStatusGet()
       .then(setModelStatus)
       .catch((error) => pushToast({ tone: "error", title: "读取本地模型状态失败", detail: String(error) }));
+    void projectMindApi.aiSettingsGet()
+      .then((snapshot) => setCredentialProfiles(snapshot.profiles.filter((profile) => profile.enabled && profile.hasStoredKey)))
+      .catch((error) => pushToast({ tone: "error", title: "读取密钥配置失败", detail: String(error) }));
   }, [open, pushToast]);
 
   function setProfile(kind: "none" | "paraformer" | "sense_voice_onnx") {
     const speechProfile: SpeechProfile | null = kind === "none"
       ? null
       : kind === "paraformer"
-        ? { kind, endpoint: "", model: "paraformer-realtime-v2" }
+        ? { kind, endpoint: "wss://dashscope.aliyuncs.com/api-ws/v1/inference", model: "paraformer-realtime-v2", credentialProfileId: null }
         : { kind, modelPackageId: "sensevoice-small-int8-2024-07-17" };
     setSettings((current) => ({ ...current, speechProfile }));
   }
@@ -56,6 +63,20 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       pushToast({ tone: "error", title: "模型导入失败", detail: String(error) });
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function testProfile() {
+    const profile = settings.speechProfile;
+    if (profile?.kind !== "paraformer" || !profile.credentialProfileId) return;
+    setTestingProfile(true);
+    try {
+      await voiceApi.profileTest({ endpoint: profile.endpoint, credentialProfileId: profile.credentialProfileId });
+      pushToast({ tone: "success", title: "Paraformer 握手与结束测试通过" });
+    } catch (error) {
+      pushToast({ tone: "error", title: "Paraformer 连接测试失败", detail: String(error) });
+    } finally {
+      setTestingProfile(false);
     }
   }
 
@@ -90,15 +111,23 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
           onChange={(event) => setProfile(event.target.value as "none" | "paraformer" | "sense_voice_onnx")}
         >
           <option value="none">暂不识别（仅保存双轨音频）</option>
-          <option value="paraformer">Paraformer 云端识别</option>
-          <option value="sense_voice_onnx">SenseVoice-Small 本地识别</option>
+          <option value="paraformer">Paraformer 云端识别（接入中）</option>
+          <option value="sense_voice_onnx">SenseVoice-Small 本地识别（接入中）</option>
         </select>
       </label>
 
       {settings.speechProfile?.kind === "paraformer" ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-body"><span className="font-medium">服务地址</span><TextField value={settings.speechProfile.endpoint} onChange={(event) => setSettings((current) => ({ ...current, speechProfile: { ...current.speechProfile as Extract<SpeechProfile, { kind: "paraformer" }>, endpoint: event.target.value } }))} /></label>
-          <label className="grid gap-1.5 text-body"><span className="font-medium">模型</span><TextField value={settings.speechProfile.model} onChange={(event) => setSettings((current) => ({ ...current, speechProfile: { ...current.speechProfile as Extract<SpeechProfile, { kind: "paraformer" }>, model: event.target.value } }))} /></label>
+          <label className="grid gap-1.5 text-body"><span className="font-medium">密钥配置</span>
+            <select className="h-9 rounded-[var(--radius-6)] border border-border bg-bg px-3" value={settings.speechProfile.credentialProfileId ?? ""}
+              onChange={(event) => setSettings((current) => ({ ...current, speechProfile: { ...current.speechProfile as Extract<SpeechProfile, { kind: "paraformer" }>, credentialProfileId: event.target.value ? Number(event.target.value) : null } }))}>
+              <option value="">请选择已保存 API Key 的 AI Profile</option>
+              {credentialProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · 尾号 {profile.apiKeyLast4}</option>)}
+            </select>
+          </label>
+          <div className="sm:col-span-2"><Button type="button" size="sm" variant="secondary" disabled={testingProfile || !settings.speechProfile.credentialProfileId}
+            onClick={() => void testProfile()}>{testingProfile ? "测试中…" : "测试 Paraformer 连接"}</Button></div>
         </div>
       ) : null}
 
@@ -114,7 +143,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       ) : null}
 
       <label className="grid gap-1.5 text-body text-text">
-        <span className="font-medium">浮窗字幕行数</span>
+        <span className="font-medium">字幕行数</span>
         <input type="range" min={2} max={8} value={settings.captionLines} onChange={(event) => setSettings((current) => ({ ...current, captionLines: Number(event.target.value) }))} />
         <span className="text-text-muted">{settings.captionLines} 行</span>
       </label>

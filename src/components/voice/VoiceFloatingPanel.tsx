@@ -1,7 +1,7 @@
 import { LoaderCircle, Mic, Pause, Play, Square } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { VoiceSessionSnapshot, VoiceTarget } from "../../lib/voice-types";
+import type { VoiceSessionSnapshot, VoiceTarget, VoiceTranscriptSegment } from "../../lib/voice-types";
 import { voiceApi } from "../../services/voiceApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { Button } from "../../ui/components";
@@ -32,13 +32,29 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
   const [available, setAvailable] = useState(false);
   const [session, setSession] = useState<VoiceSessionSnapshot | null>(null);
   const [pending, setPending] = useState(false);
+  const [captions, setCaptions] = useState<VoiceTranscriptSegment[]>([]);
+  const [captionLines, setCaptionLines] = useState(4);
+  const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     try {
-      setSession(await voiceApi.snapshotGet());
+      const next = await voiceApi.snapshotGet();
+      if (sequence !== refreshSequence.current) return;
+      setSession(next);
+      if (next) {
+        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: captionLines });
+        if (sequence === refreshSequence.current) setCaptions(latest);
+      } else {
+        setCaptions([]);
+      }
     } catch {
       // Workspace changes briefly make the snapshot unavailable.
     }
+  }, [captionLines]);
+
+  useEffect(() => {
+    void voiceApi.settingsGet().then((settings) => setCaptionLines(settings.captionLines)).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -55,14 +71,17 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       .catch(() => undefined);
     return () => {
       active = false;
+      refreshSequence.current += 1;
       if (timer !== undefined) window.clearInterval(timer);
     };
   }, [refresh]);
 
   async function run(operation: () => Promise<VoiceSessionSnapshot>, successTitle?: string) {
+    refreshSequence.current += 1;
     setPending(true);
     try {
       const next = await operation();
+      if (next.sessionId !== session?.sessionId || next.phase === "ended") setCaptions([]);
       setSession(next.phase === "ended" ? null : next);
       await onChanged();
       if (successTitle) pushToast({ tone: "success", title: successTitle });
@@ -99,8 +118,14 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
   return (
     <section
       aria-label="语音录制控制"
-      className="fixed bottom-9 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-[var(--radius-10)] border border-border-strong bg-bg/95 px-3 py-2 shadow-xl backdrop-blur"
+      className="fixed bottom-9 left-1/2 z-50 flex w-[min(80vw,680px)] -translate-x-1/2 flex-col gap-2 rounded-[var(--radius-10)] border border-border-strong bg-bg/95 px-3 py-2 shadow-xl backdrop-blur"
     >
+      {captions.length > 0 ? (
+        <ol aria-label="实时字幕" aria-live="polite" className="w-full space-y-1 text-body text-text">
+          {captions.map((caption) => <li key={caption.id}>{caption.text}</li>)}
+        </ol>
+      ) : null}
+      <div className="flex w-full items-center justify-center gap-2">
       <span className="flex items-center gap-2 pr-1 text-ui font-medium text-text">
         <span className={paused ? "h-2 w-2 rounded-full bg-warning" : "h-2 w-2 animate-pulse rounded-full bg-danger motion-reduce:animate-none"} />
         {paused ? "已暂停" : "录音中"}
@@ -128,6 +153,7 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       >
         结束
       </Button>
+      </div>
     </section>
   );
 }

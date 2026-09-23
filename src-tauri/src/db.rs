@@ -43,8 +43,9 @@ use crate::{
     secret_crypto,
     voice::{
         contracts::{
-            RecordTarget, VoicePlaybackChunk, VoicePlaybackSnapshot, VoiceRecordLookup,
-            VoiceSettings, VoiceTranscriptCursor, VoiceTranscriptPage, VoiceTranscriptSegment,
+            RecordTarget, SpeechProfile, VoicePlaybackChunk, VoicePlaybackSnapshot,
+            VoiceRecordLookup, VoiceSettings, VoiceTranscriptCursor, VoiceTranscriptPage,
+            VoiceTranscriptSegment,
         },
         storage::{AudioChunkManifest, PersistedVoiceSession},
     },
@@ -756,7 +757,7 @@ impl Database {
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        stored.map_or_else(
+        let mut settings = stored.map_or_else(
             || {
                 Ok(VoiceSettings {
                     speech_profile: None,
@@ -767,12 +768,31 @@ impl Database {
                 })
             },
             |value| serde_json::from_str(&value).context("invalid stored voice settings"),
-        )
+        )?;
+        if let Some(SpeechProfile::SenseVoiceOnnx { model_package_id }) =
+            &mut settings.speech_profile
+        {
+            if model_package_id == "sensevoice-small" {
+                *model_package_id = crate::voice::model_package::PACKAGE_ID.into();
+            }
+        }
+        Ok(settings)
     }
 
     pub fn voice_settings_upsert(&self, settings: &VoiceSettings) -> Result<()> {
         if !(2..=8).contains(&settings.caption_lines) {
             return Err(anyhow!("caption_lines must be between 2 and 8"));
+        }
+        match &settings.speech_profile {
+            Some(SpeechProfile::SenseVoiceOnnx { model_package_id })
+                if model_package_id != crate::voice::model_package::PACKAGE_ID =>
+            {
+                return Err(anyhow!("unsupported SenseVoice model package"));
+            }
+            Some(SpeechProfile::Paraformer { model, .. }) if model != "paraformer-realtime-v2" => {
+                return Err(anyhow!("unsupported Paraformer model"));
+            }
+            _ => {}
         }
         let value = serde_json::to_string(settings)?;
         let timestamp = now_iso();
@@ -785,6 +805,14 @@ impl Database {
             params![value, timestamp],
         )?;
         Ok(())
+    }
+
+    pub fn voice_credential_from_ai_profile(&self, profile_id: i64) -> Result<String> {
+        let profile = self.ai_profile_storage(profile_id)?;
+        if !profile.enabled {
+            return Err(anyhow!("selected credential profile is disabled"));
+        }
+        self.decrypt_api_key_for_profile(profile_id)
     }
 
     pub fn voice_session_create(
@@ -1203,6 +1231,37 @@ impl Database {
             segments,
             next_cursor,
         }))
+    }
+
+    pub fn voice_transcript_tail(
+        &self,
+        session_id: &str,
+        limit: u8,
+    ) -> Result<Vec<VoiceTranscriptSegment>> {
+        if !(2..=8).contains(&limit) {
+            return Err(anyhow!("caption line count must be between 2 and 8"));
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT id, start_ms, end_ms, text, language FROM voice_transcript_segments WHERE session_id = ?1 ORDER BY start_ms DESC, id DESC LIMIT ?2",
+        )?;
+        let mut segments = statement
+            .query_map(params![session_id, limit], |row| {
+                let start_ms: i64 = row.get(1)?;
+                let end_ms: i64 = row.get(2)?;
+                if start_ms < 0 || end_ms <= start_ms {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                Ok(VoiceTranscriptSegment {
+                    id: row.get(0)?,
+                    start_ms: start_ms as u64,
+                    end_ms: end_ms as u64,
+                    text: row.get(3)?,
+                    language: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        segments.reverse();
+        Ok(segments)
     }
 
     fn ensure_voice_record_schema(&self) -> Result<()> {
@@ -9171,6 +9230,23 @@ mod tests {
     }
 
     #[test]
+    fn voice_settings_normalize_old_local_package_and_reject_unknown_models() {
+        let (_harness, database) = setup_database();
+        database.conn.execute(
+            "INSERT INTO app_settings (key, value_json, updated_at) VALUES ('voice_settings', ?1, ?2)",
+            params![r#"{"speechProfile":{"kind":"sense_voice_onnx","modelPackageId":"sensevoice-small"},"textProfileId":null,"translationProfileId":null,"contextEnabled":false,"captionLines":4}"#, now_iso()],
+        ).unwrap();
+        let mut settings = database.voice_settings_get().unwrap();
+        assert!(
+            matches!(&settings.speech_profile, Some(SpeechProfile::SenseVoiceOnnx { model_package_id }) if model_package_id == crate::voice::model_package::PACKAGE_ID)
+        );
+        settings.speech_profile = Some(SpeechProfile::SenseVoiceOnnx {
+            model_package_id: "unknown".into(),
+        });
+        assert!(database.voice_settings_upsert(&settings).is_err());
+    }
+
+    #[test]
     fn final_voice_transcript_is_idempotent_scoped_and_pageable_after_session_end() {
         let (_harness, mut database) = setup_database();
         let session = database
@@ -9255,6 +9331,16 @@ mod tests {
             .unwrap();
         assert_eq!(next.segments[0].text, "second");
         assert!(next.next_cursor.is_none());
+        let captions = database
+            .voice_transcript_tail(&session.session_id, 2)
+            .unwrap();
+        assert_eq!(
+            captions
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["第一句", "second"]
+        );
         assert!(database
             .voice_transcript_list(
                 &VoiceRecordLookup::Project {

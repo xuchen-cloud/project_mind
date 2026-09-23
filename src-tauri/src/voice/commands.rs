@@ -1,6 +1,7 @@
 //! Registered IPC boundaries for the authoritative Voice runtime.
 use super::contracts::*;
 use super::model_package::{self, ModelPackageStatus};
+use super::paraformer;
 use crate::{lock_mutex, AppState};
 use tauri::{Manager, State};
 
@@ -73,6 +74,24 @@ pub(crate) async fn voice_model_import(
     .await
     .map_err(|error| failed("model_import", error))?
     .map_err(|error| failed("model_import", error))
+}
+
+#[tauri::command]
+pub(crate) async fn voice_profile_test(
+    state: State<'_, AppState>,
+    input: VoiceProfileTestInput,
+) -> VoiceResult<()> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("profile_test", error))?;
+    let api_key = {
+        lock_mutex(&workspace.db)
+            .voice_credential_from_ai_profile(input.credential_profile_id)
+            .map_err(|error| failed("profile_test", error))?
+    };
+    paraformer::test_connection(&input.endpoint, &api_key)
+        .await
+        .map_err(|error| failed("profile_test", error))
 }
 
 #[tauri::command]
@@ -240,5 +259,19 @@ pub(crate) fn voice_transcript_list(
     let result = lock_mutex(&workspace.db)
         .voice_transcript_list(&input.target, input.after.as_ref(), input.limit)
         .map_err(|error| failed("transcript_list", error));
+    result
+}
+
+#[tauri::command]
+pub(crate) fn voice_transcript_tail(
+    state: State<'_, AppState>,
+    input: VoiceTranscriptTailInput,
+) -> VoiceResult<Vec<VoiceTranscriptSegment>> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("transcript_tail", error))?;
+    let result = lock_mutex(&workspace.db)
+        .voice_transcript_tail(&input.session_id, input.limit)
+        .map_err(|error| failed("transcript_tail", error));
     result
 }

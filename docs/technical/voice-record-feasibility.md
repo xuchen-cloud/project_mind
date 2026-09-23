@@ -151,6 +151,12 @@ for the packaged conversion. The probe verifies local inference only. It is not
 yet connected to the product session or Transcript. The product can now import
 this exact model package with SHA-256 checks and atomic activation.
 
+The product's `LocalAsrWorker` was run with this same external model and the
+official `test_wavs/zh.wav` fixture. It loaded the model inside the application's
+dedicated Rust worker and returned text containing “开饭时间” with the expected
+sample range. This verifies native product linking and inference on this Mac;
+capture/VAD/Transcript integration and the Windows binary remain unverified.
+
 FSMN-VAD, live Paraformer streaming/final events, gap recovery, AEC, resampling,
 and long-run performance remain without executable product evidence. Do not use
 the capture or recognition probe as evidence for those capabilities.
@@ -160,5 +166,8 @@ against Alibaba Cloud's [client events](https://help.aliyun.com/zh/model-studio/
 [server events](https://help.aliyun.com/zh/model-studio/paraformer-server-events), and
 [WebSocket sequence](https://help.aliyun.com/zh/model-studio/websocket-for-paraformer-real-time-service).
 The state machine tests cover start gating, partial/final distinction, nullable
-final `end_time`, finish, wrong task IDs, and provider failure. No live service
-connection has been made, so this is protocol-shape evidence only.
+final `end_time`, finish, wrong task IDs, and provider failure. The application
+now has a credential-backed connection test, with official Beijing WSS host
+validation, handshake, a short binary PCM frame and final drain; a local mock
+WebSocket test exercises the transport. No live DashScope connection has been
+made and capture PCM is not connected to this transport.

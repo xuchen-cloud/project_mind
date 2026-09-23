@@ -1,0 +1,49 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  settingsGet: vi.fn(),
+  modelStatusGet: vi.fn(),
+  aiSettingsGet: vi.fn(),
+  profileTest: vi.fn(),
+  pushToast: vi.fn(),
+}));
+
+vi.mock("../../services/voiceApi", () => ({ voiceApi: {
+  settingsGet: mocks.settingsGet,
+  modelStatusGet: mocks.modelStatusGet,
+  profileTest: mocks.profileTest,
+} }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocks.aiSettingsGet } }));
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { pickDirectory: vi.fn(), openExternalUrl: vi.fn() } }));
+vi.mock("../../state/feedback-store", () => ({ useFeedbackStore: () => ({ pushToast: mocks.pushToast }) }));
+
+import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
+
+describe("VoiceSettingsPanel", () => {
+  beforeEach(() => {
+    mocks.settingsGet.mockReset();
+    mocks.modelStatusGet.mockReset();
+    mocks.aiSettingsGet.mockReset();
+    mocks.profileTest.mockReset();
+    mocks.pushToast.mockReset();
+    mocks.settingsGet.mockResolvedValue({
+      speechProfile: { kind: "paraformer", endpoint: "wss://dashscope.aliyuncs.com/api-ws/v1/inference", model: "paraformer-realtime-v2", credentialProfileId: null },
+      textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
+    });
+    mocks.modelStatusGet.mockResolvedValue({ packageId: "sensevoice-small-int8-2024-07-17", ready: false, detail: "模型未就绪" });
+    mocks.aiSettingsGet.mockResolvedValue({ profiles: [{ id: 7, name: "DashScope", enabled: true, hasStoredKey: true, apiKeyLast4: "1234" }] });
+    mocks.profileTest.mockResolvedValue(undefined);
+  });
+
+  it("tests Paraformer with the selected saved credential without exposing its key", async () => {
+    render(<VoiceSettingsPanel open />);
+    const select = await screen.findByRole("combobox", { name: "密钥配置" });
+    fireEvent.change(select, { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "测试 Paraformer 连接" }));
+    expect(mocks.profileTest).toHaveBeenCalledWith({
+      endpoint: "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+      credentialProfileId: 7,
+    });
+  });
+});

@@ -91,6 +91,20 @@ pub struct VoiceTranscriptListInput {
     pub limit: u16,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceProfileTestInput {
+    pub endpoint: String,
+    pub credential_profile_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceTranscriptTailInput {
+    pub session_id: String,
+    pub limit: u8,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceTranscriptSegment {
@@ -114,6 +128,8 @@ pub enum SpeechProfile {
     Paraformer {
         endpoint: String,
         model: String,
+        #[serde(rename = "credentialProfileId")]
+        credential_profile_id: Option<i64>,
     },
     SenseVoiceOnnx {
         #[serde(rename = "modelPackageId")]
