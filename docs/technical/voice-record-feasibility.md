@@ -122,7 +122,33 @@ changes, packaging dependencies, and clean-machine playback remain unverified.
 
 ## Recognition and audio pipeline
 
-SenseVoice-Small, FSMN-VAD, Paraformer streaming/final events, gap recovery,
-AEC, resampling, rolling persistence format, and long-run performance have not
-yet produced executable evidence in this branch. Do not use the capture probe's
-build result as evidence for any of those capabilities.
+### SenseVoice CPU proof (2026-09-23)
+
+`tools/voice-recognition-probe` compiled `sherpa-onnx` 1.13.8 in release mode
+on Apple Silicon and decoded the official release's 16 kHz mono examples with
+`model.int8.onnx`, `tokens.txt`, automatic language selection, ITN, and two CPU
+threads. The model package was kept outside the repository. The measured runs:
+
+| Fixture | Audio | Load | Decode | RTF | Output |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `test_wavs/zh.wav` | 5.592 s | 1.315 s | 0.866 s | 0.155 | 开饭时间早上9点至下午5点。 |
+| `test_wavs/en.wav` | 7.152 s | 1.472 s | 0.980 s | 0.137 | The tribal chieftain called for the boy and presented him with 50 pieces of code. |
+
+The English sample contains an apparent recognition error (`code`); two short
+fixtures do not establish meeting accuracy or long-run CPU behavior. Downloaded
+archive: 155 MiB; extracted int8 ONNX: 241 MiB. Checksums:
+
+- archive SHA-256: `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`
+- ONNX SHA-256: `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51`
+- tokens SHA-256: `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc`
+
+The [sherpa-onnx Tauri example](https://k2-fsa.github.io/sherpa/onnx/tauri/vad-asr-mic.html)
+documents this model/runtime combination. The model archive's `LICENSE` points
+to FunASR; before product distribution, retain the exact model attribution and
+check the [FunASR model license](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)
+for the packaged conversion. The probe verifies local inference only. It is not
+yet connected to the product session, model manager, or Transcript.
+
+FSMN-VAD, Paraformer streaming/final events, gap recovery, AEC, resampling,
+and long-run performance remain without executable product evidence. Do not use
+the capture or recognition probe as evidence for those capabilities.
