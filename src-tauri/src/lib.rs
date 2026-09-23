@@ -5,6 +5,7 @@ mod models;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
+pub mod voice;
 mod workspace;
 
 use std::{
@@ -71,12 +72,12 @@ pub struct SeedDemoWorkspaceResult {
     pub summary: DemoSeedResult,
 }
 
-struct WorkspaceRuntime {
+pub(crate) struct WorkspaceRuntime {
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
-    paths: WorkspacePaths,
+    pub(crate) paths: WorkspacePaths,
     secret_state: Arc<Mutex<Option<String>>>,
-    db: Mutex<Database>,
+    pub(crate) db: Mutex<Database>,
     ai_jobs: AiJobManager,
 }
 
@@ -130,13 +131,27 @@ impl WorkspaceRuntime {
     }
 }
 
-struct AppState {
+pub(crate) struct AppState {
     app_handle: tauri::AppHandle,
     local_session_path: PathBuf,
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
+    voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
 }
 
 impl AppState {
+    fn ensure_voice_idle(&self) -> Result<()> {
+        let Some(workspace) = lock_mutex(&self.current_workspace).clone() else {
+            return Ok(());
+        };
+        let mut voice = lock_mutex(&self.voice_runtime);
+        let mut db = lock_mutex(&workspace.db);
+        if voice.has_unfinished_session(&mut db, &workspace.paths.root_path)? {
+            return Err(anyhow!("请先结束当前语音记录，再切换或关闭 Workspace"));
+        }
+        voice.reset();
+        Ok(())
+    }
+
     fn status_snapshot(&self) -> Result<WorkspaceStatusSnapshot> {
         let current = lock_mutex(&self.current_workspace).clone();
         let recent_state = load_local_session(&self.local_session_path)?;
@@ -177,6 +192,7 @@ impl AppState {
     }
 
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
+        self.ensure_voice_idle()?;
         let (metadata, paths) = load_metadata(root_path)?;
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle,
@@ -203,6 +219,7 @@ impl AppState {
     }
 
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
+        self.ensure_voice_idle()?;
         close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
         self.status_snapshot()
     }
@@ -1074,6 +1091,7 @@ pub fn run() {
                 app_handle: app.handle().clone(),
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
+                voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1085,6 +1103,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            voice::commands::voice_availability_get,
+            voice::commands::voice_settings_get,
+            voice::commands::voice_settings_upsert,
+            voice::commands::voice_start,
+            voice::commands::voice_pause,
+            voice::commands::voice_resume,
+            voice::commands::voice_end,
+            voice::commands::voice_snapshot_get,
+            voice::commands::voice_playback_get,
             desktop_open_file,
             desktop_open_folder,
             desktop_reveal_in_explorer,

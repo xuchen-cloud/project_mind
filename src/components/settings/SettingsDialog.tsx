@@ -2,6 +2,7 @@ import {
   Contact,
   Files,
   Pencil,
+  Mic,
   RefreshCw,
   Settings2,
   Sparkles,
@@ -30,6 +31,9 @@ const RichTextStylePanel = lazy(() =>
 );
 const UpdateSettingsPanel = lazy(() =>
   import("./UpdateSettingsPanel").then((module) => ({ default: module.UpdateSettingsPanel })),
+);
+const VoiceSettingsPanel = lazy(() =>
+  import("../voice/VoiceSettingsPanel").then((module) => ({ default: module.VoiceSettingsPanel })),
 );
 
 interface SettingsDialogProps {
@@ -65,6 +69,11 @@ const SETTINGS_SECTIONS: Array<{
     value: "contacts",
     label: "联系人",
     icon: Contact,
+  },
+  {
+    value: "voice",
+    label: "语音记录",
+    icon: Mic,
   },
   {
     value: "ai-models",
@@ -117,6 +126,12 @@ export function SettingsDialog({
         return (
           <Suspense fallback={<SettingsPanelFallback />}>
             <ContactSettingsPanel open={open} />
+          </Suspense>
+        );
+      case "voice":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <VoiceSettingsPanel open={open} />
           </Suspense>
         );
       case "ai-models":
@@ -244,6 +259,9 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   }
   if (section === "contacts") {
     return "contacts";
+  }
+  if (section === "voice") {
+    return "voice";
   }
   if (section === "ai" || section === "ai-models") {
     return "ai-models";

@@ -50,6 +50,7 @@ import {
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
+import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 
 interface ProjectRecordDraft {
   title: string;
@@ -540,6 +541,12 @@ export function ProjectNoteFocusPage({
                 }
               }}
             />
+            {note?.isVoice && projectId !== null && recordId !== null ? (
+              <VoiceRecordPanel
+                target={{ scope: "project", projectId, recordId }}
+                visible={visible}
+              />
+            ) : null}
             <RichEditor
               key={`${projectId}:${recordId}`}
               contentIdentity={`project-record:${projectId}:${recordId}`}

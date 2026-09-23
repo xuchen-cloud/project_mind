@@ -533,6 +533,7 @@ export function WorkspacePage({
           id: record.id,
           title: record.title,
           contentMarkdown: record.contentMarkdown,
+          isVoice: record.isVoice,
           tags: record.tags ?? [],
           updatedAt: record.updatedAt,
         }))}

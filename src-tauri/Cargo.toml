@@ -39,6 +39,9 @@ tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "rt", "sync
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 
+[dev-dependencies]
+tauri = { version = "2.10.3", features = ["test"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
@@ -48,3 +51,4 @@ windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
+screencapturekit = { version = "10.0.3", features = ["macos_15_0"] }

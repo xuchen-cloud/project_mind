@@ -18,6 +18,7 @@ export interface ProjectListItem extends ProjectRecord {
 }
 
 export interface NoteRecord {
+  isVoice?: boolean;
   id: number;
   projectId: number;
   title?: string | null;
@@ -65,6 +66,7 @@ export interface TodoRecord {
 }
 
 export interface WorkspaceRecord {
+  isVoice?: boolean;
   id: number;
   title?: string | null;
   contentMarkdown: string;

@@ -46,6 +46,7 @@ pub struct ProjectListItem {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteRecord {
+    pub is_voice: bool,
     pub id: i64,
     pub project_id: i64,
     pub title: Option<String>,
@@ -98,6 +99,7 @@ pub struct TodoRecord {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
+    pub is_voice: bool,
     pub id: i64,
     pub title: Option<String>,
     pub content_markdown: String,

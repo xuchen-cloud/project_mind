@@ -18,6 +18,7 @@ import {
   FolderKanban,
   FolderOpen,
   NotebookText,
+  Mic,
   Pencil,
   Star,
   Trash2,
@@ -63,6 +64,7 @@ import {
 export interface ProjectSidebarRecordItem {
   id: number;
   projectId?: number;
+  isVoice?: boolean;
   title?: string | null;
   typeLabel: string;
   contentMarkdown: string;
@@ -927,7 +929,7 @@ export function ProjectSidebar({
                       }}
                     >
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                        <NotebookText size={15} />
+                        {record.isVoice ? <Mic size={15} aria-label="语音记录" className="text-accent" /> : <NotebookText size={15} />}
                       </span>
                       <span className="min-w-0 flex-1">
                         {isEditingRecord ? (

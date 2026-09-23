@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -41,6 +41,13 @@ use crate::{
         WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
+    voice::{
+        contracts::{
+            RecordTarget, VoicePlaybackChunk, VoicePlaybackSnapshot, VoiceRecordLookup,
+            VoiceSettings,
+        },
+        storage::{AudioChunkManifest, PersistedVoiceSession},
+    },
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
 };
 
@@ -63,7 +70,8 @@ const TODO_DUE_DATE_SCHEMA_VERSION: i64 = 18;
 const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
 const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
 const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
-const CURRENT_SCHEMA_VERSION: i64 = LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION;
+const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
+const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECORD_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -706,6 +714,10 @@ impl Database {
                 self.set_schema_version(LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION)?;
             }
         }
+        self.ensure_voice_record_schema()?;
+        if self.schema_version()? < VOICE_RECORD_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECORD_SCHEMA_VERSION)?;
+        }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -730,6 +742,405 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_tag ON workspace_note_tag_links(tag_id, workspace_note_id);
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_note ON workspace_note_tag_links(workspace_note_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
+            "#,
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_settings_get(&self) -> Result<VoiceSettings> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = 'voice_settings'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        stored.map_or_else(
+            || {
+                Ok(VoiceSettings {
+                    speech_profile: None,
+                    text_profile_id: None,
+                    translation_profile_id: None,
+                    context_enabled: false,
+                    caption_lines: 4,
+                })
+            },
+            |value| serde_json::from_str(&value).context("invalid stored voice settings"),
+        )
+    }
+
+    pub fn voice_settings_upsert(&self, settings: &VoiceSettings) -> Result<()> {
+        if !(2..=8).contains(&settings.caption_lines) {
+            return Err(anyhow!("caption_lines must be between 2 and 8"));
+        }
+        let value = serde_json::to_string(settings)?;
+        let timestamp = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES ('voice_settings', ?1, ?2)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+            "#,
+            params![value, timestamp],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_session_create(
+        &mut self,
+        target: &RecordTarget,
+        request_id: &str,
+        session_id: &str,
+        title: &str,
+    ) -> Result<PersistedVoiceSession> {
+        if request_id.trim().is_empty() {
+            return Err(anyhow!("request_id is required"));
+        }
+        if let Some(existing) = self.voice_session_by_request(request_id)? {
+            return Ok(existing);
+        }
+        if self.voice_current_session()?.is_some() {
+            return Err(anyhow!("an unfinished recording session already exists"));
+        }
+
+        let timestamp = now_iso();
+        let transaction = self.conn.transaction()?;
+        let (project_note_id, workspace_note_id) = match target {
+            RecordTarget::Workspace => {
+                transaction.execute(
+                    r#"
+                    INSERT INTO workspace_notes (
+                      note_kind, title, content_markdown, content_html, default_code_language, created_at, updated_at
+                    ) VALUES (?1, ?2, '', '', NULL, ?3, ?3)
+                    "#,
+                    params![WORKSPACE_NOTE_KIND_STANDARD, title, timestamp],
+                )?;
+                (None, Some(transaction.last_insert_rowid()))
+            }
+            RecordTarget::Project { project_id } => {
+                let exists = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1 AND kind = ?2)",
+                    params![project_id, PROJECT_KIND_NORMAL],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if !exists {
+                    return Err(anyhow!("Project does not exist"));
+                }
+                transaction.execute(
+                    r#"
+                    INSERT INTO notes (
+                      project_id, title, content_markdown, content_html, default_code_language, created_at, updated_at
+                    ) VALUES (?1, ?2, '', '', NULL, ?3, ?3)
+                    "#,
+                    params![project_id, title, timestamp],
+                )?;
+                (Some(transaction.last_insert_rowid()), None)
+            }
+        };
+        transaction.execute(
+            r#"
+            INSERT INTO voice_records (project_note_id, workspace_note_id, created_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![project_note_id, workspace_note_id, timestamp],
+        )?;
+        let voice_record_id = transaction.last_insert_rowid();
+        transaction.execute(
+            r#"
+            INSERT INTO recording_sessions (
+              id, voice_record_id, request_id, lifecycle, started_at, active_ms, revision, capture_epoch
+            ) VALUES (?1, ?2, ?3, 'preparing', ?4, 0, 1, 1)
+            "#,
+            params![session_id, voice_record_id, request_id, timestamp],
+        )?;
+        transaction.commit()?;
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("created voice session was not found"))
+    }
+
+    pub fn voice_current_session(&self) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "{} WHERE s.lifecycle <> 'ended' ORDER BY s.started_at DESC LIMIT 1",
+                    voice_session_select_sql()
+                ),
+                [],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_get(&self, session_id: &str) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!("{} WHERE s.id = ?1", voice_session_select_sql()),
+                [session_id],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_by_request(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!("{} WHERE s.request_id = ?1", voice_session_select_sql()),
+                [request_id],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_transition(
+        &self,
+        session_id: &str,
+        expected_revision: u64,
+        lifecycle: &str,
+        pause_reason: Option<&str>,
+        active_ms: u64,
+        capture_epoch: u64,
+    ) -> Result<PersistedVoiceSession> {
+        let ended_at = (lifecycle == "ended").then(now_iso);
+        let changed = self.conn.execute(
+            r#"
+            UPDATE recording_sessions
+            SET lifecycle = ?1,
+                pause_reason = ?2,
+                active_ms = ?3,
+                capture_epoch = ?4,
+                ended_at = COALESCE(?5, ended_at),
+                revision = revision + 1
+            WHERE id = ?6 AND revision = ?7
+            "#,
+            params![
+                lifecycle,
+                pause_reason,
+                i64::try_from(active_ms)?,
+                i64::try_from(capture_epoch)?,
+                ended_at,
+                session_id,
+                i64::try_from(expected_revision)?
+            ],
+        )?;
+        if changed != 1 {
+            return Err(anyhow!("voice session revision conflict"));
+        }
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("voice session not found"))
+    }
+
+    pub fn voice_audio_chunk_insert(
+        &self,
+        session_id: &str,
+        manifest: &AudioChunkManifest,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO voice_audio_chunks (
+              session_id, source, epoch, chunk_index, start_sample, sample_count,
+              sample_rate, channels, relative_path, byte_size, state, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'complete', ?11)
+            ON CONFLICT(session_id, source, epoch, chunk_index) DO NOTHING
+            "#,
+            params![
+                session_id,
+                manifest.source,
+                i64::try_from(manifest.epoch)?,
+                i64::try_from(manifest.chunk_index)?,
+                i64::try_from(manifest.start_sample)?,
+                i64::try_from(manifest.sample_count)?,
+                i64::from(manifest.sample_rate),
+                i64::from(manifest.channels),
+                manifest.relative_path,
+                i64::try_from(manifest.byte_size)?,
+                now_iso()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_playback_get(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<VoicePlaybackSnapshot>> {
+        let (where_clause, project_id, record_id) = match target {
+            VoiceRecordLookup::Workspace { record_id } => {
+                ("vr.workspace_note_id = ?2 AND ?1 IS NULL", None, *record_id)
+            }
+            VoiceRecordLookup::Project {
+                project_id,
+                record_id,
+            } => (
+                "vr.project_note_id = ?2 AND n.project_id = ?1",
+                Some(*project_id),
+                *record_id,
+            ),
+        };
+        let session = self
+            .conn
+            .query_row(
+                &format!(
+                    r#"
+                    SELECT s.id, s.lifecycle
+                    FROM voice_records vr
+                    INNER JOIN recording_sessions s ON s.voice_record_id = vr.id
+                    LEFT JOIN notes n ON n.id = vr.project_note_id
+                    WHERE {where_clause}
+                    "#
+                ),
+                params![project_id, record_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let Some((session_id, phase)) = session else {
+            return Ok(None);
+        };
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT source, epoch, start_sample, sample_count, sample_rate, relative_path
+            FROM voice_audio_chunks
+            WHERE session_id = ?1 AND state = 'complete'
+            ORDER BY epoch, source, chunk_index
+            "#,
+        )?;
+        let stored = statement
+            .query_map([&session_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let chunks = stored
+            .into_iter()
+            .map(
+                |(source, epoch, start_sample, sample_count, sample_rate, relative_path)| {
+                    if epoch < 0 || start_sample < 0 || sample_count < 0 || sample_rate <= 0 {
+                        return Err(anyhow!("invalid persisted voice audio metadata"));
+                    }
+                    let relative = Path::new(&relative_path);
+                    if relative.is_absolute()
+                        || relative.components().any(|component| {
+                            matches!(
+                                component,
+                                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                            )
+                        })
+                    {
+                        return Err(anyhow!("voice audio path escaped workspace"));
+                    }
+                    let path = self.workspace_root.join(relative);
+                    Ok(VoicePlaybackChunk {
+                        source,
+                        epoch: epoch as u64,
+                        start_ms: (start_sample as u64).saturating_mul(1_000) / sample_rate as u64,
+                        duration_ms: (sample_count as u64).saturating_mul(1_000)
+                            / sample_rate as u64,
+                        path: path.to_string_lossy().to_string(),
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Some(VoicePlaybackSnapshot {
+            session_id,
+            phase,
+            chunks,
+        }))
+    }
+
+    fn ensure_voice_record_schema(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS voice_records (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_note_id INTEGER UNIQUE,
+              workspace_note_id INTEGER UNIQUE,
+              created_at TEXT NOT NULL,
+              CHECK (
+                (project_note_id IS NOT NULL AND workspace_note_id IS NULL)
+                OR
+                (project_note_id IS NULL AND workspace_note_id IS NOT NULL)
+              ),
+              FOREIGN KEY(project_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+              FOREIGN KEY(workspace_note_id) REFERENCES workspace_notes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS recording_sessions (
+              id TEXT PRIMARY KEY,
+              voice_record_id INTEGER NOT NULL UNIQUE,
+              request_id TEXT NOT NULL UNIQUE,
+              lifecycle TEXT NOT NULL,
+              pause_reason TEXT,
+              started_at TEXT NOT NULL,
+              ended_at TEXT,
+              active_ms INTEGER NOT NULL DEFAULT 0,
+              revision INTEGER NOT NULL DEFAULT 1,
+              capture_epoch INTEGER NOT NULL DEFAULT 1,
+              FOREIGN KEY(voice_record_id) REFERENCES voice_records(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_audio_chunks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              source TEXT NOT NULL,
+              epoch INTEGER NOT NULL,
+              chunk_index INTEGER NOT NULL,
+              start_sample INTEGER NOT NULL,
+              sample_count INTEGER NOT NULL,
+              sample_rate INTEGER NOT NULL,
+              channels INTEGER NOT NULL,
+              relative_path TEXT NOT NULL,
+              byte_size INTEGER NOT NULL,
+              state TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, source, epoch, chunk_index),
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_timeline_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              epoch INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              media_position_ms INTEGER NOT NULL,
+              reason TEXT,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_transcript_segments (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              provider_key TEXT,
+              start_ms INTEGER NOT NULL,
+              end_ms INTEGER NOT NULL,
+              text TEXT NOT NULL,
+              language TEXT,
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, provider_key),
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_recording_sessions_lifecycle
+              ON recording_sessions(lifecycle, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_voice_audio_chunks_session
+              ON voice_audio_chunks(session_id, source, epoch, chunk_index);
+            CREATE INDEX IF NOT EXISTS idx_voice_timeline_events_session
+              ON voice_timeline_events(session_id, id);
+            CREATE INDEX IF NOT EXISTS idx_voice_transcript_session_time
+              ON voice_transcript_segments(session_id, start_ms, id);
             "#,
         )?;
         Ok(())
@@ -4727,6 +5138,7 @@ impl Database {
             [note_id],
             |row| {
                 Ok(NoteRecord {
+                    is_voice: self.conn.query_row("SELECT EXISTS(SELECT 1 FROM voice_records WHERE project_note_id = ?1)", [note_id], |row| row.get(0))?,
                     id: row.get(0)?,
                     project_id: row.get(1)?,
                     title: row.get(2)?,
@@ -4754,6 +5166,7 @@ impl Database {
             [note_id],
             |row| {
                 Ok(WorkspaceRecord {
+                    is_voice: self.conn.query_row("SELECT EXISTS(SELECT 1 FROM voice_records WHERE workspace_note_id = ?1)", [note_id], |row| row.get(0))?,
                     id: row.get(0)?,
                     title: row.get(1)?,
                     content_markdown: row.get(2)?,
@@ -7211,6 +7624,37 @@ impl Database {
     }
 }
 
+fn voice_session_select_sql() -> &'static str {
+    r#"
+    SELECT s.id, s.voice_record_id, vr.project_note_id, vr.workspace_note_id,
+           s.lifecycle, s.pause_reason, s.started_at, s.ended_at,
+           s.active_ms, s.revision, s.capture_epoch
+    FROM recording_sessions s
+    INNER JOIN voice_records vr ON vr.id = s.voice_record_id
+    "#
+}
+
+fn persisted_voice_session_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<PersistedVoiceSession> {
+    let active_ms = row.get::<_, i64>(8)?;
+    let revision = row.get::<_, i64>(9)?;
+    let capture_epoch = row.get::<_, i64>(10)?;
+    Ok(PersistedVoiceSession {
+        session_id: row.get(0)?,
+        voice_record_id: row.get(1)?,
+        project_note_id: row.get(2)?,
+        workspace_note_id: row.get(3)?,
+        lifecycle: row.get(4)?,
+        pause_reason: row.get(5)?,
+        started_at: row.get(6)?,
+        ended_at: row.get(7)?,
+        active_ms: u64::try_from(active_ms).unwrap_or_default(),
+        revision: u64::try_from(revision).unwrap_or_default(),
+        capture_epoch: u64::try_from(capture_epoch).unwrap_or_default(),
+    })
+}
+
 fn backup_before_migration(conn: &Connection, workspace_root: &Path) -> Result<Option<PathBuf>> {
     let schema_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if schema_version >= CURRENT_SCHEMA_VERSION {
@@ -8492,6 +8936,88 @@ mod tests {
             },
             database,
         )
+    }
+
+    #[test]
+    fn voice_session_persists_settings_record_and_revisioned_lifecycle() {
+        let (_harness, mut database) = setup_database();
+        let settings = VoiceSettings {
+            speech_profile: None,
+            text_profile_id: None,
+            translation_profile_id: None,
+            context_enabled: true,
+            caption_lines: 6,
+        };
+        database.voice_settings_upsert(&settings).unwrap();
+        let loaded = database.voice_settings_get().unwrap();
+        assert!(loaded.context_enabled);
+        assert_eq!(loaded.caption_lines, 6);
+
+        let created = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "request-one",
+                "session-one",
+                "Voice record",
+            )
+            .unwrap();
+        assert_eq!(created.lifecycle, "preparing");
+        assert!(created.workspace_note_id.is_some());
+        let recording = database
+            .voice_session_transition(
+                &created.session_id,
+                created.revision,
+                "recording",
+                None,
+                0,
+                1,
+            )
+            .unwrap();
+        assert_eq!(recording.revision, created.revision + 1);
+        database
+            .voice_audio_chunk_insert(
+                &created.session_id,
+                &AudioChunkManifest {
+                    source: "microphone",
+                    epoch: 1,
+                    chunk_index: 0,
+                    start_sample: 4_800,
+                    sample_count: 48_000,
+                    sample_rate: 48_000,
+                    channels: 1,
+                    relative_path: ".project-mind/voice/session-one/epoch-1/microphone.wav".into(),
+                    byte_size: 192_044,
+                },
+            )
+            .unwrap();
+        let playback = database
+            .voice_playback_get(&VoiceRecordLookup::Workspace {
+                record_id: created.workspace_note_id.unwrap(),
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(playback.chunks.len(), 1);
+        assert_eq!(playback.chunks[0].start_ms, 100);
+        assert_eq!(playback.chunks[0].duration_ms, 1_000);
+        assert!(database
+            .voice_session_transition(
+                &created.session_id,
+                created.revision,
+                "paused",
+                Some("user"),
+                10,
+                1,
+            )
+            .is_err());
+        let idempotent = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "request-one",
+                "different-session",
+                "Ignored",
+            )
+            .unwrap();
+        assert_eq!(idempotent.session_id, created.session_id);
     }
 
     fn enable_legacy_domain_fixture_schema(database: &Database) {

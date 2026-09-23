@@ -64,6 +64,7 @@ import {
 import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
+import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
@@ -88,6 +89,7 @@ function toProjectSidebarRecords(
     title: record.title,
     typeLabel: "记录",
     contentMarkdown: record.contentMarkdown,
+    isVoice: record.isVoice,
     contentHtml: record.contentHtml,
     defaultCodeLanguage: record.defaultCodeLanguage ?? null,
     tags: record.tags ?? [],
@@ -1558,6 +1560,25 @@ export function WorkspaceLayout({
         onSectionChange={setSettingsSection}
         onUnlockAiSecrets={requestUnlockAiSecrets}
         onClose={closeSettings}
+      />
+
+      <VoiceFloatingPanel
+        target={activeProjectId === null ? { scope: "workspace" } : { scope: "project", projectId: activeProjectId }}
+        targetLabel={activeProjectId === null ? " Workspace" : `项目「${activeProject?.name ?? "未命名"}」`}
+        onOpenRecord={(snapshot) => {
+          if (snapshot.projectNoteId !== null && activeProjectId !== null) {
+            navigate(recordPath(activeProjectId, snapshot.projectNoteId));
+          } else if (snapshot.workspaceNoteId !== null) {
+            navigate(`/workspace/records/${snapshot.workspaceNoteId}`);
+          }
+        }}
+        onChanged={async () => {
+          await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+          await queryClient.invalidateQueries({ queryKey: ["voice-playback"] });
+          if (activeProjectId !== null) {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(activeProjectId) });
+          }
+        }}
       />
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

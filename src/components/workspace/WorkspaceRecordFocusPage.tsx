@@ -60,6 +60,7 @@ import {
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
+import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -498,7 +499,7 @@ export function WorkspaceRecordFocusPage({
 
   if (
     !draftReady &&
-    (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
+    (workspacePageQuery.isFetching || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
   ) {
     if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
@@ -532,6 +533,7 @@ export function WorkspaceRecordFocusPage({
             id: record.id,
             title: record.title,
             contentMarkdown: record.contentMarkdown,
+            isVoice: record.isVoice,
             tags: record.tags ?? [],
             updatedAt: record.updatedAt,
           }))}
@@ -696,6 +698,12 @@ export function WorkspaceRecordFocusPage({
                 onChange={handleTagsChange}
                 onCreated={syncWorkspaceTagCache}
               />
+              {note?.isVoice && recordId !== null ? (
+                <VoiceRecordPanel
+                  target={{ scope: "workspace", recordId }}
+                  visible={visible}
+                />
+              ) : null}
               <RichEditor
                 key={recordId}
                 contentIdentity={`workspace-record:${recordId}`}
