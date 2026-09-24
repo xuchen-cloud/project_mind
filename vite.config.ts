@@ -7,6 +7,7 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      input: { main: "index.html", voice: "voice.html" },
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {

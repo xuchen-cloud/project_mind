@@ -1,0 +1,172 @@
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+.voice-caption-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 10px);
+  min-height: 0;
+  margin: 5px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  color: var(--color-text);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--color-text) 16%, transparent),
+    0 2px 8px color-mix(in srgb, var(--color-text) 8%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(28px) saturate(1.5);
+}
+
+.voice-caption-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 10px 5px 14px;
+  cursor: grab;
+  user-select: none;
+}
+
+.voice-caption-header:active {
+  cursor: grabbing;
+}
+
+.voice-caption-status,
+.voice-caption-header-actions,
+.voice-caption-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.voice-caption-status {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.voice-caption-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 13%, transparent);
+}
+
+.voice-caption-status-dot--paused {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 14%, transparent);
+}
+
+.voice-caption-clock {
+  margin-left: 4px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-caption-header-actions button,
+.voice-caption-controls button {
+  border-color: color-mix(in srgb, var(--color-border-strong) 55%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 35%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.voice-caption-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 18px 10px;
+  scrollbar-width: none;
+}
+
+.voice-caption-scroll--overflow {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 22px, black);
+  mask-image: linear-gradient(to bottom, transparent, black 22px, black);
+}
+
+.voice-caption-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.voice-caption-lines {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.005em;
+}
+
+.voice-caption-line {
+  animation: caption-arrive var(--duration-standard) var(--ease-out) both;
+}
+
+.voice-caption-interim {
+  color: var(--color-text-muted);
+}
+
+.voice-caption-empty {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+}
+
+.voice-caption-controls {
+  flex: none;
+  justify-content: flex-end;
+  padding: 6px 10px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.voice-caption-error {
+  overflow: hidden;
+  padding: 0 12px;
+  color: var(--color-danger);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-caption-shell--collapsed .voice-caption-header {
+  height: 100%;
+  min-height: 0;
+  padding: 0 8px;
+}
+
+.voice-caption-shell--collapsed .voice-caption-status {
+  gap: 5px;
+  font-size: 11px;
+}
+
+.voice-caption-shell--collapsed .voice-caption-clock {
+  display: none;
+}
+
+@keyframes caption-arrive {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-caption-line {
+    animation-name: caption-arrive-reduced;
+    transform: none;
+  }
+
+  @keyframes caption-arrive-reduced {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}

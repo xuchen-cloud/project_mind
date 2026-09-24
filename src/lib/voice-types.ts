@@ -76,6 +76,16 @@ export interface VoiceTranscriptListInput {
   limit: number;
 }
 export interface VoiceTranscriptTailInput { sessionId: string; limit: number }
+export interface VoiceMinutesSnapshot {
+  sessionId: string;
+  version: number;
+  title: string;
+  content: string;
+  generatedAt: string | null;
+  status: string;
+  error: string | null;
+}
+export interface VoiceMinutesGenerateInput { target: VoiceRecordLookup; requestId: string }
 
 // TODO(VR-03): add persisted coverage ranges, derivative statuses,
 // lexicon and minutes revisions once the database contracts are implemented.

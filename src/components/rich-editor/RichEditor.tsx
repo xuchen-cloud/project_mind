@@ -412,6 +412,7 @@ export interface RichEditorController {
   getDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
+  appendMarkdown: (markdown: string) => RichEditorValue | null;
   save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
 }
 
@@ -2373,13 +2374,16 @@ export function RichEditor({
 
         editor.commands.focus(position ?? "end", { scrollIntoView: false });
       },
+      appendMarkdown: (markdown) => editor && !readOnly && insertMarkdownAtPosition(editor, editor.state.doc.content.size, markdown)
+        ? getCurrentValue()
+        : null,
       save: (options) => handleManualSave(options),
     };
 
     return () => {
       controllerRef.current = null;
     };
-  }, [controllerRef, editor, getCurrentValue, handleManualSave]);
+  }, [controllerRef, editor, getCurrentValue, handleManualSave, readOnly]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);

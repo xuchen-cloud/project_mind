@@ -1,8 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pause, Play, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { VoiceRecordLookup, VoiceTranscriptCursor } from "../../lib/voice-types";
+import { queryKeys } from "../../lib/queryKeys";
 import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
 import { Button } from "../../ui/components";
@@ -11,6 +12,8 @@ import { VoicePlayer } from "../../lib/voice-player";
 export interface VoiceRecordPanelProps {
   target: VoiceRecordLookup;
   visible?: boolean;
+  onTitleUpdated?: (title: string) => void;
+  onCopyMinutes?: (content: string) => Promise<void>;
 }
 
 function formatTime(milliseconds: number) {
@@ -19,7 +22,8 @@ function formatTime(milliseconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function VoiceRecordPanel({ target, visible = true }: VoiceRecordPanelProps) {
+export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCopyMinutes }: VoiceRecordPanelProps) {
+  const queryClient = useQueryClient();
   const playbackQuery = useQuery({
     queryKey: ["voice-playback", target],
     queryFn: () => voiceApi.playbackGet(target),
@@ -37,6 +41,32 @@ export function VoiceRecordPanel({ target, visible = true }: VoiceRecordPanelPro
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [minutesError, setMinutesError] = useState<string | null>(null);
+  const [generatingMinutes, setGeneratingMinutes] = useState(false);
+  const [copyingMinutes, setCopyingMinutes] = useState(false);
+  const lastMinutesVersion = useRef<number | null>(null);
+  const lastMinutesTitle = useRef<string | null>(null);
+  const minutesQuery = useQuery({
+    queryKey: ["voice-minutes", target],
+    queryFn: () => voiceApi.minutesGet(target),
+    enabled: visible,
+    refetchInterval: visible ? 5_000 : false,
+    retry: false,
+  });
+  useEffect(() => {
+    const version = minutesQuery.data?.version;
+    if (version == null) return;
+    if (lastMinutesVersion.current !== null && version > lastMinutesVersion.current) {
+      void queryClient.invalidateQueries({ queryKey: target.scope === "workspace" ? queryKeys.workspacePage : queryKeys.projectPage(target.projectId) });
+    }
+    lastMinutesVersion.current = version;
+  }, [minutesQuery.data?.version, queryClient, target]);
+  useEffect(() => {
+    const snapshot = minutesQuery.data;
+    if (!snapshot?.version || !snapshot.title || snapshot.title === lastMinutesTitle.current) return;
+    lastMinutesTitle.current = snapshot.title;
+    onTitleUpdated?.(snapshot.title);
+  }, [minutesQuery.data, onTitleUpdated]);
   const transcriptQuery = useInfiniteQuery({
     queryKey: ["voice-transcript", target],
     initialPageParam: null as VoiceTranscriptCursor | null,
@@ -126,6 +156,32 @@ export function VoiceRecordPanel({ target, visible = true }: VoiceRecordPanelPro
     syncAudio(next, playing);
   };
 
+  const generateMinutes = async () => {
+    setGeneratingMinutes(true);
+    setMinutesError(null);
+    try {
+      await voiceApi.minutesGenerate({ target, requestId: crypto.randomUUID() });
+      await minutesQuery.refetch();
+    } catch (error) {
+      setMinutesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingMinutes(false);
+    }
+  };
+
+  const copyMinutes = async () => {
+    if (!onCopyMinutes || !minutesQuery.data?.content) return;
+    setCopyingMinutes(true);
+    setMinutesError(null);
+    try {
+      await onCopyMinutes(minutesQuery.data.content);
+    } catch (error) {
+      setMinutesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCopyingMinutes(false);
+    }
+  };
+
   return (
     <section aria-label="录音播放" className="rounded-[var(--radius-10)] border border-border bg-bg-subtle p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -180,6 +236,27 @@ export function VoiceRecordPanel({ target, visible = true }: VoiceRecordPanelPro
         <p className="text-body text-text-muted">暂停或结束录制后，这里会显示已保存的音频。</p>
       )}
       {playbackError ? <p className="mt-2 text-caption text-danger">{playbackError}</p> : null}
+      <section aria-label="会议纪要" className="mt-4 border-t border-border pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-body font-medium text-text">会议纪要</h3>
+          <div className="flex items-center gap-2">
+            {onCopyMinutes && minutesQuery.data?.content ? <Button type="button" size="sm" variant="secondary" disabled={copyingMinutes}
+              onClick={() => void copyMinutes()}>{copyingMinutes ? "复制中…" : "复制到正文"}</Button> : null}
+            <Button type="button" size="sm" variant="secondary" disabled={generatingMinutes || minutesQuery.data?.status === "running"}
+              onClick={() => void generateMinutes()}>{generatingMinutes ? "提交中…" : "生成纪要"}</Button>
+          </div>
+        </div>
+        {minutesQuery.data?.status === "pending" || minutesQuery.data?.status === "running" ?
+          <p className="mt-2 text-caption text-text-muted">正在生成纪要…</p> : null}
+        {minutesError || minutesQuery.data?.error || minutesQuery.error ?
+          <p className="mt-2 text-caption text-danger">{minutesError || minutesQuery.data?.error || String(minutesQuery.error)}</p> : null}
+        {minutesQuery.data?.content ? (
+          <div className="mt-3 grid gap-3 text-body text-text">{minutesQuery.data.content.split(/\n(?=## )/).map((section) => {
+            const [heading, ...body] = section.trim().split("\n");
+            return <div key={heading}><h4 className="font-medium">{heading.replace(/^## /, "")}</h4><p className="mt-1 whitespace-pre-wrap text-text-muted">{body.join("\n").trim()}</p></div>;
+          })}</div>
+        ) : <p className="mt-2 text-body text-text-muted">暂无会议纪要。选择文本模型后，可从最终转写生成纪要和 AI 标题。</p>}
+      </section>
       <div className="mt-4 border-t border-border pt-3">
         <Button type="button" size="sm" variant="secondary" aria-expanded={transcriptOpen}
           onClick={() => setTranscriptOpen((current) => !current)}>

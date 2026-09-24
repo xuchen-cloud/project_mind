@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::Utc;
+use chrono::{Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
 use serde_json::{json, Value};
 
@@ -43,9 +43,9 @@ use crate::{
     secret_crypto,
     voice::{
         contracts::{
-            RecordTarget, SpeechProfile, VoicePlaybackChunk, VoicePlaybackSnapshot,
-            VoiceRecordLookup, VoiceSettings, VoiceTranscriptCursor, VoiceTranscriptPage,
-            VoiceTranscriptSegment,
+            RecordTarget, SpeechProfile, VoiceMinutesSnapshot, VoicePlaybackChunk,
+            VoicePlaybackSnapshot, VoiceRecordLookup, VoiceSettings, VoiceTranscriptCursor,
+            VoiceTranscriptPage, VoiceTranscriptSegment,
         },
         storage::{AudioChunkManifest, PersistedVoiceSession},
     },
@@ -72,7 +72,8 @@ const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
 const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
 const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
 const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECORD_SCHEMA_VERSION;
+const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
+const CURRENT_SCHEMA_VERSION: i64 = VOICE_MINUTES_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -218,6 +219,18 @@ pub struct Database {
     conn: Connection,
     workspace_root: PathBuf,
     secret_password: Option<String>,
+}
+
+pub struct VoiceMinutesLine {
+    pub start_ms: u64,
+    pub text: String,
+}
+
+pub struct VoiceMinutesInput {
+    pub expected_version: u64,
+    pub source_max_rowid: i64,
+    pub previous_content: Option<String>,
+    pub segments: Vec<VoiceMinutesLine>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -718,6 +731,10 @@ impl Database {
         self.ensure_voice_record_schema()?;
         if self.schema_version()? < VOICE_RECORD_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RECORD_SCHEMA_VERSION)?;
+        }
+        self.ensure_voice_minutes_schema()?;
+        if self.schema_version()? < VOICE_MINUTES_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_MINUTES_SCHEMA_VERSION)?;
         }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
@@ -1263,6 +1280,233 @@ impl Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         segments.reverse();
         Ok(segments)
+    }
+
+    pub fn voice_minutes_get(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<VoiceMinutesSnapshot>> {
+        let Some((session_id, _)) = self.voice_session_for_target(target)? else {
+            return Ok(None);
+        };
+        let current = self
+            .conn
+            .query_row(
+                "SELECT version, content, generated_at FROM voice_minutes WHERE session_id = ?1",
+                [&session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let (version, content, generated_at) = current.unwrap_or((0, String::new(), None));
+        let title: String = match target {
+            VoiceRecordLookup::Workspace { record_id } => self.conn.query_row(
+                "SELECT title FROM workspace_notes WHERE id = ?1",
+                [record_id],
+                |row| row.get(0),
+            )?,
+            VoiceRecordLookup::Project { record_id, .. } => self.conn.query_row(
+                "SELECT title FROM notes WHERE id = ?1",
+                [record_id],
+                |row| row.get(0),
+            )?,
+        };
+        let latest_job = self.conn.query_row(
+            "SELECT status, error FROM voice_minutes_jobs WHERE session_id = ?1 ORDER BY id DESC LIMIT 1",
+            [&session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        ).optional()?;
+        let (status, error) =
+            latest_job.unwrap_or((if version > 0 { "ready" } else { "empty" }.into(), None));
+        Ok(Some(VoiceMinutesSnapshot {
+            session_id,
+            version: u64::try_from(version)?,
+            title,
+            content,
+            generated_at,
+            status,
+            error,
+        }))
+    }
+
+    pub fn voice_minutes_input(&self, session_id: &str) -> Result<VoiceMinutesInput> {
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("voice session not found"))?;
+        let current = self.conn.query_row(
+            "SELECT version, source_max_rowid, content FROM voice_minutes WHERE session_id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+        ).optional()?.unwrap_or((0, 0, String::new()));
+        let mut statement = self.conn.prepare(
+            "SELECT rowid, start_ms, text FROM voice_transcript_segments WHERE session_id = ?1 AND rowid > ?2 ORDER BY start_ms, id"
+        )?;
+        let rows = statement
+            .query_map(params![session_id, current.1], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut max_rowid = current.1;
+        let mut segments = Vec::with_capacity(rows.len());
+        for (rowid, start_ms, text) in rows {
+            max_rowid = max_rowid.max(rowid);
+            segments.push(VoiceMinutesLine {
+                start_ms: u64::try_from(start_ms)?,
+                text,
+            });
+        }
+        Ok(VoiceMinutesInput {
+            expected_version: u64::try_from(current.0)?,
+            source_max_rowid: max_rowid,
+            previous_content: (current.0 > 0).then_some(current.2),
+            segments,
+        })
+    }
+
+    pub fn voice_minutes_profile(&self) -> Result<ResolvedAiProfile> {
+        let profile_id = self
+            .voice_settings_get()?
+            .text_profile_id
+            .ok_or_else(|| anyhow!("请先在语音设置中选择文本处理模型"))?;
+        self.resolve_profile_by_id(profile_id)
+    }
+
+    pub fn voice_minutes_enqueue(&self, session_id: &str, request_key: &str) -> Result<bool> {
+        if request_key.trim().is_empty() {
+            return Err(anyhow!("minutes request key is required"));
+        }
+        if self.voice_minutes_input(session_id)?.segments.is_empty() {
+            return Ok(false);
+        }
+        let changed = self.conn.execute(
+            "INSERT INTO voice_minutes_jobs (session_id, request_key, status, created_at) VALUES (?1, ?2, 'pending', ?3) ON CONFLICT(session_id, request_key) DO NOTHING",
+            params![session_id, request_key, now_iso()],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub fn voice_minutes_claim_next(&mut self) -> Result<Option<(i64, String)>> {
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let job = transaction.query_row(
+            "SELECT id, session_id FROM voice_minutes_jobs j WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM voice_minutes_jobs other WHERE other.session_id = j.session_id AND other.status = 'running') ORDER BY id LIMIT 1",
+            [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        ).optional()?;
+        if let Some((id, _)) = &job {
+            transaction.execute(
+                "UPDATE voice_minutes_jobs SET status = 'running', started_at = ?2 WHERE id = ?1",
+                params![id, now_iso()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(job)
+    }
+
+    pub fn voice_minutes_has_pending(&self) -> Result<bool> {
+        let stale_before = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+        self.conn.execute("UPDATE voice_minutes_jobs SET status = 'pending', started_at = NULL WHERE status = 'running' AND started_at < ?1", [stale_before])?;
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM voice_minutes_jobs WHERE status = 'pending')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn voice_minutes_finish_job(&self, job_id: i64, error: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET status = ?1, error = ?2 WHERE id = ?3",
+            params![
+                if error.is_some() { "failed" } else { "ready" },
+                error,
+                job_id
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_minutes_apply(
+        &mut self,
+        session_id: &str,
+        expected_version: u64,
+        source_max_rowid: i64,
+        content: &str,
+        title: &str,
+    ) -> Result<()> {
+        if content.trim().is_empty() || title.trim().is_empty() || title.chars().count() > 80 {
+            return Err(anyhow!("AI minutes or title is empty or invalid"));
+        }
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current_version = transaction
+            .query_row(
+                "SELECT version FROM voice_minutes WHERE session_id = ?1",
+                [session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if current_version != i64::try_from(expected_version)? {
+            return Err(anyhow!("minutes version conflict"));
+        }
+        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        )?;
+        transaction.execute(
+            "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
+            params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
+        )?;
+        let started = chrono::DateTime::parse_from_rfc3339(&started_at)?.with_timezone(&Local);
+        let titled = format!("{} · {}", title.trim(), started.format("%Y-%m-%d %H:%M"));
+        if let Some(id) = project_note_id {
+            transaction.execute(
+                "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![titled, now_iso(), id],
+            )?;
+        } else if let Some(id) = workspace_note_id {
+            transaction.execute(
+                "UPDATE workspace_notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![titled, now_iso(), id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn ensure_voice_minutes_schema(&self) -> Result<()> {
+        self.conn.execute_batch(r#"
+            CREATE TABLE IF NOT EXISTS voice_minutes (
+              session_id TEXT PRIMARY KEY REFERENCES recording_sessions(id) ON DELETE CASCADE,
+              version INTEGER NOT NULL DEFAULT 0,
+              source_max_rowid INTEGER NOT NULL DEFAULT 0,
+              content TEXT NOT NULL,
+              generated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS voice_minutes_jobs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+              request_key TEXT NOT NULL,
+              status TEXT NOT NULL,
+              error TEXT,
+              started_at TEXT,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, request_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_voice_minutes_jobs_pending ON voice_minutes_jobs(status, id);
+        "#)?;
+        Ok(())
     }
 
     fn ensure_voice_record_schema(&self) -> Result<()> {
@@ -2471,7 +2715,6 @@ impl Database {
 
         match input.note_id {
             Some(note_id) => {
-                self.workspace_note_record(note_id)?;
                 self.conn.execute(
                     r#"
                     UPDATE workspace_notes
@@ -9229,6 +9472,104 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idempotent.session_id, created.session_id);
+    }
+
+    #[test]
+    fn voice_minutes_replace_snapshot_and_overwrite_title() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "minutes-request",
+                "minutes-session",
+                "语音记录 · 2026-09-24 09:30",
+            )
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1_000,
+                "讨论了发布计划。",
+                None,
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        let input = database.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(input.segments.len(), 1);
+        assert_eq!(input.previous_content, None);
+        assert!(database.voice_minutes_enqueue(&session.session_id, "auto:1").unwrap());
+        assert!(!database.voice_minutes_enqueue(&session.session_id, "auto:1").unwrap());
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                0,
+                input.source_max_rowid,
+                "## 摘要\n发布计划",
+                "发布计划",
+            )
+            .unwrap();
+        let first = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(first.version, 1);
+        assert_eq!(first.content, "## 摘要\n发布计划");
+        assert!(!database.voice_minutes_enqueue(&session.session_id, "auto:2").unwrap());
+        assert!(database
+            .workspace_note_record(session.workspace_note_id.unwrap())
+            .unwrap()
+            .title
+            .unwrap()
+            .starts_with("发布计划 · "));
+
+        database
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: session.workspace_note_id,
+                title: Some("我写的标题".into()),
+                markdown: String::new(),
+                html: String::new(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:2",
+                1_000,
+                2_000,
+                "决定周五上线。",
+                None,
+            )
+            .unwrap();
+        let next = database.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(next.previous_content.as_deref(), Some("## 摘要\n发布计划"));
+        assert_eq!(next.segments.len(), 1);
+        assert!(database.voice_minutes_apply(&session.session_id, 0, next.source_max_rowid, "过期纪要", "过期标题").is_err());
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                1,
+                next.source_max_rowid,
+                "## 摘要\n周五上线",
+                "新 AI 标题",
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .voice_minutes_get(&target)
+                .unwrap()
+                .unwrap()
+                .content,
+            "## 摘要\n周五上线"
+        );
+        assert!(database
+            .workspace_note_record(session.workspace_note_id.unwrap())
+            .unwrap()
+            .title
+            .unwrap()
+            .starts_with("新 AI 标题 · "));
     }
 
     #[test]

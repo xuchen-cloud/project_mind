@@ -35,7 +35,7 @@ describe("VoiceSettingsPanel", () => {
       livePreviewEnabled: false, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
     });
     mocks.modelStatusGet.mockResolvedValue({ packageId: "sensevoice-small-int8-2024-07-17", ready: false, detail: "模型未就绪" });
-    mocks.aiSettingsGet.mockResolvedValue({ profiles: [{ id: 7, name: "DashScope", enabled: true, hasStoredKey: true, apiKeyLast4: "1234" }] });
+    mocks.aiSettingsGet.mockResolvedValue({ profiles: [{ id: 7, name: "DashScope", enabled: true, hasStoredKey: true, apiKeyLast4: "1234", supportsText: true, defaultModel: "qwen-plus" }] });
     mocks.profileTest.mockResolvedValue(undefined);
   });
 
@@ -58,6 +58,14 @@ describe("VoiceSettingsPanel", () => {
     await waitFor(() => expect(mocks.settingsUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ livePreviewEnabled: true }),
     ));
+  });
+
+  it("saves the text profile for minutes and AI title", async () => {
+    render(<VoiceSettingsPanel open />);
+    const select = await screen.findByRole("combobox", { name: "会议纪要和 AI 标题模型" });
+    fireEvent.change(select, { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => expect(mocks.settingsUpsert).toHaveBeenCalledWith(expect.objectContaining({ textProfileId: 7 })));
   });
 
   it("saves the local provisional caption switch separately from final recognition", async () => {

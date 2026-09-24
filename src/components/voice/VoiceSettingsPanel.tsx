@@ -152,6 +152,18 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       ) : null}
 
       <label className="grid gap-1.5 text-body text-text">
+        <span className="font-medium">会议纪要和 AI 标题模型</span>
+        <select aria-label="会议纪要和 AI 标题模型" className="h-9 rounded-[var(--radius-6)] border border-border bg-bg px-3"
+          value={settings.textProfileId ?? ""}
+          onChange={(event) => setSettings((current) => ({ ...current, textProfileId: event.target.value ? Number(event.target.value) : null }))}>
+          <option value="">不自动生成纪要</option>
+          {credentialProfiles.filter((profile) => profile.supportsText).map((profile) =>
+            <option key={profile.id} value={profile.id}>{profile.name} · {profile.defaultModel}</option>)}
+        </select>
+        <span className="text-caption text-text-muted">选择有文本能力的 AI Profile。每录制约 15 分钟更新一次，结束时生成最终纪要，并覆盖当前标题。</span>
+      </label>
+
+      <label className="grid gap-1.5 text-body text-text">
         <span className="font-medium">字幕行数</span>
         <input type="range" min={2} max={8} value={settings.captionLines} onChange={(event) => setSettings((current) => ({ ...current, captionLines: Number(event.target.value) }))} />
         <span className="text-text-muted">{settings.captionLines} 行</span>

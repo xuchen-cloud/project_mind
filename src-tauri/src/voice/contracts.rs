@@ -105,6 +105,13 @@ pub struct VoiceTranscriptTailInput {
     pub limit: u8,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceMinutesGenerateInput {
+    pub target: VoiceRecordLookup,
+    pub request_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceTranscriptSegment {
@@ -120,6 +127,18 @@ pub struct VoiceTranscriptSegment {
 pub struct VoiceTranscriptPage {
     pub segments: Vec<VoiceTranscriptSegment>,
     pub next_cursor: Option<VoiceTranscriptCursor>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceMinutesSnapshot {
+    pub session_id: String,
+    pub version: u64,
+    pub title: String,
+    pub content: String,
+    pub generated_at: Option<String>,
+    pub status: String,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

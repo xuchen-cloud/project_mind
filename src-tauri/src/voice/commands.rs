@@ -197,9 +197,23 @@ pub(crate) fn voice_end(
         .map_err(|error| failed("end", error))?;
     let mut voice = lock_mutex(&state.voice_runtime);
     let mut db = lock_mutex(&workspace.db);
-    voice
+    let result = voice
         .end(&mut db, &input.session_id, input.expected_revision)
-        .map_err(|error| failed("end", error))
+        .map_err(|error| failed("end", error))?;
+    if db
+        .voice_settings_get()
+        .map_err(|error| failed("end", error))?
+        .text_profile_id
+        .is_some()
+    {
+        let queued = db
+            .voice_minutes_enqueue(&input.session_id, "final")
+            .map_err(|error| failed("end", error))?;
+        if queued {
+            workspace.kick_voice_minutes();
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -211,9 +225,82 @@ pub(crate) fn voice_snapshot_get(
         .map_err(|error| failed("snapshot_get", error))?;
     let mut voice = lock_mutex(&state.voice_runtime);
     let mut db = lock_mutex(&workspace.db);
-    voice
+    let result = voice
         .snapshot(&mut db, &workspace.paths.root_path)
-        .map_err(|error| failed("snapshot_get", error))
+        .map_err(|error| failed("snapshot_get", error))?;
+    if let Some(snapshot) = &result {
+        if snapshot.active_ms >= 15 * 60 * 1_000
+            && snapshot.phase == "recording"
+            && db
+                .voice_settings_get()
+                .map_err(|error| failed("snapshot_get", error))?
+                .text_profile_id
+                .is_some()
+        {
+            let bucket = snapshot.active_ms / (15 * 60 * 1_000);
+            db.voice_minutes_enqueue(&snapshot.session_id, &format!("auto:{bucket}"))
+                .map_err(|error| failed("snapshot_get", error))?;
+        }
+    }
+    if db
+        .voice_minutes_has_pending()
+        .map_err(|error| failed("snapshot_get", error))?
+    {
+        workspace.kick_voice_minutes();
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) fn voice_minutes_get(
+    state: State<'_, AppState>,
+    input: VoiceRecordLookup,
+) -> VoiceResult<Option<VoiceMinutesSnapshot>> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("minutes_get", error))?;
+    let db = lock_mutex(&workspace.db);
+    let snapshot = db
+        .voice_minutes_get(&input)
+        .map_err(|error| failed("minutes_get", error))?;
+    if db
+        .voice_minutes_has_pending()
+        .map_err(|error| failed("minutes_get", error))?
+    {
+        workspace.kick_voice_minutes();
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub(crate) fn voice_minutes_generate(
+    state: State<'_, AppState>,
+    input: VoiceMinutesGenerateInput,
+) -> VoiceResult<Option<VoiceMinutesSnapshot>> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("minutes_generate", error))?;
+    let db = lock_mutex(&workspace.db);
+    db.voice_minutes_profile()
+        .map_err(|error| failed("minutes_generate", error))?;
+    let snapshot = db
+        .voice_minutes_get(&input.target)
+        .map_err(|error| failed("minutes_generate", error))?;
+    if let Some(snapshot) = &snapshot {
+        db.voice_minutes_enqueue(
+            &snapshot.session_id,
+            &format!("manual:{}", input.request_id),
+        )
+        .map_err(|error| failed("minutes_generate", error))?;
+        if db
+            .voice_minutes_has_pending()
+            .map_err(|error| failed("minutes_generate", error))?
+        {
+            workspace.kick_voice_minutes();
+        }
+    }
+    db.voice_minutes_get(&input.target)
+        .map_err(|error| failed("minutes_generate", error))
 }
 
 #[tauri::command]

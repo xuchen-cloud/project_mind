@@ -79,6 +79,7 @@ pub(crate) struct WorkspaceRuntime {
     secret_state: Arc<Mutex<Option<String>>>,
     pub(crate) db: Mutex<Database>,
     ai_jobs: AiJobManager,
+    voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WorkspaceRuntime {
@@ -109,11 +110,21 @@ impl WorkspaceRuntime {
             secret_state,
             db: Mutex::new(db),
             ai_jobs,
+            voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
     fn ai_secrets_unlocked(&self) -> bool {
         lock_mutex(&self.secret_state).is_some()
+    }
+
+    pub(crate) fn kick_voice_minutes(&self) {
+        voice::processing::kick(
+            self.paths.db_path.clone(),
+            self.paths.root_path.clone(),
+            self.secret_state.clone(),
+            self.voice_minutes_worker_running.clone(),
+        );
     }
 
     fn set_secret_password(&self, secret_password: Option<String>) -> Result<()> {
@@ -1117,6 +1128,8 @@ pub fn run() {
             voice::commands::voice_playback_get,
             voice::commands::voice_transcript_list,
             voice::commands::voice_transcript_tail,
+            voice::commands::voice_minutes_get,
+            voice::commands::voice_minutes_generate,
             desktop_open_file,
             desktop_open_folder,
             desktop_reveal_in_explorer,

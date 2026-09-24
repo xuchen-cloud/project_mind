@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { VoiceFloatingPanel } from './VoiceFloatingPanel';
 
-const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn() }));
+const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn(), openVoiceCaptionWindow: vi.fn() }));
 vi.mock('../../services/voiceApi', () => ({ voiceApi: {
   availabilityGet: async () => ({ implemented: true }),
   settingsGet: async () => ({ captionLines: 4 }),
@@ -11,10 +11,12 @@ vi.mock('../../services/voiceApi', () => ({ voiceApi: {
   start: async () => ({ phase: 'recording', activeMs: 0, workspaceNoteId: 42 }),
 } }));
 vi.mock('../../state/feedback-store', () => ({ useFeedbackStore: () => ({ pushToast: vi.fn() }) }));
+vi.mock('../../services/desktopApi', () => ({ desktopApi: { openVoiceCaptionWindow: mocks.openVoiceCaptionWindow } }));
 
 it('opens the new recording only after the record cache has refreshed', async () => {
   mocks.snapshotGet.mockReset().mockResolvedValue(null);
   mocks.transcriptTail.mockReset().mockResolvedValue([]);
+  mocks.openVoiceCaptionWindow.mockReset().mockResolvedValue(undefined);
   let finishRefresh!: () => void;
   const refresh = new Promise<void>(resolve => { finishRefresh = resolve; });
   const onChanged = vi.fn(() => refresh);
@@ -25,6 +27,7 @@ it('opens the new recording only after the record cache has refreshed', async ()
   expect(onOpenRecord).not.toHaveBeenCalled();
   finishRefresh();
   await waitFor(() => expect(onOpenRecord).toHaveBeenCalledWith(expect.objectContaining({ workspaceNoteId: 42 })));
+  expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce();
   view.unmount();
 });
 

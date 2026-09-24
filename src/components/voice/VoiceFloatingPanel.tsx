@@ -1,7 +1,8 @@
-import { LoaderCircle, Mic, Pause, Play, Square } from "lucide-react";
+import { ExternalLink, LoaderCircle, Mic, Pause, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { VoiceSessionSnapshot, VoiceTarget, VoiceTranscriptSegment } from "../../lib/voice-types";
+import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { Button } from "../../ui/components";
@@ -101,6 +102,13 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       if (next.sessionId !== session?.sessionId || next.phase === "ended") { setCaptions([]); setInterim(null); }
       setSession(next.phase === "ended" ? null : next);
       await onChanged();
+      if (next.phase === "recording") {
+        try {
+          await desktopApi.openVoiceCaptionWindow();
+        } catch (error) {
+          pushToast({ tone: "error", title: "无法打开字幕浮窗", detail: String(error) });
+        }
+      }
       if (successTitle) pushToast({ tone: "success", title: successTitle });
       return next;
     } catch (error) {
@@ -144,6 +152,8 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
         </ol>
       ) : null}
       <div className="flex w-full items-center justify-center gap-2">
+      <Button size="sm" variant="secondary" aria-label="打开字幕浮窗" leadingIcon={<ExternalLink size={13} />}
+        onClick={() => void desktopApi.openVoiceCaptionWindow().catch((error) => pushToast({ tone: "error", title: "无法打开字幕浮窗", detail: String(error) }))}>浮窗</Button>
       <span className="flex items-center gap-2 pr-1 text-ui font-medium text-text">
         <span className={paused ? "h-2 w-2 rounded-full bg-warning" : "h-2 w-2 animate-pulse rounded-full bg-danger motion-reduce:animate-none"} />
         {paused ? "已暂停" : "录音中"}

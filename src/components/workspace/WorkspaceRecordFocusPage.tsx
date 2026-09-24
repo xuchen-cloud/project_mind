@@ -702,6 +702,16 @@ export function WorkspaceRecordFocusPage({
                 <VoiceRecordPanel
                   target={{ scope: "workspace", recordId }}
                   visible={visible}
+                  onTitleUpdated={(nextTitle) => {
+                    setTitle(nextTitle);
+                    titleValueRef.current = nextTitle;
+                  }}
+                  onCopyMinutes={async (minutes) => {
+                    const next = editorControllerRef.current?.appendMarkdown(minutes);
+                    if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");
+                    setContent(next);
+                    await saveCoordinator.flush();
+                  }}
                 />
               ) : null}
               <RichEditor

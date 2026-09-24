@@ -7,6 +7,7 @@ import type {
   VoiceModelPackageStatus,
   VoiceProfileTestInput,
   VoiceTranscriptSegment, VoiceTranscriptTailInput,
+  VoiceMinutesSnapshot, VoiceMinutesGenerateInput,
 } from "../lib/voice-types";
 
 /** Workspace-scoped Voice Record commands backed by the process-wide capture runtime. */
@@ -25,7 +26,8 @@ export const voiceApi = {
   playbackGet: (input: VoiceRecordLookup) => desktopApi.command<VoicePlaybackSnapshot | null>("voice_playback_get", { input }),
   transcriptList: (input: VoiceTranscriptListInput) => desktopApi.command<VoiceTranscriptPage | null>("voice_transcript_list", { input }),
   transcriptTail: (input: VoiceTranscriptTailInput) => desktopApi.command<VoiceTranscriptSegment[]>("voice_transcript_tail", { input }),
+  minutesGet: (input: VoiceRecordLookup) => desktopApi.command<VoiceMinutesSnapshot | null>("voice_minutes_get", { input }),
+  minutesGenerate: (input: VoiceMinutesGenerateInput) => desktopApi.command<VoiceMinutesSnapshot | null>("voice_minutes_generate", { input }),
 };
 
-// TODO(VR-13/16): add playback range and minutes commands
-// only when matching backend commands exist.
+// TODO(VR-13): add playback range when the backend command exists.

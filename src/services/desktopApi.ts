@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { exit } from "@tauri-apps/plugin-process";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
@@ -72,6 +72,63 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
+  captionWindowSetSize(width: number, height: number) {
+    return getCurrentWindow().setSize(new LogicalSize(width, height));
+  },
+
+  captionWindowClose() {
+    return getCurrentWindow().close();
+  },
+
+  captionWindowOnCloseRequested(shouldClose: () => boolean) {
+    return getCurrentWindow().onCloseRequested((event) => {
+      if (!shouldClose()) event.preventDefault();
+    });
+  },
+
+  async openVoiceCaptionWindow() {
+    const existing = await webviewWindow.WebviewWindow.getByLabel("voice-caption");
+    if (existing) {
+      await existing.show();
+      return;
+    }
+    const monitor = await currentMonitor();
+    const width = 680;
+    const height = 220;
+    const bounds = monitor?.workArea;
+    const scale = monitor?.scaleFactor ?? 1;
+    const x = bounds ? Math.round(bounds.position.x / scale + (bounds.size.width / scale - width) / 2) : undefined;
+    const y = bounds ? Math.round(bounds.position.y / scale + bounds.size.height / scale - height - 30) : undefined;
+    const captionWindow = new webviewWindow.WebviewWindow("voice-caption", {
+      title: "实时字幕",
+      url: new URL("voice.html", window.location.href).toString(),
+      width,
+      height,
+      minWidth: 180,
+      minHeight: 72,
+      x,
+      y,
+      alwaysOnTop: true,
+      transparent: true,
+      focus: false,
+      resizable: true,
+      decorations: false,
+    });
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      void captionWindow.once("tauri://created", () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      });
+      void captionWindow.once("tauri://error", (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
+    });
+  },
+
   async listenForCloseRequest(onClose: () => Promise<boolean>) {
     const currentWindow = getCurrentWindow();
     return currentWindow.onCloseRequested(async (event) => {

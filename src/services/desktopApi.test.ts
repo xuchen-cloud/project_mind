@@ -23,6 +23,12 @@ const tauriMocks = vi.hoisted(() => ({
     onCloseRequested: tauriMocks.onCloseRequestedMock,
     destroy: tauriMocks.destroyWindowMock,
   })),
+  currentMonitorMock: vi.fn(async () => ({
+    position: { x: 0, y: 0 },
+    size: { width: 2880, height: 1800 },
+    workArea: { position: { x: 0, y: 0 }, size: { width: 2880, height: 1720 } },
+    scaleFactor: 2,
+  })),
   getByLabelMock: vi.fn(),
   getAllWebviewWindowsMock: vi.fn(async () => []),
   webviewWindowInstances: [] as Array<{
@@ -43,6 +49,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: tauriMocks.getCurrentWindowMock,
+  currentMonitor: tauriMocks.currentMonitorMock,
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -107,6 +114,7 @@ describe("desktopApi", () => {
     tauriMocks.readClipboardImageMock.mockReset();
     tauriMocks.convertFileSrcMock.mockClear();
     tauriMocks.getCurrentWindowMock.mockClear();
+    tauriMocks.currentMonitorMock.mockClear();
     tauriMocks.onCloseRequestedMock.mockReset();
     tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
     tauriMocks.exitMock.mockClear();
@@ -454,6 +462,31 @@ describe("desktopApi", () => {
       configurable: true,
       value: originalLocation,
     });
+  });
+
+  it("opens one small always-on-top caption window near the display bottom", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
+    expect(tauriMocks.webviewWindowInstances[0]).toMatchObject({
+      label: "voice-caption",
+      options: {
+        url: expect.stringContaining("voice.html"),
+        alwaysOnTop: true,
+        transparent: true,
+        decorations: false,
+        width: 680,
+        height: 220,
+        x: 380,
+        y: 610,
+      },
+    });
+    const existing = { show: vi.fn(), setFocus: vi.fn() };
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(existing);
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
+    expect(existing.show).toHaveBeenCalledOnce();
+    expect(existing.setFocus).not.toHaveBeenCalled();
   });
 
   it("focuses and navigates an existing project window", async () => {

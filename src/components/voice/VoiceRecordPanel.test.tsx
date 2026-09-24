@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   playbackGet: vi.fn(),
   transcriptList: vi.fn(),
+  minutesGet: vi.fn(),
+  minutesGenerate: vi.fn(),
   toFileUrl: vi.fn((path: string) => `asset://${path}`),
   play: vi.fn(async () => undefined),
   pause: vi.fn(),
@@ -12,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/voiceApi", () => ({
-  voiceApi: { playbackGet: mocks.playbackGet, transcriptList: mocks.transcriptList },
+  voiceApi: { playbackGet: mocks.playbackGet, transcriptList: mocks.transcriptList, minutesGet: mocks.minutesGet, minutesGenerate: mocks.minutesGenerate },
 }));
 
 vi.mock("../../services/desktopApi", () => ({
@@ -59,6 +61,8 @@ describe("VoiceRecordPanel", () => {
     vi.stubGlobal("Audio", FakeAudio);
     mocks.playbackGet.mockReset();
     mocks.transcriptList.mockReset();
+    mocks.minutesGet.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "ready", error: null });
+    mocks.minutesGenerate.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "pending", error: null });
     mocks.toFileUrl.mockClear();
     mocks.play.mockClear();
     mocks.pause.mockClear();
@@ -93,6 +97,26 @@ describe("VoiceRecordPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "播放录音" }));
     expect(mocks.play).toHaveBeenCalledTimes(1);
     expect(mocks.playbackGet).toHaveBeenCalledWith({ scope: "workspace", recordId: 7 });
+    view.unmount();
+  });
+
+  it("shows the saved minutes and lets the user request an update", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    expect(await screen.findByRole("region", { name: "会议纪要" })).toHaveTextContent("讨论了发布计划。");
+    fireEvent.click(screen.getByRole("button", { name: "生成纪要" }));
+    expect(mocks.minutesGenerate).toHaveBeenCalledWith(expect.objectContaining({ target: { scope: "workspace", recordId: 7 } }));
+    view.unmount();
+  });
+
+  it("copies the current minutes snapshot into the editable body on request", async () => {
+    const copy = vi.fn(async () => undefined);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} onCopyMinutes={copy} />
+    </QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "复制到正文" }));
+    expect(copy).toHaveBeenCalledWith("## 摘要\n讨论了发布计划。");
     view.unmount();
   });
 
