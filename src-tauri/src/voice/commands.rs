@@ -125,10 +125,11 @@ pub(crate) fn voice_settings_upsert(
     let runtime = state
         .current_workspace()
         .map_err(|error| failed("settings_upsert", error))?;
-    let result = lock_mutex(&runtime.db)
+    lock_mutex(&runtime.db)
         .voice_settings_upsert(&input)
-        .map_err(|error| failed("settings_upsert", error));
-    result
+        .map_err(|error| failed("settings_upsert", error))?;
+    lock_mutex(&state.voice_runtime).set_live_preview_enabled(input.live_preview_enabled);
+    Ok(())
 }
 
 #[tauri::command]

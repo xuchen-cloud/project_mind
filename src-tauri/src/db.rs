@@ -761,6 +761,7 @@ impl Database {
             || {
                 Ok(VoiceSettings {
                     speech_profile: None,
+                    live_preview_enabled: false,
                     text_profile_id: None,
                     translation_profile_id: None,
                     context_enabled: false,
@@ -9152,6 +9153,7 @@ mod tests {
         let (_harness, mut database) = setup_database();
         let settings = VoiceSettings {
             speech_profile: None,
+            live_preview_enabled: false,
             text_profile_id: None,
             translation_profile_id: None,
             context_enabled: true,
@@ -9237,6 +9239,7 @@ mod tests {
             params![r#"{"speechProfile":{"kind":"sense_voice_onnx","modelPackageId":"sensevoice-small"},"textProfileId":null,"translationProfileId":null,"contextEnabled":false,"captionLines":4}"#, now_iso()],
         ).unwrap();
         let mut settings = database.voice_settings_get().unwrap();
+        assert!(!settings.live_preview_enabled);
         assert!(
             matches!(&settings.speech_profile, Some(SpeechProfile::SenseVoiceOnnx { model_package_id }) if model_package_id == crate::voice::model_package::PACKAGE_ID)
         );

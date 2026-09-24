@@ -66,6 +66,8 @@ impl std::error::Error for MacCaptureError {}
 pub struct MacCaptureOutputs {
     pub microphone: AudioFrameStream,
     pub system: AudioFrameStream,
+    pub recognition_microphone: Option<AudioFrameStream>,
+    pub recognition_system: Option<AudioFrameStream>,
     pub faults: tokio::sync::mpsc::Receiver<MacCaptureFault>,
 }
 
@@ -92,6 +94,7 @@ impl MacCaptureSession {
     pub fn start(
         epoch: u64,
         queue_capacity: usize,
+        recognize: bool,
     ) -> Result<(Self, MacCaptureOutputs), MacCaptureError> {
         if queue_capacity == 0 {
             return Err(MacCaptureError::InvalidQueueCapacity);
@@ -122,6 +125,20 @@ impl MacCaptureSession {
             .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
         let (system_sink, system) = bounded_audio_frames(queue_capacity)
             .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
+        let (recognition_microphone_sink, recognition_microphone) = if recognize {
+            let (sink, stream) = bounded_audio_frames(queue_capacity * 4)
+                .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
+            (Some(sink), Some(stream))
+        } else {
+            (None, None)
+        };
+        let (recognition_system_sink, recognition_system) = if recognize {
+            let (sink, stream) = bounded_audio_frames(queue_capacity * 4)
+                .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
+            (Some(sink), Some(stream))
+        } else {
+            (None, None)
+        };
         let (fault_sink, faults) = tokio::sync::mpsc::channel(queue_capacity);
         let started_at = Instant::now();
 
@@ -138,6 +155,7 @@ impl MacCaptureSession {
                 epoch,
                 started_at,
                 system_sink,
+                recognition_system_sink,
                 fault_sink.clone(),
             ),
             SCStreamOutputType::Audio,
@@ -149,6 +167,7 @@ impl MacCaptureSession {
                 epoch,
                 started_at,
                 microphone_sink,
+                recognition_microphone_sink,
                 fault_sink,
             ),
             SCStreamOutputType::Microphone,
@@ -166,6 +185,8 @@ impl MacCaptureSession {
             MacCaptureOutputs {
                 microphone,
                 system,
+                recognition_microphone,
+                recognition_system,
                 faults,
             },
         ))
@@ -221,6 +242,7 @@ struct TrackHandler {
     started_at: Instant,
     timeline: Arc<Mutex<Option<SourceTimeline>>>,
     frames: AudioFrameSink,
+    recognition: Option<AudioFrameSink>,
     faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
 }
 
@@ -230,6 +252,7 @@ impl TrackHandler {
         epoch: u64,
         started_at: Instant,
         frames: AudioFrameSink,
+        recognition: Option<AudioFrameSink>,
         faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
     ) -> Self {
         Self {
@@ -238,6 +261,7 @@ impl TrackHandler {
             started_at,
             timeline: Arc::new(Mutex::new(None)),
             frames,
+            recognition,
             faults,
         }
     }
@@ -348,6 +372,18 @@ impl SCStreamOutputTrait for TrackHandler {
             });
             return;
         };
+        if let Some(recognition) = &self.recognition {
+            if let Err(error) = recognition.try_push(frame.clone()) {
+                self.report(match error {
+                    AudioIngressError::Backpressure(_) => MacCaptureFault::Backpressure {
+                        source: self.source,
+                    },
+                    AudioIngressError::Closed(_) => MacCaptureFault::ConsumerClosed {
+                        source: self.source,
+                    },
+                });
+            }
+        }
         if let Err(error) = self.frames.try_push(frame) {
             self.report(match error {
                 AudioIngressError::Backpressure(_) => MacCaptureFault::Backpressure {
@@ -381,7 +417,7 @@ mod tests {
     #[test]
     fn zero_capacity_is_rejected_before_native_permission_or_device_work() {
         assert_eq!(
-            MacCaptureSession::start(1, 0).err(),
+            MacCaptureSession::start(1, 0, false).err(),
             Some(MacCaptureError::InvalidQueueCapacity)
         );
     }

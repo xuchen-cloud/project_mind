@@ -141,6 +141,8 @@ pub enum SpeechProfile {
 #[serde(rename_all = "camelCase")]
 pub struct VoiceSettings {
     pub speech_profile: Option<SpeechProfile>,
+    #[serde(default)]
+    pub live_preview_enabled: bool,
     pub text_profile_id: Option<i64>,
     pub translation_profile_id: Option<i64>,
     pub context_enabled: bool,
@@ -155,6 +157,7 @@ pub struct VoiceSessionSnapshot {
     pub phase: String,
     pub active_ms: u64,
     pub pause_reason: Option<String>,
+    pub interim_text: Option<String>,
     pub project_note_id: Option<i64>,
     pub workspace_note_id: Option<i64>,
 }

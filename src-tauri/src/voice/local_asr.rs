@@ -23,6 +23,7 @@ pub struct LocalAsrResult {
     pub start_sample: u64,
     pub end_sample: u64,
     pub text: String,
+    pub forced_split: bool,
 }
 
 impl LocalAsrWorker {
@@ -118,6 +119,7 @@ fn create_recognizer(directory: &Path) -> Result<OfflineRecognizer> {
 
 fn recognize(recognizer: &OfflineRecognizer, segment: UtteranceSegment) -> Result<LocalAsrResult> {
     let end_sample = segment.end_sample();
+    let forced_split = segment.forced_split;
     let stream = recognizer.create_stream();
     stream.accept_waveform(SAMPLE_RATE, &segment.samples);
     recognizer.decode(&stream);
@@ -128,6 +130,7 @@ fn recognize(recognizer: &OfflineRecognizer, segment: UtteranceSegment) -> Resul
         start_sample: segment.start_sample,
         end_sample,
         text: result.text.trim().into(),
+        forced_split,
     })
 }
 

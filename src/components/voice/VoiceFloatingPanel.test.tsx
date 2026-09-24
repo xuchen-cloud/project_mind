@@ -36,3 +36,13 @@ it('shows the latest stable caption lines for the active session', async () => {
   expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: 'session-one', limit: 4 });
   view.unmount();
 });
+
+it('shows provisional text separately from saved captions', async () => {
+  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000, interimText: '正在讲话' });
+  mocks.transcriptTail.mockReset().mockResolvedValue([{ id: 'final-one', startMs: 0, endMs: 1000, text: '已确认。', language: 'zh' }]);
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
+  expect(await screen.findByLabelText('临时字幕')).toHaveTextContent('正在讲话');
+  expect(screen.getByText('已确认。')).toBeInTheDocument();
+  expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: 'session-one', limit: 3 });
+  view.unmount();
+});

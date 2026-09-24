@@ -164,7 +164,7 @@ impl ParaformerTask {
     }
 }
 
-fn validate_endpoint(endpoint: &str) -> Result<()> {
+pub(crate) fn validate_endpoint(endpoint: &str) -> Result<()> {
     let url = reqwest::Url::parse(endpoint).context("invalid Paraformer endpoint")?;
     let host = url
         .host_str()

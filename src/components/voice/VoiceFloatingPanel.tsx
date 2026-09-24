@@ -29,27 +29,43 @@ function formatDuration(milliseconds: number) {
 
 export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChanged }: VoiceFloatingPanelProps) {
   const { pushToast } = useFeedbackStore();
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
   const [available, setAvailable] = useState(false);
   const [session, setSession] = useState<VoiceSessionSnapshot | null>(null);
   const [pending, setPending] = useState(false);
   const [captions, setCaptions] = useState<VoiceTranscriptSegment[]>([]);
+  const [interim, setInterim] = useState<string | null>(null);
   const [captionLines, setCaptionLines] = useState(4);
   const refreshSequence = useRef(0);
+  const activeSessionRef = useRef<string | null>(null);
+  const lastRefreshError = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
     try {
       const next = await voiceApi.snapshotGet();
       if (sequence !== refreshSequence.current) return;
+      activeSessionRef.current = next?.sessionId ?? null;
+      lastRefreshError.current = null;
       setSession(next);
       if (next) {
-        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: captionLines });
+        const partial = next.interimText?.trim() || null;
+        setInterim(partial);
+        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: Math.max(1, captionLines - (partial ? 1 : 0)) });
         if (sequence === refreshSequence.current) setCaptions(latest);
       } else {
         setCaptions([]);
+        setInterim(null);
       }
-    } catch {
-      // Workspace changes briefly make the snapshot unavailable.
+    } catch (error) {
+      if (activeSessionRef.current) {
+        const detail = String(error);
+        if (detail !== lastRefreshError.current) {
+          lastRefreshError.current = detail;
+          pushToastRef.current({ tone: "error", title: "语音识别或字幕更新失败", detail });
+        }
+      }
     }
   }, [captionLines]);
 
@@ -81,7 +97,8 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
     setPending(true);
     try {
       const next = await operation();
-      if (next.sessionId !== session?.sessionId || next.phase === "ended") setCaptions([]);
+      activeSessionRef.current = next.phase === "ended" ? null : next.sessionId;
+      if (next.sessionId !== session?.sessionId || next.phase === "ended") { setCaptions([]); setInterim(null); }
       setSession(next.phase === "ended" ? null : next);
       await onChanged();
       if (successTitle) pushToast({ tone: "success", title: successTitle });
@@ -120,9 +137,10 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       aria-label="语音录制控制"
       className="fixed bottom-9 left-1/2 z-50 flex w-[min(80vw,680px)] -translate-x-1/2 flex-col gap-2 rounded-[var(--radius-10)] border border-border-strong bg-bg/95 px-3 py-2 shadow-xl backdrop-blur"
     >
-      {captions.length > 0 ? (
+      {captions.length > 0 || interim ? (
         <ol aria-label="实时字幕" aria-live="polite" className="w-full space-y-1 text-body text-text">
           {captions.map((caption) => <li key={caption.id}>{caption.text}</li>)}
+          {interim ? <li className="text-text-muted" aria-label="临时字幕">{interim}</li> : null}
         </ol>
       ) : null}
       <div className="flex w-full items-center justify-center gap-2">

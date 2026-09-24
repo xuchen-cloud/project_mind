@@ -2,9 +2,8 @@
 //!
 //! The segmenter consumes decisions from a real VAD adapter. It never guesses
 //! speech from amplitude and never changes the original source tracks.
-// TODO: connect mixed capture to FSMN-VAD ONNX; one model state per stream/epoch.
-// TODO: SenseVoice model packages, native ONNX worker, tokenizer and ITN.
-// TODO: Paraformer WS handshake, provider finals and bounded gap backfill.
+// TODO: replace the current WebRTC VAD adapter with the fixed FSMN-VAD ONNX package.
+// TODO: add bounded cloud reconnect and gap backfill from saved audio.
 
 use std::collections::VecDeque;
 
@@ -37,10 +36,10 @@ impl Default for SegmenterConfig {
     fn default() -> Self {
         Self {
             pre_roll_ms: 250,
-            tail_ms: 750,
+            tail_ms: 450,
             min_speech_ms: 100,
-            max_segment_ms: 25_000,
-            overlap_ms: 300,
+            max_segment_ms: 10_000,
+            overlap_ms: 350,
         }
     }
 }
@@ -192,6 +191,18 @@ impl UtteranceSegmenter {
             .and_then(|active| Self::finish(active, self.min_speech_samples, false))
     }
 
+    /// A bounded copy for provisional captions. It never consumes the active
+    /// utterance or changes what will later be committed as a final segment.
+    pub fn preview(&self) -> Option<UtteranceSegment> {
+        self.active.as_ref().and_then(|active| {
+            (active.speech_samples >= self.min_speech_samples).then(|| UtteranceSegment {
+                start_sample: active.start_sample,
+                samples: active.samples.clone(),
+                forced_split: false,
+            })
+        })
+    }
+
     fn retain_pre_roll(&mut self, samples: &[f32]) {
         self.pre_roll.extend(samples.iter().copied());
         while self.pre_roll.len() > self.pre_roll_samples {
@@ -270,6 +281,12 @@ mod tests {
         let second = segmenter.flush().unwrap();
         assert_eq!(second.start_sample, 90);
         assert_eq!(second.end_sample(), 110);
+    }
+
+    #[test]
+    fn default_segment_limit_keeps_live_recognition_under_twelve_seconds() {
+        assert!(SegmenterConfig::default().max_segment_ms <= 12_000);
+        assert!(SegmenterConfig::default().tail_ms <= 500);
     }
 
     #[test]

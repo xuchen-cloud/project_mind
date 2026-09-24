@@ -2,10 +2,12 @@
 
 - 跟踪：[Issue #94](https://github.com/xuchen-cloud/project_mind/issues/94)
 - 分支：`codex/voice-record`
-- 检查日期：2026-09-21
-- 当前状态：macOS 15 的录音与回放闭环已实现：可创建 Voice Record、双轨采集、持续写盘、暂停/继续/结束、崩溃恢复，并在 Record 内通过统一播放器播放、拖动和变速。M1 整体仍缺 Windows 采集与两平台实机验收；M2 的实时识别、字幕和 Transcript 尚未实现。
+- 检查日期：2026-09-24
+- 当前状态：macOS 15 的双轨录音与回放、录音分支中的本地 SenseVoice 分段识别、Paraformer 实时音频流、最终 Transcript 与临时字幕开关已接通。M1 仍缺 Windows 采集与两平台实机验收；M2 仍缺真实 DashScope 录音验收、断网补转写、完整独立浮窗、FSMN-VAD 模型和跨平台验证，不能标为完成。
 
 ## 本轮实现
+
+2026-09-24 M2 识别链路修复：将双轨采集的独立副本送入 16 kHz 混音识别分支，以 WebRTC VAD 做本地切段，并把 SenseVoice 最终结果写入 Voice Record Transcript；暂停/结束时 flush。连续语音安全切为最长约 10 秒的推理输入，并跨输入合并，优先在句号或逗号边界显示，降低任意断句。Paraformer 以 DashScope WebSocket 持续发送 PCM，处理临时句和最终句。设置新增两模式共用的临时字幕开关；关闭时本地跳过重复预览推理，两个模式均保留最终转写。模拟 WebSocket 音频与事件测试、真实中文 SenseVoice fixture 测试通过。真实设备、真实 DashScope 凭据、断网恢复和长会议性能尚待验收。
 
 2026-09-23 M2 / VR-08 起步：新增仅消费真实 VAD 判定结果的 PCM 分段状态机，具备前置缓冲、尾部保留、最小语音长度、输入上限、强制切段重叠、暂停/结束 flush 与时间轴缺口拒绝。纯逻辑测试覆盖静音、句首句尾、连续讲话强制切段和音频 gap。它尚未连接 FSMN-VAD 推理或实时采集分支，不能据此宣称 VR-08 或 M2 已完成。
 

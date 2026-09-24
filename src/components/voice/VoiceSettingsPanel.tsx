@@ -11,6 +11,7 @@ import { Button, TextField } from "../../ui/components";
 
 const DEFAULT_SETTINGS: VoiceSettings = {
   speechProfile: null,
+  livePreviewEnabled: false,
   textProfileId: null,
   translationProfileId: null,
   contextEnabled: false,
@@ -110,9 +111,9 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
           value={settings.speechProfile?.kind ?? "none"}
           onChange={(event) => setProfile(event.target.value as "none" | "paraformer" | "sense_voice_onnx")}
         >
-          <option value="none">暂不识别（仅保存双轨音频）</option>
-          <option value="paraformer">Paraformer 云端识别（接入中）</option>
-          <option value="sense_voice_onnx">SenseVoice-Small 本地识别（接入中）</option>
+          <option value="none">请选择语音识别引擎</option>
+          <option value="paraformer">Paraformer 云端实时识别</option>
+          <option value="sense_voice_onnx">SenseVoice-Small 本地识别</option>
         </select>
       </label>
 
@@ -140,6 +141,14 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
             <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2")}>获取指定模型包</Button>
           </div>
         </div>
+      ) : null}
+
+      {settings.speechProfile ? (
+        <label className="flex items-center gap-2 text-body text-text">
+          <input type="checkbox" checked={settings.livePreviewEnabled}
+            onChange={(event) => setSettings((current) => ({ ...current, livePreviewEnabled: event.target.checked }))} />
+          实时临时字幕{settings.speechProfile.kind === "sense_voice_onnx" ? "（增加本地模型推理开销）" : ""}
+        </label>
       ) : null}
 
       <label className="grid gap-1.5 text-body text-text">

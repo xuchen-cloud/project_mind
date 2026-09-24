@@ -153,7 +153,7 @@ pub(crate) fn decode_f32_pcm(buffers: &[PcmBuffer<'_>]) -> Result<Vec<f32>, PcmD
     Ok(samples)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AudioFrame {
     pub source: AudioSource,
     pub epoch: u64,

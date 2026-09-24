@@ -1,0 +1,416 @@
+//! Live local recognition consumes copies of the captured tracks. Raw writers
+//! retain their own queues and are never modified by mixing or VAD.
+use super::{
+    capture::{AudioFrame, AudioFrameStream, AudioSource},
+    local_asr::{LocalAsrResult, LocalAsrWorker},
+    recognition::{SegmenterConfig, UtteranceSegment, UtteranceSegmenter, VadFrame},
+    transcript_assembly::SentenceAssembler,
+};
+use anyhow::{anyhow, Result};
+use std::{
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
+    thread,
+};
+use webrtc_vad::{SampleRate, Vad, VadMode};
+
+const RATE: u64 = 16_000;
+const VAD_FRAME: usize = 480; // 30 ms at 16 kHz.
+const MAX_TRACK_LAG: usize = 3 * RATE as usize;
+const PREVIEW_INTERVAL_SAMPLES: u64 = 2 * RATE;
+
+pub struct TranscriptFinal {
+    pub provider_key: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+}
+
+pub enum RecognitionUpdate {
+    Final(TranscriptFinal),
+    Partial(String),
+}
+
+fn local_final(result: LocalAsrResult) -> TranscriptFinal {
+    TranscriptFinal {
+        provider_key: format!("local:{}", result.start_sample),
+        start_ms: result.start_sample * 1_000 / RATE,
+        end_ms: result.end_sample * 1_000 / RATE,
+        text: result.text,
+    }
+}
+
+pub struct LiveLocalHandle {
+    results: mpsc::Receiver<Result<RecognitionUpdate>>,
+    join: Option<thread::JoinHandle<Result<()>>>,
+    preview_enabled: Arc<AtomicBool>,
+}
+
+impl LiveLocalHandle {
+    pub fn spawn(
+        worker: LocalAsrWorker,
+        mut microphone: AudioFrameStream,
+        mut system: AudioFrameStream,
+        epoch_offset_ms: u64,
+        preview_enabled: bool,
+    ) -> Result<Self> {
+        let (send, results) = mpsc::channel();
+        let preview_enabled = Arc::new(AtomicBool::new(preview_enabled));
+        let worker_preview = Arc::clone(&preview_enabled);
+        let join = thread::Builder::new()
+            .name("voice-live-local".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let result = runtime.block_on(async {
+                    let mut pipeline =
+                        Pipeline::new(worker, send.clone(), epoch_offset_ms, worker_preview)?;
+                    let mut microphone_open = true;
+                    let mut system_open = true;
+                    while microphone_open || system_open {
+                        tokio::select! {
+                            frame = microphone.next(), if microphone_open => match frame {
+                                Some(frame) => pipeline.feed(frame)?,
+                                None => microphone_open = false,
+                            },
+                            frame = system.next(), if system_open => match frame {
+                                Some(frame) => pipeline.feed(frame)?,
+                                None => system_open = false,
+                            },
+                        }
+                    }
+                    pipeline.finish()
+                });
+                if let Err(error) = &result {
+                    let _ = send.send(Err(anyhow!(error.to_string())));
+                }
+                result
+            })?;
+        Ok(Self {
+            results,
+            join: Some(join),
+            preview_enabled,
+        })
+    }
+
+    pub fn set_preview_enabled(&self, enabled: bool) {
+        self.preview_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn try_result(&self) -> Option<Result<RecognitionUpdate>> {
+        self.results.try_recv().ok()
+    }
+
+    pub fn finish(mut self) -> Vec<Result<RecognitionUpdate>> {
+        let joined = self.join.take().expect("joined once").join();
+        let mut results: Vec<_> = self.results.try_iter().collect();
+        if joined.is_err() {
+            results.push(Err(anyhow!("local recognition thread panicked")));
+        }
+        results
+    }
+}
+
+struct Track {
+    base: u64,
+    samples: VecDeque<f32>,
+    seen: bool,
+}
+
+impl Track {
+    fn new() -> Self {
+        Self {
+            base: 0,
+            samples: VecDeque::new(),
+            seen: false,
+        }
+    }
+    fn end(&self) -> u64 {
+        self.base + self.samples.len() as u64
+    }
+
+    fn push(&mut self, frame: AudioFrame) -> Result<()> {
+        if frame.sample_rate == 0 || frame.channels == 0 {
+            return Err(anyhow!("invalid captured audio format"));
+        }
+        let channels = usize::from(frame.channels);
+        if !frame.samples.len().is_multiple_of(channels) {
+            return Err(anyhow!("incomplete captured audio frame"));
+        }
+        let start = frame.media_position_ns().saturating_mul(RATE) / 1_000_000_000;
+        let frames = frame.samples.len() / channels;
+        let output_len = (frames as u64 * RATE / u64::from(frame.sample_rate)) as usize;
+        let expected = self.end();
+        if start > expected {
+            let gap = (start - expected) as usize;
+            if gap > MAX_TRACK_LAG {
+                return Err(anyhow!("capture track has a timestamp gap"));
+            }
+            self.samples.extend(std::iter::repeat_n(0.0, gap));
+        }
+        let skip = self.end().saturating_sub(start) as usize;
+        for index in skip..output_len {
+            let input = index * frame.sample_rate as usize / RATE as usize;
+            let input = input.min(frames.saturating_sub(1));
+            let mono = frame.samples[input * channels..(input + 1) * channels]
+                .iter()
+                .sum::<f32>()
+                / channels as f32;
+            self.samples.push_back(mono);
+        }
+        self.seen = true;
+        if self.samples.len() > MAX_TRACK_LAG {
+            return Err(anyhow!(
+                "local recognition cannot keep up with both capture tracks"
+            ));
+        }
+        Ok(())
+    }
+
+    fn take(&mut self, count: usize) -> Vec<f32> {
+        self.base += count as u64;
+        self.samples.drain(..count).collect()
+    }
+}
+
+pub(crate) struct Mixer {
+    microphone: Track,
+    system: Track,
+    next_sample: u64,
+}
+
+impl Mixer {
+    pub(crate) fn new() -> Self {
+        Self {
+            microphone: Track::new(),
+            system: Track::new(),
+            next_sample: 0,
+        }
+    }
+    pub(crate) fn push(&mut self, frame: AudioFrame) -> Result<Vec<(u64, Vec<f32>)>> {
+        match frame.source {
+            AudioSource::Microphone => self.microphone.push(frame)?,
+            AudioSource::System => self.system.push(frame)?,
+        }
+        let mut ready = Vec::new();
+        while self.microphone.seen
+            && self.system.seen
+            && self.microphone.samples.len() >= VAD_FRAME
+            && self.system.samples.len() >= VAD_FRAME
+        {
+            let mic = self.microphone.take(VAD_FRAME);
+            let system = self.system.take(VAD_FRAME);
+            let mixed = mic
+                .into_iter()
+                .zip(system)
+                .map(|(a, b)| (a + b).clamp(-1.0, 1.0))
+                .collect();
+            ready.push((self.next_sample, mixed));
+            self.next_sample += VAD_FRAME as u64;
+        }
+        Ok(ready)
+    }
+}
+
+struct Pipeline {
+    mixer: Mixer,
+    vad: Vad,
+    segmenter: UtteranceSegmenter,
+    worker: LocalAsrWorker,
+    assembler: SentenceAssembler,
+    results: mpsc::Sender<Result<RecognitionUpdate>>,
+    epoch_offset_ms: u64,
+    last_preview_sample: u64,
+    preview_enabled: Arc<AtomicBool>,
+}
+
+impl Pipeline {
+    fn new(
+        worker: LocalAsrWorker,
+        results: mpsc::Sender<Result<RecognitionUpdate>>,
+        epoch_offset_ms: u64,
+        preview_enabled: Arc<AtomicBool>,
+    ) -> Result<Self> {
+        Ok(Self {
+            mixer: Mixer::new(),
+            vad: Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality),
+            segmenter: UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
+                .map_err(|error| anyhow!("invalid VAD segmenter: {error:?}"))?,
+            worker,
+            assembler: SentenceAssembler::new(),
+            results,
+            epoch_offset_ms,
+            last_preview_sample: 0,
+            preview_enabled,
+        })
+    }
+
+    fn feed(&mut self, frame: AudioFrame) -> Result<()> {
+        for (start_sample, samples) in self.mixer.push(frame)? {
+            let pcm = samples
+                .iter()
+                .map(|sample| (sample * 32767.0) as i16)
+                .collect::<Vec<_>>();
+            let speech = self
+                .vad
+                .is_voice_segment(&pcm)
+                .map_err(|_| anyhow!("WebRTC VAD rejected a captured frame"))?;
+            let segments = self
+                .segmenter
+                .push(VadFrame {
+                    start_sample,
+                    samples: &samples,
+                    speech,
+                })
+                .map_err(|error| anyhow!("local segmentation failed: {error:?}"))?;
+            for segment in segments {
+                self.submit(segment)?;
+            }
+            let end_sample = start_sample + samples.len() as u64;
+            if self.preview_enabled.load(Ordering::Relaxed)
+                && end_sample.saturating_sub(self.last_preview_sample) >= PREVIEW_INTERVAL_SAMPLES
+            {
+                if let Some(preview) = self.segmenter.preview() {
+                    self.preview(preview)?;
+                    self.last_preview_sample = end_sample;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn submit(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
+        let answer = self.worker.submit(segment)?;
+        let result = answer
+            .recv()
+            .map_err(|_| anyhow!("SenseVoice worker closed"))?;
+        match result {
+            Ok(result) => {
+                for sentence in self.assembler.push(result) {
+                    self.results
+                        .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
+                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                }
+                if self.preview_enabled.load(Ordering::Relaxed) {
+                    self.results
+                        .send(Ok(RecognitionUpdate::Partial(
+                            self.assembler.preview_text(""),
+                        )))
+                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                }
+            }
+            Err(error) => self
+                .results
+                .send(Err(error))
+                .map_err(|_| anyhow!("Transcript receiver closed"))?,
+        }
+        Ok(())
+    }
+
+    fn preview(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
+        let answer = self.worker.submit(segment)?;
+        let result = answer
+            .recv()
+            .map_err(|_| anyhow!("SenseVoice preview worker closed"))??;
+        let text = self.assembler.preview_text(&result.text);
+        if self.preview_enabled.load(Ordering::Relaxed) {
+            self.results
+                .send(Ok(RecognitionUpdate::Partial(text)))
+                .map_err(|_| anyhow!("Transcript receiver closed"))?;
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        if let Some(segment) = self.segmenter.flush() {
+            self.submit(segment)?;
+        }
+        if let Some(sentence) = self.assembler.finish() {
+            self.results
+                .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
+                .map_err(|_| anyhow!("Transcript receiver closed"))?;
+        }
+        self.results
+            .send(Ok(RecognitionUpdate::Partial(String::new())))
+            .map_err(|_| anyhow!("Transcript receiver closed"))?;
+        self.worker.shutdown_and_wait()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::voice::capture::SourceTimeline;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "requires verified external SenseVoice package and zh.wav; set PROJECT_MIND_TEST_MODEL_DIR"]
+    fn live_mixed_capture_generates_chinese_transcript() {
+        use sherpa_onnx::Wave;
+        let source =
+            std::path::PathBuf::from(std::env::var("PROJECT_MIND_TEST_MODEL_DIR").unwrap());
+        let cache = tempfile::tempdir().unwrap();
+        let models = cache.path().join("voice-models");
+        std::fs::create_dir(&models).unwrap();
+        std::os::unix::fs::symlink(
+            &source,
+            models.join(super::super::model_package::PACKAGE_ID),
+        )
+        .unwrap();
+        let wave = Wave::read(source.join("test_wavs/zh.wav").to_str().unwrap()).unwrap();
+        for preview_enabled in [true, false] {
+            let worker = LocalAsrWorker::start(cache.path()).unwrap();
+            let (send, results) = mpsc::channel();
+            let mut pipeline =
+                Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(preview_enabled))).unwrap();
+            let mut mic = SourceTimeline::new(AudioSource::Microphone, 0, 0, 16_000, 1).unwrap();
+            let mut system = SourceTimeline::new(AudioSource::System, 0, 0, 16_000, 1).unwrap();
+            for chunk in wave.samples().chunks(VAD_FRAME) {
+                let microphone = mic.stamp(0, chunk.to_vec()).unwrap();
+                let speaker = system.stamp(0, vec![0.0; chunk.len()]).unwrap();
+                pipeline.feed(microphone).unwrap();
+                pipeline.feed(speaker).unwrap();
+            }
+            pipeline.finish().unwrap();
+            let updates = results.try_iter().map(Result::unwrap).collect::<Vec<_>>();
+            assert_eq!(
+                updates.iter().any(
+                    |update| matches!(update, RecognitionUpdate::Partial(text) if !text.is_empty())
+                ),
+                preview_enabled
+            );
+            let transcript = updates
+                .into_iter()
+                .filter_map(|result| match result {
+                    RecognitionUpdate::Final(result) => Some(result.text),
+                    RecognitionUpdate::Partial(_) => None,
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            assert!(transcript.contains("开饭时间"), "{transcript}");
+        }
+    }
+
+    #[test]
+    fn aligns_two_tracks_before_mixing_without_mutating_original_frames() {
+        let mut mixer = Mixer::new();
+        let mut mic = SourceTimeline::new(AudioSource::Microphone, 0, 0, 16_000, 1).unwrap();
+        let mut system = SourceTimeline::new(AudioSource::System, 0, 0, 16_000, 1).unwrap();
+        let microphone = mic.stamp(0, vec![0.25; VAD_FRAME]).unwrap();
+        let system_audio = system.stamp(0, vec![0.5; VAD_FRAME]).unwrap();
+        assert_eq!(mixer.push(microphone).unwrap().len(), 0);
+        let ready = mixer.push(system_audio).unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].0, 0);
+        assert!(ready[0]
+            .1
+            .iter()
+            .all(|sample| (*sample - 0.75).abs() < 1e-6));
+    }
+}
