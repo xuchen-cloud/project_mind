@@ -1,15 +1,17 @@
 //! Fixed SenseVoice package activation. Only verified files enter the app cache.
 use anyhow::{anyhow, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 pub const PACKAGE_ID: &str = "sensevoice-small-int8-2024-07-17";
 const EXTRACTED_DIR: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
+const VERIFIED_MARKER: &str = ".verified.json";
 const FILES: [(&str, &str); 3] = [
     (
         "model.int8.onnx",
@@ -31,6 +33,20 @@ pub struct ModelPackageStatus {
     pub package_id: &'static str,
     pub ready: bool,
     pub detail: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct VerifiedPackage {
+    package_id: String,
+    files: Vec<VerifiedFile>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct VerifiedFile {
+    name: String,
+    expected_sha256: String,
+    size: u64,
+    modified_ns: u128,
 }
 
 pub fn package_directory(cache_root: &Path) -> PathBuf {
@@ -61,6 +77,54 @@ fn verify(directory: &Path, files: &[(&str, &str)]) -> Result<()> {
     Ok(())
 }
 
+fn file_stamps(directory: &Path, files: &[(&str, &str)], id: &str) -> Result<VerifiedPackage> {
+    let files = files
+        .iter()
+        .map(|(name, expected_sha256)| {
+            let path = directory.join(name);
+            let metadata = fs::symlink_metadata(&path)
+                .with_context(|| format!("cannot inspect {}", path.display()))?;
+            if !metadata.file_type().is_file() {
+                return Err(anyhow!("{} is not a regular file", name));
+            }
+            let modified_ns = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos();
+            Ok(VerifiedFile {
+                name: (*name).to_string(),
+                expected_sha256: (*expected_sha256).to_string(),
+                size: metadata.len(),
+                modified_ns,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(VerifiedPackage {
+        package_id: id.to_string(),
+        files,
+    })
+}
+
+fn write_marker(directory: &Path, marker: &VerifiedPackage) -> Result<()> {
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    serde_json::to_writer(&mut temporary, marker)?;
+    temporary.flush()?;
+    temporary.persist(directory.join(VERIFIED_MARKER))?;
+    Ok(())
+}
+
+fn verify_cached(directory: &Path, files: &[(&str, &str)], id: &str) -> Result<()> {
+    let current = file_stamps(directory, files, id)?;
+    let marker = fs::read(directory.join(VERIFIED_MARKER))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<VerifiedPackage>(&bytes).ok());
+    if marker.as_ref() == Some(&current) {
+        return Ok(());
+    }
+    verify(directory, files)?;
+    if file_stamps(directory, files, id)? != current {
+        return Err(anyhow!("model files changed during verification"));
+    }
+    write_marker(directory, &current)
+}
+
 pub fn status(cache_root: &Path) -> ModelPackageStatus {
     let directory = package_directory(cache_root);
     if !directory.exists() {
@@ -70,7 +134,7 @@ pub fn status(cache_root: &Path) -> ModelPackageStatus {
             detail: "尚未导入本地模型".into(),
         };
     }
-    match verify(&directory, &FILES) {
+    match verify_cached(&directory, &FILES, PACKAGE_ID) {
         Ok(()) => ModelPackageStatus {
             package_id: PACKAGE_ID,
             ready: true,
@@ -116,7 +180,7 @@ fn import_verified(
     let parent = cache_root.join("voice-models");
     fs::create_dir_all(&parent)?;
     let final_path = parent.join(id);
-    if final_path.exists() && verify(&final_path, files).is_ok() {
+    if final_path.exists() && verify_cached(&final_path, files, id).is_ok() {
         return Ok(());
     }
     let stage = tempfile::Builder::new()
@@ -132,6 +196,7 @@ fn import_verified(
             .with_context(|| format!("复制模型文件 {} 失败", name))?;
     }
     verify(stage.path(), files)?;
+    write_marker(stage.path(), &file_stamps(stage.path(), files, id)?)?;
     if final_path.exists() {
         let backup = tempfile::Builder::new()
             .prefix("voice-model-backup-")
@@ -154,7 +219,9 @@ fn import_verified(
     // Same-filesystem rename makes the package visible only after all checks pass.
     match fs::rename(stage.path(), &final_path) {
         Ok(()) => Ok(()),
-        Err(error) if final_path.exists() => verify(&final_path, files).context(error.to_string()),
+        Err(error) if final_path.exists() => {
+            verify_cached(&final_path, files, id).context(error.to_string())
+        }
         Err(error) => Err(error.into()),
     }
 }
@@ -208,6 +275,29 @@ mod tests {
 
         import_verified(extraction.path(), cache.path(), &files, "test").unwrap();
         verify(&cache.path().join("voice-models/test"), &files).unwrap();
+        assert!(cache
+            .path()
+            .join("voice-models/test")
+            .join(VERIFIED_MARKER)
+            .is_file());
+    }
+
+    #[test]
+    fn cached_package_avoids_repeat_hash_and_rechecks_changed_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let model = directory.path().join("model.int8.onnx");
+        fs::write(&model, b"model").unwrap();
+        let checksum = sha256(&model).unwrap();
+        let files = [("model.int8.onnx", checksum.as_str())];
+
+        verify_cached(directory.path(), &files, "test").unwrap();
+        fs::write(directory.path().join(VERIFIED_MARKER), b"{invalid").unwrap();
+        verify_cached(directory.path(), &files, "test").unwrap();
+        let marker = fs::read(directory.path().join(VERIFIED_MARKER)).unwrap();
+        assert!(serde_json::from_slice::<VerifiedPackage>(&marker).is_ok());
+        assert!(verify_cached(directory.path(), &[("model.int8.onnx", "wrong")], "test").is_err());
+        fs::write(&model, b"bad model").unwrap();
+        assert!(verify_cached(directory.path(), &files, "test").is_err());
     }
 
     #[test]

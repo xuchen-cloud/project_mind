@@ -50,6 +50,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: tauriMocks.getCurrentWindowMock,
   currentMonitor: tauriMocks.currentMonitorMock,
+  Effect: { Popover: "popover" },
+  EffectState: { Active: "active" },
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -475,6 +477,7 @@ describe("desktopApi", () => {
         alwaysOnTop: true,
         transparent: true,
         decorations: false,
+        windowEffects: { effects: ["popover"], state: "active", radius: 18 },
         width: 680,
         height: 220,
         x: 380,

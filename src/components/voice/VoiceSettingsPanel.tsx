@@ -111,7 +111,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
           value={settings.speechProfile?.kind ?? "none"}
           onChange={(event) => setProfile(event.target.value as "none" | "paraformer" | "sense_voice_onnx")}
         >
-          <option value="none">请选择语音识别引擎</option>
+          <option value="none">仅录音（无字幕和转写）</option>
           <option value="paraformer">Paraformer 云端实时识别</option>
           <option value="sense_voice_onnx">SenseVoice-Small 本地识别</option>
         </select>

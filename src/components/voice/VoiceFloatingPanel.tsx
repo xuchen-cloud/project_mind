@@ -112,6 +112,22 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       if (successTitle) pushToast({ tone: "success", title: successTitle });
       return next;
     } catch (error) {
+      if (String(error).includes("another recording session already owns audio capture")) {
+        const existing = await voiceApi.snapshotGet().catch(() => null);
+        if (existing) {
+          activeSessionRef.current = existing.sessionId;
+          setSession(existing);
+          setCaptions([]);
+          setInterim(null);
+          await onChanged();
+          try {
+            await desktopApi.openVoiceCaptionWindow();
+          } catch (windowError) {
+            pushToast({ tone: "error", title: "无法打开字幕浮窗", detail: String(windowError) });
+          }
+          return null;
+        }
+      }
       pushToast({ tone: "error", title: "语音记录操作失败", detail: String(error) });
       return null;
     } finally {

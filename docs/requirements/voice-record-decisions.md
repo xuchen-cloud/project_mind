@@ -19,13 +19,13 @@ Voice Record 是现有 Record 的一种类型，不是独立于 Record 的会议
 1. Voice Record 可以是 Workspace Record，也可以是 Project Record。
 2. 从 Workspace 创建时归属于 Workspace；从 Project 创建时归属于当前 Project。
 3. Voice Record 继承现有 Record 的标题、标签、搜索、正文、删除和作用域规则。
-4. 实时语音识别模型未配置、麦克风不可用或系统声音不可用时，不创建空 Voice Record，先引导用户完成配置或修复设备。
+4. 麦克风不可用或系统声音不可用时，不创建空 Voice Record，先引导用户修复设备。未配置识别模型时仍可录音，但不生成字幕与转写。
 
 ### D-02 模型配置
 
 语音能力区分三种模型职责：
 
-1. Speech Recognition Profile 为必填配置，可以选择云端实时识别或本地识别；首个云端模型是阿里云 `paraformer-realtime-v2`，首个本地模型基于官方 `iic/SenseVoiceSmall`，通过 ONNX Runtime 运行固定版本的导出或量化产物。
+1. Speech Recognition Profile 为可选配置。未配置时仅录音，不生成字幕与转写；配置后可以选择云端实时识别或本地识别。首个云端模型是阿里云 `paraformer-realtime-v2`，首个本地模型基于官方 `iic/SenseVoiceSmall`，通过 ONNX Runtime 运行固定版本的导出或量化产物。
 2. 文本处理模型为可选配置，用于保守润色、会议纪要和 AI 标题。设置界面可以推荐低延迟模型，但不硬编码供应商。
 3. 翻译模型为可选配置，用于实时生成简体中文字幕。
 

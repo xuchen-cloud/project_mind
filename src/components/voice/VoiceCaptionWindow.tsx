@@ -16,12 +16,14 @@ export function VoiceCaptionWindow() {
   const [captions, setCaptions] = useState<VoiceTranscriptSegment[]>([]);
   const [interim, setInterim] = useState<string | null>(null);
   const [captionLines, setCaptionLines] = useState(4);
+  const [recognitionEnabled, setRecognitionEnabled] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const sequence = useRef(0);
   const allowClose = useRef(false);
+  const hasSeenSession = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestCaptionId = captions[captions.length - 1]?.id;
 
@@ -35,6 +37,7 @@ export function VoiceCaptionWindow() {
         await desktopApi.captionWindowClose();
         return;
       }
+      hasSeenSession.current = true;
       setSession(next);
       setError(null);
       if (collapsed) {
@@ -50,12 +53,21 @@ export function VoiceCaptionWindow() {
       });
       if (current === sequence.current) setCaptions(tail);
     } catch (cause) {
-      if (current === sequence.current) setError(String(cause));
+      if (current !== sequence.current) return;
+      if (!hasSeenSession.current) {
+        allowClose.current = true;
+        await desktopApi.captionWindowClose().catch(() => undefined);
+      } else {
+        setError(String(cause));
+      }
     }
   }, [captionLines, collapsed]);
 
   useEffect(() => {
-    void voiceApi.settingsGet().then((settings) => setCaptionLines(settings.captionLines)).catch((cause) => setError(String(cause)));
+    void voiceApi.settingsGet().then((settings) => {
+      setCaptionLines(settings.captionLines);
+      setRecognitionEnabled(Boolean(settings.speechProfile));
+    }).catch((cause) => setError(String(cause)));
   }, []);
   useEffect(() => {
     void refresh();
@@ -99,7 +111,7 @@ export function VoiceCaptionWindow() {
   async function toggleCollapsed() {
     const next = !collapsed;
     try {
-      await desktopApi.captionWindowSetSize(next ? 180 : 680, next ? 72 : Math.max(220, 64 + captionLines * 30));
+      await desktopApi.captionWindowSetSize(next ? 380 : 680, next ? 72 : Math.max(220, 64 + captionLines * 30));
       setCollapsed(next);
     } catch (cause) {
       setError(String(cause));
@@ -107,15 +119,29 @@ export function VoiceCaptionWindow() {
   }
 
   const paused = session?.phase === "paused";
+  const togglePause = () => {
+    if (!session) return;
+    void changeSession(() => paused
+      ? voiceApi.resume({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() })
+      : voiceApi.pause({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() }));
+  };
+  const endSession = () => {
+    if (!session) return;
+    void changeSession(() => voiceApi.end({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() }));
+  };
   return (
     <main aria-label="独立语音字幕浮窗" className={`voice-caption-shell ${collapsed ? "voice-caption-shell--collapsed" : ""}`}>
       <div className="voice-caption-header" data-tauri-drag-region>
         <div className="voice-caption-status" data-tauri-drag-region>
           <span className={`voice-caption-status-dot ${paused ? "voice-caption-status-dot--paused" : ""}`} aria-hidden="true" />
           <span>{paused ? "已暂停" : session ? "正在录音" : "实时字幕"}</span>
-          {session ? <span className="voice-caption-clock">{duration(session.activeMs)}</span> : null}
+          {session ? <span className="voice-caption-clock" aria-label="录音时间">{duration(session.activeMs)}</span> : null}
         </div>
         <div className="voice-caption-header-actions">
+          {collapsed && session ? <>
+            <Button size="sm" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={togglePause}>{paused ? "开始" : "暂停"}</Button>
+            <Button size="sm" variant="danger" disabled={busy} aria-label="结束录音" leadingIcon={<Square size={12} />} onClick={endSession}>结束</Button>
+          </> : null}
           <Button size="sm" variant="secondary" aria-label={collapsed ? "展开字幕" : "折叠字幕"} onClick={() => void toggleCollapsed()} leadingIcon={collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />} />
           {!collapsed ? <Button size="sm" variant="secondary" aria-label="关闭浮窗" onClick={() => void toggleCollapsed()} leadingIcon={<X size={13} />} /> : null}
         </div>
@@ -128,14 +154,12 @@ export function VoiceCaptionWindow() {
                 {captions.map((caption) => <li className="voice-caption-line" key={caption.id}>{caption.text}</li>)}
                 {interim ? <li aria-label="临时字幕" className="voice-caption-interim">{interim}</li> : null}
               </ol>
-            ) : <p className="voice-caption-empty">{session ? "等待语音识别…" : "当前没有录音"}</p>}
+            ) : <p className="voice-caption-empty">{session ? (recognitionEnabled ? "等待语音识别…" : "仅录音模式，不生成字幕和转写") : "当前没有录音"}</p>}
           </div>
           {error ? <p role="alert" className="voice-caption-error" title={error}>{error}</p> : null}
           {session ? <div className="voice-caption-controls">
-            <Button size="sm" disabled={busy} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={() => void changeSession(() => paused
-              ? voiceApi.resume({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() })
-              : voiceApi.pause({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() }))}>{paused ? "继续" : "暂停"}</Button>
-            <Button size="sm" variant="danger" disabled={busy} leadingIcon={<Square size={12} />} onClick={() => void changeSession(() => voiceApi.end({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() }))}>结束</Button>
+            <Button size="sm" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={togglePause}>{paused ? "开始" : "暂停"}</Button>
+            <Button size="sm" variant="danger" disabled={busy} aria-label="结束录音" leadingIcon={<Square size={12} />} onClick={endSession}>结束</Button>
           </div> : null}
         </>
       ) : null}

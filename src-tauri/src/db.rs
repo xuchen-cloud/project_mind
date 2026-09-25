@@ -1506,6 +1506,11 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_voice_minutes_jobs_pending ON voice_minutes_jobs(status, id);
         "#)?;
+        self.ensure_column(
+            "voice_minutes_jobs",
+            "started_at",
+            "ALTER TABLE voice_minutes_jobs ADD COLUMN started_at TEXT",
+        )?;
         Ok(())
     }
 
@@ -9392,6 +9397,24 @@ mod tests {
     }
 
     #[test]
+    fn voice_minutes_migration_repairs_existing_jobs_table_without_started_at() {
+        let (harness, database) = setup_database();
+        database
+            .conn
+            .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN started_at", [])
+            .unwrap();
+        drop(database);
+
+        let reopened = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        assert!(!reopened.voice_minutes_has_pending().unwrap());
+    }
+
+    #[test]
     fn voice_session_persists_settings_record_and_revisioned_lifecycle() {
         let (_harness, mut database) = setup_database();
         let settings = VoiceSettings {
@@ -9501,8 +9524,12 @@ mod tests {
         let input = database.voice_minutes_input(&session.session_id).unwrap();
         assert_eq!(input.segments.len(), 1);
         assert_eq!(input.previous_content, None);
-        assert!(database.voice_minutes_enqueue(&session.session_id, "auto:1").unwrap());
-        assert!(!database.voice_minutes_enqueue(&session.session_id, "auto:1").unwrap());
+        assert!(database
+            .voice_minutes_enqueue(&session.session_id, "auto:1")
+            .unwrap());
+        assert!(!database
+            .voice_minutes_enqueue(&session.session_id, "auto:1")
+            .unwrap());
         database
             .voice_minutes_apply(
                 &session.session_id,
@@ -9515,7 +9542,9 @@ mod tests {
         let first = database.voice_minutes_get(&target).unwrap().unwrap();
         assert_eq!(first.version, 1);
         assert_eq!(first.content, "## 摘要\n发布计划");
-        assert!(!database.voice_minutes_enqueue(&session.session_id, "auto:2").unwrap());
+        assert!(!database
+            .voice_minutes_enqueue(&session.session_id, "auto:2")
+            .unwrap());
         assert!(database
             .workspace_note_record(session.workspace_note_id.unwrap())
             .unwrap()
@@ -9546,7 +9575,15 @@ mod tests {
         let next = database.voice_minutes_input(&session.session_id).unwrap();
         assert_eq!(next.previous_content.as_deref(), Some("## 摘要\n发布计划"));
         assert_eq!(next.segments.len(), 1);
-        assert!(database.voice_minutes_apply(&session.session_id, 0, next.source_max_rowid, "过期纪要", "过期标题").is_err());
+        assert!(database
+            .voice_minutes_apply(
+                &session.session_id,
+                0,
+                next.source_max_rowid,
+                "过期纪要",
+                "过期标题"
+            )
+            .is_err());
         database
             .voice_minutes_apply(
                 &session.session_id,

@@ -13,7 +13,7 @@ body,
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-bg) 72%, transparent);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
   color: var(--color-text);
   box-shadow: 0 14px 36px color-mix(in srgb, var(--color-text) 16%, transparent),
     0 2px 8px color-mix(in srgb, var(--color-text) 8%, transparent);
@@ -148,10 +148,6 @@ body,
 .voice-caption-shell--collapsed .voice-caption-status {
   gap: 5px;
   font-size: 11px;
-}
-
-.voice-caption-shell--collapsed .voice-caption-clock {
-  display: none;
 }
 
 @keyframes caption-arrive {

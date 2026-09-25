@@ -460,15 +460,15 @@ fn persist_manifests(
     Ok(())
 }
 
-fn prepare_recognition(db: &Database) -> Result<PreparedRecognition> {
+fn prepare_recognition(db: &Database) -> Result<Option<PreparedRecognition>> {
     let settings = db.voice_settings_get()?;
     match settings.speech_profile {
         Some(SpeechProfile::SenseVoiceOnnx { .. }) => {
             let cache = crate::default_app_data_dir()?;
-            Ok(PreparedRecognition::Local {
+            Ok(Some(PreparedRecognition::Local {
                 worker: LocalAsrWorker::start(&cache)?,
                 preview_enabled: settings.live_preview_enabled,
-            })
+            }))
         }
         Some(SpeechProfile::Paraformer {
             endpoint,
@@ -482,13 +482,13 @@ fn prepare_recognition(db: &Database) -> Result<PreparedRecognition> {
             let profile_id =
                 credential_profile_id.ok_or_else(|| anyhow!("请先选择 Paraformer 凭据"))?;
             let api_key = db.voice_credential_from_ai_profile(profile_id)?;
-            Ok(PreparedRecognition::Paraformer {
+            Ok(Some(PreparedRecognition::Paraformer {
                 endpoint,
                 api_key,
                 preview_enabled: settings.live_preview_enabled,
-            })
+            }))
         }
-        None => Err(anyhow!("请先在语音设置中选择并保存语音识别引擎")),
+        None => Ok(None),
     }
 }
 
@@ -566,10 +566,11 @@ fn start_capture_run(
     session_id: &str,
     epoch: u64,
     epoch_offset_ms: u64,
-    recognition: PreparedRecognition,
+    recognition: Option<PreparedRecognition>,
 ) -> Result<CaptureRun> {
-    let (capture, outputs) = MacCaptureSession::start(epoch, AUDIO_QUEUE_CAPACITY, true)
-        .map_err(|error| anyhow!(error))?;
+    let (capture, outputs) =
+        MacCaptureSession::start(epoch, AUDIO_QUEUE_CAPACITY, recognition.is_some())
+            .map_err(|error| anyhow!(error))?;
     build_capture_run(
         workspace_root,
         session_id,
@@ -587,39 +588,44 @@ fn build_capture_run(
     session_id: &str,
     epoch: u64,
     epoch_offset_ms: u64,
-    recognition: PreparedRecognition,
+    recognition: Option<PreparedRecognition>,
     capture: MacCaptureSession,
     outputs: MacCaptureOutputs,
 ) -> Result<CaptureRun> {
-    let microphone = outputs
-        .recognition_microphone
-        .ok_or_else(|| anyhow!("missing recognition microphone"))?;
-    let system = outputs
-        .recognition_system
-        .ok_or_else(|| anyhow!("missing recognition system audio"))?;
     let recognition = match recognition {
-        PreparedRecognition::Local {
-            worker,
-            preview_enabled,
-        } => ActiveRecognition::Local(LiveLocalHandle::spawn(
-            worker,
-            microphone,
-            system,
-            epoch_offset_ms,
-            preview_enabled,
-        )?),
-        PreparedRecognition::Paraformer {
-            endpoint,
-            api_key,
-            preview_enabled,
-        } => ActiveRecognition::Paraformer(LiveParaformerHandle::spawn(
-            endpoint,
-            api_key,
-            microphone,
-            system,
-            epoch_offset_ms,
-            preview_enabled,
-        )?),
+        None => None,
+        Some(recognition) => {
+            let microphone = outputs
+                .recognition_microphone
+                .ok_or_else(|| anyhow!("missing recognition microphone"))?;
+            let system = outputs
+                .recognition_system
+                .ok_or_else(|| anyhow!("missing recognition system audio"))?;
+            Some(match recognition {
+                PreparedRecognition::Local {
+                    worker,
+                    preview_enabled,
+                } => ActiveRecognition::Local(LiveLocalHandle::spawn(
+                    worker,
+                    microphone,
+                    system,
+                    epoch_offset_ms,
+                    preview_enabled,
+                )?),
+                PreparedRecognition::Paraformer {
+                    endpoint,
+                    api_key,
+                    preview_enabled,
+                } => ActiveRecognition::Paraformer(LiveParaformerHandle::spawn(
+                    endpoint,
+                    api_key,
+                    microphone,
+                    system,
+                    epoch_offset_ms,
+                    preview_enabled,
+                )?),
+            })
+        }
     };
     Ok(CaptureRun {
         capture: Some(capture),
@@ -637,7 +643,7 @@ fn build_capture_run(
             epoch,
             outputs.system,
         ),
-        recognition: Some(recognition),
+        recognition,
         faults: outputs.faults,
     })
 }
@@ -648,7 +654,7 @@ fn start_capture_run(
     _session_id: &str,
     _epoch: u64,
     _epoch_offset_ms: u64,
-    _recognition: PreparedRecognition,
+    _recognition: Option<PreparedRecognition>,
 ) -> Result<CaptureRun> {
     Err(anyhow!(
         "voice capture is not implemented on this platform yet"
@@ -700,6 +706,18 @@ fn capture_run_faulted(_run: &mut CaptureRun) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_speech_profile_allows_audio_capture_without_recognition() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(
+            &root.path().join("app.sqlite3"),
+            root.path(),
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        assert!(prepare_recognition(&db).unwrap().is_none());
+    }
 
     #[test]
     fn completed_local_sentence_is_saved_for_captions_and_record_transcript() {

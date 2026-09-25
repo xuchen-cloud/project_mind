@@ -31,7 +31,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sherpa-onnx = "=1.13.8"
 sha2 = "0.10.9"
-tauri = { version = "2.10.3", features = ["protocol-asset"] }
+tauri = { version = "2.10.3", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-opener = "2.5.3"

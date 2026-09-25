@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, Effect, EffectState, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { exit } from "@tauri-apps/plugin-process";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
@@ -104,7 +104,7 @@ export const desktopApi = {
       url: new URL("voice.html", window.location.href).toString(),
       width,
       height,
-      minWidth: 180,
+      minWidth: 380,
       minHeight: 72,
       x,
       y,
@@ -113,6 +113,7 @@ export const desktopApi = {
       focus: false,
       resizable: true,
       decorations: false,
+      windowEffects: { effects: [Effect.Popover], state: EffectState.Active, radius: 18 },
     });
     await new Promise<void>((resolve, reject) => {
       let settled = false;
