@@ -83,4 +83,20 @@ describe("VoiceSettingsPanel", () => {
       expect.objectContaining({ livePreviewEnabled: true }),
     ));
   });
+
+  it("shows an imported local model as ready after reopening settings", async () => {
+    mocks.settingsGet.mockResolvedValue({
+      speechProfile: { kind: "sense_voice_onnx", modelPackageId: "sensevoice-small-int8-2024-07-17" },
+      livePreviewEnabled: false,
+      textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
+    });
+    mocks.modelStatusGet.mockResolvedValue({
+      packageId: "sensevoice-small-int8-2024-07-17", ready: true,
+      detail: "本地模型已就绪，无需再次导入",
+    });
+    render(<VoiceSettingsPanel open />);
+    expect(await screen.findByText("本地模型已就绪，无需再次导入")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新导入本地模型" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "导入本地模型" })).not.toBeInTheDocument();
+  });
 });

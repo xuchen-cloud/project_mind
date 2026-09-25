@@ -137,7 +137,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
           <p>{modelStatus?.detail ?? "正在检查本地模型…"}</p>
           <p className="text-text-muted">选择包含 model.int8.onnx、tokens.txt 和 LICENSE 的文件夹，也可选择官方压缩包解压后的上一级目录。导入时会校验固定版本的 SHA-256。</p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="secondary" disabled={importing} onClick={() => void importModel()}>{importing ? "导入并校验中…" : "导入本地模型"}</Button>
+            <Button type="button" size="sm" variant="secondary" disabled={importing} onClick={() => void importModel()}>{importing ? "导入并校验中…" : modelStatus?.ready ? "重新导入本地模型" : "导入本地模型"}</Button>
             <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2")}>获取指定模型包</Button>
           </div>
         </div>

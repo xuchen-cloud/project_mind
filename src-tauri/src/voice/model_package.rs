@@ -138,7 +138,7 @@ pub fn status(cache_root: &Path) -> ModelPackageStatus {
         Ok(()) => ModelPackageStatus {
             package_id: PACKAGE_ID,
             ready: true,
-            detail: "模型文件已校验".into(),
+            detail: "本地模型已就绪，无需再次导入".into(),
         },
         Err(error) => ModelPackageStatus {
             package_id: PACKAGE_ID,
@@ -298,6 +298,32 @@ mod tests {
         assert!(verify_cached(directory.path(), &[("model.int8.onnx", "wrong")], "test").is_err());
         fs::write(&model, b"bad model").unwrap();
         assert!(verify_cached(directory.path(), &files, "test").is_err());
+    }
+
+    #[test]
+    fn imported_package_survives_app_startup_cleanup() {
+        let source = tempfile::tempdir().unwrap();
+        let app_data = tempfile::tempdir().unwrap();
+        let model = source.path().join("model.int8.onnx");
+        fs::write(&model, b"model").unwrap();
+        let checksum = sha256(&model).unwrap();
+        let files = [("model.int8.onnx", checksum.as_str())];
+        import_verified(source.path(), app_data.path(), &files, "test").unwrap();
+        let package = app_data.path().join("voice-models/test");
+        assert!(package.join(VERIFIED_MARKER).is_file());
+
+        let session = app_data.path().join("workspace-session.json");
+        fs::write(&session, b"{}").unwrap();
+        let legacy = app_data.path().join("legacy-cache");
+        fs::create_dir(&legacy).unwrap();
+        fs::write(legacy.join("old-file"), b"old").unwrap();
+        crate::workspace::cleanup_legacy_app_data(app_data.path(), &session).unwrap();
+        crate::workspace::cleanup_legacy_app_data(app_data.path(), &session).unwrap();
+
+        assert!(package.join(VERIFIED_MARKER).is_file());
+        assert!(session.is_file());
+        assert!(!legacy.exists());
+        verify_cached(&package, &files, "test").unwrap();
     }
 
     #[test]

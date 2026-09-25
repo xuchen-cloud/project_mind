@@ -206,7 +206,10 @@ pub fn cleanup_legacy_app_data(app_data_dir: &Path, session_path: &Path) -> Resu
     for entry in fs::read_dir(app_data_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path == session_path {
+        // Imported voice models belong to the current app and must survive restarts.
+        if path == session_path
+            || (path == app_data_dir.join("voice-models") && entry.file_type()?.is_dir())
+        {
             continue;
         }
         if path.is_dir() {
