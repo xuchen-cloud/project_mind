@@ -113,6 +113,7 @@ export const desktopApi = {
       focus: false,
       resizable: true,
       decorations: false,
+      shadow: false,
       windowEffects: { effects: [Effect.Popover], state: EffectState.Active, radius: 18 },
     });
     await new Promise<void>((resolve, reject) => {

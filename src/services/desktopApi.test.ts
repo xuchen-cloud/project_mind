@@ -477,6 +477,7 @@ describe("desktopApi", () => {
         alwaysOnTop: true,
         transparent: true,
         decorations: false,
+        shadow: false,
         windowEffects: { effects: ["popover"], state: "active", radius: 18 },
         width: 680,
         height: 220,

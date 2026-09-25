@@ -7,18 +7,14 @@ body,
 .voice-caption-shell {
   display: flex;
   flex-direction: column;
-  height: calc(100% - 10px);
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  margin: 5px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-bg) 72%, transparent);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+  background: transparent;
   color: var(--color-text);
-  box-shadow: 0 14px 36px color-mix(in srgb, var(--color-text) 16%, transparent),
-    0 2px 8px color-mix(in srgb, var(--color-text) 8%, transparent);
-  -webkit-backdrop-filter: blur(28px) saturate(1.5);
-  backdrop-filter: blur(28px) saturate(1.5);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
 }
 
 .voice-caption-header {
@@ -74,12 +70,22 @@ body,
   font-variant-numeric: tabular-nums;
 }
 
-.voice-caption-header-actions button,
-.voice-caption-controls button {
-  border-color: color-mix(in srgb, var(--color-border-strong) 55%, transparent);
-  background: color-mix(in srgb, var(--color-bg) 35%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+.voice-caption-shell .voice-caption-header-actions button,
+.voice-caption-shell .voice-caption-controls button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.voice-caption-shell .voice-caption-header-actions button:hover,
+.voice-caption-shell .voice-caption-controls button:hover {
+  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+
+.voice-caption-shell button[aria-label="结束录音"] {
+  color: var(--color-danger);
 }
 
 .voice-caption-scroll {
@@ -127,7 +133,6 @@ body,
   flex: none;
   justify-content: flex-end;
   padding: 6px 10px 9px;
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
 .voice-caption-error {
