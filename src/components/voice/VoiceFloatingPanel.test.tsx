@@ -1,17 +1,21 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { VoiceFloatingPanel } from './VoiceFloatingPanel';
 
-const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn(), start: vi.fn(), pushToast: vi.fn(), openVoiceCaptionWindow: vi.fn() }));
+const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn(), settingsGet: vi.fn(), start: vi.fn(), pushToast: vi.fn(), openVoiceCaptionWindow: vi.fn() }));
 vi.mock('../../services/voiceApi', () => ({ voiceApi: {
   availabilityGet: async () => ({ implemented: true }),
-  settingsGet: async () => ({ captionLines: 4 }),
+  settingsGet: mocks.settingsGet,
   snapshotGet: mocks.snapshotGet,
   transcriptTail: mocks.transcriptTail,
   start: mocks.start,
 } }));
 vi.mock('../../state/feedback-store', () => ({ useFeedbackStore: () => ({ pushToast: mocks.pushToast }) }));
 vi.mock('../../services/desktopApi', () => ({ desktopApi: { openVoiceCaptionWindow: mocks.openVoiceCaptionWindow } }));
+
+beforeEach(() => {
+  mocks.settingsGet.mockReset().mockResolvedValue({ captionLines: 4, speechProfile: { kind: 'paraformer' } });
+});
 
 it('opens the new recording only after the record cache has refreshed', async () => {
   mocks.snapshotGet.mockReset().mockResolvedValue(null);
@@ -29,13 +33,13 @@ it('opens the new recording only after the record cache has refreshed', async ()
   expect(onOpenRecord).not.toHaveBeenCalled();
   finishRefresh();
   await waitFor(() => expect(onOpenRecord).toHaveBeenCalledWith(expect.objectContaining({ workspaceNoteId: 42 })));
-  expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce();
+  await waitFor(() => expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce());
   view.unmount();
 });
 
 it('recovers the existing recording instead of reporting another owner when the floating control has stale state', async () => {
   const active = { sessionId: 'already-recording', revision: 3, phase: 'recording', activeMs: 30_000, workspaceNoteId: 17 };
-  mocks.snapshotGet.mockReset().mockResolvedValueOnce(null).mockResolvedValue(active);
+  mocks.snapshotGet.mockReset().mockImplementation(async () => mocks.start.mock.calls.length ? active : null);
   mocks.transcriptTail.mockReset().mockResolvedValue([]);
   mocks.start.mockReset().mockRejectedValue(new Error('another recording session already owns audio capture'));
   mocks.pushToast.mockReset();
@@ -44,7 +48,7 @@ it('recovers the existing recording instead of reporting another owner when the 
   fireEvent.click(await screen.findByRole('button', { name: '开始语音记录' }));
   expect(await screen.findByRole('button', { name: '结束' })).toBeInTheDocument();
   expect(mocks.pushToast).not.toHaveBeenCalledWith(expect.objectContaining({ title: '语音记录操作失败' }));
-  expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce();
+  await waitFor(() => expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce());
   view.unmount();
 });
 
@@ -64,5 +68,15 @@ it('shows provisional text separately from saved captions', async () => {
   expect(await screen.findByLabelText('临时字幕')).toHaveTextContent('正在讲话');
   expect(screen.getByText('已确认。')).toBeInTheDocument();
   expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: 'session-one', limit: 3 });
+  view.unmount();
+});
+
+it('does not request captions in audio-only mode', async () => {
+  mocks.settingsGet.mockResolvedValue({ captionLines: 4, speechProfile: null });
+  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000 });
+  mocks.transcriptTail.mockReset();
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
+  expect(await screen.findByText('录音中')).toBeInTheDocument();
+  expect(mocks.transcriptTail).not.toHaveBeenCalled();
   view.unmount();
 });

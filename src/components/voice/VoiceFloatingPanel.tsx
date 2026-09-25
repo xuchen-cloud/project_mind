@@ -38,6 +38,7 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
   const [captions, setCaptions] = useState<VoiceTranscriptSegment[]>([]);
   const [interim, setInterim] = useState<string | null>(null);
   const [captionLines, setCaptionLines] = useState(4);
+  const [recognitionEnabled, setRecognitionEnabled] = useState<boolean | null>(null);
   const refreshSequence = useRef(0);
   const activeSessionRef = useRef<string | null>(null);
   const lastRefreshError = useRef<string | null>(null);
@@ -50,11 +51,12 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       activeSessionRef.current = next?.sessionId ?? null;
       lastRefreshError.current = null;
       setSession(next);
-      if (next) {
+      if (next && recognitionEnabled) {
         const partial = next.interimText?.trim() || null;
         setInterim(partial);
-        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: Math.max(1, captionLines - (partial ? 1 : 0)) });
-        if (sequence === refreshSequence.current) setCaptions(latest);
+        const visibleCount = Math.min(8, Math.max(2, captionLines)) - (partial ? 1 : 0);
+        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: Math.max(2, visibleCount) });
+        if (sequence === refreshSequence.current) setCaptions(latest.slice(-visibleCount));
       } else {
         setCaptions([]);
         setInterim(null);
@@ -64,14 +66,17 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
         const detail = String(error);
         if (detail !== lastRefreshError.current) {
           lastRefreshError.current = detail;
-          pushToastRef.current({ tone: "error", title: "语音识别或字幕更新失败", detail });
+          pushToastRef.current({ tone: "error", title: recognitionEnabled ? "语音识别或字幕更新失败" : "语音记录状态更新失败", detail });
         }
       }
     }
-  }, [captionLines]);
+  }, [captionLines, recognitionEnabled]);
 
   useEffect(() => {
-    void voiceApi.settingsGet().then((settings) => setCaptionLines(settings.captionLines)).catch(() => undefined);
+    void voiceApi.settingsGet().then((settings) => {
+      setCaptionLines(Math.min(8, Math.max(2, settings.captionLines)));
+      setRecognitionEnabled(Boolean(settings.speechProfile));
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -168,7 +173,7 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
         </ol>
       ) : null}
       <div className="flex w-full items-center justify-center gap-2">
-      <Button size="sm" variant="secondary" aria-label="打开字幕浮窗" leadingIcon={<ExternalLink size={13} />}
+      <Button size="sm" variant="secondary" aria-label={recognitionEnabled ? "打开字幕浮窗" : "打开录音浮窗"} leadingIcon={<ExternalLink size={13} />}
         onClick={() => void desktopApi.openVoiceCaptionWindow().catch((error) => pushToast({ tone: "error", title: "无法打开字幕浮窗", detail: String(error) }))}>浮窗</Button>
       <span className="flex items-center gap-2 pr-1 text-ui font-medium text-text">
         <span className={paused ? "h-2 w-2 rounded-full bg-warning" : "h-2 w-2 animate-pulse rounded-full bg-danger motion-reduce:animate-none"} />

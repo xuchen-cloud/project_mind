@@ -116,12 +116,42 @@ it("resumes a paused recording from the floating controls", async () => {
   view.unmount();
 });
 
-it("shows audio-only status when no recognition model is selected", async () => {
+it("keeps audio-only recording in the compact control window", async () => {
   mocks.settingsGet.mockResolvedValue({ captionLines: 4, speechProfile: null });
   mocks.transcriptTail.mockResolvedValue([]);
   mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 3, phase: "recording", activeMs: 1234, interimText: null });
   const view = render(<VoiceCaptionWindow />);
-  expect(await screen.findByText("仅录音模式，不生成字幕和转写")).toBeInTheDocument();
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(380, 72));
   expect(screen.getByRole("button", { name: "暂停录音" })).toBeInTheDocument();
+  expect(screen.getByLabelText("录音时间")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "展开字幕" })).not.toBeInTheDocument();
+  expect(mocks.transcriptTail).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it("starts compact before settings load when the window was opened for audio only", async () => {
+  const previousUrl = window.location.href;
+  window.history.replaceState({}, "", "/voice.html?audioOnly=1");
+  mocks.settingsGet.mockImplementation(() => new Promise(() => undefined));
+  try {
+    const view = render(<VoiceCaptionWindow />);
+    expect(screen.queryByRole("button", { name: "展开字幕" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "折叠字幕" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "暂停录音" });
+    expect(mocks.transcriptTail).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    window.history.replaceState({}, "", previousUrl);
+  }
+});
+
+it("requests a supported caption count while showing the latest lines", async () => {
+  mocks.transcriptTail.mockImplementation(async ({ limit }: { limit: number }) => {
+    if (limit < 2 || limit > 8) throw new Error("caption line count must be between 2 and 8");
+    return [];
+  });
+  const view = render(<VoiceCaptionWindow />);
+  await waitFor(() => expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: "s1", limit: 4 }));
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   view.unmount();
 });

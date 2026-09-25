@@ -12,7 +12,7 @@ body,
   min-height: 0;
   overflow: hidden;
   border-radius: 18px;
-  background: transparent;
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
   color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
 }
@@ -64,7 +64,7 @@ body,
 
 .voice-caption-clock {
   margin-left: 4px;
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
   font-family: var(--font-mono);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -121,12 +121,12 @@ body,
 }
 
 .voice-caption-interim {
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
 }
 
 .voice-caption-empty {
   margin: 8px 0 0;
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
 }
 
 .voice-caption-controls {

@@ -478,6 +478,7 @@ describe("desktopApi", () => {
         transparent: true,
         decorations: false,
         shadow: false,
+        theme: "light",
         windowEffects: { effects: ["popover"], state: "active", radius: 18 },
         width: 680,
         height: 220,
@@ -485,12 +486,25 @@ describe("desktopApi", () => {
         y: 610,
       },
     });
-    const existing = { show: vi.fn(), setFocus: vi.fn() };
+    const existing = { show: vi.fn(), setFocus: vi.fn(), setTheme: vi.fn() };
     tauriMocks.getByLabelMock.mockResolvedValueOnce(existing);
     await desktopApi.openVoiceCaptionWindow();
     expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
     expect(existing.show).toHaveBeenCalledOnce();
+    expect(existing.setTheme).toHaveBeenCalledWith("light");
     expect(existing.setFocus).not.toHaveBeenCalled();
+  });
+
+  it("opens a compact light window immediately when recognition is disabled", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
+    tauriMocks.invokeMock.mockResolvedValueOnce({ speechProfile: null, captionLines: 4 });
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances[0]?.options).toMatchObject({
+      width: 380,
+      height: 72,
+      theme: "light",
+      url: expect.stringContaining("audioOnly=1"),
+    });
   });
 
   it("focuses and navigates an existing project window", async () => {

@@ -16,8 +16,10 @@ export function VoiceCaptionWindow() {
   const [captions, setCaptions] = useState<VoiceTranscriptSegment[]>([]);
   const [interim, setInterim] = useState<string | null>(null);
   const [captionLines, setCaptionLines] = useState(4);
-  const [recognitionEnabled, setRecognitionEnabled] = useState(true);
-  const [collapsed, setCollapsed] = useState(false);
+  const [recognitionEnabled, setRecognitionEnabled] = useState<boolean | null>(() =>
+    new URLSearchParams(window.location.search).get("audioOnly") === "1" ? false : null);
+  const [collapsed, setCollapsed] = useState(() =>
+    new URLSearchParams(window.location.search).get("audioOnly") === "1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overflowing, setOverflowing] = useState(false);
@@ -40,7 +42,7 @@ export function VoiceCaptionWindow() {
       hasSeenSession.current = true;
       setSession(next);
       setError(null);
-      if (collapsed) {
+      if (collapsed || !recognitionEnabled) {
         setCaptions([]);
         setInterim(null);
         return;
@@ -49,7 +51,7 @@ export function VoiceCaptionWindow() {
       setInterim(partial);
       const tail = await voiceApi.transcriptTail({
         sessionId: next.sessionId,
-        limit: 40,
+        limit: Math.min(8, Math.max(2, captionLines)),
       });
       if (current === sequence.current) setCaptions(tail);
     } catch (cause) {
@@ -61,12 +63,18 @@ export function VoiceCaptionWindow() {
         setError(String(cause));
       }
     }
-  }, [captionLines, collapsed]);
+  }, [captionLines, collapsed, recognitionEnabled]);
 
   useEffect(() => {
     void voiceApi.settingsGet().then((settings) => {
-      setCaptionLines(settings.captionLines);
-      setRecognitionEnabled(Boolean(settings.speechProfile));
+      setCaptionLines(Math.min(8, Math.max(2, settings.captionLines)));
+      const enabled = Boolean(settings.speechProfile);
+      setRecognitionEnabled(enabled);
+      if (!enabled) {
+        void desktopApi.captionWindowSetSize(380, 72)
+          .then(() => setCollapsed(true))
+          .catch((cause) => setError(String(cause)));
+      }
     }).catch((cause) => setError(String(cause)));
   }, []);
   useEffect(() => {
@@ -109,6 +117,7 @@ export function VoiceCaptionWindow() {
   }
 
   async function toggleCollapsed() {
+    if (recognitionEnabled === false) return;
     const next = !collapsed;
     try {
       await desktopApi.captionWindowSetSize(next ? 380 : 680, next ? 72 : Math.max(220, 64 + captionLines * 30));
@@ -142,8 +151,8 @@ export function VoiceCaptionWindow() {
             <Button size="sm" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={togglePause}>{paused ? "开始" : "暂停"}</Button>
             <Button size="sm" variant="danger" disabled={busy} aria-label="结束录音" leadingIcon={<Square size={12} />} onClick={endSession}>结束</Button>
           </> : null}
-          <Button size="sm" variant="secondary" aria-label={collapsed ? "展开字幕" : "折叠字幕"} onClick={() => void toggleCollapsed()} leadingIcon={collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />} />
-          {!collapsed ? <Button size="sm" variant="secondary" aria-label="关闭浮窗" onClick={() => void toggleCollapsed()} leadingIcon={<X size={13} />} /> : null}
+          {recognitionEnabled ? <Button size="sm" variant="secondary" aria-label={collapsed ? "展开字幕" : "折叠字幕"} onClick={() => void toggleCollapsed()} leadingIcon={collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />} /> : null}
+          {recognitionEnabled && !collapsed ? <Button size="sm" variant="secondary" aria-label="关闭浮窗" onClick={() => void toggleCollapsed()} leadingIcon={<X size={13} />} /> : null}
         </div>
       </div>
       {!collapsed ? (

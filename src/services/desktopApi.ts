@@ -7,6 +7,7 @@ import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
+import type { VoiceSettings } from "../lib/voice-types";
 import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
 import {
   focusProjectWindow,
@@ -89,19 +90,24 @@ export const desktopApi = {
   async openVoiceCaptionWindow() {
     const existing = await webviewWindow.WebviewWindow.getByLabel("voice-caption");
     if (existing) {
+      await existing.setTheme("light");
       await existing.show();
       return;
     }
+    const settings = await Promise.resolve(invoke<VoiceSettings>("voice_settings_get")).catch(() => null);
+    const audioOnly = settings?.speechProfile === null;
     const monitor = await currentMonitor();
-    const width = 680;
-    const height = 220;
+    const width = audioOnly ? 380 : 680;
+    const height = audioOnly ? 72 : 220;
     const bounds = monitor?.workArea;
     const scale = monitor?.scaleFactor ?? 1;
     const x = bounds ? Math.round(bounds.position.x / scale + (bounds.size.width / scale - width) / 2) : undefined;
     const y = bounds ? Math.round(bounds.position.y / scale + bounds.size.height / scale - height - 30) : undefined;
+    const url = new URL("voice.html", window.location.href);
+    if (audioOnly) url.searchParams.set("audioOnly", "1");
     const captionWindow = new webviewWindow.WebviewWindow("voice-caption", {
       title: "实时字幕",
-      url: new URL("voice.html", window.location.href).toString(),
+      url: url.toString(),
       width,
       height,
       minWidth: 380,
@@ -114,6 +120,7 @@ export const desktopApi = {
       resizable: true,
       decorations: false,
       shadow: false,
+      theme: "light",
       windowEffects: { effects: [Effect.Popover], state: EffectState.Active, radius: 18 },
     });
     await new Promise<void>((resolve, reject) => {
