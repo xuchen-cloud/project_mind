@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { VoiceSessionSnapshot, VoiceTranscriptSegment } from "../../lib/voice-types";
 import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
-import { Button } from "../../ui/components";
+import { Button, IconButton } from "../../ui/components";
 
 function duration(milliseconds: number) {
   const seconds = Math.floor(milliseconds / 1_000);
@@ -71,7 +71,7 @@ export function VoiceCaptionWindow() {
       const enabled = Boolean(settings.speechProfile);
       setRecognitionEnabled(enabled);
       if (!enabled) {
-        void desktopApi.captionWindowSetSize(380, 72)
+        void desktopApi.captionWindowSetSize(160, 48)
           .then(() => setCollapsed(true))
           .catch((cause) => setError(String(cause)));
       }
@@ -120,7 +120,7 @@ export function VoiceCaptionWindow() {
     if (recognitionEnabled === false) return;
     const next = !collapsed;
     try {
-      await desktopApi.captionWindowSetSize(next ? 380 : 680, next ? 72 : Math.max(220, 64 + captionLines * 30));
+      await desktopApi.captionWindowSetSize(next ? 190 : 680, next ? 48 : Math.max(220, 64 + captionLines * 30));
       setCollapsed(next);
     } catch (cause) {
       setError(String(cause));
@@ -139,19 +139,21 @@ export function VoiceCaptionWindow() {
     void changeSession(() => voiceApi.end({ sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID() }));
   };
   return (
-    <main aria-label="独立语音字幕浮窗" className={`voice-caption-shell ${collapsed ? "voice-caption-shell--collapsed" : ""}`}>
+    <main aria-label="语音记录浮窗" className={`voice-caption-shell ${collapsed ? "voice-caption-shell--collapsed" : ""}`}>
       <div className="voice-caption-header" data-tauri-drag-region>
         <div className="voice-caption-status" data-tauri-drag-region>
-          <span className={`voice-caption-status-dot ${paused ? "voice-caption-status-dot--paused" : ""}`} aria-hidden="true" />
-          <span>{paused ? "已暂停" : session ? "正在录音" : "实时字幕"}</span>
+          <span className={`voice-caption-status-dot ${paused ? "voice-caption-status-dot--paused" : ""}`} role={collapsed ? "img" : undefined} aria-label={collapsed ? (paused ? "已暂停" : "正在录音") : undefined} aria-hidden={collapsed ? undefined : true} />
+          {!collapsed ? <span>{paused ? "已暂停" : session ? "正在录音" : ""}</span> : null}
           {session ? <span className="voice-caption-clock" aria-label="录音时间">{duration(session.activeMs)}</span> : null}
         </div>
         <div className="voice-caption-header-actions">
           {collapsed && session ? <>
-            <Button size="sm" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={togglePause}>{paused ? "开始" : "暂停"}</Button>
-            <Button size="sm" variant="danger" disabled={busy} aria-label="结束录音" leadingIcon={<Square size={12} />} onClick={endSession}>结束</Button>
+            <IconButton size="sm" className="voice-caption-icon-button" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} title={paused ? "开始录音" : "暂停录音"} onClick={togglePause}>{paused ? <Play size={14} /> : <Pause size={14} />}</IconButton>
+            <IconButton size="sm" variant="danger" className="voice-caption-icon-button" disabled={busy} aria-label="结束录音" title="结束录音" onClick={endSession}><Square size={13} /></IconButton>
           </> : null}
-          {recognitionEnabled ? <Button size="sm" variant="secondary" aria-label={collapsed ? "展开字幕" : "折叠字幕"} onClick={() => void toggleCollapsed()} leadingIcon={collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />} /> : null}
+          {recognitionEnabled ? (collapsed
+            ? <IconButton size="sm" className="voice-caption-icon-button" aria-label="展开字幕" title="展开字幕" onClick={() => void toggleCollapsed()}><ChevronUp size={14} /></IconButton>
+            : <Button size="sm" variant="secondary" aria-label="折叠字幕" onClick={() => void toggleCollapsed()} leadingIcon={<ChevronDown size={13} />} />) : null}
           {recognitionEnabled && !collapsed ? <Button size="sm" variant="secondary" aria-label="关闭浮窗" onClick={() => void toggleCollapsed()} leadingIcon={<X size={13} />} /> : null}
         </div>
       </div>

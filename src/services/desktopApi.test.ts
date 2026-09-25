@@ -8,6 +8,8 @@ const tauriMocks = vi.hoisted(() => ({
   readClipboardTextMock: vi.fn(),
   readClipboardImageMock: vi.fn(),
   onCloseRequestedMock: vi.fn(),
+  setMinSizeMock: vi.fn(async () => undefined),
+  setSizeMock: vi.fn(async () => undefined),
   exitMock: vi.fn(async () => undefined),
   destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
@@ -21,6 +23,8 @@ const tauriMocks = vi.hoisted(() => ({
     })),
     scaleFactor: vi.fn(async () => 2),
     onCloseRequested: tauriMocks.onCloseRequestedMock,
+    setMinSize: tauriMocks.setMinSizeMock,
+    setSize: tauriMocks.setSizeMock,
     destroy: tauriMocks.destroyWindowMock,
   })),
   currentMonitorMock: vi.fn(async () => ({
@@ -119,6 +123,8 @@ describe("desktopApi", () => {
     tauriMocks.currentMonitorMock.mockClear();
     tauriMocks.onCloseRequestedMock.mockReset();
     tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
+    tauriMocks.setMinSizeMock.mockClear();
+    tauriMocks.setSizeMock.mockClear();
     tauriMocks.exitMock.mockClear();
     tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
@@ -501,11 +507,25 @@ describe("desktopApi", () => {
     tauriMocks.invokeMock.mockResolvedValueOnce({ speechProfile: null, captionLines: 4 });
     await desktopApi.openVoiceCaptionWindow();
     expect(tauriMocks.webviewWindowInstances[0]?.options).toMatchObject({
-      width: 380,
-      height: 72,
+      width: 160,
+      height: 48,
+      minWidth: 160,
+      minHeight: 48,
       theme: "light",
       url: expect.stringContaining("audioOnly=1"),
     });
+  });
+
+  it("lowers the minimum size before collapsing and restores it after expanding", async () => {
+    await desktopApi.captionWindowSetSize(190, 48);
+    expect(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setSizeMock.mock.invocationCallOrder[0]);
+    expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 190, height: 48 }));
+
+    tauriMocks.setMinSizeMock.mockClear();
+    tauriMocks.setSizeMock.mockClear();
+    await desktopApi.captionWindowSetSize(680, 220);
+    expect(tauriMocks.setSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]);
+    expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 380, height: 72 }));
   });
 
   it("focuses and navigates an existing project window", async () => {

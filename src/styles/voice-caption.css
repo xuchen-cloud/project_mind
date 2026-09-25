@@ -12,7 +12,7 @@ body,
   min-height: 0;
   overflow: hidden;
   border-radius: 18px;
-  background: color-mix(in srgb, var(--color-bg) 58%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 46%, transparent);
   color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
 }
@@ -148,11 +148,32 @@ body,
   height: 100%;
   min-height: 0;
   padding: 0 8px;
+  gap: 4px;
 }
 
 .voice-caption-shell--collapsed .voice-caption-status {
-  gap: 5px;
-  font-size: 11px;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.voice-caption-shell--collapsed .voice-caption-clock {
+  margin-left: 0;
+}
+
+.voice-caption-shell--collapsed .voice-caption-header-actions {
+  gap: 3px;
+}
+
+.voice-caption-shell .voice-caption-header-actions .voice-caption-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+}
+
+.voice-caption-shell .voice-caption-header-actions .voice-caption-icon-button:hover {
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
 }
 
 @keyframes caption-arrive {

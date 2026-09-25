@@ -73,8 +73,12 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
-  captionWindowSetSize(width: number, height: number) {
-    return getCurrentWindow().setSize(new LogicalSize(width, height));
+  async captionWindowSetSize(width: number, height: number) {
+    const current = getCurrentWindow();
+    const minSize = new LogicalSize(width < 380 ? width : 380, height < 72 ? height : 72);
+    if (width < 380) await current.setMinSize(minSize);
+    await current.setSize(new LogicalSize(width, height));
+    if (width >= 380) await current.setMinSize(minSize);
   },
 
   captionWindowClose() {
@@ -97,8 +101,8 @@ export const desktopApi = {
     const settings = await Promise.resolve(invoke<VoiceSettings>("voice_settings_get")).catch(() => null);
     const audioOnly = settings?.speechProfile === null;
     const monitor = await currentMonitor();
-    const width = audioOnly ? 380 : 680;
-    const height = audioOnly ? 72 : 220;
+    const width = audioOnly ? 160 : 680;
+    const height = audioOnly ? 48 : 220;
     const bounds = monitor?.workArea;
     const scale = monitor?.scaleFactor ?? 1;
     const x = bounds ? Math.round(bounds.position.x / scale + (bounds.size.width / scale - width) / 2) : undefined;
@@ -106,12 +110,12 @@ export const desktopApi = {
     const url = new URL("voice.html", window.location.href);
     if (audioOnly) url.searchParams.set("audioOnly", "1");
     const captionWindow = new webviewWindow.WebviewWindow("voice-caption", {
-      title: "实时字幕",
+      title: "语音记录",
       url: url.toString(),
       width,
       height,
-      minWidth: 380,
-      minHeight: 72,
+      minWidth: audioOnly ? 160 : 380,
+      minHeight: audioOnly ? 48 : 72,
       x,
       y,
       alwaysOnTop: true,

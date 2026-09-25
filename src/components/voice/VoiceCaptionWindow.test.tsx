@@ -52,11 +52,18 @@ it("controls the same recording and keeps provisional text separate from final c
 it("collapses the independent window while recording continues", async () => {
   const view = render(<VoiceCaptionWindow />);
   fireEvent.click(await screen.findByRole("button", { name: "折叠字幕" }));
-  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(380, 72));
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(190, 48));
   await waitFor(() => expect(screen.queryByText("已确认。")).not.toBeInTheDocument());
   expect(screen.getByLabelText("录音时间")).toHaveTextContent("0:01");
   expect(screen.getByRole("button", { name: "暂停录音" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "结束录音" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "展开字幕" })).toHaveClass("voice-caption-icon-button");
+  expect(screen.getByRole("button", { name: "暂停录音" })).toHaveClass("voice-caption-icon-button");
+  expect(screen.getByRole("button", { name: "暂停录音" }).textContent).toBe("");
+  expect(screen.getByRole("button", { name: "结束录音" }).textContent).toBe("");
+  expect(screen.getByRole("img", { name: "正在录音" })).toBeInTheDocument();
+  expect(screen.queryByText("正在录音")).not.toBeInTheDocument();
+  expect(screen.queryByText("实时字幕")).not.toBeInTheDocument();
   expect(mocks.pause).not.toHaveBeenCalled();
   view.unmount();
 });
@@ -64,7 +71,7 @@ it("collapses the independent window while recording continues", async () => {
 it("collapses when the window close control is used", async () => {
   const view = render(<VoiceCaptionWindow />);
   fireEvent.click(await screen.findByRole("button", { name: "关闭浮窗" }));
-  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(380, 72));
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(190, 48));
   expect(mocks.close).not.toHaveBeenCalled();
   view.unmount();
 });
@@ -74,7 +81,7 @@ it("treats an OS close request as a collapse while recording", async () => {
   await screen.findByRole("button", { name: "折叠字幕" });
   const shouldClose = mocks.onCloseRequested.mock.calls[0][0] as () => boolean;
   act(() => { expect(shouldClose()).toBe(false); });
-  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(380, 72));
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(190, 48));
   view.unmount();
 });
 
@@ -147,10 +154,11 @@ it("keeps audio-only recording in the compact control window", async () => {
   mocks.transcriptTail.mockResolvedValue([]);
   mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 3, phase: "recording", activeMs: 1234, interimText: null });
   const view = render(<VoiceCaptionWindow />);
-  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(380, 72));
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(160, 48));
   expect(screen.getByRole("button", { name: "暂停录音" })).toBeInTheDocument();
   expect(screen.getByLabelText("录音时间")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "展开字幕" })).not.toBeInTheDocument();
+  expect(screen.queryByText("正在录音")).not.toBeInTheDocument();
   expect(mocks.transcriptTail).not.toHaveBeenCalled();
   view.unmount();
 });
