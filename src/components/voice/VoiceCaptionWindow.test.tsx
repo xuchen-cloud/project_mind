@@ -65,6 +65,9 @@ it("collapses the independent window while recording continues", async () => {
   expect(screen.queryByText("正在录音")).not.toBeInTheDocument();
   expect(screen.queryByText("实时字幕")).not.toBeInTheDocument();
   expect(mocks.pause).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "展开字幕" }));
+  await waitFor(() => expect(mocks.setSize).toHaveBeenCalledWith(680, 220));
+  expect(await screen.findByText("已确认。")).toBeInTheDocument();
   view.unmount();
 });
 

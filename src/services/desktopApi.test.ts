@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import voiceCaptionCapability from "../../src-tauri/capabilities/voice-caption.json";
 const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
@@ -529,6 +530,10 @@ describe("desktopApi", () => {
     await desktopApi.captionWindowSetSize(680, 220);
     expect(tauriMocks.setSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]);
     expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 380, height: 72 }));
+  });
+
+  it("allows the caption window to change its minimum size", () => {
+    expect(voiceCaptionCapability.permissions).toContain("core:window:allow-set-size-constraints");
   });
 
   it("forces the caption window to close even when close requests are intercepted", async () => {

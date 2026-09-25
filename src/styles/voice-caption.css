@@ -11,7 +11,7 @@ body,
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 24px;
   background: color-mix(in srgb, var(--color-bg) 46%, transparent);
   color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
@@ -149,6 +149,10 @@ body,
   min-height: 0;
   padding: 0 8px;
   gap: 4px;
+}
+
+.voice-caption-shell--collapsed {
+  border-radius: 999px;
 }
 
 .voice-caption-shell--collapsed .voice-caption-status {
