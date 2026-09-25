@@ -100,6 +100,32 @@ it("closes itself after the recording ends in the main window", async () => {
   view.unmount();
 });
 
+it("remains visible while the recording is paused", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 4, phase: "paused", activeMs: 1234, interimText: null });
+  const view = render(<VoiceCaptionWindow />);
+  expect(await screen.findByText("已暂停")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "开始录音" })).toBeInTheDocument();
+  expect(mocks.close).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it("closes itself when the recording has ended", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 5, phase: "ended", activeMs: 1234, interimText: null });
+  const view = render(<VoiceCaptionWindow />);
+  await waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  view.unmount();
+});
+
+it("closes when ending a paused recording from the floating controls", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 4, phase: "paused", activeMs: 1234, interimText: null });
+  mocks.end.mockResolvedValue({ sessionId: "s1", revision: 5, phase: "ended", activeMs: 1234 });
+  const view = render(<VoiceCaptionWindow />);
+  fireEvent.click(await screen.findByRole("button", { name: "结束录音" }));
+  await waitFor(() => expect(mocks.end).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "s1", expectedRevision: 4 })));
+  await waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  view.unmount();
+});
+
 it("closes an orphaned window when the initial session lookup fails", async () => {
   mocks.snapshotGet.mockRejectedValue(new Error("workspace unavailable"));
   const view = render(<VoiceCaptionWindow />);

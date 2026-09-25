@@ -477,15 +477,16 @@ describe("desktopApi", () => {
         alwaysOnTop: true,
         transparent: true,
         decorations: false,
-        shadow: false,
+        shadow: true,
         theme: "light",
-        windowEffects: { effects: ["popover"], state: "active", radius: 18 },
         width: 680,
         height: 220,
         x: 380,
         y: 610,
       },
     });
+    expect(tauriMocks.webviewWindowInstances[0]?.options).not.toHaveProperty("windowEffects");
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("voice_caption_apply_material");
     const existing = { show: vi.fn(), setFocus: vi.fn(), setTheme: vi.fn() };
     tauriMocks.getByLabelMock.mockResolvedValueOnce(existing);
     await desktopApi.openVoiceCaptionWindow();

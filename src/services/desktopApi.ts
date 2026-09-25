@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
-import { currentMonitor, Effect, EffectState, getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { exit } from "@tauri-apps/plugin-process";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
@@ -119,9 +119,8 @@ export const desktopApi = {
       focus: false,
       resizable: true,
       decorations: false,
-      shadow: false,
+      shadow: true,
       theme: "light",
-      windowEffects: { effects: [Effect.Popover], state: EffectState.Active, radius: 18 },
     });
     await new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -136,6 +135,7 @@ export const desktopApi = {
         reject(error);
       });
     });
+    await invoke("voice_caption_apply_material");
   },
 
   async listenForCloseRequest(onClose: () => Promise<boolean>) {

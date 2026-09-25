@@ -66,6 +66,47 @@ const APP_IDENTIFIER: &str = "com.xuchen.projectmind.alpha";
 const DEFAULT_DEMO_WORKSPACE_DIR_NAME: &str = "ProjectMind Demo Workspace";
 const LOCAL_WORKSPACE_SESSION_FILE_NAME: &str = "workspace-session.json";
 
+#[tauri::command]
+async fn voice_caption_apply_material(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{
+            apply_liquid_glass, apply_vibrancy, LiquidGlassOptions, NSGlassEffectViewStyle,
+            NSVisualEffectMaterial, NSVisualEffectState,
+        };
+
+        let window = app
+            .get_webview_window("voice-caption")
+            .ok_or_else(|| "voice caption window is unavailable".to_string())?;
+        let main_window = window.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        window
+            .run_on_main_thread(move || {
+                let result = apply_liquid_glass(
+                    &main_window,
+                    LiquidGlassOptions::new(NSGlassEffectViewStyle::Regular).radius(18.0),
+                )
+                .or_else(|_| {
+                    apply_vibrancy(
+                        &main_window,
+                        NSVisualEffectMaterial::Popover,
+                        Some(NSVisualEffectState::Active),
+                        Some(18.0),
+                    )
+                })
+                .map_err(|error| error.to_string());
+                let _ = sender.send(result);
+            })
+            .map_err(|error| error.to_string())?;
+        receiver.await.map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 pub struct SeedDemoWorkspaceResult {
     pub workspace_root: String,
     pub metadata_path: String,
@@ -1114,6 +1155,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,
             voice::commands::voice_model_import,
