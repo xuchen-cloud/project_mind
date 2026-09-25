@@ -107,8 +107,12 @@ export function VoiceCaptionWindow() {
       const next = await operation();
       setSession(next.phase === "ended" ? null : next);
       setError(null);
+      if (next.phase === "ended") {
+        allowClose.current = true;
+        await desktopApi.captionWindowClose();
+        return;
+      }
       await refresh();
-      if (next.phase === "ended") { allowClose.current = true; await desktopApi.captionWindowClose(); }
     } catch (cause) {
       setError(String(cause));
     } finally {

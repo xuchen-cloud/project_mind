@@ -2,19 +2,36 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { VoiceFloatingPanel } from './VoiceFloatingPanel';
 
-const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn(), settingsGet: vi.fn(), start: vi.fn(), pushToast: vi.fn(), openVoiceCaptionWindow: vi.fn() }));
+const mocks = vi.hoisted(() => ({ snapshotGet: vi.fn(), transcriptTail: vi.fn(), settingsGet: vi.fn(), start: vi.fn(), end: vi.fn(), pushToast: vi.fn(), openVoiceCaptionWindow: vi.fn(), closeVoiceCaptionWindow: vi.fn() }));
 vi.mock('../../services/voiceApi', () => ({ voiceApi: {
   availabilityGet: async () => ({ implemented: true }),
   settingsGet: mocks.settingsGet,
   snapshotGet: mocks.snapshotGet,
   transcriptTail: mocks.transcriptTail,
   start: mocks.start,
+  end: mocks.end,
 } }));
 vi.mock('../../state/feedback-store', () => ({ useFeedbackStore: () => ({ pushToast: mocks.pushToast }) }));
-vi.mock('../../services/desktopApi', () => ({ desktopApi: { openVoiceCaptionWindow: mocks.openVoiceCaptionWindow } }));
+vi.mock('../../services/desktopApi', () => ({ desktopApi: { openVoiceCaptionWindow: mocks.openVoiceCaptionWindow, closeVoiceCaptionWindow: mocks.closeVoiceCaptionWindow } }));
 
 beforeEach(() => {
   mocks.settingsGet.mockReset().mockResolvedValue({ captionLines: 4, speechProfile: { kind: 'paraformer' } });
+  mocks.closeVoiceCaptionWindow.mockReset().mockResolvedValue(undefined);
+});
+
+it('closes the caption window as soon as ending succeeds, before record refresh completes', async () => {
+  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 2, phase: 'recording', activeMs: 1000 });
+  mocks.transcriptTail.mockReset().mockResolvedValue([]);
+  mocks.end.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 3, phase: 'ended', activeMs: 1000 });
+  let finishRefresh!: () => void;
+  const onChanged = vi.fn(() => new Promise<void>((resolve) => { finishRefresh = resolve; }));
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={onChanged} onOpenRecord={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '结束' }));
+  await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce());
+  await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  expect(mocks.closeVoiceCaptionWindow).toHaveBeenCalledOnce();
+  finishRefresh();
+  view.unmount();
 });
 
 it('opens the new recording only after the record cache has refreshed', async () => {

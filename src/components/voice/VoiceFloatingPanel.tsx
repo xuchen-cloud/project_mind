@@ -106,6 +106,13 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
       activeSessionRef.current = next.phase === "ended" ? null : next.sessionId;
       if (next.sessionId !== session?.sessionId || next.phase === "ended") { setCaptions([]); setInterim(null); }
       setSession(next.phase === "ended" ? null : next);
+      if (next.phase === "ended") {
+        try {
+          await desktopApi.closeVoiceCaptionWindow();
+        } catch (windowError) {
+          pushToast({ tone: "error", title: "浮窗关闭失败", detail: String(windowError) });
+        }
+      }
       await onChanged();
       if (next.phase === "recording") {
         try {

@@ -82,7 +82,12 @@ export const desktopApi = {
   },
 
   captionWindowClose() {
-    return getCurrentWindow().close();
+    return getCurrentWindow().destroy();
+  },
+
+  async closeVoiceCaptionWindow() {
+    const captionWindow = await webviewWindow.WebviewWindow.getByLabel("voice-caption");
+    if (captionWindow) await captionWindow.destroy();
   },
 
   captionWindowOnCloseRequested(shouldClose: () => boolean) {

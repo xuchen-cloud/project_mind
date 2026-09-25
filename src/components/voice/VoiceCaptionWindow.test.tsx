@@ -133,6 +133,18 @@ it("closes when ending a paused recording from the floating controls", async () 
   view.unmount();
 });
 
+it("closes after ending from the floating controls even when the next status refresh stalls", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 3, phase: "recording", activeMs: 1234, interimText: null });
+  mocks.end.mockResolvedValue({ sessionId: "s1", revision: 4, phase: "ended", activeMs: 1234 });
+  const view = render(<VoiceCaptionWindow />);
+  const endButton = await screen.findByRole("button", { name: "结束录音" });
+  mocks.snapshotGet.mockImplementation(() => new Promise(() => undefined));
+  fireEvent.click(endButton);
+  await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce());
+  await waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  view.unmount();
+});
+
 it("closes an orphaned window when the initial session lookup fails", async () => {
   mocks.snapshotGet.mockRejectedValue(new Error("workspace unavailable"));
   const view = render(<VoiceCaptionWindow />);

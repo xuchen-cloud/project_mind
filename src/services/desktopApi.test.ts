@@ -10,6 +10,7 @@ const tauriMocks = vi.hoisted(() => ({
   onCloseRequestedMock: vi.fn(),
   setMinSizeMock: vi.fn(async () => undefined),
   setSizeMock: vi.fn(async () => undefined),
+  closeWindowMock: vi.fn(async () => undefined),
   exitMock: vi.fn(async () => undefined),
   destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
@@ -25,6 +26,7 @@ const tauriMocks = vi.hoisted(() => ({
     onCloseRequested: tauriMocks.onCloseRequestedMock,
     setMinSize: tauriMocks.setMinSizeMock,
     setSize: tauriMocks.setSizeMock,
+    close: tauriMocks.closeWindowMock,
     destroy: tauriMocks.destroyWindowMock,
   })),
   currentMonitorMock: vi.fn(async () => ({
@@ -125,6 +127,7 @@ describe("desktopApi", () => {
     tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
     tauriMocks.setMinSizeMock.mockClear();
     tauriMocks.setSizeMock.mockClear();
+    tauriMocks.closeWindowMock.mockClear();
     tauriMocks.exitMock.mockClear();
     tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
@@ -526,6 +529,19 @@ describe("desktopApi", () => {
     await desktopApi.captionWindowSetSize(680, 220);
     expect(tauriMocks.setSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]);
     expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 380, height: 72 }));
+  });
+
+  it("forces the caption window to close even when close requests are intercepted", async () => {
+    await desktopApi.captionWindowClose();
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
+    expect(tauriMocks.closeWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("closes the independent caption window from the main recording controls", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce({ destroy: tauriMocks.destroyWindowMock });
+    await desktopApi.closeVoiceCaptionWindow();
+    expect(tauriMocks.getByLabelMock).toHaveBeenCalledWith("voice-caption");
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
   });
 
   it("focuses and navigates an existing project window", async () => {
