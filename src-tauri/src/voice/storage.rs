@@ -1,12 +1,13 @@
 //! Durable audio boundary for Voice Record.
-use super::capture::{AudioFrame, AudioFrameStream, AudioSource};
-use anyhow::{anyhow, Context, Result};
+use super::capture::{AudioFrameStream, AudioSource};
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     thread,
+    sync::mpsc,
 };
 
 pub const VOICE_ASSET_DIR: &str = ".project-mind/voice";
@@ -41,7 +42,8 @@ pub struct AudioChunkManifest {
 }
 
 pub struct WriterHandle {
-    join: Option<thread::JoinHandle<Result<AudioChunkManifest>>>,
+    completed: mpsc::Receiver<AudioChunkManifest>,
+    join: Option<thread::JoinHandle<Result<Vec<AudioChunkManifest>>>>,
 }
 
 impl WriterHandle {
@@ -52,14 +54,23 @@ impl WriterHandle {
         epoch: u64,
         mut frames: AudioFrameStream,
     ) -> Self {
+        let (send, completed) = mpsc::channel();
         let join = thread::Builder::new()
             .name(format!("voice-writer-{}", source_name(source)))
-            .spawn(move || write_track(&workspace_root, &session_id, source, epoch, &mut frames))
+            .spawn(move || write_track(&workspace_root, &session_id, source, epoch, &mut frames, Some(&send)))
             .expect("voice writer thread should start");
-        Self { join: Some(join) }
+        Self { join: Some(join), completed }
     }
 
-    pub fn finish(mut self) -> Result<AudioChunkManifest> {
+    pub fn take_completed(&self) -> Vec<AudioChunkManifest> {
+        self.completed.try_iter().collect()
+    }
+
+    pub fn has_stopped(&self) -> bool {
+        self.join.as_ref().is_some_and(|join| join.is_finished())
+    }
+
+    pub fn finish(mut self) -> Result<Vec<AudioChunkManifest>> {
         self.join
             .take()
             .expect("writer can only be joined once")
@@ -68,99 +79,123 @@ impl WriterHandle {
     }
 }
 
-fn write_track(
-    workspace_root: &Path,
-    session_id: &str,
-    source: AudioSource,
-    epoch: u64,
-    frames: &mut AudioFrameStream,
-) -> Result<AudioChunkManifest> {
-    let directory = workspace_root
-        .join(VOICE_ASSET_DIR)
-        .join(session_id)
-        .join(format!("epoch-{epoch}"));
-    fs::create_dir_all(&directory).with_context(|| {
-        format!(
-            "failed to create voice asset directory {}",
-            directory.display()
-        )
-    })?;
-    let file_name = format!("{}.wav", source_name(source));
-    let final_path = directory.join(&file_name);
-    let partial_path = directory.join(format!("{file_name}.part"));
-    let file = OpenOptions::new()
-        .create_new(true)
-        .read(true)
-        .write(true)
-        .open(&partial_path)
-        .with_context(|| format!("failed to create audio chunk {}", partial_path.display()))?;
-    let mut writer = BufWriter::new(file);
-    writer.write_all(&[0_u8; 44])?;
+pub const MIN_FREE_BYTES: u64 = 16 * 1024 * 1024;
 
-    let first = frames
-        .blocking_next()
-        .ok_or_else(|| anyhow!("capture ended before {source:?} produced audio"))?;
-    let sample_rate = first.sample_rate;
-    let channels = first.channels;
-    let source_offset_samples = u128::from(first.media_position_ns())
-        .saturating_mul(u128::from(first.sample_rate))
-        / 1_000_000_000;
-    let start_sample = u64::try_from(source_offset_samples).unwrap_or(u64::MAX);
-    let mut sample_count = 0_u64;
-    write_frame(
-        &mut writer,
-        &first,
-        sample_rate,
-        channels,
-        &mut sample_count,
-    )?;
-    checkpoint_wav(&mut writer, sample_rate, channels, sample_count)?;
-    let mut checkpoint_at = sample_count.saturating_add(u64::from(sample_rate));
+pub fn ensure_storage_capacity(root: &Path, minimum: u64) -> Result<()> {
+    if fs2::available_space(root)? < minimum {
+        return Err(anyhow!("磁盘可用空间不足，录音已停止写入"));
+    }
+    Ok(())
+}
+
+pub fn preflight_storage(root: &Path) -> Result<()> {
+    ensure_storage_capacity(root, MIN_FREE_BYTES)?;
+    let directory = root.join(VOICE_ASSET_DIR);
+    fs::create_dir_all(&directory)?;
+    let mut probe = tempfile::NamedTempFile::new_in(&directory)?;
+    probe.write_all(b"voice storage preflight")?;
+    probe.as_file().sync_all()?;
+    Ok(())
+}
+
+/// One minute bounds the recovery unit and keeps RIFF sizes below the format limit.
+const CHUNK_SECONDS: u64 = 60;
+
+struct TrackChunk {
+    writer: BufWriter<File>,
+    partial_path: PathBuf,
+    final_path: PathBuf,
+    manifest: AudioChunkManifest,
+}
+
+impl TrackChunk {
+    fn create(root: &Path, directory: &Path, source: AudioSource, epoch: u64,
+        index: u64, start: u64, rate: u32, channels: u16) -> Result<Self> {
+        // Coordinates in the managed filename survive a crash before SQLite registration.
+        let final_path = directory.join(format!("{}-{index}-{start}.wav", source_name(source)));
+        let partial_path = final_path.with_extension("wav.part");
+        let file = OpenOptions::new().create_new(true).read(true).write(true).open(&partial_path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(&[0_u8; 44])?;
+        checkpoint_wav(&mut writer, rate, channels, 0)?;
+        Ok(Self { writer, partial_path, manifest: AudioChunkManifest {
+            source: source_name(source), epoch, chunk_index: index, start_sample: start,
+            sample_count: 0, sample_rate: rate, channels,
+            relative_path: final_path.strip_prefix(root)?.to_string_lossy().replace('\\', "/"),
+            byte_size: 44,
+        }, final_path })
+    }
+
+    fn finish(mut self) -> Result<AudioChunkManifest> {
+        checkpoint_wav(&mut self.writer, self.manifest.sample_rate, self.manifest.channels, self.manifest.sample_count)?;
+        self.writer.get_ref().sync_all()?;
+        drop(self.writer);
+        fs::rename(&self.partial_path, &self.final_path)?;
+        sync_directory(self.final_path.parent().expect("chunk directory"))?;
+        self.manifest.byte_size = fs::metadata(&self.final_path)?.len();
+        Ok(self.manifest)
+    }
+}
+
+fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+fn write_track(
+    workspace_root: &Path, session_id: &str, source: AudioSource, epoch: u64,
+    frames: &mut AudioFrameStream, completed: Option<&mpsc::Sender<AudioChunkManifest>>,
+) -> Result<Vec<AudioChunkManifest>> {
+    let directory = workspace_root.join(VOICE_ASSET_DIR).join(session_id).join(format!("epoch-{epoch}"));
+    fs::create_dir_all(&directory)?;
+    let mut chunks = Vec::new();
+    let mut active: Option<TrackChunk> = None;
+    let mut format = None;
+    let mut next_start = None;
+    let mut space_checked = std::time::Instant::now();
+    ensure_storage_capacity(workspace_root, MIN_FREE_BYTES)?;
     while let Some(frame) = frames.blocking_next() {
-        write_frame(
-            &mut writer,
-            &frame,
-            sample_rate,
-            channels,
-            &mut sample_count,
-        )?;
-        if sample_count >= checkpoint_at {
-            checkpoint_wav(&mut writer, sample_rate, channels, sample_count)?;
-            checkpoint_at = sample_count.saturating_add(u64::from(sample_rate));
+        if frame.channels == 0 || frame.sample_rate == 0 || frame.samples.len() % usize::from(frame.channels) != 0 {
+            return Err(anyhow!("invalid audio frame"));
+        }
+        if space_checked.elapsed().as_secs() >= 1 {
+            ensure_storage_capacity(workspace_root, MIN_FREE_BYTES)?;
+            space_checked = std::time::Instant::now();
+        }
+        let expected = *format.get_or_insert((frame.sample_rate, frame.channels));
+        if expected != (frame.sample_rate, frame.channels) {
+            return Err(anyhow!("audio format changed within one capture epoch"));
+        }
+        let start = (u128::from(frame.media_position_ns()) * u128::from(frame.sample_rate) / 1_000_000_000) as u64;
+        let position = next_start.get_or_insert(start);
+        let channels = usize::from(frame.channels);
+        let limit = (u64::from(frame.sample_rate) * CHUNK_SECONDS).min((u64::from(u32::MAX) - 36) / (channels as u64 * 4));
+        let mut remaining = frame.samples.as_slice();
+        while !remaining.is_empty() {
+            if active.is_none() {
+                active = Some(TrackChunk::create(workspace_root, &directory, source, epoch,
+                    chunks.len() as u64, *position, frame.sample_rate, frame.channels)?);
+            }
+            let chunk = active.as_mut().expect("created chunk");
+            let count = (limit - chunk.manifest.sample_count).min((remaining.len() / channels) as u64);
+            let (samples, rest) = remaining.split_at(count as usize * channels);
+            for sample in samples { chunk.writer.write_all(&sample.to_le_bytes())?; }
+            chunk.manifest.sample_count += count;
+            *position += count;
+            checkpoint_wav(&mut chunk.writer, frame.sample_rate, frame.channels, chunk.manifest.sample_count)?;
+            remaining = rest;
+            if chunk.manifest.sample_count == limit {
+                let manifest = active.take().expect("full chunk").finish()?;
+                if let Some(send) = completed { let _ = send.send(manifest.clone()); }
+                chunks.push(manifest);
+            }
         }
     }
-
-    let data_bytes = sample_count
-        .checked_mul(u64::from(channels))
-        .and_then(|value| value.checked_mul(4))
-        .ok_or_else(|| anyhow!("audio chunk size overflow"))?;
-    let data_bytes_u32 = u32::try_from(data_bytes).context("WAV chunk exceeded 4 GiB")?;
-    write_wav_header(&mut writer, sample_rate, channels, data_bytes_u32)?;
-    writer.flush()?;
-    let file = writer.into_inner().map_err(|error| error.into_error())?;
-    file.sync_all()?;
-    fs::rename(&partial_path, &final_path)?;
-    if let Some(parent) = final_path.parent() {
-        File::open(parent)?.sync_all()?;
-    }
-    let byte_size = fs::metadata(&final_path)?.len();
-    let relative_path = final_path
-        .strip_prefix(workspace_root)
-        .context("voice asset escaped workspace")?
-        .to_string_lossy()
-        .replace('\\', "/");
-
-    Ok(AudioChunkManifest {
-        source: source_name(source),
-        epoch,
-        chunk_index: 0,
-        start_sample,
-        sample_count,
-        sample_rate,
-        channels,
-        relative_path,
-        byte_size,
-    })
+    if let Some(chunk) = active { chunks.push(chunk.finish()?); }
+    Ok(chunks)
 }
 
 fn checkpoint_wav(
@@ -200,20 +235,34 @@ pub fn recover_partial_tracks(
         else {
             continue;
         };
-        for source in [AudioSource::Microphone, AudioSource::System] {
-            let name = source_name(source);
-            let partial_path = entry.path().join(format!("{name}.wav.part"));
-            let final_path = entry.path().join(format!("{name}.wav"));
-            if !partial_path.exists() || final_path.exists() {
-                continue;
-            }
-            if let Some(manifest) =
-                recover_partial_track(workspace_root, &partial_path, &final_path, name, epoch)?
-            {
+        for file in fs::read_dir(entry.path())? {
+            let file = file?;
+            if !file.file_type()?.is_file() { continue; }
+            let filename = file.file_name().to_string_lossy().into_owned();
+            let partial = filename.ends_with(".wav.part");
+            let stem = filename.strip_suffix(".wav.part").or_else(|| filename.strip_suffix(".wav"));
+            let Some(stem) = stem else { continue; };
+            let mut parts = stem.split('-');
+            let source = match parts.next() {
+                Some("microphone") => "microphone", Some("system") => "system", _ => continue,
+            };
+            let coordinates = match (parts.next(), parts.next(), parts.next()) {
+                (None, None, None) => (0, 0), // Read old epoch-only recordings.
+                (Some(index), Some(start), None) => match (index.parse::<u64>(), start.parse::<u64>()) {
+                    (Ok(index), Ok(start)) => (index, start), _ => continue,
+                },
+                _ => continue,
+            };
+            let final_path = entry.path().join(format!("{stem}.wav"));
+            if partial && final_path.exists() { continue; }
+            if let Some(mut manifest) = recover_partial_track(workspace_root, &file.path(), &final_path, source, epoch)? {
+                manifest.chunk_index = coordinates.0;
+                manifest.start_sample = coordinates.1;
                 recovered.push(manifest);
             }
         }
     }
+    recovered.sort_by_key(|chunk| (chunk.epoch, chunk.source, chunk.chunk_index));
     Ok(recovered)
 }
 
@@ -253,7 +302,10 @@ fn recover_partial_track(
     writer.flush()?;
     let file = writer.into_inner().map_err(|error| error.into_error())?;
     file.sync_all()?;
-    fs::rename(partial_path, final_path)?;
+    if partial_path != final_path {
+        fs::rename(partial_path, final_path)?;
+        sync_directory(final_path.parent().expect("chunk directory"))?;
+    }
     let relative_path = final_path
         .strip_prefix(workspace_root)?
         .to_string_lossy()
@@ -269,25 +321,6 @@ fn recover_partial_track(
         relative_path,
         byte_size: 44 + data_bytes,
     }))
-}
-
-fn write_frame(
-    writer: &mut BufWriter<File>,
-    frame: &AudioFrame,
-    sample_rate: u32,
-    channels: u16,
-    sample_count: &mut u64,
-) -> Result<()> {
-    if frame.sample_rate != sample_rate || frame.channels != channels {
-        return Err(anyhow!("audio format changed within one capture epoch"));
-    }
-    for sample in &frame.samples {
-        writer.write_all(&sample.to_le_bytes())?;
-    }
-    *sample_count = sample_count
-        .checked_add(u64::try_from(frame.samples.len() / usize::from(channels))?)
-        .ok_or_else(|| anyhow!("audio sample counter overflow"))?;
-    Ok(())
 }
 
 fn write_wav_header(
@@ -347,6 +380,43 @@ mod tests {
     }
 
     #[test]
+    fn write_failure_preserves_completed_chunks_and_storage_preflight_rejects_insufficient_space() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(ensure_storage_capacity(root.path(), u64::MAX).is_err());
+        preflight_storage(root.path()).unwrap();
+        let blocked = root.path().join(VOICE_ASSET_DIR).join("failure/epoch-1/microphone-1-600.wav.part");
+        fs::create_dir_all(&blocked).unwrap();
+        let (sink, stream) = bounded_audio_frames(1).unwrap();
+        let writer = WriterHandle::spawn(root.path().into(), "failure".into(), AudioSource::Microphone, 1, stream);
+        let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 10, 1).unwrap();
+        sink.try_push(timeline.stamp(0, vec![0.5; 601]).unwrap()).unwrap();
+        drop(sink);
+        assert!(writer.finish().is_err());
+        let saved = recover_partial_tracks(root.path(), "failure").unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].sample_count, 600);
+    }
+
+    #[test]
+    fn recording_rolls_tracks_and_recovers_their_original_timeline() {
+        let workspace = tempfile::tempdir().unwrap();
+        let (sink, stream) = bounded_audio_frames(2).unwrap();
+        let writer = WriterHandle::spawn(workspace.path().to_path_buf(), "rolling".into(), AudioSource::Microphone, 1, stream);
+        let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 10, 1).unwrap();
+        sink.try_push(timeline.stamp(200_000_000, vec![0.25; 601]).unwrap()).unwrap();
+        drop(sink);
+        let chunks = writer.finish().unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!((chunks[0].start_sample, chunks[0].sample_count), (2, 600));
+        assert_eq!((chunks[1].start_sample, chunks[1].sample_count), (602, 1));
+        let last = workspace.path().join(&chunks[1].relative_path);
+        fs::rename(&last, last.with_extension("wav.part")).unwrap();
+        let recovered = recover_partial_tracks(workspace.path(), "rolling").unwrap();
+        assert_eq!(recovered.len(), 2);
+        assert_eq!((recovered[1].start_sample, recovered[1].sample_count), (602, 1));
+    }
+
+    #[test]
     fn integer_microphone_round_trips_through_float_wav_at_device_rate() {
         use crate::voice::capture::{decode_i16_pcm, PcmBuffer};
         let workspace = tempfile::tempdir().unwrap();
@@ -370,8 +440,9 @@ mod tests {
             AudioSource::Microphone,
             1,
             &mut stream,
+            None,
         )
-        .unwrap();
+        .unwrap().remove(0);
         assert_eq!(manifest.sample_count, input.len() as u64);
         assert_eq!(manifest.sample_rate, 44_100);
         let wav = fs::read(workspace.path().join(manifest.relative_path)).unwrap();
@@ -398,8 +469,9 @@ mod tests {
             AudioSource::Microphone,
             1,
             &mut stream,
+            None,
         )
-        .unwrap();
+        .unwrap().remove(0);
         assert_eq!(manifest.sample_count, 480);
         assert_eq!(manifest.start_sample, 4_800);
         let final_path = workspace.join(&manifest.relative_path);

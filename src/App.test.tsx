@@ -24,6 +24,7 @@ vi.mock("./services/desktopApi", () => ({
     openProjectWindow: vi.fn(async () => undefined),
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
+    prepareVoiceLeave: vi.fn(async () => true),
     listenForCloseRequest: vi.fn(async () => () => undefined),
     listenForWorkspaceLifecycleFlush: vi.fn(async () => () => undefined),
     flushOtherWorkspaceWindows: vi.fn(async () => undefined),

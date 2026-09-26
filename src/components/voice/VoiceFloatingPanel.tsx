@@ -179,6 +179,7 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
           {interim ? <li className="text-text-muted" aria-label="临时字幕">{interim}</li> : null}
         </ol>
       ) : null}
+      {paused && session.pauseReason && session.pauseReason !== "user" ? <p role="status" className="text-caption text-text-muted">暂停原因：{session.pauseReason}</p> : null}
       <div className="flex w-full items-center justify-center gap-2">
       <Button size="sm" variant="secondary" aria-label={recognitionEnabled ? "打开字幕浮窗" : "打开录音浮窗"} leadingIcon={<ExternalLink size={13} />}
         onClick={() => void desktopApi.openVoiceCaptionWindow().catch((error) => pushToast({ tone: "error", title: "无法打开字幕浮窗", detail: String(error) }))}>浮窗</Button>

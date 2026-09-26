@@ -73,7 +73,8 @@ const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
 const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
 const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
 const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_MINUTES_SCHEMA_VERSION;
+const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
+const CURRENT_SCHEMA_VERSION: i64 = VOICE_RELIABILITY_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -292,6 +293,7 @@ impl Database {
             secret_password,
         };
         db.migrate()?;
+        db.voice_retry_asset_cleanup()?;
         Ok(db)
     }
 
@@ -736,6 +738,9 @@ impl Database {
         if self.schema_version()? < VOICE_MINUTES_SCHEMA_VERSION {
             self.set_schema_version(VOICE_MINUTES_SCHEMA_VERSION)?;
         }
+        if self.schema_version()? < VOICE_RELIABILITY_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RELIABILITY_SCHEMA_VERSION)?;
+        }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -1010,6 +1015,20 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn voice_recover_audio(&self, session_id: &str) -> Result<()> {
+        for chunk in crate::voice::storage::recover_partial_tracks(&self.workspace_root, session_id)? {
+            self.voice_audio_chunk_insert(session_id, &chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn voice_saved_duration_ms(&self, session_id: &str) -> Result<u64> {
+        let duration: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(duration), 0) FROM (SELECT MAX((start_sample + sample_count) * 1000 / sample_rate) AS duration FROM voice_audio_chunks WHERE session_id=?1 AND state='complete' GROUP BY epoch)",
+            [session_id], |row| row.get(0))?;
+        Ok(u64::try_from(duration)?)
     }
 
     pub fn voice_playback_get(
@@ -1538,6 +1557,10 @@ impl Database {
     fn ensure_voice_record_schema(&self) -> Result<()> {
         self.conn.execute_batch(
             r#"
+            CREATE TABLE IF NOT EXISTS voice_asset_cleanup (
+              session_id TEXT PRIMARY KEY,
+              last_error TEXT
+            );
             CREATE TABLE IF NOT EXISTS voice_records (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               project_note_id INTEGER UNIQUE,
@@ -1608,6 +1631,13 @@ impl Database {
               UNIQUE(session_id, provider_key),
               FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
             );
+
+            CREATE TRIGGER IF NOT EXISTS voice_session_protect_delete
+            BEFORE DELETE ON recording_sessions WHEN OLD.lifecycle != 'ended'
+            BEGIN SELECT RAISE(ABORT, '请先结束语音记录，再删除 Record 或 Project'); END;
+            CREATE TRIGGER IF NOT EXISTS voice_session_schedule_cleanup
+            AFTER DELETE ON recording_sessions
+            BEGIN INSERT OR IGNORE INTO voice_asset_cleanup(session_id) VALUES (OLD.id); END;
 
             CREATE INDEX IF NOT EXISTS idx_recording_sessions_lifecycle
               ON recording_sessions(lifecycle, started_at DESC);
@@ -2407,8 +2437,37 @@ impl Database {
         self.project_record(input.project_id)
     }
 
+    /// The database tombstone survives a failed cleanup and a process restart.
+    pub fn voice_retry_asset_cleanup(&self) -> Result<()> {
+        let sessions = self.conn.prepare("SELECT session_id FROM voice_asset_cleanup")?
+            .query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        for session in sessions {
+            let result = (|| -> Result<()> {
+                if session.is_empty() || !session.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+                    return Err(anyhow!("invalid managed voice session path"));
+                }
+                let base = self.workspace_root.join(crate::voice::storage::VOICE_ASSET_DIR);
+                let directory = base.join(&session);
+                if directory.exists() {
+                    if !directory.canonicalize()?.starts_with(base.canonicalize()?) {
+                        return Err(anyhow!("voice asset escaped managed directory"));
+                    }
+                    fs::remove_dir_all(directory)?;
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => { self.conn.execute("DELETE FROM voice_asset_cleanup WHERE session_id = ?1", [&session])?; }
+                Err(error) => { self.conn.execute("UPDATE voice_asset_cleanup SET last_error = ?2 WHERE session_id = ?1", params![session, error.to_string()])?; }
+            }
+        }
+        Ok(())
+    }
+
     pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
+        let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
+        if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let project_root = PathBuf::from(&current.root_path);
         let cleanup_paths = if project_root.exists() {
             vec![project_root]
@@ -2419,6 +2478,7 @@ impl Database {
         move_paths_to_trash(&cleanup_paths)?;
         self.conn
             .execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        self.voice_retry_asset_cleanup()?;
 
         Ok(current)
     }
@@ -2707,6 +2767,7 @@ impl Database {
         let current = self.note_record(input.note_id)?;
         self.conn
             .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
+        self.voice_retry_asset_cleanup()?;
         self.touch_project(current.project_id)?;
         Ok(current)
     }
@@ -2947,12 +3008,10 @@ impl Database {
         input: WorkspaceRecordDeleteInput,
     ) -> Result<WorkspaceRecord> {
         let current = self.workspace_note_record(input.note_id)?;
-        self.conn.execute(
-            "DELETE FROM workspace_note_tag_links WHERE workspace_note_id = ?1",
-            [input.note_id],
-        )?;
+
         self.conn
             .execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
@@ -9373,6 +9432,43 @@ mod tests {
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn failed_voice_asset_cleanup_is_retried_after_reopening_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("test.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "retry", "retry", "Voice").unwrap();
+        let assets = root.path().join(crate::voice::storage::VOICE_ASSET_DIR);
+        fs::create_dir_all(&assets).unwrap();
+        fs::write(assets.join("retry"), b"not a directory").unwrap();
+        db.voice_session_transition("retry", session.revision, "ended", None, 0, 1).unwrap();
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id: session.workspace_note_id.unwrap() }).unwrap();
+        assert!(assets.join("retry").exists());
+        fs::remove_file(assets.join("retry")).unwrap();
+        fs::create_dir(assets.join("retry")).unwrap();
+        drop(db);
+        let _db = Database::open(&path, root.path(), None).unwrap();
+        assert!(!assets.join("retry").exists());
+    }
+
+    #[test]
+    fn voice_record_delete_protects_capture_then_cleans_assets_and_rejects_late_text() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "delete", "delete-session", "Voice").unwrap();
+        let note_id = session.workspace_note_id.unwrap();
+        let assets = root.path().join(crate::voice::storage::VOICE_ASSET_DIR).join("delete-session");
+        fs::create_dir_all(&assets).unwrap();
+        fs::write(assets.join("microphone.wav.part"), b"audio").unwrap();
+        assert!(db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id }).is_err());
+        assert!(assets.exists());
+        db.voice_session_transition(&session.session_id, session.revision, "ended", None, 0, 1).unwrap();
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id }).unwrap();
+        assert!(!assets.exists());
+        assert!(db.voice_session_get(&session.session_id).unwrap().is_none());
+        assert!(db.voice_transcript_append_final(&session.session_id, "late", 0, 100, "late", None).is_err());
+    }
 
     static TEST_UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 

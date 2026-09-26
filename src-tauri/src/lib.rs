@@ -188,6 +188,7 @@ pub(crate) struct AppState {
     local_session_path: PathBuf,
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
     voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
+    exit_authorized: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -1101,6 +1102,22 @@ fn ai_execution_settings_upsert(
 }
 
 #[tauri::command]
+fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
+    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.app_handle.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
+    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.app_handle.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
 fn workspace_search(
     state: State<'_, AppState>,
     input: WorkspaceSearchInput,
@@ -1144,6 +1161,7 @@ pub fn run() {
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
+                exit_authorized: std::sync::atomic::AtomicBool::new(false),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1152,6 +1170,19 @@ pub fn run() {
             }
 
             app.manage(state);
+            let handle = app.handle().clone();
+            std::thread::Builder::new().name("voice-supervisor".into()).spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                let state = handle.state::<AppState>();
+                let workspace = lock_mutex(&state.current_workspace).clone();
+                if let Some(workspace) = workspace {
+                    let mut voice = lock_mutex(&state.voice_runtime);
+                    let mut db = lock_mutex(&workspace.db);
+                    if let Err(error) = voice.snapshot(&mut db, &workspace.paths.root_path) {
+                        let _ = handle.emit("voice:error", error.to_string());
+                    }
+                }
+            })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1254,10 +1285,22 @@ pub fn run() {
             ai_execution_settings_upsert,
             internal_reference_search,
             internal_reference_resolve,
-            workspace_search
+            workspace_search,
+            app_exit,
+            app_restart
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                let state = app.state::<AppState>();
+                if !state.exit_authorized.load(std::sync::atomic::Ordering::SeqCst)
+                    && lock_mutex(&state.current_workspace).is_some() {
+                    api.prevent_exit();
+                    let _ = app.emit_to("main", "app:exit-requested", ());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

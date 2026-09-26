@@ -25,6 +25,7 @@ pub struct LiveParaformerHandle {
     results: mpsc::Receiver<Result<RecognitionUpdate>>,
     join: Option<thread::JoinHandle<Result<()>>>,
     preview_enabled: Arc<AtomicBool>,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl LiveParaformerHandle {
@@ -37,6 +38,7 @@ impl LiveParaformerHandle {
         preview_enabled: bool,
     ) -> Result<Self> {
         let (send, results) = mpsc::channel();
+        let (stop, shutdown) = tokio::sync::oneshot::channel();
         let preview_enabled = Arc::new(AtomicBool::new(preview_enabled));
         let worker_preview = Arc::clone(&preview_enabled);
         let join = thread::Builder::new()
@@ -45,15 +47,16 @@ impl LiveParaformerHandle {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()?;
-                let outcome = runtime.block_on(run_connection(
-                    &endpoint,
-                    &api_key,
-                    microphone,
-                    system,
-                    epoch_offset_ms,
-                    &send,
-                    &worker_preview,
-                ));
+                let outcome = runtime.block_on(async {
+                    let connection = run_connection(&endpoint, &api_key, microphone, system,
+                        epoch_offset_ms, &send, &worker_preview);
+                    tokio::pin!(connection);
+                    tokio::select! {
+                        result = &mut connection => result,
+                        _ = shutdown => tokio::time::timeout(Duration::from_secs(3), &mut connection)
+                            .await.context("Paraformer final drain timed out; saved audio retained")?,
+                    }
+                });
                 if let Err(error) = &outcome {
                     let _ = send.send(Err(anyhow!("Paraformer stream failed: {error}")));
                 }
@@ -63,6 +66,7 @@ impl LiveParaformerHandle {
             results,
             join: Some(join),
             preview_enabled,
+            stop: Some(stop),
         })
     }
 
@@ -83,6 +87,7 @@ impl LiveParaformerHandle {
     }
 
     pub fn finish(mut self) -> Vec<Result<RecognitionUpdate>> {
+        if let Some(stop) = self.stop.take() { let _ = stop.send(()); }
         let joined = self.join.take().expect("joined once").join();
         let mut results: Vec<_> = self.results.try_iter().collect();
         if joined.is_err() {
@@ -258,6 +263,7 @@ mod tests {
         let handle = LiveParaformerHandle {
             results,
             join: None,
+            stop: None,
             preview_enabled: Arc::new(AtomicBool::new(false)),
         };
         sender

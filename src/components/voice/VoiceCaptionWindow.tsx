@@ -145,7 +145,7 @@ export function VoiceCaptionWindow() {
   return (
     <main aria-label="语音记录浮窗" className={`voice-caption-shell ${collapsed ? "voice-caption-shell--collapsed" : ""}`}>
       <div className="voice-caption-header" data-tauri-drag-region>
-        <div className="voice-caption-status" data-tauri-drag-region>
+        <div title={session?.pauseReason ?? undefined} className="voice-caption-status" data-tauri-drag-region>
           <span className={`voice-caption-status-dot ${paused ? "voice-caption-status-dot--paused" : ""}`} role={collapsed ? "img" : undefined} aria-label={collapsed ? (paused ? "已暂停" : "正在录音") : undefined} aria-hidden={collapsed ? undefined : true} />
           {!collapsed ? <span>{paused ? "已暂停" : session ? "正在录音" : ""}</span> : null}
           {session ? <span className="voice-caption-clock" aria-label="录音时间">{duration(session.activeMs)}</span> : null}

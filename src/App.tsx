@@ -536,6 +536,7 @@ export function WorkspaceLayout({
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
+      if (!(await desktopApi.prepareVoiceLeave())) return workspaceStatusQuery.data!;
       await flushRecordSaves();
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
@@ -592,6 +593,7 @@ export function WorkspaceLayout({
 
   const handleSwitchWorkspace = useCallback(async () => {
     try {
+      if (!(await desktopApi.prepareVoiceLeave())) return;
       await flushRecordSaves();
       await desktopApi.flushOtherWorkspaceWindows();
       await desktopApi.destroyOtherWorkspaceWindows();
@@ -1182,6 +1184,7 @@ export function WorkspaceLayout({
     void desktopApi
       .listenForCloseRequest(async () => {
         try {
+          if (!projectWindow && !(await desktopApi.prepareVoiceLeave())) return false;
           await flushRecordSaves();
           if (!projectWindow) {
             await desktopApi.flushOtherWorkspaceWindows();

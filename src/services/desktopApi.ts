@@ -2,12 +2,11 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { exit } from "@tauri-apps/plugin-process";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
-import type { VoiceSettings } from "../lib/voice-types";
+import type { VoiceSessionSnapshot, VoiceSettings } from "../lib/voice-types";
 import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
 import {
   focusProjectWindow,
@@ -147,24 +146,41 @@ export const desktopApi = {
     await invoke("voice_caption_apply_material");
   },
 
+  async prepareVoiceLeave() {
+    const status = await invoke<{ currentWorkspace: unknown }>("workspace_status_get");
+    if (!status.currentWorkspace) return true;
+    const session = await invoke<VoiceSessionSnapshot | null>("voice_snapshot_get");
+    if (!session || session.phase === "ended") return true;
+    if (!(await ask("当前语音记录尚未结束。结束并保存后继续？", {
+      title: "保存语音记录", kind: "warning", okLabel: "结束并保存", cancelLabel: "取消",
+    }))) return false;
+    await invoke("voice_end", { input: {
+      sessionId: session.sessionId, expectedRevision: session.revision, requestId: crypto.randomUUID(),
+    } });
+    await desktopApi.closeVoiceCaptionWindow();
+    return true;
+  },
+
   async listenForCloseRequest(onClose: () => Promise<boolean>) {
     const currentWindow = getCurrentWindow();
-    return currentWindow.onCloseRequested(async (event) => {
-      if (!(await onClose())) {
-        event.preventDefault();
-        return;
-      }
-
-      if (!isProjectWindow()) {
-        event.preventDefault();
-        try {
-          await exit(0);
-        } catch {
-          const windows = await webviewWindow.getAllWebviewWindows();
-          await Promise.all(windows.map((candidate) => candidate.destroy()));
-        }
-      }
+    let closing = false;
+    const requestClose = async () => {
+      if (closing) return;
+      closing = true;
+      try {
+        if (!(await onClose())) return;
+        if (isProjectWindow()) await currentWindow.destroy();
+        else await invoke("app_exit");
+      } finally { closing = false; }
+    };
+    const unlistenClose = await currentWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+      await requestClose();
     });
+    const unlistenExit = !isProjectWindow()
+      ? await webviewWindow.getCurrentWebviewWindow().listen("app:exit-requested", requestClose)
+      : () => {};
+    return () => { unlistenClose(); unlistenExit(); };
   },
 
   async listenForWorkspaceLifecycleFlush(onFlush: () => Promise<void>) {
@@ -200,9 +216,11 @@ export const desktopApi = {
     );
   },
 
-  async flushOtherWorkspaceWindows() {
+  async flushOtherWorkspaceWindows(includeCurrent = false) {
     const currentWindow = webviewWindow.getCurrentWebviewWindow();
-    const targets = await otherProjectWindows();
+    const targets = includeCurrent
+      ? (await webviewWindow.getAllWebviewWindows()).filter(candidate => candidate.label === "main" || parseProjectWindowProjectId(candidate.label) !== null)
+      : await otherProjectWindows();
     if (targets.length === 0) {
       return;
     }

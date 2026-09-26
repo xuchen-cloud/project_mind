@@ -46,7 +46,7 @@ const tauriMocks = vi.hoisted(() => ({
     show: ReturnType<typeof vi.fn>;
     setFocus: ReturnType<typeof vi.fn>;
   }>,
-  getCurrentWebviewWindowMock: vi.fn(() => ({ label: "main" })),
+  getCurrentWebviewWindowMock: vi.fn(() => ({ label: "main", listen: vi.fn(async () => () => {}) })),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -135,7 +135,7 @@ describe("desktopApi", () => {
     tauriMocks.getAllWebviewWindowsMock.mockReset();
     tauriMocks.getAllWebviewWindowsMock.mockResolvedValue([]);
     tauriMocks.getCurrentWebviewWindowMock.mockReset();
-    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main" });
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main", listen: vi.fn(async () => () => {}) });
     tauriMocks.webviewWindowInstances.length = 0;
   });
 
@@ -146,6 +146,32 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("projects_list", {
       input: { includeArchived: true },
     });
+  });
+
+  it("cancels leaving without ending the recording", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce({ currentWorkspace: {} }).mockResolvedValueOnce({ sessionId: "voice", phase: "recording", revision: 1 });
+    tauriMocks.askMock.mockResolvedValueOnce(false);
+    expect(await desktopApi.prepareVoiceLeave()).toBe(false);
+    expect(tauriMocks.invokeMock).not.toHaveBeenCalledWith("voice_end", expect.anything());
+  });
+
+  it("saves the current recording before allowing a lifecycle change", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce({ currentWorkspace: {} }).mockResolvedValueOnce({ sessionId: "voice", phase: "paused", revision: 3 });
+    tauriMocks.askMock.mockResolvedValueOnce(true);
+    expect(await desktopApi.prepareVoiceLeave()).toBe(true);
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("voice_end", { input: { sessionId: "voice", expectedRevision: 3, requestId: expect.any(String) } });
+  });
+
+  it("prevents native closing before awaiting the save barrier", async () => {
+    let release!: (allow: boolean) => void;
+    await desktopApi.listenForCloseRequest(() => new Promise<boolean>(resolve => { release = resolve; }));
+    const handler = tauriMocks.onCloseRequestedMock.mock.calls[0][0];
+    const preventDefault = vi.fn();
+    const pending = handler({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    release(false);
+    await pending;
+    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
   it("exits the whole app after the main-window lifecycle barrier succeeds", async () => {
@@ -160,7 +186,7 @@ describe("desktopApi", () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(allowClose).toHaveBeenCalledTimes(1);
-    expect(tauriMocks.exitMock).toHaveBeenCalledWith(0);
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("app_exit");
     expect(unlisten).toBeTypeOf("function");
   });
 
@@ -175,7 +201,8 @@ describe("desktopApi", () => {
 
     await handler({ preventDefault });
 
-    expect(preventDefault).not.toHaveBeenCalled();
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
     expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
@@ -577,7 +604,7 @@ describe("desktopApi", () => {
     tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "project-8" });
     expect(desktopApi.isProjectWindow()).toBe(true);
 
-    tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "main" });
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "main", listen: vi.fn(async () => () => {}) });
     expect(desktopApi.isProjectWindow()).toBe(false);
   });
 });

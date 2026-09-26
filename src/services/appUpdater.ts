@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { desktopApi } from "./desktopApi";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 
 export interface AppUpdate {
@@ -31,7 +31,9 @@ export const tauriAppUpdater: AppUpdaterClient = {
     if (!pendingUpdate || pendingUpdate.version !== update.version) {
       throw new Error("需要重新检查更新后再安装");
     }
+    if (!(await desktopApi.prepareVoiceLeave())) return;
+    await desktopApi.flushOtherWorkspaceWindows(true);
     await pendingUpdate.downloadAndInstall();
-    await relaunch();
+    await desktopApi.command("app_restart");
   },
 };

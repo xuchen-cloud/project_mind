@@ -31,3 +31,27 @@ it('schedules delayed sources and later epochs once on the same audio clock', as
   expect(player.position).toBe(3);
   player.dispose();
 });
+
+it('seeks across rolling chunk boundaries without replaying an earlier chunk', async () => {
+  const starts: number[][] = [];
+  vi.stubGlobal('AudioContext', class {
+    currentTime = 10;
+    destination = {};
+    createGain() { return { gain: { value: 1 }, connect() {} }; }
+    async decodeAudioData() { return { duration: 1, numberOfChannels: 1, getChannelData: () => new Float32Array([0.1]) }; }
+    createBufferSource() { return { playbackRate: { value: 1 }, connect() {}, disconnect() {}, stop() {}, start: (...args: number[]) => starts.push(args) }; }
+    async resume() {}
+    async close() {}
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) })));
+  const player = new VoicePlayer();
+  await player.load([
+    { path: 'first', epoch: 1, source: 'microphone', startMs: 0, durationMs: 1000 },
+    { path: 'second', epoch: 1, source: 'microphone', startMs: 1000, durationMs: 1000 },
+  ], path => path, new AbortController().signal);
+  player.seek(1.25);
+  await player.play();
+  expect(player.duration).toBe(2);
+  expect(starts).toEqual([[10, 0.25]]);
+  player.dispose();
+});
