@@ -3,16 +3,26 @@
 - 跟踪：[Issue #94](https://github.com/xuchen-cloud/project_mind/issues/94)
 - 分支：`codex/voice-record`
 - 检查日期：2026-09-26
-- 核对基线：`a81bee1`
+- 本轮计划基线：`93adaef`
 - 当前排期：[近期执行计划](voice-record-next-plan.md)。仅执行录音可靠性、识别完整性、转写搜索、跨平台四包；保守润色及其他剩余事项暂缓。
 
 ## 当前能力与缺口
 
 已实现 macOS 双轨录音、纯录音模式、离线模型导入及启动复用、本地 SenseVoice 与 Paraformer 实时识别链路、可选临时字幕、独立浮窗、转写分页与点击回放、手动/周期/结束纪要、流式纪要、AI 标题覆盖和正文复制。
 
-四包仍待完成：滚动分片、磁盘异常、退出保存、删除清理；FSMN-VAD、实际录音链路的五分钟静音暂停、云端重连与补转写；转写搜索；Windows 原生采集和跨屏浮窗。状态机测试不等于自动暂停已接入；上下文设置开关不等于词库已实现。
+本轮已接入滚动 WAV 分片、磁盘异常后的停止与保存重试、退出保存屏障、Record / Project 删除清理重试；固定 FSMN-VAD 模型、双路独立静音检测、云端有界重连及持久补转写；原始 Transcript 搜索；Windows WASAPI 双轨采集和跨屏浮窗位置约束。保守润色没有进入实现。
 
-最近代码验证：前端 764 项、Rust 158 项测试通过（3 项外部环境测试默认跳过），生产构建和规范检查通过；定向流式延迟、旧库迁移与纪要队列回归通过。这些不是完整平台、云端实机或长时录音验收证据。
+| 范围 | 当前实现与验证 | 仍待验收 |
+| --- | --- | --- |
+| 录音可靠性 | 60 秒分片、已落盘文件恢复、保存失败重试、删除事务与清理队列；软件回归通过 | 集中进行真实长录音、退出和磁盘异常操作验收 |
+| 识别完整性 | 内嵌 FSMN ONNX/CMVN；静音五分钟边界、噪声、模拟云端协议、重启恢复、补齐事务及纪要输入回归通过；真实 SenseVoice 中文与低音量 fixture 通过 | 真实 Paraformer 断网恢复；实际设备静音/交替讲话验收 |
+| 转写搜索 | Workspace / Project 归属、同一 Record 去重、追加/补齐、删除和原文不变回归通过；打开的搜索定期刷新 | 与其他界面验收一并检查点击定位 |
+| Windows | WASAPI 默认麦克风及 render loopback 接入公共 writer、活动检测、两种识别和生命周期；原生采集模块独立 `x86_64-pc-windows-msvc` 编译检查通过 | 用户确认无 Windows 环境：完整 Windows 构建、安装包、双路设备和识别闭环保留待验收；独立模块编译不等于整个平台通过 |
+| 跨屏浮窗 | 显示器位置记忆、物理坐标与 DPI 换算、可见范围约束、热插拔检查；几何及现有浮窗回归通过 | macOS / Windows 多屏、不同 DPI、热插拔实机验收 |
+
+静默验证：前端全套 773 项通过；Rust 全套 173 项通过、3 项外部环境测试默认跳过，其中真实中文 SenseVoice 录音链路测试另行执行通过。生产构建、UI 标准、可移植路径和 bundle 边界检查通过。以上结果不能替代真实云端、Windows 或多屏验收。
+
+本轮由主 agent 自行进行 Standards / Spec 检查；未再启动子 agent review。完整实机验收尚未完成，Issue #94 保持开放，不自动合并或宣称全量交付。测试期间暂停了已有 `tauri dev` 自动重启 watcher；可用 `npm run dev:tauri:manual` 手动启动无监听模式。
 
 ## 历史实施日志（按当时状态保留）
 
@@ -83,7 +93,7 @@
 3. 当前 SDK 的 ScreenCaptureKit `SCStream.h` 已声明 `capturesAudio`（macOS 13+）与 `captureMicrophone`（macOS 15+），旧 SDK 编译阻塞已解除。
 4. 已新增 `tools/voice-capture-probe`：它只在显式传入 `--record` 后启动一个 ScreenCaptureKit stream，把系统声音与麦克风分别写入 M4A，并输出首帧单调时间戳报告；普通构建不会申请权限或采集。
 5. 用户明确同意后已完成多次实机采集：系统声轨包含已知测试语音，双轨均为系统可解析的 M4A；原始 ScreenCaptureKit 缓冲和 AVFoundation 直采均确认合盖状态下的内建麦克风为精确零值。显式选择外置 `EDIFIER R20` 的诊断运行得到非零麦克风证据。用户随后手动修正系统默认输入；正式产品按用户决定只跟随系统默认输入，不提供或持久化探针式设备覆盖。已观测的首帧偏移约为 130–613 ms，正式时间轴不能按文件起点强行对齐。
-6. Windows Rust target 已安装，但当前没有实际 Windows 系统音频设备测试环境；安装 target 不等于 Windows 端采集验证通过。
+6. Windows Rust target 已安装；用户于 2026-09-26 确认没有 Windows 测试环境，Windows 保留待真实构建、双路设备和安装包验收。安装 target、交叉检查或模拟协议均不等于 Windows 验收通过。
 
 单一 ScreenCaptureKit stream 的麦克风输出要求 macOS 15+。用户已决定直接把整个应用的 macOS 最低版本提高到 15.0，不再维护更低版本的 Voice Record 兼容路径。
 

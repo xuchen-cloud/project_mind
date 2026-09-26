@@ -78,7 +78,7 @@ export function UpdateSettingsPanel({ updater = tauriAppUpdater }: UpdateSetting
     setError(null);
     try {
       await flushRecordSaves();
-      await updater.install(availableUpdate);
+      if (await updater.install(availableUpdate) === false) return;
       setInstalled(true);
     } catch (nextError) {
       setError(getErrorMessage(nextError, "安装更新失败"));

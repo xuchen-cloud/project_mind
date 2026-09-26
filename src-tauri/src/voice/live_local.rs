@@ -1,5 +1,6 @@
 //! Live local recognition consumes copies of the captured tracks. Raw writers
 //! retain their own queues and are never modified by mixing or VAD.
+use super::fsmn::FsmnSpeechDetector as SpeechDetector;
 use super::{
     capture::{AudioFrame, AudioFrameStream, AudioSource},
     local_asr::{LocalAsrResult, LocalAsrWorker},
@@ -15,57 +16,13 @@ use std::{
     },
     thread,
 };
-use webrtc_vad::{SampleRate, Vad, VadMode};
 
 const RATE: u64 = 16_000;
-const VAD_FRAME: usize = 480; // 30 ms at 16 kHz.
+const VAD_FRAME: usize = 480;
 const MAX_TRACK_LAG: usize = 3 * RATE as usize;
 const PREVIEW_INTERVAL_SAMPLES: u64 = 2 * RATE;
 
-struct SpeechDetector {
-    vad: Vad,
-    supported_run: u8,
-}
-
-impl SpeechDetector {
-    fn new() -> Self {
-        Self {
-            vad: Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality),
-            supported_run: 0,
-        }
-    }
-
-    fn is_speech(&mut self, samples: &[f32]) -> Result<bool> {
-        let pcm = samples
-            .iter()
-            .map(|sample| (sample * 32767.0) as i16)
-            .collect::<Vec<_>>();
-        let speech = self
-            .vad
-            .is_voice_segment(&pcm)
-            .map_err(|_| anyhow!("WebRTC VAD rejected a captured frame"))?;
-        // VAD hangover after a click must not turn subsequent silence into
-        // speech evidence. Require energy in at least two 10 ms subframes;
-        // the VAD still makes the speech decision. Original audio is untouched.
-        let supported = samples
-            .chunks(160)
-            .filter(|chunk| {
-                let energy =
-                    chunk.iter().map(|sample| sample * sample).sum::<f32>() / chunk.len() as f32;
-                energy >= 0.0005_f32.powi(2)
-            })
-            .count();
-        // A click straddling subframes must not qualify on its own. Pre-roll
-        // preserves speech onset while we wait for the second supported frame.
-        self.supported_run = if speech && supported >= 2 {
-            (self.supported_run + 1).min(2)
-        } else {
-            0
-        };
-        Ok(self.supported_run >= 2)
-    }
-}
-
+#[derive(Clone, Debug)]
 pub struct TranscriptFinal {
     pub provider_key: String,
     pub start_ms: u64,
@@ -76,6 +33,9 @@ pub struct TranscriptFinal {
 pub enum RecognitionUpdate {
     Final(TranscriptFinal),
     Partial(String),
+    CloudConnected { start_ms: u64 },
+    CloudGap(String),
+    CloudComplete,
 }
 
 fn local_final(result: LocalAsrResult) -> TranscriptFinal {
@@ -159,14 +119,14 @@ impl LiveLocalHandle {
     }
 }
 
-struct Track {
+pub(crate) struct Track {
     base: u64,
     samples: VecDeque<f32>,
     seen: bool,
 }
 
 impl Track {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             base: 0,
             samples: VecDeque::new(),
@@ -177,7 +137,7 @@ impl Track {
         self.base + self.samples.len() as u64
     }
 
-    fn push(&mut self, frame: AudioFrame) -> Result<()> {
+    pub(crate) fn push(&mut self, frame: AudioFrame) -> Result<()> {
         if frame.sample_rate == 0 || frame.channels == 0 {
             return Err(anyhow!("invalid captured audio format"));
         }
@@ -189,6 +149,9 @@ impl Track {
         let frames = frame.samples.len() / channels;
         let output_len = (frames as u64 * RATE / u64::from(frame.sample_rate)) as usize;
         let expected = self.end();
+        if self.seen && start > expected.saturating_add(1) {
+            return Err(anyhow!("recognition input has an audio gap"));
+        }
         if start > expected {
             let gap = (start - expected) as usize;
             if gap > MAX_TRACK_LAG {
@@ -215,6 +178,14 @@ impl Track {
         Ok(())
     }
 
+    pub(crate) fn take_vad_frame(&mut self) -> Option<(u64, Vec<f32>)> {
+        if self.samples.len() < VAD_FRAME {
+            return None;
+        }
+        let samples = self.take(VAD_FRAME);
+        Some((self.base * 1_000 / RATE, samples))
+    }
+
     fn take(&mut self, count: usize) -> Vec<f32> {
         self.base += count as u64;
         self.samples.drain(..count).collect()
@@ -235,6 +206,24 @@ impl Mixer {
             next_sample: 0,
         }
     }
+    pub(crate) fn new_at(start: u64) -> Self {
+        let mut mixer = Self::new();
+        mixer.microphone.base = start;
+        mixer.system.base = start;
+        mixer.next_sample = start;
+        mixer
+    }
+    pub(crate) fn finish(&mut self) -> Vec<f32> {
+        let count = self.microphone.samples.len().max(self.system.samples.len());
+        (0..count)
+            .map(|_| {
+                (self.microphone.samples.pop_front().unwrap_or(0.0)
+                    + self.system.samples.pop_front().unwrap_or(0.0))
+                .clamp(-1.0, 1.0)
+            })
+            .collect()
+    }
+
     pub(crate) fn push(&mut self, frame: AudioFrame) -> Result<Vec<(u64, Vec<f32>)>> {
         match frame.source {
             AudioSource::Microphone => self.microphone.push(frame)?,
@@ -281,7 +270,7 @@ impl Pipeline {
     ) -> Result<Self> {
         Ok(Self {
             mixer: Mixer::new(),
-            vad: SpeechDetector::new(),
+            vad: SpeechDetector::new()?,
             segmenter: UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
                 .map_err(|error| anyhow!("invalid VAD segmenter: {error:?}"))?,
             worker,
@@ -295,26 +284,31 @@ impl Pipeline {
 
     fn feed(&mut self, frame: AudioFrame) -> Result<()> {
         for (start_sample, samples) in self.mixer.push(frame)? {
-            let speech = self.vad.is_speech(&samples)?;
-            let segments = self
-                .segmenter
-                .push(VadFrame {
-                    start_sample,
-                    samples: &samples,
-                    speech,
-                })
-                .map_err(|error| anyhow!("local segmentation failed: {error:?}"))?;
-            for segment in segments {
-                self.submit(segment)?;
-            }
-            let end_sample = start_sample + samples.len() as u64;
-            if self.preview_enabled.load(Ordering::Relaxed)
-                && end_sample.saturating_sub(self.last_preview_sample) >= PREVIEW_INTERVAL_SAMPLES
-            {
-                if let Some(preview) = self.segmenter.preview() {
-                    self.preview(preview)?;
-                    self.last_preview_sample = end_sample;
-                }
+            self.feed_mixed(start_sample, &samples)?;
+        }
+        Ok(())
+    }
+
+    fn feed_mixed(&mut self, start_sample: u64, samples: &[f32]) -> Result<()> {
+        let speech = self.vad.is_speech(&samples)?;
+        let segments = self
+            .segmenter
+            .push(VadFrame {
+                start_sample,
+                samples,
+                speech,
+            })
+            .map_err(|error| anyhow!("local segmentation failed: {error:?}"))?;
+        for segment in segments {
+            self.submit(segment)?;
+        }
+        let end_sample = start_sample + samples.len() as u64;
+        if self.preview_enabled.load(Ordering::Relaxed)
+            && end_sample.saturating_sub(self.last_preview_sample) >= PREVIEW_INTERVAL_SAMPLES
+        {
+            if let Some(preview) = self.segmenter.preview() {
+                self.preview(preview)?;
+                self.last_preview_sample = end_sample;
             }
         }
         Ok(())
@@ -365,6 +359,13 @@ impl Pipeline {
     }
 
     fn finish(mut self) -> Result<()> {
+        let tail_start = self.mixer.next_sample;
+        let tail = self.mixer.finish();
+        for (index, samples) in tail.chunks(VAD_FRAME).enumerate() {
+            let mut padded = samples.to_vec();
+            padded.resize(VAD_FRAME, 0.0);
+            self.feed_mixed(tail_start + (index * VAD_FRAME) as u64, &padded)?;
+        }
         if let Some(segment) = self.segmenter.flush() {
             self.submit(segment)?;
         }
@@ -388,7 +389,7 @@ mod tests {
     #[test]
     fn quiet_clicks_do_not_reach_preview_or_transcription() {
         for (spacing, offset) in [(7, 0), (20, 0), (40, 0), (7, 100), (7, 430)] {
-            let mut detector = SpeechDetector::new();
+            let mut detector = SpeechDetector::new().unwrap();
             let mut segmenter =
                 UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default()).unwrap();
             let mut seed = 17_u32;
@@ -472,7 +473,7 @@ mod tests {
                 .into_iter()
                 .filter_map(|result| match result {
                     RecognitionUpdate::Final(result) => Some(result.text),
-                    RecognitionUpdate::Partial(_) => None,
+                    _ => None,
                 })
                 .collect::<Vec<_>>()
                 .join("");

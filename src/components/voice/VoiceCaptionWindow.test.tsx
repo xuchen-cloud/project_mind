@@ -21,6 +21,7 @@ vi.mock("../../services/voiceApi", () => ({ voiceApi: {
   end: mocks.end,
 } }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: {
+  captionWindowTrackPosition: vi.fn(async () => () => undefined),
   captionWindowSetSize: mocks.setSize,
   captionWindowClose: mocks.close,
   captionWindowOnCloseRequested: mocks.onCloseRequested,

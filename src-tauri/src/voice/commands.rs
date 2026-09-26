@@ -97,9 +97,11 @@ pub(crate) async fn voice_profile_test(
 #[tauri::command]
 pub(crate) fn voice_availability_get() -> VoiceAvailability {
     VoiceAvailability {
-        implemented: cfg!(target_os = "macos"),
+        implemented: cfg!(any(target_os = "macos", target_os = "windows")),
         reason: if cfg!(target_os = "macos") {
             "macOS 15 双路录音可用".into()
+        } else if cfg!(target_os = "windows") {
+            "Windows WASAPI 双路录音已接入，待真实设备验收".into()
         } else {
             "当前平台的双路录音适配器尚未完成".into()
         },
@@ -140,6 +142,9 @@ pub(crate) fn voice_start(
     let workspace = state
         .current_workspace()
         .map_err(|error| failed("start", error))?;
+    workspace
+        .voice_recovery_interrupt
+        .store(true, std::sync::atomic::Ordering::Release);
     let mut voice = lock_mutex(&state.voice_runtime);
     let mut db = lock_mutex(&workspace.db);
     voice
@@ -175,6 +180,9 @@ pub(crate) fn voice_resume(
     let workspace = state
         .current_workspace()
         .map_err(|error| failed("resume", error))?;
+    workspace
+        .voice_recovery_interrupt
+        .store(true, std::sync::atomic::Ordering::Release);
     let mut voice = lock_mutex(&state.voice_runtime);
     let mut db = lock_mutex(&workspace.db);
     voice
@@ -361,5 +369,33 @@ pub(crate) fn voice_transcript_tail(
     let result = lock_mutex(&workspace.db)
         .voice_transcript_tail(&input.session_id, input.limit)
         .map_err(|error| failed("transcript_tail", error));
+    result
+}
+
+#[tauri::command]
+pub(crate) fn voice_recovery_get(
+    state: State<'_, AppState>,
+    input: VoiceRecordLookup,
+) -> VoiceResult<Vec<crate::db::CloudGap>> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("recovery_get", error))?;
+    let result = lock_mutex(&workspace.db)
+        .voice_cloud_status(&input)
+        .map_err(|error| failed("recovery_get", error));
+    result
+}
+
+#[tauri::command]
+pub(crate) fn voice_recovery_retry(
+    state: State<'_, AppState>,
+    input: VoiceRecordLookup,
+) -> VoiceResult<()> {
+    let workspace = state
+        .current_workspace()
+        .map_err(|error| failed("recovery_retry", error))?;
+    let result = lock_mutex(&workspace.db)
+        .voice_cloud_retry(&input)
+        .map_err(|error| failed("recovery_retry", error));
     result
 }

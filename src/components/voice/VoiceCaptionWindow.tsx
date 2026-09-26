@@ -66,6 +66,15 @@ export function VoiceCaptionWindow() {
   }, [captionLines, collapsed, recognitionEnabled]);
 
   useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void desktopApi.captionWindowTrackPosition().then(unlisten => {
+      if (disposed) unlisten(); else stop = unlisten;
+    }).catch(cause => setError(String(cause)));
+    return () => { disposed = true; stop?.(); };
+  }, []);
+
+  useEffect(() => {
     void voiceApi.settingsGet().then((settings) => {
       setCaptionLines(Math.min(8, Math.max(2, settings.captionLines)));
       const enabled = Boolean(settings.speechProfile);

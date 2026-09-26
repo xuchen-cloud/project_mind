@@ -3,17 +3,28 @@ use super::{
     live_local::{LiveLocalHandle, RecognitionUpdate},
     live_paraformer::LiveParaformerHandle,
     local_asr::LocalAsrWorker,
-    storage::{preflight_storage, recover_partial_tracks, AudioChunkManifest, PersistedVoiceSession, WriterHandle},
+    storage::{
+        preflight_storage, recover_partial_tracks, AudioChunkManifest, PersistedVoiceSession,
+        WriterHandle,
+    },
 };
 use crate::db::Database;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::Local;
 use rand::RngCore;
 use std::{path::Path, time::Instant};
 
 #[cfg(target_os = "macos")]
-use super::capture::macos::{MacCaptureOutputs, MacCaptureSession};
-#[cfg(target_os = "macos")]
+use super::capture::macos::{
+    MacCaptureFault as NativeCaptureFault, MacCaptureOutputs as NativeCaptureOutputs,
+    MacCaptureSession as NativeCaptureSession,
+};
+#[cfg(target_os = "windows")]
+use super::capture::windows::{
+    WindowsCaptureFault as NativeCaptureFault, WindowsCaptureOutputs as NativeCaptureOutputs,
+    WindowsCaptureSession as NativeCaptureSession,
+};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use super::capture::AudioSource;
 
 const AUDIO_QUEUE_CAPACITY: usize = 256;
@@ -28,6 +39,8 @@ struct ActiveSession {
     recording_since: Option<Instant>,
     run: Option<CaptureRun>,
     interim_text: Option<String>,
+    pending_save: Option<StoppedRun>,
+    pending_updates: Vec<RecognitionUpdate>,
 }
 
 enum PreparedRecognition {
@@ -38,6 +51,7 @@ enum PreparedRecognition {
     Paraformer {
         endpoint: String,
         api_key: String,
+        credential_profile_id: i64,
         preview_enabled: bool,
     },
 }
@@ -64,15 +78,16 @@ impl ActiveRecognition {
 }
 
 struct CaptureRun {
+    activity: super::activity::ActivityHandle,
     workspace_root: std::path::PathBuf,
     session_id: String,
-    #[cfg(target_os = "macos")]
-    capture: Option<MacCaptureSession>,
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    capture: Option<NativeCaptureSession>,
     microphone_writer: WriterHandle,
     system_writer: WriterHandle,
     recognition: Option<ActiveRecognition>,
-    #[cfg(target_os = "macos")]
-    faults: tokio::sync::mpsc::Receiver<super::capture::macos::MacCaptureFault>,
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    faults: tokio::sync::mpsc::Receiver<NativeCaptureFault>,
 }
 
 impl VoiceRuntime {
@@ -123,6 +138,7 @@ impl VoiceRuntime {
         if persisted.lifecycle != "preparing" {
             return Ok(snapshot(&persisted, None, None));
         }
+        register_cloud_epoch(db, &persisted, recognition.as_ref())?;
         let run = match start_capture_run(
             workspace_root,
             &persisted.session_id,
@@ -145,24 +161,35 @@ impl VoiceRuntime {
                     recording_since: None,
                     run: None,
                     interim_text: None,
+                    pending_save: None,
+                    pending_updates: Vec::new(),
                 });
                 return Err(error);
             }
         };
-        let persisted = db.voice_session_transition(
-            &persisted.session_id,
-            persisted.revision,
-            "recording",
-            None,
-            persisted.active_ms,
-            persisted.capture_epoch,
-        )?;
-        let active = ActiveSession {
+        let mut active = ActiveSession {
             persisted,
             recording_since: Some(Instant::now()),
             run: Some(run),
             interim_text: None,
+            pending_save: None,
+            pending_updates: Vec::new(),
         };
+        match db.voice_session_transition(
+            &active.persisted.session_id,
+            active.persisted.revision,
+            "recording",
+            None,
+            active.persisted.active_ms,
+            active.persisted.capture_epoch,
+        ) {
+            Ok(persisted) => active.persisted = persisted,
+            Err(error) => {
+                stop_for_save(&mut active, "paused", "storage_fault")?;
+                self.active = Some(active);
+                return Err(error);
+            }
+        }
         let result = snapshot(
             &active.persisted,
             active.recording_since,
@@ -190,22 +217,8 @@ impl VoiceRuntime {
         if active.persisted.lifecycle != "recording" {
             return Err(anyhow!("voice session cannot be paused from current state"));
         }
-        active.recording_since = None;
-        let stopped = stop_capture_run(active.run.take())?;
-        persist_manifests(db, session_id, &stopped.manifests)?;
-        let recognition_error = persist_transcripts(db, session_id, stopped.results).err();
-        active.persisted = db.voice_session_transition(
-            session_id,
-            expected_revision,
-            "paused",
-            stopped.storage_error.as_deref().or(Some("user")),
-            db.voice_saved_duration_ms(session_id)?,
-            active.persisted.capture_epoch,
-        )?;
-        if let Some(error) = recognition_error {
-            return Err(error).context("录音已暂停，但语音识别失败");
-        }
-        active.interim_text = None;
+        stop_for_save(active, "paused", "user")?;
+        save_stopped_session(db, active)?;
         Ok(snapshot(&active.persisted, None, None))
     }
 
@@ -222,6 +235,9 @@ impl VoiceRuntime {
             .as_mut()
             .ok_or_else(|| anyhow!("voice session not found"))?;
         verify(active, session_id, expected_revision)?;
+        if active.pending_save.is_some() {
+            return Err(anyhow!("音频保存待重试，完成后才能继续录音"));
+        }
         if active.persisted.lifecycle != "paused" {
             return Err(anyhow!("voice session is not paused"));
         }
@@ -233,6 +249,16 @@ impl VoiceRuntime {
             .capture_epoch
             .checked_add(1)
             .ok_or_else(|| anyhow!("capture epoch exhausted"))?;
+        // Reserve the epoch before creating files, including failed start attempts.
+        active.persisted = db.voice_session_transition(
+            session_id,
+            expected_revision,
+            "paused",
+            Some("capture_start_pending"),
+            active.persisted.active_ms,
+            epoch,
+        )?;
+        register_cloud_epoch(db, &active.persisted, recognition.as_ref())?;
         let run = start_capture_run(
             workspace_root,
             session_id,
@@ -240,17 +266,23 @@ impl VoiceRuntime {
             active.persisted.active_ms,
             recognition,
         )?;
-        active.persisted = db.voice_session_transition(
+        active.recording_since = Some(Instant::now());
+        active.run = Some(run);
+        active.interim_text = None;
+        match db.voice_session_transition(
             session_id,
-            expected_revision,
+            active.persisted.revision,
             "recording",
             None,
             active.persisted.active_ms,
             epoch,
-        )?;
-        active.recording_since = Some(Instant::now());
-        active.run = Some(run);
-        active.interim_text = None;
+        ) {
+            Ok(persisted) => active.persisted = persisted,
+            Err(error) => {
+                stop_for_save(active, "paused", "storage_fault")?;
+                return Err(error);
+            }
+        }
         Ok(snapshot(&active.persisted, active.recording_since, None))
     }
 
@@ -275,26 +307,11 @@ impl VoiceRuntime {
         if active.persisted.lifecycle == "ended" {
             return Ok(snapshot(&active.persisted, None, None));
         }
-        let elapsed = active
-            .recording_since
-            .take()
-            .map(|started| started.elapsed().as_millis() as u64)
-            .unwrap_or_default();
-        active.persisted = db.voice_session_transition(session_id, active.persisted.revision,
-            "ending", None, active.persisted.active_ms.saturating_add(elapsed), active.persisted.capture_epoch)?;
-        let stopped = stop_capture_run(active.run.take())?;
-        persist_manifests(db, session_id, &stopped.manifests)?;
-        db.voice_recover_audio(session_id)?;
-        let recognition_error = persist_transcripts(db, session_id, stopped.results).err();
-        let ended = db.voice_session_transition(
-            session_id, active.persisted.revision, "ended", stopped.storage_error.as_deref(),
-            db.voice_saved_duration_ms(session_id)?, active.persisted.capture_epoch,
-        )?;
+        stop_for_save(active, "ending", "user")?;
+        save_stopped_session(db, active)?;
+        let result = snapshot(&active.persisted, None, None);
         self.active = None;
-        if let Some(error) = recognition_error {
-            return Err(error).context("录音已保存，但语音识别失败");
-        }
-        Ok(snapshot(&ended, None, None))
+        Ok(result)
     }
 
     pub fn snapshot(
@@ -302,16 +319,47 @@ impl VoiceRuntime {
         db: &mut Database,
         workspace_root: &Path,
     ) -> Result<Option<VoiceSessionSnapshot>> {
+        let mut storage_fault = None;
+        if let Some(active) = self.active.as_mut() {
+            if active.pending_save.is_some() {
+                // Disk/database failures must not leave a stopped capture looking live.
+                // Keep its recoverable save operation and retry on the next supervisor tick.
+                if let Err(error) = save_stopped_session(db, active) {
+                    active.persisted.pause_reason = Some(format!("保存待重试：{error}"));
+                }
+            }
+            if active.persisted.lifecycle == "ended" {
+                self.active = None;
+            }
+        }
         if let Some(active) = self.active.as_mut() {
             if let Some(run) = &active.run {
-                persist_manifests(db, &active.persisted.session_id, &run.microphone_writer.take_completed())?;
-                persist_manifests(db, &active.persisted.session_id, &run.system_writer.take_completed())?;
-                persist_available_transcripts(
+                let persisted = persist_manifests(
                     db,
                     &active.persisted.session_id,
+                    &run.microphone_writer.take_completed(),
+                )
+                .and_then(|_| {
+                    persist_manifests(
+                        db,
+                        &active.persisted.session_id,
+                        &run.system_writer.take_completed(),
+                    )
+                });
+                if let Err(error) = persisted {
+                    storage_fault = Some(format!("storage_fault: {error}"));
+                }
+                // Recognition failures are independent of capture/storage health.
+                if let Err(error) = persist_available_transcripts(
+                    db,
+                    &active.persisted.session_id,
+                    active.persisted.capture_epoch,
                     run,
                     &mut active.interim_text,
-                )?;
+                    &mut active.pending_updates,
+                ) {
+                    storage_fault = Some(format!("storage_fault: {error}"));
+                }
             }
         }
         if self.active.is_none() {
@@ -320,12 +368,15 @@ impl VoiceRuntime {
                     for manifest in recover_partial_tracks(workspace_root, &persisted.session_id)? {
                         db.voice_audio_chunk_insert(&persisted.session_id, &manifest)?;
                     }
+                    db.voice_cloud_finish_epochs(&persisted.session_id)?;
                     persisted = db.voice_session_transition(
                         &persisted.session_id,
                         persisted.revision,
                         "paused",
                         Some("recovered"),
-                        persisted.active_ms.max(db.voice_saved_duration_ms(&persisted.session_id)?),
+                        persisted
+                            .active_ms
+                            .max(db.voice_saved_duration_ms(&persisted.session_id)?),
                         persisted.capture_epoch,
                     )?;
                 }
@@ -334,6 +385,8 @@ impl VoiceRuntime {
                     recording_since: None,
                     run: None,
                     interim_text: None,
+                    pending_save: None,
+                    pending_updates: Vec::new(),
                 });
             }
         }
@@ -342,28 +395,24 @@ impl VoiceRuntime {
             .as_mut()
             .and_then(|active| active.run.as_mut())
             .is_some_and(capture_run_faulted);
-        if capture_faulted {
+        let silent = self
+            .active
+            .as_ref()
+            .and_then(|active| active.run.as_ref())
+            .is_some_and(|run| run.activity.should_pause());
+        if capture_faulted || storage_fault.is_some() || silent {
             let active = self.active.as_mut().expect("checked active session");
-            let elapsed = active
-                .recording_since
-                .take()
-                .map(|started| started.elapsed().as_millis() as u64)
-                .unwrap_or_default();
-            let stopped = stop_capture_run(active.run.take())?;
-            persist_manifests(db, &active.persisted.session_id, &stopped.manifests)?;
-            let recognition_error =
-                persist_transcripts(db, &active.persisted.session_id, stopped.results).err();
-            active.persisted = db.voice_session_transition(
-                &active.persisted.session_id,
-                active.persisted.revision,
+            stop_for_save(
+                active,
                 "paused",
-                stopped.storage_error.as_deref().or(Some("capture_fault")),
-                active.persisted.active_ms.saturating_add(elapsed),
-                active.persisted.capture_epoch,
+                storage_fault.as_deref().unwrap_or(if silent {
+                    "silence"
+                } else {
+                    "capture_fault"
+                }),
             )?;
-            active.interim_text = None;
-            if let Some(error) = recognition_error {
-                return Err(error).context("录音因采集故障已暂停，且语音识别失败");
+            if let Err(error) = save_stopped_session(db, active) {
+                active.persisted.pause_reason = Some(format!("保存待重试：{error}"));
             }
         }
         Ok(self.active.as_ref().map(|active| {
@@ -393,10 +442,74 @@ impl VoiceRuntime {
                 recording_since: None,
                 run: None,
                 interim_text: None,
+                pending_save: None,
+                pending_updates: Vec::new(),
             });
         }
         Ok(())
     }
+}
+
+fn stop_for_save(active: &mut ActiveSession, phase: &str, reason: &str) -> Result<()> {
+    if active.pending_save.is_none() {
+        let elapsed = active
+            .recording_since
+            .take()
+            .map(|start| start.elapsed().as_millis() as u64)
+            .unwrap_or(0);
+        active.persisted.active_ms = active.persisted.active_ms.saturating_add(elapsed);
+        active.pending_save = Some(stop_capture_run(active.run.take())?);
+    }
+    active.persisted.lifecycle = phase.into();
+    active.persisted.pause_reason = Some(
+        active
+            .pending_save
+            .as_ref()
+            .and_then(|saved| saved.storage_error.clone())
+            .unwrap_or_else(|| reason.into()),
+    );
+    active.interim_text = None;
+    Ok(())
+}
+
+fn save_stopped_session(db: &Database, active: &mut ActiveSession) -> Result<()> {
+    let Some(saved) = &active.pending_save else {
+        return Ok(());
+    };
+    let id = &active.persisted.session_id;
+    persist_manifests(db, id, &saved.manifests)?;
+    db.voice_recover_audio(id)?;
+    // Keep final text in memory until all database writes succeed; a retry is idempotent.
+    for update in &active.pending_updates {
+        persist_recognition_update(db, id, active.persisted.capture_epoch, update)?;
+    }
+    for update in &saved.results {
+        match update {
+            Ok(update) => {
+                persist_recognition_update(db, id, active.persisted.capture_epoch, update)?
+            }
+            Err(error) => {
+                db.voice_cloud_open_gap(id, active.persisted.capture_epoch, &error.to_string())?
+            }
+        }
+    }
+    db.voice_cloud_finish_epochs(id)?;
+    let phase = if active.persisted.lifecycle == "ending" {
+        "ended"
+    } else {
+        "paused"
+    };
+    active.persisted = db.voice_session_transition(
+        id,
+        active.persisted.revision,
+        phase,
+        active.persisted.pause_reason.as_deref(),
+        db.voice_saved_duration_ms(id)?,
+        active.persisted.capture_epoch,
+    )?;
+    active.pending_save = None;
+    active.pending_updates.clear();
+    Ok(())
 }
 
 fn verify(active: &ActiveSession, session_id: &str, expected_revision: u64) -> Result<()> {
@@ -479,6 +592,7 @@ fn prepare_recognition(db: &Database) -> Result<Option<PreparedRecognition>> {
             Ok(Some(PreparedRecognition::Paraformer {
                 endpoint,
                 api_key,
+                credential_profile_id: profile_id,
                 preview_enabled: settings.live_preview_enabled,
             }))
         }
@@ -486,6 +600,7 @@ fn prepare_recognition(db: &Database) -> Result<Option<PreparedRecognition>> {
     }
 }
 
+#[cfg(test)]
 fn persist_transcripts(
     db: &Database,
     session_id: &str,
@@ -495,7 +610,7 @@ fn persist_transcripts(
     for result in results {
         let result = match result {
             Ok(RecognitionUpdate::Final(result)) => result,
-            Ok(RecognitionUpdate::Partial(_)) => continue,
+            Ok(_) => continue,
             Err(error) => {
                 if first_error.is_none() {
                     first_error = Some(error);
@@ -522,11 +637,63 @@ fn persist_transcripts(
     first_error.map_or(Ok(()), Err)
 }
 
+fn register_cloud_epoch(
+    db: &Database,
+    session: &PersistedVoiceSession,
+    recognition: Option<&PreparedRecognition>,
+) -> Result<()> {
+    if let Some(PreparedRecognition::Paraformer {
+        endpoint,
+        credential_profile_id,
+        ..
+    }) = recognition
+    {
+        db.voice_cloud_epoch(
+            &session.session_id,
+            session.capture_epoch,
+            session.active_ms,
+            endpoint,
+            *credential_profile_id,
+        )?;
+    }
+    Ok(())
+}
+
+fn persist_recognition_update(
+    db: &Database,
+    session: &str,
+    epoch: u64,
+    update: &RecognitionUpdate,
+) -> Result<()> {
+    match update {
+        RecognitionUpdate::Final(result) if !result.text.trim().is_empty() => {
+            db.voice_transcript_append_final(
+                session,
+                &result.provider_key,
+                result.start_ms,
+                result.end_ms,
+                &result.text,
+                None,
+            )?;
+            db.voice_cloud_acknowledge(session, epoch, result.end_ms)?;
+        }
+        RecognitionUpdate::CloudGap(error) => db.voice_cloud_open_gap(session, epoch, error)?,
+        RecognitionUpdate::CloudConnected { start_ms } => {
+            db.voice_cloud_connected(session, epoch, *start_ms)?
+        }
+        RecognitionUpdate::CloudComplete => db.voice_cloud_complete(session, epoch)?,
+        _ => {}
+    }
+    Ok(())
+}
+
 fn persist_available_transcripts(
     db: &Database,
     session_id: &str,
+    epoch: u64,
     run: &CaptureRun,
     interim_text: &mut Option<String>,
+    pending: &mut Vec<RecognitionUpdate>,
 ) -> Result<()> {
     let Some(recognition) = &run.recognition else {
         return Ok(());
@@ -534,27 +701,32 @@ fn persist_available_transcripts(
     while let Some(result) = recognition.try_result() {
         match result {
             Ok(RecognitionUpdate::Partial(text)) => {
-                *interim_text = (!text.is_empty()).then_some(text);
+                *interim_text = (!text.is_empty()).then_some(text)
             }
-            other => persist_transcripts(db, session_id, vec![other])?,
+            Ok(update) => pending.push(update),
+            Err(error) => pending.push(RecognitionUpdate::CloudGap(error.to_string())),
         }
     }
+    for update in pending.iter() {
+        persist_recognition_update(db, session_id, epoch, update)?;
+    }
+    pending.clear();
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn preflight_capture() -> Result<()> {
-    MacCaptureSession::preflight().map_err(|error| anyhow!(error))
+    NativeCaptureSession::preflight().map_err(|error| anyhow!(error))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn preflight_capture() -> Result<()> {
     Err(anyhow!(
         "voice capture is not implemented on this platform yet"
     ))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn start_capture_run(
     workspace_root: &Path,
     session_id: &str,
@@ -563,7 +735,7 @@ fn start_capture_run(
     recognition: Option<PreparedRecognition>,
 ) -> Result<CaptureRun> {
     let (capture, outputs) =
-        MacCaptureSession::start(epoch, AUDIO_QUEUE_CAPACITY, recognition.is_some())
+        NativeCaptureSession::start(epoch, AUDIO_QUEUE_CAPACITY, recognition.is_some())
             .map_err(|error| anyhow!(error))?;
     build_capture_run(
         workspace_root,
@@ -576,15 +748,15 @@ fn start_capture_run(
     )
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_capture_run(
     workspace_root: &Path,
     session_id: &str,
     epoch: u64,
     epoch_offset_ms: u64,
     recognition: Option<PreparedRecognition>,
-    capture: MacCaptureSession,
-    outputs: MacCaptureOutputs,
+    capture: NativeCaptureSession,
+    outputs: NativeCaptureOutputs,
 ) -> Result<CaptureRun> {
     let recognition = match recognition {
         None => None,
@@ -609,6 +781,7 @@ fn build_capture_run(
                 PreparedRecognition::Paraformer {
                     endpoint,
                     api_key,
+                    credential_profile_id: _,
                     preview_enabled,
                 } => ActiveRecognition::Paraformer(LiveParaformerHandle::spawn(
                     endpoint,
@@ -621,7 +794,12 @@ fn build_capture_run(
             })
         }
     };
+    let activity = super::activity::ActivityHandle::spawn(
+        outputs.activity_microphone,
+        outputs.activity_system,
+    )?;
     Ok(CaptureRun {
+        activity,
         workspace_root: workspace_root.to_path_buf(),
         session_id: session_id.to_owned(),
         capture: Some(capture),
@@ -644,7 +822,7 @@ fn build_capture_run(
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn start_capture_run(
     _workspace_root: &Path,
     _session_id: &str,
@@ -671,19 +849,26 @@ fn stop_capture_run(run: Option<CaptureRun>) -> Result<StoppedRun> {
             storage_error: None,
         });
     };
-    #[cfg(target_os = "macos")]
+    let mut storage_error = None;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if let Some(mut capture) = run.capture.take() {
-        capture.stop().map_err(|error| anyhow!(error))?;
+        if let Err(error) = capture.stop() {
+            storage_error = Some(format!("capture_fault: {error}"));
+        }
         drop(capture);
+    }
+    if let Err(error) = run.activity.finish() {
+        storage_error = Some(format!("activity_fault: {error}"));
     }
     let microphone = run.microphone_writer.finish();
     let system = run.system_writer.finish();
-    let mut storage_error = None;
     let mut manifests = Vec::new();
     for result in [microphone, system] {
         match result {
             Ok(saved) => manifests.extend(saved),
-            Err(error) => { storage_error = Some(format!("storage_fault: {error}")); }
+            Err(error) => {
+                storage_error = Some(format!("storage_fault: {error}"));
+            }
         }
     }
     if storage_error.is_some() {
@@ -705,14 +890,17 @@ fn stop_capture_run(run: Option<CaptureRun>) -> Result<StoppedRun> {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn capture_run_faulted(run: &mut CaptureRun) -> bool {
-    run.microphone_writer.has_stopped() || run.system_writer.has_stopped() || run.faults.try_recv().is_ok()
+    run.activity.failed()
+        || run.microphone_writer.has_stopped()
+        || run.system_writer.has_stopped()
+        || run.faults.try_recv().is_ok()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn capture_run_faulted(run: &mut CaptureRun) -> bool {
-    run.microphone_writer.has_stopped() || run.system_writer.has_stopped()
+    run.activity.failed() || run.microphone_writer.has_stopped() || run.system_writer.has_stopped()
 }
 
 #[cfg(test)]
@@ -720,18 +908,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_database_save_keeps_a_stopped_session_and_retries_without_recapturing() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("db.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(&RecordTarget::Workspace, "failure", "failure", "Voice")
+            .unwrap();
+        let fault = rusqlite::Connection::open(&path).unwrap();
+        fault.execute_batch("CREATE TRIGGER fail_save BEFORE UPDATE ON recording_sessions BEGIN SELECT RAISE(FAIL, 'disk full'); END;").unwrap();
+        let mut runtime = VoiceRuntime::default();
+        assert!(runtime.end(&mut db, "failure", session.revision).is_err());
+        let stopped = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert_eq!(stopped.phase, "ending");
+        assert!(stopped.pause_reason.unwrap().contains("保存待重试"));
+        fault.execute_batch("DROP TRIGGER fail_save").unwrap();
+        assert!(runtime.snapshot(&mut db, root.path()).unwrap().is_none());
+        assert_eq!(
+            db.voice_session_get("failure").unwrap().unwrap().lifecycle,
+            "ended"
+        );
+    }
+
+    #[test]
     fn recovery_after_file_rename_restores_audio_duration_before_resuming() {
         use crate::voice::capture::{bounded_audio_frames, SourceTimeline};
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
-        db.voice_session_create(&RecordTarget::Workspace, "crash", "crash", "Voice").unwrap();
+        db.voice_session_create(&RecordTarget::Workspace, "crash", "crash", "Voice")
+            .unwrap();
         let (sink, stream) = bounded_audio_frames(1).unwrap();
-        let writer = WriterHandle::spawn(root.path().into(), "crash".into(), AudioSource::Microphone, 1, stream);
+        let writer = WriterHandle::spawn(
+            root.path().into(),
+            "crash".into(),
+            AudioSource::Microphone,
+            1,
+            stream,
+        );
         let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 10, 1).unwrap();
-        sink.try_push(timeline.stamp(200_000_000, vec![0.5; 601]).unwrap()).unwrap();
+        sink.try_push(timeline.stamp(200_000_000, vec![0.5; 601]).unwrap())
+            .unwrap();
         drop(sink);
         writer.finish().unwrap(); // Crash before database registration.
-        let snapshot = VoiceRuntime::default().snapshot(&mut db, root.path()).unwrap().unwrap();
+        let snapshot = VoiceRuntime::default()
+            .snapshot(&mut db, root.path())
+            .unwrap()
+            .unwrap();
         assert_eq!(snapshot.phase, "paused");
         assert_eq!(snapshot.active_ms, 60_300);
     }
@@ -800,6 +1022,8 @@ mod tests {
                 recording_since: None,
                 run: None,
                 interim_text: Some("正在识别".into()),
+                pending_save: None,
+                pending_updates: Vec::new(),
             }),
         };
         runtime.set_live_preview_enabled(false);
@@ -826,6 +1050,8 @@ mod tests {
                 recording_since: None,
                 run: None,
                 interim_text: None,
+                pending_save: None,
+                pending_updates: Vec::new(),
             }),
         };
 

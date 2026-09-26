@@ -6,8 +6,8 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    thread,
     sync::mpsc,
+    thread,
 };
 
 pub const VOICE_ASSET_DIR: &str = ".project-mind/voice";
@@ -57,9 +57,21 @@ impl WriterHandle {
         let (send, completed) = mpsc::channel();
         let join = thread::Builder::new()
             .name(format!("voice-writer-{}", source_name(source)))
-            .spawn(move || write_track(&workspace_root, &session_id, source, epoch, &mut frames, Some(&send)))
+            .spawn(move || {
+                write_track(
+                    &workspace_root,
+                    &session_id,
+                    source,
+                    epoch,
+                    &mut frames,
+                    Some(&send),
+                )
+            })
             .expect("voice writer thread should start");
-        Self { join: Some(join), completed }
+        Self {
+            join: Some(join),
+            completed,
+        }
     }
 
     pub fn take_completed(&self) -> Vec<AudioChunkManifest> {
@@ -109,25 +121,55 @@ struct TrackChunk {
 }
 
 impl TrackChunk {
-    fn create(root: &Path, directory: &Path, source: AudioSource, epoch: u64,
-        index: u64, start: u64, rate: u32, channels: u16) -> Result<Self> {
+    fn create(
+        root: &Path,
+        directory: &Path,
+        source: AudioSource,
+        epoch: u64,
+        index: u64,
+        start: u64,
+        rate: u32,
+        channels: u16,
+    ) -> Result<Self> {
         // Coordinates in the managed filename survive a crash before SQLite registration.
         let final_path = directory.join(format!("{}-{index}-{start}.wav", source_name(source)));
         let partial_path = final_path.with_extension("wav.part");
-        let file = OpenOptions::new().create_new(true).read(true).write(true).open(&partial_path)?;
+        let file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&partial_path)?;
         let mut writer = BufWriter::new(file);
         writer.write_all(&[0_u8; 44])?;
         checkpoint_wav(&mut writer, rate, channels, 0)?;
-        Ok(Self { writer, partial_path, manifest: AudioChunkManifest {
-            source: source_name(source), epoch, chunk_index: index, start_sample: start,
-            sample_count: 0, sample_rate: rate, channels,
-            relative_path: final_path.strip_prefix(root)?.to_string_lossy().replace('\\', "/"),
-            byte_size: 44,
-        }, final_path })
+        Ok(Self {
+            writer,
+            partial_path,
+            manifest: AudioChunkManifest {
+                source: source_name(source),
+                epoch,
+                chunk_index: index,
+                start_sample: start,
+                sample_count: 0,
+                sample_rate: rate,
+                channels,
+                relative_path: final_path
+                    .strip_prefix(root)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                byte_size: 44,
+            },
+            final_path,
+        })
     }
 
     fn finish(mut self) -> Result<AudioChunkManifest> {
-        checkpoint_wav(&mut self.writer, self.manifest.sample_rate, self.manifest.channels, self.manifest.sample_count)?;
+        checkpoint_wav(
+            &mut self.writer,
+            self.manifest.sample_rate,
+            self.manifest.channels,
+            self.manifest.sample_count,
+        )?;
         self.writer.get_ref().sync_all()?;
         drop(self.writer);
         fs::rename(&self.partial_path, &self.final_path)?;
@@ -146,10 +188,17 @@ fn sync_directory(path: &Path) -> Result<()> {
 }
 
 fn write_track(
-    workspace_root: &Path, session_id: &str, source: AudioSource, epoch: u64,
-    frames: &mut AudioFrameStream, completed: Option<&mpsc::Sender<AudioChunkManifest>>,
+    workspace_root: &Path,
+    session_id: &str,
+    source: AudioSource,
+    epoch: u64,
+    frames: &mut AudioFrameStream,
+    completed: Option<&mpsc::Sender<AudioChunkManifest>>,
 ) -> Result<Vec<AudioChunkManifest>> {
-    let directory = workspace_root.join(VOICE_ASSET_DIR).join(session_id).join(format!("epoch-{epoch}"));
+    let directory = workspace_root
+        .join(VOICE_ASSET_DIR)
+        .join(session_id)
+        .join(format!("epoch-{epoch}"));
     fs::create_dir_all(&directory)?;
     let mut chunks = Vec::new();
     let mut active: Option<TrackChunk> = None;
@@ -158,7 +207,10 @@ fn write_track(
     let mut space_checked = std::time::Instant::now();
     ensure_storage_capacity(workspace_root, MIN_FREE_BYTES)?;
     while let Some(frame) = frames.blocking_next() {
-        if frame.channels == 0 || frame.sample_rate == 0 || frame.samples.len() % usize::from(frame.channels) != 0 {
+        if frame.channels == 0
+            || frame.sample_rate == 0
+            || frame.samples.len() % usize::from(frame.channels) != 0
+        {
             return Err(anyhow!("invalid audio frame"));
         }
         if space_checked.elapsed().as_secs() >= 1 {
@@ -169,32 +221,54 @@ fn write_track(
         if expected != (frame.sample_rate, frame.channels) {
             return Err(anyhow!("audio format changed within one capture epoch"));
         }
-        let start = (u128::from(frame.media_position_ns()) * u128::from(frame.sample_rate) / 1_000_000_000) as u64;
+        let start = (u128::from(frame.media_position_ns()) * u128::from(frame.sample_rate)
+            / 1_000_000_000) as u64;
         let position = next_start.get_or_insert(start);
         let channels = usize::from(frame.channels);
-        let limit = (u64::from(frame.sample_rate) * CHUNK_SECONDS).min((u64::from(u32::MAX) - 36) / (channels as u64 * 4));
+        let limit = (u64::from(frame.sample_rate) * CHUNK_SECONDS)
+            .min((u64::from(u32::MAX) - 36) / (channels as u64 * 4));
         let mut remaining = frame.samples.as_slice();
         while !remaining.is_empty() {
             if active.is_none() {
-                active = Some(TrackChunk::create(workspace_root, &directory, source, epoch,
-                    chunks.len() as u64, *position, frame.sample_rate, frame.channels)?);
+                active = Some(TrackChunk::create(
+                    workspace_root,
+                    &directory,
+                    source,
+                    epoch,
+                    chunks.len() as u64,
+                    *position,
+                    frame.sample_rate,
+                    frame.channels,
+                )?);
             }
             let chunk = active.as_mut().expect("created chunk");
-            let count = (limit - chunk.manifest.sample_count).min((remaining.len() / channels) as u64);
+            let count =
+                (limit - chunk.manifest.sample_count).min((remaining.len() / channels) as u64);
             let (samples, rest) = remaining.split_at(count as usize * channels);
-            for sample in samples { chunk.writer.write_all(&sample.to_le_bytes())?; }
+            for sample in samples {
+                chunk.writer.write_all(&sample.to_le_bytes())?;
+            }
             chunk.manifest.sample_count += count;
             *position += count;
-            checkpoint_wav(&mut chunk.writer, frame.sample_rate, frame.channels, chunk.manifest.sample_count)?;
+            checkpoint_wav(
+                &mut chunk.writer,
+                frame.sample_rate,
+                frame.channels,
+                chunk.manifest.sample_count,
+            )?;
             remaining = rest;
             if chunk.manifest.sample_count == limit {
                 let manifest = active.take().expect("full chunk").finish()?;
-                if let Some(send) = completed { let _ = send.send(manifest.clone()); }
+                if let Some(send) = completed {
+                    let _ = send.send(manifest.clone());
+                }
                 chunks.push(manifest);
             }
         }
     }
-    if let Some(chunk) = active { chunks.push(chunk.finish()?); }
+    if let Some(chunk) = active {
+        chunks.push(chunk.finish()?);
+    }
     Ok(chunks)
 }
 
@@ -237,25 +311,40 @@ pub fn recover_partial_tracks(
         };
         for file in fs::read_dir(entry.path())? {
             let file = file?;
-            if !file.file_type()?.is_file() { continue; }
+            if !file.file_type()?.is_file() {
+                continue;
+            }
             let filename = file.file_name().to_string_lossy().into_owned();
             let partial = filename.ends_with(".wav.part");
-            let stem = filename.strip_suffix(".wav.part").or_else(|| filename.strip_suffix(".wav"));
-            let Some(stem) = stem else { continue; };
+            let stem = filename
+                .strip_suffix(".wav.part")
+                .or_else(|| filename.strip_suffix(".wav"));
+            let Some(stem) = stem else {
+                continue;
+            };
             let mut parts = stem.split('-');
             let source = match parts.next() {
-                Some("microphone") => "microphone", Some("system") => "system", _ => continue,
+                Some("microphone") => "microphone",
+                Some("system") => "system",
+                _ => continue,
             };
             let coordinates = match (parts.next(), parts.next(), parts.next()) {
                 (None, None, None) => (0, 0), // Read old epoch-only recordings.
-                (Some(index), Some(start), None) => match (index.parse::<u64>(), start.parse::<u64>()) {
-                    (Ok(index), Ok(start)) => (index, start), _ => continue,
-                },
+                (Some(index), Some(start), None) => {
+                    match (index.parse::<u64>(), start.parse::<u64>()) {
+                        (Ok(index), Ok(start)) => (index, start),
+                        _ => continue,
+                    }
+                }
                 _ => continue,
             };
             let final_path = entry.path().join(format!("{stem}.wav"));
-            if partial && final_path.exists() { continue; }
-            if let Some(mut manifest) = recover_partial_track(workspace_root, &file.path(), &final_path, source, epoch)? {
+            if partial && final_path.exists() {
+                continue;
+            }
+            if let Some(mut manifest) =
+                recover_partial_track(workspace_root, &file.path(), &final_path, source, epoch)?
+            {
                 manifest.chunk_index = coordinates.0;
                 manifest.start_sample = coordinates.1;
                 recovered.push(manifest);
@@ -384,12 +473,22 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         assert!(ensure_storage_capacity(root.path(), u64::MAX).is_err());
         preflight_storage(root.path()).unwrap();
-        let blocked = root.path().join(VOICE_ASSET_DIR).join("failure/epoch-1/microphone-1-600.wav.part");
+        let blocked = root
+            .path()
+            .join(VOICE_ASSET_DIR)
+            .join("failure/epoch-1/microphone-1-600.wav.part");
         fs::create_dir_all(&blocked).unwrap();
         let (sink, stream) = bounded_audio_frames(1).unwrap();
-        let writer = WriterHandle::spawn(root.path().into(), "failure".into(), AudioSource::Microphone, 1, stream);
+        let writer = WriterHandle::spawn(
+            root.path().into(),
+            "failure".into(),
+            AudioSource::Microphone,
+            1,
+            stream,
+        );
         let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 10, 1).unwrap();
-        sink.try_push(timeline.stamp(0, vec![0.5; 601]).unwrap()).unwrap();
+        sink.try_push(timeline.stamp(0, vec![0.5; 601]).unwrap())
+            .unwrap();
         drop(sink);
         assert!(writer.finish().is_err());
         let saved = recover_partial_tracks(root.path(), "failure").unwrap();
@@ -401,9 +500,16 @@ mod tests {
     fn recording_rolls_tracks_and_recovers_their_original_timeline() {
         let workspace = tempfile::tempdir().unwrap();
         let (sink, stream) = bounded_audio_frames(2).unwrap();
-        let writer = WriterHandle::spawn(workspace.path().to_path_buf(), "rolling".into(), AudioSource::Microphone, 1, stream);
+        let writer = WriterHandle::spawn(
+            workspace.path().to_path_buf(),
+            "rolling".into(),
+            AudioSource::Microphone,
+            1,
+            stream,
+        );
         let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 10, 1).unwrap();
-        sink.try_push(timeline.stamp(200_000_000, vec![0.25; 601]).unwrap()).unwrap();
+        sink.try_push(timeline.stamp(200_000_000, vec![0.25; 601]).unwrap())
+            .unwrap();
         drop(sink);
         let chunks = writer.finish().unwrap();
         assert_eq!(chunks.len(), 2);
@@ -413,7 +519,10 @@ mod tests {
         fs::rename(&last, last.with_extension("wav.part")).unwrap();
         let recovered = recover_partial_tracks(workspace.path(), "rolling").unwrap();
         assert_eq!(recovered.len(), 2);
-        assert_eq!((recovered[1].start_sample, recovered[1].sample_count), (602, 1));
+        assert_eq!(
+            (recovered[1].start_sample, recovered[1].sample_count),
+            (602, 1)
+        );
     }
 
     #[test]
@@ -442,7 +551,8 @@ mod tests {
             &mut stream,
             None,
         )
-        .unwrap().remove(0);
+        .unwrap()
+        .remove(0);
         assert_eq!(manifest.sample_count, input.len() as u64);
         assert_eq!(manifest.sample_rate, 44_100);
         let wav = fs::read(workspace.path().join(manifest.relative_path)).unwrap();
@@ -471,7 +581,8 @@ mod tests {
             &mut stream,
             None,
         )
-        .unwrap().remove(0);
+        .unwrap()
+        .remove(0);
         assert_eq!(manifest.sample_count, 480);
         assert_eq!(manifest.start_sample, 4_800);
         let final_path = workspace.join(&manifest.relative_path);

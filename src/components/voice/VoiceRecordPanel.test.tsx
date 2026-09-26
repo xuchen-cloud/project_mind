@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   playbackGet: vi.fn(),
+  recoveryGet: vi.fn(),
+  recoveryRetry: vi.fn(),
   transcriptList: vi.fn(),
   minutesGet: vi.fn(),
   minutesGenerate: vi.fn(),
@@ -14,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/voiceApi", () => ({
-  voiceApi: { playbackGet: mocks.playbackGet, transcriptList: mocks.transcriptList, minutesGet: mocks.minutesGet, minutesGenerate: mocks.minutesGenerate },
+  voiceApi: { recoveryGet: mocks.recoveryGet, recoveryRetry: mocks.recoveryRetry, playbackGet: mocks.playbackGet, transcriptList: mocks.transcriptList, minutesGet: mocks.minutesGet, minutesGenerate: mocks.minutesGenerate },
 }));
 
 vi.mock("../../services/desktopApi", () => ({
@@ -60,6 +62,8 @@ describe("VoiceRecordPanel", () => {
   beforeEach(() => {
     vi.stubGlobal("Audio", FakeAudio);
     mocks.playbackGet.mockReset();
+    mocks.recoveryGet.mockReset().mockResolvedValue([]);
+    mocks.recoveryRetry.mockReset().mockResolvedValue(undefined);
     mocks.transcriptList.mockReset();
     mocks.minutesGet.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "ready", error: null });
     mocks.minutesGenerate.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "pending", error: null });
@@ -130,6 +134,18 @@ describe("VoiceRecordPanel", () => {
     expect(screen.queryByText("旧纪要")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "复制到正文" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成纪要" })).toBeDisabled();
+    view.unmount();
+  });
+
+  it("shows the missing interval and lets the user retry failed recovery", async () => {
+    mocks.recoveryGet.mockResolvedValue([{ id: 3, startMs: 1000, endMs: 6000, cursorMs: 1000, status: "failed", error: "连接超时" }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} />
+    </QueryClientProvider>);
+    expect(await screen.findByText(/0:01–0:06：补转写失败：连接超时/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试补转写" }));
+    await waitFor(() => expect(mocks.recoveryRetry).toHaveBeenCalledWith({ scope: "workspace", recordId: 7 }));
     view.unmount();
   });
 

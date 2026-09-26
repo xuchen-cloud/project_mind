@@ -66,6 +66,8 @@ impl std::error::Error for MacCaptureError {}
 pub struct MacCaptureOutputs {
     pub microphone: AudioFrameStream,
     pub system: AudioFrameStream,
+    pub activity_microphone: AudioFrameStream,
+    pub activity_system: AudioFrameStream,
     pub recognition_microphone: Option<AudioFrameStream>,
     pub recognition_system: Option<AudioFrameStream>,
     pub faults: tokio::sync::mpsc::Receiver<MacCaptureFault>,
@@ -139,6 +141,11 @@ impl MacCaptureSession {
         } else {
             (None, None)
         };
+        let (activity_microphone_sink, activity_microphone) =
+            bounded_audio_frames(queue_capacity * 4)
+                .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
+        let (activity_system_sink, activity_system) = bounded_audio_frames(queue_capacity * 4)
+            .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
         let (fault_sink, faults) = tokio::sync::mpsc::channel(queue_capacity);
         let started_at = Instant::now();
 
@@ -156,6 +163,7 @@ impl MacCaptureSession {
                 started_at,
                 system_sink,
                 recognition_system_sink,
+                activity_system_sink,
                 fault_sink.clone(),
             ),
             SCStreamOutputType::Audio,
@@ -168,6 +176,7 @@ impl MacCaptureSession {
                 started_at,
                 microphone_sink,
                 recognition_microphone_sink,
+                activity_microphone_sink,
                 fault_sink,
             ),
             SCStreamOutputType::Microphone,
@@ -187,6 +196,8 @@ impl MacCaptureSession {
                 system,
                 recognition_microphone,
                 recognition_system,
+                activity_microphone,
+                activity_system,
                 faults,
             },
         ))
@@ -243,6 +254,7 @@ struct TrackHandler {
     timeline: Arc<Mutex<Option<SourceTimeline>>>,
     frames: AudioFrameSink,
     recognition: Option<AudioFrameSink>,
+    activity: AudioFrameSink,
     faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
 }
 
@@ -253,6 +265,7 @@ impl TrackHandler {
         started_at: Instant,
         frames: AudioFrameSink,
         recognition: Option<AudioFrameSink>,
+        activity: AudioFrameSink,
         faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
     ) -> Self {
         Self {
@@ -262,6 +275,7 @@ impl TrackHandler {
             timeline: Arc::new(Mutex::new(None)),
             frames,
             recognition,
+            activity,
             faults,
         }
     }
@@ -372,17 +386,15 @@ impl SCStreamOutputTrait for TrackHandler {
             });
             return;
         };
+        if self.activity.try_push(frame.clone()).is_err() {
+            self.report(MacCaptureFault::ConsumerClosed {
+                source: self.source,
+            });
+        }
         if let Some(recognition) = &self.recognition {
-            if let Err(error) = recognition.try_push(frame.clone()) {
-                self.report(match error {
-                    AudioIngressError::Backpressure(_) => MacCaptureFault::Backpressure {
-                        source: self.source,
-                    },
-                    AudioIngressError::Closed(_) => MacCaptureFault::ConsumerClosed {
-                        source: self.source,
-                    },
-                });
-            }
+            // Recognition detects skipped timestamps and records recovery intervals.
+            // A failed network consumer must never stop the independent raw tracks.
+            let _ = recognition.try_push(frame.clone());
         }
         if let Err(error) = self.frames.try_push(frame) {
             self.report(match error {

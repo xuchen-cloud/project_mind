@@ -10,7 +10,7 @@ export interface AppUpdate {
 export interface AppUpdaterClient {
   currentVersion(): Promise<string>;
   check(): Promise<AppUpdate | null>;
-  install(update: AppUpdate): Promise<void>;
+  install(update: AppUpdate): Promise<boolean | void>;
 }
 
 let pendingUpdate: Update | null = null;
@@ -31,9 +31,10 @@ export const tauriAppUpdater: AppUpdaterClient = {
     if (!pendingUpdate || pendingUpdate.version !== update.version) {
       throw new Error("需要重新检查更新后再安装");
     }
-    if (!(await desktopApi.prepareVoiceLeave())) return;
+    if (!(await desktopApi.prepareVoiceLeave())) return false;
     await desktopApi.flushOtherWorkspaceWindows(true);
     await pendingUpdate.downloadAndInstall();
     await desktopApi.command("app_restart");
+    return true;
   },
 };

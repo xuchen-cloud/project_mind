@@ -92,3 +92,14 @@ export interface VoiceMinutesGenerateInput { target: VoiceRecordLookup; requestI
 // lexicon and minutes revisions once the database contracts are implemented.
 // TODO(VR-12): events carry workspace/session/epoch/sequence; detect sequence gaps
 // and reload authoritative snapshot. Never transport raw PCM through React state.
+
+export interface VoiceRecoveryGap {
+  id: number;
+  sessionId: string;
+  epoch: number;
+  startMs: number;
+  endMs: number | null;
+  cursorMs: number;
+  status: "waiting" | "pending" | "running" | "ready" | "failed";
+  error: string | null;
+}

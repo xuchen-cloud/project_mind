@@ -398,6 +398,7 @@ export function WorkspaceLayout({
         query: debouncedSearch,
       }),
     enabled: hasWorkspace && debouncedSearch.trim().length > 0,
+    refetchInterval: 5_000,
   });
   const normalizedSearchInput = searchInput.trim();
   const searchQueryIsCurrent = debouncedSearch.trim() === normalizedSearchInput;
@@ -536,7 +537,7 @@ export function WorkspaceLayout({
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
-      if (!(await desktopApi.prepareVoiceLeave())) return workspaceStatusQuery.data!;
+      if (!(await desktopApi.prepareVoiceLeave())) return null;
       await flushRecordSaves();
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
@@ -565,6 +566,7 @@ export function WorkspaceLayout({
           return;
         }
         const snapshot = await openWorkspaceByRoot(selectedRoot);
+        if (!snapshot) return;
         setStatus({
           tone: "success",
           label: "Opened",

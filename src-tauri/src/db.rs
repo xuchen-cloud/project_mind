@@ -1,3 +1,5 @@
+mod voice_recovery;
+pub(crate) use voice_recovery::CloudGap;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
@@ -74,7 +76,8 @@ const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
 const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
 const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
 const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_RELIABILITY_SCHEMA_VERSION;
+const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
+const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECOVERY_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -740,6 +743,10 @@ impl Database {
         }
         if self.schema_version()? < VOICE_RELIABILITY_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RELIABILITY_SCHEMA_VERSION)?;
+        }
+        self.ensure_cloud_recovery_schema()?;
+        if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
@@ -1557,6 +1564,11 @@ impl Database {
     fn ensure_voice_record_schema(&self) -> Result<()> {
         self.conn.execute_batch(
             r#"
+            CREATE TABLE IF NOT EXISTS project_asset_cleanup (
+              project_id INTEGER PRIMARY KEY,
+              path TEXT NOT NULL,
+              last_error TEXT
+            );
             CREATE TABLE IF NOT EXISTS voice_asset_cleanup (
               session_id TEXT PRIMARY KEY,
               last_error TEXT
@@ -2461,6 +2473,17 @@ impl Database {
                 Err(error) => { self.conn.execute("UPDATE voice_asset_cleanup SET last_error = ?2 WHERE session_id = ?1", params![session, error.to_string()])?; }
             }
         }
+        let projects = self.conn.prepare("SELECT project_id, path FROM project_asset_cleanup")?
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (id, stored_path) in projects {
+            let path = self.decode_path_ref(&stored_path);
+            let result = if path.exists() { move_paths_to_trash(&[path]) } else { Ok(()) };
+            match result {
+                Ok(()) => { self.conn.execute("DELETE FROM project_asset_cleanup WHERE project_id=?1", [id])?; }
+                Err(error) => { self.conn.execute("UPDATE project_asset_cleanup SET last_error=?2 WHERE project_id=?1", params![id, error.to_string()])?; }
+            }
+        }
         Ok(())
     }
 
@@ -2468,16 +2491,11 @@ impl Database {
         let current = self.project_record(input.project_id)?;
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
-        let project_root = PathBuf::from(&current.root_path);
-        let cleanup_paths = if project_root.exists() {
-            vec![project_root]
-        } else {
-            Vec::new()
-        };
-
-        move_paths_to_trash(&cleanup_paths)?;
-        self.conn
-            .execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        let path = self.encode_path_ref(Path::new(&current.root_path));
+        let transaction = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        transaction.execute("INSERT INTO project_asset_cleanup(project_id, path) VALUES (?1, ?2)", params![input.project_id, path])?;
+        transaction.commit()?;
         self.voice_retry_asset_cleanup()?;
 
         Ok(current)
@@ -4869,9 +4887,11 @@ impl Database {
                 INNER JOIN file_tag_options ft ON ft.id = wntl.tag_id
                 WHERE wntl.workspace_note_id = wn.id
               ), '') AS tag_match_text,
-              wn.updated_at
+              wn.updated_at,
+              COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
             FROM workspace_notes wn
-            WHERE wn.title LIKE ?1
+            WHERE EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
+              OR wn.title LIKE ?1
               OR wn.content_markdown LIKE ?1
               OR EXISTS (
                 SELECT 1
@@ -4888,6 +4908,7 @@ impl Database {
             let title: String = row.get(2)?;
             let content: String = row.get(3)?;
             let tags: String = row.get(4)?;
+            let transcript: String = row.get(6)?;
             let kind = if note_kind == WORKSPACE_NOTE_KIND_TODAY_QUICK {
                 "workspace_quick_note"
             } else {
@@ -4911,7 +4932,7 @@ impl Database {
                     title: display_title,
                     subtitle: "Workspace".to_string(),
                     matched_text: workspace_search_match_excerpt(
-                        &[title.as_str(), content.as_str(), tags.as_str()],
+                        &[title.as_str(), content.as_str(), tags.as_str(), transcript.as_str()],
                         query,
                     ),
                 },
@@ -4919,6 +4940,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_WORKSPACE_NOTE_TITLE, title),
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, content),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tags),
+                    (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, transcript),
                 ]),
                 updated_at: row.get(5)?,
             })
@@ -5019,7 +5041,8 @@ impl Database {
                 WHERE ntl.note_id = n.id
               ), '') AS tag_match_text,
               p.name AS project_name,
-              n.updated_at
+              n.updated_at,
+              COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
             FROM notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE (
@@ -5028,6 +5051,7 @@ impl Database {
                 AND TRIM(n.title) != '记录'
                 AND TRIM(n.title) LIKE ?1
               )
+              OR EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
               OR COALESCE(NULLIF(TRIM(n.content_markdown), ''), '') LIKE ?1
               OR EXISTS (
                 SELECT 1
@@ -5047,13 +5071,14 @@ impl Database {
             let content_match_text: String = row.get(4)?;
             let tag_match_text: String = row.get(5)?;
             let project_name: String = row.get(6)?;
+            let transcript: String = row.get(8)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "note".to_string(),
                     id: row.get(0)?,
                     scope: None,
                     project_id: Some(row.get(1)?),
-                    source: None,
+                    source: (!transcript.is_empty()).then(|| "transcript".to_string()),
                     title: truncate_text(&normalize_internal_reference_label("note", &title), 72),
                     subtitle: project_name,
                     matched_text: workspace_search_match_excerpt(
@@ -5061,6 +5086,7 @@ impl Database {
                             title_match_text.as_str(),
                             content_match_text.as_str(),
                             tag_match_text.as_str(),
+                            transcript.as_str(),
                         ],
                         query,
                     ),
@@ -5069,6 +5095,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE, title_match_text),
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, content_match_text),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
+                    (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, transcript),
                 ]),
                 updated_at: row.get(7)?,
             })
@@ -5235,9 +5262,9 @@ impl Database {
 
         if let Some(project_id) = input.project_id {
             candidates.retain(|candidate| {
-                candidate.result.kind == "todo"
-                    && candidate.result.scope.as_deref() == Some("project")
-                    && candidate.result.project_id == Some(project_id)
+                candidate.result.project_id == Some(project_id)
+                    && ((candidate.result.kind == "todo" && candidate.result.scope.as_deref() == Some("project"))
+                        || (candidate.result.kind == "note" && candidate.result.source.as_deref() == Some("transcript")))
             });
         }
 
@@ -9434,6 +9461,16 @@ mod tests {
     };
 
     #[test]
+    fn database_failure_during_project_delete_leaves_managed_files_in_place() {
+        let (harness, mut db) = setup_database();
+        let project = create_project(&mut db, &harness.workspace_root);
+        db.conn.execute_batch("CREATE TRIGGER fail_project_delete BEFORE DELETE ON projects BEGIN SELECT RAISE(FAIL, 'disk full'); END;").unwrap();
+        assert!(db.project_delete(ProjectDeleteInput { project_id: project.id }).is_err());
+        assert!(Path::new(&project.root_path).exists());
+        assert!(db.project_record(project.id).is_ok());
+    }
+
+    #[test]
     fn failed_voice_asset_cleanup_is_retried_after_reopening_the_workspace() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("test.sqlite");
@@ -11544,6 +11581,30 @@ mod tests {
             sorted_todo_ids,
             vec![exact_workspace_todo.id, prefix_project_todo.id]
         );
+    }
+
+    #[test]
+    fn transcript_search_tracks_append_backfill_scope_and_delete_without_duplicates() {
+        let (harness, mut db) = setup_database();
+        let project = create_project(&mut db, &harness.workspace_root);
+        let workspace = db.voice_session_create(&RecordTarget::Workspace, "search-w", "search-w", "独特转写词").unwrap();
+        db.voice_session_transition(&workspace.session_id, workspace.revision, "ended", None, 3000, 1).unwrap();
+        let project_voice = db.voice_session_create(&RecordTarget::Project { project_id: project.id }, "search-p", "search-p", "会议").unwrap();
+        db.voice_session_transition(&project_voice.session_id, project_voice.revision, "ended", None, 3000, 1).unwrap();
+        for session in [&workspace, &project_voice] {
+            db.voice_transcript_append_final(&session.session_id, "live", 2000, 3000, "独特转写词后半段", None).unwrap();
+            db.voice_transcript_append_final(&session.session_id, "backfill", 0, 1000, "独特转写词补齐前半段", None).unwrap();
+        }
+        let query = |project_id| WorkspaceSearchInput { query: "独特转写词".into(), include_archived: None, project_id };
+        let results = db.workspace_search(query(None)).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|result| result.kind == "note" && result.id == project_voice.project_note_id.unwrap() && result.matched_text.contains("独特转写词")));
+        let scoped = db.workspace_search(query(Some(project.id))).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].project_id, Some(project.id));
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id: workspace.workspace_note_id.unwrap() }).unwrap();
+        assert_eq!(db.workspace_search(query(None)).unwrap().len(), 1);
+        assert_eq!(db.voice_minutes_input(&project_voice.session_id).unwrap().segments[0].text, "独特转写词补齐前半段");
     }
 
     #[test]

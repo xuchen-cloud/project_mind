@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 1420",
     "dev:tauri": "tauri dev",
+    "dev:tauri:manual": "tauri dev --no-watch",
     "build": "tsc && vite build",
     "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",

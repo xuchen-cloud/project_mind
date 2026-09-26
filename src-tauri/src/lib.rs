@@ -121,6 +121,8 @@ pub(crate) struct WorkspaceRuntime {
     pub(crate) db: Mutex<Database>,
     ai_jobs: AiJobManager,
     voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
+    pub(crate) voice_recovery_interrupt: std::sync::atomic::AtomicBool,
 }
 
 impl WorkspaceRuntime {
@@ -152,6 +154,8 @@ impl WorkspaceRuntime {
             db: Mutex::new(db),
             ai_jobs,
             voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
+            voice_recovery_interrupt: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -235,6 +239,9 @@ impl AppState {
 
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
         let mut current = lock_mutex(&self.current_workspace);
+        if let Some(previous) = current.as_ref() {
+            previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+        }
         *current = runtime;
     }
 
@@ -273,7 +280,11 @@ impl AppState {
 
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
+        let previous = lock_mutex(&self.current_workspace).clone();
         close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
+        if let Some(previous) = previous {
+            previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+        }
         self.status_snapshot()
     }
 
@@ -1171,18 +1182,45 @@ pub fn run() {
 
             app.manage(state);
             let handle = app.handle().clone();
-            std::thread::Builder::new().name("voice-supervisor".into()).spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                let state = handle.state::<AppState>();
-                let workspace = lock_mutex(&state.current_workspace).clone();
-                if let Some(workspace) = workspace {
-                    let mut voice = lock_mutex(&state.voice_runtime);
-                    let mut db = lock_mutex(&workspace.db);
-                    if let Err(error) = voice.snapshot(&mut db, &workspace.paths.root_path) {
-                        let _ = handle.emit("voice:error", error.to_string());
+            std::thread::Builder::new()
+                .name("voice-supervisor".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    let state = handle.state::<AppState>();
+                    let workspace = lock_mutex(&state.current_workspace).clone();
+                    if let Some(workspace) = workspace {
+                        let mut voice = lock_mutex(&state.voice_runtime);
+                        if !lock_mutex(&state.current_workspace)
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(current, &workspace))
+                        {
+                            continue;
+                        }
+                        let mut db = lock_mutex(&workspace.db);
+                        match voice.snapshot(&mut db, &workspace.paths.root_path) {
+                            Ok(snapshot) => {
+                                let current = lock_mutex(&state.current_workspace);
+                                if !current.as_ref().is_some_and(|active| Arc::ptr_eq(active, &workspace)) {
+                                    workspace.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+                                    continue;
+                                }
+                                let busy = !workspace.ai_secrets_unlocked()
+                                    || snapshot.as_ref().is_some_and(|session| {
+                                        matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
+                                    });
+                                workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
+                                let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
+                                drop(db);
+                                if recover {
+                                    voice::recovery::kick(workspace.clone());
+                                }
+                            }
+                            Err(error) => {
+                                let _ = handle.emit("voice:error", error.to_string());
+                            }
+                        }
                     }
-                }
-            })?;
+                })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1200,6 +1238,8 @@ pub fn run() {
             voice::commands::voice_snapshot_get,
             voice::commands::voice_playback_get,
             voice::commands::voice_transcript_list,
+            voice::commands::voice_recovery_get,
+            voice::commands::voice_recovery_retry,
             voice::commands::voice_transcript_tail,
             voice::commands::voice_minutes_get,
             voice::commands::voice_minutes_generate,

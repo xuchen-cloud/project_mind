@@ -31,6 +31,20 @@ describe("UpdateSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "下载并安装" })).toBeEnabled();
   });
 
+  it("keeps the update available when saving the recording is cancelled", async () => {
+    const user = userEvent.setup();
+    const updater = {
+      currentVersion: vi.fn(async () => "0.1.0"),
+      check: vi.fn(async () => ({ version: "0.2.0", notes: null })),
+      install: vi.fn(async () => false),
+    };
+    render(<UpdateSettingsPanel updater={updater} />);
+    await user.click(await screen.findByRole("button", { name: "检查更新" }));
+    await user.click(await screen.findByRole("button", { name: "下载并安装" }));
+    expect(screen.queryByText("更新已安装，正在重新启动…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeEnabled();
+  });
+
   it("installs the selected update and tells the user the app will restart", async () => {
     const user = userEvent.setup();
     const update = {

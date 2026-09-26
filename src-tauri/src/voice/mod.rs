@@ -14,3 +14,8 @@ pub mod recognition;
 pub mod runtime;
 pub mod storage;
 pub mod transcript_assembly;
+
+pub mod activity;
+pub mod fsmn;
+
+pub(crate) mod recovery;

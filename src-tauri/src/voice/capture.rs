@@ -1,8 +1,11 @@
 //! Native capture boundary — VR-02, VR-05, VR-06.
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
-// TODO: macOS adapter using a verified recent SDK; Windows WASAPI loopback adapter.
+// macOS ScreenCaptureKit and Windows WASAPI share the contracts below.
+// Windows device and installer acceptance remains pending.
 // Probe actual source readiness (silent output is not a missing device).
 // On supported Mac laptops, detect the closed-lid hardware microphone cutoff;
 // receiving zero-filled callbacks does not mean the built-in mic is usable.

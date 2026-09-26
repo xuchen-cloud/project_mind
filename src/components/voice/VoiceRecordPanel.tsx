@@ -70,6 +70,17 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
     lastMinutesTitle.current = snapshot.title;
     onTitleUpdated?.(snapshot.title);
   }, [minutesQuery.data, onTitleUpdated]);
+  const recoveryQuery = useQuery({
+    queryKey: ["voice-recovery", target],
+    queryFn: () => voiceApi.recoveryGet(target),
+    enabled: visible && !!playbackQuery.data,
+    refetchInterval: visible ? 5_000 : false,
+    retry: false,
+  });
+  const recoveryProgress = recoveryQuery.data?.map(gap => `${gap.id}:${gap.cursorMs}`).join(",");
+  useEffect(() => {
+    if (recoveryProgress) void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
+  }, [recoveryProgress, queryClient, target]);
   const transcriptQuery = useInfiniteQuery({
     queryKey: ["voice-transcript", target],
     initialPageParam: null as VoiceTranscriptCursor | null,
@@ -196,6 +207,20 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
           {playbackQuery.data.phase === "ended" ? "已保存" : "录制尚未结束"}
         </span>
       </div>
+      {recoveryQuery.data?.some(gap => gap.status !== "ready") ? (
+        <div className="mb-3 text-caption text-text-muted" role="status">
+          {recoveryQuery.data.filter(gap => gap.status !== "ready").map(gap => (
+            <p key={gap.id}>
+              {formatTime(gap.startMs)}–{gap.endMs === null ? "录制中" : formatTime(gap.endMs)}：
+              {gap.status === "running" ? "正在补转写" : gap.status === "failed" ? "补转写失败" : "等待补转写（实时录音优先）"}
+              {gap.status === "failed" && gap.error ? `：${gap.error}` : ""}
+            </p>
+          ))}
+          {recoveryQuery.data.some(gap => gap.status === "failed") ? (
+            <Button variant="ghost" onClick={() => void voiceApi.recoveryRetry(target).then(() => recoveryQuery.refetch()).catch(error => setMinutesError(String(error)))}>重试补转写</Button>
+          ) : null}
+        </div>
+      ) : null}
       {totalMs > 0 ? (
         <div className="flex items-center gap-3">
           <Button

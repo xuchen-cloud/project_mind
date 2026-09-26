@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { webviewWindow } from "@tauri-apps/api";
-import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { availableMonitors, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
@@ -72,6 +72,18 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
+  async captionWindowTrackPosition() {
+    const current = getCurrentWindow();
+    return (await import("./voiceWindowPosition")).trackVoiceWindowPosition({
+      displays: availableMonitors,
+      outerPosition: () => current.outerPosition(), outerSize: () => current.outerSize(),
+      scaleFactor: () => current.scaleFactor(),
+      setSize: (width, height) => current.setSize(new PhysicalSize(width, height)),
+      setPosition: (x, y) => current.setPosition(new PhysicalPosition(x, y)),
+      onMoved: handler => current.onMoved(handler), onResized: handler => current.onResized(handler),
+      onScaleChanged: handler => current.onScaleChanged(handler),
+    });
+  },
   async captionWindowSetSize(width: number, height: number) {
     const current = getCurrentWindow();
     const minSize = new LogicalSize(width < 380 ? width : 380, height < 72 ? height : 72);
