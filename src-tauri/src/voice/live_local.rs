@@ -22,6 +22,50 @@ const VAD_FRAME: usize = 480; // 30 ms at 16 kHz.
 const MAX_TRACK_LAG: usize = 3 * RATE as usize;
 const PREVIEW_INTERVAL_SAMPLES: u64 = 2 * RATE;
 
+struct SpeechDetector {
+    vad: Vad,
+    supported_run: u8,
+}
+
+impl SpeechDetector {
+    fn new() -> Self {
+        Self {
+            vad: Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality),
+            supported_run: 0,
+        }
+    }
+
+    fn is_speech(&mut self, samples: &[f32]) -> Result<bool> {
+        let pcm = samples
+            .iter()
+            .map(|sample| (sample * 32767.0) as i16)
+            .collect::<Vec<_>>();
+        let speech = self
+            .vad
+            .is_voice_segment(&pcm)
+            .map_err(|_| anyhow!("WebRTC VAD rejected a captured frame"))?;
+        // VAD hangover after a click must not turn subsequent silence into
+        // speech evidence. Require energy in at least two 10 ms subframes;
+        // the VAD still makes the speech decision. Original audio is untouched.
+        let supported = samples
+            .chunks(160)
+            .filter(|chunk| {
+                let energy =
+                    chunk.iter().map(|sample| sample * sample).sum::<f32>() / chunk.len() as f32;
+                energy >= 0.0005_f32.powi(2)
+            })
+            .count();
+        // A click straddling subframes must not qualify on its own. Pre-roll
+        // preserves speech onset while we wait for the second supported frame.
+        self.supported_run = if speech && supported >= 2 {
+            (self.supported_run + 1).min(2)
+        } else {
+            0
+        };
+        Ok(self.supported_run >= 2)
+    }
+}
+
 pub struct TranscriptFinal {
     pub provider_key: String,
     pub start_ms: u64,
@@ -218,7 +262,7 @@ impl Mixer {
 
 struct Pipeline {
     mixer: Mixer,
-    vad: Vad,
+    vad: SpeechDetector,
     segmenter: UtteranceSegmenter,
     worker: LocalAsrWorker,
     assembler: SentenceAssembler,
@@ -237,7 +281,7 @@ impl Pipeline {
     ) -> Result<Self> {
         Ok(Self {
             mixer: Mixer::new(),
-            vad: Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Quality),
+            vad: SpeechDetector::new(),
             segmenter: UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
                 .map_err(|error| anyhow!("invalid VAD segmenter: {error:?}"))?,
             worker,
@@ -251,14 +295,7 @@ impl Pipeline {
 
     fn feed(&mut self, frame: AudioFrame) -> Result<()> {
         for (start_sample, samples) in self.mixer.push(frame)? {
-            let pcm = samples
-                .iter()
-                .map(|sample| (sample * 32767.0) as i16)
-                .collect::<Vec<_>>();
-            let speech = self
-                .vad
-                .is_voice_segment(&pcm)
-                .map_err(|_| anyhow!("WebRTC VAD rejected a captured frame"))?;
+            let speech = self.vad.is_speech(&samples)?;
             let segments = self
                 .segmenter
                 .push(VadFrame {
@@ -349,6 +386,49 @@ mod tests {
     use crate::voice::capture::SourceTimeline;
 
     #[test]
+    fn quiet_clicks_do_not_reach_preview_or_transcription() {
+        for (spacing, offset) in [(7, 0), (20, 0), (40, 0), (7, 100), (7, 430)] {
+            let mut detector = SpeechDetector::new();
+            let mut segmenter =
+                UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default()).unwrap();
+            let mut seed = 17_u32;
+            for frame in 0..400 {
+                let samples = (0..VAD_FRAME)
+                    .map(|index| {
+                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                        let noise = (seed as i32 as f32) / i32::MAX as f32;
+                        let position = (frame * VAD_FRAME + index + spacing * VAD_FRAME - offset)
+                            % (spacing * VAD_FRAME);
+                        let click = if position < 128 {
+                            0.04 * (1.0 - position as f32 / 128.0)
+                        } else {
+                            0.0
+                        };
+                        noise * (0.00005 + click)
+                    })
+                    .collect::<Vec<_>>();
+                let speech = detector.is_speech(&samples).unwrap();
+                let segments = segmenter
+                    .push(VadFrame {
+                        start_sample: (frame * VAD_FRAME) as u64,
+                        samples: &samples,
+                        speech,
+                    })
+                    .unwrap();
+                assert!(
+                    segments.is_empty(),
+                    "click spacing {spacing}, frame {frame}"
+                );
+                assert!(
+                    segmenter.preview().is_none(),
+                    "click preview at frame {frame}"
+                );
+            }
+            assert!(segmenter.flush().is_none());
+        }
+    }
+
+    #[test]
     #[cfg(target_os = "macos")]
     #[ignore = "requires verified external SenseVoice package and zh.wav; set PROJECT_MIND_TEST_MODEL_DIR"]
     fn live_mixed_capture_generates_chinese_transcript() {
@@ -364,7 +444,8 @@ mod tests {
         )
         .unwrap();
         let wave = Wave::read(source.join("test_wavs/zh.wav").to_str().unwrap()).unwrap();
-        for preview_enabled in [true, false] {
+        // Include quiet speech so noise suppression cannot pass by muting input.
+        for (preview_enabled, gain) in [(true, 1.0), (false, 1.0), (true, 0.05)] {
             let worker = LocalAsrWorker::start(cache.path()).unwrap();
             let (send, results) = mpsc::channel();
             let mut pipeline =
@@ -372,7 +453,9 @@ mod tests {
             let mut mic = SourceTimeline::new(AudioSource::Microphone, 0, 0, 16_000, 1).unwrap();
             let mut system = SourceTimeline::new(AudioSource::System, 0, 0, 16_000, 1).unwrap();
             for chunk in wave.samples().chunks(VAD_FRAME) {
-                let microphone = mic.stamp(0, chunk.to_vec()).unwrap();
+                let microphone = mic
+                    .stamp(0, chunk.iter().map(|sample| sample * gain).collect())
+                    .unwrap();
                 let speaker = system.stamp(0, vec![0.0; chunk.len()]).unwrap();
                 pipeline.feed(microphone).unwrap();
                 pipeline.feed(speaker).unwrap();
@@ -393,7 +476,10 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
                 .join("");
-            assert!(transcript.contains("开饭时间"), "{transcript}");
+            assert!(
+                transcript.contains("时间") && transcript.contains("早上9点至下午5点"),
+                "gain {gain}: {transcript}"
+            );
         }
     }
 

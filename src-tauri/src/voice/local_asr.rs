@@ -129,9 +129,18 @@ fn recognize(recognizer: &OfflineRecognizer, segment: UtteranceSegment) -> Resul
     Ok(LocalAsrResult {
         start_sample: segment.start_sample,
         end_sample,
-        text: result.text.trim().into(),
+        text: transcript_text(&result.text),
         forced_split,
     })
+}
+
+fn transcript_text(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().any(char::is_alphanumeric) {
+        text.into()
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(test)]
@@ -139,6 +148,16 @@ mod tests {
     use super::*;
     #[cfg(target_os = "macos")]
     use sherpa_onnx::Wave;
+
+    #[test]
+    fn discards_punctuation_but_preserves_short_spoken_answers() {
+        for text in ["", " . ", "。", "…？！"] {
+            assert_eq!(transcript_text(text), "");
+        }
+        for text in ["Yeah.", "Okay.", "嗯。", "1", "はい。"] {
+            assert_eq!(transcript_text(text), text);
+        }
+    }
 
     #[test]
     fn rejects_missing_model_without_starting_worker() {
