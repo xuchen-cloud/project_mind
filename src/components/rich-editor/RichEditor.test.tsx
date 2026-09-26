@@ -5681,6 +5681,17 @@ describe("RichEditor context menus", () => {
     expect(Object.isFrozen(snapshot)).toBe(true);
   });
 
+  it("appends a minutes snapshot to the editable body without replacing existing content", async () => {
+    const controllerRef = { current: null as RichEditorController | null };
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>原有笔记</p>" controllerRef={controllerRef} />);
+    await getEditorSurface(container);
+    let value: ReturnType<RichEditorController["appendMarkdown"]> = null;
+    act(() => { value = controllerRef.current?.appendMarkdown("## 摘要\n周五上线") ?? null; });
+    expect(value?.markdown).toContain("原有笔记");
+    expect(value?.markdown).toContain("## 摘要");
+    expect(value?.markdown).toContain("周五上线");
+  });
+
   it("keeps managed image identity metadata in the committed snapshot", async () => {
     const controllerRef = { current: null as RichEditorController | null };
     render(

@@ -18,6 +18,7 @@ export interface ProjectListItem extends ProjectRecord {
 }
 
 export interface NoteRecord {
+  isVoice?: boolean;
   id: number;
   projectId: number;
   title?: string | null;
@@ -65,6 +66,7 @@ export interface TodoRecord {
 }
 
 export interface WorkspaceRecord {
+  isVoice?: boolean;
   id: number;
   title?: string | null;
   contentMarkdown: string;
@@ -434,6 +436,24 @@ export interface ProjectRecordUpsertInput {
   tagIds?: number[];
 }
 
+export interface QuickNoteCommitBaseInput {
+  expectedMarkdown: string;
+  recordId?: number;
+  expectedRecordMarkdown?: string;
+  expectedRecordUpdatedAt?: string;
+  title?: string;
+  markdown: string;
+  html: string;
+  defaultCodeLanguage?: string | null;
+  tagIds: number[];
+}
+
+export interface ProjectQuickNoteCommitInput extends QuickNoteCommitBaseInput {
+  projectId: number;
+}
+
+export type WorkspaceQuickNoteCommitInput = QuickNoteCommitBaseInput;
+
 export interface RecordMetadataNewTagInput {
   label: string;
   colorKey: TagColorKey;
@@ -443,6 +463,8 @@ export interface ProjectRecordMetadataApplyInput {
   projectId: number;
   noteId: number;
   title: string;
+  expectedUpdatedAt?: string;
+  expectedTitle?: string;
   tagIds: number[];
   newTags: RecordMetadataNewTagInput[];
 }
@@ -463,6 +485,8 @@ export interface WorkspaceRecordUpsertInput {
 export interface WorkspaceRecordMetadataApplyInput {
   noteId: number;
   title: string;
+  expectedUpdatedAt?: string;
+  expectedTitle?: string;
   tagIds: number[];
   newTags: RecordMetadataNewTagInput[];
 }

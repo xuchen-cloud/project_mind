@@ -14,11 +14,17 @@ import { queryKeys } from "./lib/queryKeys";
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
+    command: vi.fn(async (name: string) => {
+      if (name === "voice_availability_get") return { implemented: false, reason: "test" };
+      if (name === "voice_settings_get") return { speechProfile: null, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4 };
+      return null;
+    }),
     listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
     focusProjectWindow: vi.fn(async () => false),
     openProjectWindow: vi.fn(async () => undefined),
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
+    prepareVoiceLeave: vi.fn(async () => true),
     listenForCloseRequest: vi.fn(async () => () => undefined),
     listenForWorkspaceLifecycleFlush: vi.fn(async () => () => undefined),
     flushOtherWorkspaceWindows: vi.fn(async () => undefined),

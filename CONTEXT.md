@@ -52,6 +52,42 @@ _Avoid_：Workspace Record、跨项目记录
 不归属于某个阶段性 Project、没有预定结束时间的长期 Record，用于沉淀方法、框架、跨项目经验或持续关注的领域内容。
 _Avoid_：Project Record、Area
 
+**Voice Record**：
+通过同时采集麦克风与系统声音形成的 Record，保存原始音频、按时间对齐的转写，以及由转写派生的实时字幕和会议纪要；它仍然归属于 Workspace 或一个 Project。
+_Avoid_：录音文件、独立会议对象、普通 Record 附件
+
+**Recording Session**：
+一次 Voice Record 从开始到明确结束的持续采集过程；暂停和继续不会创建新的 Recording Session，明确结束后不能再次继续。
+_Avoid_：音频分段、字幕批次、独立 Record
+
+**Voice Source Track**：
+Recording Session 中保持同步且来源可区分的原始声音，包括麦克风声音与当前输出设备播放的全部系统声音；两者共同构成 Voice Record 的原始音频依据。
+_Avoid_：混合音频、独立 Voice Record、Transcript
+
+**Speech Recognition Profile**：
+Workspace 中将 Voice Record 的混合音频转化为 Transcript 的可选识别方案，可以由云端实时服务或本地语音模型提供。
+_Avoid_：AI Profile、翻译模型、润色模型
+
+**Utterance Segment**：
+由连续语音活动界定、具有原始时间轴位置的短语音单元，是分段式语音识别与下游文字处理的稳定输入。
+_Avoid_：音频文件分片、Transcript 段落、静音片段
+
+**Live Captions**：
+Recording Session 进行期间随语音更新的多行文字视图，可以在原文与已配置的目标翻译之间切换，但不改变被保存的原始转写。
+_Avoid_：Transcript、会议纪要、正文
+
+**Transcript**：
+与 Voice Record 时间轴对应且不可编辑的原始语音识别文本，是润色、翻译和会议纪要的事实来源；用户修改其内容时，应先复制到 Record 正文。
+_Avoid_：Live Captions、润色正文、会议纪要
+
+**Meeting Minutes Snapshot**：
+从 Voice Record 当前 Transcript 累计生成的最新只读会议纪要；后续生成会替换该快照，复制到正文后的内容不再随快照变化。
+_Avoid_：Transcript、可编辑正文、历史纪要列表
+
+**Context Lexicon**：
+从同一作用域近期 Record 中提炼的专有词和不常见词集合，为语音识别、润色、翻译和会议纪要提供上下文增强。
+_Avoid_：Tag、完整 Record 拼接、全局词典
+
 ### 行动
 
 **Todo**：
@@ -141,7 +177,7 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 _Avoid_：实时预览内容、编辑器 DOM 快照
 
 **AI Metadata Fill**：
-用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。
+用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。整篇 QuickNote 发布成新 Record 时自动触发同一能力；QuickNote 自动保存和追加到已有 Record 不触发。
 _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag 推荐
 
 ### 内容携带

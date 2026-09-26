@@ -19,6 +19,8 @@ vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: mockRelaunch,
 }));
 
+vi.mock("./desktopApi", () => ({ desktopApi: { prepareVoiceLeave: vi.fn(async () => true), flushOtherWorkspaceWindows: vi.fn(async () => {}), command: mockRelaunch } }));
+
 import { tauriAppUpdater } from "./appUpdater";
 
 describe("tauriAppUpdater", () => {

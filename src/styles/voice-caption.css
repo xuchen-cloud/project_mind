@@ -1,0 +1,198 @@
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+.voice-caption-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--color-bg) 46%, transparent);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+}
+
+.voice-caption-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 10px 5px 14px;
+  cursor: grab;
+  user-select: none;
+}
+
+.voice-caption-header:active {
+  cursor: grabbing;
+}
+
+.voice-caption-status,
+.voice-caption-header-actions,
+.voice-caption-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.voice-caption-status {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.voice-caption-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 13%, transparent);
+}
+
+.voice-caption-status-dot--paused {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 14%, transparent);
+}
+
+.voice-caption-clock {
+  margin-left: 4px;
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-caption-shell .voice-caption-header-actions button,
+.voice-caption-shell .voice-caption-controls button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.voice-caption-shell .voice-caption-header-actions button:hover,
+.voice-caption-shell .voice-caption-controls button:hover {
+  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+
+.voice-caption-shell button[aria-label="结束录音"] {
+  color: var(--color-danger);
+}
+
+.voice-caption-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 18px 10px;
+  scrollbar-width: none;
+}
+
+.voice-caption-scroll--overflow {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 22px, black);
+  mask-image: linear-gradient(to bottom, transparent, black 22px, black);
+}
+
+.voice-caption-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.voice-caption-lines {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.005em;
+}
+
+.voice-caption-line {
+  animation: caption-arrive var(--duration-standard) var(--ease-out) both;
+}
+
+.voice-caption-interim {
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
+}
+
+.voice-caption-empty {
+  margin: 8px 0 0;
+  color: color-mix(in srgb, var(--color-text) 88%, var(--color-bg));
+}
+
+.voice-caption-controls {
+  flex: none;
+  justify-content: flex-end;
+  padding: 6px 10px 9px;
+}
+
+.voice-caption-error {
+  overflow: hidden;
+  padding: 0 12px;
+  color: var(--color-danger);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-caption-shell--collapsed .voice-caption-header {
+  height: 100%;
+  min-height: 0;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.voice-caption-shell--collapsed {
+  border-radius: 999px;
+}
+
+.voice-caption-shell--collapsed .voice-caption-status {
+  gap: 7px;
+  font-size: 12px;
+}
+
+.voice-caption-shell--collapsed .voice-caption-clock {
+  margin-left: 0;
+}
+
+.voice-caption-shell--collapsed .voice-caption-header-actions {
+  gap: 3px;
+}
+
+.voice-caption-shell .voice-caption-header-actions .voice-caption-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+}
+
+.voice-caption-shell .voice-caption-header-actions .voice-caption-icon-button:hover {
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+@keyframes caption-arrive {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-caption-line {
+    animation-name: caption-arrive-reduced;
+    transform: none;
+  }
+
+  @keyframes caption-arrive-reduced {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}

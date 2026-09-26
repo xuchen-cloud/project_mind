@@ -5,6 +5,7 @@ import {
   render as baseRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -218,7 +219,7 @@ describe("WorkspaceOverviewHistory", () => {
     }
   });
 
-  it("expands and collapses long record content without entering editing", async () => {
+  it("keeps long record summaries compact without mounting an editor", async () => {
     const scrollHeightSpy = mockCollapsibleScrollHeight(() => 460);
 
     try {
@@ -244,21 +245,15 @@ describe("WorkspaceOverviewHistory", () => {
         />,
       );
 
-      const expandButton = await screen.findByRole("button", { name: "展开全部" });
-      fireEvent.mouseDown(expandButton, { button: 0 });
-      fireEvent.click(expandButton);
-
-      expect(await screen.findByRole("button", { name: "收起" })).toBeInTheDocument();
+      expect(screen.getByText("很长的记录")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "展开全部" })).not.toBeInTheDocument();
       expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: "收起" }));
-      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
     } finally {
       scrollHeightSpy.mockRestore();
     }
   });
 
-  it("shows the expand button after an image load makes content exceed the default height", async () => {
+  it("keeps the card compact when its thumbnail finishes loading", async () => {
     let imageLoaded = false;
     const scrollHeightSpy = mockCollapsibleScrollHeight((element) =>
       element.querySelector("img") && imageLoaded ? 460 : 180,
@@ -293,7 +288,7 @@ describe("WorkspaceOverviewHistory", () => {
       imageLoaded = true;
       fireEvent.load(screen.getByAltText("截图"));
 
-      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "展开全部" })).not.toBeInTheDocument();
     } finally {
       scrollHeightSpy.mockRestore();
     }
@@ -339,7 +334,7 @@ describe("WorkspaceOverviewHistory", () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), { button: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
 
     expect(screen.getByLabelText("工作区记录编辑器")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
@@ -368,7 +363,7 @@ describe("WorkspaceOverviewHistory", () => {
 
     expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), { button: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
     fireEvent.mouseDown(screen.getByRole("button", { name: "添加标签" }), { button: 0 });
 
     const tagInput = await screen.findByPlaceholderText("#标签");
@@ -379,7 +374,7 @@ describe("WorkspaceOverviewHistory", () => {
     expect(document.querySelector("#record-7 .project-history-record__tag-row")).toBeInTheDocument();
   });
 
-  it("enters editing only after clicking the record surface", () => {
+  it("enters editing only from the explicit edit action", () => {
     render(
       <WorkspaceOverviewHistory
         notes={[baseNote]}
@@ -396,17 +391,14 @@ describe("WorkspaceOverviewHistory", () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), {
-      button: 0,
-      nativeEvent: { offsetX: 18, offsetY: 26 },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
 
     const editor = screen.getByLabelText("工作区记录编辑器");
     expect(editor).toBeInTheDocument();
     expect(document.getElementById("record-7")).toHaveClass("project-history-record--editing");
   });
 
-  it("opens the workspace record focus page from a browse-mode double click", async () => {
+  it("opens the workspace record focus page from a single card click", async () => {
     render(
       <>
         <WorkspaceOverviewHistory
@@ -427,10 +419,8 @@ describe("WorkspaceOverviewHistory", () => {
     );
 
     const recordSurface = screen.getByRole("button", { name: /已有记录/ });
-    fireEvent.mouseDown(recordSurface, { button: 0, detail: 1 });
-    expect(screen.getByLabelText("工作区记录编辑器")).toBeInTheDocument();
-
-    fireEvent.mouseDown(document.getElementById("record-7")!, { button: 0, detail: 2 });
+    fireEvent.click(recordSurface);
+    expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByLabelText("current path")).toHaveTextContent("/workspace/records/7");
@@ -479,9 +469,7 @@ describe("WorkspaceOverviewHistory", () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), {
-      button: 0,
-    });
+    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
 
     fireEvent.contextMenu(screen.getByPlaceholderText("记录标题"), {
       clientX: 52,
@@ -549,9 +537,7 @@ describe("WorkspaceOverviewHistory", () => {
       />,
     );
 
-    fireEvent.mouseDown(screen.getByRole("button", { name: /已有记录/ }), {
-      button: 0,
-    });
+    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
 
     const editor = screen.getByLabelText("工作区记录编辑器");
     fireEvent.change(editor, { target: { value: "更新后的记录" } });

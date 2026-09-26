@@ -61,6 +61,7 @@ import {
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
+import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -500,7 +501,7 @@ export function WorkspaceRecordFocusPage({
 
   if (
     !draftReady &&
-    (workspacePageQuery.isLoading || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
+    (workspacePageQuery.isFetching || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
   ) {
     if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
@@ -534,6 +535,7 @@ export function WorkspaceRecordFocusPage({
             id: record.id,
             title: record.title,
             contentMarkdown: record.contentMarkdown,
+            isVoice: record.isVoice,
             tags: record.tags ?? [],
             updatedAt: record.updatedAt,
           }))}
@@ -698,6 +700,22 @@ export function WorkspaceRecordFocusPage({
                 onChange={handleTagsChange}
                 onCreated={syncWorkspaceTagCache}
               />
+              {note?.isVoice && recordId !== null ? (
+                <VoiceRecordPanel
+                  target={{ scope: "workspace", recordId }}
+                  visible={visible}
+                  onTitleUpdated={(nextTitle) => {
+                    setTitle(nextTitle);
+                    titleValueRef.current = nextTitle;
+                  }}
+                  onCopyMinutes={async (minutes) => {
+                    const next = editorControllerRef.current?.appendMarkdown(minutes);
+                    if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");
+                    setContent(next);
+                    await saveCoordinator.flush();
+                  }}
+                />
+              ) : null}
               <RichEditor
                 key={recordId}
                 contentIdentity={`workspace-record:${recordId}`}

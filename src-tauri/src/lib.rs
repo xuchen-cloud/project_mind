@@ -5,6 +5,7 @@ mod models;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
+pub mod voice;
 mod workspace;
 
 use std::{
@@ -37,13 +38,13 @@ use models::{
     InternalReferenceResolveResult, InternalReferenceSearchInput, InternalReferenceSearchResult,
     NoteRecord, ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput,
     ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
-    ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput, ProjectUpdateInput,
+    ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput, ProjectQuickNoteCommitInput, ProjectUpdateInput,
     ProjectsListInput, RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput,
     TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
     TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
     TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput,
     WorkspaceCreateInput, WorkspaceNoteImageAsset, WorkspaceNoteImageImportInput,
-    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
+    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteCommitInput, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
     WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput, WorkspaceRecordUpsertInput,
     WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
     WorkspaceUnlockInput,
@@ -65,19 +66,62 @@ const APP_IDENTIFIER: &str = "com.xuchen.projectmind.alpha";
 const DEFAULT_DEMO_WORKSPACE_DIR_NAME: &str = "ProjectMind Demo Workspace";
 const LOCAL_WORKSPACE_SESSION_FILE_NAME: &str = "workspace-session.json";
 
+#[tauri::command]
+async fn voice_caption_apply_material(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use window_vibrancy::{
+            apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+        };
+
+        let window = app
+            .get_webview_window("voice-caption")
+            .ok_or_else(|| "voice caption window is unavailable".to_string())?;
+        let main_window = window.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        window
+            .run_on_main_thread(move || {
+                // Liquid Glass adds a focus-dependent rim and optical shadow outside the
+                // rounded web content. Use one frosted layer with a fixed effect state;
+                // Active keeps the blur enabled even when this non-focusing panel is inactive.
+                let result = clear_vibrancy(&main_window)
+                    .and_then(|_| {
+                        apply_vibrancy(
+                            &main_window,
+                            NSVisualEffectMaterial::Popover,
+                            Some(NSVisualEffectState::Active),
+                            Some(24.0),
+                        )
+                    })
+                    .map_err(|error| error.to_string());
+                let _ = sender.send(result);
+            })
+            .map_err(|error| error.to_string())?;
+        receiver.await.map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 pub struct SeedDemoWorkspaceResult {
     pub workspace_root: String,
     pub metadata_path: String,
     pub summary: DemoSeedResult,
 }
 
-struct WorkspaceRuntime {
+pub(crate) struct WorkspaceRuntime {
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
-    paths: WorkspacePaths,
+    pub(crate) paths: WorkspacePaths,
     secret_state: Arc<Mutex<Option<String>>>,
-    db: Mutex<Database>,
+    pub(crate) db: Mutex<Database>,
     ai_jobs: AiJobManager,
+    voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
+    pub(crate) voice_recovery_interrupt: std::sync::atomic::AtomicBool,
 }
 
 impl WorkspaceRuntime {
@@ -108,11 +152,23 @@ impl WorkspaceRuntime {
             secret_state,
             db: Mutex::new(db),
             ai_jobs,
+            voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
+            voice_recovery_interrupt: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
     fn ai_secrets_unlocked(&self) -> bool {
         lock_mutex(&self.secret_state).is_some()
+    }
+
+    pub(crate) fn kick_voice_minutes(&self) {
+        voice::processing::kick(
+            self.paths.db_path.clone(),
+            self.paths.root_path.clone(),
+            self.secret_state.clone(),
+            self.voice_minutes_worker_running.clone(),
+        );
     }
 
     fn set_secret_password(&self, secret_password: Option<String>) -> Result<()> {
@@ -130,13 +186,28 @@ impl WorkspaceRuntime {
     }
 }
 
-struct AppState {
+pub(crate) struct AppState {
     app_handle: tauri::AppHandle,
     local_session_path: PathBuf,
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
+    voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
+    exit_authorized: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
+    fn ensure_voice_idle(&self) -> Result<()> {
+        let Some(workspace) = lock_mutex(&self.current_workspace).clone() else {
+            return Ok(());
+        };
+        let mut voice = lock_mutex(&self.voice_runtime);
+        let mut db = lock_mutex(&workspace.db);
+        if voice.has_unfinished_session(&mut db, &workspace.paths.root_path)? {
+            return Err(anyhow!("请先结束当前语音记录，再切换或关闭 Workspace"));
+        }
+        voice.reset();
+        Ok(())
+    }
+
     fn status_snapshot(&self) -> Result<WorkspaceStatusSnapshot> {
         let current = lock_mutex(&self.current_workspace).clone();
         let recent_state = load_local_session(&self.local_session_path)?;
@@ -167,6 +238,9 @@ impl AppState {
 
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
         let mut current = lock_mutex(&self.current_workspace);
+        if let Some(previous) = current.as_ref() {
+            previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+        }
         *current = runtime;
     }
 
@@ -177,6 +251,7 @@ impl AppState {
     }
 
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
+        self.ensure_voice_idle()?;
         let (metadata, paths) = load_metadata(root_path)?;
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle,
@@ -203,7 +278,12 @@ impl AppState {
     }
 
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
+        self.ensure_voice_idle()?;
+        let previous = lock_mutex(&self.current_workspace).clone();
         close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
+        if let Some(previous) = previous {
+            previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+        }
         self.status_snapshot()
     }
 
@@ -687,6 +767,14 @@ fn project_record_upsert(
 }
 
 #[tauri::command]
+fn project_quick_note_commit(
+    state: State<'_, AppState>,
+    input: ProjectQuickNoteCommitInput,
+) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.project_quick_note_commit(input))
+}
+
+#[tauri::command]
 fn project_record_metadata_apply(
     state: State<'_, AppState>,
     input: ProjectRecordMetadataApplyInput,
@@ -792,6 +880,14 @@ fn workspace_quick_note_upsert(
     input: WorkspaceQuickNoteUpsertInput,
 ) -> CommandResult<WorkspaceRecord> {
     with_db(state, |db| db.workspace_quick_note_upsert(input))
+}
+
+#[tauri::command]
+fn workspace_quick_note_commit(
+    state: State<'_, AppState>,
+    input: WorkspaceQuickNoteCommitInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_quick_note_commit(input))
 }
 
 #[tauri::command]
@@ -1032,6 +1128,22 @@ fn ai_execution_settings_upsert(
 }
 
 #[tauri::command]
+fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
+    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.app_handle.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
+    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.app_handle.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
 fn workspace_search(
     state: State<'_, AppState>,
     input: WorkspaceSearchInput,
@@ -1074,6 +1186,8 @@ pub fn run() {
                 app_handle: app.handle().clone(),
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
+                voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
+                exit_authorized: std::sync::atomic::AtomicBool::new(false),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1082,9 +1196,68 @@ pub fn run() {
             }
 
             app.manage(state);
+            let handle = app.handle().clone();
+            std::thread::Builder::new()
+                .name("voice-supervisor".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    let state = handle.state::<AppState>();
+                    let workspace = lock_mutex(&state.current_workspace).clone();
+                    if let Some(workspace) = workspace {
+                        let mut voice = lock_mutex(&state.voice_runtime);
+                        if !lock_mutex(&state.current_workspace)
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(current, &workspace))
+                        {
+                            continue;
+                        }
+                        let mut db = lock_mutex(&workspace.db);
+                        match voice.snapshot(&mut db, &workspace.paths.root_path) {
+                            Ok(snapshot) => {
+                                let current = lock_mutex(&state.current_workspace);
+                                if !current.as_ref().is_some_and(|active| Arc::ptr_eq(active, &workspace)) {
+                                    workspace.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+                                    continue;
+                                }
+                                let busy = !workspace.ai_secrets_unlocked()
+                                    || snapshot.as_ref().is_some_and(|session| {
+                                        matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
+                                    });
+                                workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
+                                let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
+                                drop(db);
+                                if recover {
+                                    voice::recovery::kick(workspace.clone());
+                                }
+                            }
+                            Err(error) => {
+                                let _ = handle.emit("voice:error", error.to_string());
+                            }
+                        }
+                    }
+                })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            voice_caption_apply_material,
+            voice::commands::voice_availability_get,
+            voice::commands::voice_model_status_get,
+            voice::commands::voice_model_import,
+            voice::commands::voice_profile_test,
+            voice::commands::voice_settings_get,
+            voice::commands::voice_settings_upsert,
+            voice::commands::voice_start,
+            voice::commands::voice_pause,
+            voice::commands::voice_resume,
+            voice::commands::voice_end,
+            voice::commands::voice_snapshot_get,
+            voice::commands::voice_playback_get,
+            voice::commands::voice_transcript_list,
+            voice::commands::voice_recovery_get,
+            voice::commands::voice_recovery_retry,
+            voice::commands::voice_transcript_tail,
+            voice::commands::voice_minutes_get,
+            voice::commands::voice_minutes_generate,
             desktop_open_file,
             desktop_open_folder,
             desktop_reveal_in_explorer,
@@ -1120,6 +1293,7 @@ pub fn run() {
             contact_upsert,
             contact_delete,
             project_record_upsert,
+            project_quick_note_commit,
             project_record_metadata_apply,
             project_record_delete,
             todo_create,
@@ -1134,6 +1308,7 @@ pub fn run() {
             todo_list_open,
             workspace_quick_note_get,
             workspace_quick_note_upsert,
+            workspace_quick_note_commit,
             workspace_record_list,
             workspace_record_upsert,
             workspace_record_metadata_apply,
@@ -1167,10 +1342,22 @@ pub fn run() {
             ai_execution_settings_upsert,
             internal_reference_search,
             internal_reference_resolve,
-            workspace_search
+            workspace_search,
+            app_exit,
+            app_restart
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                let state = app.state::<AppState>();
+                if !state.exit_authorized.load(std::sync::atomic::Ordering::SeqCst)
+                    && lock_mutex(&state.current_workspace).is_some() {
+                    api.prevent_exit();
+                    let _ = app.emit_to("main", "app:exit-requested", ());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

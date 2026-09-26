@@ -5364,3 +5364,33 @@
     max-width: 6.25rem;
   }
 }
+
+/* Homepage palette: intentionally scoped by home components. */
+:root {
+  --home-surface: #fff;
+  --home-canvas: #fafaf8;
+  --home-ink: #151719;
+  --home-line: #e4e6e9;
+  --home-glass: #ffffffa6;
+  --home-muted: #647089;
+  --home-floating: #ffffffe8;
+  --home-editor-line: #dfe2e6;
+  --home-shadow-soft: #14181f09;
+  --home-saved: #63816c;
+  --home-error: #b94a45;
+  --home-hover: #f0f1f2;
+  --home-action: #25272a;
+  --home-action-divider: #ffffff60;
+  --home-shadow-popup: #10152020;
+  --home-backdrop: #13182070;
+  --home-rail: #fdfdfc;
+  --home-sidebar: #f7f7f5;
+  --home-brand-muted: #626876;
+  --home-nav-hover: #eeeef0;
+  --home-selected: #ececed;
+  --home-blue: #2878f4;
+  --home-upload-line: #b9bec7;
+  --home-tag: #eceef1;
+  --home-resize-hover: #dce9fc;
+  --home-cover-fade: rgba(250,250,248,.12);
+}

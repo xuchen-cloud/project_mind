@@ -22,24 +22,32 @@ base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 fs2 = "0.4.3"
+futures-util = "0.3.33"
 mime_guess = "2.0.5"
 rand = "0.8.5"
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.39.0", features = ["backup", "bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+sherpa-onnx = "=1.13.8"
 sha2 = "0.10.9"
-tauri = { version = "2.10.3", features = ["protocol-asset"] }
+tauri = { version = "2.10.3", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-opener = "2.5.3"
 trash = "5.2.5"
 tempfile = "3.23.0"
-tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
+tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+extract-speech = { version = "=0.9.1", default-features = false, features = ["candle"] }
+
+[dev-dependencies]
+tauri = { version = "2.10.3", features = ["test"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.61.3", features = ["Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Performance"] }
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
 winreg = "0.55.0"
@@ -48,3 +56,17 @@ windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
+screencapturekit = { version = "10.0.3", features = ["macos_15_0"] }
+window-vibrancy = "0.8.0"
+
+[profile.dev.package.extract-speech]
+opt-level = 3
+
+[profile.dev.package.candle-core]
+opt-level = 3
+
+[profile.dev.package.candle-onnx]
+opt-level = 3
+
+[profile.dev.package.kaldi-native-fbank]
+opt-level = 3

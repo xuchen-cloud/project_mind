@@ -1,3 +1,5 @@
+import { HomeRecordPreview } from "../home/HomeRecordPreview";
+import { cancelQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
 import {
   useEffect,
   useMemo,
@@ -7,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Plus, Pencil, Ellipsis, Mic } from "lucide-react";
 
 import { tagColorValue } from "../../lib/constants";
 import { formatDateTime } from "../../lib/formatters";
@@ -46,6 +48,7 @@ const EMPTY_RECORD_DRAFT: RichEditorValue = { html: "", text: "", markdown: "" }
 export interface RecordListItemRecord {
   id: number;
   title?: string | null;
+  isVoice?: boolean;
   contentMarkdown: string;
   contentHtml: string;
   defaultCodeLanguage?: string | null;
@@ -66,6 +69,7 @@ export type RecordListItemScope =
     };
 
 interface RecordListItemProps<TRecord extends RecordListItemRecord> {
+  homepage?: boolean;
   record: TRecord;
   scope: RecordListItemScope;
   focused: boolean;
@@ -91,6 +95,7 @@ interface RecordListItemProps<TRecord extends RecordListItemRecord> {
 
 export function RecordListItem<TRecord extends RecordListItemRecord>({
   record,
+  homepage = false,
   scope,
   focused,
   availableTags,
@@ -259,6 +264,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
     point?: RichEditorAutoFocusPoint,
     options: { autoFocusEditor?: boolean } = {},
   ) {
+    cancelQuickNoteRecordMetadata(record.id, projectId ?? undefined);
     const nextDraft = buildRecordDraft(record);
     setValue(nextDraft);
     saveSignatureRef.current = buildRecordSaveSignature(
@@ -289,6 +295,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   }
 
   async function openFocusPage() {
+    cancelQuickNoteRecordMetadata(record.id, projectId ?? undefined);
     if (editing) {
       await persistRecord(editorControllerRef.current?.getValue() ?? value, title, tagIds);
     }
@@ -405,7 +412,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               onBlur={() => void handleTitleBlur()}
             />
           ) : (
-            <p className="project-history-record__title">{titleDisplay}</p>
+            <p className="project-history-record__title">{record.isVoice ? <Mic size={15} aria-label="语音记录" /> : null}{titleDisplay}</p>
           )}
         </div>
         <div className="project-history-record__header-actions">
@@ -432,6 +439,10 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               <span>更新于 {formatDateTime(record.updatedAt)}</span>
             </div>
           )}
+          {homepage && !editing ? <>
+            <IconButton type="button" size="sm" variant="ghost" aria-label="编辑记录" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); enterEditing(); }}><Pencil size={15} /></IconButton>
+            <IconButton type="button" size="sm" variant="ghost" aria-label="记录操作" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenContextMenu(event, record.id); }}><Ellipsis size={15} /></IconButton>
+          </> : null}
           <IconButton
             type="button"
             size="sm"
@@ -526,8 +537,8 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
     <article
       id={`record-${record.id}`}
       ref={containerRef}
-      onMouseDownCapture={handleRecordMouseDownCapture}
-      onDoubleClickCapture={handleRecordDoubleClickCapture}
+      onMouseDownCapture={homepage && !editing ? undefined : handleRecordMouseDownCapture}
+      onDoubleClickCapture={homepage && !editing ? undefined : handleRecordDoubleClickCapture}
       onContextMenu={(event) => {
         if (editing && shouldLetRichEditorHandleContextMenu(event.target)) {
           return;
@@ -585,8 +596,9 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
           role="button"
           tabIndex={0}
           className="project-history-record__surface"
+          onClick={homepage ? () => { void openFocusPage(); } : undefined}
           onMouseDown={(event) => {
-            if (event.button !== 0) {
+            if (homepage || event.button !== 0) {
               return;
             }
 
@@ -614,11 +626,12 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
             }
 
             event.preventDefault();
-            enterEditing();
+            if (homepage) void openFocusPage();
+            else enterEditing();
           }}
         >
           {renderHeaderStack()}
-          <CollapsibleRecordContent>
+          {homepage ? <HomeRecordPreview html={record.contentHtml} markdown={record.contentMarkdown} active={active} /> : <CollapsibleRecordContent>
             <RichTextViewer
               html={record.contentHtml}
               markdown={record.contentMarkdown}
@@ -626,7 +639,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               deferUntilVisible
               eagerManagedImages
             />
-          </CollapsibleRecordContent>
+          </CollapsibleRecordContent>}
         </div>
       )}
     </article>

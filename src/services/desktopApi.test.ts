@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import voiceCaptionCapability from "../../src-tauri/capabilities/voice-caption.json";
 const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
@@ -8,6 +9,9 @@ const tauriMocks = vi.hoisted(() => ({
   readClipboardTextMock: vi.fn(),
   readClipboardImageMock: vi.fn(),
   onCloseRequestedMock: vi.fn(),
+  setMinSizeMock: vi.fn(async () => undefined),
+  setSizeMock: vi.fn(async () => undefined),
+  closeWindowMock: vi.fn(async () => undefined),
   exitMock: vi.fn(async () => undefined),
   destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
@@ -21,7 +25,16 @@ const tauriMocks = vi.hoisted(() => ({
     })),
     scaleFactor: vi.fn(async () => 2),
     onCloseRequested: tauriMocks.onCloseRequestedMock,
+    setMinSize: tauriMocks.setMinSizeMock,
+    setSize: tauriMocks.setSizeMock,
+    close: tauriMocks.closeWindowMock,
     destroy: tauriMocks.destroyWindowMock,
+  })),
+  currentMonitorMock: vi.fn(async () => ({
+    position: { x: 0, y: 0 },
+    size: { width: 2880, height: 1800 },
+    workArea: { position: { x: 0, y: 0 }, size: { width: 2880, height: 1720 } },
+    scaleFactor: 2,
   })),
   getByLabelMock: vi.fn(),
   getAllWebviewWindowsMock: vi.fn(async () => []),
@@ -33,7 +46,7 @@ const tauriMocks = vi.hoisted(() => ({
     show: ReturnType<typeof vi.fn>;
     setFocus: ReturnType<typeof vi.fn>;
   }>,
-  getCurrentWebviewWindowMock: vi.fn(() => ({ label: "main" })),
+  getCurrentWebviewWindowMock: vi.fn(() => ({ label: "main", listen: vi.fn(async () => () => {}) })),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -43,6 +56,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: tauriMocks.getCurrentWindowMock,
+  currentMonitor: tauriMocks.currentMonitorMock,
+  Effect: { Popover: "popover" },
+  EffectState: { Active: "active" },
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -107,15 +123,19 @@ describe("desktopApi", () => {
     tauriMocks.readClipboardImageMock.mockReset();
     tauriMocks.convertFileSrcMock.mockClear();
     tauriMocks.getCurrentWindowMock.mockClear();
+    tauriMocks.currentMonitorMock.mockClear();
     tauriMocks.onCloseRequestedMock.mockReset();
     tauriMocks.onCloseRequestedMock.mockResolvedValue(() => undefined);
+    tauriMocks.setMinSizeMock.mockClear();
+    tauriMocks.setSizeMock.mockClear();
+    tauriMocks.closeWindowMock.mockClear();
     tauriMocks.exitMock.mockClear();
     tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
     tauriMocks.getAllWebviewWindowsMock.mockReset();
     tauriMocks.getAllWebviewWindowsMock.mockResolvedValue([]);
     tauriMocks.getCurrentWebviewWindowMock.mockReset();
-    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main" });
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main", listen: vi.fn(async () => () => {}) });
     tauriMocks.webviewWindowInstances.length = 0;
   });
 
@@ -126,6 +146,32 @@ describe("desktopApi", () => {
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("projects_list", {
       input: { includeArchived: true },
     });
+  });
+
+  it("cancels leaving without ending the recording", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce({ currentWorkspace: {} }).mockResolvedValueOnce({ sessionId: "voice", phase: "recording", revision: 1 });
+    tauriMocks.askMock.mockResolvedValueOnce(false);
+    expect(await desktopApi.prepareVoiceLeave()).toBe(false);
+    expect(tauriMocks.invokeMock).not.toHaveBeenCalledWith("voice_end", expect.anything());
+  });
+
+  it("saves the current recording before allowing a lifecycle change", async () => {
+    tauriMocks.invokeMock.mockResolvedValueOnce({ currentWorkspace: {} }).mockResolvedValueOnce({ sessionId: "voice", phase: "paused", revision: 3 });
+    tauriMocks.askMock.mockResolvedValueOnce(true);
+    expect(await desktopApi.prepareVoiceLeave()).toBe(true);
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("voice_end", { input: { sessionId: "voice", expectedRevision: 3, requestId: expect.any(String) } });
+  });
+
+  it("prevents native closing before awaiting the save barrier", async () => {
+    let release!: (allow: boolean) => void;
+    await desktopApi.listenForCloseRequest(() => new Promise<boolean>(resolve => { release = resolve; }));
+    const handler = tauriMocks.onCloseRequestedMock.mock.calls[0][0];
+    const preventDefault = vi.fn();
+    const pending = handler({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    release(false);
+    await pending;
+    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
   it("exits the whole app after the main-window lifecycle barrier succeeds", async () => {
@@ -140,7 +186,7 @@ describe("desktopApi", () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(allowClose).toHaveBeenCalledTimes(1);
-    expect(tauriMocks.exitMock).toHaveBeenCalledWith(0);
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("app_exit");
     expect(unlisten).toBeTypeOf("function");
   });
 
@@ -155,7 +201,8 @@ describe("desktopApi", () => {
 
     await handler({ preventDefault });
 
-    expect(preventDefault).not.toHaveBeenCalled();
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
     expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
@@ -456,6 +503,79 @@ describe("desktopApi", () => {
     });
   });
 
+  it("opens one small always-on-top caption window near the display bottom", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
+    expect(tauriMocks.webviewWindowInstances[0]).toMatchObject({
+      label: "voice-caption",
+      options: {
+        url: expect.stringContaining("voice.html"),
+        alwaysOnTop: true,
+        transparent: true,
+        decorations: false,
+        shadow: false,
+        theme: "light",
+        width: 680,
+        height: 220,
+        x: 380,
+        y: 610,
+      },
+    });
+    expect(tauriMocks.webviewWindowInstances[0]?.options).not.toHaveProperty("windowEffects");
+    expect(tauriMocks.invokeMock).toHaveBeenCalledWith("voice_caption_apply_material");
+    const existing = { show: vi.fn(), setFocus: vi.fn(), setTheme: vi.fn() };
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(existing);
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
+    expect(existing.show).toHaveBeenCalledOnce();
+    expect(existing.setTheme).toHaveBeenCalledWith("light");
+    expect(existing.setFocus).not.toHaveBeenCalled();
+  });
+
+  it("opens a compact light window immediately when recognition is disabled", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
+    tauriMocks.invokeMock.mockResolvedValueOnce({ speechProfile: null, captionLines: 4 });
+    await desktopApi.openVoiceCaptionWindow();
+    expect(tauriMocks.webviewWindowInstances[0]?.options).toMatchObject({
+      width: 160,
+      height: 48,
+      minWidth: 160,
+      minHeight: 48,
+      theme: "light",
+      url: expect.stringContaining("audioOnly=1"),
+    });
+  });
+
+  it("lowers the minimum size before collapsing and restores it after expanding", async () => {
+    await desktopApi.captionWindowSetSize(190, 48);
+    expect(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setSizeMock.mock.invocationCallOrder[0]);
+    expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 190, height: 48 }));
+
+    tauriMocks.setMinSizeMock.mockClear();
+    tauriMocks.setSizeMock.mockClear();
+    await desktopApi.captionWindowSetSize(680, 220);
+    expect(tauriMocks.setSizeMock.mock.invocationCallOrder[0]).toBeLessThan(tauriMocks.setMinSizeMock.mock.invocationCallOrder[0]);
+    expect(tauriMocks.setMinSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 380, height: 72 }));
+  });
+
+  it("allows the caption window to change its minimum size", () => {
+    expect(voiceCaptionCapability.permissions).toContain("core:window:allow-set-min-size");
+  });
+
+  it("forces the caption window to close even when close requests are intercepted", async () => {
+    await desktopApi.captionWindowClose();
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
+    expect(tauriMocks.closeWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("closes the independent caption window from the main recording controls", async () => {
+    tauriMocks.getByLabelMock.mockResolvedValueOnce({ destroy: tauriMocks.destroyWindowMock });
+    await desktopApi.closeVoiceCaptionWindow();
+    expect(tauriMocks.getByLabelMock).toHaveBeenCalledWith("voice-caption");
+    expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
+  });
+
   it("focuses and navigates an existing project window", async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     const existingWindow = {
@@ -484,7 +604,7 @@ describe("desktopApi", () => {
     tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "project-8" });
     expect(desktopApi.isProjectWindow()).toBe(true);
 
-    tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "main" });
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "main", listen: vi.fn(async () => () => {}) });
     expect(desktopApi.isProjectWindow()).toBe(false);
   });
 });

@@ -50,6 +50,7 @@ import {
   recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
+import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 
 interface ProjectRecordDraft {
   title: string;
@@ -544,6 +545,23 @@ export function ProjectNoteFocusPage({
                 }
               }}
             />
+            {note?.isVoice && projectId !== null && recordId !== null ? (
+              <VoiceRecordPanel
+                target={{ scope: "project", projectId, recordId }}
+                visible={visible}
+                onTitleUpdated={(nextTitle) => {
+                  setTitle(nextTitle);
+                  titleValueRef.current = nextTitle;
+                  lastSavedTitleRef.current = nextTitle;
+                }}
+                onCopyMinutes={async (minutes) => {
+                  const next = editorControllerRef.current?.appendMarkdown(minutes);
+                  if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");
+                  setContent(next);
+                  await saveCoordinator.flush();
+                }}
+              />
+            ) : null}
             <RichEditor
               key={`${projectId}:${recordId}`}
               contentIdentity={`project-record:${projectId}:${recordId}`}

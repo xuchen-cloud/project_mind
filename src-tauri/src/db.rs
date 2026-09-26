@@ -1,12 +1,14 @@
+mod voice_recovery;
+pub(crate) use voice_recovery::CloudGap;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::Utc;
+use chrono::{Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
 use serde_json::{json, Value};
 
@@ -28,7 +30,7 @@ use crate::{
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
         InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
-        ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
+        ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectQuickNoteCommitInput, ProjectRecord,
         ProjectRecordDeleteInput, ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput,
         ProjectUpdateInput, ProjectsListInput, RecordMetadataNewTagInput, RichTextFontSelection,
         RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
@@ -36,11 +38,19 @@ use crate::{
         TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput, TodoUpdatePriorityInput,
         TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
         WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
-        WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput,
+        WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteCommitInput, WorkspaceQuickNoteUpsertInput,
         WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput,
         WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
     secret_crypto,
+    voice::{
+        contracts::{
+            RecordTarget, SpeechProfile, VoiceMinutesSnapshot, VoicePlaybackChunk,
+            VoicePlaybackSnapshot, VoiceRecordLookup, VoiceSettings, VoiceTranscriptCursor,
+            VoiceTranscriptPage, VoiceTranscriptSegment,
+        },
+        storage::{AudioChunkManifest, PersistedVoiceSession},
+    },
     workspace::{WORKSPACE_HIDDEN_DIR_NAME, WORKSPACE_SECURITY_MODE},
 };
 
@@ -63,7 +73,11 @@ const TODO_DUE_DATE_SCHEMA_VERSION: i64 = 18;
 const TODO_OWNERSHIP_SCHEMA_VERSION: i64 = 19;
 const RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION: i64 = 20;
 const LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION: i64 = 21;
-const CURRENT_SCHEMA_VERSION: i64 = LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION;
+const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
+const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
+const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
+const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
+const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECOVERY_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -211,6 +225,18 @@ pub struct Database {
     secret_password: Option<String>,
 }
 
+pub struct VoiceMinutesLine {
+    pub start_ms: u64,
+    pub text: String,
+}
+
+pub struct VoiceMinutesInput {
+    pub expected_version: u64,
+    pub source_max_rowid: i64,
+    pub previous_content: Option<String>,
+    pub segments: Vec<VoiceMinutesLine>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DemoSeedResult {
@@ -270,6 +296,7 @@ impl Database {
             secret_password,
         };
         db.migrate()?;
+        db.voice_retry_asset_cleanup()?;
         Ok(db)
     }
 
@@ -706,6 +733,21 @@ impl Database {
                 self.set_schema_version(LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION)?;
             }
         }
+        self.ensure_voice_record_schema()?;
+        if self.schema_version()? < VOICE_RECORD_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECORD_SCHEMA_VERSION)?;
+        }
+        self.ensure_voice_minutes_schema()?;
+        if self.schema_version()? < VOICE_MINUTES_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_MINUTES_SCHEMA_VERSION)?;
+        }
+        if self.schema_version()? < VOICE_RELIABILITY_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RELIABILITY_SCHEMA_VERSION)?;
+        }
+        self.ensure_cloud_recovery_schema()?;
+        if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
+        }
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -730,6 +772,893 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_tag ON workspace_note_tag_links(tag_id, workspace_note_id);
             CREATE INDEX IF NOT EXISTS idx_workspace_note_tag_links_note ON workspace_note_tag_links(workspace_note_id, tag_id);
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
+            "#,
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_settings_get(&self) -> Result<VoiceSettings> {
+        let stored = self
+            .conn
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = 'voice_settings'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let mut settings = stored.map_or_else(
+            || {
+                Ok(VoiceSettings {
+                    speech_profile: None,
+                    live_preview_enabled: false,
+                    text_profile_id: None,
+                    translation_profile_id: None,
+                    context_enabled: false,
+                    caption_lines: 4,
+                })
+            },
+            |value| serde_json::from_str(&value).context("invalid stored voice settings"),
+        )?;
+        if let Some(SpeechProfile::SenseVoiceOnnx { model_package_id }) =
+            &mut settings.speech_profile
+        {
+            if model_package_id == "sensevoice-small" {
+                *model_package_id = crate::voice::model_package::PACKAGE_ID.into();
+            }
+        }
+        Ok(settings)
+    }
+
+    pub fn voice_settings_upsert(&self, settings: &VoiceSettings) -> Result<()> {
+        if !(2..=8).contains(&settings.caption_lines) {
+            return Err(anyhow!("caption_lines must be between 2 and 8"));
+        }
+        match &settings.speech_profile {
+            Some(SpeechProfile::SenseVoiceOnnx { model_package_id })
+                if model_package_id != crate::voice::model_package::PACKAGE_ID =>
+            {
+                return Err(anyhow!("unsupported SenseVoice model package"));
+            }
+            Some(SpeechProfile::Paraformer { model, .. }) if model != "paraformer-realtime-v2" => {
+                return Err(anyhow!("unsupported Paraformer model"));
+            }
+            _ => {}
+        }
+        let value = serde_json::to_string(settings)?;
+        let timestamp = now_iso();
+        self.conn.execute(
+            r#"
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES ('voice_settings', ?1, ?2)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+            "#,
+            params![value, timestamp],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_credential_from_ai_profile(&self, profile_id: i64) -> Result<String> {
+        let profile = self.ai_profile_storage(profile_id)?;
+        if !profile.enabled {
+            return Err(anyhow!("selected credential profile is disabled"));
+        }
+        self.decrypt_api_key_for_profile(profile_id)
+    }
+
+    pub fn voice_session_create(
+        &mut self,
+        target: &RecordTarget,
+        request_id: &str,
+        session_id: &str,
+        title: &str,
+    ) -> Result<PersistedVoiceSession> {
+        if request_id.trim().is_empty() {
+            return Err(anyhow!("request_id is required"));
+        }
+        if let Some(existing) = self.voice_session_by_request(request_id)? {
+            return Ok(existing);
+        }
+        if self.voice_current_session()?.is_some() {
+            return Err(anyhow!("an unfinished recording session already exists"));
+        }
+
+        let timestamp = now_iso();
+        let transaction = self.conn.transaction()?;
+        let (project_note_id, workspace_note_id) = match target {
+            RecordTarget::Workspace => {
+                transaction.execute(
+                    r#"
+                    INSERT INTO workspace_notes (
+                      note_kind, title, content_markdown, content_html, default_code_language, created_at, updated_at
+                    ) VALUES (?1, ?2, '', '', NULL, ?3, ?3)
+                    "#,
+                    params![WORKSPACE_NOTE_KIND_STANDARD, title, timestamp],
+                )?;
+                (None, Some(transaction.last_insert_rowid()))
+            }
+            RecordTarget::Project { project_id } => {
+                let exists = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1 AND kind = ?2)",
+                    params![project_id, PROJECT_KIND_NORMAL],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if !exists {
+                    return Err(anyhow!("Project does not exist"));
+                }
+                transaction.execute(
+                    r#"
+                    INSERT INTO notes (
+                      project_id, title, content_markdown, content_html, default_code_language, created_at, updated_at
+                    ) VALUES (?1, ?2, '', '', NULL, ?3, ?3)
+                    "#,
+                    params![project_id, title, timestamp],
+                )?;
+                (Some(transaction.last_insert_rowid()), None)
+            }
+        };
+        transaction.execute(
+            r#"
+            INSERT INTO voice_records (project_note_id, workspace_note_id, created_at)
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![project_note_id, workspace_note_id, timestamp],
+        )?;
+        let voice_record_id = transaction.last_insert_rowid();
+        transaction.execute(
+            r#"
+            INSERT INTO recording_sessions (
+              id, voice_record_id, request_id, lifecycle, started_at, active_ms, revision, capture_epoch
+            ) VALUES (?1, ?2, ?3, 'preparing', ?4, 0, 1, 1)
+            "#,
+            params![session_id, voice_record_id, request_id, timestamp],
+        )?;
+        transaction.commit()?;
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("created voice session was not found"))
+    }
+
+    pub fn voice_current_session(&self) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "{} WHERE s.lifecycle <> 'ended' ORDER BY s.started_at DESC LIMIT 1",
+                    voice_session_select_sql()
+                ),
+                [],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_get(&self, session_id: &str) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!("{} WHERE s.id = ?1", voice_session_select_sql()),
+                [session_id],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_by_request(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<PersistedVoiceSession>> {
+        self.conn
+            .query_row(
+                &format!("{} WHERE s.request_id = ?1", voice_session_select_sql()),
+                [request_id],
+                persisted_voice_session_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn voice_session_transition(
+        &self,
+        session_id: &str,
+        expected_revision: u64,
+        lifecycle: &str,
+        pause_reason: Option<&str>,
+        active_ms: u64,
+        capture_epoch: u64,
+    ) -> Result<PersistedVoiceSession> {
+        let ended_at = (lifecycle == "ended").then(now_iso);
+        let changed = self.conn.execute(
+            r#"
+            UPDATE recording_sessions
+            SET lifecycle = ?1,
+                pause_reason = ?2,
+                active_ms = ?3,
+                capture_epoch = ?4,
+                ended_at = COALESCE(?5, ended_at),
+                revision = revision + 1
+            WHERE id = ?6 AND revision = ?7
+            "#,
+            params![
+                lifecycle,
+                pause_reason,
+                i64::try_from(active_ms)?,
+                i64::try_from(capture_epoch)?,
+                ended_at,
+                session_id,
+                i64::try_from(expected_revision)?
+            ],
+        )?;
+        if changed != 1 {
+            return Err(anyhow!("voice session revision conflict"));
+        }
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("voice session not found"))
+    }
+
+    pub fn voice_audio_chunk_insert(
+        &self,
+        session_id: &str,
+        manifest: &AudioChunkManifest,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO voice_audio_chunks (
+              session_id, source, epoch, chunk_index, start_sample, sample_count,
+              sample_rate, channels, relative_path, byte_size, state, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'complete', ?11)
+            ON CONFLICT(session_id, source, epoch, chunk_index) DO NOTHING
+            "#,
+            params![
+                session_id,
+                manifest.source,
+                i64::try_from(manifest.epoch)?,
+                i64::try_from(manifest.chunk_index)?,
+                i64::try_from(manifest.start_sample)?,
+                i64::try_from(manifest.sample_count)?,
+                i64::from(manifest.sample_rate),
+                i64::from(manifest.channels),
+                manifest.relative_path,
+                i64::try_from(manifest.byte_size)?,
+                now_iso()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_recover_audio(&self, session_id: &str) -> Result<()> {
+        for chunk in crate::voice::storage::recover_partial_tracks(&self.workspace_root, session_id)? {
+            self.voice_audio_chunk_insert(session_id, &chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn voice_saved_duration_ms(&self, session_id: &str) -> Result<u64> {
+        let duration: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(duration), 0) FROM (SELECT MAX((start_sample + sample_count) * 1000 / sample_rate) AS duration FROM voice_audio_chunks WHERE session_id=?1 AND state='complete' GROUP BY epoch)",
+            [session_id], |row| row.get(0))?;
+        Ok(u64::try_from(duration)?)
+    }
+
+    pub fn voice_playback_get(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<VoicePlaybackSnapshot>> {
+        let Some((session_id, phase)) = self.voice_session_for_target(target)? else {
+            return Ok(None);
+        };
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT source, epoch, start_sample, sample_count, sample_rate, relative_path
+            FROM voice_audio_chunks
+            WHERE session_id = ?1 AND state = 'complete'
+            ORDER BY epoch, source, chunk_index
+            "#,
+        )?;
+        let stored = statement
+            .query_map([&session_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let chunks = stored
+            .into_iter()
+            .map(
+                |(source, epoch, start_sample, sample_count, sample_rate, relative_path)| {
+                    if epoch < 0 || start_sample < 0 || sample_count < 0 || sample_rate <= 0 {
+                        return Err(anyhow!("invalid persisted voice audio metadata"));
+                    }
+                    let relative = Path::new(&relative_path);
+                    if relative.is_absolute()
+                        || relative.components().any(|component| {
+                            matches!(
+                                component,
+                                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                            )
+                        })
+                    {
+                        return Err(anyhow!("voice audio path escaped workspace"));
+                    }
+                    let path = self.workspace_root.join(relative);
+                    Ok(VoicePlaybackChunk {
+                        source,
+                        epoch: epoch as u64,
+                        start_ms: (start_sample as u64).saturating_mul(1_000) / sample_rate as u64,
+                        duration_ms: (sample_count as u64).saturating_mul(1_000)
+                            / sample_rate as u64,
+                        path: path.to_string_lossy().to_string(),
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Some(VoicePlaybackSnapshot {
+            session_id,
+            phase,
+            chunks,
+        }))
+    }
+
+    fn voice_session_for_target(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<(String, String)>> {
+        let (where_clause, project_id, record_id) = match target {
+            VoiceRecordLookup::Workspace { record_id } => {
+                ("vr.workspace_note_id = ?2 AND ?1 IS NULL", None, *record_id)
+            }
+            VoiceRecordLookup::Project {
+                project_id,
+                record_id,
+            } => (
+                "vr.project_note_id = ?2 AND n.project_id = ?1",
+                Some(*project_id),
+                *record_id,
+            ),
+        };
+        self.conn
+            .query_row(
+                &format!(
+                    r#"
+                    SELECT s.id, s.lifecycle
+                    FROM voice_records vr
+                    INNER JOIN recording_sessions s ON s.voice_record_id = vr.id
+                    LEFT JOIN notes n ON n.id = vr.project_note_id
+                    WHERE {where_clause}
+                    "#
+                ),
+                params![project_id, record_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Final Transcript text is immutable for a provider key. Replayed or
+    /// late cloud events may retry, but may not silently replace source truth.
+    pub fn voice_transcript_append_final(
+        &self,
+        session_id: &str,
+        provider_key: &str,
+        start_ms: u64,
+        end_ms: u64,
+        text: &str,
+        language: Option<&str>,
+    ) -> Result<VoiceTranscriptSegment> {
+        let provider_key = provider_key.trim();
+        let text = text.trim();
+        if provider_key.is_empty()
+            || provider_key.len() > 256
+            || text.is_empty()
+            || text.len() > 16_384
+        {
+            return Err(anyhow!("invalid final Transcript segment"));
+        }
+        if start_ms >= end_ms {
+            return Err(anyhow!("final Transcript time range must be positive"));
+        }
+        let start = i64::try_from(start_ms)?;
+        let end = i64::try_from(end_ms)?;
+        let id = format!("{session_id}:{provider_key}");
+        self.conn.execute(
+            r#"
+            INSERT INTO voice_transcript_segments
+              (id, session_id, provider_key, start_ms, end_ms, text, language, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(session_id, provider_key) DO NOTHING
+            "#,
+            params![
+                id,
+                session_id,
+                provider_key,
+                start,
+                end,
+                text,
+                language,
+                now_iso()
+            ],
+        )?;
+        let stored = self.conn.query_row(
+            r#"
+            SELECT id, start_ms, end_ms, text, language
+            FROM voice_transcript_segments
+            WHERE session_id = ?1 AND provider_key = ?2
+            "#,
+            params![session_id, provider_key],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )?;
+        if stored.1 != start
+            || stored.2 != end
+            || stored.3 != text
+            || stored.4.as_deref() != language
+        {
+            return Err(anyhow!(
+                "provider key conflicts with an existing final Transcript segment"
+            ));
+        }
+        Ok(VoiceTranscriptSegment {
+            id: stored.0,
+            start_ms,
+            end_ms,
+            text: stored.3,
+            language: stored.4,
+        })
+    }
+
+    pub fn voice_transcript_list(
+        &self,
+        target: &VoiceRecordLookup,
+        after: Option<&VoiceTranscriptCursor>,
+        limit: u16,
+    ) -> Result<Option<VoiceTranscriptPage>> {
+        if !(1..=200).contains(&limit) {
+            return Err(anyhow!("Transcript page size must be between 1 and 200"));
+        }
+        let Some((session_id, _)) = self.voice_session_for_target(target)? else {
+            return Ok(None);
+        };
+        let after_start = after
+            .map(|cursor| i64::try_from(cursor.start_ms))
+            .transpose()?;
+        let after_id = after.map(|cursor| cursor.id.as_str());
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT id, start_ms, end_ms, text, language
+            FROM voice_transcript_segments
+            WHERE session_id = ?1 AND
+              (?2 IS NULL OR start_ms > ?2 OR (start_ms = ?2 AND id > ?3))
+            ORDER BY start_ms, id
+            LIMIT ?4
+            "#,
+        )?;
+        let mut segments = statement
+            .query_map(
+                params![session_id, after_start, after_id, i64::from(limit) + 1],
+                |row| {
+                    let start: i64 = row.get(1)?;
+                    let end: i64 = row.get(2)?;
+                    if start < 0 || end <= start {
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                    Ok(VoiceTranscriptSegment {
+                        id: row.get(0)?,
+                        start_ms: start as u64,
+                        end_ms: end as u64,
+                        text: row.get(3)?,
+                        language: row.get(4)?,
+                    })
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = segments.len() > usize::from(limit);
+        segments.truncate(usize::from(limit));
+        let next_cursor = if has_more {
+            segments.last().map(|segment| VoiceTranscriptCursor {
+                start_ms: segment.start_ms,
+                id: segment.id.clone(),
+            })
+        } else {
+            None
+        };
+        Ok(Some(VoiceTranscriptPage {
+            segments,
+            next_cursor,
+        }))
+    }
+
+    pub fn voice_transcript_tail(
+        &self,
+        session_id: &str,
+        limit: u8,
+    ) -> Result<Vec<VoiceTranscriptSegment>> {
+        if !(2..=8).contains(&limit) {
+            return Err(anyhow!("caption line count must be between 2 and 8"));
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT id, start_ms, end_ms, text, language FROM voice_transcript_segments WHERE session_id = ?1 ORDER BY start_ms DESC, id DESC LIMIT ?2",
+        )?;
+        let mut segments = statement
+            .query_map(params![session_id, limit], |row| {
+                let start_ms: i64 = row.get(1)?;
+                let end_ms: i64 = row.get(2)?;
+                if start_ms < 0 || end_ms <= start_ms {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                Ok(VoiceTranscriptSegment {
+                    id: row.get(0)?,
+                    start_ms: start_ms as u64,
+                    end_ms: end_ms as u64,
+                    text: row.get(3)?,
+                    language: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        segments.reverse();
+        Ok(segments)
+    }
+
+    pub fn voice_minutes_get(
+        &self,
+        target: &VoiceRecordLookup,
+    ) -> Result<Option<VoiceMinutesSnapshot>> {
+        let Some((session_id, _)) = self.voice_session_for_target(target)? else {
+            return Ok(None);
+        };
+        let current = self
+            .conn
+            .query_row(
+                "SELECT version, content, generated_at FROM voice_minutes WHERE session_id = ?1",
+                [&session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let (version, content, generated_at) = current.unwrap_or((0, String::new(), None));
+        let title: String = match target {
+            VoiceRecordLookup::Workspace { record_id } => self.conn.query_row(
+                "SELECT title FROM workspace_notes WHERE id = ?1",
+                [record_id],
+                |row| row.get(0),
+            )?,
+            VoiceRecordLookup::Project { record_id, .. } => self.conn.query_row(
+                "SELECT title FROM notes WHERE id = ?1",
+                [record_id],
+                |row| row.get(0),
+            )?,
+        };
+        let latest_job = self.conn.query_row(
+            "SELECT status, error, preview FROM voice_minutes_jobs WHERE session_id = ?1 ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, id DESC LIMIT 1",
+            [&session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?)),
+        ).optional()?;
+        let (status, error, preview) = latest_job.unwrap_or((
+            if version > 0 { "ready" } else { "empty" }.into(),
+            None,
+            String::new(),
+        ));
+        Ok(Some(VoiceMinutesSnapshot {
+            session_id,
+            version: u64::try_from(version)?,
+            title,
+            content,
+            generated_at,
+            preview: if status == "running" {
+                preview
+            } else {
+                String::new()
+            },
+            status,
+            error,
+        }))
+    }
+
+    pub fn voice_minutes_input(&self, session_id: &str) -> Result<VoiceMinutesInput> {
+        self.voice_session_get(session_id)?
+            .ok_or_else(|| anyhow!("voice session not found"))?;
+        let current = self.conn.query_row(
+            "SELECT version, source_max_rowid, content FROM voice_minutes WHERE session_id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+        ).optional()?.unwrap_or((0, 0, String::new()));
+        let mut statement = self.conn.prepare(
+            "SELECT rowid, start_ms, text FROM voice_transcript_segments WHERE session_id = ?1 AND rowid > ?2 ORDER BY start_ms, id"
+        )?;
+        let rows = statement
+            .query_map(params![session_id, current.1], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut max_rowid = current.1;
+        let mut segments = Vec::with_capacity(rows.len());
+        for (rowid, start_ms, text) in rows {
+            max_rowid = max_rowid.max(rowid);
+            segments.push(VoiceMinutesLine {
+                start_ms: u64::try_from(start_ms)?,
+                text,
+            });
+        }
+        Ok(VoiceMinutesInput {
+            expected_version: u64::try_from(current.0)?,
+            source_max_rowid: max_rowid,
+            previous_content: (current.0 > 0).then_some(current.2),
+            segments,
+        })
+    }
+
+    pub fn voice_minutes_profile(&self) -> Result<ResolvedAiProfile> {
+        let profile_id = self
+            .voice_settings_get()?
+            .text_profile_id
+            .ok_or_else(|| anyhow!("请先在语音设置中选择文本处理模型"))?;
+        self.resolve_profile_by_id(profile_id)
+    }
+
+    pub fn voice_minutes_enqueue(&self, session_id: &str, request_key: &str) -> Result<bool> {
+        if request_key.trim().is_empty() {
+            return Err(anyhow!("minutes request key is required"));
+        }
+        if self.voice_minutes_input(session_id)?.segments.is_empty() {
+            return Ok(false);
+        }
+        let changed = self.conn.execute(
+            "INSERT INTO voice_minutes_jobs (session_id, request_key, status, created_at) VALUES (?1, ?2, 'pending', ?3) ON CONFLICT(session_id, request_key) DO NOTHING",
+            params![session_id, request_key, now_iso()],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub fn voice_minutes_claim_next(&mut self) -> Result<Option<(i64, String)>> {
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let job = transaction.query_row(
+            "SELECT id, session_id FROM voice_minutes_jobs j WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM voice_minutes_jobs other WHERE other.session_id = j.session_id AND other.status = 'running') ORDER BY id LIMIT 1",
+            [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        ).optional()?;
+        if let Some((id, _)) = &job {
+            transaction.execute(
+                "UPDATE voice_minutes_jobs SET status = 'running', preview = '', started_at = ?2 WHERE id = ?1",
+                params![id, now_iso()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(job)
+    }
+
+    pub fn voice_minutes_has_pending(&self) -> Result<bool> {
+        let stale_before = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+        self.conn.execute("UPDATE voice_minutes_jobs SET status = 'pending', started_at = NULL WHERE status = 'running' AND started_at < ?1", [stale_before])?;
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM voice_minutes_jobs WHERE status = 'pending')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn voice_minutes_update_preview(&self, job_id: i64, preview: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET preview = ?2 WHERE id = ?1 AND status = 'running'",
+            params![job_id, preview],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_minutes_finish_job(&self, job_id: i64, error: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET status = ?1, error = ?2, preview = '' WHERE id = ?3",
+            params![
+                if error.is_some() { "failed" } else { "ready" },
+                error,
+                job_id
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_minutes_apply(
+        &mut self,
+        session_id: &str,
+        expected_version: u64,
+        source_max_rowid: i64,
+        content: &str,
+        title: &str,
+    ) -> Result<()> {
+        if content.trim().is_empty() || title.trim().is_empty() || title.chars().count() > 80 {
+            return Err(anyhow!("AI minutes or title is empty or invalid"));
+        }
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current_version = transaction
+            .query_row(
+                "SELECT version FROM voice_minutes WHERE session_id = ?1",
+                [session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if current_version != i64::try_from(expected_version)? {
+            return Err(anyhow!("minutes version conflict"));
+        }
+        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        )?;
+        transaction.execute(
+            "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
+            params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
+        )?;
+        let started = chrono::DateTime::parse_from_rfc3339(&started_at)?.with_timezone(&Local);
+        let titled = format!("{} · {}", title.trim(), started.format("%Y-%m-%d %H:%M"));
+        if let Some(id) = project_note_id {
+            transaction.execute(
+                "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![titled, now_iso(), id],
+            )?;
+        } else if let Some(id) = workspace_note_id {
+            transaction.execute(
+                "UPDATE workspace_notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                params![titled, now_iso(), id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn ensure_voice_minutes_schema(&self) -> Result<()> {
+        self.conn.execute_batch(r#"
+            CREATE TABLE IF NOT EXISTS voice_minutes (
+              session_id TEXT PRIMARY KEY REFERENCES recording_sessions(id) ON DELETE CASCADE,
+              version INTEGER NOT NULL DEFAULT 0,
+              source_max_rowid INTEGER NOT NULL DEFAULT 0,
+              content TEXT NOT NULL,
+              generated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS voice_minutes_jobs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+              request_key TEXT NOT NULL,
+              status TEXT NOT NULL,
+              error TEXT,
+              started_at TEXT,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, request_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_voice_minutes_jobs_pending ON voice_minutes_jobs(status, id);
+        "#)?;
+        self.ensure_column(
+            "voice_minutes_jobs",
+            "started_at",
+            "ALTER TABLE voice_minutes_jobs ADD COLUMN started_at TEXT",
+        )?;
+        self.ensure_column(
+            "voice_minutes_jobs",
+            "preview",
+            "ALTER TABLE voice_minutes_jobs ADD COLUMN preview TEXT NOT NULL DEFAULT ''",
+        )?;
+        Ok(())
+    }
+
+    fn ensure_voice_record_schema(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS project_asset_cleanup (
+              project_id INTEGER PRIMARY KEY,
+              path TEXT NOT NULL,
+              last_error TEXT
+            );
+            CREATE TABLE IF NOT EXISTS voice_asset_cleanup (
+              session_id TEXT PRIMARY KEY,
+              last_error TEXT
+            );
+            CREATE TABLE IF NOT EXISTS voice_records (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_note_id INTEGER UNIQUE,
+              workspace_note_id INTEGER UNIQUE,
+              created_at TEXT NOT NULL,
+              CHECK (
+                (project_note_id IS NOT NULL AND workspace_note_id IS NULL)
+                OR
+                (project_note_id IS NULL AND workspace_note_id IS NOT NULL)
+              ),
+              FOREIGN KEY(project_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+              FOREIGN KEY(workspace_note_id) REFERENCES workspace_notes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS recording_sessions (
+              id TEXT PRIMARY KEY,
+              voice_record_id INTEGER NOT NULL UNIQUE,
+              request_id TEXT NOT NULL UNIQUE,
+              lifecycle TEXT NOT NULL,
+              pause_reason TEXT,
+              started_at TEXT NOT NULL,
+              ended_at TEXT,
+              active_ms INTEGER NOT NULL DEFAULT 0,
+              revision INTEGER NOT NULL DEFAULT 1,
+              capture_epoch INTEGER NOT NULL DEFAULT 1,
+              FOREIGN KEY(voice_record_id) REFERENCES voice_records(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_audio_chunks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              source TEXT NOT NULL,
+              epoch INTEGER NOT NULL,
+              chunk_index INTEGER NOT NULL,
+              start_sample INTEGER NOT NULL,
+              sample_count INTEGER NOT NULL,
+              sample_rate INTEGER NOT NULL,
+              channels INTEGER NOT NULL,
+              relative_path TEXT NOT NULL,
+              byte_size INTEGER NOT NULL,
+              state TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, source, epoch, chunk_index),
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_timeline_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              epoch INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              media_position_ms INTEGER NOT NULL,
+              reason TEXT,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_transcript_segments (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL,
+              provider_key TEXT,
+              start_ms INTEGER NOT NULL,
+              end_ms INTEGER NOT NULL,
+              text TEXT NOT NULL,
+              language TEXT,
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              UNIQUE(session_id, provider_key),
+              FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE TRIGGER IF NOT EXISTS voice_session_protect_delete
+            BEFORE DELETE ON recording_sessions WHEN OLD.lifecycle != 'ended'
+            BEGIN SELECT RAISE(ABORT, '请先结束语音记录，再删除 Record 或 Project'); END;
+            CREATE TRIGGER IF NOT EXISTS voice_session_schedule_cleanup
+            AFTER DELETE ON recording_sessions
+            BEGIN INSERT OR IGNORE INTO voice_asset_cleanup(session_id) VALUES (OLD.id); END;
+
+            CREATE INDEX IF NOT EXISTS idx_recording_sessions_lifecycle
+              ON recording_sessions(lifecycle, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_voice_audio_chunks_session
+              ON voice_audio_chunks(session_id, source, epoch, chunk_index);
+            CREATE INDEX IF NOT EXISTS idx_voice_timeline_events_session
+              ON voice_timeline_events(session_id, id);
+            CREATE INDEX IF NOT EXISTS idx_voice_transcript_session_time
+              ON voice_transcript_segments(session_id, start_ms, id);
             "#,
         )?;
         Ok(())
@@ -1520,18 +2449,54 @@ impl Database {
         self.project_record(input.project_id)
     }
 
+    /// The database tombstone survives a failed cleanup and a process restart.
+    pub fn voice_retry_asset_cleanup(&self) -> Result<()> {
+        let sessions = self.conn.prepare("SELECT session_id FROM voice_asset_cleanup")?
+            .query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        for session in sessions {
+            let result = (|| -> Result<()> {
+                if session.is_empty() || !session.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+                    return Err(anyhow!("invalid managed voice session path"));
+                }
+                let base = self.workspace_root.join(crate::voice::storage::VOICE_ASSET_DIR);
+                let directory = base.join(&session);
+                if directory.exists() {
+                    if !directory.canonicalize()?.starts_with(base.canonicalize()?) {
+                        return Err(anyhow!("voice asset escaped managed directory"));
+                    }
+                    fs::remove_dir_all(directory)?;
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => { self.conn.execute("DELETE FROM voice_asset_cleanup WHERE session_id = ?1", [&session])?; }
+                Err(error) => { self.conn.execute("UPDATE voice_asset_cleanup SET last_error = ?2 WHERE session_id = ?1", params![session, error.to_string()])?; }
+            }
+        }
+        let projects = self.conn.prepare("SELECT project_id, path FROM project_asset_cleanup")?
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (id, stored_path) in projects {
+            let path = self.decode_path_ref(&stored_path);
+            let result = if path.exists() { move_paths_to_trash(&[path]) } else { Ok(()) };
+            match result {
+                Ok(()) => { self.conn.execute("DELETE FROM project_asset_cleanup WHERE project_id=?1", [id])?; }
+                Err(error) => { self.conn.execute("UPDATE project_asset_cleanup SET last_error=?2 WHERE project_id=?1", params![id, error.to_string()])?; }
+            }
+        }
+        Ok(())
+    }
+
     pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
-        let project_root = PathBuf::from(&current.root_path);
-        let cleanup_paths = if project_root.exists() {
-            vec![project_root]
-        } else {
-            Vec::new()
-        };
-
-        move_paths_to_trash(&cleanup_paths)?;
-        self.conn
-            .execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
+        if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
+        let path = self.encode_path_ref(Path::new(&current.root_path));
+        let transaction = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
+        transaction.execute("INSERT INTO project_asset_cleanup(project_id, path) VALUES (?1, ?2)", params![input.project_id, path])?;
+        transaction.commit()?;
+        self.voice_retry_asset_cleanup()?;
 
         Ok(current)
     }
@@ -1784,6 +2749,48 @@ impl Database {
         }
     }
 
+    pub fn project_quick_note_commit(&mut self, input: ProjectQuickNoteCommitInput) -> Result<NoteRecord> {
+        let project = self.project_record(input.project_id)?;
+        if input.expected_markdown.trim().is_empty() || project.summary_markdown != input.expected_markdown {
+            return Err(anyhow!("Project QuickNote changed before commit"));
+        }
+        if let Some(record_id) = input.record_id {
+            let target = self.note_record(record_id)?;
+            if target.project_id != input.project_id ||
+                input.expected_record_markdown.as_deref() != Some(target.content_markdown.as_str()) ||
+                input.expected_record_updated_at.as_deref() != Some(target.updated_at.as_str()) {
+                return Err(anyhow!("Project Record changed before QuickNote append"));
+            }
+        }
+        self.conn.execute_batch("SAVEPOINT project_quick_note_commit")?;
+        let result = (|| -> Result<NoteRecord> {
+            let record = self.project_record_upsert(ProjectRecordUpsertInput {
+                project_id: input.project_id,
+                note_id: input.record_id,
+                title: input.title,
+                markdown: input.markdown,
+                html: input.html,
+                default_code_language: input.default_code_language,
+                tag_ids: input.tag_ids,
+            })?;
+            self.conn.execute(
+                "UPDATE projects SET summary = '', summary_markdown = '', summary_html = '<p></p>', quick_note_code_language = NULL, updated_at = ?1 WHERE id = ?2 AND summary_markdown = ?3",
+                params![now_iso(), input.project_id, input.expected_markdown],
+            )?;
+            Ok(record)
+        })();
+        match result {
+            Ok(record) => {
+                self.conn.execute_batch("RELEASE SAVEPOINT project_quick_note_commit")?;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK TO SAVEPOINT project_quick_note_commit; RELEASE SAVEPOINT project_quick_note_commit");
+                Err(error)
+            }
+        }
+    }
+
     pub fn project_record_metadata_apply(
         &mut self,
         input: ProjectRecordMetadataApplyInput,
@@ -1793,6 +2800,10 @@ impl Database {
             return Err(anyhow!(
                 "Project Record does not belong to the requested Project"
             ));
+        }
+        if input.expected_updated_at.as_deref().is_some_and(|value| value != current.updated_at)
+            || input.expected_title.as_deref().is_some_and(|value| Some(value) != current.title.as_deref()) {
+            return Err(anyhow!("Project Record changed before AI metadata was applied"));
         }
         let title = validate_record_metadata_title(&input.title)?;
         let timestamp = now_iso();
@@ -1820,6 +2831,7 @@ impl Database {
         let current = self.note_record(input.note_id)?;
         self.conn
             .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
+        self.voice_retry_asset_cleanup()?;
         self.touch_project(current.project_id)?;
         Ok(current)
     }
@@ -1854,7 +2866,6 @@ impl Database {
 
         match input.note_id {
             Some(note_id) => {
-                self.workspace_note_record(note_id)?;
                 self.conn.execute(
                     r#"
                     UPDATE workspace_notes
@@ -1915,6 +2926,11 @@ impl Database {
             return Err(anyhow!(
                 "AI metadata can only be applied to a Workspace Record"
             ));
+        }
+        let current = self.workspace_note_record(input.note_id)?;
+        if input.expected_updated_at.as_deref().is_some_and(|value| value != current.updated_at)
+            || input.expected_title.as_deref().is_some_and(|value| Some(value) != current.title.as_deref()) {
+            return Err(anyhow!("Workspace Record changed before AI metadata was applied"));
         }
         let title = validate_record_metadata_title(&input.title)?;
         let timestamp = now_iso();
@@ -2056,17 +3072,61 @@ impl Database {
         }
     }
 
+    pub fn workspace_quick_note_commit(&mut self, input: WorkspaceQuickNoteCommitInput) -> Result<WorkspaceRecord> {
+        let quick_note = self.workspace_quick_note_get()?.ok_or_else(|| anyhow!("Workspace QuickNote is missing"))?;
+        if input.expected_markdown.trim().is_empty() || quick_note.content_markdown != input.expected_markdown {
+            return Err(anyhow!("Workspace QuickNote changed before commit"));
+        }
+        if let Some(record_id) = input.record_id {
+            let target = self.workspace_note_record(record_id)?;
+            let note_kind: String = self.conn.query_row(
+                "SELECT note_kind FROM workspace_notes WHERE id = ?1", [record_id], |row| row.get(0),
+            )?;
+            if note_kind != WORKSPACE_NOTE_KIND_STANDARD ||
+                input.expected_record_markdown.as_deref() != Some(target.content_markdown.as_str()) ||
+                input.expected_record_updated_at.as_deref() != Some(target.updated_at.as_str()) {
+                return Err(anyhow!("Workspace Record changed before QuickNote append"));
+            }
+        }
+        self.conn.execute_batch("SAVEPOINT workspace_quick_note_commit")?;
+        let result = (|| -> Result<WorkspaceRecord> {
+            let record = self.workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: input.record_id,
+                title: input.title,
+                markdown: input.markdown,
+                html: input.html,
+                default_code_language: input.default_code_language,
+                tag_ids: input.tag_ids,
+            })?;
+            let timestamp = now_iso();
+            self.conn.execute(
+                "UPDATE workspace_notes SET content_markdown = '', content_html = '<p></p>', default_code_language = NULL, updated_at = ?1 WHERE id = ?2 AND content_markdown = ?3",
+                params![timestamp, quick_note.id, input.expected_markdown],
+            )?;
+            self.replace_workspace_note_tags(quick_note.id, &[], &timestamp)?;
+            Ok(record)
+        })();
+        match result {
+            Ok(record) => {
+                self.conn.execute_batch("RELEASE SAVEPOINT workspace_quick_note_commit")?;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK TO SAVEPOINT workspace_quick_note_commit; RELEASE SAVEPOINT workspace_quick_note_commit");
+                Err(error)
+            }
+        }
+    }
+
     pub fn workspace_record_delete(
         &mut self,
         input: WorkspaceRecordDeleteInput,
     ) -> Result<WorkspaceRecord> {
         let current = self.workspace_note_record(input.note_id)?;
-        self.conn.execute(
-            "DELETE FROM workspace_note_tag_links WHERE workspace_note_id = ?1",
-            [input.note_id],
-        )?;
+
         self.conn
             .execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
@@ -3924,9 +4984,11 @@ impl Database {
                 INNER JOIN file_tag_options ft ON ft.id = wntl.tag_id
                 WHERE wntl.workspace_note_id = wn.id
               ), '') AS tag_match_text,
-              wn.updated_at
+              wn.updated_at,
+              COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
             FROM workspace_notes wn
-            WHERE wn.title LIKE ?1
+            WHERE EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
+              OR wn.title LIKE ?1
               OR wn.content_markdown LIKE ?1
               OR EXISTS (
                 SELECT 1
@@ -3943,6 +5005,7 @@ impl Database {
             let title: String = row.get(2)?;
             let content: String = row.get(3)?;
             let tags: String = row.get(4)?;
+            let transcript: String = row.get(6)?;
             let kind = if note_kind == WORKSPACE_NOTE_KIND_TODAY_QUICK {
                 "workspace_quick_note"
             } else {
@@ -3966,7 +5029,7 @@ impl Database {
                     title: display_title,
                     subtitle: "Workspace".to_string(),
                     matched_text: workspace_search_match_excerpt(
-                        &[title.as_str(), content.as_str(), tags.as_str()],
+                        &[title.as_str(), content.as_str(), tags.as_str(), transcript.as_str()],
                         query,
                     ),
                 },
@@ -3974,6 +5037,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_WORKSPACE_NOTE_TITLE, title),
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, content),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tags),
+                    (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, transcript),
                 ]),
                 updated_at: row.get(5)?,
             })
@@ -4074,7 +5138,8 @@ impl Database {
                 WHERE ntl.note_id = n.id
               ), '') AS tag_match_text,
               p.name AS project_name,
-              n.updated_at
+              n.updated_at,
+              COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
             FROM notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE (
@@ -4083,6 +5148,7 @@ impl Database {
                 AND TRIM(n.title) != '记录'
                 AND TRIM(n.title) LIKE ?1
               )
+              OR EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
               OR COALESCE(NULLIF(TRIM(n.content_markdown), ''), '') LIKE ?1
               OR EXISTS (
                 SELECT 1
@@ -4102,13 +5168,14 @@ impl Database {
             let content_match_text: String = row.get(4)?;
             let tag_match_text: String = row.get(5)?;
             let project_name: String = row.get(6)?;
+            let transcript: String = row.get(8)?;
             Ok(WorkspaceSearchCandidate {
                 result: WorkspaceSearchResult {
                     kind: "note".to_string(),
                     id: row.get(0)?,
                     scope: None,
                     project_id: Some(row.get(1)?),
-                    source: None,
+                    source: (!transcript.is_empty()).then(|| "transcript".to_string()),
                     title: truncate_text(&normalize_internal_reference_label("note", &title), 72),
                     subtitle: project_name,
                     matched_text: workspace_search_match_excerpt(
@@ -4116,6 +5183,7 @@ impl Database {
                             title_match_text.as_str(),
                             content_match_text.as_str(),
                             tag_match_text.as_str(),
+                            transcript.as_str(),
                         ],
                         query,
                     ),
@@ -4124,6 +5192,7 @@ impl Database {
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_TITLE, title_match_text),
                     (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, content_match_text),
                     (WORKSPACE_SEARCH_PRIORITY_TAG, tag_match_text),
+                    (WORKSPACE_SEARCH_PRIORITY_NOTE_CONTENT, transcript),
                 ]),
                 updated_at: row.get(7)?,
             })
@@ -4290,9 +5359,9 @@ impl Database {
 
         if let Some(project_id) = input.project_id {
             candidates.retain(|candidate| {
-                candidate.result.kind == "todo"
-                    && candidate.result.scope.as_deref() == Some("project")
-                    && candidate.result.project_id == Some(project_id)
+                candidate.result.project_id == Some(project_id)
+                    && ((candidate.result.kind == "todo" && candidate.result.scope.as_deref() == Some("project"))
+                        || (candidate.result.kind == "note" && candidate.result.source.as_deref() == Some("transcript")))
             });
         }
 
@@ -4727,6 +5796,11 @@ impl Database {
             [note_id],
             |row| {
                 Ok(NoteRecord {
+                    is_voice: self.conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM voice_records WHERE project_note_id = ?1)",
+                        [note_id],
+                        |row| row.get(0),
+                    )?,
                     id: row.get(0)?,
                     project_id: row.get(1)?,
                     title: row.get(2)?,
@@ -4754,6 +5828,7 @@ impl Database {
             [note_id],
             |row| {
                 Ok(WorkspaceRecord {
+                    is_voice: self.conn.query_row("SELECT EXISTS(SELECT 1 FROM voice_records WHERE workspace_note_id = ?1)", [note_id], |row| row.get(0))?,
                     id: row.get(0)?,
                     title: row.get(1)?,
                     content_markdown: row.get(2)?,
@@ -7211,6 +8286,37 @@ impl Database {
     }
 }
 
+fn voice_session_select_sql() -> &'static str {
+    r#"
+    SELECT s.id, s.voice_record_id, vr.project_note_id, vr.workspace_note_id,
+           s.lifecycle, s.pause_reason, s.started_at, s.ended_at,
+           s.active_ms, s.revision, s.capture_epoch
+    FROM recording_sessions s
+    INNER JOIN voice_records vr ON vr.id = s.voice_record_id
+    "#
+}
+
+fn persisted_voice_session_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<PersistedVoiceSession> {
+    let active_ms = row.get::<_, i64>(8)?;
+    let revision = row.get::<_, i64>(9)?;
+    let capture_epoch = row.get::<_, i64>(10)?;
+    Ok(PersistedVoiceSession {
+        session_id: row.get(0)?,
+        voice_record_id: row.get(1)?,
+        project_note_id: row.get(2)?,
+        workspace_note_id: row.get(3)?,
+        lifecycle: row.get(4)?,
+        pause_reason: row.get(5)?,
+        started_at: row.get(6)?,
+        ended_at: row.get(7)?,
+        active_ms: u64::try_from(active_ms).unwrap_or_default(),
+        revision: u64::try_from(revision).unwrap_or_default(),
+        capture_epoch: u64::try_from(capture_epoch).unwrap_or_default(),
+    })
+}
+
 fn backup_before_migration(conn: &Connection, workspace_root: &Path) -> Result<Option<PathBuf>> {
     let schema_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if schema_version >= CURRENT_SCHEMA_VERSION {
@@ -8451,6 +9557,53 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
+    #[test]
+    fn database_failure_during_project_delete_leaves_managed_files_in_place() {
+        let (harness, mut db) = setup_database();
+        let project = create_project(&mut db, &harness.workspace_root);
+        db.conn.execute_batch("CREATE TRIGGER fail_project_delete BEFORE DELETE ON projects BEGIN SELECT RAISE(FAIL, 'disk full'); END;").unwrap();
+        assert!(db.project_delete(ProjectDeleteInput { project_id: project.id }).is_err());
+        assert!(Path::new(&project.root_path).exists());
+        assert!(db.project_record(project.id).is_ok());
+    }
+
+    #[test]
+    fn failed_voice_asset_cleanup_is_retried_after_reopening_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("test.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "retry", "retry", "Voice").unwrap();
+        let assets = root.path().join(crate::voice::storage::VOICE_ASSET_DIR);
+        fs::create_dir_all(&assets).unwrap();
+        fs::write(assets.join("retry"), b"not a directory").unwrap();
+        db.voice_session_transition("retry", session.revision, "ended", None, 0, 1).unwrap();
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id: session.workspace_note_id.unwrap() }).unwrap();
+        assert!(assets.join("retry").exists());
+        fs::remove_file(assets.join("retry")).unwrap();
+        fs::create_dir(assets.join("retry")).unwrap();
+        drop(db);
+        let _db = Database::open(&path, root.path(), None).unwrap();
+        assert!(!assets.join("retry").exists());
+    }
+
+    #[test]
+    fn voice_record_delete_protects_capture_then_cleans_assets_and_rejects_late_text() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "delete", "delete-session", "Voice").unwrap();
+        let note_id = session.workspace_note_id.unwrap();
+        let assets = root.path().join(crate::voice::storage::VOICE_ASSET_DIR).join("delete-session");
+        fs::create_dir_all(&assets).unwrap();
+        fs::write(assets.join("microphone.wav.part"), b"audio").unwrap();
+        assert!(db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id }).is_err());
+        assert!(assets.exists());
+        db.voice_session_transition(&session.session_id, session.revision, "ended", None, 0, 1).unwrap();
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id }).unwrap();
+        assert!(!assets.exists());
+        assert!(db.voice_session_get(&session.session_id).unwrap().is_none());
+        assert!(db.voice_transcript_append_final(&session.session_id, "late", 0, 100, "late", None).is_err());
+    }
+
     static TEST_UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     struct TestHarness {
@@ -8492,6 +9645,406 @@ mod tests {
             },
             database,
         )
+    }
+
+    #[test]
+    fn voice_minutes_migration_repairs_existing_jobs_table_without_started_at() {
+        let (harness, database) = setup_database();
+        database
+            .conn
+            .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN started_at", [])
+            .unwrap();
+        database
+            .conn
+            .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN preview", [])
+            .unwrap();
+        drop(database);
+
+        let reopened = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        assert!(!reopened.voice_minutes_has_pending().unwrap());
+        reopened
+            .conn
+            .prepare("SELECT preview FROM voice_minutes_jobs")
+            .unwrap();
+    }
+
+    #[test]
+    fn voice_session_persists_settings_record_and_revisioned_lifecycle() {
+        let (_harness, mut database) = setup_database();
+        let settings = VoiceSettings {
+            speech_profile: None,
+            live_preview_enabled: false,
+            text_profile_id: None,
+            translation_profile_id: None,
+            context_enabled: true,
+            caption_lines: 6,
+        };
+        database.voice_settings_upsert(&settings).unwrap();
+        let loaded = database.voice_settings_get().unwrap();
+        assert!(loaded.context_enabled);
+        assert_eq!(loaded.caption_lines, 6);
+
+        let created = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "request-one",
+                "session-one",
+                "Voice record",
+            )
+            .unwrap();
+        assert_eq!(created.lifecycle, "preparing");
+        assert!(created.workspace_note_id.is_some());
+        let recording = database
+            .voice_session_transition(
+                &created.session_id,
+                created.revision,
+                "recording",
+                None,
+                0,
+                1,
+            )
+            .unwrap();
+        assert_eq!(recording.revision, created.revision + 1);
+        database
+            .voice_audio_chunk_insert(
+                &created.session_id,
+                &AudioChunkManifest {
+                    source: "microphone",
+                    epoch: 1,
+                    chunk_index: 0,
+                    start_sample: 4_800,
+                    sample_count: 48_000,
+                    sample_rate: 48_000,
+                    channels: 1,
+                    relative_path: ".project-mind/voice/session-one/epoch-1/microphone.wav".into(),
+                    byte_size: 192_044,
+                },
+            )
+            .unwrap();
+        let playback = database
+            .voice_playback_get(&VoiceRecordLookup::Workspace {
+                record_id: created.workspace_note_id.unwrap(),
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(playback.chunks.len(), 1);
+        assert_eq!(playback.chunks[0].start_ms, 100);
+        assert_eq!(playback.chunks[0].duration_ms, 1_000);
+        assert!(database
+            .voice_session_transition(
+                &created.session_id,
+                created.revision,
+                "paused",
+                Some("user"),
+                10,
+                1,
+            )
+            .is_err());
+        let idempotent = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "request-one",
+                "different-session",
+                "Ignored",
+            )
+            .unwrap();
+        assert_eq!(idempotent.session_id, created.session_id);
+    }
+
+    #[test]
+    fn voice_minutes_preview_is_provisional_and_cleared_on_failure() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "preview-request",
+                "preview-session",
+                "原始标题",
+            )
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1000,
+                "讨论发布",
+                None,
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        database
+            .voice_minutes_enqueue(&session.session_id, "preview-job")
+            .unwrap();
+        let (job_id, _) = database.voice_minutes_claim_next().unwrap().unwrap();
+        database
+            .voice_minutes_update_preview(job_id, "## 摘要\n正在讨论")
+            .unwrap();
+        // A queued automatic refresh must not hide the active stream.
+        database
+            .voice_minutes_enqueue(&session.session_id, "next-job")
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(snapshot.preview, "## 摘要\n正在讨论");
+        assert_eq!(snapshot.version, 0);
+        assert!(snapshot.content.is_empty());
+        assert_eq!(snapshot.title, "原始标题");
+        database
+            .voice_minutes_finish_job(job_id, Some("connection interrupted"))
+            .unwrap();
+        database
+            .voice_minutes_update_preview(job_id, "stale preview")
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert!(snapshot.preview.is_empty());
+        assert_eq!(snapshot.status, "pending");
+        assert_eq!(snapshot.version, 0);
+        assert_eq!(snapshot.title, "原始标题");
+    }
+
+    #[test]
+    fn voice_minutes_replace_snapshot_and_overwrite_title() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "minutes-request",
+                "minutes-session",
+                "语音记录 · 2026-09-24 09:30",
+            )
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1_000,
+                "讨论了发布计划。",
+                None,
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        let input = database.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(input.segments.len(), 1);
+        assert_eq!(input.previous_content, None);
+        assert!(database
+            .voice_minutes_enqueue(&session.session_id, "auto:1")
+            .unwrap());
+        assert!(!database
+            .voice_minutes_enqueue(&session.session_id, "auto:1")
+            .unwrap());
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                0,
+                input.source_max_rowid,
+                "## 摘要\n发布计划",
+                "发布计划",
+            )
+            .unwrap();
+        let first = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(first.version, 1);
+        assert_eq!(first.content, "## 摘要\n发布计划");
+        assert!(!database
+            .voice_minutes_enqueue(&session.session_id, "auto:2")
+            .unwrap());
+        assert!(database
+            .workspace_note_record(session.workspace_note_id.unwrap())
+            .unwrap()
+            .title
+            .unwrap()
+            .starts_with("发布计划 · "));
+
+        database
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: session.workspace_note_id,
+                title: Some("我写的标题".into()),
+                markdown: String::new(),
+                html: String::new(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:2",
+                1_000,
+                2_000,
+                "决定周五上线。",
+                None,
+            )
+            .unwrap();
+        let next = database.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(next.previous_content.as_deref(), Some("## 摘要\n发布计划"));
+        assert_eq!(next.segments.len(), 1);
+        assert!(database
+            .voice_minutes_apply(
+                &session.session_id,
+                0,
+                next.source_max_rowid,
+                "过期纪要",
+                "过期标题"
+            )
+            .is_err());
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                1,
+                next.source_max_rowid,
+                "## 摘要\n周五上线",
+                "新 AI 标题",
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .voice_minutes_get(&target)
+                .unwrap()
+                .unwrap()
+                .content,
+            "## 摘要\n周五上线"
+        );
+        assert!(database
+            .workspace_note_record(session.workspace_note_id.unwrap())
+            .unwrap()
+            .title
+            .unwrap()
+            .starts_with("新 AI 标题 · "));
+    }
+
+    #[test]
+    fn voice_settings_normalize_old_local_package_and_reject_unknown_models() {
+        let (_harness, database) = setup_database();
+        database.conn.execute(
+            "INSERT INTO app_settings (key, value_json, updated_at) VALUES ('voice_settings', ?1, ?2)",
+            params![r#"{"speechProfile":{"kind":"sense_voice_onnx","modelPackageId":"sensevoice-small"},"textProfileId":null,"translationProfileId":null,"contextEnabled":false,"captionLines":4}"#, now_iso()],
+        ).unwrap();
+        let mut settings = database.voice_settings_get().unwrap();
+        assert!(!settings.live_preview_enabled);
+        assert!(
+            matches!(&settings.speech_profile, Some(SpeechProfile::SenseVoiceOnnx { model_package_id }) if model_package_id == crate::voice::model_package::PACKAGE_ID)
+        );
+        settings.speech_profile = Some(SpeechProfile::SenseVoiceOnnx {
+            model_package_id: "unknown".into(),
+        });
+        assert!(database.voice_settings_upsert(&settings).is_err());
+    }
+
+    #[test]
+    fn final_voice_transcript_is_idempotent_scoped_and_pageable_after_session_end() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "transcript-request",
+                "transcript-session",
+                "Voice",
+            )
+            .unwrap();
+        database
+            .voice_session_transition(&session.session_id, session.revision, "ended", None, 0, 1)
+            .unwrap();
+        let first = database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-1",
+                100,
+                350,
+                "第一句",
+                Some("zh"),
+            )
+            .unwrap();
+        assert_eq!(first.start_ms, 100);
+        assert_eq!(first.end_ms, 350);
+        assert_eq!(
+            database
+                .voice_transcript_append_final(
+                    &session.session_id,
+                    "epoch-1:provider-1",
+                    100,
+                    350,
+                    "第一句",
+                    Some("zh")
+                )
+                .unwrap()
+                .id,
+            first.id
+        );
+        assert!(database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-1",
+                100,
+                350,
+                "changed",
+                Some("zh")
+            )
+            .is_err());
+        assert!(database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "invalid",
+                500,
+                500,
+                "empty range",
+                None
+            )
+            .is_err());
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "epoch-1:provider-2",
+                400,
+                700,
+                "second",
+                Some("en"),
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        let page = database
+            .voice_transcript_list(&target, None, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(page.segments.len(), 1);
+        assert_eq!(page.segments[0].id, first.id);
+        let next = database
+            .voice_transcript_list(&target, page.next_cursor.as_ref(), 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.segments[0].text, "second");
+        assert!(next.next_cursor.is_none());
+        let captions = database
+            .voice_transcript_tail(&session.session_id, 2)
+            .unwrap();
+        assert_eq!(
+            captions
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["第一句", "second"]
+        );
+        assert!(database
+            .voice_transcript_list(
+                &VoiceRecordLookup::Project {
+                    project_id: 1,
+                    record_id: session.workspace_note_id.unwrap()
+                },
+                None,
+                10
+            )
+            .unwrap()
+            .is_none());
     }
 
     fn enable_legacy_domain_fixture_schema(database: &Database) {
@@ -10128,6 +11681,30 @@ mod tests {
     }
 
     #[test]
+    fn transcript_search_tracks_append_backfill_scope_and_delete_without_duplicates() {
+        let (harness, mut db) = setup_database();
+        let project = create_project(&mut db, &harness.workspace_root);
+        let workspace = db.voice_session_create(&RecordTarget::Workspace, "search-w", "search-w", "独特转写词").unwrap();
+        db.voice_session_transition(&workspace.session_id, workspace.revision, "ended", None, 3000, 1).unwrap();
+        let project_voice = db.voice_session_create(&RecordTarget::Project { project_id: project.id }, "search-p", "search-p", "会议").unwrap();
+        db.voice_session_transition(&project_voice.session_id, project_voice.revision, "ended", None, 3000, 1).unwrap();
+        for session in [&workspace, &project_voice] {
+            db.voice_transcript_append_final(&session.session_id, "live", 2000, 3000, "独特转写词后半段", None).unwrap();
+            db.voice_transcript_append_final(&session.session_id, "backfill", 0, 1000, "独特转写词补齐前半段", None).unwrap();
+        }
+        let query = |project_id| WorkspaceSearchInput { query: "独特转写词".into(), include_archived: None, project_id };
+        let results = db.workspace_search(query(None)).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|result| result.kind == "note" && result.id == project_voice.project_note_id.unwrap() && result.matched_text.contains("独特转写词")));
+        let scoped = db.workspace_search(query(Some(project.id))).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].project_id, Some(project.id));
+        db.workspace_record_delete(WorkspaceRecordDeleteInput { note_id: workspace.workspace_note_id.unwrap() }).unwrap();
+        assert_eq!(db.workspace_search(query(None)).unwrap().len(), 1);
+        assert_eq!(db.voice_minutes_input(&project_voice.session_id).unwrap().segments[0].text, "独特转写词补齐前半段");
+    }
+
+    #[test]
     fn workspace_search_matches_project_record_titles_and_tags() {
         let (harness, mut database) = setup_database();
         let project = create_project_named(&mut database, &harness.workspace_root, "Active", None);
@@ -11058,6 +12635,8 @@ mod tests {
             .workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
                 note_id: record.id,
                 title: "AI 标题".to_string(),
+                expected_updated_at: None,
+                expected_title: None,
                 tag_ids: vec![existing.id],
                 new_tags: vec![RecordMetadataNewTagInput {
                     label: "新标签".to_string(),
@@ -11094,6 +12673,8 @@ mod tests {
         let result = database.workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
             note_id: record.id,
             title: "不应保留".to_string(),
+            expected_updated_at: None,
+            expected_title: None,
             tag_ids: vec![],
             new_tags: vec![
                 RecordMetadataNewTagInput {
@@ -11159,6 +12740,81 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, workspace_note.id);
         assert_eq!(listed[0].title.as_deref(), Some("工作区记录"));
+    }
+
+    #[test]
+    fn workspace_quick_note_commit_creates_one_record_and_rejects_stale_retry() {
+        let (_harness, mut database) = setup_database();
+        database.workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
+            markdown: "一条想法".into(), html: "<p>一条想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let input = WorkspaceQuickNoteCommitInput {
+            expected_markdown: "一条想法".into(), record_id: None,
+            expected_record_markdown: None, expected_record_updated_at: None, title: Some("一条想法".into()),
+            markdown: "一条想法".into(), html: "<p>一条想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        };
+        let record = database.workspace_quick_note_commit(input.clone()).unwrap();
+        assert_eq!(record.title.as_deref(), Some("一条想法"));
+        assert_eq!(database.workspace_quick_note_get().unwrap().unwrap().content_markdown, "");
+        assert!(database.workspace_quick_note_commit(input).is_err());
+        assert_eq!(database.workspace_record_list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn project_quick_note_commit_keeps_draft_when_target_record_changed() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        database.project_update(ProjectUpdateInput {
+            project_id: project.id, name: None, summary: "项目想法".into(),
+            summary_markdown: Some("项目想法".into()),
+            summary_html: Some("<p>项目想法</p>".into()),
+            summary_code_language: None, status: None,
+        }).unwrap();
+        let existing = database.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: project.id, note_id: None, title: Some("原记录".into()),
+            markdown: "原正文".into(), html: "<p>原正文</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let result = database.project_quick_note_commit(ProjectQuickNoteCommitInput {
+            project_id: project.id, expected_markdown: "项目想法".into(),
+            record_id: Some(existing.id), expected_record_markdown: Some("旧正文".into()),
+            expected_record_updated_at: Some(existing.updated_at.clone()),
+            title: Some("原记录".into()), markdown: "原正文\n\n---\n\n项目想法".into(),
+            html: "<p>原正文</p><hr><p>项目想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        });
+        assert!(result.is_err());
+        assert_eq!(database.note_record(existing.id).unwrap().content_markdown, "原正文");
+        assert_eq!(database.project_record(project.id).unwrap().summary_markdown, "项目想法");
+    }
+
+    #[test]
+    fn quick_note_commit_rejects_another_project_and_preserves_existing_metadata() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let other = create_project_named(&mut database, &harness.workspace_root, "Beta", None);
+        database.project_update(ProjectUpdateInput {
+            project_id: project.id, name: None, summary: "草稿".into(),
+            summary_markdown: Some("草稿".into()), summary_html: Some("<p>草稿</p>".into()),
+            summary_code_language: None, status: None,
+        }).unwrap();
+        let target = database.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: other.id, note_id: None, title: Some("现有标题".into()),
+            markdown: "正文".into(), html: "<p>正文</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let input = ProjectQuickNoteCommitInput {
+            project_id: project.id, expected_markdown: "草稿".into(), record_id: Some(target.id),
+            expected_record_markdown: Some(target.content_markdown.clone()),
+            expected_record_updated_at: Some(target.updated_at.clone()),
+            title: Some("现有标题".into()), markdown: "正文\n\n草稿".into(), html: "<p>正文</p><p>草稿</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        };
+        assert!(database.project_quick_note_commit(input).is_err());
+        assert_eq!(database.note_record(target.id).unwrap().content_markdown, "正文");
+        assert_eq!(database.project_record(project.id).unwrap().summary_markdown, "草稿");
     }
 
     #[test]

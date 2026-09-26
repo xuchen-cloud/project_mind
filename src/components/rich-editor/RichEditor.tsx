@@ -412,7 +412,10 @@ export interface RichEditorController {
   getDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
+  appendMarkdown: (markdown: string) => RichEditorValue | null;
   save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
+  replaceCommittedContent: (html: string) => void;
+  setEditable: (editable: boolean) => void;
 }
 
 export interface RichEditorSelectionAction {
@@ -558,6 +561,7 @@ export function RichEditor({
   const taskShortcutTransformRef = useRef(false);
   const aiPreviewMutationRef = useRef(false);
   const autoFocusAppliedRef = useRef(false);
+  const replacementGenerationRef = useRef(0);
   const lastPersistedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastResolvedHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
   const lastControlledHtmlRef = useRef(normalizeHtml(html ?? defaultHtml));
@@ -942,7 +946,7 @@ export function RichEditor({
 
   const syncTagPicker = useCallback(
     (nextEditor: Editor | null) => {
-      if (!nextEditor || effectiveReadOnly || !tagMentionsEnabled) {
+      if (!nextEditor || !nextEditor.isFocused || effectiveReadOnly || !tagMentionsEnabled) {
         closeTagPicker();
         return;
       }
@@ -1921,10 +1925,12 @@ export function RichEditor({
       saveInFlightRef.current = true;
       updatePersistState("saving");
       let saveSucceeded = false;
+      const saveGeneration = replacementGenerationRef.current;
 
       try {
         const result = await onSave(snapshot);
         saveSucceeded = true;
+        if (saveGeneration !== replacementGenerationRef.current) return result;
         lastPersistedHtmlRef.current = snapshot.html;
         const latest = normalizeRichEditorValue(captureCommittedValue(editor));
         const hasNewerEdits = latest.html !== snapshot.html;
@@ -2401,13 +2407,38 @@ export function RichEditor({
 
         editor.commands.focus(position ?? "end", { scrollIntoView: false });
       },
+      appendMarkdown: (markdown) => editor && !readOnly && insertMarkdownAtPosition(editor, editor.state.doc.content.size, markdown)
+        ? getCurrentValue()
+        : null,
       save: (options) => handleManualSave(options),
+      replaceCommittedContent: (html) => {
+        if (!editor) return;
+        replacementGenerationRef.current += 1;
+        for (const session of rewriteSessionsRef.current) {
+          const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
+          if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+          if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+          editorSkillJobIdsRef.current.delete(session.targetKey);
+        }
+        setEditorRewriteProtectedRange(editor, null);
+        rewriteSessionRef.current = null;
+        rewriteSessionsRef.current = [];
+        setRewriteSessions([]);
+        const nextHtml = normalizeHtml(html);
+        replaceEditorContentWithoutHistory(editor, nextHtml);
+        lastResolvedHtmlRef.current = nextHtml;
+        lastPersistedHtmlRef.current = nextHtml;
+        const snapshot = captureCommittedValue(editor);
+        publishChangeSnapshot(snapshot, { immediate: true, sync: true });
+        updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
+      },
+      setEditable: (editable) => editor?.setEditable(editable && !effectiveReadOnly),
     };
 
     return () => {
       controllerRef.current = null;
     };
-  }, [controllerRef, editor, getCurrentValue, handleManualSave]);
+  }, [captureCommittedValue, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);

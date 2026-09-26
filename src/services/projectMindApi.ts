@@ -43,6 +43,7 @@ import type {
   ProjectRecordMetadataApplyInput,
   NoteRecord,
   ProjectRecordUpsertInput,
+  ProjectQuickNoteCommitInput,
   ProjectArchiveInput,
   ProjectCreateInput,
   ProjectDeleteInput,
@@ -66,6 +67,7 @@ import type {
   TodoUpdateStatusInput,
   TodoUpdateTagsInput,
   WorkspaceQuickNoteUpsertInput,
+  WorkspaceQuickNoteCommitInput,
   WorkspacePageData,
   WorkspaceClipboardNoteImageImportInput,
   WorkspaceNoteImageAsset,
@@ -126,6 +128,8 @@ export const projectMindApi = {
     desktopApi.command<ContactRecord>("contact_delete", { input }),
   projectRecordUpsert: (input: ProjectRecordUpsertInput) =>
     desktopApi.command<NoteRecord>("project_record_upsert", { input }),
+  projectQuickNoteCommit: (input: ProjectQuickNoteCommitInput) =>
+    desktopApi.command<NoteRecord>("project_quick_note_commit", { input }),
   projectRecordMetadataApply: (input: ProjectRecordMetadataApplyInput) =>
     desktopApi.command<NoteRecord>("project_record_metadata_apply", { input }),
   projectRecordDelete: (input: ProjectRecordDeleteInput) =>
@@ -154,6 +158,8 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceRecord | null>("workspace_quick_note_get"),
   workspaceQuickNoteUpsert: (input: WorkspaceQuickNoteUpsertInput) =>
     desktopApi.command<WorkspaceRecord>("workspace_quick_note_upsert", { input }),
+  workspaceQuickNoteCommit: (input: WorkspaceQuickNoteCommitInput) =>
+    desktopApi.command<WorkspaceRecord>("workspace_quick_note_commit", { input }),
   workspaceRecordList: () =>
     desktopApi.command<WorkspaceRecord[]>("workspace_record_list"),
   workspaceRecordUpsert: (input: WorkspaceRecordUpsertInput) =>

@@ -1,56 +1,56 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings2 } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQuery,useQueryClient } from "@tanstack/react-query";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
+import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import {
-  parseRouteId,
-  parseFocusTodoId,
-  preserveRecordFilters,
-  projectPath,
-  recordFocusId,
-  workspacePath,
-} from "../../lib/formatters";
-import { pageWidthContainerClass, withPageWidthClass } from "../../lib/pageWidth";
-import { queryKeys } from "../../lib/queryKeys";
-import { prefetchProjectPageData } from "../../lib/project-prefetch";
-import {
-  getRenderableRichTextHtml,
-  renderMarkdownToHtml,
-  type RichEditorSelectionPayload,
-  type RichEditorValue,
-} from "../rich-editor";
-import { generateDefaultProjectName } from "../../lib/projectDefaultName";
-import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
-import { colorKeyForTagLabel, extractHashTagLabels, findTagByLabel, mergeUniqueTagIds } from "../../lib/tags";
-import { extractTagMentionIds } from "../../lib/tagMentions";
-import type { ProjectTagRecord, WorkspaceRecord } from "../../lib/types";
+import noriBust from "../../assets/home/nori-bust.png";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
+import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
+import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
-import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
-import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useFocusTarget } from "../../hooks/useUtilityHooks";
+import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
+import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
+import {
+parseFocusTodoId,
+parseRouteId,
+preserveRecordFilters,
+projectPath,
+recordFocusId,
+workspacePath,
+} from "../../lib/formatters";
+import { prefetchProjectPageData } from "../../lib/project-prefetch";
+import { generateDefaultProjectName } from "../../lib/projectDefaultName";
+import { queryKeys } from "../../lib/queryKeys";
+import { completeQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
+import { deriveQuickNoteMetadata } from "../../lib/quick-note-metadata";
+import type { QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
+import { appendMarkdownSection,appendRichTextSection } from "../../lib/record-move";
+import { extractTagMentionIds } from "../../lib/tagMentions";
+import { colorKeyForTagLabel,findTagByLabel,mergeUniqueTagIds } from "../../lib/tags";
+import type { ProjectTagRecord } from "../../lib/types";
+import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { useDelayedPending } from "../../hooks/useDelayedPending";
-import { desktopApi } from "../../services/desktopApi";
-import { cn } from "../../ui/lib/cn";
-import { IconButton, PageLoadingSkeleton } from "../../ui/components";
-import { RichEditor } from "../rich-editor";
-import {
-  buildWorkspaceNoteImageAssetHandlers,
-  externalizeEmbeddedImageDataUrls,
-} from "../rich-editor/noteImageAssets";
 import { TodoModuleRail } from "../../todo";
-import { appendMarkdownSection, appendRichTextSection } from "../../lib/record-move";
+import { PageLoadingSkeleton } from "../../ui/components";
+import "../home/home.css";
+import { HomeCover } from "../home/HomeCover";
+import { HomeQuickNote } from "../home/HomeQuickNote";
+import { HomeRecordFilters } from "../home/HomeRecordFilters";
+import {
+getRenderableRichTextHtml,
+RichEditor,
+type RichEditorValue
+} from "../rich-editor";
+import {
+buildWorkspaceNoteImageAssetHandlers,
+externalizeEmbeddedImageDataUrls,
+} from "../rich-editor/noteImageAssets";
 import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
-import { MoveSelectionToRecordCard } from "../record/MoveSelectionToRecordCard";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
-
-type WorkspacePageView = "quick-note" | "record";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
 interface WorkspacePageProps {
@@ -87,6 +87,7 @@ export function WorkspacePage({
     closeProjectTab,
     projectSidebarCollapsed,
     todoRailCollapsed,
+    todoRailWidthPx,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
@@ -99,11 +100,7 @@ export function WorkspacePage({
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
   const focusedTodoId = parseFocusTodoId(focusId);
-  const explicitView = parseWorkspacePageView(searchParams.get("view"));
   const composeRecord = searchParams.get("compose") === "record";
-  const routeView = explicitView ?? (focusedRecordId !== null ? "record" : "quick-note");
-  const [buttonView, setButtonView] = useState<WorkspacePageView | null>(null);
-  const currentView = buttonView ?? routeView;
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -153,8 +150,6 @@ export function WorkspacePage({
   );
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
   const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
-  const [quickNoteMoveSelection, setQuickNoteMoveSelection] =
-    useState<RichEditorSelectionPayload | null>(null);
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(() => {
@@ -172,12 +167,6 @@ export function WorkspacePage({
     (path, options) => navigate(path, options),
     activeProjectId,
   );
-
-  useEffect(() => {
-    if (buttonView === null || buttonView === routeView) {
-      setButtonView(null);
-    }
-  }, [buttonView, routeView]);
 
   useEffect(() => {
     if (!visible) {
@@ -236,15 +225,15 @@ export function WorkspacePage({
   );
 
   useFocusTarget(
-    visible && focusedRecordId !== null && currentView === "record"
+    visible && focusedRecordId !== null
       ? recordFocusId(focusedRecordId)
       : null,
-    [currentView, visible, visibleRecordFocusKey],
+    [visible, visibleRecordFocusKey],
   );
 
   async function ensureWorkspaceTagIds(markdown: string, explicitTagIds: number[]) {
     const mentionedTagIds = extractTagMentionIds(markdown);
-    const hashLabels = extractHashTagLabels(markdown);
+    const hashLabels = deriveQuickNoteMetadata(markdown).tagLabels;
     const hashTagIds: number[] = [];
 
     for (const label of hashLabels) {
@@ -261,68 +250,61 @@ export function WorkspacePage({
     return mergeUniqueTagIds(explicitTagIds, mentionedTagIds, hashTagIds);
   }
 
-  async function moveQuickNoteSelectionToWorkspaceRecord(record: WorkspaceRecord) {
-    const selection = quickNoteMoveSelection;
-    if (!selection) {
-      return;
-    }
-
-    try {
-      const markdown = appendMarkdownSection(record.contentMarkdown, selection.markdown);
-      const html = appendRichTextSection(
-        { html: record.contentHtml, markdown: record.contentMarkdown },
-        selection.html,
-      );
-      const tagIds = await ensureWorkspaceTagIds(
-        markdown,
-        (record.tags ?? []).map((tag) => tag.id),
-      );
-
-      await workspaceRecordMutation.mutateAsync({
-        noteId: record.id,
-        title: record.title?.trim() || undefined,
-        markdown,
-        html,
-        defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-        tagIds,
-      });
-      await selection.removeSelectionAndSave();
-      await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-      await queryClient.invalidateQueries({ queryKey: ["project-tag-settings", "workspace"] });
-      pushToast({ tone: "success", title: "已移动到记录", detail: record.title?.trim() || "未命名记录" });
-      setQuickNoteMoveSelection(null);
-    } catch (error) {
-      pushToast({ tone: "error", title: "移动到记录失败", detail: String(error) });
-      throw error;
-    }
+  async function saveWorkspaceQuickNote(value: RichEditorValue) {
+    const externalizedValue = await externalizeEmbeddedImageDataUrls(value, workspaceAssetHandlers);
+    const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, []);
+    await workspaceQuickNoteMutation.mutateAsync({
+      markdown: externalizedValue.markdown,
+      html: externalizedValue.html,
+      defaultCodeLanguage: quickNoteCodeLanguage,
+      tagIds,
+    });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+    return externalizedValue;
   }
 
-  async function createWorkspaceRecordFromQuickNoteSelection(title?: string) {
-    const selection = quickNoteMoveSelection;
-    if (!selection) {
-      return;
+  async function commitWorkspaceQuickNote(value: RichEditorValue, target: QuickNoteTransferTarget) {
+    const metadata = deriveQuickNoteMetadata(value.markdown);
+    const targetRecord = target.kind === "append"
+      ? workspaceRecords.find((record) => record.id === target.recordId)
+      : undefined;
+    if (target.kind === "append" && !targetRecord) {
+      throw new Error("只能追加到当前 Workspace 的 Record");
     }
-
-    try {
-      const markdown = selection.markdown.trim();
-      const html = selection.html.trim() || renderMarkdownToHtml(markdown);
-      const tagIds = await ensureWorkspaceTagIds(markdown, []);
-      const record = await workspaceRecordMutation.mutateAsync({
-        title: title?.trim() || undefined,
-        markdown,
-        html,
-        tagIds,
+    const tagIds = mergeUniqueTagIds(
+      targetRecord?.tags?.map((tag) => tag.id) ?? [],
+      extractTagMentionIds(value.markdown),
+    );
+    for (const label of metadata.tagLabels) {
+      const existing = findTagByLabel(availableTags, label);
+      const tag = existing ?? await projectMindApi.projectTagUpsert({
+        label,
+        colorKey: colorKeyForTagLabel(label),
       });
-
-      await selection.removeSelectionAndSave();
-      await queryClient.invalidateQueries({ queryKey: ["workspace-page"] });
-      await queryClient.invalidateQueries({ queryKey: ["project-tag-settings", "workspace"] });
-      pushToast({ tone: "success", title: "已创建记录", detail: record.title?.trim() || "未命名记录" });
-      setQuickNoteMoveSelection(null);
-    } catch (error) {
-      pushToast({ tone: "error", title: "创建记录失败", detail: String(error) });
-      throw error;
+      if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
     }
+    const record = await projectMindApi.workspaceQuickNoteCommit({
+      expectedMarkdown: value.markdown,
+      recordId: targetRecord?.id,
+      expectedRecordMarkdown: targetRecord?.contentMarkdown,
+      expectedRecordUpdatedAt: targetRecord?.updatedAt,
+      title: targetRecord ? targetRecord.title ?? undefined : metadata.title ?? (value.text.trim().split(/[。！？.!?\n]/u)[0]?.slice(0, 36) || "未命名记录"),
+      markdown: targetRecord
+        ? appendMarkdownSection(targetRecord.contentMarkdown, value.markdown)
+        : value.markdown,
+      html: targetRecord
+        ? appendRichTextSection(
+            { html: targetRecord.contentHtml, markdown: targetRecord.contentMarkdown },
+            value.html,
+          )
+        : value.html,
+      defaultCodeLanguage: targetRecord ? targetRecord.defaultCodeLanguage : quickNoteCodeLanguage,
+      tagIds,
+    });
+    if (!targetRecord) void completeQuickNoteRecordMetadata({ record, availableTags, aiSettings })
+      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }))
+      .catch(() => pushToast({ tone: "info", title: "记录已保存", detail: "AI 标题和标签未填写，可在记录中重试 AI 填写。" }));
+    return record;
   }
 
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
@@ -341,23 +323,6 @@ export function WorkspacePage({
         };
       },
     );
-  }
-
-  function setWorkspacePageView(nextView: WorkspacePageView) {
-    setButtonView(nextView);
-    const nextSearchParams = new URLSearchParams(searchParams);
-
-    if (nextView === "quick-note") {
-      if (focusedRecordId !== null) {
-        nextSearchParams.set("view", "quick-note");
-      } else {
-        nextSearchParams.delete("view");
-      }
-    } else {
-      nextSearchParams.set("view", "record");
-    }
-
-    setWorkspaceSearchParams(nextSearchParams);
   }
 
   function openRecord(recordId: number) {
@@ -518,17 +483,19 @@ export function WorkspacePage({
 
   return (
     <div
-      className="page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      className="home-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
     >
       <WorkspaceOverviewSidebar
         workspaceRootPath={currentWorkspace.rootPath}
+        availableTags={availableTags}
         projects={visibleProjects}
         archivedProjects={archivedProjects}
         records={(workspacePage.records ?? []).map((record) => ({
           id: record.id,
           title: record.title,
           contentMarkdown: record.contentMarkdown,
+          isVoice: record.isVoice,
           tags: record.tags ?? [],
           updatedAt: record.updatedAt,
         }))}
@@ -568,152 +535,67 @@ export function WorkspacePage({
       />
 
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">
-        <header className="project-overview-focus__chrome">
-          <div
-            className={cn(
-              "project-overview-focus__chrome-inner",
-              projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
-              todoRailCollapsed && "project-overview-focus__chrome-inner--dock-right",
-            )}
-          >
-            <div className="project-overview-focus__meta">
-              <div className="min-w-0">
-                <h1 className="project-overview-focus__title">Workspace</h1>
-                <button
-                  type="button"
-                  className="project-overview-focus__path"
-                  onClick={() =>
-                    void desktopApi.openFolder(currentWorkspace.rootPath)
-                  }
-                >
-                  {currentWorkspace.rootPath}
-                </button>
-              </div>
-            </div>
-
-            <div className="project-overview-focus__header-actions">
-              <IconButton
-                type="button"
-                size="sm"
-                variant="secondary"
-                aria-label="打开页面设置"
-                title="页面设置"
-                onClick={() => openSettings("page-width")}
-              >
-                <Settings2 size={14} />
-              </IconButton>
-              <div
-                className="project-overview-focus__view-switch"
-                data-testid="workspace-overview-view-switch"
-              >
-                <button
-                  type="button"
-                  className={cn(
-                    "project-overview-focus__view-switch-button",
-                    currentView === "quick-note" &&
-                      "project-overview-focus__view-switch-button--active",
-                  )}
-                  data-testid="workspace-page-view-quick-note"
-                  aria-pressed={currentView === "quick-note"}
-                  onClick={() => setWorkspacePageView("quick-note")}
-                >
-                  QuickNote
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "project-overview-focus__view-switch-button",
-                    currentView === "record" &&
-                      "project-overview-focus__view-switch-button--active",
-                  )}
-                  data-testid="workspace-page-view-record"
-                  aria-pressed={currentView === "record"}
-                  onClick={() => setWorkspacePageView("record")}
-                >
-                  Record
-                </button>
-              </div>
-            </div>
-          </div>
-        </header>
-
         <div className="project-overview-focus__scroll" data-testid="workspace-overview-focus-scroll">
-          <div
-            className={cn(
-              "mx-auto w-full",
-              currentView === "quick-note"
-                ? pageWidthContainerClass(pageWidthMode, "overview")
-                : "max-w-none",
-            )}
-          >
-            <section
-              className={withPageWidthClass("project-overview-focus__page", pageWidthMode, "focus")}
-              data-testid="workspace-page-body-quick-note"
-              style={{ display: currentView === "quick-note" ? undefined : "none" }}
-              aria-hidden={currentView === "quick-note" ? undefined : true}
-            >
-              <RichEditor
-                contentIdentity="workspace-quick-note"
-                html={quickNoteDraft.html}
-                aiSettings={aiSettings}
-                defaultCodeLanguage={quickNoteCodeLanguage}
-                onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
-                variant="page"
-                showToolbar={false}
-                assetHandlers={workspaceAssetHandlers}
-                placeholder="记下当前最需要先抓住的背景、判断、候选行动或提醒。"
-                tagMentions={{
-                  projectId: null,
-                  availableTags,
-                  onCreateTag: async (label) => {
-                    const tag = await projectMindApi.projectTagUpsert({
-                      label,
-                      colorKey: colorKeyForTagLabel(label),
-                    });
-                    syncWorkspaceTagCache(tag);
-                    return tag;
-                  },
-                }}
-                selectionActions={[
-                  {
-                    key: "workspace-selection-move-to-record",
-                    label: "移动到记录",
-                    icon: null as never,
-                    onSelect: (selection) => {
-                      setQuickNoteMoveSelection(selection);
+          <div className="home-content">
+            <HomeCover identityKey={`workspace:${currentWorkspace.rootPath}`} defaultIcon="House" title={currentWorkspace.displayName || "我的工作区"} subtitle="工作区" />
+            <HomeQuickNote
+              key={currentWorkspace?.rootPath}
+              identity={`workspace-quick-note:${currentWorkspace?.rootPath}`}
+              initialValue={quickNoteDraft}
+              records={workspaceRecords}
+              persist={saveWorkspaceQuickNote}
+              commit={commitWorkspaceQuickNote}
+              onClear={() => {
+                setQuickNoteDraft(EMPTY_VALUE);
+                setQuickNoteCodeLanguage(null);
+              }}
+              onCommitted={async () => {
+                await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+              }}
+              renderEditor={({ controllerRef, onSave, onPersistStateChange, readOnly }) => (
+                <RichEditor
+                  contentIdentity="workspace-quick-note"
+                  html={quickNoteDraft.html}
+                  readOnly={!visible || readOnly}
+                  aiSettings={aiSettings}
+                  defaultCodeLanguage={quickNoteCodeLanguage}
+                  onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
+                  variant="toolbar"
+                  assetHandlers={workspaceAssetHandlers}
+                  placeholder="记下当前最需要先抓住的背景、判断、候选行动或提醒。"
+                  tagMentions={{
+                    projectId: null,
+                    availableTags,
+                    onCreateTag: async (label) => {
+                      const tag = await projectMindApi.projectTagUpsert({
+                        label,
+                        colorKey: colorKeyForTagLabel(label),
+                      });
+                      syncWorkspaceTagCache(tag);
+                      return tag;
                     },
-                  },
-                ]}
-                internalReferences={{
-                  context: { scope: "workspace" },
-                  onOpenReference: openInternalReference,
-                }}
-                contactMentions={contactMentionOptions}
-                autosave={{
-                  delay: 120000,
-                  onBlur: true,
-                  onWindowBlur: true,
-                  onVisibilityChange: true,
-                }}
-                onOpenAiSettings={() => openSettings("ai-rewrite")}
-                onSave={async (value) => {
-                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
-                    value,
-                    workspaceAssetHandlers,
-                  );
-                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, []);
-                  await workspaceQuickNoteMutation.mutateAsync({
-                    markdown: externalizedValue.markdown,
-                    html: externalizedValue.html,
-                    defaultCodeLanguage: quickNoteCodeLanguage,
-                    tagIds,
-                  });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
-                }}
-              />
-            </section>
-            {currentView === "record" ? (
+                  }}
+                  internalReferences={{
+                    context: { scope: "workspace" },
+                    onOpenReference: openInternalReference,
+                  }}
+                  contactMentions={contactMentionOptions}
+                  autosave={{
+                    delay: 120000,
+                    onBlur: true,
+                    onWindowBlur: true,
+                    onVisibilityChange: true,
+                  }}
+                  controllerRef={controllerRef}
+                  onOpenAiSettings={() => openSettings("ai-rewrite")}
+                  onSave={onSave}
+                  onPersistStateChange={onPersistStateChange}
+                />
+              )}
+            />
+            <HomeRecordFilters onClearFilters={() => { const next = new URLSearchParams(searchParams); next.delete("recordTag"); next.delete("recordQuery"); setWorkspaceSearchParams(next); }} title="工作区记录" query={recordSearchQuery} tag={availableTags.find((tag) => tag.id === recordFilterTagId)?.label}
+              onQuery={setWorkspaceRecordQuery} onClearTag={() => setWorkspaceRecordTagId(null)} onCreate={() => void createWorkspaceRecordInFocus()} />
               <WorkspaceOverviewHistory
                 notes={filteredWorkspaceRecords}
                 hasAnyNotes={workspaceRecords.length > 0}
@@ -763,14 +645,14 @@ export function WorkspacePage({
                 contactMentionOptions={contactMentionOptions}
                 onOpenInternalReference={openInternalReference as (reference: unknown) => Promise<boolean>}
                 assetHandlers={workspaceAssetHandlers}
-                active={visible && currentView === "record"}
+                active={visible}
                 recordFilters={searchParams}
               />
-            ) : null}
           </div>
         </div>
       </div>
 
+      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--workspace${todoRailCollapsed ? " is-collapsed" : ""}`}><div className="home-rail__todo">
       <TodoModuleRail
         scope={{ kind: "workspace" }}
         enabled={visible}
@@ -779,23 +661,9 @@ export function WorkspacePage({
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />
-      <MoveSelectionToRecordCard
-        open={Boolean(quickNoteMoveSelection)}
-        records={workspaceRecords}
-        onClose={() => setQuickNoteMoveSelection(null)}
-        onSelectRecord={moveQuickNoteSelectionToWorkspaceRecord}
-        onCreateRecord={createWorkspaceRecordFromQuickNoteSelection}
-      />
+      </div>{!todoRailCollapsed ? <div className="home-brand"><p>“让好想法，<br />在有上下文的地方持续推进。”</p><small>— Nori Mind</small><img src={noriBust} alt="Nori 小熊" /></div> : null}</div>
     </div>
   );
-}
-
-function parseWorkspacePageView(value: string | null): WorkspacePageView | null {
-  if (value === "quick-note" || value === "record") {
-    return value;
-  }
-
-  return null;
 }
 
 function parseFocusRecordId(focus: string | null) {

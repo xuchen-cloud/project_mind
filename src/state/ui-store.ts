@@ -10,6 +10,7 @@ export type SettingsSection =
   | "updates"
   | "project-tags"
   | "contacts"
+  | "voice"
   | "ai-models"
   | "ai-rewrite"
   | "rich-text";

@@ -243,7 +243,7 @@ describe("WorkspacePage", () => {
     );
   });
 
-  it("does not build Workspace Record history until the Record view is active", async () => {
+  it("shows QuickNote and Workspace Records together", async () => {
     const user = userEvent.setup();
     apiMocks.workspacePageGet.mockResolvedValueOnce({
       quickNote: null,
@@ -265,10 +265,7 @@ describe("WorkspacePage", () => {
 
     renderPage();
 
-    await screen.findByRole("button", { name: "Record" });
-    expect(screen.queryByText("Workspace history record")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Record" }));
+    expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
     expect(await screen.findByText("Workspace history record")).toBeInTheDocument();
   });
@@ -308,7 +305,7 @@ describe("WorkspacePage", () => {
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
     expect(screen.getByText("Todo List")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-overview-view-switch")).toBeInTheDocument();
+    expect(screen.getByLabelText("QuickNote")).toBeInTheDocument();
   });
 
   it("keeps Workspace usable without AI modules", async () => {
@@ -981,19 +978,22 @@ describe("WorkspacePage", () => {
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     const recordPage = screen.getByTestId("workspace-page-body-record");
 
-    await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
-    await user.click(within(sidebar).getByRole("button", { name: "预算" }));
+    await user.click(within(sidebar).getByRole("button", { name: "# 预算" }));
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
 
-    await user.type(within(sidebar).getByLabelText("搜索记录"), "命中");
+    await user.type(screen.getByLabelText("搜索记录"), "命中");
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "清除筛选" }));
+    expect(screen.getByLabelText("搜索记录")).toHaveValue("");
+    expect(within(recordPage).getByText("招聘同步")).toBeInTheDocument();
+
   });
 
-  it("opens a workspace record focus page without resetting the sidebar tab", async () => {
+  it("opens a workspace record focus page preserving record filters", async () => {
     const user = userEvent.setup();
 
     apiMocks.projectsList.mockResolvedValueOnce([]);
@@ -1023,24 +1023,17 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    const page = renderPage(["/?view=record&recordQuery=budget"]);
+    const page = renderPage(["/?view=record&recordQuery=预算"]);
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
-    await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
 
-    fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /预算复盘/ }));
+    await user.click(screen.getByRole("button", { name: /预算复盘 更新于/ }));
 
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=budget");
-    expect(useUiStore.getState().workspaceSidebarTab).toBe("records");
+    expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=%E9%A2%84%E7%AE%97");
 
-    page.unmount();
-    renderPage(["/workspace/records/7?recordQuery=budget"]);
-
-    const remountedSidebar = await screen.findByLabelText("工作区导航侧边栏");
-    expect(within(remountedSidebar).getByRole("tab", { name: "记录" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("creates a workspace record from the sidebar and opens its focus page", async () => {
+  it("creates a workspace record from the record section and opens its focus page", async () => {
     const user = userEvent.setup();
 
     apiMocks.projectsList.mockResolvedValueOnce([]);
@@ -1063,8 +1056,7 @@ describe("WorkspacePage", () => {
     renderPage(["/?view=record"]);
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
-    await user.click(within(sidebar).getByRole("tab", { name: "记录" }));
-    await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
+    await user.click(screen.getByRole("button", { name: "新增记录" }));
 
     expect(workspaceRecordMutationMocks.mutateAsync).toHaveBeenCalledWith({
       markdown: "",
