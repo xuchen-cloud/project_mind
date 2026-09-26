@@ -139,7 +139,7 @@ export const desktopApi = {
       focus: false,
       resizable: true,
       decorations: false,
-      // The glass layer supplies rounded edges; native shadow outlines the rectangular window.
+      // The frosted layer supplies rounded edges; native shadow outlines the rectangular window.
       shadow: false,
       theme: "light",
     });

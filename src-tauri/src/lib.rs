@@ -71,8 +71,7 @@ async fn voice_caption_apply_material(app: tauri::AppHandle) -> std::result::Res
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{
-            apply_liquid_glass, apply_vibrancy, LiquidGlassOptions, NSGlassEffectViewStyle,
-            NSVisualEffectMaterial, NSVisualEffectState,
+            apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
         };
 
         let window = app
@@ -82,19 +81,19 @@ async fn voice_caption_apply_material(app: tauri::AppHandle) -> std::result::Res
         let (sender, receiver) = tokio::sync::oneshot::channel();
         window
             .run_on_main_thread(move || {
-                let result = apply_liquid_glass(
-                    &main_window,
-                    LiquidGlassOptions::new(NSGlassEffectViewStyle::Regular).radius(24.0),
-                )
-                .or_else(|_| {
-                    apply_vibrancy(
-                        &main_window,
-                        NSVisualEffectMaterial::Popover,
-                        Some(NSVisualEffectState::Active),
-                        Some(24.0),
-                    )
-                })
-                .map_err(|error| error.to_string());
+                // Liquid Glass adds a focus-dependent rim and optical shadow outside the
+                // rounded web content. Use one frosted layer with a fixed effect state;
+                // Active keeps the blur enabled even when this non-focusing panel is inactive.
+                let result = clear_vibrancy(&main_window)
+                    .and_then(|_| {
+                        apply_vibrancy(
+                            &main_window,
+                            NSVisualEffectMaterial::Popover,
+                            Some(NSVisualEffectState::Active),
+                            Some(24.0),
+                        )
+                    })
+                    .map_err(|error| error.to_string());
                 let _ = sender.send(result);
             })
             .map_err(|error| error.to_string())?;
