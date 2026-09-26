@@ -50,9 +50,12 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
     queryKey: ["voice-minutes", target],
     queryFn: () => voiceApi.minutesGet(target),
     enabled: visible,
-    refetchInterval: visible ? 5_000 : false,
+    refetchInterval: (query) => !visible ? false : ["pending", "running"].includes(query.state.data?.status ?? "") ? 500 : 5_000,
     retry: false,
   });
+  const minutesBusy = generatingMinutes || ["pending", "running"].includes(minutesQuery.data?.status ?? "");
+  const displayedMinutes = minutesQuery.data?.status === "running" && minutesQuery.data.preview
+    ? minutesQuery.data.preview : minutesQuery.data?.content;
   useEffect(() => {
     const version = minutesQuery.data?.version;
     if (version == null) return;
@@ -240,9 +243,9 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-body font-medium text-text">会议纪要</h3>
           <div className="flex items-center gap-2">
-            {onCopyMinutes && minutesQuery.data?.content ? <Button type="button" size="sm" variant="secondary" disabled={copyingMinutes}
+            {onCopyMinutes && minutesQuery.data?.content && !minutesBusy ? <Button type="button" size="sm" variant="secondary" disabled={copyingMinutes}
               onClick={() => void copyMinutes()}>{copyingMinutes ? "复制中…" : "复制到正文"}</Button> : null}
-            <Button type="button" size="sm" variant="secondary" disabled={generatingMinutes || minutesQuery.data?.status === "running"}
+            <Button type="button" size="sm" variant="secondary" disabled={minutesBusy}
               onClick={() => void generateMinutes()}>{generatingMinutes ? "提交中…" : "生成纪要"}</Button>
           </div>
         </div>
@@ -250,12 +253,12 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
           <p className="mt-2 text-caption text-text-muted">正在生成纪要…</p> : null}
         {minutesError || minutesQuery.data?.error || minutesQuery.error ?
           <p className="mt-2 text-caption text-danger">{minutesError || minutesQuery.data?.error || String(minutesQuery.error)}</p> : null}
-        {minutesQuery.data?.content ? (
-          <div className="mt-3 grid gap-3 text-body text-text">{minutesQuery.data.content.split(/\n(?=## )/).map((section) => {
+        {displayedMinutes ? (
+          <div className="mt-3 grid gap-3 text-body text-text">{displayedMinutes.split(/\n(?=## )/).map((section) => {
             const [heading, ...body] = section.trim().split("\n");
             return <div key={heading}><h4 className="font-medium">{heading.replace(/^## /, "")}</h4><p className="mt-1 whitespace-pre-wrap text-text-muted">{body.join("\n").trim()}</p></div>;
           })}</div>
-        ) : <p className="mt-2 text-body text-text-muted">暂无会议纪要。选择文本模型后，可从最终转写生成纪要和 AI 标题。</p>}
+        ) : minutesBusy ? null : <p className="mt-2 text-body text-text-muted">暂无会议纪要。选择文本模型后，可从最终转写生成纪要和 AI 标题。</p>}
       </section>
       <div className="mt-4 border-t border-border pt-3">
         <Button type="button" size="sm" variant="secondary" aria-expanded={transcriptOpen}

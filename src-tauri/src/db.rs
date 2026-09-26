@@ -1317,18 +1317,26 @@ impl Database {
             )?,
         };
         let latest_job = self.conn.query_row(
-            "SELECT status, error FROM voice_minutes_jobs WHERE session_id = ?1 ORDER BY id DESC LIMIT 1",
+            "SELECT status, error, preview FROM voice_minutes_jobs WHERE session_id = ?1 ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, id DESC LIMIT 1",
             [&session_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?)),
         ).optional()?;
-        let (status, error) =
-            latest_job.unwrap_or((if version > 0 { "ready" } else { "empty" }.into(), None));
+        let (status, error, preview) = latest_job.unwrap_or((
+            if version > 0 { "ready" } else { "empty" }.into(),
+            None,
+            String::new(),
+        ));
         Ok(Some(VoiceMinutesSnapshot {
             session_id,
             version: u64::try_from(version)?,
             title,
             content,
             generated_at,
+            preview: if status == "running" {
+                preview
+            } else {
+                String::new()
+            },
             status,
             error,
         }))
@@ -1403,7 +1411,7 @@ impl Database {
         ).optional()?;
         if let Some((id, _)) = &job {
             transaction.execute(
-                "UPDATE voice_minutes_jobs SET status = 'running', started_at = ?2 WHERE id = ?1",
+                "UPDATE voice_minutes_jobs SET status = 'running', preview = '', started_at = ?2 WHERE id = ?1",
                 params![id, now_iso()],
             )?;
         }
@@ -1423,9 +1431,17 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub fn voice_minutes_update_preview(&self, job_id: i64, preview: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET preview = ?2 WHERE id = ?1 AND status = 'running'",
+            params![job_id, preview],
+        )?;
+        Ok(())
+    }
+
     pub fn voice_minutes_finish_job(&self, job_id: i64, error: Option<&str>) -> Result<()> {
         self.conn.execute(
-            "UPDATE voice_minutes_jobs SET status = ?1, error = ?2 WHERE id = ?3",
+            "UPDATE voice_minutes_jobs SET status = ?1, error = ?2, preview = '' WHERE id = ?3",
             params![
                 if error.is_some() { "failed" } else { "ready" },
                 error,
@@ -1510,6 +1526,11 @@ impl Database {
             "voice_minutes_jobs",
             "started_at",
             "ALTER TABLE voice_minutes_jobs ADD COLUMN started_at TEXT",
+        )?;
+        self.ensure_column(
+            "voice_minutes_jobs",
+            "preview",
+            "ALTER TABLE voice_minutes_jobs ADD COLUMN preview TEXT NOT NULL DEFAULT ''",
         )?;
         Ok(())
     }
@@ -9403,6 +9424,10 @@ mod tests {
             .conn
             .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN started_at", [])
             .unwrap();
+        database
+            .conn
+            .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN preview", [])
+            .unwrap();
         drop(database);
 
         let reopened = Database::open(
@@ -9412,6 +9437,10 @@ mod tests {
         )
         .unwrap();
         assert!(!reopened.voice_minutes_has_pending().unwrap());
+        reopened
+            .conn
+            .prepare("SELECT preview FROM voice_minutes_jobs")
+            .unwrap();
     }
 
     #[test]
@@ -9495,6 +9524,59 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idempotent.session_id, created.session_id);
+    }
+
+    #[test]
+    fn voice_minutes_preview_is_provisional_and_cleared_on_failure() {
+        let (_harness, mut database) = setup_database();
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "preview-request",
+                "preview-session",
+                "原始标题",
+            )
+            .unwrap();
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1000,
+                "讨论发布",
+                None,
+            )
+            .unwrap();
+        let target = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        database
+            .voice_minutes_enqueue(&session.session_id, "preview-job")
+            .unwrap();
+        let (job_id, _) = database.voice_minutes_claim_next().unwrap().unwrap();
+        database
+            .voice_minutes_update_preview(job_id, "## 摘要\n正在讨论")
+            .unwrap();
+        // A queued automatic refresh must not hide the active stream.
+        database
+            .voice_minutes_enqueue(&session.session_id, "next-job")
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(snapshot.preview, "## 摘要\n正在讨论");
+        assert_eq!(snapshot.version, 0);
+        assert!(snapshot.content.is_empty());
+        assert_eq!(snapshot.title, "原始标题");
+        database
+            .voice_minutes_finish_job(job_id, Some("connection interrupted"))
+            .unwrap();
+        database
+            .voice_minutes_update_preview(job_id, "stale preview")
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert!(snapshot.preview.is_empty());
+        assert_eq!(snapshot.status, "pending");
+        assert_eq!(snapshot.version, 0);
+        assert_eq!(snapshot.title, "原始标题");
     }
 
     #[test]

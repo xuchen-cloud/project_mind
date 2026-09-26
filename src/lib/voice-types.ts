@@ -77,6 +77,7 @@ export interface VoiceTranscriptListInput {
 }
 export interface VoiceTranscriptTailInput { sessionId: string; limit: number }
 export interface VoiceMinutesSnapshot {
+  preview?: string;
   sessionId: string;
   version: number;
   title: string;

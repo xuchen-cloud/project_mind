@@ -120,6 +120,19 @@ describe("VoiceRecordPanel", () => {
     view.unmount();
   });
 
+  it("shows provisional minutes while generating and keeps copying disabled until complete", async () => {
+    mocks.minutesGet.mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n旧纪要", preview: "## 摘要\n逐步生成的纪要", status: "running", error: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} onCopyMinutes={vi.fn()} />
+    </QueryClientProvider>);
+    expect(await screen.findByText("逐步生成的纪要")).toBeInTheDocument();
+    expect(screen.queryByText("旧纪要")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制到正文" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成纪要" })).toBeDisabled();
+    view.unmount();
+  });
+
   it("pages Transcript by stable cursor and seeks the shared player", async () => {
     mocks.transcriptList
       .mockResolvedValueOnce({

@@ -137,6 +137,7 @@ pub struct VoiceMinutesSnapshot {
     pub title: String,
     pub content: String,
     pub generated_at: Option<String>,
+    pub preview: String,
     pub status: String,
     pub error: Option<String>,
 }
