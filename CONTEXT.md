@@ -177,7 +177,7 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 _Avoid_：实时预览内容、编辑器 DOM 快照
 
 **AI Metadata Fill**：
-用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。
+用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。整篇 QuickNote 发布成新 Record 时自动触发同一能力；QuickNote 自动保存和追加到已有 Record 不触发。
 _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag 推荐
 
 ### 内容携带

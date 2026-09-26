@@ -3,7 +3,7 @@
 - GitHub Issue：[#95 Workspace / Project 首页视觉升级](https://github.com/xuchen-cloud/project_mind/issues/95)
 - 分支：`codex/homepage-visual-upgrade`
 - 基线：本地 `develop`，`1c78fee114d4684b758575a0f0e4adc24670d576`
-- 工作目录：`/Users/xuchen/On My Mac/project_mind-homepage-visual-upgrade`
+- 工作目录：`<homepage-upgrade-worktree>`
 - 需求交接：`HANDOFF.md`
 - 首条会话任务：`START.md`
 - 参考图：`references/` 中的五张 PNG

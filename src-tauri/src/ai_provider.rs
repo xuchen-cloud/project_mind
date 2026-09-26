@@ -2095,6 +2095,7 @@ fn record_metadata_prompt(markdown: &str, existing_tags: &[(i64, String)]) -> St
             "format": { "title": "string", "existingTagIds": ["number"], "newTags": ["string"] },
             "rules": [
                 "Generate a concise natural title in the Record's main language, normally 6 to 30 characters, without a prefix or surrounding quotes.",
+                "If the first nonempty line looks like a title and accurately describes the full Record, prefer that line as the title. Otherwise generate a title based on the whole Record.",
                 "Prefer highly relevant existing Tags from context.existingTags. Return their numeric IDs only. Do not select weakly related Tags.",
                 "Only when existing Tags cannot express a main topic, propose up to 3 concise new Tags, each at most 32 characters and without #.",
                 "Avoid duplicate, synonymous, or overly narrow Tags.",

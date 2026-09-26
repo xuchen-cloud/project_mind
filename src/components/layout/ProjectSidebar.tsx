@@ -91,6 +91,7 @@ export interface ProjectSidebarDocumentItem {
 }
 
 interface ProjectSidebarProps {
+  filesOnly?: boolean;
   project: {
     id: number;
     name: string;
@@ -137,6 +138,7 @@ const PROJECT_SIDEBAR_TABS = [
 ] as const;
 
 export function ProjectSidebar({
+  filesOnly = false,
   project,
   records: explicitRecords,
   documents = [],
@@ -159,12 +161,13 @@ export function ProjectSidebar({
     projectSidebarWidthPx,
     toggleProjectSidebarCollapsed,
     setProjectSidebarWidthPx,
-    projectSidebarTab: activeTab,
+    projectSidebarTab: storedActiveTab,
     setProjectSidebarTab: setActiveTab,
     projectFileFilters,
     setProjectFileQuery,
     setProjectDocumentTagId,
   } = useUiStore();
+  const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
   const {
     documentMetaMutation,
@@ -711,7 +714,7 @@ export function ProjectSidebar({
   };
 
   // Resize handler
-  if (projectSidebarCollapsed) {
+  if (projectSidebarCollapsed && !filesOnly) {
     return (
       <aside className="sidebar-dock sidebar-dock--left" aria-label="项目导航侧边栏">
         <button
@@ -732,14 +735,15 @@ export function ProjectSidebar({
   return (
     <aside
       ref={rootRef}
+      data-files-only={filesOnly || undefined}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
         dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
       )}
       style={{
-        width: `${projectSidebarWidthPx}px`,
+        width: filesOnly ? "100%" : `${projectSidebarWidthPx}px`,
       }}
-      aria-label="项目导航侧边栏"
+      aria-label={filesOnly ? "项目文件" : "项目导航侧边栏"}
       onDragOver={(event) => {
         if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
           return;
@@ -771,6 +775,7 @@ export function ProjectSidebar({
       }}
       onDrop={handleDrop}
     >
+      {!filesOnly ? <>
       <ResizeHandle
         label="调整项目侧边栏宽度"
         edge="right"
@@ -811,16 +816,17 @@ export function ProjectSidebar({
           <ChevronLeft size={14} />
         </IconButton>
       </div>
+      </> : null}
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="grid shrink-0 gap-3">
-              <SidebarTabs
+              {!filesOnly ? <SidebarTabs
                 ariaLabel="项目侧边栏视图"
                 value={activeTab}
                 options={PROJECT_SIDEBAR_TABS}
                 onValueChange={setActiveTab}
-              />
+              /> : null}
               <div className="flex items-center gap-2">
                 <SearchField
                   aria-label={activeTab === "records" ? "搜索记录" : "搜索文件"}

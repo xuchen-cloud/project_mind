@@ -10,6 +10,7 @@ import {
 } from "../state/ui-store";
 
 interface WorkspaceWindowSizeConstraintsOptions {
+  overlayHomePanels?: boolean;
   showProjectSidebar: boolean;
   projectSidebarCollapsed: boolean;
   projectSidebarWidthPx?: number;
@@ -103,6 +104,7 @@ export function useWorkspaceWindowSizeConstraints(
   options: WorkspaceWindowSizeConstraintsOptions,
 ) {
   const minWidth = getWorkspaceWindowConstraintMinWidth(options);
+  const previousViewportRef = useRef<number | null>(null);
   const previousCollapsedStateRef = useRef({
     projectSidebarCollapsed: options.projectSidebarCollapsed,
     todoRailCollapsed: options.todoRailCollapsed,
@@ -122,6 +124,15 @@ export function useWorkspaceWindowSizeConstraints(
     };
 
     const protectMainEditor = () => {
+      if (options.overlayHomePanels && window.innerWidth < 1024) {
+        if (previousViewportRef.current !== window.innerWidth) {
+          options.setTodoRailCollapsed?.(true);
+          if (window.innerWidth < 800) options.setProjectSidebarCollapsed?.(true);
+        }
+        previousViewportRef.current = window.innerWidth;
+        return;
+      }
+      previousViewportRef.current = window.innerWidth;
       const next = getResponsivePanelState({
         ...options,
         availableWidthPx: window.innerWidth,

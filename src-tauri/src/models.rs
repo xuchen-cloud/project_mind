@@ -650,6 +650,8 @@ pub struct ProjectRecordMetadataApplyInput {
     pub project_id: i64,
     pub note_id: i64,
     pub title: String,
+    pub expected_updated_at: Option<String>,
+    pub expected_title: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
     #[serde(default)]
@@ -679,6 +681,8 @@ pub struct WorkspaceRecordUpsertInput {
 pub struct WorkspaceRecordMetadataApplyInput {
     pub note_id: i64,
     pub title: String,
+    pub expected_updated_at: Option<String>,
+    pub expected_title: Option<String>,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
     #[serde(default)]
@@ -688,6 +692,37 @@ pub struct WorkspaceRecordMetadataApplyInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceQuickNoteUpsertInput {
+    pub markdown: String,
+    pub html: String,
+    pub default_code_language: Option<String>,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceQuickNoteCommitInput {
+    pub expected_markdown: String,
+    pub record_id: Option<i64>,
+    pub expected_record_markdown: Option<String>,
+    pub expected_record_updated_at: Option<String>,
+    pub title: Option<String>,
+    pub markdown: String,
+    pub html: String,
+    pub default_code_language: Option<String>,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectQuickNoteCommitInput {
+    pub project_id: i64,
+    pub expected_markdown: String,
+    pub record_id: Option<i64>,
+    pub expected_record_markdown: Option<String>,
+    pub expected_record_updated_at: Option<String>,
+    pub title: Option<String>,
     pub markdown: String,
     pub html: String,
     pub default_code_language: Option<String>,

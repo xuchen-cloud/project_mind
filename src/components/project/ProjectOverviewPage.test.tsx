@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, type Ref } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -319,7 +319,7 @@ describe("ProjectOverviewPage", () => {
     expect(screen.getByTestId("project-overview-focus-page").closest(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
   });
 
-  it("does not build Project Record history until the Record view is active", async () => {
+  it("shows QuickNote and Project Records together", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -331,10 +331,7 @@ describe("ProjectOverviewPage", () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByRole("button", { name: "Record" });
-    expect(screen.queryByText("目标记录")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Record" }));
+    expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
     expect(await screen.findByText("目标记录")).toBeInTheDocument();
   });
@@ -460,10 +457,7 @@ describe("ProjectOverviewPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "Record" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(scrollToMock).toHaveBeenCalled();
@@ -580,7 +574,7 @@ describe("ProjectOverviewPage", () => {
     });
   });
 
-  it("defers the project record viewer in browse mode while preserving eager nearby images", async () => {
+  it("shows a plain summary without mounting a full record viewer", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -600,47 +594,20 @@ describe("ProjectOverviewPage", () => {
 
     await screen.findByRole("button", { name: /目标记录/ });
 
-    const recordViewerProps = noteImageAssetMocks.richTextViewerProps.find((props) =>
-      props.html?.includes("命中记录内容"),
-    );
-
-    expect(recordViewerProps).toBeDefined();
-    expect(recordViewerProps?.deferUntilVisible).toBe(true);
-    expect(recordViewerProps?.eagerManagedImages).toBe(true);
+    expect(screen.getByText("命中记录内容")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/写记录/)).not.toBeInTheDocument();
   });
 
-  it("expands and collapses long project record content without entering editing", async () => {
-    const scrollHeightSpy = mockCollapsibleScrollHeight(() => 460);
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-
-    try {
-      render(
-        <QueryClientProvider client={queryClient}>
-          <MemoryRouter initialEntries={["/projects/1?view=record"]}>
-            <Routes>
-              <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-
-      const expandButton = await screen.findByRole("button", { name: "展开全部" });
-      fireEvent.mouseDown(expandButton, { button: 0 });
-      fireEvent.click(expandButton);
-
-      expect(await screen.findByRole("button", { name: "收起" })).toBeInTheDocument();
-      expect(screen.queryByLabelText(/写记录/)).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: "收起" }));
-      expect(await screen.findByRole("button", { name: "展开全部" })).toBeInTheDocument();
-    } finally {
-      scrollHeightSpy.mockRestore();
-    }
+  it("opens a compact project record in Focus on a single click", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/projects/1"]}><Routes>
+      <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+      <Route path="/projects/:projectId/records/:noteId" element={<p>Record Focus</p>} />
+    </Routes></MemoryRouter></QueryClientProvider>);
+    const card = await screen.findByRole("button", { name: /目标记录/ });
+    expect(screen.queryByRole("button", { name: "展开全部" })).not.toBeInTheDocument();
+    fireEvent.click(card);
+    expect(await screen.findByText("Record Focus")).toBeInTheDocument();
   });
 
   it("does not reserve an empty tag row when a project record has no tags", async () => {
@@ -691,7 +658,7 @@ describe("ProjectOverviewPage", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.mouseDown(await screen.findByRole("button", { name: /无标签记录/ }), { button: 0 });
+    fireEvent.click(within(await screen.findByRole("button", { name: /无标签记录/ })).getByRole("button", { name: "编辑记录" }));
 
     expect(screen.getByLabelText(/写记录/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
@@ -724,7 +691,7 @@ describe("ProjectOverviewPage", () => {
     const recordButton = await screen.findByRole("button", { name: /无标签记录/ });
     expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(recordButton, { button: 0 });
+    fireEvent.click(within(recordButton).getByRole("button", { name: "编辑记录" }));
     fireEvent.mouseDown(screen.getByRole("button", { name: "添加标签" }), { button: 0 });
 
     const tagInput = await screen.findByLabelText("项目记录标签输入");
@@ -753,7 +720,7 @@ describe("ProjectOverviewPage", () => {
     );
 
     const record = await screen.findByRole("button", { name: /目标记录/ });
-    fireEvent.mouseDown(record, { button: 0 });
+    fireEvent.click(within(record).getByRole("button", { name: "编辑记录" }));
 
     fireEvent.contextMenu(screen.getByPlaceholderText("记录标题"), {
       clientX: 64,
@@ -792,7 +759,7 @@ describe("ProjectOverviewPage", () => {
     );
 
     const record = await screen.findByRole("button", { name: /目标记录/ });
-    fireEvent.mouseDown(record, { button: 0 });
+    fireEvent.click(within(record).getByRole("button", { name: "编辑记录" }));
 
     const editor = screen.getByLabelText(/写记录/);
     fireEvent.change(editor, { target: { value: "<p>新的记录内容</p>" } });

@@ -4,11 +4,11 @@
 
 ## 1. 工作位置与交付顺序
 
-- 仓库工作目录：`/Users/xuchen/On My Mac/project_mind-homepage-visual-upgrade`
+- 仓库工作目录：`<homepage-upgrade-worktree>`
 - 实现分支：`codex/homepage-visual-upgrade`
 - 基线：本地 `develop` 的 `1c78fee114d4684b758575a0f0e4adc24670d576`。
 - 创建分支前已拉取远端：本地 develop 比 origin/develop 领先 22 个提交、落后 0 个。使用本地 develop 的完整最新基线，不改写或丢弃这些提交。
-- 原目录 `/Users/xuchen/On My Mac/project_mind` 留在 develop；其中未跟踪的 `docs/research/` 是无关用户资料，不处理。
+- 原目录 `<original-worktree>` 留在 develop；其中未跟踪的 `docs/research/` 是无关用户资料，不处理。
 - 首先读取 AGENTS.md、CONTEXT.md、相关 ADR、当前代码，查看本目录全部参考图。旧 UX/PRD 文档与代码冲突时记录差异，不能仅凭旧文档推断现状。
 - **阶段 A：完整视觉方案。** 在本目录形成 `VISUAL-SPEC.md`，配套两种首页的完整视觉稿/可查看原型及资产清单。覆盖布局尺寸、语义色、字体、组件、响应式、交互和关键状态。先展示方案成果，再进入源码修改。本文仅是需求交接，不代表视觉方案已经完成。
 - **阶段 B：实施第一版。** 用户已授权先方案后实现，无需自行增加再次批准的门禁；如用户随后要求先等确认，则遵守新指令。不要只产出方案便结束任务。

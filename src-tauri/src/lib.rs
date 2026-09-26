@@ -38,13 +38,13 @@ use models::{
     InternalReferenceResolveResult, InternalReferenceSearchInput, InternalReferenceSearchResult,
     NoteRecord, ProjectArchiveInput, ProjectCreateInput, ProjectDeleteInput, ProjectIdInput,
     ProjectListItem, ProjectPageData, ProjectRecord, ProjectRecordDeleteInput,
-    ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput, ProjectUpdateInput,
+    ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput, ProjectQuickNoteCommitInput, ProjectUpdateInput,
     ProjectsListInput, RichTextStyleSettings, RichTextStyleUpsertInput, TodoAddProgressInput,
     TodoCreateInput, TodoDeleteInput, TodoDeleteProgressInput, TodoProgressRecord, TodoRecord,
     TodoUpdateContentInput, TodoUpdatePriorityInput, TodoUpdateProgressInput,
     TodoUpdateStatusInput, TodoUpdateTagsInput, WorkspaceClipboardNoteImageImportInput,
     WorkspaceCreateInput, WorkspaceNoteImageAsset, WorkspaceNoteImageImportInput,
-    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
+    WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteCommitInput, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
     WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput, WorkspaceRecordUpsertInput,
     WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
     WorkspaceUnlockInput,
@@ -767,6 +767,14 @@ fn project_record_upsert(
 }
 
 #[tauri::command]
+fn project_quick_note_commit(
+    state: State<'_, AppState>,
+    input: ProjectQuickNoteCommitInput,
+) -> CommandResult<NoteRecord> {
+    with_db(state, |db| db.project_quick_note_commit(input))
+}
+
+#[tauri::command]
 fn project_record_metadata_apply(
     state: State<'_, AppState>,
     input: ProjectRecordMetadataApplyInput,
@@ -872,6 +880,14 @@ fn workspace_quick_note_upsert(
     input: WorkspaceQuickNoteUpsertInput,
 ) -> CommandResult<WorkspaceRecord> {
     with_db(state, |db| db.workspace_quick_note_upsert(input))
+}
+
+#[tauri::command]
+fn workspace_quick_note_commit(
+    state: State<'_, AppState>,
+    input: WorkspaceQuickNoteCommitInput,
+) -> CommandResult<WorkspaceRecord> {
+    with_db(state, |db| db.workspace_quick_note_commit(input))
 }
 
 #[tauri::command]
@@ -1277,6 +1293,7 @@ pub fn run() {
             contact_upsert,
             contact_delete,
             project_record_upsert,
+            project_quick_note_commit,
             project_record_metadata_apply,
             project_record_delete,
             todo_create,
@@ -1291,6 +1308,7 @@ pub fn run() {
             todo_list_open,
             workspace_quick_note_get,
             workspace_quick_note_upsert,
+            workspace_quick_note_commit,
             workspace_record_list,
             workspace_record_upsert,
             workspace_record_metadata_apply,

@@ -1,3 +1,5 @@
+import { flushQuickNotes } from "./lib/quick-note-transfer";
+import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
@@ -66,6 +68,7 @@ import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
+import { HomeProjectSidebar, rememberProjectRecord } from "./components/home/HomeProjectSidebar";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
@@ -188,6 +191,10 @@ export function WorkspaceLayout({
     () => parseRecordFocusRoute(location.pathname),
     [location.pathname],
   );
+  useEffect(() => {
+    if (activeRecordFocusRoute) cancelQuickNoteRecordMetadata(activeRecordFocusRoute.recordId,
+      activeRecordFocusRoute.kind === "project" ? activeRecordFocusRoute.projectId : undefined);
+  }, [activeRecordFocusRoute]);
   const skipFocusSaveRouteRef = useRef<string | null>(null);
   const submitActiveFocusRecord = useCallback(() => {
     const route = activeRecordFocusRoute;
@@ -285,6 +292,12 @@ export function WorkspaceLayout({
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  useEffect(() => () => cancelAllQuickNoteRecordMetadata(), [currentWorkspace?.rootPath]);
+  useEffect(() => {
+    if (currentWorkspace && activeProjectId && activeRecordId) {
+      rememberProjectRecord(currentWorkspace.rootPath, activeProjectId, activeRecordId);
+    }
+  }, [currentWorkspace?.rootPath, activeProjectId, activeRecordId]);
   const hasWorkspace = Boolean(currentWorkspace);
   const internalRecordSaveCoordinator = useMemo(
     () =>
@@ -302,6 +315,7 @@ export function WorkspaceLayout({
       throw new Error("无法捕获当前 Record 的 Committed Content");
     }
     await recordSaveCoordinator.flush();
+    await flushQuickNotes();
   }, [recordSaveCoordinator, submitActiveFocusRecord]);
 
   useEffect(() => {
@@ -379,6 +393,7 @@ export function WorkspaceLayout({
   const showRightSidebarForWidthConstraint = workspaceActive || showTodoRailShell;
 
   useWorkspaceWindowSizeConstraints({
+    overlayHomePanels: location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId),
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
     projectSidebarWidthPx,
@@ -1448,7 +1463,14 @@ export function WorkspaceLayout({
       {projectWindow ? null : workspaceTopBar}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {showProjectSidebarShell ? (
+        {showProjectSidebarShell && projectOverviewActive ? (
+          <HomeProjectSidebar projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
+            records={projectSidebarOverviewQuery.data?.records ?? []} selectedTagId={projectRecordTagId}
+            onTagChange={(tagId) => updateProjectRecordFilters({ tagId })}
+            onOpenWorkspace={() => navigate(workspacePath())}
+            onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
+            onCreateRecord={() => void createProjectSidebarRecord()} />
+        ) : showProjectSidebarShell ? (
           <ProjectSidebar
             project={{
               id: activeProject.id,

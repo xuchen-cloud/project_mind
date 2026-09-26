@@ -1,6 +1,6 @@
 请在本会话独立完成「Workspace / Project 首页视觉升级」第一版。
 
-用户已授权：基于 develop 创建新分支、新会话，携带参考图与已讨论结论，先生成完整视觉方案，然后开始修改。本会话即交接后的新执行会话。工作目录必须为 `/Users/xuchen/On My Mac/project_mind-homepage-visual-upgrade`，分支 `codex/homepage-visual-upgrade`；不要切换或修改原主目录。
+用户已授权：基于 develop 创建新分支、新会话，携带参考图与已讨论结论，先生成完整视觉方案，然后开始修改。本会话即交接后的新执行会话。工作目录必须为 `<homepage-upgrade-worktree>`，分支 `codex/homepage-visual-upgrade`；不要切换或修改原主目录。
 
 首先读取 `AGENTS.md`、`CONTEXT.md` 和 `docs/design/homepage-visual-upgrade/HANDOFF.md`，真正打开该目录 references 下的五张图。前两张附图分别是最终 Workspace 与 Project 首页方向；其它图用途在 HANDOFF 中说明，旧图的蓝色大面积底色与旧导航已废弃。
 

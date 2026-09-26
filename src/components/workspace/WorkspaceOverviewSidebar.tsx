@@ -1,40 +1,31 @@
-import { useMemo, useState } from "react";
+import { ProjectHomeIcon } from "../home/HomeCover";
 import {
-  Archive,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  FolderKanban,
-  NotebookText,
-  Mic,
-  Pencil,
-  Trash2,
+Archive,
+ChevronLeft,
+ExternalLink,
+FolderKanban,
+NotebookText,
+Pencil,
+Trash2
 } from "lucide-react";
+import { useMemo,useState } from "react";
 
-import type { TagColorKey, ProjectListItem } from "../../lib/types";
+import noriBust from "../../assets/home/nori-bust.png";
+import type { ProjectListItem,TagColorKey } from "../../lib/types";
 import {
-  PROJECT_SIDEBAR_WIDTH_MAX_PX,
-  PROJECT_SIDEBAR_WIDTH_MIN_PX,
-  useUiStore,
+PROJECT_SIDEBAR_WIDTH_MAX_PX,
+PROJECT_SIDEBAR_WIDTH_MIN_PX,
+useUiStore,
 } from "../../state/ui-store";
 import {
-  ActionContextMenu,
-  Button,
-  Dialog,
-  IconButton,
-  ResizeHandle,
-  SearchField,
-  SidebarFilters,
-  SidebarTabs,
-  StatusBadge,
-  type ContextMenuAction,
+ActionContextMenu,
+Button,
+Dialog,
+ResizeHandle,
+StatusBadge,
+type ContextMenuAction
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
-
-const WORKSPACE_SIDEBAR_TABS = [
-  { value: "projects", label: "项目" },
-  { value: "records", label: "记录" },
-] as const;
 
 export interface WorkspaceOverviewSidebarRecordItem {
   id: number;
@@ -50,6 +41,7 @@ interface WorkspaceOverviewSidebarProps {
   projects: ProjectListItem[];
   archivedProjects: ProjectListItem[];
   records: WorkspaceOverviewSidebarRecordItem[];
+  availableTags?: Array<{ id: number; label: string; colorKey: TagColorKey }>;
   activeRecordId?: number | null;
   recordQuery: string;
   onRecordQueryChange: (value: string) => void;
@@ -83,6 +75,7 @@ export function WorkspaceOverviewSidebar({
   projects,
   archivedProjects,
   records,
+  availableTags = [],
   activeRecordId,
   recordQuery,
   onRecordQueryChange,
@@ -122,13 +115,6 @@ export function WorkspaceOverviewSidebar({
   } | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [projectNameDraft, setProjectNameDraft] = useState("");
-  const [recordContextMenu, setRecordContextMenu] = useState<{
-    recordId: number;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
-  const [recordTitleDraft, setRecordTitleDraft] = useState("");
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [deleteConfirmProject, setDeleteConfirmProject] = useState<ProjectListItem | null>(null);
   const normalizedProjectQuery = projectQuery.trim().toLowerCase();
@@ -140,30 +126,9 @@ export function WorkspaceOverviewSidebar({
       ),
     [normalizedProjectQuery, projects],
   );
-  const recordTagOptions = useMemo(
-    () => {
-      const tagMap = new Map<number, { id: number; label: string; colorKey: TagColorKey }>();
-
-      for (const record of records) {
-        for (const tag of record.tags) {
-          if (!tagMap.has(tag.id)) {
-            tagMap.set(tag.id, tag);
-          }
-        }
-      }
-
-      return Array.from(tagMap.values()).sort((left, right) =>
-        left.label.localeCompare(right.label, "zh-Hans-CN"),
-      );
-    },
-    [records],
-  );
 
   const projectContextProject = projectContextMenu
     ? projects.find((project) => project.id === projectContextMenu.projectId) ?? null
-    : null;
-  const contextMenuRecord = recordContextMenu
-    ? records.find((record) => record.id === recordContextMenu.recordId) ?? null
     : null;
 
   function beginRenameProject(project: ProjectListItem) {
@@ -184,26 +149,6 @@ export function WorkspaceOverviewSidebar({
       return;
     }
     void onRenameProject(project, nextName);
-  }
-
-  function beginRenameRecord(record: WorkspaceOverviewSidebarRecordItem) {
-    setRecordContextMenu(null);
-    setEditingRecordId(record.id);
-    setRecordTitleDraft(record.title ?? "");
-  }
-
-  function cancelRenameRecord() {
-    setEditingRecordId(null);
-    setRecordTitleDraft("");
-  }
-
-  function commitRenameRecord(record: WorkspaceOverviewSidebarRecordItem) {
-    const nextTitle = recordTitleDraft.trim();
-    cancelRenameRecord();
-    if (nextTitle === (record.title ?? "")) {
-      return;
-    }
-    void onRenameRecord?.(record, nextTitle);
   }
 
   const projectContextMenuActions = useMemo<ContextMenuAction[]>(
@@ -267,7 +212,7 @@ export function WorkspaceOverviewSidebar({
   return (
     <aside
       className={cn(
-        "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
+        "home-side",
       )}
       style={{ width: `${projectSidebarWidthPx}px` }}
       aria-label="工作区导航侧边栏"
@@ -282,101 +227,10 @@ export function WorkspaceOverviewSidebar({
         className="right-0"
       />
 
-      <div className="relative border-b border-border px-3 py-3">
-        <button
-          type="button"
-          title={`Workspace\n${workspaceRootPath}`}
-          className={cn(
-            "rounded-[var(--radius-8)] border border-transparent text-text transition-colors hover:border-border hover:bg-bg",
-            "flex w-full items-center gap-3 px-3 py-2.5 pr-12 text-left",
-          )}
-          onClick={onOpenOverview}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-8)] bg-bg text-text-muted">
-            <FolderKanban size={16} />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-title font-medium">Workspace</span>
-            <span className="mt-1 flex items-center gap-2">
-              <StatusBadge tone="neutral">workspace</StatusBadge>
-            </span>
-          </span>
-        </button>
-        <IconButton
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="absolute right-3 top-3"
-          aria-label="收起工作区侧边栏"
-          onClick={toggleProjectSidebarCollapsed}
-        >
-          <ChevronLeft size={14} />
-        </IconButton>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3">
-        <div className="grid shrink-0 gap-3">
-          <SidebarTabs
-            ariaLabel="工作区侧边栏视图"
-            value={activeTab}
-            options={WORKSPACE_SIDEBAR_TABS}
-            onValueChange={setActiveTab}
-          />
-
-          {activeTab === "projects" ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              block
-              disabled={createProjectPending}
-              onClick={onCreateProject}
-            >
-              {createProjectPending ? "创建中..." : "新建项目"}
-            </Button>
-          ) : null}
-
-          <div className="flex items-center gap-2">
-            <SearchField
-              aria-label={activeTab === "projects" ? "搜索项目" : "搜索记录"}
-              placeholder={activeTab === "projects" ? "搜索项目" : "搜索记录标题或正文"}
-              value={activeTab === "projects" ? projectQuery : recordQuery}
-              onChange={(event) =>
-                activeTab === "projects"
-                  ? setProjectQuery(event.target.value)
-                  : onRecordQueryChange(event.target.value)
-              }
-              className="flex-1"
-            />
-            {activeTab === "records" ? (
-              <IconButton
-                type="button"
-                size="sm"
-                variant="secondary"
-                aria-label="新增记录"
-                onClick={onCreateRecord}
-              >
-                <NotebookText size={14} />
-              </IconButton>
-            ) : null}
-          </div>
-
-          {activeTab === "records" && recordTagOptions.length > 0 ? (
-            <SidebarFilters
-              ariaLabel="Workspace Record 标签筛选"
-              value={activeRecordTagId}
-              options={recordTagOptions.map((tag) => ({
-                value: tag.id,
-                label: tag.label,
-              }))}
-              onValueChange={onActiveRecordTagIdChange}
-            />
-          ) : null}
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {activeTab === "projects" ? (
+      <div className="home-side__brand"><img src={noriBust} alt="" /><strong>Nori<span>Mind</span></strong><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
+      <button type="button" className="home-side__workspace" onClick={onOpenOverview}><FolderKanban size={18} /> 我的工作区</button>
+      <div className="home-side__scroll"><div className="home-side__heading"><span>项目</span><button type="button" aria-label="新建项目" disabled={createProjectPending} onClick={onCreateProject}>＋</button></div>
+              <input className="home-side__search" aria-label="搜索项目" placeholder="搜索项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
               <div className="grid gap-1.5">
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map((project) => {
@@ -407,7 +261,7 @@ export function WorkspaceOverviewSidebar({
                         }}
                       >
                         <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          <FolderKanban size={15} />
+                          <ProjectHomeIcon rootPath={project.rootPath} size={18} />
                         </span>
                         <span className="min-w-0 flex-1">
                           {isEditing ? (
@@ -452,118 +306,12 @@ export function WorkspaceOverviewSidebar({
                   </p>
                 )}
               </div>
-            ) : (
-              <div className="grid gap-1.5">
-                {records.length > 0 ? (
-                  records.map((record) => {
-                    const isEditingRecord = editingRecordId === record.id;
-                    const isRecordContextOpen = recordContextMenu?.recordId === record.id;
 
-                    return (
-                      <button
-                        key={record.id}
-                        type="button"
-                        className={cn(
-                          "flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
-                          isRecordContextOpen
-                            ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]"
-                            : record.id === activeRecordId
-                              ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))]"
-                              : "border-transparent hover:border-border hover:bg-bg",
-                        )}
-                        onClick={() => {
-                          if (!isEditingRecord) {
-                            onOpenRecord(record.id);
-                          }
-                        }}
-                        onDoubleClick={(event) => {
-                          if (isEditingRecord) {
-                            return;
-                          }
-                          event.preventDefault();
-                          onFocusRecord?.(record.id);
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          if (isEditingRecord) {
-                            return;
-                          }
-                          setRecordContextMenu({
-                            recordId: record.id,
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
-                        }}
-                      >
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          {record.isVoice ? <Mic size={15} aria-label="语音记录" className="text-accent" /> : <NotebookText size={15} />}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          {isEditingRecord ? (
-                            <input
-                              autoFocus
-                              value={recordTitleDraft}
-                              placeholder="未命名记录"
-                              className="inline-object-input h-6 min-w-0 w-full px-1.5 text-body font-medium text-text outline-none"
-                              onChange={(event) => setRecordTitleDraft(event.target.value)}
-                              onClick={(event) => event.stopPropagation()}
-                              onBlur={() => commitRenameRecord(record)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") {
-                                  event.preventDefault();
-                                  cancelRenameRecord();
-                                } else if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  commitRenameRecord(record);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <p className="truncate text-body font-medium text-text">
-                              {record.title || "未命名记录"}
-                            </p>
-                          )}
-                          <p className="mt-1 truncate text-ui text-text-soft">
-                            {record.contentMarkdown || "空记录"}
-                          </p>
-                        </span>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <p className="rounded-[var(--radius-8)] border border-dashed border-border px-3 py-4 text-ui text-text-soft">
-                    没有匹配的记录。
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {activeTab === "projects" ? (
-            <div className="mt-3 border-t border-border pt-3">
-              <button
-                type="button"
-                className={cn(
-                  "flex w-full items-center justify-between gap-3 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
-                  "border-[color-mix(in_srgb,var(--color-border-strong)_28%,transparent)] bg-[color-mix(in_srgb,var(--color-bg)_35%,var(--color-bg-subtle))]",
-                  "hover:border-border-strong hover:bg-bg",
-                )}
-                onClick={() => setArchiveDialogOpen(true)}
-              >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-8)] bg-bg text-text-muted">
-                    <Archive size={15} />
-                  </span>
-                  <span className="min-w-0 text-body font-medium text-text">归档项目</span>
-                </span>
-                <span className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] font-medium text-text-soft">
-                  {archivedProjects.length}
-                </span>
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <div className="home-side__divider" /><div className="home-side__heading">工作区标签</div>
+        <button type="button" className={`home-side__item ${activeRecordTagId === null ? "is-active" : ""}`} onClick={() => onActiveRecordTagIdChange(null)}><NotebookText size={18} />全部记录</button>
+        {availableTags.map((tag) => <button key={tag.id} type="button" className={`home-side__item ${activeRecordTagId === tag.id ? "is-active" : ""}`} onClick={() => onActiveRecordTagIdChange(tag.id)}><span className="home-side__hash">#</span><span>{tag.label}</span></button>)}
       </div>
+      <div className="home-side__bottom"><button type="button" className="home-side__item" onClick={() => setArchiveDialogOpen(true)}><Archive size={18} />归档项目 <span>{archivedProjects.length}</span></button></div>
 
       {projectContextMenu ? (
         <ActionContextMenu
@@ -572,31 +320,6 @@ export function WorkspaceOverviewSidebar({
           actions={projectContextMenuActions}
           ariaLabel="项目操作"
           onClose={() => setProjectContextMenu(null)}
-        />
-      ) : null}
-
-      {contextMenuRecord && recordContextMenu ? (
-        <ActionContextMenu
-          x={recordContextMenu.x}
-          y={recordContextMenu.y}
-          ariaLabel="记录操作"
-          actions={[
-            {
-              label: "重命名",
-              icon: Pencil,
-              onSelect: () => beginRenameRecord(contextMenuRecord),
-            },
-            {
-              label: "删除",
-              icon: Trash2,
-              tone: "danger",
-              onSelect: () => {
-                setRecordContextMenu(null);
-                void onDeleteRecord?.(contextMenuRecord);
-              },
-            },
-          ]}
-          onClose={() => setRecordContextMenu(null)}
         />
       ) : null}
 

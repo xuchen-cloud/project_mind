@@ -49,14 +49,16 @@ describe("WorkspaceOverviewSidebar", () => {
     expect(onOpenProject).not.toHaveBeenCalled();
   });
 
-  it("opens record actions when a Workspace Record is right clicked", () => {
+  it("shows unused workspace tags without restoring the old records tab", () => {
     useUiStore.setState({ workspaceSidebarTab: "records" });
+    const onTagChange = vi.fn();
     const onRenameRecord = vi.fn();
     const onDeleteRecord = vi.fn();
 
     render(
       <WorkspaceOverviewSidebar
         workspaceRootPath="/tmp/workspace"
+        availableTags={[{ id: 23, label: "尚未使用", colorKey: "blue", usageCount: 0, createdAt: "", updatedAt: "" }]}
         projects={[]}
         archivedProjects={[]}
         records={[
@@ -71,7 +73,7 @@ describe("WorkspaceOverviewSidebar", () => {
         recordQuery=""
         onRecordQueryChange={vi.fn()}
         activeRecordTagId={null}
-        onActiveRecordTagIdChange={vi.fn()}
+        onActiveRecordTagIdChange={onTagChange}
         onOpenOverview={vi.fn()}
         onOpenProject={vi.fn()}
         onOpenProjectInNewWindow={vi.fn()}
@@ -88,23 +90,8 @@ describe("WorkspaceOverviewSidebar", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByText("长期方法"));
-
-    expect(screen.getByRole("menu", { name: "记录操作" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /重命名/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /删除/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("menuitem", { name: /重命名/ }));
-    const titleInput = screen.getByDisplayValue("长期方法");
-    fireEvent.change(titleInput, { target: { value: "长期实践" } });
-    fireEvent.keyDown(titleInput, { key: "Enter" });
-    expect(onRenameRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 11 }),
-      "长期实践",
-    );
-
-    fireEvent.contextMenu(screen.getByText("长期方法"));
-    fireEvent.click(screen.getByRole("menuitem", { name: /删除/ }));
-    expect(onDeleteRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+    expect(screen.queryByText("长期方法")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "# 尚未使用" }));
+    expect(onTagChange).toHaveBeenCalledWith(23);
   });
 });

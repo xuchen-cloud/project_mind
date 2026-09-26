@@ -263,6 +263,7 @@ export function WorkspaceOverviewHistory({
               }}
             >
             <RecordListItem
+              homepage
               record={note}
               scope={{ kind: "workspace", assetHandlers }}
               focused={focusId === `record-${note.id}`}

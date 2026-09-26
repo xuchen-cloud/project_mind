@@ -30,7 +30,7 @@ use crate::{
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
         InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
-        ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectRecord,
+        ProjectDeleteInput, ProjectIdInput, ProjectListItem, ProjectPageData, ProjectQuickNoteCommitInput, ProjectRecord,
         ProjectRecordDeleteInput, ProjectRecordMetadataApplyInput, ProjectRecordUpsertInput,
         ProjectUpdateInput, ProjectsListInput, RecordMetadataNewTagInput, RichTextFontSelection,
         RichTextStyleBlockSettings, RichTextStyleSettings, RichTextStyleUpsertInput,
@@ -38,7 +38,7 @@ use crate::{
         TodoProgressRecord, TodoRecord, TodoScope, TodoUpdateContentInput, TodoUpdatePriorityInput,
         TodoUpdateProgressInput, TodoUpdateStatusInput, TodoUpdateTagsInput,
         WorkspaceClipboardNoteImageImportInput, WorkspaceNoteImageAsset,
-        WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteUpsertInput,
+        WorkspaceNoteImageImportInput, WorkspacePageData, WorkspaceQuickNoteCommitInput, WorkspaceQuickNoteUpsertInput,
         WorkspaceRecord, WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput,
         WorkspaceRecordUpsertInput, WorkspaceSearchInput, WorkspaceSearchResult,
     },
@@ -2749,6 +2749,48 @@ impl Database {
         }
     }
 
+    pub fn project_quick_note_commit(&mut self, input: ProjectQuickNoteCommitInput) -> Result<NoteRecord> {
+        let project = self.project_record(input.project_id)?;
+        if input.expected_markdown.trim().is_empty() || project.summary_markdown != input.expected_markdown {
+            return Err(anyhow!("Project QuickNote changed before commit"));
+        }
+        if let Some(record_id) = input.record_id {
+            let target = self.note_record(record_id)?;
+            if target.project_id != input.project_id ||
+                input.expected_record_markdown.as_deref() != Some(target.content_markdown.as_str()) ||
+                input.expected_record_updated_at.as_deref() != Some(target.updated_at.as_str()) {
+                return Err(anyhow!("Project Record changed before QuickNote append"));
+            }
+        }
+        self.conn.execute_batch("SAVEPOINT project_quick_note_commit")?;
+        let result = (|| -> Result<NoteRecord> {
+            let record = self.project_record_upsert(ProjectRecordUpsertInput {
+                project_id: input.project_id,
+                note_id: input.record_id,
+                title: input.title,
+                markdown: input.markdown,
+                html: input.html,
+                default_code_language: input.default_code_language,
+                tag_ids: input.tag_ids,
+            })?;
+            self.conn.execute(
+                "UPDATE projects SET summary = '', summary_markdown = '', summary_html = '<p></p>', quick_note_code_language = NULL, updated_at = ?1 WHERE id = ?2 AND summary_markdown = ?3",
+                params![now_iso(), input.project_id, input.expected_markdown],
+            )?;
+            Ok(record)
+        })();
+        match result {
+            Ok(record) => {
+                self.conn.execute_batch("RELEASE SAVEPOINT project_quick_note_commit")?;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK TO SAVEPOINT project_quick_note_commit; RELEASE SAVEPOINT project_quick_note_commit");
+                Err(error)
+            }
+        }
+    }
+
     pub fn project_record_metadata_apply(
         &mut self,
         input: ProjectRecordMetadataApplyInput,
@@ -2758,6 +2800,10 @@ impl Database {
             return Err(anyhow!(
                 "Project Record does not belong to the requested Project"
             ));
+        }
+        if input.expected_updated_at.as_deref().is_some_and(|value| value != current.updated_at)
+            || input.expected_title.as_deref().is_some_and(|value| Some(value) != current.title.as_deref()) {
+            return Err(anyhow!("Project Record changed before AI metadata was applied"));
         }
         let title = validate_record_metadata_title(&input.title)?;
         let timestamp = now_iso();
@@ -2880,6 +2926,11 @@ impl Database {
             return Err(anyhow!(
                 "AI metadata can only be applied to a Workspace Record"
             ));
+        }
+        let current = self.workspace_note_record(input.note_id)?;
+        if input.expected_updated_at.as_deref().is_some_and(|value| value != current.updated_at)
+            || input.expected_title.as_deref().is_some_and(|value| Some(value) != current.title.as_deref()) {
+            return Err(anyhow!("Workspace Record changed before AI metadata was applied"));
         }
         let title = validate_record_metadata_title(&input.title)?;
         let timestamp = now_iso();
@@ -3017,6 +3068,52 @@ impl Database {
                 let note_id = self.conn.last_insert_rowid();
                 self.replace_workspace_note_tags(note_id, &input.tag_ids, &timestamp)?;
                 self.workspace_note_record(note_id)
+            }
+        }
+    }
+
+    pub fn workspace_quick_note_commit(&mut self, input: WorkspaceQuickNoteCommitInput) -> Result<WorkspaceRecord> {
+        let quick_note = self.workspace_quick_note_get()?.ok_or_else(|| anyhow!("Workspace QuickNote is missing"))?;
+        if input.expected_markdown.trim().is_empty() || quick_note.content_markdown != input.expected_markdown {
+            return Err(anyhow!("Workspace QuickNote changed before commit"));
+        }
+        if let Some(record_id) = input.record_id {
+            let target = self.workspace_note_record(record_id)?;
+            let note_kind: String = self.conn.query_row(
+                "SELECT note_kind FROM workspace_notes WHERE id = ?1", [record_id], |row| row.get(0),
+            )?;
+            if note_kind != WORKSPACE_NOTE_KIND_STANDARD ||
+                input.expected_record_markdown.as_deref() != Some(target.content_markdown.as_str()) ||
+                input.expected_record_updated_at.as_deref() != Some(target.updated_at.as_str()) {
+                return Err(anyhow!("Workspace Record changed before QuickNote append"));
+            }
+        }
+        self.conn.execute_batch("SAVEPOINT workspace_quick_note_commit")?;
+        let result = (|| -> Result<WorkspaceRecord> {
+            let record = self.workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: input.record_id,
+                title: input.title,
+                markdown: input.markdown,
+                html: input.html,
+                default_code_language: input.default_code_language,
+                tag_ids: input.tag_ids,
+            })?;
+            let timestamp = now_iso();
+            self.conn.execute(
+                "UPDATE workspace_notes SET content_markdown = '', content_html = '<p></p>', default_code_language = NULL, updated_at = ?1 WHERE id = ?2 AND content_markdown = ?3",
+                params![timestamp, quick_note.id, input.expected_markdown],
+            )?;
+            self.replace_workspace_note_tags(quick_note.id, &[], &timestamp)?;
+            Ok(record)
+        })();
+        match result {
+            Ok(record) => {
+                self.conn.execute_batch("RELEASE SAVEPOINT workspace_quick_note_commit")?;
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK TO SAVEPOINT workspace_quick_note_commit; RELEASE SAVEPOINT workspace_quick_note_commit");
+                Err(error)
             }
         }
     }
@@ -12538,6 +12635,8 @@ mod tests {
             .workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
                 note_id: record.id,
                 title: "AI 标题".to_string(),
+                expected_updated_at: None,
+                expected_title: None,
                 tag_ids: vec![existing.id],
                 new_tags: vec![RecordMetadataNewTagInput {
                     label: "新标签".to_string(),
@@ -12574,6 +12673,8 @@ mod tests {
         let result = database.workspace_record_metadata_apply(WorkspaceRecordMetadataApplyInput {
             note_id: record.id,
             title: "不应保留".to_string(),
+            expected_updated_at: None,
+            expected_title: None,
             tag_ids: vec![],
             new_tags: vec![
                 RecordMetadataNewTagInput {
@@ -12639,6 +12740,81 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, workspace_note.id);
         assert_eq!(listed[0].title.as_deref(), Some("工作区记录"));
+    }
+
+    #[test]
+    fn workspace_quick_note_commit_creates_one_record_and_rejects_stale_retry() {
+        let (_harness, mut database) = setup_database();
+        database.workspace_quick_note_upsert(WorkspaceQuickNoteUpsertInput {
+            markdown: "一条想法".into(), html: "<p>一条想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let input = WorkspaceQuickNoteCommitInput {
+            expected_markdown: "一条想法".into(), record_id: None,
+            expected_record_markdown: None, expected_record_updated_at: None, title: Some("一条想法".into()),
+            markdown: "一条想法".into(), html: "<p>一条想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        };
+        let record = database.workspace_quick_note_commit(input.clone()).unwrap();
+        assert_eq!(record.title.as_deref(), Some("一条想法"));
+        assert_eq!(database.workspace_quick_note_get().unwrap().unwrap().content_markdown, "");
+        assert!(database.workspace_quick_note_commit(input).is_err());
+        assert_eq!(database.workspace_record_list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn project_quick_note_commit_keeps_draft_when_target_record_changed() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        database.project_update(ProjectUpdateInput {
+            project_id: project.id, name: None, summary: "项目想法".into(),
+            summary_markdown: Some("项目想法".into()),
+            summary_html: Some("<p>项目想法</p>".into()),
+            summary_code_language: None, status: None,
+        }).unwrap();
+        let existing = database.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: project.id, note_id: None, title: Some("原记录".into()),
+            markdown: "原正文".into(), html: "<p>原正文</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let result = database.project_quick_note_commit(ProjectQuickNoteCommitInput {
+            project_id: project.id, expected_markdown: "项目想法".into(),
+            record_id: Some(existing.id), expected_record_markdown: Some("旧正文".into()),
+            expected_record_updated_at: Some(existing.updated_at.clone()),
+            title: Some("原记录".into()), markdown: "原正文\n\n---\n\n项目想法".into(),
+            html: "<p>原正文</p><hr><p>项目想法</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        });
+        assert!(result.is_err());
+        assert_eq!(database.note_record(existing.id).unwrap().content_markdown, "原正文");
+        assert_eq!(database.project_record(project.id).unwrap().summary_markdown, "项目想法");
+    }
+
+    #[test]
+    fn quick_note_commit_rejects_another_project_and_preserves_existing_metadata() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let other = create_project_named(&mut database, &harness.workspace_root, "Beta", None);
+        database.project_update(ProjectUpdateInput {
+            project_id: project.id, name: None, summary: "草稿".into(),
+            summary_markdown: Some("草稿".into()), summary_html: Some("<p>草稿</p>".into()),
+            summary_code_language: None, status: None,
+        }).unwrap();
+        let target = database.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: other.id, note_id: None, title: Some("现有标题".into()),
+            markdown: "正文".into(), html: "<p>正文</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let input = ProjectQuickNoteCommitInput {
+            project_id: project.id, expected_markdown: "草稿".into(), record_id: Some(target.id),
+            expected_record_markdown: Some(target.content_markdown.clone()),
+            expected_record_updated_at: Some(target.updated_at.clone()),
+            title: Some("现有标题".into()), markdown: "正文\n\n草稿".into(), html: "<p>正文</p><p>草稿</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        };
+        assert!(database.project_quick_note_commit(input).is_err());
+        assert_eq!(database.note_record(target.id).unwrap().content_markdown, "正文");
+        assert_eq!(database.project_record(project.id).unwrap().summary_markdown, "草稿");
     }
 
     #[test]

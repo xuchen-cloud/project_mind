@@ -48,11 +48,11 @@ Workspace 右栏上方为 Workspace View Todo，来源显示“工作区”或�
 
 | 资源 | 文件/形式 | 尺寸与用途 |
 | --- | --- | --- |
-| 内置高山封面 | [`assets/alpine-cover.png`](assets/alpine-cover.png) | 2170×725，独立横幅，应用里另产优化 WebP；图片与渐变分层 |
-| Nori 胸像 | [`assets/nori-bust.png`](assets/nori-bust.png) | 1312×1199 透明底，仅 Workspace 右下及小品牌标识裁切使用；另产优化 WebP |
+| 内置高山封面 | [`assets/alpine-cover.png`](assets/alpine-cover.png) | 2170×725，独立横幅，应用使用优化 JPEG；图片与渐变分层 |
+| Nori 胸像 | [`assets/nori-bust.png`](assets/nori-bust.png) | 1312×1199 透明底，仅 Workspace 右下及小品牌标识裁切使用；应用使用缩小后的透明 PNG |
 | 品牌字样 | HTML 文本 `Nori` + `Mind` 与蓝点 | 避免把参考截图中的字裁成图；不做全局产品名迁移 |
 | 功能与项目图标 | 当前 `lucide-react` | SVG，项目只保存白名单键名 |
-| 自定义封面 | 项目/工作区界面资源 | 原图持久化、CSS `object-position` 预览；上传限制与失败回退 |
+| 自定义封面 | 项目/工作区界面资源 | 设备内 IndexedDB 持久化优化图（最长 1800×900，20 MB 上传限制）、CSS 背景位置裁切预览；失败回退内置图 |
 
 两张生成资产均依据参考图单独制作，不包含界面截图元素。参考图原样保存在 `references/` 供核对；应用不加载整张参考图。
 
