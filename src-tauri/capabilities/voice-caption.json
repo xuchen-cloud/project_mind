@@ -7,7 +7,7 @@
     "core:default",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
-    "core:window:allow-set-size-constraints",
+    "core:window:allow-set-min-size",
     "core:window:allow-start-dragging",
     "core:window:allow-close",
     "core:window:allow-destroy"

@@ -514,7 +514,7 @@ describe("desktopApi", () => {
         alwaysOnTop: true,
         transparent: true,
         decorations: false,
-        shadow: true,
+        shadow: false,
         theme: "light",
         width: 680,
         height: 220,
@@ -560,7 +560,7 @@ describe("desktopApi", () => {
   });
 
   it("allows the caption window to change its minimum size", () => {
-    expect(voiceCaptionCapability.permissions).toContain("core:window:allow-set-size-constraints");
+    expect(voiceCaptionCapability.permissions).toContain("core:window:allow-set-min-size");
   });
 
   it("forces the caption window to close even when close requests are intercepted", async () => {
