@@ -12,6 +12,7 @@ import {
 import { generateDefaultProjectName } from "../../lib/projectDefaultName";
 import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -239,6 +240,13 @@ export function WorkspaceRecordFocusPage({
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue) => {
       if (!draftReady || recordId === null) return false;
+      const committedContent =
+        value ?? editorControllerRef.current?.getCommittedValue() ?? content;
+      // Keep the controlled prop in lockstep with the exact snapshot sent to
+      // the save coordinator.  The editor can start an AI session before the
+      // query cache refreshes; leaving this prop at the mount-time HTML would
+      // let controlled reconciliation reapply that stale document.
+      setContent(committedContent);
       saveCoordinator.submit({
         scope: "workspace",
         workspaceKey:
@@ -247,8 +255,7 @@ export function WorkspaceRecordFocusPage({
         title: titleValueRef.current,
         tagIds: tagIdsValueRef.current,
         defaultCodeLanguage: codeLanguageValueRef.current,
-        committedContent:
-          value ?? editorControllerRef.current?.getCommittedValue() ?? content,
+        committedContent,
       });
       setPersistState("saving");
       return true;
@@ -356,14 +363,9 @@ export function WorkspaceRecordFocusPage({
       return;
     }
 
-    await projectMindApi.workspaceRecordUpsert({
-      noteId: record.id,
-      title: nextTitle.trim() || undefined,
-      markdown: record.contentMarkdown,
-      html: record.contentHtml,
-      defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-      tagIds: (record.tags ?? []).map((tag) => tag.id),
-    });
+    await projectMindApi.workspaceRecordUpsert(
+      buildWorkspaceRecordRenameInput(record, nextTitle),
+    );
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 

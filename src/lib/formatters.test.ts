@@ -40,6 +40,16 @@ describe("fileUriToPath", () => {
   it("treats localhost file urls as local paths instead of network shares", () => {
     expect(fileUriToPath("file://localhost/tmp/demo%20file.txt")).toBe("/tmp/demo file.txt");
   });
+
+  it("parses Tauri asset urls as local paths", () => {
+    expect(fileUriToPath("asset:///tmp/demo%20file.txt")).toBe("/tmp/demo file.txt");
+  });
+
+  it("parses Windows drive asset urls", () => {
+    expect(fileUriToPath("asset:///C:/Users/demo/My%20File.txt")).toBe(
+      "C:\\Users\\demo\\My File.txt",
+    );
+  });
 });
 
 describe("preserveRecordFilters", () => {

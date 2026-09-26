@@ -37,3 +37,20 @@ Tauri Updater 私钥不得提交到任何仓库。丢失私钥后，已安装版
 
 Windows 只发布 NSIS `setup.exe`；macOS 分别发布 Apple Silicon 与 Intel DMG。
 应用内更新使用对应的签名更新资产，不会删除或移动 Workspace。
+
+## Publish a Windows-only patch
+
+需要只向 Windows 测试者提供紧急修复时，可以手动运行
+`Publish Windows patch` workflow：
+
+1. 从最新发布版本同步代码，并在 `package.json`、`package-lock.json`、
+   `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和
+   `src-tauri/Cargo.lock` 中同步递增数字版本。
+2. 在 GitHub Actions 中选择包含待发布提交的 ref，输入形如
+   `v0.1.3-windows.1` 的标签并运行工作流。
+3. 工作流会校验标签中的数字版本与五处版本文件一致，仅构建 Windows x64
+   NSIS 安装包，并将安装包和 Tauri 签名发布为 Pre-release。
+
+Windows-only patch 不生成或上传 `latest.json`，也不会修改
+`beta/latest.json`。因此它不会触发应用内自动更新，需要测试者从 GitHub Release
+页面手动下载安装；macOS 用户和当前 Beta 更新频道不受影响。

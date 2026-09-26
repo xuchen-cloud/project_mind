@@ -48,6 +48,7 @@ import {
 buildWorkspaceNoteImageAssetHandlers,
 externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
+import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
@@ -370,14 +371,9 @@ export function WorkspacePage({
       return;
     }
 
-    await workspaceRecordMutation.mutateAsync({
-      noteId: record.id,
-      title: title.trim() || undefined,
-      markdown: record.contentMarkdown,
-      html: record.contentHtml,
-      defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-      tagIds: (record.tags ?? []).map((tag) => tag.id),
-    });
+    await workspaceRecordMutation.mutateAsync(
+      buildWorkspaceRecordRenameInput(record, title),
+    );
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
   }
 

@@ -85,7 +85,10 @@ export function fileHref(path: string) {
 export function fileUriToPath(fileUri: string) {
   try {
     const url = new URL(fileUri);
-    if (url.protocol !== "file:") {
+    // Tauri's local asset protocol is a file-backed URL too.  Older notes can
+    // contain only `src="asset:///…"` without the newer data-path attribute;
+    // treating it like a file URL lets image AI recover the original path.
+    if (url.protocol !== "file:" && url.protocol !== "asset:") {
       return "";
     }
 
@@ -100,7 +103,7 @@ export function fileUriToPath(fileUri: string) {
 
     return pathname;
   } catch {
-    const fallback = fileUri.replace(/^file:\/\//, "");
+    const fallback = fileUri.replace(/^(?:file|asset):\/\//i, "");
 
     try {
       const decoded = decodeURIComponent(fallback);
