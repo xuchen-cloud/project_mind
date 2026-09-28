@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useFeedbackStore } from "../state/feedback-store";
 import { queryKeys } from "../lib/queryKeys";
+import type { ProjectListItem, TodoRecord } from "../lib/types";
 import {
   createTodoModule,
   productionTodoTransport,
@@ -13,7 +14,13 @@ import {
 export function useTodoModule(scope: TodoViewScope, enabled = true) {
   const queryClient = useQueryClient();
   const feedback = useFeedbackStore();
-  const [cacheVersion, setCacheVersion] = useState(0);
+  const collectionKey = scope.kind === "workspace"
+    ? queryKeys.todoCollections.workspaceRail
+    : queryKeys.todoCollections.projectOwned(scope.projectId);
+  // Observe the exact data we render. A cache event listener alone does not
+  // retain queries: they can be garbage-collected while this rail is visible.
+  const collection = useQuery<TodoRecord[]>({ queryKey: collectionKey, queryFn: skipToken });
+  const projects = useQuery<ProjectListItem[]>({ queryKey: queryKeys.projects.all, queryFn: skipToken });
   const module = useMemo(
     () => createTodoModule({ queryClient, transport: productionTodoTransport }),
     [queryClient],
@@ -25,27 +32,16 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
         : queryKeys.todoViews.project(scope.projectId),
     queryFn: () => module.load(scope),
     enabled,
+    // A cold page may outlive one of its derived collections in the cache.
+    refetchOnMount: () => (
+      queryClient.getQueryData(collectionKey) === undefined ||
+      queryClient.getQueryData(queryKeys.projects.all) === undefined
+    ) ? "always" : false,
   });
-
-  useEffect(
-    () =>
-      queryClient.getQueryCache().subscribe((event) => {
-        if (
-          (event.type === "updated" || event.type === "added" || event.type === "removed") &&
-          (queryKeyStartsWith(event.query.queryKey, queryKeys.todoCollections.all) ||
-            queryKeyStartsWith(event.query.queryKey, queryKeys.projects.all))
-        ) {
-          setCacheVersion((version) => version + 1);
-        }
-      }),
-    [queryClient],
-  );
 
   const view = useMemo(
     () => module.read(scope),
-    // cacheVersion intentionally represents every exact cache projection update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cacheVersion, module, scope.kind, scope.kind === "current-project" ? scope.projectId : null],
+    [collection.data, projects.data, query.data, module, scope.kind, scope.kind === "current-project" ? scope.projectId : null],
   );
 
   async function change(command: TodoChange) {
@@ -76,12 +72,7 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
     view,
     change,
     refresh: () => module.load(scope, { force: true }),
-    refreshing: query.isFetching,
     ready: query.isSuccess,
     error: query.error,
   };
-}
-
-function queryKeyStartsWith(queryKey: readonly unknown[], prefix: readonly unknown[]) {
-  return prefix.every((part, index) => Object.is(queryKey[index], part));
 }

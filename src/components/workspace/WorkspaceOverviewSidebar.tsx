@@ -1,16 +1,22 @@
+import { SidebarTagItem } from "../home/SidebarTagItem";
+import { HomeSidebarList } from "../home/HomeSidebarList";
+import { HomeSidebarSplit } from "../home/HomeSidebarSplit";
+import { HomeWorkspaceIdentity } from "../home/HomeWorkspaceIdentity";
 import { ProjectHomeIcon } from "../home/HomeCover";
 import {
 Archive,
-ChevronLeft,
+PanelLeft, ChevronLeft,
 ExternalLink,
 FolderKanban,
 NotebookText,
 Pencil,
+Plus,
 Trash2
 } from "lucide-react";
 import { useMemo,useState } from "react";
 
 import noriBust from "../../assets/home/nori-bust.png";
+import noriWordmark from "../../assets/home/norimind-wordmark.svg";
 import type { ProjectListItem,TagColorKey } from "../../lib/types";
 import {
 PROJECT_SIDEBAR_WIDTH_MAX_PX,
@@ -22,6 +28,7 @@ ActionContextMenu,
 Button,
 Dialog,
 ResizeHandle,
+SearchField,
 StatusBadge,
 type ContextMenuAction
 } from "../../ui/components";
@@ -227,11 +234,12 @@ export function WorkspaceOverviewSidebar({
         className="right-0"
       />
 
-      <div className="home-side__brand"><img src={noriBust} alt="" /><strong>Nori<span>Mind</span></strong><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
-      <button type="button" className="home-side__workspace" onClick={onOpenOverview}><FolderKanban size={18} /> 我的工作区</button>
-      <div className="home-side__scroll"><div className="home-side__heading"><span>项目</span><button type="button" aria-label="新建项目" disabled={createProjectPending} onClick={onCreateProject}>＋</button></div>
-              <input className="home-side__search" aria-label="搜索项目" placeholder="搜索项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
-              <div className="grid gap-1.5">
+      <div data-tauri-drag-region className="home-side__top"><button type="button" aria-label="切换左侧栏" aria-expanded={true} onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button><button type="button" className="home-side__workspace-tab" onClick={onOpenOverview}>我的工作区</button></div>
+      <div className="home-side__brand"><img className="home-side__mascot" src={noriBust} alt="" /><div className="home-side__brand-copy"><img className="home-side__wordmark" src={noriWordmark} alt="NoriMind" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenOverview} /></div><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
+
+      <HomeSidebarSplit key={workspaceRootPath} storageKey={`home-sidebar-split:workspace:${workspaceRootPath}`} upper={<><div className="home-side__heading"><span>项目</span><div className="home-side__heading-actions"><button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={() => setArchiveDialogOpen(true)}><Archive size={13} /></button><button type="button" className="home-side__workspace-action" aria-label="新建项目" title="新建项目" disabled={createProjectPending} onClick={onCreateProject}><Plus size={13} /></button></div></div>
+              <SearchField className="home-side__search" aria-label="搜索项目" placeholder="搜索项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
+              <HomeSidebarList label="项目列表" searchKey={projectQuery}>
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map((project) => {
                     const isEditing = editingProjectId === project.id;
@@ -240,7 +248,7 @@ export function WorkspaceOverviewSidebar({
                       <button
                         key={project.id}
                         type="button"
-                        className="flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border border-transparent px-3 py-2.5 text-left transition-colors hover:border-border hover:bg-bg"
+                        className="home-side__project"
                         onClick={() => {
                           if (!isEditing) {
                             onOpenProject(project.id);
@@ -260,7 +268,7 @@ export function WorkspaceOverviewSidebar({
                           });
                         }}
                       >
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
+                        <span className="home-side__project-icon">
                           <ProjectHomeIcon rootPath={project.rootPath} size={18} />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -293,9 +301,7 @@ export function WorkspaceOverviewSidebar({
                               {project.name}
                             </p>
                           )}
-                          <p className="mt-1 text-ui text-text-soft">
-                            {project.openTodoCount} 个 Todo
-                          </p>
+
                         </span>
                       </button>
                     );
@@ -305,13 +311,12 @@ export function WorkspaceOverviewSidebar({
                     没有匹配的项目。
                   </p>
                 )}
-              </div>
+              </HomeSidebarList>
 
-        <div className="home-side__divider" /><div className="home-side__heading">工作区标签</div>
-        <button type="button" className={`home-side__item ${activeRecordTagId === null ? "is-active" : ""}`} onClick={() => onActiveRecordTagIdChange(null)}><NotebookText size={18} />全部记录</button>
-        {availableTags.map((tag) => <button key={tag.id} type="button" className={`home-side__item ${activeRecordTagId === tag.id ? "is-active" : ""}`} onClick={() => onActiveRecordTagIdChange(tag.id)}><span className="home-side__hash">#</span><span>{tag.label}</span></button>)}
-      </div>
-      <div className="home-side__bottom"><button type="button" className="home-side__item" onClick={() => setArchiveDialogOpen(true)}><Archive size={18} />归档项目 <span>{archivedProjects.length}</span></button></div>
+        </>} lower={<><div className="home-side__heading">工作区标签</div><HomeSidebarList label="工作区标签列表">
+        <button type="button" className="home-side__item" onClick={() => onActiveRecordTagIdChange(null)}><NotebookText size={18} />全部记录</button>
+        {availableTags.map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
+      </HomeSidebarList></>} />
 
       {projectContextMenu ? (
         <ActionContextMenu

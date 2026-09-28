@@ -31,6 +31,7 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - mutation 应优先精确更新缓存；确实影响聚合结果时才失效对应 query family。
 - query key 必须从 `src/lib/queryKeys.ts` 获取，禁止新增散落的同义 key。
 - Todo 集合 key 显式区分 Workspace 自有集合、Project 自有集合和 Workspace Rail 聚合集合；聚合结果不得使用含义模糊的 Workspace Todo key。
+- 待办侧栏必须通过 Query observer 订阅实际渲染的集合及项目元数据；仅监听 QueryCache 事件不会阻止 GC。Active / Warm 侧栏保留这些缓存，卸载后仍按默认 GC 回收。重新挂载时若视图缓存仍在但集合已缺失，自动重新加载集合。
 
 项目页签在鼠标移入或键盘聚焦时预取 `project-page` 与项目标签设置。预取不得阻塞点击导航。
 
@@ -69,7 +70,7 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 - 普通 Project 与 Record 导航只同步读取当前 Committed Content、标题、标签、代码语言及 Record/Project 身份，然后立即提交路由。内容规范化、managed image 外部化、数据库写入和 React Query 同步均在导航之后执行。
 - 保存任务由当前 Workspace 的 `RecordSaveCoordinator` 持有，不依赖来源页面继续挂载。任务按 Record 串行，不同 Record 可以独立推进。
 - 同一 Record 只有最新提交的成功结果可以写回 React Query；仍在排队或失败的较新快照不会被较旧结果覆盖。
-- 失败任务保留其快照，并通过全局状态和 Toast 显示。可重试失败能够从状态栏重试，且不阻塞普通导航。
+- 失败任务保留其快照，并通过 Toast 显示。可重试失败能够从失败通知重试，且不阻塞普通导航。
 - 正常退出、切换 Workspace 和安装更新是 flush barrier：必须等待对应 Workspace 的队列完成；flush 失败会取消该生命周期动作并保留任务。
 
 ## 性能验收

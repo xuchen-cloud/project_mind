@@ -53,7 +53,6 @@ describe("Beta release configuration", () => {
       "README.md",
       "docs/beta-release.md",
       "src/App.tsx",
-      "src/components/project/CreateProjectModal.tsx",
       "src/components/settings/SettingsDialog.tsx",
       "src/components/settings/UpdateSettingsPanel.tsx",
       "src/features/record-export/docxGenerator.ts",

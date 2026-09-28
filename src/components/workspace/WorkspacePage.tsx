@@ -2,7 +2,7 @@ import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import noriBust from "../../assets/home/nori-bust.png";
+import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
@@ -36,12 +36,13 @@ import { useUiStore } from "../../state/ui-store";
 import { TodoModuleRail } from "../../todo";
 import { PageLoadingSkeleton } from "../../ui/components";
 import "../home/home.css";
-import { HomeCover } from "../home/HomeCover";
+import { HomeCover, HomeIdentityIcon } from "../home/HomeCover";
 import { HomeQuickNote } from "../home/HomeQuickNote";
 import { HomeRecordFilters } from "../home/HomeRecordFilters";
 import {
 getRenderableRichTextHtml,
 RichEditor,
+type RichEditorController,
 type RichEditorValue
 } from "../rich-editor";
 import {
@@ -86,8 +87,6 @@ export function WorkspacePage({
     openProjectIds,
     closeProjectTab,
     projectSidebarCollapsed,
-    todoRailCollapsed,
-    todoRailWidthPx,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
@@ -151,6 +150,7 @@ export function WorkspacePage({
   const [quickNoteDraft, setQuickNoteDraft] = useState<RichEditorValue>(EMPTY_VALUE);
   const [quickNoteCodeLanguage, setQuickNoteCodeLanguage] = useState<string | null>(null);
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
+  const quickNoteEditorRef = useRef<RichEditorController | null>(null);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(() => {
     const value = searchParams.get("recordTag");
@@ -537,8 +537,11 @@ export function WorkspacePage({
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">
         <div className="project-overview-focus__scroll" data-testid="workspace-overview-focus-scroll">
           <div className="home-content">
-            <HomeCover identityKey={`workspace:${currentWorkspace.rootPath}`} defaultIcon="House" title={currentWorkspace.displayName || "我的工作区"} subtitle="工作区" />
+            <HomeCover identityKey={`workspace:${currentWorkspace.rootPath}`} defaultIcon="House" title={currentWorkspace.displayName || "我的工作区"} />
             <HomeQuickNote
+            pageTitle={currentWorkspace.displayName || "我的工作区"}
+            pageIcon={<HomeIdentityIcon name="House" size={20} />}
+              editorControllerRef={quickNoteEditorRef}
               key={currentWorkspace?.rootPath}
               identity={`workspace-quick-note:${currentWorkspace?.rootPath}`}
               initialValue={quickNoteDraft}
@@ -553,8 +556,9 @@ export function WorkspacePage({
                 await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                 await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
               }}
-              renderEditor={({ controllerRef, onSave, onPersistStateChange, readOnly }) => (
+              renderEditor={({ controllerRef, onChange, onSave, onPersistStateChange, readOnly, toolbarExtras }) => (
                 <RichEditor
+                  renderToolbarExtras={() => toolbarExtras}
                   contentIdentity="workspace-quick-note"
                   html={quickNoteDraft.html}
                   readOnly={!visible || readOnly}
@@ -563,7 +567,7 @@ export function WorkspacePage({
                   onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
                   variant="toolbar"
                   assetHandlers={workspaceAssetHandlers}
-                  placeholder="记下当前最需要先抓住的背景、判断、候选行动或提醒。"
+                  placeholder="记下一个想法，或粘贴需要整理的内容…"
                   tagMentions={{
                     projectId: null,
                     availableTags,
@@ -590,6 +594,7 @@ export function WorkspacePage({
                   controllerRef={controllerRef}
                   onOpenAiSettings={() => openSettings("ai-rewrite")}
                   onSave={onSave}
+                  onChange={onChange}
                   onPersistStateChange={onPersistStateChange}
                 />
               )}
@@ -599,6 +604,8 @@ export function WorkspacePage({
               <WorkspaceOverviewHistory
                 notes={filteredWorkspaceRecords}
                 hasAnyNotes={workspaceRecords.length > 0}
+                hasRecordFilters={Boolean(recordSearchQuery.trim()) || recordFilterTagId !== null}
+                onStartWriting={() => quickNoteEditorRef.current?.focus("end")}
                 focusId={focusId}
                 composeRecord={composeRecord}
                 pageWidthMode={pageWidthMode}
@@ -652,7 +659,7 @@ export function WorkspacePage({
         </div>
       </div>
 
-      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--workspace${todoRailCollapsed ? " is-collapsed" : ""}`}><div className="home-rail__todo">
+      <HomeWorkspaceRail>
       <TodoModuleRail
         scope={{ kind: "workspace" }}
         enabled={visible}
@@ -661,7 +668,7 @@ export function WorkspacePage({
         onOpenInternalReference={openInternalReference}
         onOpenContactMention={openContactMention}
       />
-      </div>{!todoRailCollapsed ? <div className="home-brand"><p>“让好想法，<br />在有上下文的地方持续推进。”</p><small>— Nori Mind</small><img src={noriBust} alt="Nori 小熊" /></div> : null}</div>
+      </HomeWorkspaceRail>
     </div>
   );
 }

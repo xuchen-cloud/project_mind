@@ -28,7 +28,6 @@ describe("SettingsDialog", () => {
         <SettingsDialog
           open
           activeSection={section}
-          projectId={null}
           onSectionChange={setSection}
           onUnlockAiSecrets={async () => true}
           onClose={() => undefined}
@@ -37,6 +36,8 @@ describe("SettingsDialog", () => {
     }
 
     render(<SettingsHarness />);
+
+    expect(screen.queryByRole("button", { name: /项目标签|Workspace 标签/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "应用更新" }));
 

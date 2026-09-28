@@ -1,9 +1,9 @@
-import { FileDown, MoreHorizontal } from "lucide-react";
+import { FileDown } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 
 import { desktopApi } from "../../services/desktopApi";
-import { ActionContextMenu, IconButton } from "../../ui/components";
+import { IconButton } from "../../ui/components";
 import { RecordExportDialog } from "./RecordExportDialog";
 import type { RecordExportRequest, RecordExportResult } from "./recordExport";
 import { chooseRecordExportTarget } from "./recordExportTarget";
@@ -18,25 +18,16 @@ export function RecordExportAction({
   exportTo: (request: RecordExportRequest) => Promise<RecordExportResult>;
 }) {
   const [open, setOpen] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const hasImages = /<img\b/iu.test(getCommittedHtml());
 
   return (
     <>
-      <IconButton type="button" size="sm" variant="ghost" aria-label="记录更多操作"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          setMenu({ x: rect.right, y: rect.bottom + 4 });
-        }}>
-        <MoreHorizontal size={16} />
+      <IconButton type="button" size="sm" variant="ghost" aria-label="导出为" title="导出为…" onClick={() => setOpen(true)}>
+        <FileDown size={16} />
       </IconButton>
       {typeof document !== "undefined"
         ? createPortal(
             <>
-              {menu ? (
-                <ActionContextMenu x={menu.x} y={menu.y} ariaLabel="记录更多操作" onClose={() => setMenu(null)}
-                  actions={[{ label: "导出…", icon: FileDown, onSelect: () => { setMenu(null); setOpen(true); } }]} />
-              ) : null}
               <RecordExportDialog
                 open={open}
                 hasImages={hasImages}

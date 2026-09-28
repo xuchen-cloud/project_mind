@@ -284,7 +284,8 @@ describe("WorkspaceTopBar", () => {
     );
 
     fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
-    expect(screen.getAllByText("Workspace")).toHaveLength(2);
+    expect(screen.getAllByText("Workspace")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveTextContent("");
     expect(screen.getByText("Alpha")).toBeInTheDocument();
 
     const results = screen.getAllByRole("option", { name: /同名 Todo/ });

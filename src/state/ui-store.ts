@@ -8,7 +8,6 @@ import {
 export type SettingsSection =
   | "page-width"
   | "updates"
-  | "project-tags"
   | "contacts"
   | "voice"
   | "ai-models"
@@ -19,7 +18,6 @@ export type WorkspaceSidebarTab = "projects" | "records";
 export type ProjectSidebarTab = "records" | "files";
 export type TodoRailTab = "unfinished" | "finished";
 export type TodoRailSortMode = "time" | "priority";
-export type TodoRailDisplayMode = "grouped" | "flat";
 export type ProjectTodoViewMode = "workspace" | "current-project";
 
 interface ProjectFileFilterState {
@@ -68,7 +66,6 @@ interface UiStoreState {
   todoRailCollapsed: boolean;
   todoRailTab: TodoRailTab;
   todoRailSortMode: TodoRailSortMode;
-  todoRailDisplayMode: TodoRailDisplayMode;
   projectTodoViewMode: ProjectTodoViewMode;
   openProjectIds: number[];
   projectRecentPaths: Record<number, string>;
@@ -95,7 +92,6 @@ interface UiStore extends UiStoreState {
   setTodoRailCollapsed: (collapsed: boolean) => void;
   setTodoRailTab: (tab: TodoRailTab) => void;
   setTodoRailSortMode: (mode: TodoRailSortMode) => void;
-  setTodoRailDisplayMode: (mode: TodoRailDisplayMode) => void;
   setProjectTodoViewMode: (mode: ProjectTodoViewMode) => void;
   setPageWidthMode: (width: PageWidthMode) => void;
   setTodoRailWidthPx: (width: number) => void;
@@ -130,7 +126,6 @@ export function createUiStoreState(): UiStoreState {
     todoRailCollapsed: false,
     todoRailTab: "unfinished",
     todoRailSortMode: "time",
-    todoRailDisplayMode: "grouped",
     projectTodoViewMode: "current-project",
     openProjectIds: [],
     projectRecentPaths: {},
@@ -174,7 +169,6 @@ export const uiStorePersistStorage = createJSONStorage<{
   projectSidebarWidthPx: number;
   projectSidebarCollapsed?: boolean;
   todoRailCollapsed?: boolean;
-  todoRailDisplayMode?: TodoRailDisplayMode;
   projectTodoViewMode?: ProjectTodoViewMode;
 }>(createUiStorePersistStorage);
 
@@ -186,9 +180,9 @@ export const createUiStore = () =>
         setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
         setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
         setSettingsSection: (settingsSection) => set({ settingsSection }),
-        setSettingsProjectId: (settingsProjectId) => set({ settingsProjectId }),
-        openSettings: (settingsSection = "page-width", settingsProjectId = null) =>
-          set({ settingsOpen: true, settingsSection, settingsProjectId }),
+        setSettingsProjectId: () => set({ settingsProjectId: null }),
+        openSettings: (settingsSection = "page-width") =>
+          set({ settingsOpen: true, settingsSection, settingsProjectId: null }),
         closeSettings: () => set({ settingsOpen: false, settingsProjectId: null }),
         setProjectComposer: (projectComposer) => set({ projectComposer }),
         setWorkspaceSidebarTab: (workspaceSidebarTab) => set({ workspaceSidebarTab }),
@@ -218,7 +212,6 @@ export const createUiStore = () =>
         setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
         setTodoRailTab: (todoRailTab) => set({ todoRailTab }),
         setTodoRailSortMode: (todoRailSortMode) => set({ todoRailSortMode }),
-        setTodoRailDisplayMode: (todoRailDisplayMode) => set({ todoRailDisplayMode }),
         setProjectTodoViewMode: (projectTodoViewMode) => set({ projectTodoViewMode }),
         setPageWidthMode: (pageWidthMode) => set({ pageWidthMode }),
         setTodoRailWidthPx: (todoRailWidthPx) =>
@@ -291,7 +284,6 @@ export const createUiStore = () =>
                 projectSidebarWidthPx?: number;
                 projectSidebarCollapsed?: boolean;
                 todoRailCollapsed?: boolean;
-                todoRailDisplayMode?: TodoRailDisplayMode;
                 projectTodoViewMode?: ProjectTodoViewMode;
               }
             | undefined;
@@ -313,7 +305,6 @@ export const createUiStore = () =>
               state?.projectSidebarWidthPx ?? PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
             projectSidebarCollapsed: state?.projectSidebarCollapsed ?? false,
             todoRailCollapsed: state?.todoRailCollapsed ?? false,
-            todoRailDisplayMode: state?.todoRailDisplayMode ?? "grouped",
             projectTodoViewMode: state?.projectTodoViewMode ?? "current-project",
           };
         },
@@ -324,7 +315,6 @@ export const createUiStore = () =>
           projectSidebarWidthPx: state.projectSidebarWidthPx,
           projectSidebarCollapsed: state.projectSidebarCollapsed,
           todoRailCollapsed: state.todoRailCollapsed,
-          todoRailDisplayMode: state.todoRailDisplayMode,
           projectTodoViewMode: state.projectTodoViewMode,
         }),
       },

@@ -14,7 +14,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
   return (
     <label
       className={cn(
-        "flex h-8 items-center gap-2 rounded-[var(--radius-6)] border border-border bg-bg px-2.5 text-ui text-text-muted transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] hover:border-border-strong focus-within:border-accent",
+        "search-field flex h-8 items-center gap-2 rounded-[var(--radius-6)] border border-border bg-bg px-2.5 text-ui text-text-muted transition-[border-color,background-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)] hover:border-border-strong focus-within:border-border-strong",
         className,
       )}
     >

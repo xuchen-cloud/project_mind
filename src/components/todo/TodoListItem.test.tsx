@@ -1,4 +1,4 @@
-import { act, fireEvent, render as baseRender, screen } from "@testing-library/react";
+import { waitFor, act, fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -82,7 +82,8 @@ describe("TodoListItem", () => {
     expect(primary).toBeInTheDocument();
     expect(subtasks).toBeInTheDocument();
     expect(primary).toHaveTextContent("Review the contract draft");
-    expect(primary).toHaveTextContent("法务");
+    expect(primary).not.toHaveTextContent("法务");
+    expect(document.querySelector(".todo-card__tag-row")).toHaveTextContent("法务");
     expect(primary).not.toHaveTextContent("等待财务确认");
     expect(subtasks).toHaveTextContent("等待财务确认");
   });
@@ -155,6 +156,19 @@ describe("TodoListItem", () => {
     expect(screen.getByLabelText("移除标签 法务")).toBeInTheDocument();
   });
 
+  it("keeps priority editing available after text blur without a project selector", async () => {
+    const user = userEvent.setup();
+    const onUpdatePriority = vi.fn();
+    renderItem({}, { allowInlineEdit: true, onUpdatePriority });
+    await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
+    expect(screen.queryByRole("combobox", { name: "Todo 归属" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "P1 · 紧急且重要" }));
+    expect(onUpdatePriority).toHaveBeenCalledWith(7, "urgent_important");
+    expect(screen.getByRole("button", { name: "完成" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "完成" }));
+    expect(screen.queryByRole("button", { name: "P1 · 紧急且重要" })).not.toBeInTheDocument();
+  });
+
   it("adds an explicit Workspace Tag while editing an untagged Workspace Todo", async () => {
     const user = userEvent.setup();
     const onUpdateTags = vi.fn(async () => undefined);
@@ -181,7 +195,7 @@ describe("TodoListItem", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
-    const tagInput = screen.getByPlaceholderText("# 新增标签");
+    const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     expect(tagInput.closest("label")?.querySelector("svg")).toBeNull();
     await user.type(tagInput, "复盘{Enter}");
 
@@ -250,11 +264,11 @@ describe("TodoListItem", () => {
     ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "标记子项完成" }));
 
-    expect(onUpdateProgress).toHaveBeenCalledWith(31, {
+    await waitFor(() => expect(onUpdateProgress).toHaveBeenCalledWith(31, {
       content: "等待财务确认",
       progressDate: "2026-04-05",
       status: "finished",
-    });
+    }));
     expect(screen.getByText("等待财务确认").closest(".todo-progress-item")?.className).toContain(
       "todo-progress-item--completing",
     );
@@ -283,6 +297,7 @@ describe("TodoListItem", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "标记子项完成" }));
+    await waitFor(() => expect(onUpdateProgress).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "标记子项未完成" }));
 
     expect(onUpdateProgress).toHaveBeenNthCalledWith(1, 31, {
@@ -360,7 +375,10 @@ describe("TodoListItem", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "等待财务最终盖章" })).toBeInTheDocument();
 
-    resolveSave?.();
+    await act(async () => { resolveSave?.(); });
+    const nextSubtask = await screen.findByRole("textbox");
+    expect(nextSubtask).toHaveFocus();
+    expect(nextSubtask).toHaveTextContent("");
   });
 
   it("applies a visual transition state while a sub item is completing", () => {
@@ -529,7 +547,7 @@ describe("TodoListItem", () => {
 
     await user.click(screen.getByRole("button", { name: "Review the contract draft" }));
 
-    expect(row).toHaveClass("todo-card__subitem-row--visible");
+    expect(document.querySelector("#todo-7 .todo-card__subitem-row")).toHaveClass("todo-card__subitem-row--visible");
     expect(screen.getByRole("button", { name: "添加子任务" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开已完成子项" })).toBeInTheDocument();
   });

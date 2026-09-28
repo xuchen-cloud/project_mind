@@ -1,3 +1,4 @@
+import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { Save,Trash2 } from "lucide-react";
 import {
@@ -49,19 +50,19 @@ NoteRecord,
 ProjectPageData,
 ProjectTagRecord,
 } from "../../lib/types";
-import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
 import { TodoModuleRail } from "../../todo";
-import { ActionContextMenu,Button,EmptyState,PageLoadingSkeleton,TextField } from "../../ui/components";
+import { ActionContextMenu,Button,PageLoadingSkeleton,TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
 import "../home/home.css";
-import { HomeCover } from "../home/HomeCover";
+import { HomeEmptyState } from "../home/HomeEmptyState";
+import { HomeCover, ProjectHomeIcon } from "../home/HomeCover";
 import { HomeQuickNote } from "../home/HomeQuickNote";
 import { HomeRecordFilters } from "../home/HomeRecordFilters";
-import { ProjectSidebar } from "../layout/ProjectSidebar";
+import { HomeProjectFiles } from "../home/HomeProjectFiles";
 import { RecordListItem } from "../record/RecordListItem";
 import {
 getRenderableRichTextHtml,
@@ -180,6 +181,7 @@ export function ProjectOverviewPage({
     noteId: number;
   } | null>(null);
   const [pageDragActive, setPageDragActive] = useState(false);
+  const quickNoteEditorRef = useRef<RichEditorController | null>(null);
   const recordDraftEditorRef = useRef<RichEditorController | null>(null);
   const projectNameInputRef = useRef<HTMLInputElement | null>(null);
   const autoFocusedProjectNameIdRef = useRef<number | null>(null);
@@ -200,6 +202,8 @@ export function ProjectOverviewPage({
       }),
     [allRecords, recordFilterTagId, recordSearchQuery],
   );
+  const searchMotionRef = useRef<HTMLElement>(null);
+  useSearchResultsMotion(searchMotionRef, recordSearchQuery);
   const recordPresence = useKeyedPresence(
     records,
     (record) => String(record.id),
@@ -235,7 +239,6 @@ export function ProjectOverviewPage({
     togglePendingImportTag,
     closeImportTagDialog,
     confirmImportTagDialog,
-    manageImportTags,
   } = useDocumentImportFlow({
     projectId,
     enabled: visible,
@@ -603,14 +606,16 @@ export function ProjectOverviewPage({
               onChangeSelectedTagIds={togglePendingImportTag}
               onClose={closeImportTagDialog}
               onConfirm={() => void confirmImportTagDialog()}
-              onManageTags={manageImportTags}
             />
           ) : null}
 
           <HomeCover identityKey={`project:${activeProject.rootPath}`} defaultIcon="Compass" canEditIcon
             title={<input ref={projectNameInputRef} aria-label="项目名称" disabled={publishingQuickNote} value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => void saveProjectName()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}
-            subtitle={<button type="button" onClick={() => void desktopApi.openFolder(activeProject.rootPath)}>我的工作区 / {activeProject.name}</button>} />
+          />
           <HomeQuickNote
+            pageTitle={nameDraft}
+            pageIcon={<ProjectHomeIcon rootPath={activeProject.rootPath} size={20} />}
+            editorControllerRef={quickNoteEditorRef}
             key={activeProject.rootPath}
             identity={`project-quick-note:${activeProject.rootPath}`}
             initialValue={quickNoteDraft}
@@ -623,11 +628,13 @@ export function ProjectOverviewPage({
               setQuickNoteCodeLanguage(null);
             }}
             onCommitted={() => refreshProject()}
-            renderEditor={({ controllerRef, onSave, onPersistStateChange, readOnly }) => (
+            renderEditor={({ controllerRef, onChange, onSave, onPersistStateChange, readOnly, toolbarExtras }) => (
               <RichEditor
+                  renderToolbarExtras={() => toolbarExtras}
                 key={`project-quick-note-${activeProject.id}`}
                 contentIdentity={`project-quick-note:${activeProject.id}`}
                 html={quickNoteDraft.html}
+                placeholder="记下一个想法，或粘贴需要整理的内容…"
                 readOnly={!visible || readOnly}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={quickNoteCodeLanguage}
@@ -661,7 +668,8 @@ export function ProjectOverviewPage({
                 controllerRef={controllerRef}
                 onOpenAiSettings={() => openSettings("ai-rewrite")}
                 onSave={onSave}
-                onPersistStateChange={onPersistStateChange}
+                onChange={onChange}
+                  onPersistStateChange={onPersistStateChange}
               />
             )}
           />
@@ -669,7 +677,7 @@ export function ProjectOverviewPage({
             onQuery={(query) => { const next = new URLSearchParams(searchParams); if (query) next.set("recordQuery", query); else next.delete("recordQuery"); setProjectSearchParams(next, { replace: true }); }}
             onClearTag={() => { const next = new URLSearchParams(searchParams); next.delete("recordTag"); setProjectSearchParams(next); }}
             onCreate={() => setRecordDraftOpen(true)} />
-          <section
+          <section ref={searchMotionRef}
             className={withPageWidthClass(
               "project-overview-focus__page project-overview-focus__page--history",
               pageWidthMode,
@@ -808,10 +816,13 @@ export function ProjectOverviewPage({
                     </div>
                   ))}
                 </div>
-              ) : allRecords.length === 0 ? (
-                <EmptyState text="还没有记录。" compact />
+              ) : recordDraftOpen ? null : allRecords.length === 0 && !recordSearchQuery.trim() && recordFilterTagId === null ? (
+                <HomeEmptyState kind="records" title="从一个想法开始"
+                  description="在上方记下灵感、会议要点或待整理的内容，存为记录后会出现在这里。"
+                  actionLabel="写下第一条" disabled={publishingQuickNote}
+                  onAction={() => quickNoteEditorRef.current?.focus("end")} />
               ) : (
-                <EmptyState text="没有匹配的记录。" compact />
+                <HomeEmptyState kind="search" title="没有匹配的记录" description="试试其他关键词，或清除筛选。" />
               )}
               {contextMenuRecord && recordContextMenu ? (
                 <ActionContextMenu
@@ -855,7 +866,7 @@ export function ProjectOverviewPage({
       />
         </div>
         {!todoRailCollapsed ? <HomeRailDivider key={activeProject.rootPath} identity={activeProject.rootPath} /> : null}
-        {visible && !todoRailCollapsed ? <div className="home-rail__files"><h2>文件</h2><ProjectSidebar filesOnly project={activeProject} documents={(projectPage.projectDocuments ?? []).map((file) => ({ ...file, tags: file.tags ?? [] }))} resident onOpenProject={() => undefined} /></div> : null}
+        {visible && !todoRailCollapsed ? <HomeProjectFiles project={activeProject} documents={(projectPage.projectDocuments ?? []).map((file) => ({ ...file, tags: file.tags ?? [] }))} /> : null}
       </div>
     </div>
   );

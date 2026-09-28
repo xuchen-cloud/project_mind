@@ -76,11 +76,23 @@ export function TodoReferenceEditor({
       renderTodoReferenceEditorValue(root, value);
     }
 
+    // WebKit needs a line box in a newly mounted empty contenteditable to paint its caret.
+    if (value === "" && root.childNodes.length === 0) {
+      const line = document.createElement("br");
+      line.dataset.editorPlaceholder = "true";
+      root.append(line);
+    }
+
     if (autoFocus && !didAutoFocusRef.current && !disabled) {
       root.focus();
       setTodoReferenceEditorSelection(root, selectionOffset ?? value.length);
       didAutoFocusRef.current = true;
-      return;
+      const frame = window.requestAnimationFrame(() => {
+        if (document.activeElement === root && serializeTodoReferenceEditorValue(root) === "") {
+          setTodoReferenceEditorSelection(root, 0);
+        }
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
 
     if (active && typeof selectionOffset === "number") {
@@ -262,7 +274,7 @@ function serializeTodoReferenceNode(node: Node): string {
     }
 
     if (node.tagName === "BR") {
-      return " ";
+      return node.dataset.editorPlaceholder ? "" : " ";
     }
 
     return Array.from(node.childNodes)
@@ -376,7 +388,7 @@ function getSerializedLength(node: Node): number {
     }
 
     if (node.tagName === "BR") {
-      return 1;
+      return node.dataset.editorPlaceholder === "true" ? 0 : 1;
     }
 
     return Array.from(node.childNodes).reduce((total, child) => total + getSerializedLength(child), 0);
@@ -426,6 +438,12 @@ function resolveSelectionPoint(
   }
 
   if (node instanceof HTMLElement) {
+    // A caret belongs beside a void BR, never inside it.
+    if (node.tagName === "BR" && node.parentNode) {
+      const index = Array.prototype.indexOf.call(node.parentNode.childNodes, node);
+      const length = getSerializedLength(node);
+      return { node: node.parentNode, offset: index + (remaining > 0 ? 1 : 0), remaining: Math.max(0, remaining - length) };
+    }
     const reference = readInternalReferenceElement(node);
 
     if (reference) {

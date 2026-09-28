@@ -5,7 +5,6 @@ import type { DocumentRecord } from "../lib/types";
 import { projectMindApi } from "../services/projectMindApi";
 import { queryKeys } from "../lib/queryKeys";
 import { useFeedbackStore } from "../state/feedback-store";
-import { useUiStore } from "../state/ui-store";
 import { refreshAll } from "./shared";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../lib/resident-pages";
 
@@ -24,7 +23,6 @@ export function useDocumentImportFlow({
 }: UseDocumentImportFlowOptions) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
-  const openSettings = useUiStore((state) => state.openSettings);
   const [pendingImportPaths, setPendingImportPaths] = useState<string[] | null>(null);
   const [pendingImportTagIds, setPendingImportTagIds] = useState<number[]>([]);
 
@@ -132,11 +130,6 @@ export function useDocumentImportFlow({
     return importFiles(paths, tagIds);
   }, [importFiles, pendingImportPaths, pendingImportTagIds]);
 
-  const manageImportTags = useCallback(() => {
-    closeImportTagDialog();
-    openSettings("project-tags", projectId);
-  }, [closeImportTagDialog, openSettings, projectId]);
-
   return {
     projectTags: projectTagSettingsQuery.data?.tags ?? [],
     projectTagSettingsQuery,
@@ -147,6 +140,5 @@ export function useDocumentImportFlow({
     setPendingImportTagIds: setPendingImportTagIdsDirectly,
     closeImportTagDialog,
     confirmImportTagDialog,
-    manageImportTags,
   };
 }

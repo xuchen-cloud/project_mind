@@ -1,3 +1,5 @@
+import "../tags/entity-tags.css";
+import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import {
   useCallback,
   useEffect,
@@ -11,7 +13,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  Circle,
   FilePlus2,
   FileText,
   Files,
@@ -26,7 +27,6 @@ import {
 } from "lucide-react";
 
 import type { DocumentRecord, DocumentTagRecord, TagColorKey } from "../../lib/types";
-import { tagColorValue } from "../../lib/constants";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
@@ -50,8 +50,9 @@ import {
   StatusBadge,
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import { HomeEmptyState } from "../home/HomeEmptyState";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
-import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
+import { DocumentContextTags } from "../document/DocumentContextTags";
 import {
   DocumentContextMenuAction,
   DocumentVersionDropdown,
@@ -183,7 +184,6 @@ export function ProjectSidebar({
     setPendingImportTagIds,
     closeImportTagDialog,
     confirmImportTagDialog,
-    manageImportTags,
   } = useDocumentImportFlow({
     projectId: project.id,
     resident,
@@ -220,6 +220,7 @@ export function ProjectSidebar({
   const openTimerRef = useRef<number | null>(null);
   const dragDeactivateTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const dragActiveRef = useRef(false);
 
   const projectTagLookup = useMemo(
@@ -304,7 +305,14 @@ export function ProjectSidebar({
     return matchesQuery && matchesTag;
   });
 
+  async function pickAndImportFiles() {
+    const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${project.rootPath}` });
+    if (sourcePaths.length > 0) await handleImportPaths(sourcePaths);
+  }
+
   const normalizedFileQuery = fileQuery.trim().toLowerCase();
+  const searchMotionRef = useRef<HTMLDivElement>(null);
+  useSearchResultsMotion(searchMotionRef, `${activeTab}:${recordQuery}:${fileQuery}`);
   const filteredDocuments = sortedDocuments.filter((document) => {
     const matchesQuery =
       !normalizedFileQuery ||
@@ -345,7 +353,7 @@ export function ProjectSidebar({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      if (!contextMenuRef.current?.contains(event.target as Node)) {
         setContextMenu(null);
       }
     };
@@ -856,13 +864,7 @@ export function ProjectSidebar({
                     size="sm"
                     variant="secondary"
                     aria-label="导入文件"
-                    onClick={async () => {
-                      const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${project.rootPath}` });
-                      if (sourcePaths.length === 0) {
-                        return;
-                      }
-                      await handleImportPaths(sourcePaths);
-                    }}
+                    onClick={() => void pickAndImportFiles()}
                   >
                     <FilePlus2 size={14} />
                   </IconButton>
@@ -889,7 +891,7 @@ export function ProjectSidebar({
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div ref={searchMotionRef} className="min-h-0 flex-1 overflow-y-auto">
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -997,7 +999,7 @@ export function ProjectSidebar({
                         key={document.id}
                         type="button"
                         className={cn(
-                          "group flex min-w-0 items-start gap-2 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          "group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
                           isEditing ? "" : "context-menu-no-select",
                           document.health === "missing"
                             ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
@@ -1069,15 +1071,19 @@ export function ProjectSidebar({
                               </StatusBadge>
                             ) : null}
                           </span>
-                          <TagPreview tags={tags} />
                         </span>
+                        <TagPreview tags={tags} fullWidth />
                       </button>
                     );
                   })
                 ) : (
-                  <p className="rounded-[var(--radius-8)] border border-dashed border-border px-3 py-4 text-ui text-text-soft">
-                    没有匹配的文件。
-                  </p>
+                  <HomeEmptyState
+                    kind={normalizedFileQuery || documentTagId !== null ? "search" : "files"}
+                    title={normalizedFileQuery || documentTagId !== null ? "没有匹配的文件" : "还没有文件"}
+                    description={normalizedFileQuery || documentTagId !== null ? "试试其他关键词，或清除筛选。" : "拖入文件，或点击添加"}
+                    actionLabel={normalizedFileQuery || documentTagId !== null ? undefined : "添加文件"}
+                    onAction={() => void pickAndImportFiles()}
+                  />
                 )}
               </div>
             )}
@@ -1113,7 +1119,8 @@ export function ProjectSidebar({
       {/* Context Menu */}
       {contextMenuDocument && contextMenu ? (
         <PopoverPanel
-          className="fixed z-30 min-w-[15rem] p-1.5"
+          ref={contextMenuRef}
+          className="context-menu__panel fixed z-[80] w-[15rem] max-w-[calc(100vw-16px)] p-1"
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -1124,7 +1131,7 @@ export function ProjectSidebar({
           onClick={stopPropagation}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="grid gap-1">
+          <div className="grid gap-0.5">
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
               label="打开文件所在位置"
@@ -1172,65 +1179,13 @@ export function ProjectSidebar({
             />
           </div>
 
-          {projectTagSettingsQuery.isLoading || projectTags.length > 0 ? (
-            <div className="mt-1 grid gap-1 border-t border-border pt-1">
-              {projectTagSettingsQuery.isLoading ? (
-                <p className="px-2.5 py-2 text-ui text-text-soft">标签加载中...</p>
-              ) : projectTags.length > 0 ? (
-                projectTags.map((tag) => {
-                  const checked = (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).some(
-                    (item) => item.id === tag.id,
-                  );
-                  return (
-                    <label
-                      key={tag.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-6)] px-2.5 py-2 text-ui text-text-muted transition-colors hover:bg-bg-hover hover:text-text"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        data-document-interactive="true"
-                        onChange={() => updateDocumentTags(
-                          contextMenuDocument,
-                          checked
-                            ? (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags)
-                                .filter((item) => item.id !== tag.id)
-                                .map((item) => item.id)
-                            : [
-                                ...(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
-                                  (item) => item.id,
-                                ),
-                                tag.id,
-                              ],
-                        )}
-                      />
-                      <Circle
-                        size={10}
-                        className="fill-current"
-                        style={{ color: tagColorValue(tag.colorKey) }}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 flex-1 truncate">{tag.label}</span>
-                    </label>
-                  );
-                })
-              ) : null}
-            </div>
-          ) : null}
-          {!projectTagSettingsQuery.isLoading ? (
-            <div className="mt-2 border-t border-border pt-2">
-              <TagAutocompletePicker
-                projectId={project.id}
-                availableTags={projectTags}
-                selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
-                  (tag) => tag.id,
-                )}
-                compact
-                placeholder="#输入标签"
-                onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
-              />
-            </div>
-          ) : null}
+          <DocumentContextTags
+            projectId={project.id}
+            availableTags={projectTags}
+            tags={effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags}
+            loading={projectTagSettingsQuery.isLoading}
+            onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
+          />
         </PopoverPanel>
       ) : null}
 
@@ -1246,20 +1201,19 @@ export function ProjectSidebar({
           onConfirm={() => {
             void confirmImportTagDialog();
           }}
-          onManageTags={manageImportTags}
         />
       ) : null}
     </aside>
   );
 }
 
-function TagPreview({ tags }: { tags: ProjectSidebarRecordItem["tags"] }) {
+function TagPreview({ tags, fullWidth = false }: { tags: ProjectSidebarRecordItem["tags"]; fullWidth?: boolean }) {
   if (tags.length === 0) return null;
   return (
-    <span className="mt-1.5 flex flex-wrap gap-1">
+    <span className={cn("mt-1.5 flex flex-wrap gap-1", fullWidth && "basis-full")}>
       {tags.slice(0, 3).map((tag) => (
-        <span key={tag.id} className="rounded-[var(--radius-6)] bg-bg px-1.5 py-0.5 text-caption text-text-soft">
-          {tag.label}
+        <span key={tag.id} className="entity-tag-chip entity-tag-chip--compact">
+          <span aria-hidden="true">#</span><span>{tag.label}</span>
         </span>
       ))}
     </span>

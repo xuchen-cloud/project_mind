@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="32" viewBox="0 0 154 31" role="img" aria-labelledby="title">
+  <title id="title">NoriMind</title>
+  <g transform="scale(0.035)">
+    <path fill="#111111" transform="translate(0 0)" d="M668 140v660h-191l-205 -357l-50 -98h-1l4 122v333h-152v-660h191l205 357l50 98h1l-4 -122v-333h152z"/>
+    <path fill="#111111" transform="translate(723 0)" d="M299 290q79 0 138.5 30.5t93 89t33.5 140.5t-33.5 140.5t-93 89t-138.5 30.5q-77 0 -137 -30.5t-93.5 -89t-33.5 -140.5t33.5 -140.5t93.5 -89t137 -30.5zM299 411q-29 0 -50 14t-32 45t-11 80t11 79.5t32 45t50 14.5q30 0 51 -14.5t32 -45t11 -79.5t-11 -80t-32 -45 t-51 -14z"/>
+    <path fill="#111111" transform="translate(1304 0)" d="M61 800v-500h150l7 108q19 -56 56.5 -87t95.5 -31q19 0 32.5 3t21.5 8l-17 140q-10 -4 -25.5 -6.5t-37.5 -2.5q-30 0 -56 13t-41.5 38.5t-15.5 64.5v252h-170z"/>
+    <path fill="#2F7BFF" transform="translate(1716 0)" d="M146 242q-52 0 -75.5 -19.5t-23.5 -61.5q0 -43 23.5 -62.5t75.5 -19.5q51 0 75 19.5t24 62.5q0 42 -24 61.5t-75 19.5z"/>
+    <path fill="#111111" transform="translate(1716 0)" d="M231 300v500h-170v-500h170z"/>
+    <path fill="#5C626B" stroke="#5C626B" stroke-width="12" stroke-linejoin="round" transform="translate(2089 0)" d="M746 140v660h-76v-415l9 -174h-1l-217 589h-68l-217 -589h-1l9 174v415h-76v-660h123l145 401l50 165h2l51 -164l144 -402h123z"/>
+    <path fill="#5C626B" stroke="#5C626B" stroke-width="12" stroke-linejoin="round" transform="translate(2875 0)" d="M133 204q-27 0 -43.5 -16.5t-16.5 -43.5t16.5 -43.5t43.5 -16.5t43.5 16.5t16.5 43.5t-16.5 43.5t-43.5 16.5zM173 300v500h-80v-500h80z"/>
+    <path fill="#5C626B" stroke="#5C626B" stroke-width="12" stroke-linejoin="round" transform="translate(3098 0)" d="M93 800v-500h70l5 78q13 -25 32 -42q27 -24 62.5 -35t73.5 -11q54 0 98 20.5t70.5 62.5t26.5 107v320h-80v-292q0 -83 -35.5 -115.5t-87.5 -32.5q-36 0 -72 17t-59.5 55t-23.5 102v266h-80z"/>
+    <path fill="#5C626B" stroke="#5C626B" stroke-width="12" stroke-linejoin="round" transform="translate(3674 0)" d="M288 810q-62 0 -114 -31t-83 -89.5t-31 -139.5q0 -83 33 -141t87 -88.5t116 -30.5t108 32q33 24 50 59v-311h80v730h-70l-5 -92q-9 22 -24 39q-27 31 -65.5 47t-81.5 16zM296 740q48 0 83.5 -24t55 -68.5t19.5 -104.5q0 -57 -19.5 -98t-54 -63t-80.5 -22q-76 0 -118 52 t-42 138t41 138t115 52z"/>
+  </g>
+</svg>

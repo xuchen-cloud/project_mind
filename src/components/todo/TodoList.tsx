@@ -9,8 +9,9 @@ import type {
   TodoRecord,
   TodoTagUpdateHandler,
 } from "../../lib/types";
-import { ActionContextMenu, EmptyState } from "../../ui/components";
-import { cancelListLayoutMotion } from "../../ui/listLayoutMotion";
+import { HomeEmptyState } from "../home/HomeEmptyState";
+import { ActionContextMenu } from "../../ui/components";
+import { waitForTodoCompletion } from "./todo-motion";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
 
@@ -79,7 +80,7 @@ export function TodoList({
     y: number;
   } | null>(null);
   const [todoTransitions, setTodoTransitions] = useState<Record<number, TodoStatusTransition>>({});
-  const motionContainerRef = useRef<HTMLDivElement | null>(null);
+  const completionRequests = useRef(new Map<number, symbol>());
   const contextMenuTodo = useMemo(
     () => (contextMenu ? todos.find((todo) => todo.id === contextMenu.todoId) ?? null : null),
     [contextMenu, todos],
@@ -124,12 +125,9 @@ export function TodoList({
     });
   }, [todos]);
 
-  useEffect(
-    () => () => cancelListLayoutMotion(motionContainerRef.current),
-    [],
-  );
-
   async function handleToggleStatus(todo: TodoRecord) {
+    const request = Symbol();
+    completionRequests.current.set(todo.id, request);
     const nextStatus = todo.status === "finished" ? "unfinished" : "finished";
     const phase = nextStatus === "finished" ? "completing" : "restoring";
     const anchorIndex = visibleTodos.findIndex((candidate) => candidate.id === todo.id);
@@ -144,6 +142,10 @@ export function TodoList({
     }));
 
     try {
+      if (nextStatus === "finished") {
+        await waitForTodoCompletion();
+      }
+      if (completionRequests.current.get(todo.id) !== request) return;
       await onToggleStatus(todo.id, nextStatus);
     } catch (error) {
       setTodoTransitions((current) => {
@@ -167,9 +169,6 @@ export function TodoList({
     <div className="todo-list">
       {visibleTodos.length > 0 ? (
         <div
-          ref={(element) => {
-            if (element) motionContainerRef.current = element;
-          }}
           className="todo-list__collection"
           data-list-layout-motion
         >
@@ -202,13 +201,7 @@ export function TodoList({
           ))}
         </div>
       ) : (
-        onEmptyClick ? (
-          <button type="button" className="w-full text-left" onClick={onEmptyClick}>
-            <EmptyState text={emptyText} compact />
-          </button>
-        ) : (
-          <EmptyState text={emptyText} compact />
-        )
+        <HomeEmptyState kind="todos" title={emptyText} actionLabel="添加待办" onAction={onEmptyClick} />
       )}
       {contextMenu && contextMenuTodo ? (
         <ActionContextMenu

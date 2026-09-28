@@ -593,7 +593,7 @@ describe("WorkspaceLayout", () => {
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     await user.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Workspace 标签/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 模型配置/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /AI 技能/ })).toBeInTheDocument();
   });
@@ -625,7 +625,7 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByRole("region", { name: "富文本样式" })).toBeInTheDocument();
   });
 
-  it("opens workspace tag settings from a workspace route", async () => {
+  it("redirects the retired tag settings route to workspace settings", async () => {
     const router = createMemoryRouter(
       [
         {
@@ -648,8 +648,8 @@ describe("WorkspaceLayout", () => {
     );
 
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Workspace 标签/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Workspace 标签" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Workspace 标签/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "页面宽度" })).toBeInTheDocument();
   });
 
   it("returns to the remembered project route when switching back by top tabs", async () => {
@@ -1272,7 +1272,7 @@ describe("WorkspaceLayout", () => {
       detail.respond(true);
     };
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
-    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    const sidebar = await screen.findByLabelText("笔记导航侧边栏");
     fireEvent.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");

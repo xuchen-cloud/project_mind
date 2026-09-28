@@ -1,3 +1,7 @@
+import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
+import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
+import { HomeNoteSidebar } from "./components/home/HomeNoteSidebar";
+import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
 import { flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -63,7 +67,6 @@ import {
   type ProjectSidebarDocumentItem,
   type ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
-import { StatusBar } from "./components/layout/StatusBar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
@@ -172,6 +175,7 @@ export function WorkspaceLayout({
   cacheProjectOverviewPages?: boolean;
   recordSaveCoordinator?: RecordSaveCoordinator;
 }) {
+  useSidebarTextFade();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -254,7 +258,6 @@ export function WorkspaceLayout({
   const {
     settingsOpen,
     settingsSection,
-    settingsProjectId,
     openSettings,
     closeSettings,
     openProjectIds,
@@ -387,13 +390,12 @@ export function WorkspaceLayout({
     hasWorkspace && activeProjectId !== null && activeProject !== null;
   const showTodoRailShell =
     showProjectSidebarShell &&
-    !location.pathname.endsWith("/summary") &&
-    !/\/projects\/\d+\/records\/\d+$/u.test(location.pathname);
+    !location.pathname.endsWith("/summary");
   const showLeftSidebarForWidthConstraint = workspaceActive || showProjectSidebarShell;
   const showRightSidebarForWidthConstraint = workspaceActive || showTodoRailShell;
 
   useWorkspaceWindowSizeConstraints({
-    overlayHomePanels: location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId),
+    overlayHomePanels: location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null,
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
     projectSidebarWidthPx,
@@ -933,7 +935,7 @@ export function WorkspaceLayout({
       if (result.kind === "project") {
         await openProjectInTab(result.projectId);
       } else if (result.kind === "contact") {
-        openSettings("contacts", activeProjectId);
+        openSettings("contacts");
       } else if (
         result.kind === "workspace_quick_note" ||
         result.kind === "workspace_note" ||
@@ -1044,6 +1046,9 @@ export function WorkspaceLayout({
           tone: "error",
           title: "后台保存失败",
           detail: String(recordSaveStatus.lastError),
+          action: recordSaveStatus.retryableFailedCount > 0
+            ? { label: "重试保存", onClick: () => recordSaveCoordinator.retryFailed() }
+            : undefined,
         });
       }
       return;
@@ -1056,7 +1061,7 @@ export function WorkspaceLayout({
         message: "Record 后台保存已完成",
       });
     }
-  }, [pushToast, recordSaveStatus, setStatus]);
+  }, [pushToast, recordSaveCoordinator, recordSaveStatus, setStatus]);
 
   useEffect(() => {
     if (activeProjectId !== null) {
@@ -1292,6 +1297,7 @@ export function WorkspaceLayout({
 
   const workspaceTopBar = (
     <WorkspaceTopBar
+      homePanels={location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null ? { rightWidth: todoRailWidthPx, leftWidth: projectSidebarWidthPx, workspaceName: currentWorkspace.displayName || "Workspace", leftOpen: !projectSidebarCollapsed, rightOpen: !todoRailCollapsed, toggleLeft: () => setProjectSidebarCollapsed(!projectSidebarCollapsed), toggleRight: () => setTodoRailCollapsed(!todoRailCollapsed) } : undefined}
       projects={openedProjects}
       activeProjectId={activeProjectId}
       workspaceActive={workspaceActive}
@@ -1315,7 +1321,7 @@ export function WorkspaceLayout({
       onSwitchWorkspace={() => {
         void handleSwitchWorkspace();
       }}
-      onOpenSettings={() => openSettings("project-tags", activeProjectId)}
+      onOpenSettings={() => openSettings("page-width")}
       onSearchSelect={handleSearchSelect}
       onDetachProject={(projectId) => {
         void detachProjectToNewWindow(projectId);
@@ -1449,6 +1455,7 @@ export function WorkspaceLayout({
       </>
     ) : null;
   return (
+    <HomeWorkspaceActionsContext.Provider value={{ switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width") }}>
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
       flushBarrier={flushRecordSaves}
@@ -1459,7 +1466,7 @@ export function WorkspaceLayout({
         cacheProjectOverviewPages ? (currentWorkspace?.rootPath ?? null) : null
       }
     >
-    <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle">
+    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceOverviewActive || projectOverviewActive || activeRecordFocusRoute !== null) ? " home-window-shell" : ""}`}>
       {projectWindow ? null : workspaceTopBar}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1470,6 +1477,15 @@ export function WorkspaceLayout({
             onOpenWorkspace={() => navigate(workspacePath())}
             onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
             onCreateRecord={() => void createProjectSidebarRecord()} />
+        ) : showProjectSidebarShell && activeRecordFocusRoute?.kind === "project" ? (
+          <HomeNoteSidebar workspaceRoot={currentWorkspace.rootPath} projectId={activeProject.id}
+            onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
+            onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }}
+            records={projectSidebarRecords} filePanel={<HomeProjectFiles project={activeProject} documents={projectSidebarDocuments} />} activeRecordId={activeRecordId ?? 0}
+            onOpenWorkspace={() => navigate(workspacePath())}
+            onOpenRecord={(id) => { rememberProjectRecord(currentWorkspace.rootPath, activeProject.id, id); navigate(preserveRecordFilters(recordPath(activeProject.id, id), location.search)); }}
+            onCreateRecord={() => void createProjectSidebarRecord()}
+          />
         ) : showProjectSidebarShell ? (
           <ProjectSidebar
             project={{
@@ -1539,22 +1555,6 @@ export function WorkspaceLayout({
               ? null
               : mainContent}
           </main>
-
-          <StatusBar
-            context={
-              workspaceActive
-                ? "Workspace"
-                : activeProjectId !== null
-                  ? (activeProject?.name ?? null)
-                  : currentWorkspace.displayName
-            }
-            detail={`${visibleProjects.length} projects`}
-            onRetrySave={
-              recordSaveStatus.retryableFailedCount > 0
-                ? () => recordSaveCoordinator.retryFailed()
-                : undefined
-            }
-          />
         </div>
       </div>
       <CreateWorkspaceDialog
@@ -1583,7 +1583,6 @@ export function WorkspaceLayout({
       <SettingsDialog
         open={settingsOpen}
         activeSection={settingsSection}
-        projectId={settingsProjectId}
         onSectionChange={setSettingsSection}
         onUnlockAiSecrets={requestUnlockAiSecrets}
         onClose={closeSettings}
@@ -1612,6 +1611,7 @@ export function WorkspaceLayout({
     </div>
     </RecordFocusResidencyProvider>
     </RecordSaveCoordinatorProvider>
+    </HomeWorkspaceActionsContext.Provider>
   );
 }
 

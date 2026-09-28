@@ -16,6 +16,12 @@ import { queryKeys } from "../../lib/queryKeys";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 
+vi.mock("../../todo", () => ({
+  TodoModuleRail: ({ scope, enabled }: { scope: { kind: string; projectId?: number }; enabled?: boolean }) => (
+    <aside aria-label="笔记待办" data-scope={scope.kind} data-project-id={scope.projectId} data-enabled={enabled} />
+  ),
+}));
+
 const richEditorMocks = vi.hoisted(() => ({
   focus: vi.fn(),
 }));
@@ -81,7 +87,8 @@ vi.mock("../../state/feedback-store", () => ({
   }),
 }));
 
-vi.mock("../../state/ui-store", () => ({
+vi.mock("../../state/ui-store", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../state/ui-store")>(),
   useUiStore: () => ({
     openSettings: vi.fn(),
     pageWidthMode: "adaptive",
@@ -497,7 +504,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.type(titleInput, "新标题");
     await user.keyboard("{Tab}");
 
-    const tagInput = screen.getByPlaceholderText("#标签");
+    const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
     expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "新标题" }),
@@ -509,6 +516,8 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const scroll = await screen.findByTestId("project-record-focus-scroll");
+    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-scope", "current-project");
+    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-enabled", "true");
     expect(scroll).toHaveClass("project-overview-focus__scroll");
     expect(scroll.parentElement).toHaveClass(
       "project-overview-focus",
@@ -531,7 +540,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.type(titleInput, "回车标题");
     await user.keyboard("{Enter}");
 
-    const tagInput = screen.getByPlaceholderText("#标签");
+    const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
     expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "回车标题" }),
@@ -542,7 +551,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const user = userEvent.setup();
     render(<ProjectNoteFocusPage />);
 
-    const tagInput = await screen.findByPlaceholderText("#标签");
+    const tagInput = await screen.findByRole("textbox", { name: "新增标签" });
     await user.type(tagInput, "紧急{Enter}");
 
     await waitFor(() => {
@@ -563,7 +572,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.clear(titleInput);
     await user.type(titleInput, "直接加标签的标题");
 
-    const tagInput = screen.getByPlaceholderText("#标签");
+    const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await user.click(tagInput);
     await user.type(tagInput, "紧急{Enter}");
 

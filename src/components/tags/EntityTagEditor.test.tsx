@@ -17,6 +17,32 @@ describe("EntityTagEditor", () => {
     apiMocks.projectTagUpsert.mockReset();
   });
 
+  it("uses the same hash chip in display and edit modes, with removal only when editing", () => {
+    const tags = [{ id: 7, label: "人生意义", colorKey: "red" as const }];
+    const { rerender, container } = render(<EntityTagEditor tags={tags} availableTags={[]} mode="display" onChange={vi.fn()} />);
+    expect(container.querySelector(".entity-tag-chip")?.textContent).toBe("#人生意义");
+    expect(screen.queryByRole("button", { name: "移除标签 人生意义" })).not.toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
+    rerender(<EntityTagEditor tags={tags} availableTags={[]} mode="full" onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "移除标签 人生意义" })).toHaveClass("entity-tag-chip");
+    expect(screen.getByPlaceholderText("新增标签").closest("label")).toHaveClass("entity-tag-chip");
+  });
+
+  it("renders recommendations outside the clipping card and keeps selection working", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(<div style={{ overflow: "clip", isolation: "isolate" }}>
+      <EntityTagEditor availableTags={[{ id: 7, label: "人生意义", colorKey: "red", usageCount: 0, createdAt: "", updatedAt: "" }]}
+        tags={[]} onChange={onChange} />
+    </div>);
+    await user.type(screen.getByPlaceholderText("新增标签"), "人");
+    const suggestion = screen.getByRole("button", { name: "人生意义" });
+    expect(container.contains(suggestion)).toBe(false);
+    await user.click(suggestion);
+    expect(onChange).toHaveBeenCalledWith([7]);
+    expect(apiMocks.projectTagUpsert).not.toHaveBeenCalled();
+  });
+
   it("creates workspace-scoped tags with a null project id", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -40,7 +66,7 @@ describe("EntityTagEditor", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("#标签"), "预算{Enter}");
+    await user.type(screen.getByPlaceholderText("新增标签"), "预算{Enter}");
 
     await waitFor(() => {
       expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
@@ -76,7 +102,7 @@ describe("EntityTagEditor", () => {
       />,
     );
 
-    const input = screen.getByPlaceholderText("#标签");
+    const input = screen.getByPlaceholderText("新增标签");
     await user.type(input, "合同{Tab}");
 
     await waitFor(() => {
@@ -109,7 +135,7 @@ describe("EntityTagEditor", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("#标签"), "复盘{Enter}");
+    await user.type(screen.getByPlaceholderText("新增标签"), "复盘{Enter}");
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith([9]);
@@ -135,7 +161,7 @@ describe("EntityTagEditor", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("#标签"), "失败标签{Enter}");
+    await user.type(screen.getByPlaceholderText("新增标签"), "失败标签{Enter}");
 
     await waitFor(() =>
       expect(onCommitSettled).toHaveBeenCalledWith(expect.objectContaining({ message: "保存失败" })),
@@ -162,7 +188,7 @@ describe("EntityTagEditor", () => {
       </>,
     );
 
-    screen.getByPlaceholderText("#标签").focus();
+    screen.getByPlaceholderText("新增标签").focus();
     await user.keyboard("{Tab}");
 
     expect(onChange).not.toHaveBeenCalled();

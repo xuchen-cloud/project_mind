@@ -21,6 +21,27 @@ export function ToastStack({
   const stackRef = useRef<HTMLDivElement | null>(null);
   const motionContainerRef = useRef<HTMLDivElement | null>(null);
   const exitTimersRef = useRef(new Map<number, number>());
+  const dismissTimersRef = useRef(new Map<number, number>());
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  useEffect(() => {
+    // Ordinary notices expire independently; errors and actionable notices stay available.
+    const expiring = toasts.filter((toast) => toast.tone !== "error" && !toast.action);
+    const ids = new Set(expiring.map((toast) => toast.id));
+    for (const [id, timer] of dismissTimersRef.current) {
+      if (!ids.has(id)) {
+        window.clearTimeout(timer);
+        dismissTimersRef.current.delete(id);
+      }
+    }
+    for (const toast of expiring) {
+      if (dismissTimersRef.current.has(toast.id)) continue;
+      dismissTimersRef.current.set(toast.id, window.setTimeout(() => {
+        onDismissRef.current(toast.id);
+      }, 4000));
+    }
+  }, [toasts]);
 
   function finishToastExit(id: number) {
     const timer = exitTimersRef.current.get(id);
@@ -68,6 +89,8 @@ export function ToastStack({
 
   useEffect(() => {
     return () => {
+      dismissTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      dismissTimersRef.current.clear();
       exitTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       exitTimersRef.current.clear();
       cancelListLayoutMotion(motionContainerRef.current);
@@ -125,6 +148,18 @@ export function ToastStack({
               <p className="font-medium leading-snug">{toast.title}</p>
               {toast.detail ? (
                 <p className="mt-0.5 text-ui opacity-80">{toast.detail}</p>
+              ) : null}
+              {toast.action ? (
+                <button
+                  type="button"
+                  className="mt-2 text-ui font-medium underline underline-offset-2"
+                  onClick={() => {
+                    toast.action?.onClick();
+                    onDismiss(toast.id);
+                  }}
+                >
+                  {toast.action.label}
+                </button>
               ) : null}
             </div>
           </div>

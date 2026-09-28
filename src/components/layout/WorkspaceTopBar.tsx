@@ -1,13 +1,20 @@
+import { useTabIndicator } from "./useTabIndicator";
+import { ProjectHomeIcon } from "../home/HomeCover";
+import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import {
   ArrowLeftRight,
   CircleX,
+  FolderKanban,
+  ExternalLink,
   LoaderCircle,
-  PanelsTopLeft,
+  PanelLeft,
+  PanelRight,
   Search,
-  Settings2,
+  Settings,
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type CSSProperties,
   useEffect,
   useMemo,
   useRef,
@@ -29,6 +36,7 @@ import {
 import { getRovingTabTargetIndex } from "../../ui/rovingTabs";
 
 interface WorkspaceTopBarProps {
+  homePanels?: { rightWidth?: number; leftWidth: number; workspaceName: string; leftOpen: boolean; rightOpen: boolean; toggleLeft: () => void; toggleRight: () => void };
   projects: ProjectListItem[];
   activeProjectId: number | null;
   workspaceActive?: boolean;
@@ -66,6 +74,7 @@ export function shouldDetachProjectTabRelease(input: {
 }
 
 export function WorkspaceTopBar({
+  homePanels,
   projects,
   activeProjectId,
   workspaceActive = false,
@@ -86,6 +95,7 @@ export function WorkspaceTopBar({
   onDetachProject,
 }: WorkspaceTopBarProps) {
   const tabListRef = useRef<HTMLDivElement | null>(null);
+  const indicatorRef = useTabIndicator(tabListRef, `${workspaceActive}:${activeProjectId}:${projects.map(project => project.id).join(",")}`);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const compactSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dragStateRef = useRef<{
@@ -210,7 +220,7 @@ export function WorkspaceTopBar({
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerCancel);
-    return () => {
+  return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerCancel);
@@ -235,6 +245,7 @@ export function WorkspaceTopBar({
             actions={[
               {
                 label: "在新窗口中打开",
+                icon: ExternalLink,
                 onSelect: () => {
                   onDetachProject(projectTabContextMenu.projectId);
                   setProjectTabContextMenu(null);
@@ -247,15 +258,20 @@ export function WorkspaceTopBar({
         )
       : null;
 
+    const searchMotionRef = useRef<HTMLDivElement>(null);
+  useSearchResultsMotion(searchMotionRef, `${searchInput}:${searching}:${searchResults.map(result => `${result.kind}:${result.id}`).join(",")}`);
   return (
-    <header className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
-      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+    <header data-tauri-drag-region style={homePanels ? { "--home-left-width": `${homePanels.leftWidth}px`, "--home-right-width": `${homePanels.rightWidth ?? 340}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
+      {homePanels && !homePanels.leftOpen ? <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton> : null}
+      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <div
+          data-tauri-drag-region
           ref={tabListRef}
           className="workspace-topbar__tablist flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden"
           role="tablist"
           aria-label="Workspace 与项目"
         >
+          <span ref={indicatorRef} className="workspace-topbar__indicator" aria-hidden="true" />
           {showWorkspace ? (
             <button
               type="button"
@@ -273,10 +289,11 @@ export function WorkspaceTopBar({
               role="tab"
               aria-selected={workspaceActive}
               tabIndex={workspaceActive || activeProjectId === null ? 0 : -1}
+              aria-label="Workspace"
               title="Workspace"
             >
-              <PanelsTopLeft size={14} />
-              <span className="workspace-topbar__tab-label min-w-0 flex-1">Workspace</span>
+              <FolderKanban size={14} />
+
             </button>
           ) : null}
           {projects.map((project) => (
@@ -294,7 +311,7 @@ export function WorkspaceTopBar({
             >
               <button
                 type="button"
-                className="workspace-topbar__tab-trigger flex h-full min-w-0 flex-1 items-center overflow-hidden rounded-[var(--radius-6)] px-2"
+                className="workspace-topbar__tab-trigger flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-[var(--radius-6)] px-2"
                 onClick={() => onOpenProject(project.id)}
                 onKeyDown={(event) =>
                   handleTabKeyDown(event, (tab) => tab.click())
@@ -336,6 +353,7 @@ export function WorkspaceTopBar({
                 }}
                 title={project.name}
               >
+                <span className="workspace-topbar__tab-icon" aria-hidden="true"><ProjectHomeIcon rootPath={project.rootPath} size={14} /></span>
                 <span className="workspace-topbar__tab-label min-w-0 flex-1">{project.name}</span>
               </button>
               {onCloseProject ? (
@@ -435,13 +453,14 @@ export function WorkspaceTopBar({
                 ? `workspace-search-result-${activeSearchResultIndex}`
                 : undefined
             }
-            placeholder="搜索 Workspace、项目、记录、Todo、文件、联系人"
+            placeholder="全局搜索"
             className="w-64"
             loading={searching}
           />
 
           {searchFocused ? (
             <PopoverPanel
+              ref={searchMotionRef}
               id="workspace-search-results"
               role="listbox"
               aria-label="全局搜索结果"
@@ -509,6 +528,7 @@ export function WorkspaceTopBar({
           ) : null}
         </div>
 
+        {!homePanels?.leftOpen ? <>
         <IconButton
           type="button"
           size="md"
@@ -526,10 +546,12 @@ export function WorkspaceTopBar({
           className={settingsActive ? "text-accent" : undefined}
           onClick={onOpenSettings}
         >
-          <Settings2 size={13} />
+          <Settings size={13} />
         </IconButton>
+        </> : null}
       </div>
 
+      {homePanels ? <IconButton type="button" aria-label="切换右侧栏" aria-expanded={homePanels.rightOpen} onClick={homePanels.toggleRight}><PanelRight size={16} /></IconButton> : null}
       {projectTabContextMenuPortal}
     </header>
   );

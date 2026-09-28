@@ -451,7 +451,16 @@ fn ensure_main_window<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<(
         .find(|window| window.label == "main")
         .ok_or_else(|| tauri::Error::AssetNotFound("main window config".into()))?;
 
-    WebviewWindowBuilder::from_config(app.handle(), window_config)?.build()?;
+    let builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // Wry positions the native titlebar container, not the button center.
+        // Include the native button frame offset when centering in the 44px row.
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 24.0))
+        .initialization_script("document.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('native-titlebar-overlay'));");
+    builder.build()?;
     Ok(())
 }
 

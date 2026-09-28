@@ -38,7 +38,7 @@ import {
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "./DocumentImportTagDialog";
-import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
+import { DocumentContextTags } from "./DocumentContextTags";
 import { TagFilterBar } from "../tags/TagFilterBar";
 import {
   DocumentContextMenuAction,
@@ -99,6 +99,7 @@ export function ManagedDocumentSection({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const openTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const {
     documentMetaMutation,
@@ -115,7 +116,6 @@ export function ManagedDocumentSection({
     setPendingImportTagIds,
     closeImportTagDialog,
     confirmImportTagDialog,
-    manageImportTags,
   } = useDocumentImportFlow({
     projectId,
   });
@@ -216,7 +216,7 @@ export function ManagedDocumentSection({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      if (!contextMenuRef.current?.contains(event.target as Node)) {
         setContextMenu(null);
       }
     };
@@ -769,7 +769,8 @@ export function ManagedDocumentSection({
 
       {contextMenuDocument && contextMenu ? (
         <PopoverPanel
-          className="fixed z-30 min-w-[15rem] p-1.5"
+          ref={contextMenuRef}
+          className="context-menu__panel fixed z-[80] w-[15rem] max-w-[calc(100vw-16px)] p-1"
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -780,7 +781,7 @@ export function ManagedDocumentSection({
           onClick={stopPropagation}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="grid gap-1">
+          <div className="grid gap-0.5">
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
               label="打开文件所在位置"
@@ -831,45 +832,13 @@ export function ManagedDocumentSection({
             />
           </div>
 
-          {projectTagSettingsQuery.isLoading || projectTags.length > 0 ? (
-            <div className="mt-1 grid gap-1 border-t border-border pt-1">
-            {projectTagSettingsQuery.isLoading ? (
-              <p className="px-2.5 py-2 text-ui text-text-soft">标签加载中...</p>
-            ) : projectTags.length > 0 ? (
-              projectTags.map((tag) => {
-                const checked = (effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).some(
-                  (item) => item.id === tag.id,
-                );
-                return (
-                  <label
-                    key={tag.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-6)] px-2.5 py-2 text-ui text-text-muted transition-colors hover:bg-bg-hover hover:text-text"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      data-document-interactive="true"
-                    />
-                  </label>
-                );
-              })
-            ) : null}
-            </div>
-          ) : null}
-          {!projectTagSettingsQuery.isLoading ? (
-            <div className="mt-2 border-t border-border pt-2">
-              <TagAutocompletePicker
-                projectId={projectId}
-                availableTags={projectTags}
-                selectedTagIds={(effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags).map(
-                  (tag) => tag.id,
-                )}
-                compact
-                placeholder="#输入标签"
-                onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
-              />
-            </div>
-          ) : null}
+          <DocumentContextTags
+            projectId={projectId}
+            availableTags={projectTags}
+            tags={effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags}
+            loading={projectTagSettingsQuery.isLoading}
+            onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
+          />
         </PopoverPanel>
       ) : null}
 
@@ -884,7 +853,6 @@ export function ManagedDocumentSection({
           onConfirm={() => {
             void confirmImportTagDialog();
           }}
-          onManageTags={manageImportTags}
         />
       ) : null}
     </div>

@@ -1,6 +1,5 @@
 import {
   Contact,
-  Files,
   Pencil,
   Mic,
   RefreshCw,
@@ -23,9 +22,6 @@ const AiSettingsPanel = lazy(() =>
 const ContactSettingsPanel = lazy(() =>
   import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
 );
-const ProjectTagSettingsPanel = lazy(() =>
-  import("./ProjectTagSettingsPanel").then((module) => ({ default: module.ProjectTagSettingsPanel })),
-);
 const RichTextStylePanel = lazy(() =>
   import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
 );
@@ -39,7 +35,6 @@ const VoiceSettingsPanel = lazy(() =>
 interface SettingsDialogProps {
   open: boolean;
   activeSection: SettingsSection;
-  projectId: number | null;
   onSectionChange: (section: SettingsSection) => void;
   onUnlockAiSecrets: () => Promise<boolean>;
   onClose: () => void;
@@ -59,11 +54,6 @@ const SETTINGS_SECTIONS: Array<{
     value: "updates",
     label: "应用更新",
     icon: RefreshCw,
-  },
-  {
-    value: "project-tags",
-    label: "项目标签",
-    icon: Files,
   },
   {
     value: "contacts",
@@ -95,16 +85,11 @@ const SETTINGS_SECTIONS: Array<{
 export function SettingsDialog({
   open,
   activeSection,
-  projectId,
   onSectionChange,
   onUnlockAiSecrets,
   onClose,
 }: SettingsDialogProps) {
-  const availableSections = SETTINGS_SECTIONS.map((section) =>
-    section.value === "project-tags"
-      ? { ...section, label: projectId === null ? "Workspace 标签" : "项目标签" }
-      : section,
-  );
+  const availableSections = SETTINGS_SECTIONS;
 
   const activePanel = (() => {
     switch (activeSection) {
@@ -114,12 +99,6 @@ export function SettingsDialog({
         return (
           <Suspense fallback={<SettingsPanelFallback />}>
             <UpdateSettingsPanel />
-          </Suspense>
-        );
-      case "project-tags":
-        return (
-          <Suspense fallback={<SettingsPanelFallback />}>
-            <ProjectTagSettingsPanel open={open} projectId={projectId} />
           </Suspense>
         );
       case "contacts":
@@ -169,11 +148,7 @@ export function SettingsDialog({
       onClose={onClose}
       title="设置"
       description={
-        activeSection === "project-tags"
-          ? projectId === null
-            ? "当前更改只作用于这个 Workspace。"
-            : "当前更改只作用于这个项目。"
-          : activeSection === "updates"
+        activeSection === "updates"
             ? "检查并安装 ProjectMind 桌面版本更新。"
             : "当前更改只作用于本地 workspace。"
       }
@@ -255,7 +230,7 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
     return "rich-text";
   }
   if (section === "project-tags" || section === "file-tags") {
-    return "project-tags";
+    return "page-width";
   }
   if (section === "contacts") {
     return "contacts";

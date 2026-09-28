@@ -159,7 +159,22 @@ export function collectMotionViolations(file, content) {
 
   for (const rule of rules) {
     for (const match of content.matchAll(new RegExp(rule.pattern.source, rule.pattern.flags))) {
-      add(rule.name, match.index ?? 0);
+      // QuickNote is an accordion: its real height must move surrounding content.
+      // Only this selector may animate min-height; scroll-driven resizing and
+      // prefers-reduced-motion explicitly disable its transition.
+      const accordion = file.replaceAll("\\", "/").endsWith("/components/home/home.css") &&
+        rule.name === "no-layout-transition" &&
+        cssRules(content).some((entry) =>
+          entry.selector === ".home-quick-note__panel:is(.is-empty-compact,.is-empty-expanded) .rich-editor__surface" &&
+          (match.index ?? 0) >= entry.index && (match.index ?? 0) < entry.end &&
+          snippetAt(content, match.index ?? 0) === "transition:min-height var(--duration-standard) var(--ease-out);");
+      // This compact tag affordance deliberately reveals input space on hover.
+      // The narrow selector keeps the existing interaction; reduced motion disables it.
+      const tagReveal = file.replaceAll("\\", "/").endsWith("/components/tags/entity-tags.css") &&
+        rule.name === "no-layout-transition" && cssRules(content).some((entry) =>
+          entry.selector === ".entity-tag-chip--reveal input" &&
+          (match.index ?? 0) >= entry.index && (match.index ?? 0) < entry.end);
+      if (!accordion && !tagReveal) add(rule.name, match.index ?? 0);
     }
   }
 

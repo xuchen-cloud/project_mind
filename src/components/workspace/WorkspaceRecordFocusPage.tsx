@@ -1,64 +1,59 @@
-import { ArrowLeft, Settings2 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
+import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
+import { HomeNoteSidebar } from "../home/HomeNoteSidebar";
+import { HomeRecordHeader } from "../home/HomeRecordHeader";
+import "../home/home.css";
+import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
+import { useQuery,useQueryClient } from "@tanstack/react-query";
+import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
 import {
-  parseRouteId,
-  preserveRecordFilters,
-  projectPath,
-  workspacePath,
+parseRouteId,
+preserveRecordFilters,workspacePath
 } from "../../lib/formatters";
-import { generateDefaultProjectName } from "../../lib/projectDefaultName";
-import { withPageWidthClass } from "../../lib/pageWidth";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
-import { useProjectMutations } from "../../hooks/useProjectMutations";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import {
-  WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
-  type WorkspaceRecordFocusSaveRequestDetail,
+WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+type WorkspaceRecordFocusSaveRequestDetail,
 } from "../../lib/record-focus-save";
 import { workspaceRecordSaveKey } from "../../lib/record-save-coordinator";
 import {
-  createRecordSaveCoordinator,
-  useRecordSaveCoordinator,
+createRecordSaveCoordinator,
+useRecordSaveCoordinator,
 } from "../../lib/record-save-runtime";
-import { prefetchProjectPageData } from "../../lib/project-prefetch";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
-import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { IconButton, PageLoadingSkeleton, TextField } from "../../ui/components";
-import { cn } from "../../ui/lib/cn";
+import { PageLoadingSkeleton,TextField } from "../../ui/components";
 import {
-  normalizeRichEditorValue,
-  RichEditor,
-  type RichEditorController,
-  type RichEditorPersistState,
-  type RichEditorValue,
+normalizeRichEditorValue,
+RichEditor,
+type RichEditorController,
+type RichEditorPersistState,
+type RichEditorValue,
 } from "../rich-editor";
 import { buildWorkspaceNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TodoModuleRail } from "../../todo";
-import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
 import type {
-  ProjectTagRecord,
-  RichTextStyleSettings,
-  WorkspacePageData,
+ProjectTagRecord,
+RichTextStyleSettings,
+WorkspacePageData,
 } from "../../lib/types";
 import {
-  recordFocusDraftFromRecord,
-  recordFocusDraftFromSnapshot,
+recordFocusDraftFromRecord,
+recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
@@ -74,7 +69,7 @@ export function WorkspaceRecordFocusPage({
 } = {}) {
   const navigate = useNavigate();
   const params = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const workspaceSaveCoordinator = useRecordSaveCoordinator();
   const recordId = recordIdOverride ?? parseRouteId(params.noteId);
@@ -100,15 +95,7 @@ export function WorkspaceRecordFocusPage({
     `workspace-record:${recordId}`,
   );
   const { pushToast } = useFeedbackStore();
-  const {
-    openSettings,
-    pageWidthMode,
-    projectRecentPaths,
-    openProjectIds,
-    closeProjectTab,
-    projectSidebarCollapsed,
-    todoRailCollapsed,
-  } = useUiStore();
+  const { openSettings } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
@@ -124,7 +111,6 @@ export function WorkspaceRecordFocusPage({
     initialDraft ? recordId : null,
   );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
-  const [isSaving, setIsSaving] = useState(false);
   const editorControllerRef = useRef<RichEditorController | null>(null);
   const lastSavedUpdatedAtRef = useRef<string | null>(initialDraft?.updatedAt ?? null);
   const titleValueRef = useRef(initialDraft?.title ?? "");
@@ -135,11 +121,6 @@ export function WorkspaceRecordFocusPage({
     queryKey: queryKeys.workspacePage,
     queryFn: projectMindApi.workspacePageGet,
     enabled: visible && recordId !== null && loadedNoteId === null,
-  });
-  const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.all,
-    queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
-    enabled: visible && recordId !== null,
   });
   const workspaceStatusQuery = useQuery({
     queryKey: queryKeys.workspaceStatus,
@@ -166,22 +147,6 @@ export function WorkspaceRecordFocusPage({
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const aiSettings = aiSettingsQuery.data;
   const draftReady = recordId !== null && loadedNoteId === recordId;
-  const visibleProjects = useMemo(
-    () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
-    [projectsQuery.data],
-  );
-  const archivedProjects = useMemo(
-    () => (projectsQuery.data ?? []).filter((project) => project.isArchived),
-    [projectsQuery.data],
-  );
-  const recordSearchQuery = searchParams.get("recordQuery") ?? "";
-  const recordFilterTagId = useMemo(() => {
-    const value = searchParams.get("recordTag");
-    if (!value) return null;
-
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }, [searchParams]);
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const fallbackSaveCoordinator = useMemo(
     () => createRecordSaveCoordinator({
@@ -191,18 +156,6 @@ export function WorkspaceRecordFocusPage({
     [currentWorkspace?.rootPath, queryClient],
   );
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
-  const prefetchProject = useCallback(
-    (projectId: number) => {
-      void prefetchProjectPageData(queryClient, projectId).catch(() => {
-        // The destination query reports prefetch failures.
-      });
-    },
-    [queryClient],
-  );
-  const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
-    (path, options) => navigate(path, options),
-  );
-
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.workspace,
@@ -285,7 +238,6 @@ export function WorkspaceRecordFocusPage({
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
       if (!submitCurrentRecord(value)) return false;
-      setIsSaving(true);
       try {
         await saveCoordinator.flush();
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
@@ -293,8 +245,6 @@ export function WorkspaceRecordFocusPage({
       } catch (error) {
         pushToast({ tone: "error", title: "保存失败", detail: String(error) });
         throw error;
-      } finally {
-        setIsSaving(false);
       }
     },
     [pushToast, queryClient, saveCoordinator, submitCurrentRecord],
@@ -386,97 +336,6 @@ export function WorkspaceRecordFocusPage({
     }
   }
 
-  function setWorkspaceRecordQuery(value: string) {
-    const nextSearchParams = new URLSearchParams(searchParams);
-    if (value.trim()) {
-      nextSearchParams.set("recordQuery", value);
-    } else {
-      nextSearchParams.delete("recordQuery");
-    }
-    setSearchParams(nextSearchParams, { replace: true });
-  }
-
-  function setWorkspaceRecordTagId(tagId: number | null) {
-    const nextSearchParams = new URLSearchParams(searchParams);
-    if (tagId === null) {
-      nextSearchParams.delete("recordTag");
-    } else {
-      nextSearchParams.set("recordTag", String(tagId));
-    }
-    setSearchParams(nextSearchParams);
-  }
-
-  async function openProject(projectId: number) {
-    const focused = await desktopApi.focusProjectWindow(projectId);
-    if (focused) {
-      return;
-    }
-
-    navigate(projectPath(projectId));
-  }
-
-  async function openProjectInNewWindow(projectId: number) {
-    const project = visibleProjects.find((item) => item.id === projectId);
-    if (!project) {
-      return;
-    }
-
-    const route = projectRecentPaths[projectId] ?? projectPath(projectId);
-    try {
-      await desktopApi.openProjectWindow({
-        projectId,
-        projectName: project.name,
-        route,
-      });
-
-      if (openProjectIds.includes(projectId)) {
-        closeProjectTab(projectId);
-        navigate(workspacePath());
-      }
-    } catch (error) {
-      pushToast({
-        tone: "error",
-        title: "打开项目新窗口失败",
-        detail: String(error),
-      });
-    }
-  }
-
-  async function createProjectQuickly() {
-    if (createProjectMutation.isPending) {
-      return;
-    }
-
-    await createProjectMutation.mutateAsync({
-      name: generateDefaultProjectName((projectsQuery.data ?? []).map((project) => project.name)),
-      quickNote: "",
-      status: "active",
-    });
-  }
-
-  async function renameProject(projectId: number, name: string) {
-    const project = visibleProjects.find((item) => item.id === projectId);
-    if (!project) {
-      return;
-    }
-
-    await projectMindApi.projectUpdate({
-      projectId,
-      name,
-      quickNote: project.quickNote,
-      quickNoteMarkdown: project.quickNoteMarkdown,
-      quickNoteHtml: project.quickNoteHtml,
-      quickNoteCodeLanguage: project.quickNoteCodeLanguage ?? null,
-      status: project.status,
-    });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-  }
-
-  function deleteProject(projectId: number) {
-    deleteProjectMutation.mutate({ projectId });
-  }
-
   const handleTagsChange = async (newTagIds: number[]) => {
     if (!draftReady) return;
     setTagIds(newTagIds);
@@ -501,7 +360,7 @@ export function WorkspaceRecordFocusPage({
 
   if (
     !draftReady &&
-    (workspacePageQuery.isFetching || projectsQuery.isLoading || workspaceStatusQuery.isLoading)
+    (workspacePageQuery.isFetching || workspaceStatusQuery.isLoading)
   ) {
     if (!showRecordSkeleton) return null;
     return <PageLoadingSkeleton variant="record" label="正在加载工作区记录" />;
@@ -522,136 +381,25 @@ export function WorkspaceRecordFocusPage({
 
   return (
     <div
-      className="page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      className="home-page home-note-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-focus-page-key={`workspace:${recordId}`}
       data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
     >
       {currentWorkspace ? (
-        <WorkspaceOverviewSidebar
-          workspaceRootPath={currentWorkspace.rootPath}
-          projects={visibleProjects}
-          archivedProjects={archivedProjects}
-          records={(workspacePageQuery.data?.records ?? []).map((record) => ({
-            id: record.id,
-            title: record.title,
-            contentMarkdown: record.contentMarkdown,
-            isVoice: record.isVoice,
-            tags: record.tags ?? [],
-            updatedAt: record.updatedAt,
-          }))}
-          activeRecordId={recordId}
-          recordQuery={recordSearchQuery}
-          onRecordQueryChange={setWorkspaceRecordQuery}
-          activeRecordTagId={recordFilterTagId}
-          onActiveRecordTagIdChange={setWorkspaceRecordTagId}
-          onOpenOverview={() => navigate(preserveRecordFilters(workspacePath(), searchParams))}
-          onOpenProject={(projectId) => {
-            void openProject(projectId);
-          }}
-          onPrefetchProject={prefetchProject}
-          onOpenProjectInNewWindow={(projectId) => {
-            void openProjectInNewWindow(projectId);
-          }}
-          onCreateProject={() => {
-            void createProjectQuickly();
-          }}
-          createProjectPending={createProjectMutation.isPending}
-          onOpenArchivedProject={(projectId) => {
-            void openProject(projectId);
-          }}
-          onRestoreArchivedProject={(projectId) => {
-            archiveMutation.mutate({ projectId, isArchived: false });
-          }}
-          onRenameProject={(project, name) => renameProject(project.id, name)}
-          onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
-          onDeleteProject={(project) => deleteProject(project.id)}
-          onOpenRecord={(nextRecordId) => {
-            if (nextRecordId !== recordId) {
-              navigate(preserveRecordFilters(`/workspace/records/${nextRecordId}`, searchParams));
-            }
-          }}
-          onFocusRecord={(nextRecordId) => {
-            if (nextRecordId !== recordId) {
-              navigate(preserveRecordFilters(`/workspace/records/${nextRecordId}`, searchParams));
-            }
-          }}
-          onCreateRecord={() => void createWorkspaceRecordInFocus()}
-          onRenameRecord={(record, nextTitle) =>
-            renameWorkspaceSidebarRecord(record.id, nextTitle)
-          }
-          onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}
-        />
+        <HomeNoteSidebar workspaceRoot={currentWorkspace.rootPath}
+          onRenameRecord={renameWorkspaceSidebarRecord} onDeleteRecord={deleteWorkspaceSidebarRecord}
+          records={workspacePageQuery.data?.records ?? []} activeRecordId={recordId}
+          onOpenWorkspace={handleBack} onOpenRecord={(id) => navigate(preserveRecordFilters(`/workspace/records/${id}`, searchParams))}
+          onCreateRecord={() => void createWorkspaceRecordInFocus()} />
       ) : null}
 
       <div className="project-overview-focus flex-1">
-        <header className="project-overview-focus__chrome">
-          <div
-            className={cn(
-              "project-overview-focus__chrome-inner",
-              projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
-              todoRailCollapsed && "project-overview-focus__chrome-inner--dock-right",
-            )}
-          >
-            <div className="project-overview-focus__meta">
-              <div className="flex items-center gap-3">
-                <IconButton
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  aria-label="返回 Workspace"
-                  onClick={handleBack}
-                >
-                  <ArrowLeft size={16} />
-                </IconButton>
-                <div>
-                  <p className="text-caption text-text-soft">Workspace</p>
-                  <p className="text-ui font-medium text-text">记录</p>
-                </div>
-              </div>
-            </div>
 
-            <div className="project-overview-focus__header-actions">
-              <IconButton
-                type="button"
-                size="sm"
-                variant="secondary"
-                aria-label="打开页面设置"
-                onClick={() => openSettings("page-width")}
-              >
-                <Settings2 size={14} />
-              </IconButton>
-              <RecordExportAction
-                title={title}
-                getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
-                exportTo={runExport}
-              />
-              <span
-                className={cn(
-                  "text-caption",
-                  persistState === "saving"
-                    ? "text-text-soft"
-                    : persistState === "saved"
-                      ? "text-green-600"
-                      : persistState === "error"
-                        ? "text-red-600"
-                        : "text-text-soft",
-                )}
-              >
-                {persistState === "saving"
-                  ? "保存中..."
-                  : persistState === "saved"
-                    ? "已保存"
-                    : persistState === "error"
-                      ? "保存失败"
-                      : ""}
-              </span>
-            </div>
-          </div>
-        </header>
 
         <div ref={scrollRef} className="project-overview-focus__scroll">
-          <div className={withPageWidthClass("mx-auto w-full px-6 py-6", pageWidthMode, "focus")}>
+          <div className="home-content home-note-content">
             <div className="grid gap-4">
+              <HomeRecordHeader onOpenHome={handleBack} identityKey={`workspace:${currentWorkspace?.rootPath}`} scopeName={currentWorkspace?.displayName || "我的工作区"} title={title}>
               <div className="flex min-w-0 items-center gap-2">
                 <TextField
                   value={title}
@@ -692,8 +440,15 @@ export function WorkspaceRecordFocusPage({
                   }}
                   onOpenAiSettings={() => openSettings("ai-rewrite")}
                 />
+              <RecordExportAction
+                title={title}
+                getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+                exportTo={runExport}
+              />
+              <HomeSaveIndicator state={persistState} />
               </div>
-              <EntityTagEditor
+              </HomeRecordHeader>
+              <EntityTagEditor inputPlaceholder="新增标签"
                 projectId={null}
                 availableTags={availableTags}
                 tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
@@ -766,6 +521,7 @@ export function WorkspaceRecordFocusPage({
       </div>
 
       {workspacePageQuery.data ? (
+        <HomeWorkspaceRail>
         <TodoModuleRail
           scope={{ kind: "workspace" }}
           enabled={visible}
@@ -773,6 +529,7 @@ export function WorkspaceRecordFocusPage({
           onOpenInternalReference={openInternalReference}
           onOpenContactMention={openContactMention}
         />
+        </HomeWorkspaceRail>
       ) : null}
     </div>
   );

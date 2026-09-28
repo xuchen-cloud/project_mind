@@ -5,7 +5,7 @@ import { cn } from "../lib/cn";
 import { PopoverPanel } from "./PopoverPanel";
 
 const MENU_WIDTH = 176;
-const MENU_ITEM_HEIGHT = 28;
+const MENU_ITEM_HEIGHT = 34;
 const MENU_QUICK_ACTIONS_HEIGHT = 26;
 const MENU_INLINE_ACTION_ROW_HEIGHT = 32;
 const MENU_GRID_ACTION_ROW_HEIGHT = 26;
@@ -16,7 +16,7 @@ const VIEWPORT_PADDING = 12;
 const SUBMENU_GAP = 5;
 const DEFAULT_INLINE_COLUMNS = 5;
 const DEFAULT_GRID_COLUMNS = 2;
-const MENU_ICON_SIZE = 12;
+const MENU_ICON_SIZE = 14;
 
 export interface ContextMenuInlineAction {
   key: string;
@@ -625,6 +625,7 @@ function ActionContextMenuLevel({
             role="menuitem"
             aria-haspopup={action.type === "submenu" ? "menu" : undefined}
             aria-expanded={action.type === "submenu" ? openSubmenuIndex === index : undefined}
+            data-tone={isActionWithTone(action) ? action.tone : undefined}
             data-featured={action.featured ? "true" : undefined}
             data-selected={action.selected ? "true" : undefined}
             className={cn(

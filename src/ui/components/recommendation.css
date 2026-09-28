@@ -1,0 +1,29 @@
+/* Shared by rich text and todo pickers, including portalled tag suggestions. */
+.recommendation-panel {
+  box-sizing:border-box; width:max-content; min-width:120px; max-width:min(260px,calc(100vw - 32px));
+  padding:3px; border:1px solid var(--color-border); border-radius:6px;
+  background:var(--color-bg); color:var(--color-text);
+  box-shadow:0 3px 10px color-mix(in srgb,var(--color-text) 9%,transparent);
+  font-family:var(--font-ui); font-size:12px; font-weight:400; line-height:18px;
+}
+.recommendation-list { display:grid; gap:2px; min-width:0; max-height:280px; overflow:auto; }
+.recommendation-panel .recommendation-item {
+  display:block; width:100%; min-width:0; padding:4px 6px;
+  border:0; border-radius:5px; background:transparent; color:inherit;
+  font:inherit; text-align:left; cursor:pointer; box-shadow:none;
+  transition:background-color var(--duration-standard) var(--ease-soft);
+}
+.recommendation-panel .recommendation-item:hover,
+.recommendation-panel .recommendation-item[aria-selected="true"],
+.recommendation-panel .recommendation-item:focus-visible { background:var(--color-bg-hover); outline:none; box-shadow:none; }
+.recommendation-row { display:flex; align-items:flex-start; gap:5px; min-width:0; }
+.recommendation-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 14px; height:18px; color:var(--color-text-tertiary); }
+.recommendation-icon > svg { width:12px; height:12px; stroke-width:1.6; }
+.tag-mention-picker.recommendation-panel { max-width:min(220px,calc(100vw - 32px)); }
+.recommendation-copy { min-width:0; flex:1; }
+.recommendation-title { margin:0; font:inherit; overflow-wrap:anywhere; }
+.recommendation-subtitle { margin:1px 0 0; font-size:11px; font-weight:400; line-height:16px; color:var(--color-text-tertiary); overflow-wrap:anywhere; }
+.recommendation-empty { padding:6px; color:var(--color-text-tertiary); font-size:12px; line-height:20px; }
+@media (prefers-reduced-motion:reduce) {
+  .recommendation-panel .recommendation-item { transition:none; }
+}

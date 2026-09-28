@@ -17,6 +17,16 @@ if (typeof window.localStorage?.clear !== "function") {
   Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
 }
 
+// jsdom has no layout engine. Layout-specific tests replace this default with
+// a controllable observer and explicit element dimensions.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => {}),
 }));

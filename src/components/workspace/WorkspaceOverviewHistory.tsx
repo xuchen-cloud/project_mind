@@ -1,3 +1,4 @@
+import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import {
   useEffect,
   useRef,
@@ -20,7 +21,8 @@ import type {
   WorkspaceRecord,
 } from "../../lib/types";
 import { useUiStore, type PageWidthMode } from "../../state/ui-store";
-import { ActionContextMenu, Button, EmptyState, TextField } from "../../ui/components";
+import { ActionContextMenu, Button, TextField } from "../../ui/components";
+import { HomeEmptyState } from "../home/HomeEmptyState";
 import { RecordListItem } from "../record/RecordListItem";
 import {
   normalizeRichEditorValue,
@@ -37,6 +39,8 @@ const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 interface WorkspaceOverviewHistoryProps {
   notes: WorkspaceRecord[];
   hasAnyNotes: boolean;
+  hasRecordFilters?: boolean;
+  onStartWriting?: () => void;
   focusId: string | null;
   composeRecord: boolean;
   pageWidthMode: PageWidthMode;
@@ -72,6 +76,8 @@ interface WorkspaceOverviewHistoryProps {
 export function WorkspaceOverviewHistory({
   notes,
   hasAnyNotes,
+  hasRecordFilters = false,
+  onStartWriting,
   focusId,
   composeRecord,
   pageWidthMode,
@@ -102,6 +108,8 @@ export function WorkspaceOverviewHistory({
     noteId: number;
   } | null>(null);
   const recordDraftEditorRef = useRef<RichEditorController | null>(null);
+  const searchMotionRef = useRef<HTMLElement>(null);
+  useSearchResultsMotion(searchMotionRef, recordFilters.toString());
   const recordPresence = useKeyedPresence(
     notes,
     (record) => String(record.id),
@@ -164,7 +172,7 @@ export function WorkspaceOverviewHistory({
   }
 
   return (
-    <section
+    <section ref={searchMotionRef}
       className={withPageWidthClass(
         "project-overview-focus__page project-overview-focus__page--history",
         pageWidthMode,
@@ -299,10 +307,12 @@ export function WorkspaceOverviewHistory({
             </div>
           ))}
         </div>
-      ) : !hasAnyNotes ? (
-        <EmptyState text="还没有记录。" compact />
+      ) : composeRecord ? null : !hasAnyNotes && !hasRecordFilters ? (
+        <HomeEmptyState kind="records" title="从一个想法开始"
+          description="在上方记下灵感、会议要点或待整理的内容，存为记录后会出现在这里。"
+          actionLabel="写下第一条" onAction={onStartWriting} />
       ) : (
-        <EmptyState text="没有匹配的记录。" compact />
+        <HomeEmptyState kind="search" title="没有匹配的记录" description="试试其他关键词，或清除筛选。" />
       )}
       {contextMenuNote && recordContextMenu ? (
         <ActionContextMenu
