@@ -1,269 +1,96 @@
-# Project Mind Alpha UX 基线
+# Project Mind 当前体验与信息架构
 
 状态：当前正式基线  
-更新时间：2026-08-23
+更新时间：2026-09-28
 
-## 1. UX 目标
+## 1. 整体结构
 
-当前产品的 UX 目标是让用户在一个本地工作区里稳定完成以下闭环：
+应用由四层组成：
 
-1. 进入正确的工作区
-2. 快速抓住当前最重要的信息
-3. 在QuickNote里持续维护项目上下文
-4. 在Record中保存更细的过程信息
-5. 用 Todo、文件、引用和 AI 继续推进
+1. Workspace Gate：选择或创建 Workspace。
+2. Workspace Shell：顶栏、主页面、左右侧栏和全局浮层。
+3. Workspace / Project 首页：封面、标题、QuickNote 与 Record 列表位于同一滚动页面。
+4. Record 焦点页：编辑正文，查看 Voice Record、文件和上下文连接。
 
-仍然有效的方法论：
+Workspace 是固定的第一页签，只显示图标且不可关闭。Project 作为可关闭页签排在其后；选中态、悬浮态和切换指示使用同一水平基线和连续动画。
 
-- `state before detail`
-- `fast capture, deliberate structure`
-- `layered information`
-- `local confidence`
+## 2. 首页体验
 
-## 2. 当前信息架构
+### 2.1 封面与标题
 
-```mermaid
-flowchart TD
-  A["Workspace Gate"] --> B["Workspace Shell"]
-  B --> C["Top Bar"]
-  B --> D["Workspace / 工作区"]
-  B --> E["项目页"]
-  B --> F["Record Focus"]
-  B --> G["Settings Dialog"]
-  D --> I["QuickNote"]
-  D --> J["Record"]
-  I --> L["Workspace QuickNote"]
-  J --> M["Workspace Record"]
-  D --> N["Workspace Todo Rail"]
-  E --> O["QuickNote"]
-  E --> P["Record"]
-  O --> Q["Project Default Note"]
-  P --> R["Project Record"]
-  E --> S["Project Sidebar"]
-  E --> T["Project Todo Rail"]
-  S --> U["记录标签页"]
-  S --> V["文件页的项目标签筛选"]
-```
+- Workspace 和 Project 使用同一封面系统。
+- 图片主体尽量位于清晰区域，底部由填充渐变过渡到页面背景，最底部完全透明。
+- 标题与 QuickNote 左边缘对齐。
+- 标题随页面滚动平移、缩放并吸顶；变化由滚动进度连续驱动，避免两个独立标题切换造成割裂。
 
-## 3. 当前页面职责
+### 2.2 QuickNote 与 Record
 
-### 3.1 Workspace Gate
+- QuickNote 位于首页上方，Record 列表在下方；不再提供 QuickNote / Record 两页切换。
+- QuickNote 是当前作用域唯一的临时信息缓冲区。
+- 发布可创建 Record；追加到已有 Record 时保持原有归属。
+- Record 列表使用稳定的进入、删除和重排反馈。
 
-这是当前真正的起始页，而不是过渡弹窗。
+## 3. 侧边栏
 
-它承担三件事：
+### 3.1 Workspace 左侧栏
 
-- 打开已有工作区
-- 创建新工作区
-- 继续最近使用的工作区
+- 品牌与 Workspace 身份区。
+- Project 搜索、活跃 Project 和归档入口。
+- Workspace Tag 与相关记录入口。
 
-### 3.2 Workspace / 工作区
+### 3.2 Project 与 Record 左侧栏
 
-Workspace 是工作区级中枢，不依赖 AI 是否可用而存在。
+- Project 首页展示最近 Record、最近 File 和各自搜索入口。
+- Record 焦点页复用相同品牌、封面和导航语言。
+- Workspace Record 只展示 Workspace 范围的最近记录。
 
-它承担四类任务：
+所有侧栏字段过长时使用与背景同色的渐变遮罩，不使用省略号。选中底色应铺到侧栏可用右边缘，仅为滚动条和安全间距留空间。
 
-- 回到整个工作区层面的视角
-- 记录当前最重要的上下文
-- 浏览工作区级Record
-- 在 Workspace Todo Rail 中统一处理 Workspace Todo 与活跃 Project 的 Project Todo
+### 3.3 右侧 Rail
 
-当前设计关键点：
+- 顶部是全局搜索和边栏控制行。
+- Todo 位于中段；File 等上下文区域位于下段。
+- 区域之间使用轻量分隔线。
+- 有界列表统一使用随滚动距离连续变化的边缘遮罩。
+- Todo 内容足以滚动时隐藏底部品牌吉祥物区域，让列表获得完整高度。
 
-- 默认入口就是Workspace
-- 左侧有工作区导航侧边栏
-- 中间主区在 `QuickNote` 与 `Record` 间切换
-- 右侧固定为工作区 Todo Rail
-- Workspace 创建器默认创建 Workspace Todo；只有当次显式选择 Project 才创建 Project Todo
-- Workspace Todo 使用 Workspace Tag；Project Todo 使用所属 Project 的 Project Tag
-- 每条 Project Todo 显示来源 Project，Workspace Todo 显示 Workspace
+## 4. Todo 交互
 
-### 3.3 项目页
+- 主 Todo 使用方形完成框；Subtask 使用更小的同系方框。
+- 展示态中，主 Todo 与 Subtask 的文字左边缘对齐；编辑态输入区可以展开到卡片内容边缘。
+- Priority 使用卡片右上角的小书签色标。
+- 完成后先展示勾选态，再向侧边退出；后续卡片同步补位。
+- Subtask 回车保存当前项并创建下一项。
+- Tag 属于整个 Todo，贴卡片内容边缘对齐；Tag、引用和联系人使用统一轻量推荐浮层。
+- 卡片悬浮不显示浏览器默认黑色提示框。
 
-项目页当前不再是“项目摘要 + 许多附属卡片”的旧式首页，而是：
+## 5. 搜索、推荐与菜单
 
-- 一个可以持续维护的QuickNote
-- 一个可以检索和编辑的项目Record区
-- 一个承载记录与文件的项目侧边栏
-- 一个固定可达、只显示当前 Project Todo 的 Project Todo Rail
+- 搜索结果的出现、移除和重新排序使用共享列表动效；键盘连续导航保持即时。
+- Tag 推荐统一以 `#` 开头；Internal Reference 和 Contact Mention 使用相同尺寸、间距和阴影语言。
+- 推荐浮层通过 Portal 或可靠层级显示，不能被卡片、编辑器或侧栏裁剪。
+- 右键菜单统一使用图标、文字基线、危险操作颜色、外部点击和 Escape 关闭规则。
+- 标签的新建输入空间不足时换行，不撑宽菜单。
 
-### 3.4 Record Focus Page
+## 6. Voice Record
 
-单条记录需要更集中编辑时，使用专注页。
+- Record 焦点页提供录音控制和状态反馈。
+- 独立字幕浮窗可以折叠、拖动和跨屏恢复位置，关闭浮窗不会结束 Recording Session。
+- 最终 Transcript 保持只读，可点击片段跳转回放。
+- Meeting Minutes Snapshot 独立于正文；复制到正文后成为普通可编辑内容。
 
-它的职责是：
+## 7. 动效原则
 
-- 放大记录正文编辑体验
-- 保持与项目内标签、引用、联系人能力一致
+- 只有状态变化、空间来源和列表连续性需要动效。
+- 使用 `100ms / 160ms / 220ms` 三档语义时长。
+- 常规界面只动画 `transform` 与 `opacity`；揭示可使用 `clip-path`。
+- 键盘高频操作、搜索逐项导航和编辑输入不使用平滑滚动。
+- 所有位移和缩放必须支持 `prefers-reduced-motion`。
+- 动画应可中断，并从当前视觉状态继续。
 
-### 3.5 顶栏
+## 8. 响应式与可访问性
 
-当前顶栏是工作区级工具带，而不是项目内工具条。
-
-它承载：
-
-- Workspace
-- 项目页签
-- 全局搜索
-- 归档项目
-- 工作区菜单
-- 设置
-
-## 4. 当前核心用户流
-
-### 4.1 打开工作区
-
-1. 用户进入 Workspace Gate。
-2. 打开已有工作区，或创建新工作区。
-3. 进入 Workspace / 工作区。
-
-### 4.2 记录当前背景与判断
-
-1. 用户停留在Workspace `QuickNote` 视图。
-2. 直接在 `Workspace QuickNote` 中输入内容。
-3. 若需要沉淀到项目，可把选中文本追加到QuickNote。
-
-### 4.3 查看工作区Record
-
-1. 用户切到Workspace `Record`。
-2. 搜索、浏览、新建、编辑工作区记录。
-3. 用这些记录保存跨项目或未归档的工作痕迹。
-
-### 4.4 维护项目主上下文
-
-1. 用户从左侧项目页签或Workspace侧边栏打开项目。
-2. 进入项目 `QuickNote`。
-3. 在QuickNote里维护背景、判断、候选行动与引用。
-
-### 4.5 保存更细的项目记录
-
-1. 用户切到项目 `Record`。
-2. 新建记录。
-3. 添加标题、正文、标签。
-4. 需要时进入记录专注页继续编辑。
-
-### 4.6 管理 Todo
-
-1. 用户在 Workspace Todo Rail 中统一查看 Workspace Todo 与活跃 Project 的 Project Todo，并通过来源标识理解真实归属。
-2. Workspace 创建器默认创建 Workspace Todo；需要推进特定 Project 时，用户当次显式选择该 Project 创建 Project Todo。
-3. 用户在 Project Todo Rail 中只查看和创建当前 Project 的 Project Todo。
-4. Workspace Todo 使用 Workspace Tag，Project Todo 使用所属 Project 的 Project Tag；两类 Tag 即使同名也保持独立。
-5. 用户用优先级、Subtask、Tag 与 Internal Reference 推进处理，并可从 Project Todo 的来源进入对应 Project。
-
-### 4.7 管理文件
-
-1. 用户在项目侧边栏切到 `文件` 标签页。
-2. 导入或拖拽文件。
-3. 为文件加标签、重命名、标星或新增版本。
-4. 直接打开或在系统文件管理器中定位。
-
-## 5. 展示层级原则
-
-### 5.1 Workspace
-
-Workspace 优先级是：
-
-1. 当前最值得先抓住的判断
-2. Workspace Todo 与活跃 Project 的 Project Todo 聚合队列
-3. 工作区记录回看
-
-因此：
-
-- Workspace QuickNote 必须足够轻
-- Workspace QuickNote 承载当前背景与判断
-- Record不应压过当前工作上下文
-
-### 5.2 Project
-
-项目页优先级是：
-
-1. 项目当前上下文
-2. 记录沉淀
-3. 文件材料
-4. Todo 推进
-
-因此：
-
-- QuickNote是主场
-- Record是补充视角
-- 侧边栏承载导航与材料，不应喧宾夺主
-
-### 5.3 Todo
-
-Todo 当前不是独立大页面，而是持续可见的推进轨道。
-
-因此：
-
-- 应该尽量在原地完成状态切换与进展维护
-- 不应把用户推离当前上下文太远
-
-## 6. 当前交互特征
-
-### 6.1 Workspace / Record双视图
-
-Workspace 和 Project 都采用同一种双视图切换：
-
-- `QuickNote`
-- `Record`
-
-目的：
-
-- 让“当前状态”与“过程原始记录”分层
-- 避免一个页面同时承担所有职责
-
-### 6.2 侧边栏长期驻留
-
-项目侧边栏和工作区侧边栏都是长期工具，不是临时弹层。
-
-侧边栏职责：
-
-- 快速定位
-- 搜索
-- 轻筛选
-- 文件或记录入口管理
-
-### 6.3 富文本作为主工作面
-
-当前体验以富文本为主，不以表单字段为主。
-
-体现为：
-
-- Workspace QuickNote 是富文本
-- QuickNote是富文本
-- 记录正文是富文本
-
-### 6.4 轻量结构化增强
-
-结构化不是靠重表单实现，而是靠轻量能力叠加：
-
-- `#标签`
-- `[[内部引用]]`
-- `@联系人`
-- Todo 进展
-
-## 7. 当前空态与边界体验
-
-### 7.1 没有工作区
-
-应显示完整 Workspace Gate，而不是空白壳。
-
-### 7.2 没有项目
-
-进入已打开 workspace 后，如果还没有项目：
-
-- 仍然允许停留在Workspace
-- 创建项目是建议动作，而不是强制前置
-
-### 7.3 AI 不可用
-
-AI 不可用时：
-
-- Workspace 仍应可用
-- Project 仍应可用
-- 编辑器 AI 技能应显示受控错误状态
-- 不应让用户误以为主功能被锁死
-
-## 8. 当前 UX 风险
-
-- 工作区页右侧 Todo Rail 和中间主区在小窗口下的空间竞争较明显
-- 项目页当前对“项目当前状态”的结构化摘要仍偏弱，更多依赖用户自己维护默认笔记
+- 侧栏与 Todo Rail 支持折叠和拖动宽度。
+- 可操作控件提供键盘焦点、可读标签和足够点击区域。
+- Warm 页面使用 `inert` 与 `aria-hidden`，不获取焦点或响应交互。
+- 滚动遮罩和推荐浮层不得阻挡点击、输入或滚动条。

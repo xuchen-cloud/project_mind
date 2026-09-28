@@ -1,7 +1,7 @@
 # Project Mind Alpha Design System
 
 状态：当前正式基线  
-更新时间：2026-06-08
+更新时间：2026-09-28
 
 ## 1. 目的与边界
 
@@ -186,7 +186,7 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 - 有最近工作区回流
 - 有稳定、可信的第一印象
 
-### 5.2 Top Bar
+### 5.2 Top Bar 与页签
 
 顶栏是工作区级控制带。
 
@@ -196,6 +196,9 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 - 紧凑
 - 持续可扫读
 - 不把项目标签做成笨重导航条
+- Workspace 是固定在最前、不可关闭的图标页签
+- Project 页签使用浏览器式圆角轮廓；选中、未选中和悬浮态保持文字、图标与关闭按钮在同一水平线
+- 页签切换以共享指示层平移和缩放，不重新播放整块进入动画
 
 ### 5.3 主区
 
@@ -205,7 +208,7 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 
 - 足够宽
 - 滚动清晰
-- 在 `QuickNote / Record` 两种视图中都能保持稳定节奏
+- 封面、标题、QuickNote 与 Record 位于同一滚动面并保持稳定节奏
 
 ### 5.4 Sidebars 与 Rails
 
@@ -284,9 +287,11 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 
 ## 7. 交互规则
 
-### 7.1 QuickNote / Record切换
+### 7.1 首页连续性
 
-切换按钮应始终简洁且稳定，不做夸张分段控件。
+- QuickNote 与 Record 同页展示，不提供视图切换按钮。
+- 标题、封面和 QuickNote 的滚动关系由同一进度驱动；吸顶时使用平移与缩放连续过渡。
+- 列表新增、删除、完成和筛选使用共享布局动画，避免后续内容瞬移。
 
 ### 7.2 选中态
 
@@ -296,7 +301,7 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 
 - 侧边栏当前项
 - 顶栏当前页签
-- 当前视图切换按钮
+- 推荐浮层当前项
 
 ### 7.3 搜索与筛选
 
@@ -308,7 +313,19 @@ CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliber
 - 应足够轻
 - 不应盖过正文工作面
 
-### 7.4 窄窗口适配
+搜索结果的进入、退出和重排复用共享列表动效；键盘连续选择与定位保持即时。
+
+### 7.4 推荐浮层
+
+Tag、Internal Reference 与 Contact Mention 在 Todo 和 RichEditor 中使用同一套轻量浮层：
+
+- Tag 文案始终以 `#` 开头。
+- 行高、圆角、图标、主副文字和选中态保持一致。
+- 浮层宽度由内容和宿主可用空间共同约束，不因创建 Tag 输入而撑宽右键菜单。
+- 通过 Portal 或可靠 stacking context 显示，不能被卡片、编辑器和有界滚动区裁剪。
+- 已完成 Todo 不进入 Internal Reference 推荐。
+
+### 7.5 窄窗口适配
 
 当前产品在窄窗口下主要依赖：
 

@@ -1,296 +1,118 @@
-# Project Mind Alpha 产品基线
+# Project Mind 产品基线
 
-状态：当前正式基线  
-更新时间：2026-08-19
+状态：当前正式基线
+
+更新时间：2026-09-28
+
+代码基线：`develop` / `880aafb`
 
 ## 1. 产品定位
 
-Project Mind Alpha 是一个本地优先、`workspace-first` 的项目整理工作台。
+Project Mind 是一个本地优先、`workspace-first` 的桌面工作台。它把即时捕捉、长期记录、项目材料、行动跟踪和语音记录放在同一个 Workspace 中，减少在笔记、待办、录音和文件工具之间切换时丢失上下文。
 
-它服务的不是泛笔记，也不是纯任务管理，而是以下连续工作流：
-
-1. 先进入一个真实工作区
-2. 在工作区里抓住今天最重要的信息
-3. 在QuickNote里持续沉淀项目上下文
-4. 在Record里保存更细颗粒度的原始记录
-5. 用 Todo、受管文件、引用和 AI 辅助把推进过程串起来
+正式领域名称及边界以 [`CONTEXT.md`](../CONTEXT.md) 为准。
 
 ## 2. 当前信息对象
 
-当前产品以以下对象为核心：
+- Workspace 与 Project
+- Workspace QuickNote 与 Project QuickNote
+- Workspace Record、Project Record 与 Voice Record
+- Workspace Todo、Project Todo 与 Subtask
+- File 与 File Version
+- Workspace Tag、Project Tag、Contact 与 Internal Reference
+- AI Editor Skill、AI Metadata Fill 与相关 Job
+- Recording Session、Voice Source Track、Transcript、Live Captions 与 Meeting Minutes Snapshot
 
-- `Workspace`
-- `Project`
-- `QuickNote`
-- `Record`
-- `Workspace Todo`
-- `Project Todo`
-- `Subtask`
-- `Document`
-- `Workspace Tag`
-- `Project Tag`
-- `Contact`
-- `AI Editor Skill`
+旧 Brief、结论等对象只通过兼容迁移进入 Record，不再属于当前产品模型。
 
-历史工作区中仍存在的旧领域数据只通过数据库迁移兼容层读取并复制为 Record，不进入当前产品模型；全新工作区不创建旧领域结构，v21 升级也不会删除任何现存历史行。
-
-## 3. 当前页面与入口
+## 3. 当前工作流
 
 ### 3.1 Workspace Gate
 
-用户启动后先进入 `Workspace Gate`，可执行：
+用户可以创建、打开或从最近记录重新进入 Workspace。Workspace 的数据库、设置、日志、缓存和临时文件统一位于根目录的 `.project-mind/`。
 
-- 打开已有工作区
-- 创建新工作区
-- 从最近记录重新打开工作区
+### 3.2 Workspace 首页
 
-创建工作区时会：
+Workspace 是始终可访问且不可关闭的首页页签。首页包含：
 
-- 在所选目录内创建 `.project-mind/`
-- 初始化 `workspace.json` 与 `workspace.sqlite3`
-- 设置工作区密码，用于后续解锁已保存的 AI secrets
+- 封面、Workspace 图标与标题。
+- 唯一的 Workspace QuickNote。
+- Workspace Record 列表和 Record 焦点入口。
+- Workspace 级项目、标签与最近内容导航。
+- Workspace View 的 Todo Rail，可同时查看 Workspace Todo 与活跃 Project Todo。
 
-### 3.2 Workspace / 工作区
+### 3.3 Project 首页
 
-`/workspace` 是当前默认首页，也是工作区级工作区页。
+每个 Project 使用可关闭的浏览器式页签。首页包含：
 
-当前包含两种视图：
+- 封面、Project 图标、标题与 Project QuickNote。
+- Project Record 列表。
+- 最近记录、最近文件、搜索、标签筛选和受管文件操作。
+- 可在 Current Project View 与 Workspace View 间切换的 Todo Rail。
 
-- `QuickNote`
-- `Record`
+Project 进入 Archive 后退出活跃列表，但数据不删除。
 
-`QuickNote` 视图当前承载：
+### 3.4 Record 焦点页
 
-- 固定单例 `Workspace QuickNote`
+Workspace Record 与 Project Record 使用一致的焦点编辑体验：
 
-`Record` 视图当前承载：
+- 富文本正文、标题与 `#标签`。
+- `[[Internal Reference]]`、`@Contact Mention` 和 `#Tag` 推荐浮层。
+- 图片、附件、表格、代码块与图片标注。
+- AI Editor Skill 和 AI Metadata Fill。
+- 后台保存协调；普通导航不等待持久化完成，退出和切换 Workspace 会经过保存屏障。
 
-- 工作区记录列表
-- 记录搜索
-- 新建、编辑、删除工作区记录
+### 3.5 Todo
 
-页面右侧始终挂载 `Workspace Todo Rail`，统一展示 Workspace Todo 与未归档 Project 的 Project Todo，并明确标注每条 Todo 的来源。
+Todo 支持：
 
-左侧为工作区侧边栏，提供：
+- Workspace / Project 归属与聚合视图。
+- 完成、归档、优先级、截止日期、进展和排序。
+- Subtask 的新增、回车连续创建、编辑和完成。
+- Tag、Internal Reference、Contact Mention 与 URL。
+- 完成态确认后再平滑退出，列表位置通过共享布局动画连续变化。
 
-- 项目列表
-- 工作区记录列表
-- 搜索
-- 新建工作区记录入口
+### 3.6 File
 
-### 3.3 项目页
+Project File 支持导入、搜索、Tag、重命名、标星、版本、打开所在位置、复制为新版本和删除。文件 Tag 使用统一的轻量推荐浮层，不在右键菜单中展开完整标签列表。
 
-`/projects/:projectId` 是项目主页面，当前同样分为两种视图：
+### 3.7 Voice Record
 
-- `QuickNote`
-- `Record`
+Voice Record 当前主体能力包括：
 
-`QuickNote` 视图当前承载：
+- 麦克风与系统声音双轨采集，保留原始来源。
+- 暂停、继续、结束、滚动分片、异常恢复和删除清理。
+- 纯录音、本地 SenseVoice 和云端 Paraformer 识别路径。
+- 主窗口控制、独立字幕浮窗、最终 Transcript、点击回放和 Transcript 搜索。
+- 手动、周期和结束时会议纪要，以及 AI 标题和复制到正文。
 
-- 项目名称编辑
-- 项目根目录入口
-- QuickNote富文本编辑
+真实 Paraformer 断线恢复、macOS 集中设备验收和 Windows 完整闭环仍未完成，详见[未完成事项](remaining-work.md)。
 
-`Record` 视图当前承载：
+## 4. 页面与全局导航
 
-- 项目记录搜索
-- 标签筛选
-- 新建项目记录
-- 记录列表浏览与内联编辑
+- `/workspace`
+- `/workspace/records/:noteId`
+- `/projects/:projectId`
+- `/projects/:projectId/records/:noteId`
+- `/settings/:section`
 
-页面左侧挂载项目侧边栏，提供：
+顶栏包含 Workspace 固定图标页签、Project 页签和页面级窗口控制。全局搜索位于右侧 Rail 顶部，与边栏按钮同一行；Todo、文件等区域通过一致的分隔和滚动遮罩组织。
 
-- 记录标签页
-- 文件页的项目标签筛选
-- 搜索与标签筛选
-- 文件拖拽导入与受管文件操作
+## 5. 本地优先与数据边界
 
-页面右侧挂载 `Project Todo Rail`，只展示直接归属于当前 Project 的 Project Todo。
+- 业务主库为 `<workspace>/.project-mind/workspace.sqlite3`，当前 schema 为 v25。
+- Project 对应 Workspace 根目录下的真实文件夹。
+- Workspace 自有资源使用相对路径持久化；机器相关绝对路径只允许存在于明确的外部来源字段和本地会话发现信息中。
+- Transcript 是不可编辑的语音事实来源；用户要修改时复制到 Record 正文。
+- Archive、完成与删除是不同状态，不能互相替代。
 
-### 3.4 Record Focus Page
+## 6. 当前不包含
 
-`/projects/:projectId/records/:noteId` 提供单条项目记录的专注编辑页，用于更沉浸地编辑与回看记录内容。
+- 多用户协作、账号权限和云端同步。
+- 层级文件夹式 Tag。
+- 把 Todo 变成团队任务分配系统。
+- Voice Record 的实时翻译、Context Lexicon、AEC、通用模型下载器和分轨混音控制。
 
-### 3.5 顶栏能力
+## 7. 当前验收边界
 
-当前顶栏承载：
-
-- Workspace 入口
-- 项目页签
-- 新建项目
-- 全局搜索
-- 归档项目入口
-- 工作区菜单
-- 设置入口
-
-## 4. 当前核心能力
-
-### 4.1 工作区与本地存储
-
-- 支持打开、创建、切换工作区
-- 支持最近工作区列表
-- 支持打开工作区根目录
-- 支持锁定 / 解锁已保存的 AI secrets
-
-### 4.2 项目
-
-- 创建项目
-- 编辑项目名称
-- 编辑QuickNote
-- 打开项目根目录
-- 归档与恢复项目
-- 在顶栏中以页签方式切换打开中的项目
-
-### 4.3 记录
-
-工作区记录与项目记录当前都支持：
-
-- 富文本正文
-- 可选标题
-- 自动保存
-- 搜索
-- 编辑与删除
-
-项目记录额外支持：
-
-- 显式标签编辑器
-- `#标签` 从正文自动同步到项目标签字典
-- 内部引用 `[[...]]`
-- 联系人提及 `@...`
-- 记录焦点页跳转
-
-单条 Workspace Record 与 Project Record 还支持 Record Export：
-
-- 导出前提交并等待普通编辑保存成功，只导出 Committed Content
-- 一次导出为 Markdown/ZIP、DOCX 或 PDF 中的一种格式
-- Markdown 可选择包含图片；包含时输出带 `images/` 的 ZIP，不包含时输出带图片占位的单一 `.md`
-- DOCX 与 PDF 使用 A4 浅色打印布局，保留真实文本结构并嵌入图片
-- 图片批注进入导出副本，导出图片清除非视觉隐私元数据
-- 使用原生另存为、阶段化进度、取消、缺失图片确认与原子写盘；失败或取消不留下半成品
-- 归档 Project 中仍可访问的 Project Record 不受 Archive 状态阻断
-
-### 4.4 Todo
-
-当前 Todo 能力包括：
-
-- Workspace 中默认创建 Workspace Todo，并可显式选择未归档 Project 创建 Project Todo
-- Project 页面创建当前 Project 的 Project Todo
-- 状态切换
-- 优先级调整
-- 正文内联编辑
-- 进展新增、编辑、删除
-- Workspace Todo 使用 Workspace Tag；Project Todo 使用所属 Project 的 Project Tag
-- 内部引用与联系人提及
-
-### 4.5 文件
-
-当前受管文件能力包括：
-
-- 项目内导入文件
-- 拖拽导入
-- 导入前批量打标签
-- 打开文件
-- 在系统文件管理器中定位
-- 重命名
-- 标星
-- 删除
-- 版本管理
-- 缺失文件状态标记
-
-### 4.6 标签与联系人
-
-当前提供三类轻量结构化工具：
-
-- Workspace Tag
-- Project Tag
-- 联系人
-
-用途：
-
-- Workspace Tag 只分类 Workspace 范围对象；Project Tag 只分类所属 Project 内的对象
-- 联系人用于正文与 Todo 中的提及
-
-### 4.7 AI
-
-当前正式 AI 能力是 `AI Editor Skill`：用户可配置技能提示词、结果模式、菜单入口和模型绑定，并对已提交的编辑器内容执行改写、解释或图片文字提取。
-
-Workspace Record 与 Project Record 还提供 `AI Metadata Fill`：用户在标题区域显式发起后，系统从 Committed Content 生成标题，优先复用同作用域现有 Tag，并可新增最多 3 个 Tag；标题、Tag 新建与 Tag 关联以一次原子变更写入。
-
-## 5. 当前设置面板
-
-设置面板当前包含 5 个分区：
-
-- `页面宽度`
-- `项目标签`
-- `联系人`
-- `AI 设置`
-- `富文本样式`
-
-说明：
-
-- 项目标签是项目级设置
-- 其他分区当前按工作区作用
-
-## 6. 当前用户流
-
-### 6.1 首次进入
-
-1. 打开应用
-2. 创建或打开工作区
-3. 进入 `/workspace`
-4. 根据需要创建项目
-
-### 6.2 记录今天的上下文
-
-1. 进入工作区页
-2. 在 `Workspace QuickNote` 中记录当日判断、临时结论或提醒
-3. 如有需要，将选中文本追加到某个QuickNote
-
-### 6.3 沉淀项目上下文
-
-1. 打开项目
-2. 在 `QuickNote` 视图维护QuickNote
-3. 通过内部引用、联系人提及与标签组织内容
-
-### 6.4 保存更细颗粒度记录
-
-1. 在项目页切换到 `Record`
-2. 新建记录
-3. 为记录补标题、标签和正文
-4. 需要时进入记录焦点页继续编辑
-
-### 6.5 导出单条 Record
-
-1. 打开 Workspace Record 或 Project Record 的专注页
-2. 从记录更多菜单选择“导出…”
-3. 选择 Markdown、Word 或 PDF；Markdown 含图片时可决定是否打包图片
-4. 在原生“另存为”窗口确认文件名与位置
-5. 等待导出完成；图片缺失时选择取消或继续生成占位版本
-6. 成功后按需打开文件或在文件管理器中显示
-
-### 6.5 跟进 Todo
-
-1. 在工作区或项目页创建 Todo
-2. 用优先级、进展、标签组织推进状态
-3. 通过引用回到对应记录或项目上下文
-
-## 7. 非目标
-
-当前版本不把以下内容作为正式基线：
-
-- 多轮 AI 聊天历史
-- 同步到远端知识库
-- 完整多主题系统
-- 面向团队协作的多人实时同步
-- 将历史领域对象重新作为当前页面或命令入口
-
-## 8. 文档维护原则
-
-本文件只记录当前代码中已经成立、且对长期理解产品有价值的能力。
-
-不再保留以下类型的内容在正式基线文档中：
-
-- 阶段性需求跟踪表
-- 一次性实现报告
-- 已完成开发日志
-- 已失效的旧信息架构描述
+自动化测试、构建、UI 规范、路径可迁移性和 bundle 边界是日常验证的一部分。真实平台和发布层面的剩余工作只在 [`remaining-work.md`](remaining-work.md) 维护。

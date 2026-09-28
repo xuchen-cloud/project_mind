@@ -1,7 +1,7 @@
 # Project Mind Cache Strategy
 
 状态：正式基线  
-更新时间：2026-08-23
+更新时间：2026-09-28
 
 ## 目标
 
@@ -81,13 +81,8 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 - Workspace Overview 首次打开后必须始终保持挂载，且不占用 5 个 Project 驻留名额。
 - 隐藏页面必须设置 `aria-hidden` 与 `inert`，并暂停页面级查询。
 
-## 平台验证记录
+## 平台验证状态
 
-2026-08-23 的自动化门禁使用真实 Workspace layout、router 与 QueryClient，确定性覆盖 A → B → C → D → E → A、访问第 6 个 Project、LRU 重排、关闭页签、Project/Workspace Focus 跨壳复用、请求计数以及长历史下的 5/2 实例上限。这些契约不包含平台分支。
+自动化门禁覆盖 A → B → C → D → E → A、访问第六个 Project、LRU 重排、关闭页签、Project / Workspace Focus 跨壳复用、请求次数以及 5/2 实例上限。
 
-维护者已明确批准将 macOS / Windows 的实机切换与内存采样延期至 #56；该延期不阻塞 #48 的提交、合并或发布，也不应被解读为平台实测已通过。
-
-| 平台 | 当前结果 | 记录 |
-| --- | --- | --- |
-| macOS WebKit | 自动化与 debug `.app` 构建通过；实机切换/内存采样待执行 | 已生成当前分支的 `ProjectMind.app`；本会话的 Accessibility 启动未返回可操作状态，先前 Tauri dev binary 也不是可识别的 `.app` target。两次尝试均未被误记为切换或内存实测。 |
-| Windows WebView2 | 自动化通过；实机切换/内存采样待执行 | 当前执行环境没有 Windows/WebView2 主机。后续需在 Windows 上执行相同 A–F、跨 Project Focus、关闭页签与长历史场景，并记录 resident shell/Focus 数量和进程内存稳定结果。 |
+macOS WebKit 与 Windows WebView2 的真实切换、长历史和内存采样仍未完成，由 [Issue #56](https://github.com/xuchen-cloud/project_mind/issues/56) 跟踪；统一验收清单见[未完成事项](remaining-work.md)。

@@ -1,26 +1,28 @@
 # ProjectMind
 
-ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕“工作区、QuickNote、Record、Todo 与受管文件”组织信息，并提供可配置的编辑器 AI 技能。
+ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当前技术栈为 `Tauri 2 + React 19 + TypeScript + SQLite`。它围绕 Workspace、Project、QuickNote、Record、Voice Record、Todo 与受管文件组织信息，并提供可配置的编辑器 AI 技能。
 
 ## 当前产品基线
 
 - 通过 `Workspace Gate` 打开或创建工作区，并把数据库、配置、AI 缓存、日志与临时文件统一保存在工作区根目录下的 `.project-mind/`
-- 提供始终可访问的 `Workspace / 工作区` 页面，作为工作区级入口
+- 提供始终可访问、不可关闭的 Workspace 图标页签，作为工作区级入口
 - 在工作区页维护一份固定单例的 `Workspace QuickNote`
 - 在工作区页维护工作区级Record列表，并支持新建、编辑、删除记录
 - 在工作区页维护跨项目 Todo 视图，支持创建、状态切换、优先级、进展、引用、联系人提及与标签
-- 在项目页维护项目名称、QuickNote与项目级Record
+- 在 Workspace 和 Project 首页将封面、标题、QuickNote 与 Record 编排为统一页面，滚动后标题吸顶
 - 在项目Record中支持富文本正文、标题、`#标签` 自动同步、内部引用 `[[...]]`、联系人提及 `@...`
 - 在项目侧边栏浏览记录与文件，支持搜索、标签筛选、文件导入、重命名、标星、版本切换、删除与拖拽导入
 - 提供顶栏全局搜索、项目页签、归档项目入口、设置入口与工作区菜单
 - 提供可配置、可绑定模型的编辑器 AI 技能
 - 提供项目标签、联系人、AI 设置、富文本样式、页面宽度等设置能力
+- 支持 Voice Record 双轨录音、录音恢复、纯录音、本地或云端识别、实时字幕、转写回放、搜索和会议纪要
 
 ## 当前主路由
 
 - `/workspace`：工作区
-- `/projects/:projectId`：项目Workspace与项目Record
-- `/projects/:projectId/records/:noteId`：记录焦点页
+- `/workspace/records/:noteId`：Workspace Record 焦点页
+- `/projects/:projectId`：项目首页
+- `/projects/:projectId/records/:noteId`：Project Record 焦点页
 - `/settings/:section`：设置路由桥接
 
 ## 运行方式
@@ -111,9 +113,12 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 - `docs/system-design.md`：当前系统架构与模块边界
 - `docs/alpha-ux.md`：当前信息架构与主用户流
 - `docs/design-system.md`：当前设计与交互约束
+- `docs/remaining-work.md`：当前唯一的仓库内未完成事项总表
+- `docs/README.md`：文档索引与归档规则
 - `.impeccable.md`：设计上下文与产品气质
 
 ## 当前限制
 
-- 全新工作区不再创建旧领域表；升级时仍存在的历史 Brief 与结论会复制为当前 Record，v21 迁移不会删除原始行，并会复用旧 v13 已生成的 Brief Record 以避免重复
-- 当前只明确验证了 macOS 桌面工作流，其他平台仍需补完整验收
+- 当前数据库 schema 为 v25；全新工作区不再创建旧领域表，旧数据通过兼容迁移复制为当前 Record。
+- macOS 是当前主要开发和验证平台；Windows 的 Voice Record 与页面驻留仍缺完整实机验收。
+- 当前未完成事项统一记录在 [`docs/remaining-work.md`](docs/remaining-work.md)。
