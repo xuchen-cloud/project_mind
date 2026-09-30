@@ -17,7 +17,7 @@ import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
 import { ManagedTable } from "./extensions/ManagedTable";
 import { TagMention } from "./extensions/TagMention";
-import { StableRecordBlocks } from "./extensions/StableRecordBlocks";
+import { StableRecordBlocks, type RecordClipboardOptions } from "./extensions/StableRecordBlocks";
 import { codeLanguageLabel, highlightCodeRanges, normalizeCodeLanguage } from "./codeHighlight";
 
 export const RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT =
@@ -141,7 +141,7 @@ const CodeHighlightDecorations = Extension.create({
   },
 });
 
-export function buildRichEditorExtensions(placeholder: string, options: { stableBlocks?: boolean; portableAssets?: boolean; recordKey?: string } = {}) {
+export function buildRichEditorExtensions(placeholder: string, options: RecordClipboardOptions & { stableBlocks?: boolean; portableAssets?: boolean; recordKey?: string } = {}) {
   const image = options.portableAssets ? ManagedImage.extend({
     addAttributes() {
       const attributes: Attributes = this.parent?.() ?? {};
@@ -227,7 +227,8 @@ export function buildRichEditorExtensions(placeholder: string, options: { stable
     attachment,
     CodeBlockLanguageMetadata,
     CodeHighlightDecorations,
-    ...(options.stableBlocks ? [StableRecordBlocks.configure({ recordKey: options.recordKey ?? null })] : []),
+    ...(options.stableBlocks ? [StableRecordBlocks.configure({ recordKey: options.recordKey ?? null,
+      clipboardPayload: options.clipboardPayload, onCopied: options.onCopied })] : []),
   ];
 }
 

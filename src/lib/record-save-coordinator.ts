@@ -1,4 +1,5 @@
 import type { RichEditorValue } from "../components/rich-editor/types";
+import type { JSONContent } from "@tiptap/core";
 import type { NoteRecord, WorkspaceRecord } from "./types";
 
 interface CommittedRecordSnapshotBase {
@@ -8,6 +9,16 @@ interface CommittedRecordSnapshotBase {
   tagIds: number[];
   defaultCodeLanguage: string | null;
   committedContent: RichEditorValue;
+  canonicalBody?: CommittedRecordBody;
+}
+
+export interface CommittedRecordBody {
+  binding: { workspaceId: string; generation: string };
+  requestId: string;
+  baseRevision: number;
+  document: JSONContent;
+  editSessionId: string | null;
+  origin: "manual" | "editor_ai";
 }
 
 export interface CommittedProjectRecordSnapshot extends CommittedRecordSnapshotBase {
@@ -39,6 +50,7 @@ function recordSaveKey(snapshot: CommittedRecordSnapshot) {
 
 export interface RecordSaveResult {
   updatedAt: string;
+  headRevision?: number;
   record?: NoteRecord | WorkspaceRecord;
 }
 
@@ -84,11 +96,23 @@ function immutableSnapshot(
   snapshot: CommittedRecordSnapshot,
 ): Readonly<CommittedRecordSnapshot> {
   const committedContent = Object.freeze({ ...snapshot.committedContent });
+  const canonicalBody = snapshot.canonicalBody
+    ? freezeDocument(structuredClone(snapshot.canonicalBody))
+    : undefined;
   return Object.freeze({
     ...snapshot,
     tagIds: Object.freeze([...snapshot.tagIds]) as unknown as number[],
     committedContent,
+    ...(canonicalBody ? { canonicalBody } : {}),
   });
+}
+
+function freezeDocument<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    Object.values(value).forEach(freezeDocument);
+  }
+  return value;
 }
 
 function errorMessage(error: unknown) {
@@ -238,6 +262,11 @@ export class RecordSaveCoordinator {
     let result: RecordSaveResult;
     try {
       result = await this.adapter.persist(task.snapshot);
+      if (task.snapshot.canonicalBody && (!Number.isSafeInteger(result.headRevision)
+        || (result.headRevision !== task.snapshot.canonicalBody.baseRevision
+          && result.headRevision !== task.snapshot.canonicalBody.baseRevision + 1))) {
+        throw new RecordSaveFailure("保存结果缺少有效的正文版本号", { retryable: false });
+      }
     } catch (error) {
       task.state = "failed";
       task.error = error;
@@ -245,6 +274,19 @@ export class RecordSaveCoordinator {
       return;
     }
     task.state = "saved";
+    const savedBody = task.snapshot.canonicalBody;
+    if (savedBody && result.headRevision !== undefined) {
+      for (const queued of tasks) {
+        const body = queued.snapshot.canonicalBody;
+        if (queued.state !== "queued" || !body
+          || body.baseRevision !== savedBody.baseRevision
+          || body.binding.workspaceId !== savedBody.binding.workspaceId
+          || body.binding.generation !== savedBody.binding.generation) continue;
+        queued.snapshot = immutableSnapshot({ ...queued.snapshot,
+          canonicalBody: { ...body, baseRevision: result.headRevision },
+        });
+      }
+    }
     if (this.latestSequenceByRecord.get(recordKey) === task.sequence) {
       try {
         this.onLatestSaved?.(task.snapshot, result);

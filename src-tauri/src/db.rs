@@ -2716,6 +2716,10 @@ impl Database {
             .and_then(normalize_code_language);
         match input.note_id {
             Some(note_id) => {
+                self.require_legacy_record_write(&crate::record_documents::RecordTarget {
+                    scope: crate::agent::models::Scope::Project { project_id: input.project_id },
+                    record_id: note_id,
+                })?;
                 let current = self.note_record(note_id)?;
                 self.conn.execute(
                     r#"
@@ -2874,6 +2878,10 @@ impl Database {
 
         match input.note_id {
             Some(note_id) => {
+                self.require_legacy_record_write(&crate::record_documents::RecordTarget {
+                    scope: crate::agent::models::Scope::Workspace,
+                    record_id: note_id,
+                })?;
                 self.conn.execute(
                     r#"
                     UPDATE workspace_notes

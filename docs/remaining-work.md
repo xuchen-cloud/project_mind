@@ -2,9 +2,7 @@
 
 状态：当前唯一仓库内待办总表
 
-更新时间：2026-09-28
-
-代码基线：`develop` / `880aafb`
+更新时间：2026-10-01
 
 GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品与工程事项，不重复已经实现的历史计划。
 
@@ -16,11 +14,11 @@ GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品
 | P1 | [#56 Project 驻留验证](https://github.com/xuchen-cloud/project_mind/issues/56) | 驻留、预取、LRU 和缓存契约已有自动化覆盖；两平台的真实切换和内存证据未完成 | macOS 与 Windows WebView2 完成同一套场景并记录结果 |
 | P1 | [#60 帮助中心收尾](https://github.com/xuchen-cloud/project_mind/issues/60) | 文案草稿在独立分支；当前界面经历了较大调整，截图与操作说明需要重新核对 | 内容基于当前 UI，素材、首轮工作流和两平台说明验收完成 |
 
-## AI 工作上下文：已形成实施计划，尚未开始实现
+## AI 工作上下文：实施中
 
 - [父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97) 是完整 PRD 和开发工单入口；[开发规格](requirements/ai-work-context-spec.md) 说明产品行为；[工程契约](requirements/ai-work-context-engineering-spec.md)集中数据/接口/故障规则，[交付验收](requirements/ai-work-context-delivery.md)集中工单定义与验收。Overview独立于QuickNote，不建设首页“继续工作”卡片。
 - 首期包含AI维护的Project Overview、每日/隔日增量整理、会话摘要检索及消息引用、按问题渐进读取、Pi 内置会话、带来源问答、Record块修改与版本恢复、项目File版本化修改、成果保存、CLI/MCP；后续为 Workspace分层Overview与长期记忆、多 Agent/菜单和无界面运行。
-- 19 个子任务为 #98～#116，依赖在 GitHub 跟踪；可先开始 [#98 Pi 技术验证](https://github.com/xuchen-cloud/project_mind/issues/98) 和 [#99 领域服务](https://github.com/xuchen-cloud/project_mind/issues/99)。首期完整验收为 #107；新增 [#113 Record块编辑与版本](https://github.com/xuchen-cloud/project_mind/issues/113) 和 [#114 File版本化修改](https://github.com/xuchen-cloud/project_mind/issues/114)，以及 [#115 HTML交互稿](https://github.com/xuchen-cloud/project_mind/issues/115)、[#116 自主执行与撤销](https://github.com/xuchen-cloud/project_mind/issues/116)，均是首期依赖。
+- 19 个子任务为 #98～#116，实现状态及依赖在 GitHub 跟踪；按[交付顺序](requirements/ai-work-context-delivery.md)推进。首期完整验收为 #107；[#113 Record块编辑与版本](https://github.com/xuchen-cloud/project_mind/issues/113)、[#114 File版本化修改](https://github.com/xuchen-cloud/project_mind/issues/114)、[#115 HTML交互稿](https://github.com/xuchen-cloud/project_mind/issues/115)和[#116 自主执行与撤销](https://github.com/xuchen-cloud/project_mind/issues/116)均是首期依赖。
 - [方向讨论稿](technical/ai-capability-direction.md) 和 [参考调研](technical/ai-capability-reference-research.md) 保留思路来源；默认沉淀行为以开发规格为准：过程自动保存、成果自主保存并可撤销，Overview随助手启用后定期增量维护。
 
 ## P0：Voice Record 收尾

@@ -1,0 +1,904 @@
+//! Shared Record operations. Every database phase resolves the *current* binding;
+//! utility work must never keep an old Workspace database alive across a switch.
+use crate::{
+    agent::{
+        access::{Caller, RequestContext},
+        errors::{AgentError, AgentResult, ErrorCode},
+        models::{ObjectKind, ObjectRef, WorkspaceBinding},
+    },
+    db::Database,
+    record_documents::{
+        record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
+        RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection, RecordPatchMetadata,
+        RecordPatchPreparation, RecordPatchResult, RecordRestoreInput, RecordTarget, RecordVersion,
+        RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
+    },
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+/// Adapters submit the committed tree only. HTML, Markdown and text come from
+/// the shared converter; title and tags use independent metadata operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordBodySave {
+    pub target: RecordTarget,
+    pub base_revision: u64,
+    pub document: Value,
+    pub code_language: Option<String>,
+    pub origin: RecordSaveOrigin,
+    pub edit_session_id: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RecordSaveOrigin {
+    Manual,
+    EditorAi,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RecordVersionDifference {
+    pub added: Vec<String>,
+    pub deleted: Vec<String>,
+    pub modified: Vec<String>,
+    pub moved: Vec<String>,
+}
+
+pub(crate) trait BoundRecordStore {
+    fn with_current<T>(
+        &self,
+        action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T>;
+}
+pub(crate) trait DocumentUtility {
+    fn request(
+        &self,
+        request_id: &str,
+        method: &str,
+        data: Value,
+    ) -> impl std::future::Future<Output = AgentResult<Value>> + Send;
+}
+pub(crate) struct RecordDocumentService<'a, S, W> {
+    store: &'a S,
+    utility: &'a W,
+}
+impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W> {
+    pub(crate) fn new(store: &'a S, utility: &'a W) -> Self {
+        Self { store, utility }
+    }
+    fn access<T>(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        operation: &str,
+        action: impl FnOnce(&Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        target.key()?;
+        self.store.with_current(|binding, db| {
+            request.authorize(binding, &target.scope, operation)?;
+            let claimed = ObjectRef {
+                workspace_id: request.binding.workspace_id.clone(),
+                scope: target.scope.clone(),
+                kind: ObjectKind::Record,
+                id: target.record_id.to_string(),
+            };
+            let actual = db
+                .agent_resolve_object(&claimed, &binding.workspace_id)?
+                .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Record is missing"))?;
+            request.authorize_object(binding, &claimed, &actual, operation)?;
+            action(db)
+        })
+    }
+    pub(crate) async fn head_get(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+    ) -> AgentResult<RecordDocumentHead> {
+        let (current, source) = self.access(request, target, "record.read", |db| {
+            Ok((
+                db.record_document_head(target)?,
+                db.record_document_source(target)?,
+            ))
+        })?;
+        if let Some(current) = current {
+            return Ok(current);
+        }
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Open the Record in Mind to initialize its document",
+            ));
+        }
+        let converted = self.utility.request(&request.request_id, "record.initialize", json!({"html":source.html,"assetBasePath":source.asset_base_path,"codeLanguage":source.code_language})).await?;
+        let projection: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility projection",
+                )
+            })?;
+        projection.validate()?;
+        self.access(request, target, "record.read", |db| {
+            db.record_document_initialize(
+                &request.caller.key(),
+                &request.request_id,
+                target,
+                &source.source_hash,
+                &projection,
+            )
+        })
+    }
+    pub(crate) async fn save(
+        &self,
+        request: &RequestContext,
+        input: &RecordBodySave,
+    ) -> AgentResult<RecordCommitResult> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Full document saves require the local editor",
+            ));
+        }
+        let (previous, portable) = self.access(request, &input.target, "record.write", |db| {
+            let previous = db.agent_operation_replay(
+                &request.caller.key(),
+                &request.request_id,
+                "record.document.commit",
+                input,
+            )?;
+            if previous.is_some() {
+                return Ok((previous, None));
+            }
+            {
+                let current = db.record_document_head(&input.target)?.ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::SourceNotReady,
+                        "Initialize the Record document first",
+                    )
+                })?;
+                if input.base_revision != current.head_revision {
+                    return Err(AgentError::new(
+                        ErrorCode::RevisionConflict,
+                        "Record changed before save",
+                    )
+                    .with_details(json!({"headRevision":current.head_revision})));
+                }
+            }
+            Ok((
+                None,
+                Some(db.record_document_from_gui(&input.target, &input.document)?),
+            ))
+        })?;
+        if let Some(previous) = previous {
+            return Ok(previous);
+        }
+        let converted = self
+            .utility
+            .request(
+                &request.request_id,
+                "record.validate",
+                json!({"document":portable,"codeLanguage":input.code_language}),
+            )
+            .await?;
+        let projection: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility projection",
+                )
+            })?;
+        projection.validate()?;
+        let commit = RecordDocumentCommit {
+            target: input.target.clone(),
+            base_revision: input.base_revision,
+            projection,
+            origin: match input.origin {
+                RecordSaveOrigin::Manual => RecordVersionOrigin::Manual,
+                RecordSaveOrigin::EditorAi => RecordVersionOrigin::EditorAi,
+            },
+            actor: json!({"kind":"gui"}),
+            edit_session_id: input.edit_session_id.clone(),
+        };
+        self.access(request, &input.target, "record.write", |db| {
+            db.record_document_commit_intent(
+                &request.caller.key(),
+                &request.request_id,
+                &commit,
+                input,
+            )
+        })
+    }
+    pub(crate) async fn patch(
+        &self,
+        request: &RequestContext,
+        patch: &crate::agent::outputs::RecordPatch,
+    ) -> AgentResult<RecordPatchResult> {
+        let target = record_patch_target(patch)?;
+        if patch.request_id != request.request_id
+            || patch.record.workspace_id != request.binding.workspace_id
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Patch identity does not match the request",
+            ));
+        }
+        let base = self.access(request, &target, "record.patch", |db| {
+            db.record_patch_prepare(&request.caller.key(), patch)
+        })?;
+        let base = match base {
+            RecordPatchPreparation::Replay(previous) => return Ok(previous),
+            RecordPatchPreparation::Base(base) => base,
+        };
+        let mut converted = self.utility.request(&request.request_id, "record.patch", json!({"document":base.projection.document,"codeLanguage":base.projection.code_language,"operations":patch.operations})).await?;
+        let metadata: RecordPatchMetadata = converted
+            .as_object_mut()
+            .and_then(|object| object.remove("patch"))
+            .and_then(|metadata| serde_json::from_value(metadata).ok())
+            .ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility patch metadata",
+                )
+            })?;
+        let projection: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility projection",
+                )
+            })?;
+        projection.validate()?;
+        self.access(request, &target, "record.patch", |db| {
+            db.record_patch_commit(&request.caller.key(), patch, &projection, &metadata)
+        })
+    }
+    pub(crate) fn versions_list(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        before: Option<u64>,
+        limit: u32,
+    ) -> AgentResult<RecordVersionPage> {
+        self.access(request, target, "record.read", |db| {
+            db.record_versions_list(target, before, limit)
+        })
+    }
+    async fn regenerated_version(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        id: &str,
+        operation: &str,
+    ) -> AgentResult<RecordVersion> {
+        let mut version = self.access(request, target, operation, |db| {
+            db.record_version_get(target, id)
+        })?;
+        let converted = self.utility.request(&request.request_id, "record.validate", json!({"document":version.projection.document,"codeLanguage":version.projection.code_language})).await?;
+        let projection: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility projection",
+                )
+            })?;
+        projection.validate()?;
+        if projection.body_hash != version.projection.body_hash {
+            return Err(AgentError::new(
+                ErrorCode::RuntimeIncompatible,
+                "Historic document differs after conversion",
+            ));
+        }
+        // Regenerate caches from the historic tree, never restore arbitrary HTML.
+        version.projection = projection;
+        self.access(request, target, operation, |_| Ok(version))
+    }
+    pub(crate) async fn version_get(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        id: &str,
+    ) -> AgentResult<RecordVersion> {
+        self.regenerated_version(request, target, id, "record.read")
+            .await
+    }
+    pub(crate) async fn restore(
+        &self,
+        request: &RequestContext,
+        input: &RecordRestoreInput,
+    ) -> AgentResult<RecordCommitResult> {
+        let previous = self.access(request, &input.target, "record.restore", |db| {
+            db.agent_operation_replay(
+                &request.caller.key(),
+                &request.request_id,
+                "record.version.restore",
+                input,
+            )
+        })?;
+        if let Some(previous) = previous {
+            return Ok(previous);
+        }
+        let version = self
+            .regenerated_version(request, &input.target, &input.version_id, "record.restore")
+            .await?;
+        self.access(request, &input.target, "record.restore", |db| {
+            db.record_version_restore_projection(
+                &request.caller.key(),
+                &request.request_id,
+                input,
+                &version.projection,
+            )
+        })
+    }
+    pub(crate) fn capacity(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+    ) -> AgentResult<RecordVersionCapacity> {
+        self.access(request, target, "record.read", |db| {
+            db.record_version_capacity(target)
+        })
+    }
+    pub(crate) fn checkpoint(
+        &self,
+        request: &RequestContext,
+        input: &RecordCheckpointInput,
+    ) -> AgentResult<RecordCheckpointResult> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Editor checkpoints require the local editor",
+            ));
+        }
+        self.access(request, &input.target, "record.write", |db| {
+            db.record_document_checkpoint(&request.caller.key(), &request.request_id, input)
+        })
+    }
+    pub(crate) async fn versions_compare(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        before_id: &str,
+        after_id: &str,
+    ) -> AgentResult<RecordVersionDifference> {
+        let (before, after) = self.access(request, target, "record.read", |db| {
+            Ok((
+                db.record_version_get(target, before_id)?,
+                db.record_version_get(target, after_id)?,
+            ))
+        })?;
+        let converted = self.utility.request(&request.request_id, "record.compare", json!({"document":before.projection.document,"otherDocument":after.projection.document})).await?;
+        let difference: RecordVersionDifference =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid document utility comparison",
+                )
+            })?;
+        self.access(request, target, "record.read", |_| Ok(difference))
+    }
+}
+
+impl BoundRecordStore for crate::AppState {
+    fn with_current<T>(
+        &self,
+        action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        let current = crate::lock_mutex(&self.current_workspace);
+        let runtime = current.as_ref().ok_or_else(|| {
+            AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
+        })?;
+        // No await occurs while these locks are held. Reopening even the same
+        // directory replaces this generation and rejects stale conversions.
+        let db = crate::lock_mutex(&runtime.db);
+        action(&runtime.agent_binding, &db)
+    }
+}
+impl DocumentUtility for crate::record_document_worker::RecordDocumentWorker {
+    async fn request(&self, request_id: &str, method: &str, data: Value) -> AgentResult<Value> {
+        self.request(request_id, method, data).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        agent::{
+            access::{Caller, ScopeGrant},
+            errors::ErrorCode,
+            models::Scope,
+        },
+        models::WorkspaceRecordUpsertInput,
+        record_documents::RecordDocumentProjection,
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
+
+    struct Store {
+        binding: Arc<Mutex<WorkspaceBinding>>,
+        db: Arc<Mutex<Database>>,
+    }
+    impl BoundRecordStore for Store {
+        fn with_current<T>(
+            &self,
+            action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+        ) -> AgentResult<T> {
+            let binding = self.binding.lock().unwrap();
+            action(&binding, &self.db.lock().unwrap())
+        }
+    }
+    struct Utility {
+        calls: AtomicUsize,
+        projection: RecordDocumentProjection,
+        on_request: Option<Box<dyn Fn() + Send + Sync>>,
+    }
+    impl DocumentUtility for Utility {
+        async fn request(&self, _id: &str, method: &str, _data: Value) -> AgentResult<Value> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if let Some(callback) = &self.on_request {
+                callback();
+            }
+            let mut result = serde_json::to_value(&self.projection).unwrap();
+            if method == "record.patch" {
+                result["patch"] = json!({"createdBlockIds":[],"deletedBlockIds":[],"normalizations":[],"noChange":false});
+            }
+            Ok(result)
+        }
+    }
+    fn setup() -> (
+        tempfile::TempDir,
+        Store,
+        Utility,
+        RequestContext,
+        RecordTarget,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db =
+            Database::open(&directory.path().join("app.sqlite"), directory.path(), None).unwrap();
+        let projection: RecordDocumentProjection =
+            serde_json::from_str(include_str!("record_document_projection.fixture.json")).unwrap();
+        let record = db
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: None,
+                title: Some("Keep title".into()),
+                html: "<p>Fixture 正文</p>".into(),
+                markdown: "Fixture 正文".into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: "workspace-test".into(),
+            generation: "generation-1".into(),
+        };
+        let request = RequestContext {
+            binding: binding.clone(),
+            request_id: "open-record".into(),
+            caller: Caller::Gui,
+            scope_grant: ScopeGrant {
+                workspace_id: binding.workspace_id.clone(),
+                workspace_content: true,
+                project_ids: vec![],
+                operations: vec![
+                    "record.read".into(),
+                    "record.patch".into(),
+                    "record.write".into(),
+                    "record.restore".into(),
+                ],
+            },
+        };
+        (
+            directory,
+            Store {
+                binding: Arc::new(Mutex::new(binding)),
+                db: Arc::new(Mutex::new(db)),
+            },
+            Utility {
+                calls: AtomicUsize::new(0),
+                projection,
+                on_request: None,
+            },
+            request,
+            RecordTarget {
+                scope: Scope::Workspace,
+                record_id: record.id,
+            },
+        )
+    }
+    #[tokio::test]
+    async fn stale_workspace_binding_is_rejected_before_conversion_or_baseline_write() {
+        let (_directory, store, utility, mut request, target) = setup();
+        request.binding.generation = "old-generation".into();
+        let error = RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::WorkspaceChanged);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 0);
+        assert!(store
+            .db
+            .lock()
+            .unwrap()
+            .record_document_head(&target)
+            .unwrap()
+            .is_none());
+    }
+    #[tokio::test]
+    async fn workspace_switch_during_conversion_preserves_the_unconverted_record() {
+        let (_directory, store, mut utility, request, target) = setup();
+        let binding = store.binding.clone();
+        utility.on_request = Some(Box::new(move || {
+            binding.lock().unwrap().generation = "generation-2".into()
+        }));
+        let error = RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::WorkspaceChanged);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 1);
+        let db = store.db.lock().unwrap();
+        assert!(db.record_document_head(&target).unwrap().is_none());
+        assert_eq!(
+            db.record_document_source(&target).unwrap().html,
+            "<p>Fixture 正文</p>"
+        );
+    }
+    #[tokio::test]
+    async fn baseline_conversion_does_not_overwrite_a_concurrent_legacy_edit() {
+        let (_directory, store, mut utility, request, target) = setup();
+        let db = store.db.clone();
+        let record_id = target.record_id;
+        utility.on_request = Some(Box::new(move || {
+            db.lock()
+                .unwrap()
+                .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                    note_id: Some(record_id),
+                    title: Some("Keep title".into()),
+                    html: "<p>Concurrent edit</p>".into(),
+                    markdown: "Concurrent edit".into(),
+                    default_code_language: None,
+                    tag_ids: vec![],
+                })
+                .unwrap();
+        }));
+        let error = RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::RevisionConflict);
+        let db = store.db.lock().unwrap();
+        assert!(db.record_document_head(&target).unwrap().is_none());
+        assert_eq!(
+            db.record_document_source(&target).unwrap().html,
+            "<p>Concurrent edit</p>"
+        );
+    }
+    #[tokio::test]
+    async fn concurrent_body_commit_during_conversion_rejects_the_stale_editor_save() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        let mut concurrent = utility.projection.clone();
+        concurrent.document["content"][0]["content"][0]["text"] = json!("Concurrent body");
+        concurrent.html = concurrent.html.replace("Fixture 正文", "Concurrent body");
+        concurrent.markdown = concurrent
+            .markdown
+            .replace("Fixture 正文", "Concurrent body");
+        concurrent.text = concurrent.text.replace("Fixture 正文", "Concurrent body");
+        concurrent.body_hash =
+            crate::record_documents::body_hash(&concurrent.document, &concurrent.code_language);
+        let input = RecordBodySave {
+            target: target.clone(),
+            base_revision: 1,
+            document: utility.projection.document.clone(),
+            code_language: utility.projection.code_language.clone(),
+            origin: RecordSaveOrigin::Manual,
+            edit_session_id: Some("c".repeat(32)),
+        };
+        let db = store.db.clone();
+        let concurrent_target = target.clone();
+        utility.on_request = Some(Box::new(move || {
+            db.lock()
+                .unwrap()
+                .record_document_commit(
+                    "run:other",
+                    "concurrent",
+                    &RecordDocumentCommit {
+                        target: concurrent_target.clone(),
+                        base_revision: 1,
+                        projection: concurrent.clone(),
+                        origin: RecordVersionOrigin::Agent,
+                        actor: json!({"kind":"agent"}),
+                        edit_session_id: None,
+                    },
+                )
+                .unwrap();
+        }));
+        request.request_id = "stale-save".into();
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .save(&request, &input)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let db = store.db.lock().unwrap();
+        let head = db.record_document_head(&target).unwrap().unwrap();
+        assert_eq!(head.head_revision, 2);
+        assert_eq!(
+            head.projection.document["content"][0]["content"][0]["text"],
+            "Concurrent body"
+        );
+        assert_eq!(
+            db.record_version_capacity(&target).unwrap().version_count,
+            2
+        );
+    }
+    #[tokio::test]
+    async fn body_save_replays_original_request_without_reconverting_or_overwriting_title() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        let initial = RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        utility.projection.document["content"][0]["content"][0]["text"] = json!("Saved正文");
+        utility.projection.html = utility.projection.html.replace("Fixture 正文", "Saved正文");
+        utility.projection.markdown = utility
+            .projection
+            .markdown
+            .replace("Fixture 正文", "Saved正文");
+        utility.projection.text = utility.projection.text.replace("Fixture 正文", "Saved正文");
+        utility.projection.body_hash = crate::record_documents::body_hash(
+            &utility.projection.document,
+            &utility.projection.code_language,
+        );
+        request.request_id = "save-body".into();
+        let input = RecordBodySave {
+            target: target.clone(),
+            base_revision: initial.head_revision,
+            document: utility.projection.document.clone(),
+            code_language: utility.projection.code_language.clone(),
+            origin: RecordSaveOrigin::Manual,
+            edit_session_id: Some("a".repeat(32)),
+        };
+        let service = RecordDocumentService::new(&store, &utility);
+        let saved = service.save(&request, &input).await.unwrap();
+        assert_eq!(saved.head.head_revision, 2);
+        let replay = service.save(&request, &input).await.unwrap();
+        assert_eq!(replay.head.head_revision, 2);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_source(&target)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("Keep title")
+        );
+        let mut other = input.clone();
+        other.code_language = Some("python".into());
+        assert_eq!(
+            service.save(&request, &other).await.unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
+    }
+    #[tokio::test]
+    async fn agent_patch_replays_receipt_without_rerunning_the_utility() {
+        use crate::agent::{
+            models::{ObjectKind, ObjectRef},
+            outputs::{BlockEdit, RecordPatch},
+        };
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        let expected_block_hash = {
+            use sha2::{Digest, Sha256};
+            format!(
+                "sha256:{:x}",
+                Sha256::digest(utility.projection.document["content"][0].to_string())
+            )
+        };
+        utility.projection.document["content"][0]["content"][0]["text"] =
+            json!("Fixture 正文 suffix");
+        utility.projection.html = utility
+            .projection
+            .html
+            .replace("Fixture 正文", "Fixture 正文 suffix");
+        utility.projection.markdown = utility
+            .projection
+            .markdown
+            .replace("Fixture 正文", "Fixture 正文 suffix");
+        utility.projection.text = utility
+            .projection
+            .text
+            .replace("Fixture 正文", "Fixture 正文 suffix");
+        utility.projection.body_hash = crate::record_documents::body_hash(
+            &utility.projection.document,
+            &utility.projection.code_language,
+        );
+        request.caller = Caller::BuiltinRun {
+            run_id: "patch-run".into(),
+        };
+        request.request_id = "patch-1".into();
+        let patch = RecordPatch {
+            record: ObjectRef {
+                workspace_id: request.binding.workspace_id.clone(),
+                scope: target.scope.clone(),
+                kind: ObjectKind::Record,
+                id: target.record_id.to_string(),
+            },
+            base_revision: 1,
+            request_id: request.request_id.clone(),
+            operations: vec![BlockEdit::AppendInline {
+                block_id: "1".repeat(32),
+                expected_block_hash,
+                text: " suffix".into(),
+            }],
+        };
+        let service = RecordDocumentService::new(&store, &utility);
+        let saved = service.patch(&request, &patch).await.unwrap();
+        assert_eq!(saved.after_revision, 2);
+        assert!(saved.receipt.undo_available);
+        let replay = service.patch(&request, &patch).await.unwrap();
+        assert_eq!(replay.receipt.operation_id, saved.receipt.operation_id);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
+    }
+    #[tokio::test]
+    #[ignore = "requires the prepared fixed Node runtime and built Record worker"]
+    async fn record_service_runs_real_conversion_save_and_patch_with_one_version_chain() {
+        use crate::agent::outputs::{BlockEdit, RecordPatch};
+        use sha2::{Digest, Sha256};
+        let (_directory, store, _utility, mut request, target) = setup();
+        let utility = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = RecordDocumentService::new(&store, &utility);
+        let baseline = service.head_get(&request, &target).await.unwrap();
+        let id = baseline.projection.document["content"][0]["attrs"]["blockId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut document = baseline.projection.document.clone();
+        document["content"][0]["content"][0]["text"] = json!("Manual change");
+        request.request_id = "actual-save".into();
+        let input = RecordBodySave {
+            target: target.clone(),
+            base_revision: 1,
+            document,
+            code_language: None,
+            origin: RecordSaveOrigin::Manual,
+            edit_session_id: Some("b".repeat(32)),
+        };
+        let saved = service.save(&request, &input).await.unwrap();
+        assert_eq!(saved.head.head_revision, 2);
+        assert_eq!(saved.head.projection.markdown, "Manual change");
+        request.request_id = "actual-checkpoint".into();
+        let checkpoint = service
+            .checkpoint(
+                &request,
+                &RecordCheckpointInput {
+                    target: target.clone(),
+                    base_revision: 2,
+                    reason: crate::record_documents::RecordCheckpointReason::LeaveEditor,
+                },
+            )
+            .unwrap();
+        assert!(checkpoint.checkpointed);
+        assert_eq!(checkpoint.head.head_revision, 2);
+        assert_eq!(
+            service.capacity(&request, &target).unwrap().version_count,
+            2
+        );
+        request.caller = Caller::BuiltinRun {
+            run_id: "actual-run".into(),
+        };
+        request.request_id = "actual-patch".into();
+        let patch = RecordPatch {
+            record: ObjectRef {
+                workspace_id: request.binding.workspace_id.clone(),
+                scope: target.scope.clone(),
+                kind: ObjectKind::Record,
+                id: target.record_id.to_string(),
+            },
+            base_revision: 2,
+            request_id: request.request_id.clone(),
+            operations: vec![BlockEdit::AppendInline {
+                block_id: id.clone(),
+                expected_block_hash: format!(
+                    "sha256:{:x}",
+                    Sha256::digest(saved.head.projection.document["content"][0].to_string())
+                ),
+                text: " with agent".into(),
+            }],
+        };
+        let result = service.patch(&request, &patch).await.unwrap();
+        assert_eq!(result.after_revision, 3);
+        assert_eq!(result.head.projection.markdown, "Manual change with agent");
+        assert_eq!(
+            result.head.projection.document["content"][0]["attrs"]["blockId"],
+            id
+        );
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_version_capacity(&target)
+                .unwrap()
+                .version_count,
+            3
+        );
+        let mut invalid = patch.clone();
+        invalid.request_id = "stale-patch".into();
+        request.request_id = invalid.request_id.clone();
+        assert_eq!(
+            service.patch(&request, &invalid).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            3
+        );
+        let versions = service.versions_list(&request, &target, None, 20).unwrap();
+        let baseline_id = versions.versions.last().unwrap().id.clone();
+        let difference = service
+            .versions_compare(&request, &target, &baseline_id, &versions.versions[0].id)
+            .await
+            .unwrap();
+        assert_eq!(difference.modified, vec![id]);
+        assert!(
+            difference.added.is_empty()
+                && difference.deleted.is_empty()
+                && difference.moved.is_empty()
+        );
+        let historic = service
+            .version_get(&request, &target, &baseline_id)
+            .await
+            .unwrap();
+        assert_eq!(historic.projection.document, baseline.projection.document);
+        request.request_id = "actual-restore".into();
+        let restore = crate::record_documents::RecordRestoreInput {
+            target: target.clone(),
+            base_revision: 3,
+            version_id: baseline_id,
+        };
+        let restored = service.restore(&request, &restore).await.unwrap();
+        assert_eq!(restored.head.head_revision, 4);
+        assert_eq!(
+            restored.head.projection.document,
+            baseline.projection.document
+        );
+        assert_eq!(restored.head.projection.markdown, "Fixture 正文");
+        let retry = service.restore(&request, &restore).await.unwrap();
+        assert_eq!(retry.after_version, restored.after_version);
+        assert_eq!(
+            service
+                .versions_list(&request, &target, None, 20)
+                .unwrap()
+                .versions
+                .len(),
+            4
+        );
+        assert_eq!(
+            service.capacity(&request, &target).unwrap().version_count,
+            4
+        );
+    }
+}

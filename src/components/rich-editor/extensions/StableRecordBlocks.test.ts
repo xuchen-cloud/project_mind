@@ -94,3 +94,15 @@ it("cut within the same Record retains IDs once; cross Record paste gets fresh a
     expect(source.getJSON().content![0].attrs!.blockId).not.toBe(firstId);
   } finally { source.destroy(); target.destroy(); }
 });
+it("cut from a read-only Record copies content without deleting it or granting move semantics", () => {
+  const source = clipboardEditor("workspace:readonly");
+  try {
+    source.setEditable(false);
+    source.commands.setNodeSelection(0);
+    const cut = clipboardEvent("cut"); source.view.dom.dispatchEvent(cut.event);
+    expect(source.getText()).toBe("Moved");
+    expect(source.getJSON().content![0].attrs!.blockId).toBe(firstId);
+    expect(cut.values.get("text/html")).toContain("Moved");
+    expect(cut.values.has("application/x-project-mind-record-cut")).toBe(false);
+  } finally { source.destroy(); }
+});

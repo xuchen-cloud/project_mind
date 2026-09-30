@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Mapping } from "@tiptap/pm/transform";
 import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { EditorView } from "@tiptap/pm/view";
 import { createRecordBlockId, RECORD_BLOCK_TYPES } from "../../../lib/record-document";
 
 export const STABLE_RECORD_BLOCKS_KEY = new PluginKey("stableRecordBlocks");
@@ -9,12 +10,20 @@ const blockTypes = new Set<string>(RECORD_BLOCK_TYPES);
 const validId = (id: unknown): id is string => typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
 const clipboardType = "application/x-project-mind-record-cut";
 const consumedCuts = new Set<string>();
+export interface RecordClipboardPayload { html: string; text: string }
+export interface RecordClipboardOptions {
+  clipboardPayload?: (view: EditorView) => RecordClipboardPayload | null;
+  onCopied?: (view: EditorView, payload: RecordClipboardPayload) => void;
+}
 
 // Opt-in until every Record persistence path uses the canonical head/CAS service.
 // QuickNote and raw Transcript must not silently acquire Record semantics.
 export const StableRecordBlocks = Extension.create({
   name: "stableRecordBlocks",
-  addOptions() { return { recordKey: null as string | null }; },
+  addOptions() { return { recordKey: null as string | null,
+    clipboardPayload: undefined as RecordClipboardOptions["clipboardPayload"],
+    onCopied: undefined as RecordClipboardOptions["onCopied"],
+  }; },
   addGlobalAttributes() {
     return [{ types: [...RECORD_BLOCK_TYPES], attributes: { blockId: {
       default: null,
@@ -32,14 +41,15 @@ export const StableRecordBlocks = Extension.create({
       pendingCut = null;
       if (view.state.selection.empty || !event.clipboardData) return false;
       const { dom, text } = view.serializeForClipboard(view.state.selection.content());
+      const payload = this.options.clipboardPayload?.(view) ?? { html: dom.innerHTML, text };
       event.preventDefault();
       event.clipboardData.clearData();
-      event.clipboardData.setData("text/html", dom.innerHTML);
-      event.clipboardData.setData("text/plain", text);
-      if (event.type === "cut") {
+      event.clipboardData.setData("text/html", payload.html);
+      event.clipboardData.setData("text/plain", payload.text);
+      if (event.type === "cut" && view.editable) {
         event.clipboardData.setData(clipboardType, JSON.stringify({ version: 1, recordKey, token: crypto.randomUUID() }));
         view.dispatch(view.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
-      }
+      } else { this.options.onCopied?.(view, payload); }
       return true;
     };
     return [new Plugin({

@@ -389,6 +389,8 @@ interface RichEditorProps {
   tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot | null;
   contentIdentity?: string;
+  /** Workspace UUID + scoped Record identity; enables canonical block anchors. */
+  recordKey?: string;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -453,6 +455,7 @@ export function RichEditor({
   tagMentions,
   aiSettings,
   contentIdentity,
+  recordKey,
   onOpenAiSettings,
   selectionActions,
   renderToolbarExtras,
@@ -1284,8 +1287,11 @@ export function RichEditor({
   );
 
   const editorExtensions = useMemo(
-    () => buildRichEditorExtensions(placeholder),
-    [placeholder],
+    () => buildRichEditorExtensions(placeholder, { stableBlocks: Boolean(recordKey), recordKey,
+      clipboardPayload: (view) => buildRichTextClipboardPayload(view.state.selection.content(), view),
+      onCopied: (view, payload) => upgradeClipboardImages(view.state.selection.content(), view, payload),
+    }),
+    [placeholder, recordKey],
   );
 
   const captureCommittedValue = useCallback((nextEditor: Editor) => {
@@ -1313,8 +1319,8 @@ export function RichEditor({
       clipboardTextSerializer: (content, view) => serializeRichTextClipboard(content, view),
       transformPastedHTML: (rawHtml) => sanitizePastedHtml(rawHtml),
       handleDOMEvents: {
-        copy: (view, event) => handleEditorClipboardEvent(view, event, "copy", effectiveReadOnly),
-        cut: (view, event) => handleEditorClipboardEvent(view, event, "cut", effectiveReadOnly),
+        copy: (view, event) => recordKey ? false : handleEditorClipboardEvent(view, event, "copy", effectiveReadOnly),
+        cut: (view, event) => recordKey ? false : handleEditorClipboardEvent(view, event, "cut", effectiveReadOnly),
       },
       handlePaste: (view, event) => {
         if (syntheticPasteRef.current) {
@@ -8249,6 +8255,19 @@ function inferClipboardImageMimeType(image: HTMLImageElement) {
   return "image/png";
 }
 
+function upgradeClipboardImages(content: Slice, view: EditorView, payload: { html: string; text: string }) {
+  if (payload.html.includes("<img")) {
+    void buildRichTextClipboardPayloadAsync(content, view)
+      .then(async (upgradedPayload) => {
+        if (!upgradedPayload || (upgradedPayload.html === payload.html && upgradedPayload.text === payload.text)) return;
+        await writeRichTextClipboardPayloadAsync(upgradedPayload);
+      })
+      .catch(() => {
+        // Async clipboard upgrades are best-effort only.
+      });
+  }
+}
+
 function handleEditorClipboardEvent(
   view: EditorView,
   event: Event,
@@ -8267,22 +8286,7 @@ function handleEditorClipboardEvent(
   clipboardEvent.clipboardData.setData("text/plain", payload.text);
   clipboardEvent.clipboardData.setData("text/html", payload.html);
 
-  if (payload.html.includes("<img")) {
-    void buildRichTextClipboardPayloadAsync(content, view)
-      .then(async (upgradedPayload) => {
-        if (
-          !upgradedPayload ||
-          (upgradedPayload.html === payload.html && upgradedPayload.text === payload.text)
-        ) {
-          return;
-        }
-
-        await writeRichTextClipboardPayloadAsync(upgradedPayload);
-      })
-      .catch(() => {
-        // Async clipboard upgrades are best-effort only.
-      });
-  }
+  upgradeClipboardImages(content, view, payload);
 
   if (command === "cut" && !readOnly) {
     view.dispatch(view.state.tr.deleteSelection().scrollIntoView());

@@ -37,7 +37,48 @@ function snapshot(
   };
 }
 
+function canonicalSnapshot(markdown: string): CommittedProjectRecordSnapshot {
+  return { ...snapshot(7, markdown), canonicalBody: {
+    binding: { workspaceId: "workspace-a", generation: "open-1" },
+    requestId: `save-${markdown}`, baseRevision: 4, editSessionId: "a".repeat(32), origin: "manual",
+    document: { type: "doc", content: [{ type: "paragraph", attrs: { blockId: "1".repeat(32) }, content: [{ type: "text", text: markdown }] }] },
+  } };
+}
+
 describe("RecordSaveCoordinator", () => {
+  it("advances queued autosaves only after this coordinator commits their shared baseline", async () => {
+    const first = deferred<{ updatedAt: string; headRevision: number }>();
+    const captured: Readonly<CommittedProjectRecordSnapshot>[] = [];
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => {
+      if (value.scope !== "project") throw new Error("Unexpected scope");
+      captured.push(value);
+      return captured.length === 1 ? first.promise : { updatedAt: "second", headRevision: 6 };
+    } } });
+    coordinator.submit(canonicalSnapshot("first"));
+    const second = canonicalSnapshot("second"); coordinator.submit(second);
+    second.canonicalBody!.document.content![0]!.content![0]!.text = "caller mutation";
+    await Promise.resolve();
+    expect(captured[0]?.canonicalBody?.baseRevision).toBe(4);
+    first.resolve({ updatedAt: "first", headRevision: 5 });
+    await coordinator.flush();
+    expect(captured[1]?.canonicalBody).toMatchObject({ baseRevision: 5, requestId: "save-second", document: { content: [{ content: [{ text: "second" }] }] } });
+    expect(second.canonicalBody?.baseRevision).toBe(4);
+  });
+  it("retains every queued draft when a canonical save encounters a permanent conflict", async () => {
+    const writes: number[] = [];
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => {
+      writes.push(value.canonicalBody!.baseRevision);
+      throw new RecordSaveFailure("正文已被其他窗口修改", { retryable: false });
+    } } });
+    coordinator.submit(canonicalSnapshot("first"));
+    coordinator.submit(canonicalSnapshot("second"));
+    await expect(coordinator.flush()).rejects.toThrow("其他窗口");
+    coordinator.retryFailed();
+    await Promise.resolve();
+    expect(writes).toEqual([4]);
+    expect(coordinator.getLatestSnapshot("project:1:7")?.canonicalBody).toMatchObject({ baseRevision: 4, requestId: "save-second" });
+    expect(coordinator.getStatus()).toMatchObject({ pendingCount: 2, retryableFailedCount: 0 });
+  });
   it("returns a receipt immediately and finishes a delayed save independently", async () => {
     const write = deferred<{ updatedAt: string }>();
     const adapter: RecordSaveAdapter = {

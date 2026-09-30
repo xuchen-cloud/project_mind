@@ -183,6 +183,109 @@ fn snapshot(
 }
 
 impl Database {
+    pub(super) fn require_legacy_record_write(&self, target: &RecordTarget) -> anyhow::Result<()> {
+        source(&self.conn, target).map_err(|error| anyhow::anyhow!(error.message))?;
+        let initialized: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM record_document_heads WHERE record_key=?1)",
+            [target
+                .key()
+                .map_err(|error| anyhow::anyhow!(error.message))?],
+            |row| row.get(0),
+        )?;
+        if initialized {
+            anyhow::bail!("Record 正文已启用版本控制，请通过正文保存接口提交；旧保存请求未写入");
+        }
+        Ok(())
+    }
+    /// The trusted GUI hydrates managed assets to local paths for rendering.
+    /// Strip that presentation layer before the utility process sees the tree.
+    pub(crate) fn record_document_from_gui(
+        &self,
+        target: &RecordTarget,
+        document: &Value,
+    ) -> AgentResult<Value> {
+        source(&self.conn, target)?;
+        if serde_json::to_vec(document)
+            .map_err(|_| invalid("Invalid editor document"))?
+            .len()
+            > 1024 * 1024
+        {
+            return Err(invalid("Record document exceeds size limit"));
+        }
+        let project_root = match target.scope {
+            Scope::Project { project_id } => Some(
+                self.project_root_path(project_id)
+                    .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?,
+            ),
+            Scope::Workspace => None,
+        };
+        fn visit(
+            node: &mut Value,
+            root: &std::path::Path,
+            project: Option<&std::path::Path>,
+            depth: usize,
+            count: &mut usize,
+        ) -> AgentResult<()> {
+            *count += 1;
+            if depth > 64 || *count > 50_000 {
+                return Err(invalid("Record document exceeds tree limits"));
+            }
+            let image = node.get("type").and_then(Value::as_str) == Some("image");
+            let attachment = node.get("type").and_then(Value::as_str) == Some("attachment");
+            if image || attachment {
+                if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+                    if let Some(path) = attrs
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .filter(|path| !path.is_empty())
+                    {
+                        let local = std::path::Path::new(path);
+                        let relative = if local.is_absolute() {
+                            local
+                                .strip_prefix(root)
+                                .map_err(|_| {
+                                    AgentError::new(
+                                        ErrorCode::ScopeDenied,
+                                        "Editor asset is outside the Workspace",
+                                    )
+                                })?
+                                .to_string_lossy()
+                                .replace(std::path::MAIN_SEPARATOR, "/")
+                        } else {
+                            path.to_string()
+                        };
+                        if !relative_asset(&relative) {
+                            return Err(invalid("Invalid managed editor asset path"));
+                        }
+                        if project.is_some_and(|project| !root.join(&relative).starts_with(project))
+                        {
+                            return Err(AgentError::new(
+                                ErrorCode::ScopeDenied,
+                                "Editor asset is outside this Project",
+                            ));
+                        }
+                        attrs.insert("path".into(), json!(relative));
+                        attrs.insert(if image { "src" } else { "href" }.into(), Value::Null);
+                    }
+                }
+            }
+            if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+                for child in children {
+                    visit(child, root, project, depth + 1, count)?;
+                }
+            }
+            Ok(())
+        }
+        let mut portable = document.clone();
+        visit(
+            &mut portable,
+            &self.workspace_root,
+            project_root.as_deref(),
+            0,
+            &mut 0,
+        )?;
+        Ok(portable)
+    }
     pub(super) fn ensure_record_document_schema(&mut self) -> anyhow::Result<()> {
         let savepoint = self.conn.savepoint()?;
         savepoint.execute_batch(include_str!("record_documents.sql"))?;
@@ -476,19 +579,38 @@ impl Database {
         request_id: &str,
         input: &RecordRestoreInput,
     ) -> AgentResult<RecordCommitResult> {
+        let historic = self.record_version_get(&input.target, &input.version_id)?;
+        self.record_version_restore_projection(caller, request_id, input, &historic.projection)
+    }
+    pub(crate) fn record_version_restore_projection(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordRestoreInput,
+        projection: &RecordDocumentProjection,
+    ) -> AgentResult<RecordCommitResult> {
         if input.base_revision == 0 || input.base_revision > i64::MAX as u64 {
             return Err(invalid("Invalid restore revision"));
         }
         let historic = self.record_version_get(&input.target, &input.version_id)?;
-        let compatibility = self.record_compatibility_html(&input.target, &historic.projection)?;
+        projection.validate()?;
+        if historic.projection.body_hash != projection.body_hash {
+            return Err(invalid(
+                "Restored projection differs from the historic document",
+            ));
+        }
+        let compatibility = self.record_compatibility_html(&input.target, projection)?;
         self.agent_atomic_operation(caller, request_id, "record.version.restore", input, |tx| {
             let historic = version(tx, &input.target, &input.version_id)?;
+            if historic.projection.body_hash != projection.body_hash {
+                return Err(invalid("Historic document changed during restore"));
+            }
             let commit = RecordDocumentCommit {
                 target: input.target.clone(),
                 base_revision: input.base_revision,
-                projection: historic.projection,
+                projection: projection.clone(),
                 origin: RecordVersionOrigin::Restore,
-                actor: json!({"kind":"gui"}),
+                actor: json!({"kind":"restore","caller":caller}),
                 edit_session_id: None,
             };
             Self::record_commit_transaction(
@@ -593,6 +715,15 @@ impl Database {
         request_id: &str,
         input: &RecordDocumentCommit,
     ) -> AgentResult<RecordCommitResult> {
+        self.record_document_commit_intent(caller, request_id, input, input)
+    }
+    pub(crate) fn record_document_commit_intent(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordDocumentCommit,
+        intent: &impl serde::Serialize,
+    ) -> AgentResult<RecordCommitResult> {
         if input.base_revision == 0
             || input.base_revision > i64::MAX as u64
             || !input.actor.is_object()
@@ -616,7 +747,7 @@ impl Database {
             return Err(invalid("Manual commit requires an edit session ID"));
         }
         let compatibility = self.record_compatibility_html(&input.target, &input.projection)?;
-        self.agent_atomic_operation(caller, request_id, "record.document.commit", input, |tx| {
+        self.agent_atomic_operation(caller, request_id, "record.document.commit", intent, |tx| {
             Self::record_commit_transaction(tx, request_id, input, &compatibility, None)
         })
     }
@@ -777,6 +908,75 @@ mod tests {
             },
             projection,
         )
+    }
+    #[test]
+    fn gui_document_paths_become_portable_without_replacing_user_text_or_block_ids() {
+        let (_directory, database, target, projection) = setup();
+        let mut input = projection.document.clone();
+        let absolute = database
+            .workspace_root
+            .join("assets/图片.png")
+            .to_string_lossy()
+            .into_owned();
+        input["content"][0]["content"][0]["text"] = json!(absolute);
+        input["content"][2]["attrs"]["path"] = json!(absolute);
+        input["content"][2]["attrs"]["src"] = json!("asset://transient-image-url");
+        let result = database.record_document_from_gui(&target, &input).unwrap();
+        assert_eq!(result["content"][2]["attrs"]["path"], "assets/图片.png");
+        assert!(result["content"][2]["attrs"]["src"].is_null());
+        assert_eq!(
+            result["content"][0]["content"][0]["text"],
+            input["content"][0]["content"][0]["text"]
+        );
+        assert_eq!(
+            result["content"][2]["attrs"]["blockId"],
+            projection.document["content"][2]["attrs"]["blockId"]
+        );
+        let mut outside = input.clone();
+        outside["content"][2]["attrs"]["path"] = json!("/outside/图片.png");
+        assert_eq!(
+            database
+                .record_document_from_gui(&target, &outside)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(input["content"][2]["attrs"]["path"], absolute);
+    }
+    #[test]
+    fn legacy_autosave_cannot_overwrite_a_record_with_a_canonical_head() {
+        let (_directory, mut database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        let result = database.workspace_record_upsert(WorkspaceRecordUpsertInput {
+            note_id: Some(target.record_id),
+            title: Some("Stale title".into()),
+            html: "<p>Stale autosave</p>".into(),
+            markdown: "Stale autosave".into(),
+            default_code_language: None,
+            tag_ids: vec![],
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .body_hash,
+            projection.body_hash
+        );
+        let after = database.record_document_source(&target).unwrap();
+        assert_eq!(after.title, source.title);
+        assert_eq!(after.markdown, projection.markdown);
     }
     #[test]
     fn record_head_cas_snapshots_receipts_and_compatibility_content_commit_together() {

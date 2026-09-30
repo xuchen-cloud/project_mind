@@ -14,6 +14,34 @@ import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
 
+it("keeps canonical block anchors when the Record editor commits ordinary text changes", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const user = userEvent.setup();
+  const id = "e".repeat(32);
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7" controllerRef={controllerRef} defaultHtml={`<p data-block-id="${id}">Existing</p>`} />);
+  const surface = await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current?.getCommittedDocumentJson().content?.[0]?.attrs?.blockId).toBe(id));
+  controllerRef.current!.focus("end");
+  await waitFor(() => expect(document.activeElement).toBe(surface));
+  await user.keyboard("X");
+  expect(controllerRef.current!.getCommittedDocumentJson().content?.[0]?.attrs?.blockId).toBe(id);
+  expect(controllerRef.current!.getCommittedValue().markdown).toBe("ExistingX");
+});
+
+it("passes Record cut metadata through the editor's existing clipboard handling", async () => {
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/8" defaultHtml={`<p data-block-id="${"d".repeat(32)}">Move me</p>`} />);
+  const surface = await getEditorSurface(container);
+  fireEvent.focus(surface);
+  const text = surface.querySelector("p")!.firstChild!;
+  selectTextRange(text, 0, text, text.textContent!.length);
+  fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+  await screen.findByRole("menu", { name: "文本操作" });
+  const values = new Map<string, string>();
+  fireEvent.cut(surface, { clipboardData: { clearData: () => values.clear(), setData: (key: string, value: string) => values.set(key, value) } });
+  expect(values.get("text/html")).toContain("Move me");
+  expect(values.get("application/x-project-mind-record-cut")).toContain("workspace-a/workspace/record/8");
+});
+
 const intersectionObservers: Array<{
   callback: IntersectionObserverCallback;
   elements: Set<Element>;

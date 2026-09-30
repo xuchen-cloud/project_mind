@@ -5,6 +5,7 @@ mod db;
 mod models;
 mod record_documents;
 mod record_document_worker;
+mod record_document_service;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
