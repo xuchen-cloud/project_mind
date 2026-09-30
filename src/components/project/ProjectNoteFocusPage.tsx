@@ -191,11 +191,38 @@ export function ProjectNoteFocusPage({
   const canonical = useCanonicalRecordEditor({
     target: projectId !== null && recordId !== null ? { scope: { kind: "project", projectId }, recordId } : null,
     coordinator: saveCoordinator, enabled: draftReady,
+    flushEditor: async () => {
+      const editor = editorControllerRef.current;
+      if (!editor) return "busy";
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      const signature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
+        language: codeLanguageValueRef.current, document: editor.getCommittedDocumentJson() });
+      const before = signature();
+      if (!submitCurrentRecord()) return "busy";
+      await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      return signature() === before ? "saved" : "busy";
+    },
+    receiveIncoming: (state, previous) => {
+      const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
+        === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");
+      if (titleValueRef.current !== (previous.metadata.title ?? "") || !sameTags
+        || codeLanguageValueRef.current !== previous.codeLanguage
+        || !editorControllerRef.current?.applyIncomingContent(state.record.contentHtml ?? "<p></p>")) return false;
+      const draft = recordFocusDraftFromRecord(state.record);
+      setTitle(draft.title); titleValueRef.current = draft.title;
+      lastSavedTitleRef.current = draft.title;
+      setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
+      setContent(editorControllerRef.current.getCommittedValue());
+      setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
+      lastSavedUpdatedAtRef.current = state.record.updatedAt;
+      return true;
+    },
   });
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
-  const editingReady = canonical.ready && hydratedRecordKey === canonical.recordKey;
+  const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
   useLayoutEffect(() => {
-    if (!canonical.state || !canonical.recordKey || hydratedRecordKey === canonical.recordKey) return;
+    if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
     const pending = projectId !== null && recordId !== null
       ? saveCoordinator.getLatestSnapshot(projectRecordSaveKey(projectId, recordId)) : null;
     const draft = pending ? recordFocusDraftFromSnapshot(pending) : recordFocusDraftFromRecord(canonical.state.record);
@@ -205,8 +232,8 @@ export function ProjectNoteFocusPage({
     setContent(draft.content);
     setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
     lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
-    setHydratedRecordKey(canonical.recordKey);
-  }, [canonical.state, canonical.recordKey, hydratedRecordKey, projectId, recordId, saveCoordinator]);
+    setHydratedRecordKey(canonical.loadIdentity);
+  }, [canonical.state, canonical.loadIdentity, hydratedRecordKey, projectId, recordId, saveCoordinator]);
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
     if (!projectId || !draftReady) {
       return undefined;
@@ -254,6 +281,12 @@ export function ProjectNoteFocusPage({
     lastSavedUpdatedAtRef.current = note.updatedAt;
     setLoadedNoteId(note.id);
   }, [loadedNoteId, note]);
+
+  useEffect(() => saveCoordinator.subscribeSaved((snapshot) => {
+    if (snapshot.scope === "project" && snapshot.projectId === projectId && snapshot.recordId === recordId) {
+      editorControllerRef.current?.acknowledgeCommittedContent(snapshot.committedContent);
+    }
+  }), [saveCoordinator, projectId, recordId]);
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
@@ -472,6 +505,8 @@ export function ProjectNoteFocusPage({
           className="home-content home-note-content"
         >
           <div className="grid gap-4">
+            {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
+            {canonical.incomingConflict ? <p role="alert" className="text-sm text-text-soft">这条记录已在其他窗口更新；当前草稿已保留，请先处理版本冲突。</p> : null}
             {canonical.error ? <div role="alert" className="text-sm text-text-soft">
               <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
               <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
@@ -557,7 +592,7 @@ export function ProjectNoteFocusPage({
               />
             ) : null}
             <RichEditor
-              key={canonical.recordKey ?? `${projectId}:${recordId}:loading`}
+              key={canonical.loadIdentity ?? `${projectId}:${recordId}:loading`}
               contentIdentity={`project-record:${projectId}:${recordId}`}
               recordKey={canonical.recordKey}
               html={content.html}

@@ -36,8 +36,9 @@ parseRecordFilterTagId,
 import { queryKeys } from "../../lib/queryKeys";
 import { completeQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
 import { deriveQuickNoteMetadata } from "../../lib/quick-note-metadata";
-import type { QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
-import { appendMarkdownSection,appendRichTextSection } from "../../lib/record-move";
+import type { QuickNoteTransferContext, QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
+import { CanonicalQuickNoteTransfer } from "../../lib/canonical-quick-note-transfer";
+import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import {
@@ -49,6 +50,7 @@ import type {
 NoteRecord,
 ProjectPageData,
 ProjectTagRecord,
+WorkspaceStatusSnapshot,
 } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
@@ -100,6 +102,8 @@ export function ProjectOverviewPage({
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const saveCoordinator = useRecordSaveCoordinator();
+  const quickNoteTransfer = useMemo(() => new CanonicalQuickNoteTransfer(), []);
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setProjectSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
@@ -426,7 +430,7 @@ export function ProjectOverviewPage({
     return normalized;
   }
 
-  async function commitProjectQuickNote(value: RichEditorValue, target: QuickNoteTransferTarget) {
+  async function commitProjectQuickNote(value: RichEditorValue, target: QuickNoteTransferTarget, context: QuickNoteTransferContext) {
     if (!projectId) throw new Error("当前 Project 不可用");
     const metadata = deriveQuickNoteMetadata(value.markdown);
     const targetRecord = target.kind === "append"
@@ -435,38 +439,25 @@ export function ProjectOverviewPage({
     if (target.kind === "append" && (!targetRecord || targetRecord.projectId !== projectId)) {
       throw new Error("只能追加到当前 Project 的 Record");
     }
-    const tagIds = mergeUniqueTagIds(
-      targetRecord?.tags?.map((tag) => tag.id) ?? [],
-      extractTagMentionIds(value.markdown),
-    );
-    for (const label of metadata.tagLabels) {
-      const existing = findTagByLabel(availableTags, label);
-      const tag = existing ?? await projectMindApi.projectTagUpsert({
+    const result = await quickNoteTransfer.commit({
+      workspaceRoot: saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "",
+      scope: { kind: "project", projectId }, target, markdown: value.markdown,
+      title: metadata.title ?? (value.text.trim().split(/[。！？.!?\n]/u)[0]?.slice(0, 36) || "未命名记录"),
+      coordinator: saveCoordinator,
+      resolveTagIds: async () => {
+        const tagIds = extractTagMentionIds(value.markdown);
+        for (const label of metadata.tagLabels) {
+          const existing = findTagByLabel(availableTags, label);
+          const tag = existing ?? await projectMindApi.projectTagUpsert({
         projectId,
-        label,
-        colorKey: colorKeyForTagLabel(label),
-      });
-      if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
-    }
-    const record = await projectMindApi.projectQuickNoteCommit({
-      projectId,
-      expectedMarkdown: value.markdown,
-      recordId: targetRecord?.id,
-      expectedRecordMarkdown: targetRecord?.contentMarkdown,
-      expectedRecordUpdatedAt: targetRecord?.updatedAt,
-      title: targetRecord ? targetRecord.title ?? undefined : metadata.title ?? (value.text.trim().split(/[。！？.!?\n]/u)[0]?.slice(0, 36) || "未命名记录"),
-      markdown: targetRecord
-        ? appendMarkdownSection(targetRecord.contentMarkdown, value.markdown)
-        : value.markdown,
-      html: targetRecord
-        ? appendRichTextSection(
-            { html: targetRecord.contentHtml, markdown: targetRecord.contentMarkdown },
-            value.html,
-          )
-        : value.html,
-      defaultCodeLanguage: targetRecord ? targetRecord.defaultCodeLanguage : quickNoteCodeLanguage,
-      tagIds,
-    });
+            label, colorKey: colorKeyForTagLabel(label),
+          });
+          if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
+        }
+        return tagIds;
+      },
+    }, context);
+    const record = result.editor.record as NoteRecord;
     upsertRecordInProjectCache(record);
     if (!targetRecord) void completeQuickNoteRecordMetadata({ record, projectId, availableTags, aiSettings })
       .then(() => refreshProject()).catch(() => pushToast({ tone: "info", title: "记录已保存", detail: "AI 标题和标签未填写，可在记录中重试 AI 填写。" }));
@@ -622,6 +613,7 @@ export function ProjectOverviewPage({
             records={allRecords}
             onBusyChange={setPublishingQuickNote}
             persist={saveProjectQuickNote}
+            beforeTransfer={(context) => quickNoteTransfer.bind(saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "", context)}
             commit={commitProjectQuickNote}
             onClear={() => {
               setQuickNoteDraft(EMPTY_VALUE);

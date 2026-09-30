@@ -55,6 +55,15 @@ export interface RecordCommitResult {
   metadata?: RecordMetadata;
 }
 export interface RecordEditorSaveResult { commit: RecordCommitResult; editor: RecordEditorState }
+export interface RecordQuickNoteTransferInput {
+  scope: AgentScope;
+  recordId: number | null;
+  baseRevision: number | null;
+  metadataRevision: string | null;
+  expectedMarkdown: string;
+  title: string | null;
+  tagIds: number[];
+}
 export type RecordCheckpointReason = "due" | "leave_editor" | "open_history" | "shutdown" | "recovery";
 export interface RecordCheckpointInput { target: RecordTarget; baseRevision: number; reason: RecordCheckpointReason }
 export interface RecordCheckpointResult { head: RecordDocumentHead; versionId: string | null; checkpointed: boolean }

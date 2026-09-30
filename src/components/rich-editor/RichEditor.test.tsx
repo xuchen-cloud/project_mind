@@ -42,6 +42,30 @@ it("passes Record cut metadata through the editor's existing clipboard handling"
   expect(values.get("application/x-project-mind-record-cut")).toContain("workspace-a/workspace/record/8");
 });
 
+it("receives a clean foreign Record update while keeping the caret and refuses to overwrite a draft", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const user = userEvent.setup();
+  const first = `<p data-block-id="${"1".repeat(32)}">Existing</p>`;
+  const second = `<p data-block-id="${"2".repeat(32)}">Incoming</p>`;
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/7" controllerRef={controllerRef} defaultHtml={first} />);
+  const surface = await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current).toBeTruthy());
+  act(() => { controllerRef.current!.focus(3); });
+  const selection = window.getSelection();
+  const caretOffset = selection?.anchorOffset;
+  act(() => { expect(controllerRef.current!.applyIncomingContent(first + second)).toBe(true); });
+  expect(controllerRef.current!.getCommittedValue().markdown).toContain("Incoming");
+  expect(window.getSelection()?.anchorOffset).toBe(caretOffset);
+  await waitFor(() => expect(document.activeElement).toBe(surface));
+  await user.keyboard("X");
+  expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(true);
+  act(() => { expect(controllerRef.current!.applyIncomingContent(first)).toBe(false); });
+  expect(controllerRef.current!.getCommittedValue().markdown).toContain("X");
+  const saved = controllerRef.current!.getCommittedValue();
+  act(() => { controllerRef.current!.acknowledgeCommittedContent(saved); });
+  expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+});
+
 const intersectionObservers: Array<{
   callback: IntersectionObserverCallback;
   elements: Set<Element>;

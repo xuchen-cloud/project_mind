@@ -54,6 +54,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
   editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, checkpoint: vi.fn(),
+  editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
 } }));
 
 const apiMocks = vi.hoisted(() => ({

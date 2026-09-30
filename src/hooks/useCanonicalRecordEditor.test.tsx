@@ -5,9 +5,12 @@ import { agentApi } from "../services/agentApi";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import { RecordSaveCoordinator } from "../lib/record-save-coordinator";
 import type { RecordEditorState, RecordTarget } from "../lib/record-document-types";
+import { subscribeRecordHeadChanges, type RecordHeadChanged } from "../lib/record-document-events";
 
 vi.mock("../services/agentApi", () => ({ agentApi: { statusGet: vi.fn() } }));
-vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: { editorGet: vi.fn(), checkpoint: vi.fn() } }));
+vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: { editorGet: vi.fn(), checkpoint: vi.fn(), editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
+vi.mock("../lib/record-document-events", () => ({ subscribeRecordHeadChanges: vi.fn() }));
+let notify: (change: RecordHeadChanged) => void;
 const binding = { workspaceId: "workspace-id", generation: "opened-1" };
 const target: RecordTarget = { scope: { kind: "project", projectId: 1 }, recordId: 7 };
 const document = { type: "doc", content: [{ type: "paragraph", attrs: { blockId: "1".repeat(32) } }] };
@@ -19,6 +22,10 @@ const editor: RecordEditorState = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(subscribeRecordHeadChanges).mockImplementation(async (listener) => {
+    notify = listener;
+    return () => undefined;
+  });
   vi.mocked(agentApi.statusGet).mockResolvedValue({ binding, runtimeAvailable: false, bridgeAvailable: false, capabilities: [] });
   vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(editor);
 });
@@ -74,4 +81,76 @@ it("checkpoints the acknowledged head after flushing the record queue", async ()
     await result.current.checkpoint("leave_editor");
   });
   expect(recordDocumentApi.checkpoint).toHaveBeenCalledWith(binding, { target, baseRevision: 5, reason: "leave_editor" });
+});
+
+it("receives a foreign head in a clean editor and ignores its own completed request", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved", headRevision: 6 }) } });
+  const receiveIncoming = vi.fn(() => true);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const incoming = { ...editor, head: { ...editor.head, headRevision: 5 } };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => { notify({ binding, target, requestId: "foreign", headRevision: 5, metadataRevision: null }); });
+  await waitFor(() => expect(result.current.capture(document)?.baseRevision).toBe(5));
+  expect(receiveIncoming).toHaveBeenCalledWith(incoming, expect.objectContaining({ metadata: editor.metadata }));
+  const snapshot = result.current.capture(document)!;
+  await act(async () => {
+    coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Title", tagIds: [], defaultCodeLanguage: null,
+      committedContent: { html: "", markdown: "", text: "" }, canonicalBody: snapshot });
+    await coordinator.flush();
+    notify({ binding, target, requestId: snapshot.requestId, headRevision: 6, metadataRevision: null });
+  });
+  expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(2);
+  expect(receiveIncoming).toHaveBeenCalledTimes(1);
+});
+
+it("retains the draft baseline if editing starts while a foreign head is loading", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  let clean = true;
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming: () => clean }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  let resolve!: (state: RecordEditorState) => void;
+  vi.mocked(recordDocumentApi.editorGet).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  act(() => { notify({ binding, target, requestId: "foreign", headRevision: 5, metadataRevision: null }); });
+  clean = false;
+  const incoming = { ...editor, head: { ...editor.head, headRevision: 5 } };
+  await act(async () => { resolve(incoming); });
+  expect(result.current.incomingConflict).toBe(incoming);
+  expect(result.current.capture(document)?.baseRevision).toBe(4);
+  expect(result.current.state).toBe(editor);
+});
+
+it("ignores notifications from a different Workspace generation", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming: () => true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => { notify({ binding: { ...binding, generation: "old" }, target, requestId: "foreign", headRevision: 99, metadataRevision: null }); });
+  expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(1);
+});
+
+it("keeps its editing baseline after a notification refresh fails", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming: () => true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const identity = result.current.loadIdentity;
+  vi.mocked(recordDocumentApi.editorGet).mockRejectedValueOnce(new Error("offline"));
+  await act(async () => { notify({ binding, target, requestId: "foreign", headRevision: 5, metadataRevision: null }); });
+  await waitFor(() => expect(result.current.syncError).toBeTruthy());
+  expect(result.current.error).toBeNull();
+  expect(result.current.ready).toBe(true);
+  expect(result.current.capture(document)?.baseRevision).toBe(4);
+  expect(result.current.loadIdentity).toBe(identity);
+});
+
+it("gives an explicit reload a fresh hydration identity while keeping clipboard Record identity", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const identity = result.current.loadIdentity;
+  const recordKey = result.current.recordKey;
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue({ ...editor, head: { ...editor.head, headRevision: 5 } });
+  act(() => { result.current.retry(); });
+  await waitFor(() => expect(result.current.capture(document)?.baseRevision).toBe(5));
+  expect(result.current.loadIdentity).not.toBe(identity);
+  expect(result.current.recordKey).toBe(recordKey);
 });

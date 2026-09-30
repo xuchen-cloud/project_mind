@@ -7,6 +7,7 @@ mod record_documents;
 mod record_document_worker;
 mod record_document_service;
 mod record_document_commands;
+mod record_editor_coordination;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
@@ -205,6 +206,7 @@ pub(crate) struct AppState {
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
     voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
     exit_authorized: std::sync::atomic::AtomicBool,
+    record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
 }
 
 impl AppState {
@@ -1222,6 +1224,7 @@ pub fn run() {
                 app_handle: app.handle().clone(),
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
+                record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
             };
@@ -1286,6 +1289,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            record_document_commands::record_editor_register,
+            record_document_commands::record_editor_unregister,
+            record_document_commands::record_editor_flush_reply,
+            record_document_commands::record_editors_flush,
+            record_document_commands::record_workspace_binding_get,
+            record_document_commands::record_quick_note_transfer,
             record_document_commands::record_editor_get,
             record_document_commands::record_body_save,
             record_document_commands::record_metadata_update,

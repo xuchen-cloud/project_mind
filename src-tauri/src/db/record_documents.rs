@@ -210,6 +210,122 @@ fn snapshot(
 }
 
 impl Database {
+    pub(crate) fn record_quick_note_source(
+        &self,
+        scope: &Scope,
+    ) -> AgentResult<RecordQuickNoteSource> {
+        scope.validate()?;
+        let (quick_note_id, html, markdown, code_language, updated_at) = match scope {
+            Scope::Project { project_id } => self.conn.query_row(
+                "SELECT NULL,summary_html,summary_markdown,quick_note_code_language,updated_at FROM projects WHERE id=?1", [project_id],
+                |row| Ok((row.get::<_,Option<i64>>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Option<String>>(3)?,row.get::<_,String>(4)?))),
+            Scope::Workspace => self.conn.query_row(
+                "SELECT id,content_html,content_markdown,default_code_language,updated_at FROM workspace_notes WHERE note_kind=?1 ORDER BY created_at DESC,id DESC LIMIT 1", [super::WORKSPACE_NOTE_KIND_TODAY_QUICK],
+                |row| Ok((row.get::<_,Option<i64>>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Option<String>>(3)?,row.get::<_,String>(4)?))),
+        }.optional().map_err(io_error)?.ok_or_else(|| AgentError::new(ErrorCode::NotFound,"QuickNote is missing"))?;
+        let asset_base_path = if let Scope::Project { project_id } = scope {
+            let root = self
+                .project_root_path(*project_id)
+                .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?;
+            let relative = root
+                .strip_prefix(&self.workspace_root)
+                .map_err(|_| {
+                    AgentError::new(ErrorCode::ScopeDenied, "Project is outside this Workspace")
+                })?
+                .to_string_lossy()
+                .replace('\\', "/");
+            if relative.is_empty() {
+                None
+            } else {
+                Some(relative)
+            }
+        } else {
+            None
+        };
+        let source_hash = format!("sha256:{:x}", Sha256::digest(serde_json::to_vec(&json!({"id":quick_note_id,"html":html,"markdown":markdown,"codeLanguage":code_language,"updatedAt":updated_at})).map_err(|_|invalid("Invalid QuickNote source"))?));
+        Ok(RecordQuickNoteSource {
+            quick_note_id,
+            html,
+            markdown,
+            code_language,
+            asset_base_path,
+            source_hash,
+        })
+    }
+
+    pub(crate) fn record_quick_note_transfer(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordQuickNoteTransfer,
+        expected_source_hash: &str,
+        projection: &RecordDocumentProjection,
+        empty: Option<&RecordDocumentProjection>,
+    ) -> AgentResult<RecordCommitResult> {
+        input.scope.validate()?;
+        if input.expected_markdown.trim().is_empty()
+            || input.expected_markdown.len() > 1024 * 1024
+            || input.record_id.is_some_and(|id| id <= 0)
+            || (input.record_id.is_some()
+                && (input.base_revision.is_none() || input.metadata_revision.is_none()))
+            || (input.record_id.is_none()
+                && (input.base_revision.is_some() || input.metadata_revision.is_some()))
+        {
+            return Err(invalid("Invalid QuickNote transfer baseline"));
+        }
+        let claimed = RecordTarget {
+            scope: input.scope.clone(),
+            record_id: input.record_id.unwrap_or(1),
+        };
+        let compatibility = self.record_compatibility_html(&claimed, projection)?;
+        if let Some(empty) = empty {
+            empty.validate()?;
+        }
+        self.agent_atomic_operation(caller, request_id, "record.quick_note.transfer", input, |tx| {
+            let quick = self.record_quick_note_source(&input.scope)?;
+            if quick.markdown != input.expected_markdown || quick.source_hash != expected_source_hash {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"QuickNote changed before transfer"));
+            }
+            let timestamp = Utc::now().to_rfc3339();
+            let target = if let Some(record_id) = input.record_id {
+                let target = RecordTarget { scope: input.scope.clone(), record_id };
+                source(tx, &target)?;
+                target
+            } else {
+                match input.scope {
+                    Scope::Project { project_id } => self.insert_project_note(project_id,None,"","<p></p>",None,&timestamp).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot create Record"))?,
+                    Scope::Workspace => { tx.execute("INSERT INTO workspace_notes(note_kind,title,content_markdown,content_html,created_at,updated_at) VALUES ('workspace_note',NULL,'','<p></p>',?1,?1)",[&timestamp]).map_err(io_error)?; }
+                }
+                RecordTarget { scope: input.scope.clone(), record_id: tx.last_insert_rowid() }
+            };
+            let current_metadata = metadata(tx, &target)?;
+            let update = RecordMetadataUpdate { target: target.clone(), expected_revision: input.metadata_revision.clone().unwrap_or_else(||current_metadata.revision.clone()),
+                title: if input.record_id.is_some() { current_metadata.title } else { input.title.clone() }, tag_ids: input.tag_ids.clone() };
+            let (saved_metadata, _) = self.record_metadata_transaction(tx, &update)?;
+            if input.record_id.is_none() {
+                let initial = empty.ok_or_else(||invalid("New Record requires an empty baseline"))?;
+                if !initial.text.is_empty() || !initial.validate()?.is_empty() { return Err(invalid("New Record baseline must be empty")); }
+                let (project_id, workspace_id) = match input.scope { Scope::Project { .. } => (Some(target.record_id),None), Scope::Workspace => (None,Some(target.record_id)) };
+                tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)",params![target.key()?,project_id,workspace_id,initial.document.to_string(),initial.html,initial.markdown,initial.text,initial.body_hash,initial.schema_version,initial.code_language,timestamp]).map_err(io_error)?;
+                let initial_head = head(tx,&target)?.ok_or_else(damaged)?;
+                snapshot(tx,&initial_head,&saved_metadata.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
+            }
+            let commit = RecordDocumentCommit { target: target.clone(), base_revision: input.base_revision.unwrap_or(1), projection: projection.clone(),
+                origin: RecordVersionOrigin::QuickNote, actor: json!({"kind":"gui","source":"quick_note"}), edit_session_id: None };
+            let (mut saved, change) = Self::record_commit_transaction(tx, request_id, &commit, &compatibility, None)?;
+            match input.scope {
+                Scope::Project { project_id } => { tx.execute("UPDATE projects SET summary='',summary_html='<p></p>',summary_markdown='',quick_note_code_language=NULL,updated_at=?1 WHERE id=?2",params![timestamp,project_id]).map_err(io_error)?; }
+                Scope::Workspace => {
+                    let quick_note_id = quick.quick_note_id.ok_or_else(damaged)?;
+                    tx.execute("UPDATE workspace_notes SET content_html='<p></p>',content_markdown='',default_code_language=NULL,updated_at=?1 WHERE id=?2",params![timestamp,quick_note_id]).map_err(io_error)?;
+                    self.replace_workspace_note_tags(quick_note_id,&[],&timestamp).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot clear QuickNote tags"))?;
+                }
+            }
+            saved.metadata = Some(saved_metadata);
+            Ok((saved, change))
+        })
+    }
+
     pub(crate) fn record_editor_state(
         &self,
         target: &RecordTarget,
@@ -1115,6 +1231,261 @@ mod tests {
             },
             projection,
         )
+    }
+    #[test]
+    fn quick_note_transfer_is_atomic_replayable_and_preserves_existing_block_ids() {
+        let (_directory, mut database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        database
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "Captured".into(),
+                html: "<p>Captured</p>".into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let quick = database.record_quick_note_source(&target.scope).unwrap();
+        let input = RecordQuickNoteTransfer {
+            scope: target.scope.clone(),
+            record_id: Some(target.record_id),
+            base_revision: Some(1),
+            metadata_revision: Some(database.record_metadata_get(&target).unwrap().revision),
+            expected_markdown: "Captured".into(),
+            title: None,
+            tag_ids: vec![],
+        };
+        let mut candidate = projection.clone();
+        candidate.document["content"].as_array_mut().unwrap().push(json!({"type":"paragraph","attrs":{"blockId":"8".repeat(32)},"content":[{"type":"text","text":"Captured"}]}));
+        candidate.html.push_str("<p>Captured</p>");
+        candidate.markdown.push_str("\n\nCaptured");
+        candidate.text.push_str("\n\nCaptured");
+        candidate.body_hash = body_hash(&candidate.document, &candidate.code_language);
+        let saved = database
+            .record_quick_note_transfer(
+                "gui",
+                "transfer",
+                &input,
+                &quick.source_hash,
+                &candidate,
+                None,
+            )
+            .unwrap();
+        assert_eq!(saved.head.head_revision, 2);
+        assert!(database
+            .workspace_quick_note_get()
+            .unwrap()
+            .unwrap()
+            .content_markdown
+            .is_empty());
+        assert_eq!(
+            saved.head.projection.document["content"][0]["attrs"]["blockId"],
+            projection.document["content"][0]["attrs"]["blockId"]
+        );
+        assert_eq!(version_count(&database), 2);
+        let replay = database
+            .record_quick_note_transfer(
+                "gui",
+                "transfer",
+                &input,
+                &quick.source_hash,
+                &candidate,
+                None,
+            )
+            .unwrap();
+        assert_eq!(replay.head.head_revision, 2);
+        assert_eq!(version_count(&database), 2);
+        let stale = database
+            .record_quick_note_transfer(
+                "gui",
+                "stale",
+                &input,
+                &quick.source_hash,
+                &candidate,
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(stale.code, ErrorCode::SourceChanged);
+        assert_eq!(version_count(&database), 2);
+    }
+    #[test]
+    fn quick_note_transfer_conflicts_leave_the_source_metadata_and_versions_untouched() {
+        let (_directory, mut database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        database
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "Captured".into(),
+                html: "<p>Captured</p>".into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let quick = database.record_quick_note_source(&target.scope).unwrap();
+        let input = RecordQuickNoteTransfer {
+            scope: target.scope.clone(),
+            record_id: Some(target.record_id),
+            base_revision: Some(2),
+            metadata_revision: Some(database.record_metadata_get(&target).unwrap().revision),
+            expected_markdown: "Captured".into(),
+            title: Some("Must not replace title".into()),
+            tag_ids: vec![],
+        };
+        let candidate = changed(&projection, "Appended");
+        assert_eq!(
+            database
+                .record_quick_note_transfer(
+                    "gui",
+                    "stale-head",
+                    &input,
+                    &quick.source_hash,
+                    &candidate,
+                    None
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+        assert_eq!(
+            database
+                .record_metadata_get(&target)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("Original title")
+        );
+        assert_eq!(
+            database
+                .workspace_quick_note_get()
+                .unwrap()
+                .unwrap()
+                .content_markdown,
+            "Captured"
+        );
+        assert_eq!(version_count(&database), 1);
+        let mut fresh = input;
+        fresh.base_revision = Some(1);
+        database.conn.execute("UPDATE workspace_notes SET content_html='<h1>Changed presentation</h1>' WHERE id=?1",[quick.quick_note_id.unwrap()]).unwrap();
+        assert_eq!(
+            database
+                .record_quick_note_transfer(
+                    "gui",
+                    "changed-source",
+                    &fresh,
+                    &quick.source_hash,
+                    &candidate,
+                    None
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceChanged
+        );
+        assert_eq!(version_count(&database), 1);
+    }
+
+    #[test]
+    fn quick_note_transfer_to_a_new_record_creates_baseline_and_action_versions_once() {
+        let (_directory, mut database, _target, _projection) = setup();
+        database
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "Captured".into(),
+                html: "<p>Captured</p>".into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let quick = database
+            .record_quick_note_source(&Scope::Workspace)
+            .unwrap();
+        fn paragraph(text: &str, id: &str) -> RecordDocumentProjection {
+            let document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":id},"content":if text.is_empty(){json!([])}else{json!([{"type":"text","text":text}])}}]});
+            RecordDocumentProjection {
+                schema_version: 1,
+                body_hash: body_hash(&document, &None),
+                document,
+                html: format!("<p data-block-id=\"{id}\">{text}</p>"),
+                markdown: text.into(),
+                text: text.into(),
+                code_language: None,
+            }
+        }
+        let input = RecordQuickNoteTransfer {
+            scope: Scope::Workspace,
+            record_id: None,
+            base_revision: None,
+            metadata_revision: None,
+            expected_markdown: "Captured".into(),
+            title: Some("Saved idea".into()),
+            tag_ids: vec![],
+        };
+        let candidate = paragraph("Captured", &"8".repeat(32));
+        let empty = paragraph("", &"9".repeat(32));
+        let saved = database
+            .record_quick_note_transfer(
+                "gui",
+                "new-record",
+                &input,
+                &quick.source_hash,
+                &candidate,
+                Some(&empty),
+            )
+            .unwrap();
+        assert_eq!(saved.head.head_revision, 2);
+        assert_eq!(
+            saved.metadata.as_ref().unwrap().title.as_deref(),
+            Some("Saved idea")
+        );
+        assert_eq!(version_count(&database), 2);
+        let versions = database
+            .record_versions_list(&saved.head.target, None, 10)
+            .unwrap();
+        assert_eq!(versions.versions[0].origin.key(), "quick_note");
+        assert_eq!(versions.versions[1].origin.key(), "baseline");
+        assert!(database
+            .workspace_quick_note_get()
+            .unwrap()
+            .unwrap()
+            .content_markdown
+            .is_empty());
+        let replay = database
+            .record_quick_note_transfer(
+                "gui",
+                "new-record",
+                &input,
+                &quick.source_hash,
+                &candidate,
+                Some(&empty),
+            )
+            .unwrap();
+        assert_eq!(
+            replay.head.target.key().unwrap(),
+            saved.head.target.key().unwrap()
+        );
+        assert_eq!(version_count(&database), 2);
     }
     #[test]
     fn gui_document_paths_become_portable_without_replacing_user_text_or_block_ids() {

@@ -5,21 +5,31 @@ import { recordDocumentApi } from "../services/recordDocumentApi";
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import type { RecordEditorState, RecordMetadata, RecordTarget } from "../lib/record-document-types";
 import { projectRecordSaveKey, workspaceRecordSaveKey, type CommittedRecordBody, type RecordSaveCoordinator } from "../lib/record-save-coordinator";
+import { subscribeRecordHeadChanges } from "../lib/record-document-events";
+import { registerCanonicalRecordEditor, type RecordEditorFlushOutcome } from "../lib/record-editor-registration";
 
 function targetKey(target: RecordTarget) {
   return target.scope.kind === "project" ? projectRecordSaveKey(target.scope.projectId, target.recordId) : workspaceRecordSaveKey(target.recordId);
 }
 
-export function useCanonicalRecordEditor({ target, coordinator, enabled }: {
+export function useCanonicalRecordEditor({ target, coordinator, enabled, receiveIncoming, flushEditor }: {
   target: RecordTarget | null;
   coordinator: RecordSaveCoordinator;
   enabled: boolean;
+  receiveIncoming?: (state: RecordEditorState, previous: { metadata: RecordMetadata; codeLanguage: string | null }) => boolean;
+  flushEditor?: () => Promise<RecordEditorFlushOutcome>;
 }) {
   const key = target ? targetKey(target) : null;
   const [loaded, setLoaded] = useState<{ key: string; state: RecordEditorState; binding: AgentWorkspaceBinding } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [syncError, setSyncError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
-  const baseline = useRef<{ key: string; binding: AgentWorkspaceBinding; revision: number; metadata: RecordMetadata; session: string } | null>(null);
+  const [incomingConflict, setIncomingConflict] = useState<RecordEditorState | null>(null);
+  const incomingReceiver = useRef(receiveIncoming);
+  incomingReceiver.current = receiveIncoming;
+  const editorFlusher = useRef(flushEditor);
+  editorFlusher.current = flushEditor;
+  const baseline = useRef<{ key: string; binding: AgentWorkspaceBinding; revision: number; metadata: RecordMetadata; codeLanguage: string | null; session: string } | null>(null);
   const targetRef = useRef(target);
   targetRef.current = target;
   const ready = enabled && !!key && loaded?.key === key && baseline.current?.key === key;
@@ -28,8 +38,11 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled }: {
     baseline.current = null;
     setLoaded(null);
     setError(null);
+    setSyncError(null);
+    setIncomingConflict(null);
     if (!enabled || !key) return;
     let cancelled = false;
+    let unregister: (() => void) | undefined;
     const currentTarget = targetRef.current!;
     void (async () => {
       try {
@@ -44,13 +57,20 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled }: {
           && pending.binding.generation === status.binding.generation ? pending : null;
         baseline.current = { key, binding: status.binding, revision: resumed?.baseRevision ?? state.head.headRevision,
           metadata: resumed?.metadataBase ?? state.metadata,
+          codeLanguage: state.head.projection.codeLanguage,
           session: resumed?.editSessionId ?? crypto.randomUUID().replaceAll("-", "") };
+        const stop = await registerCanonicalRecordEditor({
+          binding: status.binding, target: currentTarget, editorId: crypto.randomUUID().replaceAll("-", ""),
+          flush: () => editorFlusher.current?.() ?? Promise.resolve("busy"),
+        });
+        if (cancelled) { stop(); return; }
+        unregister = stop;
         setLoaded({ key, state, binding: status.binding });
       } catch (failure) {
         if (!cancelled) setError(failure);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; unregister?.(); };
   }, [key, coordinator, enabled, attempt]);
 
   useEffect(() => coordinator.subscribeSaved((snapshot, result) => {
@@ -61,8 +81,40 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled }: {
       || body.binding.workspaceId !== base.binding.workspaceId || body.binding.generation !== base.binding.generation
       || body.baseRevision !== base.revision || result.headRevision === undefined) return;
     base.revision = result.headRevision;
+    base.codeLanguage = snapshot.defaultCodeLanguage;
     if (result.metadata && body.metadataBase?.revision === base.metadata.revision) base.metadata = result.metadata;
   }), [coordinator]);
+
+  useEffect(() => {
+    if (!enabled || !key) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    let refreshSequence = 0;
+    void subscribeRecordHeadChanges((change) => {
+      const base = baseline.current;
+      if (disposed || !base || targetKey(change.target) !== base.key
+        || change.binding.workspaceId !== base.binding.workspaceId || change.binding.generation !== base.binding.generation
+        || coordinator.ownsRequest(change.requestId)
+        || ((change.headRevision === null || change.headRevision <= base.revision)
+          && (change.metadataRevision === null || change.metadataRevision === base.metadata.revision))) return;
+      const sequence = ++refreshSequence;
+      void recordDocumentApi.editorGet(base.binding, change.target).then((state) => {
+        if (disposed || sequence !== refreshSequence || baseline.current !== base || state.head.headRevision < base.revision) return;
+        if (coordinator.getLatestSnapshot(base.key) || !incomingReceiver.current?.(state, base)) {
+          setIncomingConflict(state);
+          return;
+        }
+        base.revision = state.head.headRevision;
+        base.metadata = state.metadata;
+        base.codeLanguage = state.head.projection.codeLanguage;
+        setIncomingConflict(null);
+        setSyncError(null);
+        setLoaded({ key: base.key, binding: base.binding, state });
+      }).catch((failure) => { if (!disposed) setSyncError(failure); });
+    }).then((stop) => { if (disposed) stop(); else unlisten = stop; })
+      .catch((failure) => { if (!disposed) setSyncError(failure); });
+    return () => { disposed = true; unlisten?.(); };
+  }, [coordinator, enabled, key]);
 
   const capture = useCallback((document: JSONContent, origin: CommittedRecordBody["origin"] = "manual"): CommittedRecordBody | null => {
     const base = baseline.current;
@@ -79,7 +131,8 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled }: {
     await recordDocumentApi.checkpoint(base.binding, { target: currentTarget, baseRevision: base.revision, reason });
   }, [coordinator]);
 
-  return { ready, state: loaded?.key === key ? loaded.state : null, error,
+  return { ready, state: loaded?.key === key ? loaded.state : null, error, syncError, incomingConflict,
+    loadIdentity: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}:${attempt}` : null,
     recordKey: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}` : undefined,
     capture, checkpoint, retry: () => setAttempt((value) => value + 1) };
 }

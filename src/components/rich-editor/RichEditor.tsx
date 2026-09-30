@@ -2,6 +2,7 @@ import { Suspense, forwardRef, lazy, startTransition, useCallback, useEffect, us
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
+import { applyRecordIncomingDocument } from "./recordIncomingDocument";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -418,6 +419,10 @@ export interface RichEditorController {
   getDocumentJson: () => JSONContent;
   getCommittedDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
+  getPendingAiReviewCount: () => number;
+  hasUnsavedCommittedContent: () => boolean;
+  acknowledgeCommittedContent: (value: RichEditorValue) => void;
+  applyIncomingContent: (html: string) => boolean;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
   save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
@@ -2411,6 +2416,27 @@ export function RichEditor({
       getActiveAiProtectionCount: () => editor
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
         : 0,
+      getPendingAiReviewCount: () => rewriteSessionsRef.current.length,
+      hasUnsavedCommittedContent: () => !!editor && captureCommittedValue(editor).html !== lastPersistedHtmlRef.current,
+      acknowledgeCommittedContent: (value) => {
+        lastPersistedHtmlRef.current = value.html;
+        if (editor && captureCommittedValue(editor).html === value.html) updatePersistState("saved");
+      },
+      applyIncomingContent: (html) => {
+        if (!editor || rewriteSessionsRef.current.length > 0 || captureCommittedValue(editor).html !== lastPersistedHtmlRef.current) return false;
+        const document = createDocument(normalizeHtml(html), editor.schema);
+        clearChangePublishTimer();
+        aiPreviewMutationRef.current = true;
+        try { applyRecordIncomingDocument(editor, document); }
+        finally { aiPreviewMutationRef.current = false; }
+        const snapshot = captureCommittedValue(editor);
+        lastResolvedHtmlRef.current = snapshot.html;
+        lastPersistedHtmlRef.current = snapshot.html;
+        latestCommittedValueRef.current = snapshot;
+        publishChangeSnapshot(snapshot, { immediate: true, sync: true });
+        updatePersistState("saved");
+        return true;
+      },
       focus: (position) => {
         if (!editor) {
           return;
@@ -2454,7 +2480,7 @@ export function RichEditor({
     return () => {
       controllerRef.current = null;
     };
-  }, [captureCommittedValue, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
+  }, [captureCommittedValue, clearChangePublishTimer, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);

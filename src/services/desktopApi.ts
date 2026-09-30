@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { webviewWindow } from "@tauri-apps/api";
 import { availableMonitors, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
@@ -72,6 +73,9 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
+  listenEvent<T>(event: string, onPayload: (payload: T) => void) {
+    return listen<T>(event, ({ payload }) => onPayload(payload));
+  },
   async captionWindowTrackPosition() {
     const current = getCurrentWindow();
     return (await import("./voiceWindowPosition")).trackVoiceWindowPosition({

@@ -10,10 +10,119 @@ use crate::{
         AppDocumentUtility, RecordBodySave, RecordDocumentService, RecordVersionDifference,
     },
     record_documents::*,
+    record_editor_coordination::{RecordEditorFlushReply, RecordEditorRegistration},
     AppState,
 };
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Emitter, Manager, State, WebviewWindow};
+
+async fn flush_editors(
+    state: &AppState,
+    request: &RequestContext,
+    target: &RecordTarget,
+) -> AgentResult<()> {
+    let utility = AppDocumentUtility(state.app_handle.clone());
+    RecordDocumentService::new(state, &utility).authorize_target(request, target, "record.read")?;
+    let windows = state.app_handle.webview_windows().into_keys().collect();
+    state
+        .record_editors
+        .flush(&request.binding, target, &windows, |flush| {
+            state
+                .app_handle
+                .emit_to(&flush.window, "record:flush-request", flush)
+                .map_err(|_| {
+                    AgentError::new(ErrorCode::EditorBusy, "无法联系记录编辑窗口，草稿已保留")
+                })
+        })
+        .await
+}
+
+#[tauri::command]
+pub(crate) fn record_editor_register(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    input: RecordCommandInput<RecordEditorRegistration>,
+) -> ApiResponse<()> {
+    let result = (|| {
+        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        RecordDocumentService::new(&*state, &utility).authorize_target(
+            &request,
+            &input.data.target,
+            "record.read",
+        )?;
+        state
+            .record_editors
+            .register(&request.binding, window.label(), &input.data)
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+#[tauri::command]
+pub(crate) fn record_editor_unregister(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    input: RecordCommandInput<RecordEditorRegistration>,
+) -> ApiResponse<()> {
+    let result = state
+        .record_editors
+        .unregister(&input.binding, window.label(), &input.data);
+    ApiResponse::from_result(input.request_id, result)
+}
+#[tauri::command]
+pub(crate) fn record_editor_flush_reply(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    input: RecordCommandInput<RecordEditorFlushReply>,
+) -> ApiResponse<()> {
+    let result = state
+        .record_editors
+        .reply(&input.binding, window.label(), &input.data);
+    ApiResponse::from_result(input.request_id, result)
+}
+#[tauri::command]
+pub(crate) async fn record_editors_flush(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordTarget>,
+) -> Result<ApiResponse<RecordEditorState>, String> {
+    let result = async {
+        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        flush_editors(&state, &request, &input.data).await?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        RecordDocumentService::new(&*state, &utility)
+            .editor_get(&request, &input.data)
+            .await
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordHeadChanged<'a> {
+    binding: &'a WorkspaceBinding,
+    target: &'a RecordTarget,
+    request_id: &'a str,
+    head_revision: Option<u64>,
+    metadata_revision: Option<&'a str>,
+}
+fn notify_record_changed(
+    state: &AppState,
+    request: &RequestContext,
+    target: &RecordTarget,
+    head_revision: Option<u64>,
+    metadata: Option<&RecordMetadata>,
+) {
+    let _ = state.app_handle.emit(
+        "record:head-changed",
+        RecordHeadChanged {
+            binding: &request.binding,
+            target,
+            request_id: &request.request_id,
+            head_revision,
+            metadata_revision: metadata.map(|value| value.revision.as_str()),
+        },
+    );
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -49,6 +158,42 @@ fn gui_request<T>(
                 .collect(),
         },
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WorkspaceBindingInput {
+    workspace_root: String,
+    request_id: String,
+}
+#[tauri::command]
+pub(crate) fn record_workspace_binding_get(
+    state: State<'_, AppState>,
+    input: WorkspaceBindingInput,
+) -> ApiResponse<WorkspaceBinding> {
+    let result = (|| {
+        if input.request_id.is_empty()
+            || input.request_id.len() > 128
+            || !std::path::Path::new(&input.workspace_root).is_absolute()
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid editor Workspace identity",
+            ));
+        }
+        let current = crate::lock_mutex(&state.current_workspace);
+        let runtime = current.as_ref().ok_or_else(|| {
+            AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
+        })?;
+        if std::path::Path::new(&input.workspace_root) != runtime.paths.root_path {
+            return Err(AgentError::new(
+                ErrorCode::WorkspaceChanged,
+                "Editor Workspace is no longer current",
+            ));
+        }
+        Ok(runtime.agent_binding.clone())
+    })();
+    ApiResponse::from_result(input.request_id, result)
 }
 
 #[tauri::command]
@@ -87,7 +232,71 @@ pub(crate) async fn record_body_save(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         let commit = service.save(&request, &input.data).await?;
+        notify_record_changed(
+            &state,
+            &request,
+            &commit.head.target,
+            Some(commit.head.head_revision),
+            commit.metadata.as_ref(),
+        );
         let editor = service.editor_get(&request, &input.data.target).await?;
+        Ok(RecordEditorSaveResult { commit, editor })
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+
+#[tauri::command]
+pub(crate) async fn record_quick_note_transfer(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordQuickNoteTransfer>,
+) -> Result<ApiResponse<RecordEditorSaveResult>, String> {
+    let result = async {
+        let request = gui_request(
+            &state,
+            &input,
+            &input.data.scope,
+            &[
+                "record.read",
+                "record.write",
+                "record.metadata.write",
+                "record.quick_note.write",
+            ],
+        )?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        let service = RecordDocumentService::new(&*state, &utility);
+        // A lost response replays its receipt without requiring another editor flush.
+        let replayed: Option<RecordCommitResult> =
+            crate::record_document_service::BoundRecordStore::with_current(
+                &*state,
+                |binding, db| {
+                    request.authorize(binding, &input.data.scope, "record.quick_note.write")?;
+                    db.agent_operation_replay(
+                        &request.caller.key(),
+                        &request.request_id,
+                        "record.quick_note.transfer",
+                        &input.data,
+                    )
+                },
+            )?;
+        let target = input.data.record_id.map(|record_id| RecordTarget {
+            scope: input.data.scope.clone(),
+            record_id,
+        });
+        if replayed.is_none() {
+            if let Some(target) = &target {
+                flush_editors(&state, &request, target).await?;
+            }
+        }
+        let commit = service.quick_note_transfer(&request, &input.data).await?;
+        notify_record_changed(
+            &state,
+            &request,
+            &commit.head.target,
+            Some(commit.head.head_revision),
+            commit.metadata.as_ref(),
+        );
+        let editor = service.editor_get(&request, &commit.head.target).await?;
         Ok(RecordEditorSaveResult { commit, editor })
     }
     .await;
@@ -106,7 +315,10 @@ pub(crate) fn record_metadata_update(
             &["record.metadata.write"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
-        RecordDocumentService::new(&*state, &utility).metadata_update(&request, &input.data)
+        let metadata =
+            RecordDocumentService::new(&*state, &utility).metadata_update(&request, &input.data)?;
+        notify_record_changed(&state, &request, &input.data.target, None, Some(&metadata));
+        Ok(metadata)
     })();
     ApiResponse::from_result(input.request_id, result)
 }

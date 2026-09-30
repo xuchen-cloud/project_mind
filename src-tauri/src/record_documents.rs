@@ -141,6 +141,28 @@ pub(crate) struct RecordCommitResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordQuickNoteTransfer {
+    pub scope: Scope,
+    pub record_id: Option<i64>,
+    pub base_revision: Option<u64>,
+    pub metadata_revision: Option<String>,
+    pub expected_markdown: String,
+    pub title: Option<String>,
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RecordQuickNoteSource {
+    pub quick_note_id: Option<i64>,
+    pub html: String,
+    pub markdown: String,
+    pub code_language: Option<String>,
+    pub asset_base_path: Option<String>,
+    pub source_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordCheckpointInput {
     pub target: RecordTarget,
     pub base_revision: u64,

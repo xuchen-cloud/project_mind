@@ -160,11 +160,37 @@ export function WorkspaceRecordFocusPage({
   const canonical = useCanonicalRecordEditor({
     target: recordId !== null ? { scope: { kind: "workspace" }, recordId } : null,
     coordinator: saveCoordinator, enabled: draftReady,
+    flushEditor: async () => {
+      const editor = editorControllerRef.current;
+      if (!editor) return "busy";
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      const signature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
+        language: codeLanguageValueRef.current, document: editor.getCommittedDocumentJson() });
+      const before = signature();
+      if (!submitCurrentRecord()) return "busy";
+      await saveCoordinator.flush(workspaceRecordSaveKey(recordId!));
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      return signature() === before ? "saved" : "busy";
+    },
+    receiveIncoming: (state, previous) => {
+      const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
+        === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");
+      if (titleValueRef.current !== (previous.metadata.title ?? "") || !sameTags
+        || codeLanguageValueRef.current !== previous.codeLanguage
+        || !editorControllerRef.current?.applyIncomingContent(state.record.contentHtml ?? "<p></p>")) return false;
+      const draft = recordFocusDraftFromRecord(state.record);
+      setTitle(draft.title); titleValueRef.current = draft.title;
+      setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
+      setContent(editorControllerRef.current.getCommittedValue());
+      setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
+      lastSavedUpdatedAtRef.current = state.record.updatedAt;
+      return true;
+    },
   });
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
-  const editingReady = canonical.ready && hydratedRecordKey === canonical.recordKey;
+  const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
   useLayoutEffect(() => {
-    if (!canonical.state || !canonical.recordKey || hydratedRecordKey === canonical.recordKey) return;
+    if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
     const pending = recordId !== null ? saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)) : null;
     const draft = pending ? recordFocusDraftFromSnapshot(pending) : recordFocusDraftFromRecord(canonical.state.record);
     setTitle(draft.title); titleValueRef.current = draft.title;
@@ -172,8 +198,8 @@ export function WorkspaceRecordFocusPage({
     setContent(draft.content);
     setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
     lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
-    setHydratedRecordKey(canonical.recordKey);
-  }, [canonical.state, canonical.recordKey, hydratedRecordKey, recordId, saveCoordinator]);
+    setHydratedRecordKey(canonical.loadIdentity);
+  }, [canonical.state, canonical.loadIdentity, hydratedRecordKey, recordId, saveCoordinator]);
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.workspace,
@@ -207,6 +233,12 @@ export function WorkspaceRecordFocusPage({
     lastSavedUpdatedAtRef.current = note.updatedAt;
     setLoadedNoteId(note.id);
   }, [loadedNoteId, note]);
+
+  useEffect(() => saveCoordinator.subscribeSaved((snapshot) => {
+    if (snapshot.scope === "workspace" && snapshot.recordId === recordId) {
+      editorControllerRef.current?.acknowledgeCommittedContent(snapshot.committedContent);
+    }
+  }), [saveCoordinator, recordId]);
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
@@ -434,7 +466,9 @@ export function WorkspaceRecordFocusPage({
         <div ref={scrollRef} className="project-overview-focus__scroll">
           <div className="home-content home-note-content">
             <div className="grid gap-4">
-              {canonical.error ? <div role="alert" className="text-sm text-text-soft">
+              {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
+            {canonical.incomingConflict ? <p role="alert" className="text-sm text-text-soft">这条记录已在其他窗口更新；当前草稿已保留，请先处理版本冲突。</p> : null}
+            {canonical.error ? <div role="alert" className="text-sm text-text-soft">
                 <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
                 <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
               </div> : !editingReady ? <p role="status" className="text-sm text-text-soft">正在准备记录编辑器…</p> : null}
@@ -513,7 +547,7 @@ export function WorkspaceRecordFocusPage({
                 />
               ) : null}
               <RichEditor
-                key={canonical.recordKey ?? `${recordId}:loading`}
+                key={canonical.loadIdentity ?? `${recordId}:loading`}
                 contentIdentity={`workspace-record:${recordId}`}
                 recordKey={canonical.recordKey}
                 html={content.html}

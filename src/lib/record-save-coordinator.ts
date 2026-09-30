@@ -153,6 +153,7 @@ export class RecordSaveCoordinator {
   private readonly latestSequenceByRecord = new Map<string, number>();
   private readonly listeners = new Set<StatusListener>();
   private readonly savedListeners = new Set<SavedListener>();
+  private readonly requestIds = new Set<string>();
   private nextSequence = 1;
 
   constructor(options: {
@@ -170,6 +171,10 @@ export class RecordSaveCoordinator {
 
   submit(snapshot: CommittedRecordSnapshot): RecordSaveReceipt {
     const captured = immutableSnapshot(snapshot);
+    if (captured.canonicalBody) {
+      this.requestIds.add(captured.canonicalBody.requestId);
+      if (this.requestIds.size > 512) this.requestIds.delete(this.requestIds.values().next().value!);
+    }
     const recordKey = recordSaveKey(captured);
     const sequence = this.nextSequence;
     this.nextSequence += 1;
@@ -191,6 +196,8 @@ export class RecordSaveCoordinator {
   getStatus(): RecordSaveStatus {
     return statusForTasks(Array.from(this.tasksByRecord.values()).flat());
   }
+
+  ownsRequest(requestId: string) { return this.requestIds.has(requestId); }
 
   subscribe(listener: StatusListener) {
     this.listeners.add(listener);

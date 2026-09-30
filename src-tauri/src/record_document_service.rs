@@ -11,8 +11,8 @@ use crate::{
         record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
         RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection, RecordEditorState,
         RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata, RecordPatchPreparation,
-        RecordPatchResult, RecordRestoreInput, RecordTarget, RecordVersion, RecordVersionCapacity,
-        RecordVersionOrigin, RecordVersionPage,
+        RecordPatchResult, RecordQuickNoteTransfer, RecordRestoreInput, RecordTarget,
+        RecordVersion, RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,14 @@ pub(crate) struct RecordVersionDifference {
 }
 
 pub(crate) trait BoundRecordStore {
+    fn submission_lock(
+        &self,
+        _binding: &WorkspaceBinding,
+        _target: &RecordTarget,
+    ) -> impl std::future::Future<Output = AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>>> + Send
+    {
+        async { Ok(None) }
+    }
     fn with_current<T>(
         &self,
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
@@ -80,6 +88,179 @@ pub(crate) struct RecordDocumentService<'a, S, W> {
 impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W> {
     pub(crate) fn new(store: &'a S, utility: &'a W) -> Self {
         Self { store, utility }
+    }
+    pub(crate) fn authorize_target(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        operation: &str,
+    ) -> AgentResult<()> {
+        self.access(request, target, operation, |_| Ok(()))
+    }
+    pub(crate) async fn quick_note_transfer(
+        &self,
+        request: &RequestContext,
+        input: &RecordQuickNoteTransfer,
+    ) -> AgentResult<RecordCommitResult> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "QuickNote transfer requires the local editor",
+            ));
+        }
+        let (replayed, quick, previous) = self.store.with_current(|binding, db| {
+            request.authorize(binding, &input.scope, "record.quick_note.write")?;
+            request.authorize(binding, &input.scope, "record.write")?;
+            request.authorize(binding, &input.scope, "record.metadata.write")?;
+            let replayed: Option<RecordCommitResult> = db.agent_operation_replay(
+                &request.caller.key(),
+                &request.request_id,
+                "record.quick_note.transfer",
+                input,
+            )?;
+            if replayed.is_some() {
+                return Ok((replayed, None, None));
+            }
+            let quick = db.record_quick_note_source(&input.scope)?;
+            if input.expected_markdown.trim().is_empty()
+                || quick.markdown != input.expected_markdown
+            {
+                return Err(AgentError::new(
+                    ErrorCode::SourceChanged,
+                    "QuickNote changed before transfer",
+                ));
+            }
+            let previous = if let Some(record_id) = input.record_id {
+                let claimed = ObjectRef {
+                    workspace_id: binding.workspace_id.clone(),
+                    scope: input.scope.clone(),
+                    kind: ObjectKind::Record,
+                    id: record_id.to_string(),
+                };
+                let actual = db
+                    .agent_resolve_object(&claimed, &binding.workspace_id)?
+                    .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Record is missing"))?;
+                request.authorize_object(binding, &claimed, &actual, "record.write")?;
+                let target = crate::record_documents::RecordTarget {
+                    scope: input.scope.clone(),
+                    record_id,
+                };
+                let head = db.record_document_head(&target)?.ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::SourceNotReady,
+                        "Open the Record to initialize its document",
+                    )
+                })?;
+                if input.base_revision != Some(head.head_revision) {
+                    return Err(AgentError::new(
+                        ErrorCode::RevisionConflict,
+                        "Record changed before QuickNote append",
+                    )
+                    .with_details(json!({"headRevision":head.head_revision})));
+                }
+                Some(head)
+            } else {
+                None
+            };
+            Ok((None, Some(quick), previous))
+        })?;
+        if let Some(replayed) = replayed {
+            return Ok(replayed);
+        }
+        let quick = quick.ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::RuntimeIncompatible,
+                "QuickNote source is missing",
+            )
+        })?;
+        let converted = self.utility.request(&request.request_id,"record.initialize",json!({"html":quick.html,"assetBasePath":quick.asset_base_path,"codeLanguage":quick.code_language})).await?;
+        let initial: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid QuickNote utility projection",
+                )
+            })?;
+        initial.validate()?;
+        let (projection, empty) = if let Some(previous) = previous {
+            let mut blocks = initial.document.get("content").cloned().ok_or_else(|| {
+                AgentError::new(ErrorCode::InvalidPatch, "QuickNote has no document blocks")
+            })?;
+            fn strip_ids(value: &mut Value) {
+                if let Some(attrs) = value.get_mut("attrs").and_then(Value::as_object_mut) {
+                    attrs.remove("blockId");
+                }
+                if let Some(children) = value.get_mut("content").and_then(Value::as_array_mut) {
+                    for child in children {
+                        strip_ids(child);
+                    }
+                }
+            }
+            for block in blocks.as_array_mut().ok_or_else(|| {
+                AgentError::new(ErrorCode::InvalidPatch, "Invalid QuickNote blocks")
+            })? {
+                strip_ids(block);
+            }
+            let mut converted = self.utility.request(&request.request_id,"record.patch",json!({"document":previous.projection.document,"codeLanguage":previous.projection.code_language,"operations":[{"op":"append","parentBlockId":null,"blocks":blocks}]})).await?;
+            converted
+                .as_object_mut()
+                .ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::RuntimeIncompatible,
+                        "Invalid QuickNote append projection",
+                    )
+                })?
+                .remove("patch");
+            let projection = serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid QuickNote append projection",
+                )
+            })?;
+            (projection, None)
+        } else {
+            let converted = self
+                .utility
+                .request(
+                    &request.request_id,
+                    "record.initialize",
+                    json!({"html":"<p></p>","codeLanguage":quick.code_language}),
+                )
+                .await?;
+            let empty = serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid empty Record projection",
+                )
+            })?;
+            (initial, Some(empty))
+        };
+        let _submission = if let Some(record_id) = input.record_id {
+            self.store
+                .submission_lock(
+                    &request.binding,
+                    &RecordTarget {
+                        scope: input.scope.clone(),
+                        record_id,
+                    },
+                )
+                .await?
+        } else {
+            None
+        };
+        self.store.with_current(|binding, db| {
+            request.authorize(binding, &input.scope, "record.quick_note.write")?;
+            request.authorize(binding, &input.scope, "record.write")?;
+            request.authorize(binding, &input.scope, "record.metadata.write")?;
+            db.record_quick_note_transfer(
+                &request.caller.key(),
+                &request.request_id,
+                input,
+                &quick.source_hash,
+                &projection,
+                empty.as_ref(),
+            )
+        })
     }
     fn access<T>(
         &self,
@@ -248,6 +429,10 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             actor: json!({"kind":"gui"}),
             edit_session_id: input.edit_session_id.clone(),
         };
+        let _submission = self
+            .store
+            .submission_lock(&request.binding, &input.target)
+            .await?;
         self.access(request, &input.target, "record.write", |db| {
             db.record_document_commit_intent(
                 &request.caller.key(),
@@ -298,6 +483,10 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 )
             })?;
         projection.validate()?;
+        let _submission = self
+            .store
+            .submission_lock(&request.binding, &target)
+            .await?;
         self.access(request, &target, "record.patch", |db| {
             db.record_patch_commit(&request.caller.key(), patch, &projection, &metadata)
         })
@@ -370,6 +559,10 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         let version = self
             .regenerated_version(request, &input.target, &input.version_id, "record.restore")
             .await?;
+        let _submission = self
+            .store
+            .submission_lock(&request.binding, &input.target)
+            .await?;
         self.access(request, &input.target, "record.restore", |db| {
             db.record_version_restore_projection(
                 &request.caller.key(),
@@ -429,6 +622,16 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
 }
 
 impl BoundRecordStore for crate::AppState {
+    async fn submission_lock(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> {
+        self.record_editors
+            .submission_lock(binding, target)
+            .await
+            .map(Some)
+    }
     fn with_current<T>(
         &self,
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
@@ -557,6 +760,102 @@ mod tests {
             },
         )
     }
+    #[tokio::test]
+    #[ignore = "requires prepared fixed Node runtime and built Record worker"]
+    async fn record_service_quick_note_transfer_preserves_anchors_and_replays_without_reappending()
+    {
+        let (_directory, store, _utility, mut request, target) = setup();
+        request.scope_grant.operations.extend([
+            "record.quick_note.write".into(),
+            "record.metadata.write".into(),
+        ]);
+        let utility = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = RecordDocumentService::new(&store, &utility);
+        let baseline = service.editor_get(&request, &target).await.unwrap();
+        let first_id = baseline.head.projection.document["content"][0]["attrs"]["blockId"].clone();
+        store
+            .db
+            .lock()
+            .unwrap()
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "Captured idea".into(),
+                html: "<p>Captured idea</p>".into(),
+                default_code_language: Some("python".into()),
+                tag_ids: vec![],
+            })
+            .unwrap();
+        request.request_id = "actual-quick-append".into();
+        let input = RecordQuickNoteTransfer {
+            scope: target.scope.clone(),
+            record_id: Some(target.record_id),
+            base_revision: Some(1),
+            metadata_revision: Some(baseline.metadata.revision),
+            expected_markdown: "Captured idea".into(),
+            title: None,
+            tag_ids: vec![],
+        };
+        let saved = service.quick_note_transfer(&request, &input).await.unwrap();
+        assert_eq!(saved.head.head_revision, 2);
+        assert_eq!(
+            saved.head.projection.document["content"][0]["attrs"]["blockId"],
+            first_id
+        );
+        assert_eq!(saved.head.projection.text, "Fixture 正文\n\nCaptured idea");
+        assert!(saved.head.projection.code_language.is_none());
+        let replayed = service.quick_note_transfer(&request, &input).await.unwrap();
+        assert_eq!(replayed.head.head_revision, 2);
+        assert_eq!(replayed.after_version, saved.after_version);
+        assert!(store
+            .db
+            .lock()
+            .unwrap()
+            .workspace_quick_note_get()
+            .unwrap()
+            .unwrap()
+            .content_markdown
+            .is_empty());
+        store
+            .db
+            .lock()
+            .unwrap()
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "New idea".into(),
+                html: "<p>New idea</p>".into(),
+                default_code_language: Some("python".into()),
+                tag_ids: vec![],
+            })
+            .unwrap();
+        request.request_id = "actual-quick-new".into();
+        let input = RecordQuickNoteTransfer {
+            scope: target.scope.clone(),
+            record_id: None,
+            base_revision: None,
+            metadata_revision: None,
+            expected_markdown: "New idea".into(),
+            title: Some("Saved idea".into()),
+            tag_ids: vec![],
+        };
+        let saved = service.quick_note_transfer(&request, &input).await.unwrap();
+        assert_ne!(saved.head.target.record_id, target.record_id);
+        assert_eq!(saved.head.projection.text, "New idea");
+        assert_eq!(
+            saved.head.projection.code_language.as_deref(),
+            Some("python")
+        );
+        assert_eq!(saved.head.head_revision, 2);
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_versions_list(&saved.head.target, None, 10)
+                .unwrap()
+                .versions
+                .len(),
+            2
+        );
+    }
+
     #[tokio::test]
     async fn stale_workspace_binding_is_rejected_before_conversion_or_baseline_write() {
         let (_directory, store, utility, mut request, target) = setup();

@@ -16,7 +16,7 @@ import type { RecordTarget } from "./lib/record-document-types";
 import type { ProjectPageData, WorkspacePageData } from "./lib/types";
 const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn() }));
 vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
-vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: recordMocks }));
+vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
 
 function configureCanonicalRecords(queryClient: QueryClient) {
   recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => {
@@ -31,6 +31,7 @@ function configureCanonicalRecords(queryClient: QueryClient) {
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
+    listenEvent: vi.fn(async () => () => undefined),
     command: vi.fn(async (name: string) => {
       if (name === "voice_availability_get") return { implemented: false, reason: "test" };
       if (name === "voice_settings_get") return { speechProfile: null, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4 };
