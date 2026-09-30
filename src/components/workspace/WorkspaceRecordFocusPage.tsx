@@ -55,6 +55,7 @@ import {
 recordFocusDraftFromRecord,
 recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
+import { RecordHistoryAction } from "../record/RecordHistoryAction";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
@@ -514,6 +515,8 @@ export function WorkspaceRecordFocusPage({
                   }}
                   onOpenAiSettings={() => openSettings("ai-rewrite")}
                 />
+              <RecordHistoryAction key={canonical.recordKey} binding={canonical.binding} target={{ scope: { kind: "workspace" }, recordId }} disabled={!editingReady || !visible} assetHandlers={workspaceAssetHandlers}
+                onRestored={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }); }} />
               <RecordExportAction
                 title={title}
                 getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}

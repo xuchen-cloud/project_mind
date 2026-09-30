@@ -132,6 +132,7 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   }, [coordinator]);
 
   return { ready, state: loaded?.key === key ? loaded.state : null, error, syncError, incomingConflict,
+    binding: loaded?.key === key ? loaded.binding : null,
     loadIdentity: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}:${attempt}` : null,
     recordKey: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}` : undefined,
     capture, checkpoint, retry: () => setAttempt((value) => value + 1) };

@@ -83,5 +83,7 @@ export interface RecordVersion extends Omit<RecordVersionSummary, "bodyHash"> {
   operationId: string;
   restoredFromVersionId: string | null;
 }
+export interface RecordVersionPreview { version: RecordVersion; html: string }
+export interface RecordRestoreInput { target: RecordTarget; baseRevision: number; versionId: string }
 export interface RecordVersionPage { versions: RecordVersionSummary[]; nextBefore: number | null }
 export interface RecordVersionCapacity { versionCount: number; snapshotBytes: number; retainedAssetCount: number }

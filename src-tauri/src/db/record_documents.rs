@@ -358,6 +358,22 @@ impl Database {
     pub(crate) fn record_metadata_get(&self, target: &RecordTarget) -> AgentResult<RecordMetadata> {
         metadata(&self.conn, target)
     }
+    pub(crate) fn record_version_editor_html(
+        &self,
+        target: &RecordTarget,
+        projection: &RecordDocumentProjection,
+    ) -> AgentResult<String> {
+        source(&self.conn, target)?;
+        let html = self.record_compatibility_html(target, projection)?;
+        match target.scope {
+            Scope::Project { project_id } => self
+                .hydrate_project_rich_text_html(project_id, &html)
+                .map_err(|_| {
+                    AgentError::new(ErrorCode::IoFailed, "Cannot display historic Record assets")
+                }),
+            Scope::Workspace => Ok(self.hydrate_workspace_rich_text_html(&html)),
+        }
+    }
     pub(crate) fn record_metadata_update(
         &self,
         caller: &str,
@@ -1486,6 +1502,16 @@ mod tests {
             saved.head.target.key().unwrap()
         );
         assert_eq!(version_count(&database), 2);
+    }
+    #[test]
+    fn historic_gui_preview_hydrates_assets_without_modifying_portable_snapshot() {
+        let (_directory,database,target,projection) = setup();
+        let original = projection.document.clone();
+        let html = database.record_version_editor_html(&target,&projection).unwrap();
+        assert!(html.contains(&database.workspace_root.join("assets/图片.png").to_string_lossy().to_string()));
+        assert!(html.contains("data-block-id"));
+        assert_eq!(projection.document,original);
+        assert!(!projection.html.contains(&database.workspace_root.to_string_lossy().to_string()));
     }
     #[test]
     fn gui_document_paths_become_portable_without_replacing_user_text_or_block_ids() {

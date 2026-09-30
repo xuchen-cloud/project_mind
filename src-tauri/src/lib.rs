@@ -1301,6 +1301,8 @@ pub fn run() {
             record_document_commands::record_checkpoint,
             record_document_commands::record_versions_list,
             record_document_commands::record_version_get,
+            record_document_commands::record_version_preview,
+            record_document_commands::record_version_restore,
             record_document_commands::record_versions_compare,
             record_document_commands::record_version_capacity,
             agent::commands::agent_status_get,

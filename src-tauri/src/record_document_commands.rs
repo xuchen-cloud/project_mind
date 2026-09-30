@@ -418,6 +418,72 @@ pub(crate) fn record_version_capacity(
     })();
     ApiResponse::from_result(input.request_id, result)
 }
-// Restore/patch are deliberately absent from the GUI adapter until the shared
-// multi-window flush and review barrier is connected. Their domain methods are
-// exercised through the service integration tests.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordVersionPreview {
+    version: RecordVersion,
+    html: String,
+}
+#[tauri::command]
+pub(crate) async fn record_version_preview(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<VersionGetInput>,
+) -> Result<ApiResponse<RecordVersionPreview>, String> {
+    let result = async {
+        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        let (version, html) = RecordDocumentService::new(&*state, &utility)
+            .version_preview(&request, &input.data.target, &input.data.version_id)
+            .await?;
+        Ok(RecordVersionPreview { version, html })
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+#[tauri::command]
+pub(crate) async fn record_version_restore(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordRestoreInput>,
+) -> Result<ApiResponse<RecordEditorSaveResult>, String> {
+    let result = async {
+        let request = gui_request(
+            &state,
+            &input,
+            &input.data.target.scope,
+            &["record.read", "record.restore"],
+        )?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        let service = RecordDocumentService::new(&*state, &utility);
+        service.authorize_target(&request, &input.data.target, "record.restore")?;
+        let previous: Option<RecordCommitResult> =
+            crate::record_document_service::BoundRecordStore::with_current(
+                &*state,
+                |binding, db| {
+                    request.authorize(binding, &input.data.target.scope, "record.restore")?;
+                    db.agent_operation_replay(
+                        &request.caller.key(),
+                        &request.request_id,
+                        "record.version.restore",
+                        &input.data,
+                    )
+                },
+            )?;
+        if previous.is_none() {
+            flush_editors(&state, &request, &input.data.target).await?;
+        }
+        let commit = service.restore(&request, &input.data).await?;
+        notify_record_changed(
+            &state,
+            &request,
+            &commit.head.target,
+            Some(commit.head.head_revision),
+            None,
+        );
+        let editor = service.editor_get(&request, &input.data.target).await?;
+        Ok(RecordEditorSaveResult { commit, editor })
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+// Public Agent/bridge patch/restore capabilities remain disabled until their
+// persisted grants and request adapters use this same coordination barrier.

@@ -572,6 +572,18 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             )
         })
     }
+    pub(crate) async fn version_preview(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        version_id: &str,
+    ) -> AgentResult<(RecordVersion, String)> {
+        let version = self.version_get(request, target, version_id).await?;
+        let html = self.access(request, target, "record.read", |db| {
+            db.record_version_editor_html(target, &version.projection)
+        })?;
+        Ok((version, html))
+    }
     pub(crate) fn capacity(
         &self,
         request: &RequestContext,

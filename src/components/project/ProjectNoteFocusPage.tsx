@@ -52,6 +52,7 @@ import {
 recordFocusDraftFromRecord,
 recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
+import { RecordHistoryAction } from "../record/RecordHistoryAction";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
@@ -552,6 +553,8 @@ export function ProjectNoteFocusPage({
                 }}
                 onOpenAiSettings={() => openSettings("ai-rewrite")}
               />
+              <RecordHistoryAction key={canonical.recordKey} binding={canonical.binding} target={{ scope: { kind: "project", projectId }, recordId }} disabled={!editingReady || !visible} assetHandlers={assetHandlers}
+                onRestored={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }); }} />
               <RecordExportAction
               title={titleValueRef.current}
               getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
