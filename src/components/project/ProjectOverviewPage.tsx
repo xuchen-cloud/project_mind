@@ -44,8 +44,7 @@ import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import {
 colorKeyForTagLabel,
-findTagByLabel,
-mergeUniqueTagIds
+findTagByLabel
 } from "../../lib/tags";
 import type {
 NoteRecord,
@@ -181,7 +180,6 @@ export function ProjectOverviewPage({
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
-  const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [recordContextMenu, setRecordContextMenu] = useState<{
     x: number;
     y: number;
@@ -349,28 +347,6 @@ export function ProjectOverviewPage({
     );
   }
 
-  async function ensureTagIdsFromText(markdown: string, explicitTagIds: number[]) {
-    if (!projectId) return explicitTagIds;
-
-    const mentionedTagIds = extractTagMentionIds(markdown);
-    const hashLabels = deriveQuickNoteMetadata(markdown).tagLabels;
-    const hashTagIds: number[] = [];
-
-    for (const label of hashLabels) {
-      const existing = findTagByLabel(availableTags, label);
-      const tag =
-        existing ??
-        (await projectMindApi.projectTagUpsert({
-          projectId,
-          label,
-          colorKey: colorKeyForTagLabel(label),
-        }));
-      hashTagIds.push(tag.id);
-    }
-
-    return mergeUniqueTagIds(explicitTagIds, mentionedTagIds, hashTagIds);
-  }
-
   function syncProjectTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.project(projectId),
@@ -487,35 +463,6 @@ export function ProjectOverviewPage({
     } catch (failure) {
       pushToast({ tone: "error", title: "创建记录失败", detail: String(failure) });
     } finally { setCreatingRecord(false); }
-  }
-
-  async function saveRecord(
-    note: NoteRecord,
-    value: RichEditorValue,
-    title: string,
-    tagIds: number[],
-    defaultCodeLanguage: string | null,
-  ) {
-    setSavingRecordId(note.id);
-
-    try {
-      const recordAssetHandlers = buildProjectNoteImageAssetHandlers(note.projectId);
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(value, recordAssetHandlers);
-      const normalized = normalizeRichEditorValue(externalizedValue);
-      const nextTagIds = await ensureTagIdsFromText(normalized.markdown, tagIds);
-      const savedRecord = await projectMindApi.projectRecordUpsert({
-        projectId: note.projectId,
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: normalized.markdown,
-        html: normalized.html,
-        defaultCodeLanguage,
-        tagIds: nextTagIds,
-      });
-      upsertRecordInProjectCache(savedRecord);
-    } finally {
-      setSavingRecordId(null);
-    }
   }
 
   async function deleteRecord(note: NoteRecord) {
@@ -784,8 +731,7 @@ export function ProjectOverviewPage({
                         }}
                         focused={focusedRecordId === note.id}
                         availableTags={availableTags}
-                        busy={savingRecordId === note.id}
-                        onSave={saveRecord}
+                        busy={false}
                         onOpenContextMenu={openRecordContextMenu}
                         onOpenFocusPage={(current) =>
                           navigate(

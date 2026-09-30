@@ -167,7 +167,7 @@ export function WorkspacePage({
     return Number.isFinite(parsed) ? parsed : null;
   }, [searchParams]);
   const { workspaceQuickNoteMutation } = useWorkspaceQuickNoteMutations();
-  const { workspaceRecordMutation, workspaceRecordDeleteMutation } = useWorkspaceRecordMutations();
+  const { workspaceRecordDeleteMutation } = useWorkspaceRecordMutations();
   const { createProjectMutation, archiveMutation, deleteProjectMutation } = useProjectMutations(
     (path, options) => navigate(path, options),
     activeProjectId,
@@ -603,7 +603,6 @@ export function WorkspacePage({
                 pageWidthMode={pageWidthMode}
                 availableTags={availableTags}
                 aiSettings={aiSettings}
-                saving={workspaceRecordMutation.isPending}
                 onCreateRecord={async (input) => {
                   await recordCreation.create(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", {
                     scope: { kind: "workspace" }, document: input.document, title: input.title ?? null,
@@ -612,22 +611,6 @@ export function WorkspacePage({
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                   recordCreation.reset();
-                }}
-                onUpdateRecord={async (note, input) => {
-                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
-                    { html: input.html, markdown: input.markdown, text: input.markdown },
-                    workspaceAssetHandlers,
-                  );
-                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, input.tagIds ?? []);
-                  await workspaceRecordMutation.mutateAsync({
-                    noteId: note.id,
-                    ...input,
-                    markdown: externalizedValue.markdown,
-                    html: externalizedValue.html,
-                    tagIds,
-                  });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-                  await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}
                 onDeleteRecord={async (noteId) => {
                   await workspaceRecordDeleteMutation.mutateAsync({ noteId });

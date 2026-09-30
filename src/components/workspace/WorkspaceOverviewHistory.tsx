@@ -56,16 +56,6 @@ interface WorkspaceOverviewHistoryProps {
     defaultCodeLanguage?: string | null;
     tagIds?: number[];
   }) => Promise<unknown>;
-  onUpdateRecord: (
-    note: WorkspaceRecord,
-    input: {
-      title?: string;
-      markdown: string;
-      html: string;
-      defaultCodeLanguage?: string | null;
-      tagIds?: number[];
-    },
-  ) => Promise<unknown>;
   onDeleteRecord: (noteId: number) => Promise<unknown>;
   onCloseCompose: () => void;
   contactMentionOptions: RichEditorContactMentionOptions;
@@ -87,7 +77,6 @@ export function WorkspaceOverviewHistory({
   aiSettings,
   saving = false,
   onCreateRecord,
-  onUpdateRecord,
   onDeleteRecord,
   onCloseCompose,
   contactMentionOptions,
@@ -103,7 +92,6 @@ export function WorkspaceOverviewHistory({
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
-  const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [creatingRecord, setCreatingRecord] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
   const creationActive = useRef(false);
@@ -296,22 +284,7 @@ export function WorkspaceOverviewHistory({
               scope={{ kind: "workspace", assetHandlers }}
               focused={focusId === `record-${note.id}`}
               availableTags={availableTags}
-              busy={saving || savingRecordId === note.id}
-              onSave={async (current, value, title, tagIds, defaultCodeLanguage) => {
-                setSavingRecordId(current.id);
-                try {
-                  const normalized = normalizeRichEditorValue(value);
-                  await onUpdateRecord(current, {
-                    title: title.trim() || undefined,
-                    markdown: normalized.markdown,
-                    html: normalized.html,
-                    defaultCodeLanguage,
-                    tagIds,
-                  });
-                } finally {
-                  setSavingRecordId(null);
-                }
-              }}
+              busy={saving}
               onOpenContextMenu={openRecordContextMenu}
               contactMentionOptions={contactMentionOptions}
               onOpenInternalReference={onOpenInternalReference}

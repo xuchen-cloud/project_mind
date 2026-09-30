@@ -1,17 +1,13 @@
 import {
   buildProjectNoteImageAssetHandlers,
   buildWorkspaceNoteImageAssetHandlers,
-  externalizeEmbeddedImageDataUrls,
   materializeEmbeddedRecordImages,
 } from "../components/rich-editor/noteImageAssets";
-import { normalizeRichEditorValue } from "../components/rich-editor/normalize";
-import { projectMindApi } from "../services/projectMindApi";
 import { RecordSaveFailure, type CommittedRecordSnapshot, type RecordSaveResult } from "./record-save-coordinator";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import { AgentApiError } from "../services/agentApi";
 import type { RecordBodySaveInput } from "./record-document-types";
 import type { JSONContent } from "@tiptap/core";
-import { extractTagMentionIds } from "./tagMentions";
 import { recordMentionTagIds } from "./record-object-ids";
 
 const canonicalDrafts = new WeakMap<object, { document: JSONContent; preparing?: Promise<void> }>();
@@ -62,31 +58,6 @@ async function persistCanonicalSnapshot(snapshot: Readonly<CommittedRecordSnapsh
 export async function persistRecordSnapshot(
   snapshot: Readonly<CommittedRecordSnapshot>,
 ) {
-  if (snapshot.canonicalBody) return persistCanonicalSnapshot(snapshot);
-  const assetHandlers =
-    snapshot.scope === "project"
-      ? buildProjectNoteImageAssetHandlers(snapshot.projectId)
-      : buildWorkspaceNoteImageAssetHandlers();
-  const externalized = await externalizeEmbeddedImageDataUrls(
-    snapshot.committedContent,
-    assetHandlers,
-  );
-  const normalized = normalizeRichEditorValue(externalized);
-  const mentionedTagIds = extractTagMentionIds(normalized.markdown);
-  const input = {
-    noteId: snapshot.recordId,
-    title: snapshot.title.trim() || undefined,
-    markdown: normalized.markdown,
-    html: normalized.html,
-    defaultCodeLanguage: snapshot.defaultCodeLanguage,
-    tagIds: Array.from(new Set([...snapshot.tagIds, ...mentionedTagIds])),
-  };
-  const record =
-    snapshot.scope === "project"
-      ? await projectMindApi.projectRecordUpsert({
-          ...input,
-          projectId: snapshot.projectId,
-        })
-      : await projectMindApi.workspaceRecordUpsert(input);
-  return { updatedAt: record.updatedAt, record };
+  if (!snapshot.canonicalBody) throw new RecordSaveFailure("记录缺少正文保存基线，草稿已保留，请重新加载编辑器", { retryable: false, code: "SOURCE_NOT_READY" });
+  return persistCanonicalSnapshot(snapshot);
 }
