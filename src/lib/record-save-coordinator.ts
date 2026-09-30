@@ -1,5 +1,7 @@
 import type { RichEditorValue } from "../components/rich-editor/types";
 import type { JSONContent } from "@tiptap/core";
+import type { RecordMetadata } from "./record-document-types";
+import type { AgentErrorCode } from "./agent-types";
 import type { NoteRecord, WorkspaceRecord } from "./types";
 
 interface CommittedRecordSnapshotBase {
@@ -19,6 +21,7 @@ export interface CommittedRecordBody {
   document: JSONContent;
   editSessionId: string | null;
   origin: "manual" | "editor_ai";
+  metadataBase?: RecordMetadata;
 }
 
 export interface CommittedProjectRecordSnapshot extends CommittedRecordSnapshotBase {
@@ -51,6 +54,7 @@ function recordSaveKey(snapshot: CommittedRecordSnapshot) {
 export interface RecordSaveResult {
   updatedAt: string;
   headRevision?: number;
+  metadata?: RecordMetadata;
   record?: NoteRecord | WorkspaceRecord;
 }
 
@@ -73,11 +77,15 @@ export interface RecordSaveStatus {
 
 export class RecordSaveFailure extends Error {
   readonly retryable: boolean;
+  readonly code?: AgentErrorCode;
+  readonly details?: unknown;
 
-  constructor(message: string, options: { retryable: boolean }) {
+  constructor(message: string, options: { retryable: boolean; code?: AgentErrorCode; details?: unknown }) {
     super(message);
     this.name = "RecordSaveFailure";
     this.retryable = options.retryable;
+    this.code = options.code;
+    this.details = options.details;
   }
 }
 
@@ -91,6 +99,7 @@ interface SaveTask {
 }
 
 type StatusListener = (status: RecordSaveStatus) => void;
+type SavedListener = (snapshot: Readonly<CommittedRecordSnapshot>, result: RecordSaveResult) => void;
 
 function immutableSnapshot(
   snapshot: CommittedRecordSnapshot,
@@ -115,8 +124,8 @@ function freezeDocument<T>(value: T): T {
   return value;
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+function saveError(error: unknown) {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function statusForTasks(tasks: readonly SaveTask[]): RecordSaveStatus {
@@ -143,6 +152,7 @@ export class RecordSaveCoordinator {
   private readonly tasksByRecord = new Map<string, SaveTask[]>();
   private readonly latestSequenceByRecord = new Map<string, number>();
   private readonly listeners = new Set<StatusListener>();
+  private readonly savedListeners = new Set<SavedListener>();
   private nextSequence = 1;
 
   constructor(options: {
@@ -190,6 +200,11 @@ export class RecordSaveCoordinator {
     };
   }
 
+  subscribeSaved(listener: SavedListener) {
+    this.savedListeners.add(listener);
+    return () => { this.savedListeners.delete(listener); };
+  }
+
   retryFailed(recordKey?: string) {
     for (const [key, tasks] of this.tasksByRecord) {
       if (recordKey && key !== recordKey) {
@@ -210,22 +225,23 @@ export class RecordSaveCoordinator {
     this.emit();
   }
 
-  flush(): Promise<void> {
-    const initialStatus = this.getStatus();
+  flush(recordKey?: string): Promise<void> {
+    const readStatus = () => recordKey ? this.getRecordStatus(recordKey) : this.getStatus();
+    const initialStatus = readStatus();
     if (initialStatus.phase === "idle") {
       return Promise.resolve();
     }
     if (initialStatus.phase === "error") {
-      return Promise.reject(new Error(errorMessage(initialStatus.lastError)));
+      return Promise.reject(saveError(initialStatus.lastError));
     }
 
     return new Promise<void>((resolve, reject) => {
       let unsubscribe: () => void = () => undefined;
       const check = () => {
-        const status = this.getStatus();
+        const status = readStatus();
         if (status.phase === "error") {
           unsubscribe();
-          reject(new Error(errorMessage(status.lastError)));
+          reject(saveError(status.lastError));
           return;
         }
         if (status.phase === "idle") {
@@ -283,8 +299,19 @@ export class RecordSaveCoordinator {
           || body.binding.workspaceId !== savedBody.binding.workspaceId
           || body.binding.generation !== savedBody.binding.generation) continue;
         queued.snapshot = immutableSnapshot({ ...queued.snapshot,
-          canonicalBody: { ...body, baseRevision: result.headRevision },
+          canonicalBody: { ...body, baseRevision: result.headRevision,
+            ...(result.metadata && savedBody.metadataBase
+              && body.metadataBase?.revision === savedBody.metadataBase.revision
+              ? { metadataBase: result.metadata } : {}),
+          },
         });
+      }
+    }
+    for (const listener of this.savedListeners) {
+      try {
+        listener(task.snapshot, result);
+      } catch {
+        // An acknowledged commit must never be retried because an observer failed.
       }
     }
     if (this.latestSequenceByRecord.get(recordKey) === task.sequence) {

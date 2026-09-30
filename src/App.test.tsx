@@ -11,6 +11,23 @@ import {
 } from "./lib/record-focus-save";
 import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 import { queryKeys } from "./lib/queryKeys";
+import { fixtureEditorState } from "./test/recordDocumentFixture";
+import type { RecordTarget } from "./lib/record-document-types";
+import type { ProjectPageData, WorkspacePageData } from "./lib/types";
+const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn() }));
+vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: recordMocks }));
+
+function configureCanonicalRecords(queryClient: QueryClient) {
+  recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => {
+    const page = target.scope.kind === "project"
+      ? queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.projectId))
+      : queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage);
+    const record = page?.records?.find((candidate) => candidate.id === target.recordId);
+    if (!record) throw new Error("Fixture Record is missing");
+    return fixtureEditorState(target, record);
+  });
+}
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
@@ -1395,6 +1412,7 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
     const persist = vi.fn(() => new Promise<{ updatedAt: string }>(() => undefined));
+    configureCanonicalRecords(queryClient);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
       adapter: { persist },
@@ -1432,18 +1450,20 @@ describe("WorkspaceLayout", () => {
     const fallback = document.querySelector("[data-record-focus-cached-fallback]");
     expect(fallback).toHaveTextContent("Alpha A 正文");
     expect(screen.queryByRole("status", { name: "正在打开记录" })).not.toBeInTheDocument();
-    await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
     expect(alphaA).not.toBeNull();
     expect(alphaA?.closest('[data-project-resident-id="1"]')).not.toBeNull();
 
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"] input[placeholder="记录标题"]')).toBeEnabled());
     await act(() => router.navigate("/projects/1/records/7"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
 
     await act(() => router.navigate("/projects/2/records/17"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"] input[placeholder="记录标题"]')).toBeEnabled());
     expect(
       document.querySelector('[data-focus-page-key="2:17"]')?.closest('[data-project-resident-id="2"]'),
     ).not.toBeNull();
@@ -1534,10 +1554,11 @@ describe("WorkspaceLayout", () => {
     }
     queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
+    configureCanonicalRecords(queryClient);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
       adapter: {
-        persist: vi.fn(async () => ({ updatedAt: timestamp })),
+        persist: vi.fn(async (snapshot) => ({ updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 })),
       },
     });
 
@@ -1606,6 +1627,7 @@ describe("WorkspaceLayout", () => {
       await waitFor(() =>
         expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`)).not.toBeNull(),
       );
+      await waitFor(() => expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"] input[placeholder="记录标题"]`)).toBeEnabled());
     }
     expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);

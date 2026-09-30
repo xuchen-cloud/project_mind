@@ -1,4 +1,4 @@
-import { readFile, mkdtemp, mkdir, copyFile, chmod, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, mkdir, copyFile, chmod, rm } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -31,5 +31,10 @@ try {
   await copyFile(path.join(staging, archiveRoot, entry.executable), path.join(destination, executable));
   await copyFile(path.join(staging, archiveRoot, manifest.licenseFile), path.join(destination, 'LICENSE'));
   if (!target.startsWith('win-')) await chmod(path.join(destination, executable), 0o755);
+  await writeFile(path.join(destination, 'verified-runtime.json'), JSON.stringify({
+    target, nodeVersion: manifest.nodeVersion, archiveChecksum: entry.sha256,
+    executableChecksum: createHash('sha256').update(await readFile(path.join(destination, executable))).digest('hex'),
+    licenseChecksum: createHash('sha256').update(await readFile(path.join(destination, 'LICENSE'))).digest('hex'),
+  }, null, 2));
   process.stdout.write(`${destination}\n`);
 } finally { await rm(staging, { recursive: true, force: true }); }

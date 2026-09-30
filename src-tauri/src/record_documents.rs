@@ -18,6 +18,37 @@ pub(crate) struct RecordTarget {
     pub scope: Scope,
     pub record_id: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordMetadata {
+    pub title: Option<String>,
+    pub tag_ids: Vec<i64>,
+    pub revision: String,
+    pub updated_at: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordMetadataUpdate {
+    pub target: RecordTarget,
+    pub expected_revision: String,
+    pub title: Option<String>,
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(crate) enum RecordEditorRecord {
+    Project(crate::models::NoteRecord),
+    Workspace(crate::models::WorkspaceRecord),
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordEditorState {
+    pub head: RecordDocumentHead,
+    pub metadata: RecordMetadata,
+    pub record: RecordEditorRecord,
+}
 impl RecordTarget {
     pub fn key(&self) -> AgentResult<String> {
         self.scope.validate()?;
@@ -104,6 +135,8 @@ pub(crate) struct RecordCommitResult {
     pub no_change: bool,
     pub before_version: String,
     pub after_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<RecordMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

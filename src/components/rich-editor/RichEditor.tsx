@@ -380,6 +380,10 @@ interface RichEditorProps {
   onDirtyChange?: (dirty: boolean) => void;
   controllerRef?: MutableRefObject<RichEditorController | null>;
   onSave?: (value: RichEditorValue) => Promise<unknown> | unknown;
+  /** Capture ordinary committed edits before the AI action and its result after
+   * acceptance, so a Record can persist both sides as separate boundaries. */
+  onBeforeAiCommit?: () => boolean;
+  onAiCommit?: (value: RichEditorValue) => void;
   onPersistStateChange?: (state: RichEditorPersistState) => void;
   onBlurPersisted?: (result: unknown) => void;
   onModEnter?: () => Promise<unknown> | unknown;
@@ -446,6 +450,8 @@ export function RichEditor({
   onDirtyChange,
   controllerRef,
   onSave,
+  onBeforeAiCommit,
+  onAiCommit,
   onPersistStateChange,
   onBlurPersisted,
   onModEnter,
@@ -3429,6 +3435,7 @@ export function RichEditor({
   const acceptModifyPreview = useCallback(() => {
     const session = rewriteSessionRef.current;
     if (!editor || !session?.modifyPreview) return;
+    if (onBeforeAiCommit?.() === false) return;
     const preview = session.modifyPreview;
     rollbackRewritePreview(session);
     setEditorRewriteProtectedRange(editor, null, session.targetKey);
@@ -3447,8 +3454,6 @@ export function RichEditor({
     } finally {
       aiPreviewMutationRef.current = false;
     }
-    publishAiEditorSnapshot();
-    releaseEditorViewportPreservation(editor, 1_000);
     setRewriteSession((current) =>
       current?.answer
         ? {
@@ -3459,7 +3464,10 @@ export function RichEditor({
         : null,
     );
     synchronizeResolvedRewriteSession(session.targetKey, resolvedSession);
-  }, [editor, publishAiEditorSnapshot, rollbackRewritePreview]);
+    publishAiEditorSnapshot();
+    onAiCommit?.(captureCommittedValue(editor));
+    releaseEditorViewportPreservation(editor, 1_000);
+  }, [editor, publishAiEditorSnapshot, rollbackRewritePreview, onBeforeAiCommit, onAiCommit, captureCommittedValue]);
 
   const rejectModifyPreview = useCallback(() => {
     if (rewriteJob?.status === "queued" || rewriteJob?.status === "running") {
@@ -3506,6 +3514,7 @@ export function RichEditor({
     if (!editor || !rewriteSession?.answer || rewriteSession.parseError) {
       return;
     }
+    if (onBeforeAiCommit?.() === false) return;
 
     const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
     const insertPosition = getInsertPositionAfterSelectedBlock(
@@ -3549,12 +3558,13 @@ export function RichEditor({
     }
     editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
     publishAiEditorSnapshot();
+    onAiCommit?.(captureCommittedValue(editor));
     releaseEditorViewportPreservation(editor, 1_000);
     window.requestAnimationFrame(() => {
       internalEditorCommitInFlightRef.current = false;
       setControlledHtmlReconcileGeneration((current) => current + 1);
     });
-  }, [editor, publishAiEditorSnapshot, pushToast, rewriteSession]);
+  }, [editor, publishAiEditorSnapshot, pushToast, rewriteSession, onBeforeAiCommit, onAiCommit, captureCommittedValue]);
 
   const retryAiSession = useCallback(() => {
     if (!rewriteSession) {

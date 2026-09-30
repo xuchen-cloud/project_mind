@@ -46,6 +46,37 @@ function canonicalSnapshot(markdown: string): CommittedProjectRecordSnapshot {
 }
 
 describe("RecordSaveCoordinator", () => {
+  it("flushes one record independently of a conflict in another record", async () => {
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => {
+      if (value.recordId === 8) throw new RecordSaveFailure("Other record conflict", { retryable: false, code: "REVISION_CONFLICT" });
+      return { updatedAt: "saved" };
+    } } });
+    coordinator.submit(snapshot(8, "conflict"));
+    coordinator.submit(snapshot(7, "saved"));
+    await expect(coordinator.flush("project:1:7")).resolves.toBeUndefined();
+    await expect(coordinator.flush()).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
+  it("notifies each successful revision before another draft is captured and isolates observer failures", async () => {
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => ({ updatedAt: "saved", headRevision: value.canonicalBody!.baseRevision + 1 }) } });
+    const revisions: number[] = [];
+    const unsubscribe = coordinator.subscribeSaved((value, result) => {
+      revisions.push(result.headRevision!);
+      if (value.committedContent.markdown === "first") {
+        const next = canonicalSnapshot("next"); next.canonicalBody!.baseRevision = result.headRevision!;
+        coordinator.submit(next);
+      }
+    });
+    coordinator.subscribeSaved(() => { throw new Error("Observer failure"); });
+    coordinator.submit(canonicalSnapshot("first"));
+    await coordinator.flush();
+    expect(revisions).toEqual([5, 6]);
+    unsubscribe();
+    const last = canonicalSnapshot("last"); last.canonicalBody!.baseRevision = 6;
+    coordinator.submit(last);
+    await coordinator.flush();
+    expect(revisions).toEqual([5, 6]);
+    expect(coordinator.getStatus().pendingCount).toBe(0);
+  });
   it("advances queued autosaves only after this coordinator commits their shared baseline", async () => {
     const first = deferred<{ updatedAt: string; headRevision: number }>();
     const captured: Readonly<CommittedProjectRecordSnapshot>[] = [];
@@ -78,6 +109,23 @@ describe("RecordSaveCoordinator", () => {
     expect(writes).toEqual([4]);
     expect(coordinator.getLatestSnapshot("project:1:7")?.canonicalBody).toMatchObject({ baseRevision: 4, requestId: "save-second" });
     expect(coordinator.getStatus()).toMatchObject({ pendingCount: 2, retryableFailedCount: 0 });
+  });
+  it("advances queued metadata baselines from an acknowledged save while retaining the newer header draft", async () => {
+    const captured: Readonly<CommittedProjectRecordSnapshot>[] = [];
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => {
+      if (value.scope !== "project") throw new Error("Unexpected scope");
+      captured.push(value);
+      return { updatedAt: "saved", headRevision: 4 + captured.length,
+        metadata: { title: value.title, tagIds: value.tagIds, revision: `metadata-${captured.length + 1}`, updatedAt: "saved" } };
+    } } });
+    const first = canonicalSnapshot("first"); first.title = "First title";
+    const second = canonicalSnapshot("second"); second.title = "Newer title";
+    for (const value of [first, second]) value.canonicalBody!.metadataBase = { title: "Record 7", tagIds: [2], revision: "metadata-1", updatedAt: "baseline" };
+    coordinator.submit(first); coordinator.submit(second);
+    await coordinator.flush();
+    expect(captured[1]?.canonicalBody?.metadataBase).toMatchObject({ title: "First title", revision: "metadata-2" });
+    expect(captured[1]?.title).toBe("Newer title");
+    expect(second.canonicalBody?.metadataBase?.revision).toBe("metadata-1");
   });
   it("returns a receipt immediately and finishes a delayed save independently", async () => {
     const write = deferred<{ updatedAt: string }>();

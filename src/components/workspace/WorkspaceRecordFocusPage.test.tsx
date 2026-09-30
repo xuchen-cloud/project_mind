@@ -18,6 +18,24 @@ import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
 
+import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test/recordDocumentFixture";
+import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
+const recordMocks = vi.hoisted(() => ({
+  queryClient: null as QueryClient | null,
+  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(),
+}));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...original, QueryClientProvider: (props: React.ComponentProps<typeof original.QueryClientProvider>) => {
+    recordMocks.queryClient = props.client;
+    return <original.QueryClientProvider {...props} />;
+  } };
+});
+vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
+  editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, checkpoint: vi.fn(),
+} }));
+
 const apiMocks = vi.hoisted(() => ({
   workspacePageGet: vi.fn(),
   projectsList: vi.fn(),
@@ -130,6 +148,7 @@ vi.mock("../rich-editor/noteImageAssets", () => ({
   buildWorkspaceNoteImageAssetHandlers: () => undefined,
   buildProjectNoteImageAssetHandlers: () => undefined,
   externalizeEmbeddedImageDataUrls: vi.fn(async (value) => value),
+  materializeEmbeddedRecordImages: vi.fn(),
 }));
 
 vi.mock("../rich-editor", () => ({
@@ -145,6 +164,7 @@ vi.mock("../rich-editor", () => ({
       current: {
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
+        getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
         focus: () => void;
         save: () => Promise<unknown>;
       } | null;
@@ -160,6 +180,7 @@ vi.mock("../rich-editor", () => ({
       controllerRef.current = {
         getValue: () => buildMockRichValue(recordExportMocks.editorValue),
         getCommittedValue: () => buildMockRichValue(recordExportMocks.committedValue),
+        getCommittedDocumentJson: () => fixtureDocument(recordExportMocks.committedValue),
         focus: vi.fn(),
         save: vi.fn(),
       };
@@ -267,6 +288,20 @@ function toPlainText(html: string) {
 
 describe("WorkspaceRecordFocusPage record switching", () => {
   beforeEach(() => {
+    recordMocks.queryClient = null;
+    recordMocks.bodySave.mockReset();
+    recordMocks.editorGet.mockReset();
+    const findRecord = async (target: RecordTarget) => {
+      if (target.scope.kind === "project") {
+        const page = recordMocks.queryClient?.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.projectId));
+        return page?.records.find((record) => record.id === target.recordId) ?? { ...noteA, id: target.recordId };
+      }
+      const cached = recordMocks.queryClient?.getQueryData<WorkspacePageData>(queryKeys.workspacePage);
+      const page = cached ?? await apiMocks.workspacePageGet.getMockImplementation()?.();
+      return page?.records.find((record: WorkspaceRecord) => record.id === target.recordId) ?? noteA;
+    };
+    recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, await findRecord(target)));
+    recordMocks.bodySave.mockImplementation(async (_binding, input: RecordBodySaveInput) => fixtureBodySave(input, await findRecord(input.target), input.target.scope.kind === "project" ? recordMocks.saveProjectRecord : recordMocks.saveWorkspaceRecord));
     recordExportMocks.sources.length = 0;
     recordExportMocks.editorValue = "正文 A[AI preview]";
     recordExportMocks.committedValue = "正文 A";
@@ -275,11 +310,11 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     apiMocks.workspaceStatusGet.mockReset();
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
-    apiMocks.workspaceRecordUpsert.mockReset();
+    recordMocks.saveWorkspaceRecord.mockReset();
     apiMocks.workspaceRecordMetadataApply.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     apiMocks.projectPageGet.mockReset();
-    apiMocks.projectRecordUpsert.mockReset();
+    recordMocks.saveProjectRecord.mockReset();
     aiMetadataMocks.enqueueAndWait.mockReset();
 
     apiMocks.workspacePageGet.mockResolvedValue(buildWorkspacePage());
@@ -291,7 +326,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({ tags: [] });
     apiMocks.aiSettingsGet.mockResolvedValue(null);
-    apiMocks.projectRecordUpsert.mockResolvedValue({});
+    recordMocks.saveProjectRecord.mockResolvedValue({});
     apiMocks.projectTagUpsert.mockImplementation(async ({ label }: { label: string }) => ({
       id: 22,
       label,
@@ -300,7 +335,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       createdAt: "",
       updatedAt: "",
     }));
-    apiMocks.workspaceRecordUpsert.mockImplementation(async (input: Partial<WorkspaceRecord>) => ({
+    recordMocks.saveWorkspaceRecord.mockImplementation(async (input: Partial<WorkspaceRecord>) => ({
       ...(input.noteId === 8 ? noteB : noteA),
       title: input.title,
       contentMarkdown: input.markdown ?? "",
@@ -340,14 +375,14 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(view.container.querySelector(".page-cold-entry")).toHaveAttribute("data-cold-entry", "true");
   });
 
-  it("renders a cached record synchronously without a cold entrance", () => {
+  it("renders a cached record synchronously without a cold entrance", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     queryClient.setQueryData(queryKeys.projects.all, []);
     queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" }, recentWorkspaces: [], aiSecretsUnlocked: true });
     const view = renderPage(<WorkspaceRecordFocusPage />, queryClient);
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /正在加载/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文 A");
     expect(view.container.querySelector(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
   });
@@ -407,7 +442,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     const user = userEvent.setup();
     renderPage(<WorkspaceRecordFocusPage />);
 
-    await screen.findByDisplayValue("A");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "测试导出" }));
 
     await waitFor(() => expect(recordExportMocks.sources).toHaveLength(1));
@@ -422,11 +457,11 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     const user = userEvent.setup();
     renderPage(<WorkspaceRecordFocusPage />);
 
-    await screen.findByDisplayValue("A");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Open record 8" }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/8");
-    expect(apiMocks.workspaceRecordUpsert).not.toHaveBeenCalled();
+    expect(recordMocks.saveWorkspaceRecord).not.toHaveBeenCalled();
   });
 
   it("reuses the two most recent Workspace Record Focus editors without another workspace-page request", async () => {
@@ -455,11 +490,13 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("正文 A");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editorA = screen.getByDisplayValue("正文 A");
     expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 B" }));
-    const editorB = await screen.findByDisplayValue("正文 B");
+    await waitFor(() => expect(screen.getByDisplayValue("B")).toBeEnabled());
+    const editorB = screen.getByDisplayValue("正文 B");
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
     expect(
       editorA.closest("[data-record-focus-resident-key]")?.querySelector(
@@ -527,7 +564,8 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       </QueryClientProvider>,
     );
 
-    const workspaceEditor = await screen.findByDisplayValue("正文 A");
+    await waitFor(() => expect(screen.getByDisplayValue("A")).toBeEnabled());
+    const workspaceEditor = screen.getByDisplayValue("正文 A");
     await user.click(screen.getByRole("button", { name: "打开 Project Focus" }));
     await screen.findByDisplayValue("Project 正文");
     await user.click(screen.getByRole("button", { name: "打开 Workspace Focus" }));
@@ -557,6 +595,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     );
 
     const title = screen.getByPlaceholderText("记录标题");
+    await waitFor(() => expect(title).toBeEnabled());
     await user.clear(title);
     await user.type(title, "Workspace 本地标题");
     queryClient.setQueryData<WorkspacePageData>(queryKeys.workspacePage, {

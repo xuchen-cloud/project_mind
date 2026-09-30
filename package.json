@@ -9,6 +9,8 @@
     "dev:tauri:manual": "tauri dev --no-watch",
     "build": "tsc && vite build",
     "build:record-worker": "vite build --config vite.record-worker.config.ts",
+    "stage:record-runtime": "node scripts/stage-record-runtime.mjs",
+    "build:desktop": "npm run build && npm run build:record-worker && npm run stage:record-runtime",
     "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
     "test:unit": "vitest run",
@@ -19,7 +21,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:agent": "cargo test --manifest-path src-tauri/Cargo.toml --lib agent --quiet && vitest run src/services/agentApi.test.ts src/lib/queryKeys.test.ts && npm run build:record-worker && npm --prefix packages/agent-host run check && npm --prefix packages/agent-host test",
-    "test:record": "npm run build:record-worker && vitest run src/lib/record-document.test.ts src/lib/record-document.node.test.ts src/lib/record-document-html.node.test.ts src/lib/record-patch.node.test.ts src/lib/record-version-compare.node.test.ts src/components/rich-editor/extensions/StableRecordBlocks.test.ts src/components/rich-editor/RichEditor.test.tsx src/lib/record-save-coordinator.test.ts src/lib/record-save-runtime.test.tsx --maxWorkers=1 && npm --prefix packages/agent-host run test:record && cargo test --manifest-path src-tauri/Cargo.toml --lib record --quiet -- --include-ignored"
+    "test:record": "npm run build:record-worker && npm run stage:record-runtime && vitest run src/lib/record-document.test.ts src/lib/record-document.node.test.ts src/lib/record-document-html.node.test.ts src/lib/record-patch.node.test.ts src/lib/record-version-compare.node.test.ts src/components/rich-editor/extensions/StableRecordBlocks.test.ts src/components/rich-editor/RichEditor.test.tsx src/components/rich-editor/noteImageAssets.test.ts src/lib/record-save-persistence.test.ts src/lib/record-save-coordinator.test.ts src/lib/record-save-runtime.test.tsx --maxWorkers=1 && npm --prefix packages/agent-host run test:record && cargo test --manifest-path src-tauri/Cargo.toml --lib record --quiet -- --include-ignored"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",

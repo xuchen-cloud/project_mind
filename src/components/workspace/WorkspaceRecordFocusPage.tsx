@@ -57,6 +57,7 @@ recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
+import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -156,6 +157,23 @@ export function WorkspaceRecordFocusPage({
     [currentWorkspace?.rootPath, queryClient],
   );
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
+  const canonical = useCanonicalRecordEditor({
+    target: recordId !== null ? { scope: { kind: "workspace" }, recordId } : null,
+    coordinator: saveCoordinator, enabled: draftReady,
+  });
+  const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
+  const editingReady = canonical.ready && hydratedRecordKey === canonical.recordKey;
+  useLayoutEffect(() => {
+    if (!canonical.state || !canonical.recordKey || hydratedRecordKey === canonical.recordKey) return;
+    const pending = recordId !== null ? saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)) : null;
+    const draft = pending ? recordFocusDraftFromSnapshot(pending) : recordFocusDraftFromRecord(canonical.state.record);
+    setTitle(draft.title); titleValueRef.current = draft.title;
+    setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
+    setContent(draft.content);
+    setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
+    lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
+    setHydratedRecordKey(canonical.recordKey);
+  }, [canonical.state, canonical.recordKey, hydratedRecordKey, recordId, saveCoordinator]);
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.workspace,
@@ -191,8 +209,12 @@ export function WorkspaceRecordFocusPage({
   }, [loadedNoteId, note]);
 
   const submitCurrentRecord = useCallback(
-    (value?: RichEditorValue) => {
-      if (!draftReady || recordId === null) return false;
+    (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
+      if (!editingReady || recordId === null) return false;
+      const document = editorControllerRef.current?.getCommittedDocumentJson();
+      if (!document) return false;
+      const canonicalBody = canonical.capture(document, origin);
+      if (!canonicalBody) return false;
       const committedContent =
         value ?? editorControllerRef.current?.getCommittedValue() ?? content;
       // Keep the controlled prop in lockstep with the exact snapshot sent to
@@ -209,10 +231,11 @@ export function WorkspaceRecordFocusPage({
         tagIds: tagIdsValueRef.current,
         defaultCodeLanguage: codeLanguageValueRef.current,
         committedContent,
+        canonicalBody,
       });
       setPersistState("saving");
       return true;
-    }, [content, currentWorkspace?.rootPath, draftReady, recordId, saveCoordinator],
+    }, [content, currentWorkspace?.rootPath, editingReady, canonical.capture, recordId, saveCoordinator],
   );
 
   useEffect(() => {
@@ -259,6 +282,18 @@ export function WorkspaceRecordFocusPage({
     }
     return handleSave(content);
   }, [content, draftReady, handleSave]);
+
+  const leaveEditorRef = useRef<() => void>(() => undefined);
+  leaveEditorRef.current = () => {
+    if (!editingReady || !submitCurrentRecord()) return;
+    void canonical.checkpoint("leave_editor").catch(() => setPersistState("error"));
+  };
+  const wasVisibleRef = useRef(visible);
+  useEffect(() => {
+    if (wasVisibleRef.current && !visible) leaveEditorRef.current();
+    wasVisibleRef.current = visible;
+  }, [visible]);
+  useEffect(() => () => leaveEditorRef.current(), [recordId]);
 
   const runExport = useCallback((request: RecordExportRequest) => {
     const exportRecord = createDesktopRecordExporter(async () => {
@@ -399,11 +434,16 @@ export function WorkspaceRecordFocusPage({
         <div ref={scrollRef} className="project-overview-focus__scroll">
           <div className="home-content home-note-content">
             <div className="grid gap-4">
+              {canonical.error ? <div role="alert" className="text-sm text-text-soft">
+                <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
+                <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
+              </div> : !editingReady ? <p role="status" className="text-sm text-text-soft">正在准备记录编辑器…</p> : null}
               <HomeRecordHeader onOpenHome={handleBack} identityKey={`workspace:${currentWorkspace?.rootPath}`} scopeName={currentWorkspace?.displayName || "我的工作区"} title={title}>
               <div className="flex min-w-0 items-center gap-2">
                 <TextField
                   value={title}
                   placeholder="记录标题"
+                  disabled={!editingReady || !visible}
                   onChange={(event) => {
                     setTitle(event.target.value);
                     titleValueRef.current = event.target.value;
@@ -449,6 +489,7 @@ export function WorkspaceRecordFocusPage({
               </div>
               </HomeRecordHeader>
               <EntityTagEditor inputPlaceholder="新增标签"
+                mode={editingReady && visible ? "full" : "display"}
                 projectId={null}
                 availableTags={availableTags}
                 tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
@@ -472,8 +513,9 @@ export function WorkspaceRecordFocusPage({
                 />
               ) : null}
               <RichEditor
-                key={recordId}
+                key={canonical.recordKey ?? `${recordId}:loading`}
                 contentIdentity={`workspace-record:${recordId}`}
+                recordKey={canonical.recordKey}
                 html={content.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}
@@ -484,7 +526,7 @@ export function WorkspaceRecordFocusPage({
                 variant="page"
                 showToolbar={false}
                 autoFocus={visible && !hasSavedPosition}
-                readOnly={!visible}
+                readOnly={!visible || !editingReady}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"
                 tagMentions={{
@@ -513,6 +555,8 @@ export function WorkspaceRecordFocusPage({
                 controllerRef={editorControllerRef}
                 onOpenAiSettings={() => openSettings("ai-rewrite")}
                 onSave={handleSave}
+                onBeforeAiCommit={() => submitCurrentRecord()}
+                onAiCommit={(value) => { submitCurrentRecord(value, "editor_ai"); }}
                 onPersistStateChange={setPersistState}
               />
             </div>

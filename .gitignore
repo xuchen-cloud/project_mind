@@ -1,5 +1,7 @@
 node_modules
 packages/agent-host/runtime/
+src-tauri/resources/agent-host/
+src-tauri/resources/.record-runtime-*/
 dist
 target
 src-tauri/target

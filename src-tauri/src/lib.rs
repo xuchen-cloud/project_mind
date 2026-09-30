@@ -6,6 +6,7 @@ mod models;
 mod record_documents;
 mod record_document_worker;
 mod record_document_service;
+mod record_document_commands;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
@@ -137,6 +138,9 @@ impl WorkspaceRuntime {
         secret_password: Option<String>,
     ) -> Result<Self> {
         let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
+        if let Err(error) = db.record_seal_pending_checkpoints(true) {
+            let _ = app_handle.emit("record:checkpoint-error", error);
+        }
         let execution = db.ai_execution_settings_get()?;
         let secret_state = Arc::new(Mutex::new(secret_password));
         let app_handle = app_handle.clone();
@@ -261,6 +265,7 @@ impl AppState {
 
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
+        self.seal_current_record_checkpoints()?;
         let (metadata, paths) = load_metadata(root_path)?;
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle,
@@ -288,6 +293,7 @@ impl AppState {
 
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
+        self.seal_current_record_checkpoints()?;
         let previous = lock_mutex(&self.current_workspace).clone();
         close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
         if let Some(previous) = previous {
@@ -301,6 +307,16 @@ impl AppState {
         verify_workspace_password(&runtime.metadata, password)?;
         runtime.set_secret_password(Some(password.to_string()))?;
         self.status_snapshot()
+    }
+
+    fn seal_current_record_checkpoints(&self) -> Result<()> {
+        let current = lock_mutex(&self.current_workspace);
+        if let Some(workspace) = current.as_ref() {
+            lock_mutex(&workspace.db)
+                .record_seal_checkpoints(record_documents::RecordCheckpointReason::Shutdown)
+                .map_err(|error| anyhow!(error.message))?;
+        }
+        Ok(())
     }
 
     fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
@@ -1148,6 +1164,7 @@ fn ai_execution_settings_upsert(
 #[tauri::command]
 fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.exit(0);
     Ok(())
@@ -1156,6 +1173,7 @@ fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
 #[tauri::command]
 fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.request_restart();
     Ok(())
@@ -1214,6 +1232,20 @@ pub fn run() {
             }
 
             app.manage(state);
+            let record_handle = app.handle().clone();
+            std::thread::Builder::new()
+                .name("record-checkpoints".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let state = record_handle.state::<AppState>();
+                    let current = lock_mutex(&state.current_workspace);
+                    if let Some(workspace) = current.as_ref() {
+                        let db = lock_mutex(&workspace.db);
+                        if let Err(error) = db.record_seal_pending_checkpoints(false) {
+                            let _ = record_handle.emit("record:checkpoint-error", error);
+                        }
+                    }
+                })?;
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("voice-supervisor".into())
@@ -1223,7 +1255,8 @@ pub fn run() {
                     let workspace = lock_mutex(&state.current_workspace).clone();
                     if let Some(workspace) = workspace {
                         let mut voice = lock_mutex(&state.voice_runtime);
-                        if !lock_mutex(&state.current_workspace)
+                        let current = lock_mutex(&state.current_workspace);
+                        if !current
                             .as_ref()
                             .is_some_and(|current| Arc::ptr_eq(current, &workspace))
                         {
@@ -1232,11 +1265,6 @@ pub fn run() {
                         let mut db = lock_mutex(&workspace.db);
                         match voice.snapshot(&mut db, &workspace.paths.root_path) {
                             Ok(snapshot) => {
-                                let current = lock_mutex(&state.current_workspace);
-                                if !current.as_ref().is_some_and(|active| Arc::ptr_eq(active, &workspace)) {
-                                    workspace.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
-                                    continue;
-                                }
                                 let busy = !workspace.ai_secrets_unlocked()
                                     || snapshot.as_ref().is_some_and(|session| {
                                         matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
@@ -1244,6 +1272,7 @@ pub fn run() {
                                 workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
                                 let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
                                 drop(db);
+                                drop(current);
                                 if recover {
                                     voice::recovery::kick(workspace.clone());
                                 }
@@ -1257,6 +1286,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            record_document_commands::record_editor_get,
+            record_document_commands::record_body_save,
+            record_document_commands::record_metadata_update,
+            record_document_commands::record_checkpoint,
+            record_document_commands::record_versions_list,
+            record_document_commands::record_version_get,
+            record_document_commands::record_versions_compare,
+            record_document_commands::record_version_capacity,
             agent::commands::agent_status_get,
             agent::commands::agent_context_get,
             agent::commands::agent_settings_get,

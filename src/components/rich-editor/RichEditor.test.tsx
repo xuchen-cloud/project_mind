@@ -4441,6 +4441,12 @@ describe("RichEditor context menus", () => {
   it("applies automatic AI edits and keeps an optional answer available", async () => {
     const user = userEvent.setup();
     const controllerRef = { current: null as RichEditorController | null };
+    const boundaries: string[] = [];
+    const beforeAiCommit = vi.fn(() => {
+      boundaries.push(JSON.stringify(controllerRef.current?.getCommittedDocumentJson()));
+      return true;
+    });
+    const aiCommit = vi.fn(() => { boundaries.push(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())); });
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
@@ -4461,6 +4467,8 @@ describe("RichEditor context menus", () => {
     const { container } = render(
       <RichEditor
         controllerRef={controllerRef}
+        onBeforeAiCommit={beforeAiCommit}
+        onAiCommit={aiCommit}
         variant="bare"
         defaultHtml="<p>hello world with a much longer opening paragraph</p><p>second paragraph</p><p>last paragraph</p>"
         aiSettings={{
@@ -4557,6 +4565,10 @@ describe("RichEditor context menus", () => {
       expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
     });
     expect(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())).toContain("better world");
+    expect(beforeAiCommit).toHaveBeenCalledTimes(1);
+    expect(aiCommit).toHaveBeenCalledTimes(1);
+    expect(boundaries[0]).toContain("hello world with a much longer opening paragraph");
+    expect(boundaries[1]).toContain("better world");
 
     await user.click(screen.getByRole("button", { name: "插入" }));
     await waitFor(() => {
@@ -4569,6 +4581,11 @@ describe("RichEditor context menus", () => {
         "last paragraph",
       ]);
     });
+
+    expect(beforeAiCommit).toHaveBeenCalledTimes(2);
+    expect(aiCommit).toHaveBeenCalledTimes(2);
+    expect(boundaries[2]).not.toContain("改写说明");
+    expect(boundaries[3]).toContain("改写说明");
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -5810,7 +5827,7 @@ describe("RichEditor focus and blur persistence", () => {
     const onSave = vi.fn(async (value: unknown) => value);
     const onBlurPersisted = vi.fn();
     const { container } = render(
-      <RichEditor variant="bare" autoFocus autosave onSave={onSave} onBlurPersisted={onBlurPersisted} />,
+      <RichEditor variant="bare" autoFocus autosave={{ onChange: false, onBlur: true }} onSave={onSave} onBlurPersisted={onBlurPersisted} />,
     );
 
     const surface = await waitFor(() => {
@@ -5820,6 +5837,7 @@ describe("RichEditor focus and blur persistence", () => {
       return nextSurface as HTMLElement;
     });
 
+    await waitFor(() => expect(surface).toHaveFocus());
     await user.type(surface, "Blur saves this");
     fireEvent.blur(surface);
 

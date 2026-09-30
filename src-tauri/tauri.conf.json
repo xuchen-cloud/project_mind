@@ -5,7 +5,7 @@
   "identifier": "com.xuchen.projectmind.alpha",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:desktop",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -50,6 +50,7 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
+    "resources": { "resources/": "" },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

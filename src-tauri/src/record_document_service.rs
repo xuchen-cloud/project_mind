@@ -9,9 +9,10 @@ use crate::{
     db::Database,
     record_documents::{
         record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
-        RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection, RecordPatchMetadata,
-        RecordPatchPreparation, RecordPatchResult, RecordRestoreInput, RecordTarget, RecordVersion,
-        RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
+        RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection, RecordEditorState,
+        RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata, RecordPatchPreparation,
+        RecordPatchResult, RecordRestoreInput, RecordTarget, RecordVersion, RecordVersionCapacity,
+        RecordVersionOrigin, RecordVersionPage,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,8 @@ pub(crate) struct RecordBodySave {
     pub code_language: Option<String>,
     pub origin: RecordSaveOrigin,
     pub edit_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<RecordMetadataUpdate>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -58,6 +61,17 @@ pub(crate) trait DocumentUtility {
         method: &str,
         data: Value,
     ) -> impl std::future::Future<Output = AgentResult<Value>> + Send;
+}
+
+/// Resolve process resources only for document conversion. Metadata-only calls
+/// stay independent of the utility process's availability.
+pub(crate) struct AppDocumentUtility(pub tauri::AppHandle);
+impl DocumentUtility for AppDocumentUtility {
+    async fn request(&self, request_id: &str, method: &str, data: Value) -> AgentResult<Value> {
+        crate::record_document_worker::RecordDocumentWorker::for_app(&self.0)?
+            .request(request_id, method, data)
+            .await
+    }
 }
 pub(crate) struct RecordDocumentService<'a, S, W> {
     store: &'a S,
@@ -129,6 +143,31 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             )
         })
     }
+    pub(crate) async fn editor_get(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+    ) -> AgentResult<RecordEditorState> {
+        self.head_get(request, target).await?;
+        self.access(request, target, "record.read", |db| {
+            db.record_editor_state(target)
+        })
+    }
+    pub(crate) fn metadata_update(
+        &self,
+        request: &RequestContext,
+        input: &RecordMetadataUpdate,
+    ) -> AgentResult<RecordMetadata> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Metadata saves require the local editor",
+            ));
+        }
+        self.access(request, &input.target, "record.metadata.write", |db| {
+            db.record_metadata_update(&request.caller.key(), &request.request_id, input)
+        })
+    }
     pub(crate) async fn save(
         &self,
         request: &RequestContext,
@@ -139,6 +178,15 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 ErrorCode::ScopeDenied,
                 "Full document saves require the local editor",
             ));
+        }
+        if let Some(metadata) = &input.metadata {
+            if metadata.target.key()? != input.target.key()? {
+                return Err(AgentError::new(
+                    ErrorCode::InvalidArgument,
+                    "Metadata target differs from the body target",
+                ));
+            }
+            self.access(request, &input.target, "record.metadata.write", |_| Ok(()))?;
         }
         let (previous, portable) = self.access(request, &input.target, "record.write", |db| {
             let previous = db.agent_operation_replay(
@@ -206,6 +254,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 &request.request_id,
                 &commit,
                 input,
+                input.metadata.as_ref(),
             )
         })
     }
@@ -599,6 +648,7 @@ mod tests {
             code_language: utility.projection.code_language.clone(),
             origin: RecordSaveOrigin::Manual,
             edit_session_id: Some("c".repeat(32)),
+            metadata: None,
         };
         let db = store.db.clone();
         let concurrent_target = target.clone();
@@ -641,6 +691,87 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn combined_editor_save_rolls_back_body_when_metadata_changes_during_conversion() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        let original = utility.projection.clone();
+        utility.projection.document["content"][0]["content"][0]["text"] = json!("Candidate body");
+        utility.projection.html = utility
+            .projection
+            .html
+            .replace("Fixture 正文", "Candidate body");
+        utility.projection.markdown = utility
+            .projection
+            .markdown
+            .replace("Fixture 正文", "Candidate body");
+        utility.projection.text = utility
+            .projection
+            .text
+            .replace("Fixture 正文", "Candidate body");
+        utility.projection.body_hash = crate::record_documents::body_hash(
+            &utility.projection.document,
+            &utility.projection.code_language,
+        );
+        let before = store
+            .db
+            .lock()
+            .unwrap()
+            .record_metadata_get(&target)
+            .unwrap();
+        let metadata = RecordMetadataUpdate {
+            target: target.clone(),
+            expected_revision: before.revision,
+            title: Some("Candidate title".into()),
+            tag_ids: vec![],
+        };
+        let input = RecordBodySave {
+            target: target.clone(),
+            base_revision: 1,
+            document: utility.projection.document.clone(),
+            code_language: utility.projection.code_language.clone(),
+            origin: RecordSaveOrigin::Manual,
+            edit_session_id: Some("c".repeat(32)),
+            metadata: Some(metadata.clone()),
+        };
+        let db = store.db.clone();
+        utility.on_request = Some(Box::new(move || {
+            let mut other = metadata.clone();
+            other.title = Some("Other header".into());
+            db.lock()
+                .unwrap()
+                .record_metadata_update("gui", "other-header", &other)
+                .unwrap();
+        }));
+        request.request_id = "combined-stale".into();
+        request
+            .scope_grant
+            .operations
+            .push("record.metadata.write".into());
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .save(&request, &input)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let db = store.db.lock().unwrap();
+        let head = db.record_document_head(&target).unwrap().unwrap();
+        assert_eq!(head.head_revision, 1);
+        assert_eq!(head.projection.body_hash, original.body_hash);
+        assert_eq!(
+            db.record_metadata_get(&target).unwrap().title.as_deref(),
+            Some("Other header")
+        );
+        assert_eq!(
+            db.record_version_capacity(&target).unwrap().version_count,
+            1
+        );
+    }
+    #[tokio::test]
     async fn body_save_replays_original_request_without_reconverting_or_overwriting_title() {
         let (_directory, store, mut utility, mut request, target) = setup();
         let initial = RecordDocumentService::new(&store, &utility)
@@ -666,6 +797,7 @@ mod tests {
             code_language: utility.projection.code_language.clone(),
             origin: RecordSaveOrigin::Manual,
             edit_session_id: Some("a".repeat(32)),
+            metadata: None,
         };
         let service = RecordDocumentService::new(&store, &utility);
         let saved = service.save(&request, &input).await.unwrap();
@@ -778,6 +910,7 @@ mod tests {
             code_language: None,
             origin: RecordSaveOrigin::Manual,
             edit_session_id: Some("b".repeat(32)),
+            metadata: None,
         };
         let saved = service.save(&request, &input).await.unwrap();
         assert_eq!(saved.head.head_revision, 2);

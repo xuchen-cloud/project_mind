@@ -55,6 +55,33 @@ fn source(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacyS
     })
 }
 
+fn metadata(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordMetadata> {
+    let current = source(conn, target)?;
+    let (tags_sql, timestamp_sql) = match target.scope {
+        Scope::Workspace => ("SELECT tag_id FROM workspace_note_tag_links WHERE workspace_note_id=?1 ORDER BY tag_id", "SELECT updated_at FROM workspace_notes WHERE id=?1"),
+        Scope::Project { .. } => ("SELECT tag_id FROM note_tag_links WHERE note_id=?1 ORDER BY tag_id", "SELECT updated_at FROM notes WHERE id=?1"),
+    };
+    let mut statement = conn.prepare(tags_sql).map_err(io_error)?;
+    let tag_ids: Vec<i64> = statement
+        .query_map([target.record_id], |row| row.get(0))
+        .map_err(io_error)?
+        .collect::<Result<_, _>>()
+        .map_err(io_error)?;
+    let updated_at = conn
+        .query_row(timestamp_sql, [target.record_id], |row| row.get(0))
+        .map_err(io_error)?;
+    let revision = format!(
+        "sha256:{:x}",
+        Sha256::digest(json!({"title":current.title,"tagIds":tag_ids}).to_string())
+    );
+    Ok(RecordMetadata {
+        title: current.title,
+        tag_ids,
+        revision,
+        updated_at,
+    })
+}
+
 fn head(conn: &Connection, target: &RecordTarget) -> AgentResult<Option<RecordDocumentHead>> {
     let value = conn.query_row("SELECT head_revision,document_json,body_hash,schema_version,code_language,html,markdown,text,edit_session_id,checkpoint_due_at FROM record_document_heads WHERE record_key=?1", [target.key()?], |row| {
         let document: String = row.get(1)?;
@@ -183,6 +210,131 @@ fn snapshot(
 }
 
 impl Database {
+    pub(crate) fn record_editor_state(
+        &self,
+        target: &RecordTarget,
+    ) -> AgentResult<RecordEditorState> {
+        let head = self.record_document_head(target)?.ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Initialize the Record document first",
+            )
+        })?;
+        let metadata = self.record_metadata_get(target)?;
+        let record = match target.scope {
+            Scope::Project { .. } => {
+                RecordEditorRecord::Project(self.note_record(target.record_id).map_err(|_| {
+                    AgentError::new(ErrorCode::IoFailed, "Cannot read editor Record")
+                })?)
+            }
+            Scope::Workspace => RecordEditorRecord::Workspace(
+                self.workspace_note_record(target.record_id).map_err(|_| {
+                    AgentError::new(ErrorCode::IoFailed, "Cannot read editor Record")
+                })?,
+            ),
+        };
+        Ok(RecordEditorState {
+            head,
+            metadata,
+            record,
+        })
+    }
+    pub(crate) fn record_metadata_get(&self, target: &RecordTarget) -> AgentResult<RecordMetadata> {
+        metadata(&self.conn, target)
+    }
+    pub(crate) fn record_metadata_update(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordMetadataUpdate,
+    ) -> AgentResult<RecordMetadata> {
+        self.agent_atomic_operation(caller, request_id, "record.metadata.update", input, |tx| {
+            self.record_metadata_transaction(tx, input)
+        })
+    }
+    fn record_metadata_transaction(
+        &self,
+        tx: &Transaction<'_>,
+        input: &RecordMetadataUpdate,
+    ) -> AgentResult<(RecordMetadata, Option<OperationChange>)> {
+        if !input.expected_revision.starts_with("sha256:")
+            || input.expected_revision.len() != 71
+            || input.tag_ids.len() > 1000
+            || input.tag_ids.iter().any(|id| *id <= 0)
+            || input
+                .title
+                .as_ref()
+                .is_some_and(|title| title.len() > 64 * 1024 || title.contains(['\n', '\r', '\0']))
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid Record metadata",
+            ));
+        }
+        let title = input
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string);
+        let mut tag_ids = input.tag_ids.clone();
+        tag_ids.sort_unstable();
+        tag_ids.dedup();
+
+        let current = metadata(tx, &input.target)?;
+        if current.revision != input.expected_revision {
+            return Err(AgentError::new(
+                ErrorCode::RevisionConflict,
+                "Record metadata changed before save",
+            )
+            .with_details(json!({"current":current})));
+        }
+        let project_id = match input.target.scope {
+            Scope::Workspace => None,
+            Scope::Project { project_id } => Some(project_id),
+        };
+        for id in &tag_ids {
+            self.scoped_file_tag_record(project_id, *id).map_err(|_| {
+                AgentError::new(ErrorCode::ScopeDenied, "Record tag is outside this scope")
+            })?;
+        }
+        if current.title == title && current.tag_ids == tag_ids {
+            return Ok((current, None));
+        }
+        let timestamp = Utc::now().to_rfc3339();
+        match input.target.scope {
+            Scope::Workspace => {
+                tx.execute("UPDATE workspace_notes SET title=?1,updated_at=?2 WHERE id=?3 AND note_kind='workspace_note'", params![title, timestamp, input.target.record_id]).map_err(io_error)?;
+                self.replace_workspace_note_tags(input.target.record_id, &tag_ids, &timestamp)
+                    .map_err(|_| {
+                        AgentError::new(ErrorCode::IoFailed, "Cannot update Record tags")
+                    })?;
+            }
+            Scope::Project { project_id } => {
+                tx.execute(
+                    "UPDATE notes SET title=?1,updated_at=?2 WHERE id=?3 AND project_id=?4",
+                    params![title, timestamp, input.target.record_id, project_id],
+                )
+                .map_err(io_error)?;
+                self.replace_note_tags(input.target.record_id, &tag_ids, &timestamp)
+                    .map_err(|_| {
+                        AgentError::new(ErrorCode::IoFailed, "Cannot update Record tags")
+                    })?;
+                tx.execute(
+                    "UPDATE projects SET updated_at=?1 WHERE id=?2",
+                    params![timestamp, project_id],
+                )
+                .map_err(io_error)?;
+            }
+        }
+        let saved = metadata(tx, &input.target)?;
+        let change = OperationChange {
+            object_key: format!("record:{}", input.target.key()?),
+            scope: input.target.scope.clone(),
+            revision: saved.revision.clone(),
+        };
+        Ok((saved, Some(change)))
+    }
     pub(super) fn require_legacy_record_write(&self, target: &RecordTarget) -> anyhow::Result<()> {
         source(&self.conn, target).map_err(|error| anyhow::anyhow!(error.message))?;
         let initialized: bool = self.conn.query_row(
@@ -429,6 +581,43 @@ impl Database {
             ))
         })
     }
+    /// Run only while holding the current Workspace database lock. Each Record
+    /// remains independently atomic; a damaged snapshot is never overwritten.
+    pub(crate) fn record_seal_pending_checkpoints(&self, recovery: bool) -> AgentResult<u32> {
+        self.record_seal_checkpoints(if recovery {
+            RecordCheckpointReason::Recovery
+        } else {
+            RecordCheckpointReason::Due
+        })
+    }
+
+    pub(crate) fn record_seal_checkpoints(
+        &self,
+        reason: RecordCheckpointReason,
+    ) -> AgentResult<u32> {
+        let mut sealed = 0;
+        loop {
+            let pending = self
+                .record_pending_checkpoints(!matches!(reason, RecordCheckpointReason::Due), 100)?;
+            let count = pending.len();
+            for mut input in pending {
+                input.reason = reason.clone();
+                let request_id = format!("{:032x}", rand::random::<u128>());
+                let result = self.record_document_checkpoint(
+                    "system:record-checkpoints",
+                    &request_id,
+                    &input,
+                )?;
+                if result.checkpointed {
+                    sealed += 1;
+                }
+            }
+            if count < 100 {
+                return Ok(sealed);
+            }
+        }
+    }
+
     pub(crate) fn record_pending_checkpoints(
         &self,
         recovery: bool,
@@ -715,7 +904,7 @@ impl Database {
         request_id: &str,
         input: &RecordDocumentCommit,
     ) -> AgentResult<RecordCommitResult> {
-        self.record_document_commit_intent(caller, request_id, input, input)
+        self.record_document_commit_intent(caller, request_id, input, input, None)
     }
     pub(crate) fn record_document_commit_intent(
         &self,
@@ -723,6 +912,7 @@ impl Database {
         request_id: &str,
         input: &RecordDocumentCommit,
         intent: &impl serde::Serialize,
+        metadata: Option<&RecordMetadataUpdate>,
     ) -> AgentResult<RecordCommitResult> {
         if input.base_revision == 0
             || input.base_revision > i64::MAX as u64
@@ -747,8 +937,23 @@ impl Database {
             return Err(invalid("Manual commit requires an edit session ID"));
         }
         let compatibility = self.record_compatibility_html(&input.target, &input.projection)?;
+        if let Some(metadata) = metadata {
+            if metadata.target.key()? != input.target.key()? {
+                return Err(invalid("Metadata target differs from the body target"));
+            }
+        }
         self.agent_atomic_operation(caller, request_id, "record.document.commit", intent, |tx| {
-            Self::record_commit_transaction(tx, request_id, input, &compatibility, None)
+            let (saved_metadata, metadata_change) = match metadata {
+                Some(metadata) => {
+                    let (saved, change) = self.record_metadata_transaction(tx, metadata)?;
+                    (Some(saved), change)
+                }
+                None => (None, None),
+            };
+            let (mut saved, body_change) =
+                Self::record_commit_transaction(tx, request_id, input, &compatibility, None)?;
+            saved.metadata = saved_metadata;
+            Ok((saved, body_change.or(metadata_change)))
         })
     }
     fn record_commit_transaction(
@@ -777,6 +982,7 @@ impl Database {
                     no_change: true,
                     before_version: latest_version,
                     after_version: None,
+                    metadata: None,
                 },
                 None,
             ));
@@ -852,6 +1058,7 @@ impl Database {
                 no_change: false,
                 before_version,
                 after_version,
+                metadata: None,
             },
             Some(OperationChange {
                 object_key: format!("record:{}", input.target.key()?),
@@ -977,6 +1184,82 @@ mod tests {
         let after = database.record_document_source(&target).unwrap();
         assert_eq!(after.title, source.title);
         assert_eq!(after.markdown, projection.markdown);
+    }
+    #[test]
+    fn metadata_cas_updates_title_without_touching_canonical_body_or_history() {
+        let (_directory, database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        let before = database.record_metadata_get(&target).unwrap();
+        let input = RecordMetadataUpdate {
+            target: target.clone(),
+            expected_revision: before.revision.clone(),
+            title: Some("New title".into()),
+            tag_ids: vec![],
+        };
+        let updated = database
+            .record_metadata_update("gui", "title-1", &input)
+            .unwrap();
+        assert_eq!(updated.title.as_deref(), Some("New title"));
+        assert_ne!(updated.revision, before.revision);
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+        assert_eq!(
+            database.record_document_source(&target).unwrap().markdown,
+            projection.markdown
+        );
+        assert_eq!(
+            database
+                .record_version_capacity(&target)
+                .unwrap()
+                .version_count,
+            1
+        );
+        assert_eq!(
+            database
+                .record_metadata_update("gui", "title-1", &input)
+                .unwrap()
+                .revision,
+            updated.revision
+        );
+        assert_eq!(
+            database
+                .record_metadata_update("gui", "title-stale", &input)
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let invalid_tags = RecordMetadataUpdate {
+            target: target.clone(),
+            expected_revision: updated.revision.clone(),
+            title: Some("Must roll back".into()),
+            tag_ids: vec![999_999],
+        };
+        assert_eq!(
+            database
+                .record_metadata_update("gui", "bad-tags", &invalid_tags)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(
+            database.record_metadata_get(&target).unwrap().revision,
+            updated.revision
+        );
     }
     #[test]
     fn record_head_cas_snapshots_receipts_and_compatibility_content_commit_together() {
@@ -1402,9 +1685,8 @@ mod tests {
         let pending = database.record_pending_checkpoints(true, 10).unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].base_revision, 3);
-        database
-            .record_document_checkpoint("recovery", "after-crash", &pending[0])
-            .unwrap();
+        assert_eq!(database.record_seal_pending_checkpoints(true).unwrap(), 1);
+        assert_eq!(database.record_seal_pending_checkpoints(true).unwrap(), 0);
         assert!(database
             .record_pending_checkpoints(true, 10)
             .unwrap()

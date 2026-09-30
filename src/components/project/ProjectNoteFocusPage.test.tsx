@@ -38,6 +38,24 @@ const aiMetadataMocks = vi.hoisted(() => ({
   enqueueAndWait: vi.fn(),
 }));
 
+import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test/recordDocumentFixture";
+import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
+const recordMocks = vi.hoisted(() => ({
+  queryClient: null as QueryClient | null,
+  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(),
+}));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...original, QueryClientProvider: (props: React.ComponentProps<typeof original.QueryClientProvider>) => {
+    recordMocks.queryClient = props.client;
+    return <original.QueryClientProvider {...props} />;
+  } };
+});
+vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
+  editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, checkpoint: vi.fn(),
+} }));
+
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   projectPageGet: vi.fn(),
@@ -99,6 +117,7 @@ vi.mock("../../state/ui-store", async (importOriginal) => ({
 vi.mock("../rich-editor/noteImageAssets", () => ({
   buildProjectNoteImageAssetHandlers: () => undefined,
   externalizeEmbeddedImageDataUrls: noteImageAssetMocks.externalizeEmbeddedImageDataUrls,
+  materializeEmbeddedRecordImages: vi.fn(),
 }));
 
 vi.mock("../rich-editor", () => ({
@@ -124,6 +143,7 @@ vi.mock("../rich-editor", () => ({
       current: {
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
+        getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
         focus: (position?: "start" | "end" | number) => void;
         save: () => Promise<unknown>;
       } | null;
@@ -141,6 +161,7 @@ vi.mock("../rich-editor", () => ({
       controllerRef.current = {
         getValue: () => buildMockRichValue(valueRef.current),
         getCommittedValue: () => buildMockRichValue(valueRef.current.replace("[AI preview]", "")),
+        getCommittedDocumentJson: () => fixtureDocument(valueRef.current.replace("[AI preview]", "")),
         focus: richEditorMocks.focus,
         save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current.replace("[AI preview]", ""))) ?? Promise.resolve()),
       };
@@ -316,6 +337,16 @@ function ResidentFocusVisibilityHarness() {
 
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
+    recordMocks.queryClient = null;
+    recordMocks.bodySave.mockReset();
+    recordMocks.editorGet.mockReset();
+    const findRecord = async (target: RecordTarget) => {
+      const cached = recordMocks.queryClient?.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.kind === "project" ? target.scope.projectId : 1));
+      const page = cached ?? await apiMocks.projectPageGet.getMockImplementation()?.();
+      return page?.records.find((record: NoteRecord) => record.id === target.recordId) ?? { ...currentNote, id: target.recordId };
+    };
+    recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, await findRecord(target)));
+    recordMocks.bodySave.mockImplementation(async (_binding, input: RecordBodySaveInput) => fixtureBodySave(input, await findRecord(input.target), recordMocks.saveProjectRecord));
     currentNote = { ...baseNote, tags: [] };
     recordExportMocks.sources.length = 0;
     richEditorMocks.focus.mockReset();
@@ -324,7 +355,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     apiMocks.projectPageGet.mockReset();
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
-    apiMocks.projectRecordUpsert.mockReset();
+    recordMocks.saveProjectRecord.mockReset();
     apiMocks.projectRecordMetadataApply.mockReset();
     apiMocks.aiSettingsGet.mockReset();
     aiMetadataMocks.enqueueAndWait.mockReset();
@@ -341,7 +372,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       createdAt: "",
       updatedAt: "",
     }));
-    apiMocks.projectRecordUpsert.mockImplementation(async (input: Partial<NoteRecord> & { tagIds?: number[] }) => {
+    recordMocks.saveProjectRecord.mockImplementation(async (input: Partial<NoteRecord> & { tagIds?: number[] }) => {
       currentNote = {
         ...currentNote,
         title: input.title,
@@ -388,14 +419,14 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(view.container.querySelector("[data-focus-page-key]" )).toHaveAttribute("data-cold-entry", "true");
   });
 
-  it("renders a cached record synchronously without a cold entrance", () => {
+  it("renders a cached record synchronously without a cold entrance", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
 
     const view = render(<ProjectNoteFocusPage />, queryClient);
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /正在加载/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文");
     expect(view.container.querySelector("[data-focus-page-key]")).not.toHaveAttribute("data-cold-entry");
   });
@@ -474,17 +505,19 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
   it("awaits an in-flight save and exports ordinary edits without pending AI preview", async () => {
     const user = userEvent.setup();
     let finishSave: ((value: NoteRecord) => void) | undefined;
-    apiMocks.projectRecordUpsert.mockImplementationOnce(() => new Promise<NoteRecord>((resolve) => {
+    recordMocks.saveProjectRecord.mockImplementationOnce(() => new Promise<NoteRecord>((resolve) => {
       finishSave = resolve;
     }));
     render(<ProjectNoteFocusPage />);
 
-    const editor = await screen.findByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
+    const editor = screen.getByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
     await user.clear(editor);
     fireEvent.change(editor, { target: { value: "未保存普通编辑[AI preview]" } });
     await user.click(screen.getByRole("button", { name: "测试导出" }));
 
-    await waitFor(() => expect(apiMocks.projectRecordUpsert).toHaveBeenCalled());
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalled());
     expect(recordExportMocks.sources).toHaveLength(0);
     finishSave?.({ ...currentNote, contentHtml: "<p>未保存普通编辑</p>" });
     await waitFor(() => expect(recordExportMocks.sources).toHaveLength(1));
@@ -500,16 +533,18 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "新标题");
     await user.keyboard("{Tab}");
 
     const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "新标题" }),
     );
-    expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalled();
+    expect(apiMocks.projectRecordUpsert).not.toHaveBeenCalled();
+    expect(recordMocks.bodySave).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ metadata: expect.objectContaining({ title: "新标题" }) }), expect.any(String));
   });
 
   it("keeps the focus page height constrained so its content area can scroll", async () => {
@@ -536,13 +571,14 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "回车标题");
     await user.keyboard("{Enter}");
 
     const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "回车标题" }),
     );
   });
@@ -569,6 +605,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "直接加标签的标题");
 
@@ -577,7 +614,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.type(tagInput, "紧急{Enter}");
 
     await waitFor(() => {
-      expect(apiMocks.projectRecordUpsert).toHaveBeenLastCalledWith(
+      expect(recordMocks.saveProjectRecord).toHaveBeenLastCalledWith(
         expect.objectContaining({
           noteId: 7,
           title: "直接加标签的标题",
@@ -597,9 +634,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
     const user = userEvent.setup();
     const title = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(title).toBeEnabled());
     await user.clear(title);
     await user.type(title, "最新标题");
     const editor = screen.getByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
     await user.clear(editor);
     fireEvent.change(editor, {
       target: { value: "最后一个字符！[managed image][AI preview]" },
@@ -618,7 +657,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     );
 
     await waitFor(() => {
-      expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+      expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
         expect.objectContaining({
           noteId: 7,
           title: "最新标题",
@@ -629,17 +668,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         }),
       );
     });
-    expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalledWith(
-      expect.objectContaining({
-        markdown: "最后一个字符！[managed image]",
-        html: expect.stringContaining("data:image/png;base64,AA=="),
-      }),
-      undefined,
-    );
-    expect(
-      noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mock.calls[0]?.[0]?.markdown,
-    ).not.toContain("AI preview");
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledTimes(2);
+    expect(recordMocks.bodySave.mock.calls.at(-1)?.[1].document).toEqual(fixtureDocument("最后一个字符！[managed image]"));
+    expect(apiMocks.projectRecordUpsert).not.toHaveBeenCalled();
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledTimes(2);
     expect(scroll.scrollTop).toBe(184);
   });
 
@@ -648,6 +679,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const { queryClient } = render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "尚未离开的本地标题");
 
@@ -685,7 +717,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
-      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+      adapter: { persist: vi.fn(async (value) => ({ updatedAt: "saved", headRevision: value.canonicalBody.baseRevision + 1 })) },
     });
 
     baseRender(
@@ -703,13 +735,16 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("正文 A");
+    await waitFor(() => expect(screen.getByDisplayValue("正文 A")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("正文 A");
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "本地正文 A");
     expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
-    const editorB = await screen.findByDisplayValue("正文 B");
+    await waitFor(() => expect(screen.getByDisplayValue("正文 B")).not.toHaveAttribute("readonly"));
+    const editorB = screen.getByDisplayValue("正文 B");
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
     expect(editorA).toHaveAttribute("readonly");
     expect(editorA).toHaveAttribute("data-auto-focus", "false");
@@ -780,7 +815,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     });
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
-      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+      adapter: { persist: vi.fn(async (value) => ({ updatedAt: "saved", headRevision: value.canonicalBody.baseRevision + 1 })) },
     });
 
     baseRender(
@@ -798,7 +833,8 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("Project A 正文");
+    await waitFor(() => expect(screen.getByDisplayValue("Project A 正文")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("Project A 正文");
     await user.click(screen.getByRole("button", { name: "打开 Project B Focus" }));
     await screen.findByDisplayValue("Project B 正文");
     await user.click(screen.getByRole("button", { name: "打开 Project A Focus" }));
@@ -846,7 +882,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("旧正文 A");
+    await waitFor(() => expect(screen.getByDisplayValue("旧正文 A")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("旧正文 A");
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "延迟保存的最新正文 A");
     await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
@@ -929,7 +967,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       finishedTodos: [],
       projectDocuments: [],
     }));
-    apiMocks.projectRecordUpsert.mockImplementation(async (input: {
+    recordMocks.saveProjectRecord.mockImplementation(async (input: {
       noteId: number;
       title?: string;
       markdown: string;
@@ -962,9 +1000,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByRole("textbox", { name: "正文编辑器" });
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByLabelText("正文编辑器");
     const scrollA = screen.getByTestId("project-record-focus-scroll");
     scrollA.scrollTop = 160;
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "修改后的正文 A");
     await user.click(screen.getByRole("button", { name: "打开记录 B" }));
@@ -1012,9 +1052,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByDisplayValue("正文 A")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("正文 A")).not.toHaveAttribute("readonly"));
     await user.click(screen.getByRole("button", { name: "打开记录 B" }));
-    expect(await screen.findByDisplayValue("正文 B")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("正文 B")).not.toHaveAttribute("readonly"));
     await waitFor(() => {
       expect(coordinator.getStatus()).toMatchObject({ phase: "error", failedCount: 1 });
     });

@@ -6620,7 +6620,7 @@ impl Database {
         Ok(())
     }
 
-    fn replace_note_tags(&mut self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+    fn replace_note_tags(&self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
         let project_id = self.conn.query_row(
             "SELECT project_id FROM notes WHERE id = ?1",
             [note_id],
@@ -6650,7 +6650,7 @@ impl Database {
     }
 
     fn replace_workspace_note_tags(
-        &mut self,
+        &self,
         note_id: i64,
         tag_ids: &[i64],
         timestamp: &str,

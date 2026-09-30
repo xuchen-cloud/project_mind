@@ -24,6 +24,27 @@ pub(crate) struct RecordDocumentWorker {
     timeout: Duration,
 }
 impl RecordDocumentWorker {
+    pub(crate) fn for_app(app: &tauri::AppHandle) -> AgentResult<Self> {
+        use tauri::Manager;
+        if let Ok(resources) = app.path().resource_dir() {
+            let root = resources.join("agent-host");
+            if root
+                .join(if cfg!(windows) { "node.exe" } else { "node" })
+                .is_file()
+            {
+                return Self::bundled(&resources);
+            }
+        }
+        #[cfg(debug_assertions)]
+        {
+            return Self::development();
+        }
+        #[cfg(not(debug_assertions))]
+        Err(AgentError::new(
+            ErrorCode::RuntimeUnavailable,
+            "Packaged document utility is unavailable",
+        ))
+    }
     pub(crate) fn bundled(resource_directory: &Path) -> AgentResult<Self> {
         let root = resource_directory.join("agent-host");
         Self::from_paths(
@@ -271,6 +292,46 @@ mod tests {
         let error = decode_response("expected", b"{\"requestId\":\"expected\",\"ok\":false,\"error\":{\"code\":\"INVALID_PATCH\",\"message\":\"Unsupported legacy HTML node: video\"}}\n").unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidPatch);
         assert!(error.message.contains("video"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires staged packaged utility resources; run explicitly"]
+    async fn record_worker_packaged_resources_convert_without_development_paths() {
+        let fixture = tempfile::tempdir().unwrap();
+        let resources = fixture.path().join("安装包 中文 resources");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/agent-host");
+        fn copy_tree(source: &Path, destination: &Path) {
+            std::fs::create_dir_all(destination).unwrap();
+            for entry in std::fs::read_dir(source).unwrap() {
+                let entry = entry.unwrap();
+                let destination = destination.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    copy_tree(&entry.path(), &destination);
+                } else {
+                    std::fs::copy(entry.path(), destination).unwrap();
+                }
+            }
+        }
+        copy_tree(&source, &resources.join("agent-host"));
+        let client = RecordDocumentWorker::bundled(&resources).unwrap();
+        assert!(client
+            .node
+            .starts_with(std::fs::canonicalize(&resources).unwrap()));
+        assert!(client
+            .entry
+            .starts_with(std::fs::canonicalize(&resources).unwrap()));
+        let response = client
+            .request(
+                "installed",
+                "record.initialize",
+                json!({"html":"<p>Installed utility</p>"}),
+            )
+            .await
+            .unwrap();
+        let projection: crate::record_documents::RecordDocumentProjection =
+            serde_json::from_value(response).unwrap();
+        projection.validate().unwrap();
+        assert_eq!(projection.text, "Installed utility");
     }
 
     #[tokio::test]
