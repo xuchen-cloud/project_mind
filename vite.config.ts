@@ -68,7 +68,8 @@ export default defineConfig({
   test: {
     // Bound concurrent jsdom/editor/PDF work to avoid CPU-starvation timeouts.
     maxWorkers: 4,
-    exclude: [...configDefaults.exclude, "product-site/**"],
+    // Backend packages own their Node test runner and must not load jsdom.
+    exclude: [...configDefaults.exclude, "product-site/**", "packages/agent-host/**"],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,

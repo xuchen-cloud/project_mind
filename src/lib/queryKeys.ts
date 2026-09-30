@@ -1,5 +1,6 @@
 export const queryKeys = {
   workspaceScoped: [
+    ["agent"],
     ["projects"],
     ["project-page"],
     ["search"],

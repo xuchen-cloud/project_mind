@@ -16,7 +16,8 @@
     "check:ui-standards": "node scripts/check-ui-standards.mjs",
     "check:bundle-boundaries": "node scripts/check-bundle-boundaries.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:agent": "cargo test --manifest-path src-tauri/Cargo.toml --lib agent --quiet && vitest run src/services/agentApi.test.ts src/lib/queryKeys.test.ts && npm --prefix packages/agent-host run check && npm --prefix packages/agent-host test"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",

@@ -1,3 +1,6 @@
+pub(crate) mod agent;
+mod agent_operations;
+mod agent_instructions;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -77,7 +80,8 @@ const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
 const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
 const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
 const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECOVERY_SCHEMA_VERSION;
+const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
+const CURRENT_SCHEMA_VERSION: i64 = AGENT_FOUNDATION_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -502,8 +506,8 @@ impl Database {
         )?;
 
         if is_fresh_workspace {
-            self.set_schema_version(CURRENT_SCHEMA_VERSION)?;
-        } else if initial_schema_version < CURRENT_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
+        } else if initial_schema_version < LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION {
             self.ensure_legacy_domain_schema()?;
             self.ensure_column(
                 "projects",
@@ -748,6 +752,7 @@ impl Database {
         if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }
+        self.ensure_agent_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"

@@ -1,3 +1,4 @@
+pub mod agent;
 mod ai_jobs;
 mod ai_provider;
 mod db;
@@ -113,6 +114,7 @@ pub struct SeedDemoWorkspaceResult {
 }
 
 pub(crate) struct WorkspaceRuntime {
+    agent_binding: agent::models::WorkspaceBinding,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
@@ -146,6 +148,10 @@ impl WorkspaceRuntime {
         );
 
         Ok(Self {
+            agent_binding: agent::models::WorkspaceBinding {
+                workspace_id: metadata.workspace_id.clone(),
+                generation: format!("{:032x}", rand::random::<u128>()),
+            },
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
@@ -1248,6 +1254,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            agent::commands::agent_status_get,
+            agent::commands::agent_context_get,
+            agent::commands::agent_settings_get,
+            agent::commands::agent_settings_update,
+            agent::commands::agent_instructions_list,
+            agent::commands::agent_instruction_upsert,
+            agent::commands::agent_instruction_delete,
+            agent::commands::agent_changes_list,
             voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,
