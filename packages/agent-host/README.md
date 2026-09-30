@@ -1,24 +1,41 @@
 # Agent Host
 
-独立后端 Node 包，不作为前端依赖。当前是 `mind-agent-host/v1` JSONL 协议框架，尚未安装 Pi SDK，也未声明任何模型运行能力。
+独立后端 Node 包，不作为前端依赖。生产入口仍是 `mind-agent-host/v1` JSONL 协议框架，握手返回 `runtimeAvailable:false`。Pi 接入是 AI-01 的独立验证入口，不能据此宣称应用内 Agent 已可用。
+
+## 固定版本与复现
+
+Pi SDK 固定为 `@earendil-works/pi-coding-agent@0.99.1`，安装包 Node 候选固定为 24.21.0。`runtime-manifest.json` 记录 macOS / Windows、arm64 / x64 官方压缩包与 SHA-256；开发脚本要求 Node ≥22.19.0。SDK 依赖与锁文件独立于前端。
 
 ```sh
+npm --prefix packages/agent-host ci
 npm --prefix packages/agent-host run check
 npm --prefix packages/agent-host test
+npm --prefix packages/agent-host run test:pi
+```
+
+下载 manifest 对应的官方 Node 压缩包后，使用 `prepare:runtime -- darwin-arm64 <absolute-archive-path>` 校验并提取 Node 与许可证；`smoke:runtime -- darwin-arm64` 会将运行时复制到含空格和中文的临时目录，清空 PATH，并运行 Pi 集成 fixture。runtime、node_modules、dist 均不提交。
+
+当前已在 macOS arm64 的固定 Node 24.21.0 下跑通本地模型协议 fixture、受限反向工具、checkpoint、取消、搬迁后恢复和实际子进程 JSONL。真实模型 Profile、完整安装包、Windows 运行、签名与分发许可证检查尚未完成，M0 仍未通过。
+
+## 生产协议框架
+
+```sh
 npm --prefix packages/agent-host start
 ```
 
-开发机器需要 Node 22 或更新版本。这里的 engines 范围仅用于运行框架测试，不是安装包运行时的版本锁定；发布前由 AI-01 锁定 SDK/Node 版本、许可证及目标平台资源并验证。
-
-stdin/stdout 每行一个 JSON 对象；stdout 无日志。请求帧包含 `protocolVersion`、`requestId`、`method`，例如：
+stdin/stdout 每行一个 JSON 对象；stdout 无日志。请求帧包含 `protocolVersion`、`requestId`、`method`：
 
 ```json
 {"protocolVersion":"mind-agent-host/v1","requestId":"init-1","method":"initialize"}
 {"protocolVersion":"mind-agent-host/v1","requestId":"stop-1","method":"shutdown"}
 ```
 
-握手返回 `runtimeAvailable:false`。其余已知方法 `session.open` / `run.start` / `run.cancel` / `session.close` / `tool.result` 在初始化后返回 `RUNTIME_UNAVAILABLE`；不生成虚假会话、文本或完成事件。协议不匹配返回 `RUNTIME_INCOMPATIBLE`，非法帧返回 `INVALID_ARGUMENT`，超过 1 MiB 或 EOF 时未终结的帧会安全退出。
+已知会话/运行方法在初始化后返回 `RUNTIME_UNAVAILABLE`。协议不匹配返回 `RUNTIME_INCOMPATIBLE`，非法帧返回 `INVALID_ARGUMENT`，超过 1 MiB 或 EOF 时未终结的帧会安全退出。
 
-AI-01 在这一边界后接入受限 Pi adapter；必须禁用默认 shell/file 工具、资源/AGENTS/extension 自动发现。模型凭据只能经进程管道进入内存，不写 argv、环境、日志和工作区配置。tool.call 返回 Rust 共享服务执行，Node 不直接写业务数据库或托管项目文件。
+## Pi 验证入口
 
-Pi 历史 JSONL 是模型恢复的唯一权威；Rust DB 保存元信息和 UI 投影。绑定 Workspace 的相对路径 codec、checkpoint、settled、取消及恢复要通过专门 fixture 后才使 runtimeAvailable 为 true。源码/HTML 提取 worker 与模型运行时另行隔离，不在本协议框架内实现。
+`npm --prefix packages/agent-host run probe` 启动独立验证进程。initialize 需要可信适配器给出的绝对 workspaceRoot；握手仍不开放生产运行能力。session.open 只接受明确映射、启用、已核实支持工具调用的 openai_compatible Profile。凭据仅经进程管道进入内存，不使用 argv、环境或工作区配置。测试只使用临时目录与本地模型协议服务器。
+
+Pi 不加载默认 shell/file 工具，也不发现本机 AGENTS、skills、prompts、themes、extensions 或 packages。仅提供受限 source.read / output.stage 反向调用；每次响应必须匹配运行与会话。Node 不直接写业务数据库或项目产出文件。
+
+SDK settled 后先完整验证并 fsync 会话 JSONL 与 checkpoint，才发出 terminal completed。取消走真实 SDK abort。SessionManager 的公开恢复接口消费完整 JSONL；相对路径 codec 仅转换 SDK 工作目录和会话父路径，保留消息原文。历史损坏、断链、校验和不符或符号链接会拒绝恢复并保留历史。Rust 元信息、正式预算与 Workspace generation 绑定由后续 Host 服务接入。

@@ -1,4 +1,5 @@
 node_modules
+packages/agent-host/runtime/
 dist
 target
 src-tauri/target
