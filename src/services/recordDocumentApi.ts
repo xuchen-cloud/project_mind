@@ -6,6 +6,7 @@ import type {
   RecordVersionCapacity, RecordVersionPage,
   RecordQuickNoteTransferInput,
   RecordRestoreInput, RecordVersionPreview,
+  RecordMetadataApply, RecordMetadataApplyResult,
 } from "../lib/record-document-types";
 import type { RecordVersionDifference } from "../lib/record-version-compare";
 
@@ -36,6 +37,12 @@ export const recordDocumentApi = {
   },
   metadataUpdate(binding: AgentWorkspaceBinding, data: RecordMetadataUpdate, requestId: string) {
     return call<RecordMetadata>("record_metadata_update", binding, data, requestId);
+  },
+  metadataGet(binding: AgentWorkspaceBinding, target: RecordTarget, requestId = crypto.randomUUID()) {
+    return call<RecordMetadata>("record_metadata_get", binding, target, requestId);
+  },
+  metadataApply(binding: AgentWorkspaceBinding, data: RecordMetadataApply, requestId: string) {
+    return call<RecordMetadataApplyResult>("record_metadata_apply", binding, data, requestId);
   },
   quickNoteTransfer(binding: AgentWorkspaceBinding, data: RecordQuickNoteTransferInput, requestId: string) {
     return call<RecordEditorSaveResult>("record_quick_note_transfer", binding, data, requestId);

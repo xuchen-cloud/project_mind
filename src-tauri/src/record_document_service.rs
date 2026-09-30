@@ -349,6 +349,33 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             db.record_metadata_update(&request.caller.key(), &request.request_id, input)
         })
     }
+    pub(crate) fn metadata_get(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+    ) -> AgentResult<RecordMetadata> {
+        self.access(request, target, "record.read", |db| {
+            db.record_metadata_get(target)
+        })
+    }
+    pub(crate) fn metadata_apply(
+        &self,
+        request: &RequestContext,
+        input: &crate::record_documents::RecordMetadataApply,
+    ) -> AgentResult<RecordMetadata> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "AI metadata requires the local editor",
+            ));
+        }
+        self.access(
+            request,
+            &input.metadata.target,
+            "record.metadata.write",
+            |db| db.record_metadata_apply(&request.caller.key(), &request.request_id, input),
+        )
+    }
     pub(crate) async fn save(
         &self,
         request: &RequestContext,

@@ -172,8 +172,7 @@ export class RecordSaveCoordinator {
   submit(snapshot: CommittedRecordSnapshot): RecordSaveReceipt {
     const captured = immutableSnapshot(snapshot);
     if (captured.canonicalBody) {
-      this.requestIds.add(captured.canonicalBody.requestId);
-      if (this.requestIds.size > 512) this.requestIds.delete(this.requestIds.values().next().value!);
+      this.trackRequest(captured.canonicalBody.requestId);
     }
     const recordKey = recordSaveKey(captured);
     const sequence = this.nextSequence;
@@ -198,6 +197,10 @@ export class RecordSaveCoordinator {
   }
 
   ownsRequest(requestId: string) { return this.requestIds.has(requestId); }
+  trackRequest(requestId: string) {
+    this.requestIds.add(requestId);
+    if (this.requestIds.size > 512) this.requestIds.delete(this.requestIds.values().next().value!);
+  }
 
   subscribe(listener: StatusListener) {
     this.listeners.add(listener);

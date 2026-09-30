@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { AgentScope } from "./agent-types";
-import type { NoteRecord, WorkspaceRecord } from "./types";
+import type { DocumentTagRecord, NoteRecord, WorkspaceRecord } from "./types";
 
 /** Wire contracts for the shared Record service. Local asset URLs live only in
  * editor.record; head and version projections always retain portable paths. */
@@ -33,6 +33,8 @@ export interface RecordMetadataUpdate {
   title: string | null;
   tagIds: number[];
 }
+export interface RecordMetadataApply { metadata: RecordMetadataUpdate; newTags: Array<{ label: string; colorKey: string }> }
+export interface RecordMetadataApplyResult { metadata: RecordMetadata; tags: DocumentTagRecord[] }
 export interface RecordEditorState {
   head: RecordDocumentHead;
   metadata: RecordMetadata;

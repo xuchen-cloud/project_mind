@@ -57,6 +57,19 @@ it("does not load an unbound record and retains a conversion diagnostic for read
   expect(result.current.capture(document)).toBeNull();
 });
 
+it("adopts metadata only when its acknowledged predecessor matches the editing baseline", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const next = { ...editor.metadata, title: "AI title", revision: "metadata-2" };
+  expect(result.current.acknowledgeMetadata("foreign", next)).toBe(false);
+  expect(result.current.capture(document)?.metadataBase?.revision).toBe("metadata-1");
+  expect(result.current.acknowledgeMetadata("metadata-1", next)).toBe(true);
+  next.title = "Mutated response";
+  expect(result.current.capture(document)?.metadataBase?.title).toBe("AI title");
+  expect(result.current.capture(document)?.baseRevision).toBe(4);
+});
+
 it("ignores a delayed response after the editor identity changes", async () => {
   let resolve!: (state: RecordEditorState) => void;
   vi.mocked(recordDocumentApi.editorGet).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));

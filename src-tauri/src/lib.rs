@@ -1297,6 +1297,8 @@ pub fn run() {
             record_document_commands::record_quick_note_transfer,
             record_document_commands::record_editor_get,
             record_document_commands::record_body_save,
+            record_document_commands::record_metadata_apply,
+            record_document_commands::record_metadata_get,
             record_document_commands::record_metadata_update,
             record_document_commands::record_checkpoint,
             record_document_commands::record_versions_list,

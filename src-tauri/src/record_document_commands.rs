@@ -303,6 +303,57 @@ pub(crate) async fn record_quick_note_transfer(
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]
+pub(crate) fn record_metadata_get(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordTarget>,
+) -> ApiResponse<RecordMetadata> {
+    let result = (|| {
+        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        RecordDocumentService::new(&*state, &utility).metadata_get(&request, &input.data)
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+#[tauri::command]
+pub(crate) fn record_metadata_apply(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordMetadataApply>,
+) -> ApiResponse<RecordMetadataApplyResult> {
+    let result = (|| {
+        let request = gui_request(
+            &state,
+            &input,
+            &input.data.metadata.target.scope,
+            &["record.read", "record.metadata.write"],
+        )?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        let metadata =
+            RecordDocumentService::new(&*state, &utility).metadata_apply(&request, &input.data)?;
+        let tags = crate::record_document_service::BoundRecordStore::with_current(
+            &*state,
+            |binding, db| {
+                request.authorize(binding, &input.data.metadata.target.scope, "record.read")?;
+                db.record_metadata_tags(&input.data.metadata.target, &metadata.tag_ids)
+            },
+        )?;
+        notify_record_changed(
+            &state,
+            &request,
+            &input.data.metadata.target,
+            None,
+            Some(&metadata),
+        );
+        Ok(RecordMetadataApplyResult { metadata, tags })
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordMetadataApplyResult {
+    metadata: RecordMetadata,
+    tags: Vec<crate::models::DocumentTagRecord>,
+}
+#[tauri::command]
 pub(crate) fn record_metadata_update(
     state: State<'_, AppState>,
     input: RecordCommandInput<RecordMetadataUpdate>,

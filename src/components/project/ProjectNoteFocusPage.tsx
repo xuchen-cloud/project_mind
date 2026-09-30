@@ -528,6 +528,7 @@ export function ProjectNoteFocusPage({
                 className="min-w-0 flex-1 text-lg font-medium"
               />
               <RecordAiMetadataAction
+                binding={canonical.binding} onSubmitted={(requestId) => saveCoordinator.trackRequest(requestId)}
                 target={{ scope: "project", projectId, recordId }}
                 aiSettings={aiSettings}
                 availableTags={availableTags}
@@ -542,6 +543,7 @@ export function ProjectNoteFocusPage({
                   }
                 }}
                 onApplied={(value) => {
+                  if (!canonical.acknowledgeMetadata(value.expectedRevision,value.metadata)) return;
                   setTitle(value.title);
                   titleValueRef.current = value.title;
                   lastSavedTitleRef.current = value.title;

@@ -459,7 +459,7 @@ export function ProjectOverviewPage({
     }, context);
     const record = result.editor.record as NoteRecord;
     upsertRecordInProjectCache(record);
-    if (!targetRecord) void completeQuickNoteRecordMetadata({ record, projectId, availableTags, aiSettings })
+    if (!targetRecord) void completeQuickNoteRecordMetadata({ binding: result.binding, record, projectId, availableTags, aiSettings })
       .then(() => refreshProject()).catch(() => pushToast({ tone: "info", title: "记录已保存", detail: "AI 标题和标签未填写，可在记录中重试 AI 填写。" }));
     return record;
   }

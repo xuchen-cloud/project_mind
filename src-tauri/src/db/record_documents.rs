@@ -467,6 +467,69 @@ impl Database {
         };
         Ok((saved, Some(change)))
     }
+    pub(crate) fn record_metadata_apply(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordMetadataApply,
+    ) -> AgentResult<RecordMetadata> {
+        if input.new_tags.len() > 3 {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "AI metadata can create at most three tags",
+            ));
+        }
+        self.agent_atomic_operation(caller, request_id, "record.metadata.apply", input, |tx| {
+            let current = metadata(tx, &input.metadata.target)?;
+            if current.revision != input.metadata.expected_revision {
+                return Err(AgentError::new(
+                    ErrorCode::RevisionConflict,
+                    "Record metadata changed before AI apply",
+                )
+                .with_details(json!({"current":current})));
+            }
+            let project_id = match input.metadata.target.scope {
+                Scope::Workspace => None,
+                Scope::Project { project_id } => Some(project_id),
+            };
+            let timestamp = Utc::now().to_rfc3339();
+            let mut update = input.metadata.clone();
+            for tag in &input.new_tags {
+                let id = self
+                    .upsert_file_tag_by_label(project_id, &tag.label, &tag.color_key, &timestamp)
+                    .map_err(|_| {
+                        AgentError::new(ErrorCode::InvalidArgument, "Invalid new Record tag")
+                    })?;
+                if !update.tag_ids.contains(&id) {
+                    update.tag_ids.push(id);
+                }
+            }
+            self.record_metadata_transaction(tx, &update)
+        })
+    }
+    pub(crate) fn record_metadata_tags(
+        &self,
+        target: &RecordTarget,
+        ids: &[i64],
+    ) -> AgentResult<Vec<crate::models::DocumentTagRecord>> {
+        source(&self.conn, target)?;
+        let project_id = match target.scope {
+            Scope::Workspace => None,
+            Scope::Project { project_id } => Some(project_id),
+        };
+        ids.iter()
+            .map(|id| {
+                let tag = self.scoped_file_tag_record(project_id, *id).map_err(|_| {
+                    AgentError::new(ErrorCode::ScopeDenied, "Record tag is outside this scope")
+                })?;
+                Ok(crate::models::DocumentTagRecord {
+                    id: tag.id,
+                    label: tag.label,
+                    color_key: tag.color_key,
+                })
+            })
+            .collect()
+    }
     pub(super) fn require_legacy_record_write(&self, target: &RecordTarget) -> anyhow::Result<()> {
         source(&self.conn, target).map_err(|error| anyhow::anyhow!(error.message))?;
         let initialized: bool = self.conn.query_row(
@@ -1505,13 +1568,110 @@ mod tests {
     }
     #[test]
     fn historic_gui_preview_hydrates_assets_without_modifying_portable_snapshot() {
-        let (_directory,database,target,projection) = setup();
+        let (_directory, database, target, projection) = setup();
         let original = projection.document.clone();
-        let html = database.record_version_editor_html(&target,&projection).unwrap();
-        assert!(html.contains(&database.workspace_root.join("assets/图片.png").to_string_lossy().to_string()));
+        let html = database
+            .record_version_editor_html(&target, &projection)
+            .unwrap();
+        assert!(html.contains(
+            &database
+                .workspace_root
+                .join("assets/图片.png")
+                .to_string_lossy()
+                .to_string()
+        ));
         assert!(html.contains("data-block-id"));
-        assert_eq!(projection.document,original);
-        assert!(!projection.html.contains(&database.workspace_root.to_string_lossy().to_string()));
+        assert_eq!(projection.document, original);
+        assert!(!projection
+            .html
+            .contains(&database.workspace_root.to_string_lossy().to_string()));
+    }
+    #[test]
+    fn ai_metadata_apply_rolls_back_new_tags_on_failure_and_replays_without_body_versions() {
+        let (_directory, database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        let baseline = database.record_metadata_get(&target).unwrap();
+        let mut input = RecordMetadataApply {
+            metadata: RecordMetadataUpdate {
+                target: target.clone(),
+                expected_revision: baseline.revision.clone(),
+                title: Some("AI title".into()),
+                tag_ids: vec![],
+            },
+            new_tags: vec![
+                RecordMetadataNewTag {
+                    label: "New tag".into(),
+                    color_key: "blue".into(),
+                },
+                RecordMetadataNewTag {
+                    label: "Bad tag".into(),
+                    color_key: "invalid-color".into(),
+                },
+            ],
+        };
+        assert_eq!(
+            database
+                .record_metadata_apply("gui", "bad-ai", &input)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            database
+                .conn
+                .query_row("SELECT COUNT(*) FROM file_tag_options", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            database.record_metadata_get(&target).unwrap().revision,
+            baseline.revision
+        );
+        input.new_tags.pop();
+        let saved = database
+            .record_metadata_apply("gui", "ai-1", &input)
+            .unwrap();
+        let replay = database
+            .record_metadata_apply("gui", "ai-1", &input)
+            .unwrap();
+        assert_eq!(saved.revision, replay.revision);
+        assert_eq!(saved.tag_ids.len(), 1);
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+        assert_eq!(
+            database
+                .record_version_capacity(&target)
+                .unwrap()
+                .version_count,
+            1
+        );
+        let tags = database
+            .record_metadata_tags(&target, &saved.tag_ids)
+            .unwrap();
+        assert_eq!(tags[0].label, "New tag");
+        assert_eq!(
+            database
+                .record_metadata_apply("gui", "stale-ai", &input)
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
     }
     #[test]
     fn gui_document_paths_become_portable_without_replacing_user_text_or_block_ids() {

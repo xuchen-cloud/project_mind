@@ -35,6 +35,18 @@ pub(crate) struct RecordMetadataUpdate {
     pub title: Option<String>,
     pub tag_ids: Vec<i64>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordMetadataNewTag {
+    pub label: String,
+    pub color_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordMetadataApply {
+    pub metadata: RecordMetadataUpdate,
+    pub new_tags: Vec<RecordMetadataNewTag>,
+}
 
 #[derive(Serialize)]
 #[serde(untagged)]

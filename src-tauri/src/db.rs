@@ -6439,7 +6439,7 @@ impl Database {
     }
 
     fn upsert_file_tag_by_label(
-        &mut self,
+        &self,
         project_id: Option<i64>,
         label: &str,
         color_key: &str,

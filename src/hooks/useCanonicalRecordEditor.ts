@@ -130,10 +130,16 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     await coordinator.flush(base.key);
     await recordDocumentApi.checkpoint(base.binding, { target: currentTarget, baseRevision: base.revision, reason });
   }, [coordinator]);
+  const acknowledgeMetadata = useCallback((expectedRevision: string, metadata: RecordMetadata) => {
+    const base = baseline.current;
+    if (!base || base.key !== key || base.metadata.revision !== expectedRevision) return false;
+    base.metadata = structuredClone(metadata);
+    return true;
+  }, [key]);
 
   return { ready, state: loaded?.key === key ? loaded.state : null, error, syncError, incomingConflict,
     binding: loaded?.key === key ? loaded.binding : null,
     loadIdentity: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}:${attempt}` : null,
     recordKey: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}` : undefined,
-    capture, checkpoint, retry: () => setAttempt((value) => value + 1) };
+    capture, checkpoint, acknowledgeMetadata, retry: () => setAttempt((value) => value + 1) };
 }

@@ -1476,6 +1476,7 @@ describe("WorkspaceLayout", () => {
     expect(
       document.querySelector('[data-focus-page-key="workspace:27"]')?.closest("[data-workspace-resident-shell]"),
     ).not.toBeNull();
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"] input[placeholder="记录标题"]')).toBeEnabled());
     await act(() => router.navigate("/workspace"));
     expect(router.state.location.pathname).toBe("/workspace");
     await waitFor(() => {

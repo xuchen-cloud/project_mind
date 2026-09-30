@@ -42,7 +42,7 @@ import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test
 import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
 const recordMocks = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
-  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(),
+  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const original = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -53,7 +53,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
-  editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, checkpoint: vi.fn(),
+  editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, metadataGet: recordMocks.metadataGet, metadataApply: recordMocks.metadataApply, checkpoint: vi.fn(),
   editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
 } }));
 
@@ -63,7 +63,6 @@ const apiMocks = vi.hoisted(() => ({
   projectTagSettingsGet: vi.fn(),
   projectTagUpsert: vi.fn(),
   projectRecordUpsert: vi.fn(),
-  projectRecordMetadataApply: vi.fn(),
   aiSettingsGet: vi.fn(),
 }));
 
@@ -357,7 +356,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
     recordMocks.saveProjectRecord.mockReset();
-    apiMocks.projectRecordMetadataApply.mockReset();
+    recordMocks.metadataGet.mockReset();
+    recordMocks.metadataApply.mockReset();
+    recordMocks.metadataGet.mockImplementation(async (_binding,target) => (await recordMocks.editorGet(_binding,target)).metadata);
     apiMocks.aiSettingsGet.mockReset();
     aiMetadataMocks.enqueueAndWait.mockReset();
 
@@ -383,20 +384,13 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       };
       return currentNote;
     });
-    apiMocks.projectRecordMetadataApply.mockImplementation(async (input: {
-      title: string;
-      tagIds: number[];
-      newTags: Array<{ label: string }>;
-    }) => {
-      currentNote = {
-        ...currentNote,
-        title: input.title,
-        tags: [
-          ...input.tagIds.map((id) => ({ id, label: `Tag ${id}`, colorKey: "blue" as const })),
-          ...input.newTags.map((tag, index) => ({ id: 30 + index, label: tag.label, colorKey: "teal" as const })),
-        ],
-      };
-      return currentNote;
+    recordMocks.metadataApply.mockImplementation(async (_binding,input) => {
+      const record = { ...currentNote, title: input.metadata.title, tags: [
+        ...input.metadata.tagIds.map((id: number) => ({ id,label: `Tag ${id}`,colorKey: "blue" as const })),
+        ...input.newTags.map((tag: { label: string },index: number) => ({ id: 30 + index,label: tag.label,colorKey: "teal" as const })),
+      ] };
+      currentNote = record;
+      return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
   });
 
@@ -470,13 +464,10 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
     await user.click(await screen.findByRole("button", { name: "AI 填写标题和标签" }));
 
-    await waitFor(() => expect(apiMocks.projectRecordMetadataApply).toHaveBeenCalledWith({
-      projectId: 1,
-      noteId: 7,
-      title: "访谈结论",
-      tagIds: [12],
-      newTags: [{ label: "可用性", colorKey: expect.any(String) }],
-    }));
+    await waitFor(() => expect(recordMocks.metadataApply).toHaveBeenCalledWith(expect.any(Object),{
+      metadata: { target: { scope: { kind: "project",projectId: 1 },recordId: 7 },title: "访谈结论",tagIds: [12],expectedRevision: expect.any(String) },
+      newTags: [{ label: "可用性",colorKey: expect.any(String) }],
+    },expect.any(String)));
     expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
       kind: "record_metadata",
       input: expect.objectContaining({ markdown: "正文" }),

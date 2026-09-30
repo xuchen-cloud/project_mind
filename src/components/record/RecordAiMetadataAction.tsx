@@ -14,7 +14,9 @@ import type {
   DocumentTagRecord,
   ProjectTagRecord,
 } from "../../lib/types";
-import { projectMindApi } from "../../services/projectMindApi";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
+import type { AgentWorkspaceBinding } from "../../lib/agent-types";
+import type { RecordMetadata, RecordTarget } from "../../lib/record-document-types";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { Button } from "../../ui/components";
 
@@ -24,20 +26,23 @@ export type RecordAiMetadataTarget =
 
 interface RecordAiMetadataActionProps {
   target: RecordAiMetadataTarget;
+  binding: AgentWorkspaceBinding | null;
+  onSubmitted?: (requestId: string) => void;
   aiSettings?: AiSettingsSnapshot | null;
   availableTags: ProjectTagRecord[];
   currentTagIds: number[];
   getCommittedMarkdown: () => string;
   beforeApply: () => Promise<unknown>;
-  onApplied: (value: { title: string; tags: DocumentTagRecord[] }) => void;
+  onApplied: (value: { title: string; tags: DocumentTagRecord[]; metadata: RecordMetadata; expectedRevision: string }) => void;
   onOpenAiSettings: () => void;
 }
 
 export function RecordAiMetadataAction({
   target,
+  binding,
+  onSubmitted,
   aiSettings,
   availableTags,
-  currentTagIds,
   getCommittedMarkdown,
   beforeApply,
   onApplied,
@@ -45,11 +50,11 @@ export function RecordAiMetadataAction({
 }: RecordAiMetadataActionProps) {
   const { pushToast } = useFeedbackStore();
   const [busy, setBusy] = useState(false);
-  const currentTagIdsRef = useRef(currentTagIds);
-  currentTagIdsRef.current = currentTagIds;
+  const identityRef = useRef("");
+  identityRef.current = `${binding?.workspaceId}:${binding?.generation}:${JSON.stringify(target)}`;
 
   const run = async () => {
-    if (busy || aiSettings === undefined) return;
+    if (busy || aiSettings === undefined || !binding) return;
 
     const configured = Boolean(
       aiSettings &&
@@ -79,8 +84,13 @@ export function RecordAiMetadataAction({
       return;
     }
 
+    const identity = identityRef.current;
+    const recordTarget: RecordTarget = { scope: target.scope === "project" ? { kind: "project", projectId: target.projectId } : { kind: "workspace" }, recordId: target.recordId };
     setBusy(true);
     try {
+      await beforeApply();
+      if (identity !== identityRef.current) throw new Error("记录已切换，AI 元信息未写入");
+      const baseline = await recordDocumentApi.metadataGet(binding,recordTarget);
       const scopeKey =
         target.scope === "project" ? `project:${target.projectId}` : "workspace";
       const job = await enqueueAndWait(
@@ -98,30 +108,18 @@ export function RecordAiMetadataAction({
       }
 
       const suggestion = readRecordMetadataJobResult(job);
+      if (identity !== identityRef.current) throw new Error("记录已切换，AI 元信息未写入");
       await beforeApply();
-      const input = {
-        noteId: target.recordId,
-        title: suggestion.title,
-        tagIds: mergeUniqueTagIds(
-          currentTagIdsRef.current,
-          suggestion.existingTagIds,
-        ),
-        newTags: suggestion.newTags.map((label) => ({
-          label,
-          colorKey: colorKeyForTagLabel(label),
-        })),
-      };
-      const record = target.scope === "project"
-        ? await projectMindApi.projectRecordMetadataApply({
-            ...input,
-            projectId: target.projectId,
-          })
-        : await projectMindApi.workspaceRecordMetadataApply(input);
-
-      onApplied({
-        title: record.title ?? suggestion.title,
-        tags: record.tags ?? [],
-      });
+      if (identity !== identityRef.current) throw new Error("记录已切换，AI 元信息未写入");
+      const requestId = crypto.randomUUID();
+      onSubmitted?.(requestId);
+      const result = await recordDocumentApi.metadataApply(binding,{
+        metadata: { target: recordTarget, title: suggestion.title, expectedRevision: baseline.revision,
+          tagIds: mergeUniqueTagIds(baseline.tagIds, suggestion.existingTagIds) },
+        newTags: suggestion.newTags.map((label) => ({ label,colorKey: colorKeyForTagLabel(label) })),
+      },requestId);
+      if (identity !== identityRef.current) return;
+      onApplied({ title: result.metadata.title ?? suggestion.title, tags: result.tags, metadata: result.metadata, expectedRevision: baseline.revision });
       pushToast({
         tone: "success",
         title: "标题和标签已填写",
@@ -145,7 +143,7 @@ export function RecordAiMetadataAction({
       variant="subtle"
       aria-label="AI 填写标题和标签"
       title={aiSettings === undefined ? "正在读取 AI 配置" : "从正文填写标题和标签"}
-      disabled={busy || aiSettings === undefined}
+      disabled={busy || aiSettings === undefined || !binding}
       leadingIcon={
         busy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />
       }

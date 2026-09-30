@@ -50,7 +50,7 @@ import {
 buildWorkspaceNoteImageAssetHandlers,
 externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
-import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
+import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
@@ -292,7 +292,7 @@ export function WorkspacePage({
       },
     }, context);
     const record = result.editor.record as WorkspaceRecord;
-    if (!targetRecord) void completeQuickNoteRecordMetadata({ record, availableTags, aiSettings })
+    if (!targetRecord) void completeQuickNoteRecordMetadata({ binding: result.binding, record, availableTags, aiSettings })
       .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }))
       .catch(() => pushToast({ tone: "info", title: "记录已保存", detail: "AI 标题和标签未填写，可在记录中重试 AI 填写。" }));
     return record;
@@ -362,9 +362,8 @@ export function WorkspacePage({
       return;
     }
 
-    await workspaceRecordMutation.mutateAsync(
-      buildWorkspaceRecordRenameInput(record, title),
-    );
+    await renameCanonicalRecord(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", { scope: { kind: "workspace" }, recordId }, title);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
   }
 

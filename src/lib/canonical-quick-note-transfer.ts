@@ -38,7 +38,7 @@ export class CanonicalQuickNoteTransfer {
     return binding;
   }
 
-  async commit(options: TransferOptions, context: QuickNoteTransferContext): Promise<RecordEditorSaveResult> {
+  async commit(options: TransferOptions, context: QuickNoteTransferContext): Promise<RecordEditorSaveResult & { binding: AgentWorkspaceBinding }> {
     let prepared = this.attempts.get(context.requestId);
     if (!prepared) {
       prepared = this.prepare(options, context.requestId);
@@ -49,7 +49,7 @@ export class CanonicalQuickNoteTransfer {
     const result = await recordDocumentApi.quickNoteTransfer(binding, input, context.requestId);
     this.attempts.delete(context.requestId);
     this.bindings.delete(context.requestId);
-    return result;
+    return { ...result, binding };
   }
 
   private async prepare(options: TransferOptions, requestId: string): Promise<Prepared> {

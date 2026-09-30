@@ -857,18 +857,11 @@ export function WorkspaceLayout({
         return;
       }
 
-      await projectMindApi.projectRecordUpsert({
-        projectId,
-        noteId: record.id,
-        title: title.trim() || undefined,
-        markdown: record.contentMarkdown,
-        html: record.contentHtml ?? "",
-        defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-        tagIds: record.tags.map((tag) => tag.id),
-      });
+      const { renameCanonicalRecord } = await import("./lib/canonical-record-metadata");
+      await renameCanonicalRecord(currentWorkspace?.rootPath ?? "", { scope: { kind: "project", projectId }, recordId: record.id }, title);
       await refreshProjectScope(queryClient, projectId);
     },
-    [activeProjectId, queryClient, refreshProjectScope],
+    [activeProjectId, currentWorkspace?.rootPath, queryClient, refreshProjectScope],
   );
 
   const createProjectSidebarRecord = useCallback(async () => {

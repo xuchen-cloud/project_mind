@@ -12,7 +12,7 @@ parseRouteId,
 preserveRecordFilters,workspacePath
 } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
-import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
+import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -381,9 +381,7 @@ export function WorkspaceRecordFocusPage({
       return;
     }
 
-    await projectMindApi.workspaceRecordUpsert(
-      buildWorkspaceRecordRenameInput(record, nextTitle),
-    );
+    await renameCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { scope: { kind: "workspace" }, recordId: nextRecordId }, nextTitle);
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 
@@ -491,6 +489,7 @@ export function WorkspaceRecordFocusPage({
                   className="min-w-0 flex-1 text-lg font-medium"
                 />
                 <RecordAiMetadataAction
+                binding={canonical.binding} onSubmitted={(requestId) => saveCoordinator.trackRequest(requestId)}
                   target={{ scope: "workspace", recordId }}
                   aiSettings={aiSettings}
                   availableTags={availableTags}
@@ -505,6 +504,7 @@ export function WorkspaceRecordFocusPage({
                     }
                   }}
                   onApplied={(value) => {
+                  if (!canonical.acknowledgeMetadata(value.expectedRevision,value.metadata)) return;
                     setTitle(value.title);
                     titleValueRef.current = value.title;
                     const nextTagIds = value.tags.map((tag) => tag.id);
