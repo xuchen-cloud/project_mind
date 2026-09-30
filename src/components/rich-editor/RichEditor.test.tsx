@@ -42,6 +42,25 @@ it("passes Record cut metadata through the editor's existing clipboard handling"
   expect(values.get("application/x-project-mind-record-cut")).toContain("workspace-a/workspace/record/8");
 });
 
+it("keeps selected Record content when a menu cut cannot write the clipboard", async () => {
+  const user = userEvent.setup();
+  const registerCut = vi.fn(async () => undefined);
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/7" recordClipboard={{ registerCut, claimCut: vi.fn(async () => false) }} defaultHtml="<p>Keep this draft</p>" />);
+  const writeText = vi.fn(async () => { throw new Error("clipboard unavailable"); });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const surface = await getEditorSurface(container);
+  const text = surface.querySelector("p")!.firstChild!;
+  fireEvent.focus(surface);
+  selectTextRange(text, 0, text, text.textContent!.length);
+  fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+  const menu = await screen.findByRole("menu", { name: "文本操作" });
+  vi.mocked(document.execCommand).mockReturnValueOnce(false);
+  await user.click(within(menu).getByRole("button", { name: "剪切" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+  expect(surface.textContent).toContain("Keep this draft");
+  expect(registerCut).not.toHaveBeenCalled();
+});
+
 it("receives a clean foreign Record update while keeping the caret and refuses to overwrite a draft", async () => {
   const controllerRef = { current: null as RichEditorController | null };
   const user = userEvent.setup();

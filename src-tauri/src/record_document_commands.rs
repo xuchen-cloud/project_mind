@@ -37,6 +37,53 @@ async fn flush_editors(
         .await
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordCutInput {
+    target: RecordTarget,
+    token: String,
+}
+
+#[tauri::command]
+pub(crate) fn record_cut_register(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordCutInput>,
+) -> ApiResponse<()> {
+    let result = (|| {
+        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        RecordDocumentService::new(&*state, &utility).authorize_target(
+            &request,
+            &input.data.target,
+            "record.read",
+        )?;
+        state
+            .record_editors
+            .register_cut(&request.binding, &input.data.target, &input.data.token)
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+
+#[tauri::command]
+pub(crate) fn record_cut_claim(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordCutInput>,
+) -> ApiResponse<bool> {
+    let result = (|| {
+        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        RecordDocumentService::new(&*state, &utility).authorize_target(
+            &request,
+            &input.data.target,
+            "record.read",
+        )?;
+        state
+            .record_editors
+            .claim_cut(&request.binding, &input.data.target, &input.data.token)
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+
 #[tauri::command]
 pub(crate) fn record_editor_register(
     state: State<'_, AppState>,

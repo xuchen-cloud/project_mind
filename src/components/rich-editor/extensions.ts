@@ -228,7 +228,8 @@ export function buildRichEditorExtensions(placeholder: string, options: RecordCl
     CodeBlockLanguageMetadata,
     CodeHighlightDecorations,
     ...(options.stableBlocks ? [StableRecordBlocks.configure({ recordKey: options.recordKey ?? null,
-      clipboardPayload: options.clipboardPayload, onCopied: options.onCopied })] : []),
+      clipboardPayload: options.clipboardPayload, onCopied: options.onCopied,
+      cutTransport: options.cutTransport, pasteCut: options.pasteCut })] : []),
   ];
 }
 

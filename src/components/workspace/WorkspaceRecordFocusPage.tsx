@@ -61,6 +61,7 @@ import { RecordConflictActions } from "../record/RecordConflictActions";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
+import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -192,6 +193,7 @@ export function WorkspaceRecordFocusPage({
       return true;
     },
   });
+  const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
   const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
   useLayoutEffect(() => {
@@ -573,6 +575,7 @@ export function WorkspaceRecordFocusPage({
                 key={canonical.loadIdentity ?? `${recordId}:loading`}
                 contentIdentity={`workspace-record:${recordId}`}
                 recordKey={canonical.recordKey}
+                recordClipboard={recordClipboard}
                 html={content.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}

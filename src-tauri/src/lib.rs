@@ -1290,6 +1290,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             record_document_commands::record_editor_register,
+            record_document_commands::record_cut_register,
+            record_document_commands::record_cut_claim,
             record_document_commands::record_editor_unregister,
             record_document_commands::record_editor_flush_reply,
             record_document_commands::record_editors_flush,

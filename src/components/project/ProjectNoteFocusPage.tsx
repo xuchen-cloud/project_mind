@@ -58,6 +58,7 @@ import { recordPath } from "../../lib/formatters";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
+import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
 interface ProjectRecordDraft {
   title: string;
@@ -223,6 +224,7 @@ export function ProjectNoteFocusPage({
       return true;
     },
   });
+  const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
   const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
   useLayoutEffect(() => {
@@ -622,6 +624,7 @@ export function ProjectNoteFocusPage({
               key={canonical.loadIdentity ?? `${projectId}:${recordId}:loading`}
               contentIdentity={`project-record:${projectId}:${recordId}`}
               recordKey={canonical.recordKey}
+              recordClipboard={recordClipboard}
               html={content.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}

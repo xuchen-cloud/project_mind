@@ -14,6 +14,12 @@ function call<T>(command: string, binding: AgentWorkspaceBinding, data: unknown,
   return callAgentCommand<T>(command, requestId, { input: { binding, requestId, data } });
 }
 export const recordDocumentApi = {
+  cutRegister(binding: AgentWorkspaceBinding, target: RecordTarget, token: string, requestId = crypto.randomUUID()) {
+    return call<null>("record_cut_register", binding, { target, token }, requestId);
+  },
+  cutClaim(binding: AgentWorkspaceBinding, target: RecordTarget, token: string, requestId = crypto.randomUUID()) {
+    return call<boolean>("record_cut_claim", binding, { target, token }, requestId);
+  },
   create(binding: AgentWorkspaceBinding, input: RecordCreateInput, requestId: string) {
     return call<RecordEditorState>("record_create", binding, input, requestId);
   },

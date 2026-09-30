@@ -9,7 +9,7 @@ use crate::{
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
@@ -60,10 +60,21 @@ struct Registry {
     editors: BTreeMap<String, Registered>,
     pending: HashMap<String, Pending>,
 }
+struct CutCredit {
+    binding: WorkspaceBinding,
+    target: String,
+    consumed: bool,
+}
+#[derive(Default)]
+struct CutRegistry {
+    credits: HashMap<String, CutCredit>,
+    order: VecDeque<String>,
+}
 #[derive(Default)]
 pub(crate) struct RecordEditorCoordinator {
     registry: Mutex<Registry>,
     locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+    cuts: Mutex<CutRegistry>,
 }
 fn key(binding: &WorkspaceBinding, target: &RecordTarget) -> AgentResult<String> {
     Ok(format!(
@@ -77,6 +88,59 @@ fn valid_editor_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 impl RecordEditorCoordinator {
+    pub(crate) fn register_cut(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+        token: &str,
+    ) -> AgentResult<()> {
+        validate_cut_token(token)?;
+        let target = target.key()?;
+        let mut cuts = crate::lock_mutex(&self.cuts);
+        if let Some(existing) = cuts.credits.get(token) {
+            if existing.binding != *binding || existing.target != target {
+                return Err(AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Cut identity belongs to another Record",
+                ));
+            }
+            // A repeated registration cannot turn an already used credit back on.
+            return Ok(());
+        }
+        cuts.credits.insert(
+            token.into(),
+            CutCredit {
+                binding: binding.clone(),
+                target,
+                consumed: false,
+            },
+        );
+        cuts.order.push_back(token.into());
+        while cuts.order.len() > 512 {
+            if let Some(expired) = cuts.order.pop_front() {
+                cuts.credits.remove(&expired);
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn claim_cut(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+        token: &str,
+    ) -> AgentResult<bool> {
+        validate_cut_token(token)?;
+        let target = target.key()?;
+        let mut cuts = crate::lock_mutex(&self.cuts);
+        let Some(credit) = cuts.credits.get_mut(token) else {
+            return Ok(false);
+        };
+        if credit.binding != *binding || credit.consumed {
+            return Ok(false);
+        }
+        credit.consumed = true;
+        Ok(credit.target == target)
+    }
     pub(crate) fn register(
         &self,
         binding: &WorkspaceBinding,
@@ -265,6 +329,24 @@ impl RecordEditorCoordinator {
         })
     }
 }
+
+fn validate_cut_token(token: &str) -> AgentResult<()> {
+    if token.len() != 36
+        || !token.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()
+            }
+        })
+    {
+        return Err(AgentError::new(
+            ErrorCode::InvalidArgument,
+            "Invalid clipboard cut identity",
+        ));
+    }
+    Ok(())
+}
 struct PendingCleanup {
     coordinator: Arc<RecordEditorCoordinator>,
     ids: Vec<String>,
@@ -299,6 +381,83 @@ mod tests {
             target: target(),
             editor_id: id.to_string().repeat(32),
         }
+    }
+    #[test]
+    fn cut_credits_are_shared_between_windows_and_consumed_atomically_once() {
+        let coordinator = Arc::new(RecordEditorCoordinator::default());
+        let token = "11111111-1111-4111-8111-111111111111";
+        coordinator
+            .register_cut(&binding(), &target(), token)
+            .unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let coordinator = coordinator.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    coordinator.claim_cut(&binding(), &target(), token).unwrap()
+                })
+            })
+            .collect();
+        assert_eq!(
+            threads
+                .into_iter()
+                .filter_map(|thread| thread.join().unwrap().then_some(()))
+                .count(),
+            1
+        );
+        coordinator
+            .register_cut(&binding(), &target(), token)
+            .unwrap();
+        assert!(!coordinator.claim_cut(&binding(), &target(), token).unwrap());
+    }
+    #[test]
+    fn foreign_record_paste_consumes_cut_without_granting_move_identity() {
+        let coordinator = RecordEditorCoordinator::default();
+        let token = "22222222-2222-4222-8222-222222222222";
+        coordinator
+            .register_cut(&binding(), &target(), token)
+            .unwrap();
+        let other = RecordTarget {
+            record_id: 8,
+            ..target()
+        };
+        assert!(!coordinator.claim_cut(&binding(), &other, token).unwrap());
+        assert!(!coordinator.claim_cut(&binding(), &target(), token).unwrap());
+        assert!(!coordinator
+            .claim_cut(
+                &binding(),
+                &target(),
+                "33333333-3333-4333-8333-333333333333"
+            )
+            .unwrap());
+        assert!(coordinator
+            .claim_cut(&binding(), &target(), "malformed")
+            .is_err());
+    }
+    #[test]
+    fn workspace_reopen_and_credit_eviction_never_regrant_old_cut_identity() {
+        let coordinator = RecordEditorCoordinator::default();
+        let first = "44444444-4444-4444-8444-444444444444";
+        coordinator
+            .register_cut(&binding(), &target(), first)
+            .unwrap();
+        let reopened = WorkspaceBinding {
+            generation: "reopened".into(),
+            ..binding()
+        };
+        assert!(!coordinator.claim_cut(&reopened, &target(), first).unwrap());
+        for number in 0..512 {
+            coordinator
+                .register_cut(
+                    &binding(),
+                    &target(),
+                    &format!("{number:08x}-5555-4555-8555-555555555555"),
+                )
+                .unwrap();
+        }
+        assert!(!coordinator.claim_cut(&binding(), &target(), first).unwrap());
     }
     #[tokio::test]
     async fn flush_waits_for_every_matching_window_and_rejects_pending_ai() {

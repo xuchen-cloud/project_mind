@@ -1,19 +1,40 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Mapping } from "@tiptap/pm/transform";
 import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorView } from "@tiptap/pm/view";
 import { createRecordBlockId, RECORD_BLOCK_TYPES } from "../../../lib/record-document";
+import { RECORD_CUT_CLIPBOARD_TYPE, readRecordCutClipboard, recordCutClipboardHtml } from "../recordCutClipboard";
 
 export const STABLE_RECORD_BLOCKS_KEY = new PluginKey("stableRecordBlocks");
 const blockTypes = new Set<string>(RECORD_BLOCK_TYPES);
 const validId = (id: unknown): id is string => typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
-const clipboardType = "application/x-project-mind-record-cut";
+const clipboardType = RECORD_CUT_CLIPBOARD_TYPE;
 const consumedCuts = new Set<string>();
+const cutSources = new WeakMap<EditorView, { recordKey: string; transport?: RecordCutTransport }>();
 export interface RecordClipboardPayload { html: string; text: string }
+export interface RecordCutTransport {
+  registerCut: (token: string) => Promise<unknown>;
+  claimCut: (token: string) => Promise<boolean>;
+}
 export interface RecordClipboardOptions {
   clipboardPayload?: (view: EditorView) => RecordClipboardPayload | null;
   onCopied?: (view: EditorView, payload: RecordClipboardPayload) => void;
+  cutTransport?: RecordCutTransport;
+  pasteCut?: (view: EditorView, payload: RecordClipboardPayload, preserveIds: boolean, restoreTarget: () => boolean) => unknown | Promise<unknown>;
+}
+
+export function prepareRecordCutHtml(view: EditorView, html: string): string {
+  const source = cutSources.get(view);
+  if (!source || !view.editable) return html;
+  const token = crypto.randomUUID();
+  return recordCutClipboardHtml(html, { version: 1, recordKey: source.recordKey, token });
+}
+
+export async function registerRecordCutHtml(view: EditorView, html: string) {
+  const source = cutSources.get(view);
+  const cut = readRecordCutClipboard("", html);
+  if (source && cut && source.recordKey === cut.recordKey) await source.transport?.registerCut(cut.token).catch(() => undefined);
 }
 
 // Opt-in until every Record persistence path uses the canonical head/CAS service.
@@ -23,6 +44,8 @@ export const StableRecordBlocks = Extension.create({
   addOptions() { return { recordKey: null as string | null,
     clipboardPayload: undefined as RecordClipboardOptions["clipboardPayload"],
     onCopied: undefined as RecordClipboardOptions["onCopied"],
+    cutTransport: undefined as RecordClipboardOptions["cutTransport"],
+    pasteCut: undefined as RecordClipboardOptions["pasteCut"],
   }; },
   addGlobalAttributes() {
     return [{ types: [...RECORD_BLOCK_TYPES], attributes: { blockId: {
@@ -37,6 +60,9 @@ export const StableRecordBlocks = Extension.create({
   addProseMirrorPlugins() {
     const recordKey = this.options.recordKey ?? `editor:${crypto.randomUUID()}`;
     let pendingCut: { token: string; recordKey: string } | null = null;
+    let pastingCut = false;
+    const registrations = new Map<string, Promise<unknown>>();
+    let pasteQueue = Promise.resolve();
     const copy = (view: typeof this.editor.view, event: ClipboardEvent) => {
       pendingCut = null;
       if (view.state.selection.empty || !event.clipboardData) return false;
@@ -47,33 +73,68 @@ export const StableRecordBlocks = Extension.create({
       event.clipboardData.setData("text/html", payload.html);
       event.clipboardData.setData("text/plain", payload.text);
       if (event.type === "cut" && view.editable) {
-        event.clipboardData.setData(clipboardType, JSON.stringify({ version: 1, recordKey, token: crypto.randomUUID() }));
+        const token = crypto.randomUUID();
+        event.clipboardData.setData(clipboardType, JSON.stringify({ version: 1, recordKey, token }));
+        event.clipboardData.setData("text/html", recordCutClipboardHtml(payload.html, { version: 1, recordKey, token }));
+        const previous = view.state.doc;
         view.dispatch(view.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+        if (!previous.eq(view.state.doc) && this.options.cutTransport) {
+          const registered = this.options.cutTransport.registerCut(token).catch(() => undefined);
+          registrations.set(token, registered);
+          void registered.finally(() => { registrations.delete(token); });
+        }
       } else { this.options.onCopied?.(view, payload); }
       return true;
     };
     return [new Plugin({
       key: STABLE_RECORD_BLOCKS_KEY,
+      view: (view) => {
+        cutSources.set(view, { recordKey, transport: this.options.cutTransport });
+        return { destroy: () => { cutSources.delete(view); } };
+      },
       props: {
         handleDOMEvents: {
           copy: (view, event) => copy(view, event),
           cut: (view, event) => copy(view, event),
-          paste: (_view, event) => {
+          paste: (view, event) => {
             pendingCut = null;
-            const raw = event.clipboardData?.getData(clipboardType);
-            if (raw && raw.length <= 512) {
-              try {
-                const value = JSON.parse(raw);
-                if (value?.version === 1 && typeof value.recordKey === "string" && typeof value.token === "string"
-                  && /^[0-9a-f-]{36}$/.test(value.token)) pendingCut = { token: value.token, recordKey: value.recordKey };
-              } catch { /* Foreign clipboard metadata has no Record move semantics. */ }
+            if (!view.editable) return false;
+            pendingCut = readRecordCutClipboard(event.clipboardData?.getData(clipboardType) ?? "", event.clipboardData?.getData("text/html") ?? "");
+            if (pendingCut && this.options.cutTransport) {
+              const cut = pendingCut;
+              const selection = view.state.selection;
+              const bookmark = selection.getBookmark();
+              const mapping = new Mapping();
+              const mapSelection = ({ transaction }: { transaction: Transaction }) => mapping.appendMapping(transaction.mapping);
+              this.editor.on("transaction", mapSelection);
+              const restoreTarget = () => {
+                if (view.isDestroyed || !view.editable || mapping.mapResult(selection.from, 1).deletedAcross || mapping.mapResult(selection.to, -1).deletedAcross) return false;
+                view.dispatch(view.state.tr.setSelection(bookmark.map(mapping).resolve(view.state.doc)).setMeta("addToHistory", false));
+                return true;
+              };
+              const payload = { html: event.clipboardData?.getData("text/html") ?? "", text: event.clipboardData?.getData("text/plain") ?? "" };
+              pendingCut = null;
+              event.preventDefault();
+              pasteQueue = pasteQueue.then(async () => {
+                await registrations.get(cut.token);
+                const preserve = await this.options.cutTransport!.claimCut(cut.token).catch(() => false);
+                try {
+                  if (!restoreTarget()) return;
+                  pastingCut = true;
+                  pendingCut = preserve && cut.recordKey === recordKey ? cut : null;
+                  if (this.options.pasteCut) await this.options.pasteCut(view, payload, Boolean(pendingCut), restoreTarget);
+                  else if (payload.html) view.pasteHTML(payload.html, event);
+                  else view.pasteText(payload.text, event);
+                } finally { pendingCut = null; pastingCut = false; this.editor.off("transaction", mapSelection); }
+              }).catch(() => { pendingCut = null; pastingCut = false; this.editor.off("transaction", mapSelection); });
+              return true;
             }
             return false;
           },
           drop: () => { pendingCut = null; return false; },
         },
         transformPasted: (slice, view) => {
-          if (view.dragging || (pendingCut && pendingCut.recordKey === recordKey && !consumedCuts.has(pendingCut.token))) return slice;
+          if ((view.dragging && !pastingCut) || (pendingCut && pendingCut.recordKey === recordKey && !consumedCuts.has(pendingCut.token))) return slice;
           const rewrite = (node: ProseMirrorNode): ProseMirrorNode => {
             if (node.isText) return node;
             const children: ProseMirrorNode[] = [];

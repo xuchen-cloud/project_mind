@@ -3,6 +3,8 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
 import { applyRecordIncomingDocument } from "./recordIncomingDocument";
+import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } from "./extensions/StableRecordBlocks";
+import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -396,6 +398,7 @@ interface RichEditorProps {
   contentIdentity?: string;
   /** Workspace UUID + scoped Record identity; enables canonical block anchors. */
   recordKey?: string;
+  recordClipboard?: RecordCutTransport;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -467,6 +470,7 @@ export function RichEditor({
   aiSettings,
   contentIdentity,
   recordKey,
+  recordClipboard,
   onOpenAiSettings,
   selectionActions,
   renderToolbarExtras,
@@ -587,6 +591,8 @@ export function RichEditor({
   const persistStateRef = useRef<RichEditorPersistState>("idle");
   const dirtyStateRef = useRef(false);
   const syntheticPasteRef = useRef(false);
+  const recordClipboardRef = useRef(recordClipboard);
+  recordClipboardRef.current = recordClipboard;
   const frameRef = useRef<HTMLDivElement | null>(null);
   const tableToolbarRef = useRef<HTMLDivElement | null>(null);
   const codeToolbarRef = useRef<HTMLDivElement | null>(null);
@@ -1297,12 +1303,24 @@ export function RichEditor({
     [flushDeferredEditorUi],
   );
 
+  const pastedHtmlRef = useRef(handlePastedHtml);
+  pastedHtmlRef.current = handlePastedHtml;
   const editorExtensions = useMemo(
     () => buildRichEditorExtensions(placeholder, { stableBlocks: Boolean(recordKey), recordKey,
       clipboardPayload: (view) => buildRichTextClipboardPayload(view.state.selection.content(), view),
       onCopied: (view, payload) => upgradeClipboardImages(view.state.selection.content(), view, payload),
+      cutTransport: recordClipboard ? {
+        registerCut: (token) => recordClipboardRef.current?.registerCut(token) ?? Promise.resolve(),
+        claimCut: (token) => recordClipboardRef.current?.claimCut(token) ?? Promise.resolve(false),
+      } : undefined,
+      pasteCut: async (view, payload, preserveIds, restoreTarget) => {
+        if (!preserveIds && payload.html) return pastedHtmlRef.current(view, payload.html, restoreTarget);
+        syntheticPasteRef.current = true;
+        if (payload.html) view.pasteHTML(payload.html, createSyntheticPasteEvent());
+        else view.pasteText(payload.text, createSyntheticPasteEvent());
+      },
     }),
-    [placeholder, recordKey],
+    [placeholder, recordKey, Boolean(recordClipboard)],
   );
 
   const captureCommittedValue = useCallback((nextEditor: Editor) => {
@@ -3913,8 +3931,13 @@ export function RichEditor({
     }
 
     return runEditorPasteCommand(editor, {
-      onPasteHtml: (html, restoreTarget) =>
-        handlePastedHtml(editor.view, html, restoreTarget),
+      onPasteHtml: (html, restoreTarget) => {
+        if (recordKey && readRecordCutClipboard("", html)) {
+          if (!restoreTarget()) return false;
+          if (!editor.view.dom.dispatchEvent(recordCutPasteEvent(html))) return true;
+        }
+        return handlePastedHtml(editor.view, html, restoreTarget);
+      },
       onPasteImages: (files, restoreTarget) =>
         handlePastedImages(editor.view, files, restoreTarget),
       onFailure: () =>
@@ -3924,7 +3947,7 @@ export function RichEditor({
           detail: "剪贴板内容无法安全插入。",
         }),
     });
-  }, [editor, handlePastedHtml, handlePastedImages, pushToast]);
+  }, [editor, handlePastedHtml, handlePastedImages, pushToast, recordKey]);
 
   const handleEditorContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -8009,16 +8032,12 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
     // Fall through to best-effort clipboard APIs.
   }
 
-  const payload = await buildRichTextClipboardPayloadAsync(
-    editor.state.selection.content(),
-    editor.view,
-  );
-
-  if (!payload) {
-    return;
-  }
-
+  const cutTarget = command === "cut" && editor.isEditable ? captureEditorPasteTarget(editor) : null;
   try {
+    const payload = await buildRichTextClipboardPayloadAsync(editor.state.selection.content(), editor.view);
+    if (!payload) return;
+    if (cutTarget) payload.html = prepareRecordCutHtml(editor.view, payload.html);
+    let written = false;
     if (
       typeof ClipboardItem !== "undefined" &&
       navigator.clipboard?.write
@@ -8029,16 +8048,19 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
           "text/html": new Blob([payload.html], { type: "text/html" }),
         }),
       ]);
+      written = true;
     } else if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(payload.text);
+      written = true;
+    }
+    if (written && !editor.isDestroyed && editor.isEditable && cutTarget?.restore()) {
+      const previous = editor.state.doc;
+      editor.view.dispatch(editor.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+      if (!previous.eq(editor.state.doc)) await registerRecordCutHtml(editor.view, payload.html);
     }
   } catch {
-    // Clipboard permissions vary by webview/browser; fail silently.
-  }
-
-  if (command === "cut" && editor.isEditable) {
-    editor.view.dispatch(editor.state.tr.deleteSelection().scrollIntoView());
-  }
+    // A failed clipboard write leaves the selected content in place.
+  } finally { cutTarget?.release(); }
 }
 
 function serializeRichTextClipboard(content: Slice, view: EditorView) {
