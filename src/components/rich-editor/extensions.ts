@@ -7,7 +7,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
-import { Extension, getSchema } from "@tiptap/core";
+import { Extension, getSchema, type Attributes } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
@@ -17,6 +17,7 @@ import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
 import { ManagedTable } from "./extensions/ManagedTable";
 import { TagMention } from "./extensions/TagMention";
+import { StableRecordBlocks } from "./extensions/StableRecordBlocks";
 import { codeLanguageLabel, highlightCodeRanges, normalizeCodeLanguage } from "./codeHighlight";
 
 export const RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT =
@@ -140,7 +141,40 @@ const CodeHighlightDecorations = Extension.create({
   },
 });
 
-export function buildRichEditorExtensions(placeholder: string) {
+export function buildRichEditorExtensions(placeholder: string, options: { stableBlocks?: boolean; portableAssets?: boolean; recordKey?: string } = {}) {
+  const image = options.portableAssets ? ManagedImage.extend({
+    addAttributes() {
+      const attributes: Attributes = this.parent?.() ?? {};
+      return { ...attributes, src: { ...attributes.src, parseHTML: (element: HTMLElement) => element.getAttribute("src") } };
+    },
+  }) : ManagedImage;
+  const attachment = options.portableAssets ? Attachment.extend({
+    addAttributes() {
+      const attributes: Attributes = this.parent?.() ?? {};
+      return { ...attributes, href: { ...attributes.href, parseHTML: (element: HTMLElement) => element.getAttribute("data-href") ?? element.getAttribute("href") } };
+    },
+  }) : Attachment;
+  const table = options.portableAssets ? ManagedTable.extend({
+    addAttributes() {
+      const attributes: Attributes = this.parent?.() ?? {};
+      return { ...attributes, style: { ...attributes.style,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-style-derived") === "true"
+          ? null : attributes.style?.parseHTML?.(element) ?? null } };
+    },
+    renderHTML(props) {
+      const spec = this.parent?.(props);
+      if (!spec) throw new Error("Missing table renderer");
+      if (!props.node.attrs.style) {
+        const mark = (output: unknown) => {
+          if (!Array.isArray(output)) return;
+          if (output[0] === "table") output[1] = { ...output[1], "data-style-derived": "true" };
+          else output.slice(1).forEach((child) => { if (Array.isArray(child)) mark(child); });
+        };
+        mark(spec);
+      }
+      return spec;
+    },
+  }) : ManagedTable;
   return [
     StarterKit.configure({
       link: false,
@@ -173,7 +207,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     TaskItem.configure({
       nested: true,
     }),
-    ManagedTable.configure({
+    table.configure({
       cellMinWidth: 48,
       renderWrapper: true,
       resizable: true,
@@ -181,7 +215,7 @@ export function buildRichEditorExtensions(placeholder: string) {
     TableRow,
     TableHeader,
     TableCell,
-    ManagedImage.configure({
+    image.configure({
       allowBase64: true,
       HTMLAttributes: {
         class: "rich-editor__image",
@@ -190,10 +224,12 @@ export function buildRichEditorExtensions(placeholder: string) {
     InternalReference,
     ContactMention,
     TagMention,
-    Attachment,
+    attachment,
     CodeBlockLanguageMetadata,
     CodeHighlightDecorations,
+    ...(options.stableBlocks ? [StableRecordBlocks.configure({ recordKey: options.recordKey ?? null })] : []),
   ];
 }
 
 export const richEditorSchema = getSchema(buildRichEditorExtensions(""));
+export const recordDocumentSchema = getSchema(buildRichEditorExtensions("", { stableBlocks: true, portableAssets: true }));

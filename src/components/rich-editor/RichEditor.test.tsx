@@ -4517,12 +4517,18 @@ describe("RichEditor context menus", () => {
     expect(committedBeforeAcceptance?.markdown).not.toContain("better world");
     expect(committedBeforeAcceptance?.markdown).not.toContain("改写说明");
     expect(Object.isFrozen(committedBeforeAcceptance)).toBe(true);
+    const committedDocument = controllerRef.current?.getCommittedDocumentJson();
+    expect(JSON.stringify(committedDocument)).toContain("hello world with a much longer opening paragraph");
+    expect(JSON.stringify(committedDocument)).not.toContain("better world");
+    expect(JSON.stringify(committedDocument)).not.toContain("改写说明");
+    expect(JSON.stringify(controllerRef.current?.getDocumentJson())).toContain("better world");
 
     await user.click(screen.getByRole("button", { name: "接受" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "插入" })).toBeInTheDocument();
       expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
     });
+    expect(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())).toContain("better world");
 
     await user.click(screen.getByRole("button", { name: "插入" }));
     await waitFor(() => {

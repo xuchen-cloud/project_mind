@@ -1,0 +1,94 @@
+{
+  "document": {
+    "content": [
+      {
+        "attrs": {
+          "blockId": "11111111111111111111111111111111"
+        },
+        "content": [
+          {
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ],
+            "text": "Fixture 正文",
+            "type": "text"
+          }
+        ],
+        "type": "paragraph"
+      },
+      {
+        "attrs": {
+          "blockId": "22222222222222222222222222222222",
+          "style": null
+        },
+        "content": [
+          {
+            "attrs": {
+              "blockId": "33333333333333333333333333333333"
+            },
+            "content": [
+              {
+                "attrs": {
+                  "blockId": "44444444444444444444444444444444",
+                  "colspan": 1,
+                  "colwidth": [
+                    120
+                  ],
+                  "rowspan": 1
+                },
+                "content": [
+                  {
+                    "attrs": {
+                      "blockId": "55555555555555555555555555555555"
+                    },
+                    "type": "paragraph"
+                  }
+                ],
+                "type": "tableCell"
+              }
+            ],
+            "type": "tableRow"
+          }
+        ],
+        "type": "table"
+      },
+      {
+        "attrs": {
+          "alt": null,
+          "annotationState": "{\"shape\":\"rect\"}",
+          "blockId": "66666666666666666666666666666666",
+          "documentId": null,
+          "height": null,
+          "mimeType": null,
+          "path": "assets/图片.png",
+          "src": null,
+          "title": null,
+          "width": 120
+        },
+        "type": "image"
+      },
+      {
+        "attrs": {
+          "blockId": "77777777777777777777777777777777",
+          "documentId": null,
+          "href": null,
+          "isStarred": false,
+          "meta": "PDF",
+          "mimeType": null,
+          "path": "assets/文件.pdf",
+          "title": "文件"
+        },
+        "type": "attachment"
+      }
+    ],
+    "type": "doc"
+  },
+  "html": "<p data-block-id=\"11111111111111111111111111111111\"><strong>Fixture 正文</strong></p><div class=\"tableWrapper\"><table data-block-id=\"22222222222222222222222222222222\" style=\"width: 120px\" data-style-derived=\"true\"><colgroup><col style=\"width: 120px\"></colgroup><tbody><tr data-block-id=\"33333333333333333333333333333333\"><td data-block-id=\"44444444444444444444444444444444\" colspan=\"1\" rowspan=\"1\" colwidth=\"120\"><p data-block-id=\"55555555555555555555555555555555\"></p></td></tr></tbody></table></div><img class=\"rich-editor__image\" data-block-id=\"66666666666666666666666666666666\" src=\"workspace:assets/图片.png\" width=\"120\" data-annotation-state=\"{&quot;shape&quot;:&quot;rect&quot;}\" data-path=\"assets/图片.png\"><div data-block-id=\"77777777777777777777777777777777\" data-title=\"文件\" data-href=\"workspace:assets/文件.pdf\" data-meta=\"PDF\" data-type=\"attachment\" class=\"rich-editor__attachment\" contenteditable=\"false\" data-path=\"assets/文件.pdf\"><a class=\"rich-editor__attachment-link\" role=\"link\" tabindex=\"0\" data-rich-editor-openable=\"true\"><span class=\"rich-editor__attachment-glyph\" aria-hidden=\"true\">FILE</span><span class=\"rich-editor__attachment-body\"><strong class=\"rich-editor__attachment-title\">文件</strong><span class=\"rich-editor__attachment-meta\">PDF</span></span></a></div>",
+  "markdown": "**Fixture 正文**\n\n|  |\n| --- |\n\n[图片] 图片\n\n[附件] 文件",
+  "text": "Fixture 正文\n\n",
+  "codeLanguage": "typescript",
+  "schemaVersion": 1,
+  "bodyHash": "sha256:7f193b27b1fe833103f181b1424efa877bec16fafedb1eab403ea33a59298cd7"
+}

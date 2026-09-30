@@ -10,11 +10,12 @@
   "scripts": {
     "start": "node src/index.mjs",
     "probe": "node src/probe-entry.mjs",
-    "check": "node --check src/index.mjs && node --check src/protocol.mjs && node --check src/pi-spike.mjs && node --check src/session-codec.mjs && node --check src/probe-protocol.mjs && node --check src/probe-entry.mjs && node --check src/session-store.mjs && node --check src/profile-map.mjs",
+    "check": "node --check src/index.mjs && node --check src/protocol.mjs && node --check src/pi-spike.mjs && node --check src/session-codec.mjs && node --check src/probe-protocol.mjs && node --check src/probe-entry.mjs && node --check src/session-store.mjs && node --check src/profile-map.mjs && node --check src/record-worker-entry.mjs",
     "test": "node --test test/*.test.mjs",
     "test:pi": "node --test test/pi/*.test.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
-    "smoke:runtime": "node scripts/smoke-runtime.mjs"
+    "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "test:record": "node --test test/record-worker.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.99.1"

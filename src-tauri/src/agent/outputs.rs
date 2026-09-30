@@ -12,12 +12,13 @@ use serde::{Deserialize, Serialize};
 pub struct BlockInput {
     #[serde(rename = "type")]
     pub node_type: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub attrs: serde_json::Map<String, serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<BlockInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<MarkInput>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +26,7 @@ pub struct BlockInput {
 pub struct MarkInput {
     #[serde(rename = "type")]
     pub mark_type: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub attrs: serde_json::Map<String, serde_json::Value>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +58,7 @@ pub enum BlockEdit {
     },
     Append {
         parent_block_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         position: Option<AppendPosition>,
         blocks: Vec<BlockInput>,
     },

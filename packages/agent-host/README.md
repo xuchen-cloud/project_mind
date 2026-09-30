@@ -39,3 +39,14 @@ stdin/stdout 每行一个 JSON 对象；stdout 无日志。请求帧包含 `prot
 Pi 不加载默认 shell/file 工具，也不发现本机 AGENTS、skills、prompts、themes、extensions 或 packages。仅提供受限 source.read / output.stage 反向调用；每次响应必须匹配运行与会话。Node 不直接写业务数据库或项目产出文件。
 
 SDK settled 后先完整验证并 fsync 会话 JSONL 与 checkpoint，才发出 terminal completed。取消走真实 SDK abort。SessionManager 的公开恢复接口消费完整 JSONL；相对路径 codec 仅转换 SDK 工作目录和会话父路径，保留消息原文。历史损坏、断链、校验和不符或符号链接会拒绝恢复并保留历史。Rust 元信息、正式预算与 Workspace generation 绑定由后续 Host 服务接入。
+
+## Record utility worker
+
+```sh
+npm run build:record-worker
+npm --prefix packages/agent-host run test:record
+```
+
+`src/record-worker-entry.mjs` 独立加载构建出的无浏览器编辑器转换模块。它没有模型、工具、文件读写或数据库接口，只通过有界 JSONL 接收 `record.initialize`、`record.validate`、`record.patch`、`record.compare` 与 `record.schema`，输出稳定块 JSON、HTML/Markdown/text 投影及正文 hash。未知节点/属性与不合法 patch 返回诊断；不伪造成功。Rust fixture 同步脚本为 `scripts/update-record-schema.mjs`。
+
+此 worker 和 Rust head/version 库仍在 AI-16 的实现阶段，尚未接入全部 GUI 保存入口、窗口协调、版本历史界面和正式资源分发。

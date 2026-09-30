@@ -8,6 +8,7 @@
     "dev:tauri": "tauri dev",
     "dev:tauri:manual": "tauri dev --no-watch",
     "build": "tsc && vite build",
+    "build:record-worker": "vite build --config vite.record-worker.config.ts",
     "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
     "test:unit": "vitest run",
@@ -17,7 +18,8 @@
     "check:bundle-boundaries": "node scripts/check-bundle-boundaries.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:agent": "cargo test --manifest-path src-tauri/Cargo.toml --lib agent --quiet && vitest run src/services/agentApi.test.ts src/lib/queryKeys.test.ts && npm --prefix packages/agent-host run check && npm --prefix packages/agent-host test"
+    "test:agent": "cargo test --manifest-path src-tauri/Cargo.toml --lib agent --quiet && vitest run src/services/agentApi.test.ts src/lib/queryKeys.test.ts && npm run build:record-worker && npm --prefix packages/agent-host run check && npm --prefix packages/agent-host test",
+    "test:record": "npm run build:record-worker && vitest run src/lib/record-document.test.ts src/lib/record-document.node.test.ts src/lib/record-document-html.node.test.ts src/lib/record-patch.node.test.ts src/lib/record-version-compare.node.test.ts src/components/rich-editor/extensions/StableRecordBlocks.test.ts --maxWorkers=1 && npm --prefix packages/agent-host run test:record && cargo test --manifest-path src-tauri/Cargo.toml --lib record --quiet -- --include-ignored"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",
@@ -43,10 +45,12 @@
     "@tiptap/pm": "^3.21.0",
     "@tiptap/react": "^3.21.0",
     "@tiptap/starter-kit": "^3.21.0",
+    "css-select": "6.0.0",
     "docx": "^9.7.1",
     "fflate": "^0.8.3",
     "konva": "^10.2.5",
     "lucide-react": "^1.7.0",
+    "parse5": "8.0.0",
     "pdfkit": "^0.19.1",
     "pinyin-pro": "3.28.1",
     "react": "^19.2.0",

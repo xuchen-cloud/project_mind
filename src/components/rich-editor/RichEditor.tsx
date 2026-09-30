@@ -410,6 +410,7 @@ export interface RichEditorController {
   getValue: () => RichEditorValue;
   getCommittedValue: () => RichEditorValue;
   getDocumentJson: () => JSONContent;
+  getCommittedDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
@@ -2392,6 +2393,9 @@ export function RichEditor({
       getValue: getCurrentValue,
       getCommittedValue: () => latestCommittedValueRef.current ?? getCurrentValue(),
       getDocumentJson: () => editor?.getJSON() ?? { type: "doc", content: [] },
+      getCommittedDocumentJson: () => editor
+        ? structuredClone(projectCommittedEditorDocument(editor, rewriteSessionsRef.current).toJSON())
+        : { type: "doc", content: [] },
       getActiveAiProtectionCount: () => editor
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
         : 0,
@@ -5505,23 +5509,31 @@ function serializeEditor(editor: Editor): RichEditorValue {
   };
 }
 
-function serializeCommittedEditor(
+function projectCommittedEditorDocument(
   editor: Editor,
   sessions: readonly EditorSkillSessionState[],
-): RichEditorValue {
+) {
   const previews = sessions
     .flatMap((session) => session.modifyPreview && session.modifyPreview.showing !== "original"
       ? [{ session, preview: session.modifyPreview }]
       : [])
     .sort((left, right) => right.preview.currentFrom - left.preview.currentFrom);
   if (previews.length === 0) {
-    return serializeEditor(editor);
+    return editor.state.doc;
   }
   let projection = editor.state.tr;
   for (const { preview } of previews) {
     projection = projection.replaceRange(preview.currentFrom, preview.currentTo, preview.originalSlice);
   }
-  const projectedDoc = projection.doc;
+  return projection.doc;
+}
+
+function serializeCommittedEditor(
+  editor: Editor,
+  sessions: readonly EditorSkillSessionState[],
+): RichEditorValue {
+  const projectedDoc = projectCommittedEditorDocument(editor, sessions);
+  if (projectedDoc === editor.state.doc) return serializeEditor(editor);
   const container = document.createElement("div");
   container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(projectedDoc.content));
   return {

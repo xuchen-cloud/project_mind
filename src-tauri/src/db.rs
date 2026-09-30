@@ -1,6 +1,7 @@
 pub(crate) mod agent;
 mod agent_operations;
 mod agent_instructions;
+mod record_documents;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -81,7 +82,8 @@ const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
 const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
 const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
-const CURRENT_SCHEMA_VERSION: i64 = AGENT_FOUNDATION_SCHEMA_VERSION;
+const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 27;
+const CURRENT_SCHEMA_VERSION: i64 = RECORD_DOCUMENT_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -753,6 +755,7 @@ impl Database {
             self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }
         self.ensure_agent_schema()?;
+        self.ensure_record_document_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"

@@ -31,7 +31,72 @@ pub(crate) fn parse_scope_key(key: &str) -> AgentResult<Scope> {
     Ok(scope)
 }
 
+fn operation_hash(
+    caller_id: &str,
+    request_id: &str,
+    payload: &impl Serialize,
+) -> AgentResult<String> {
+    if caller_id.is_empty()
+        || caller_id.len() > 256
+        || request_id.is_empty()
+        || request_id.len() > 128
+    {
+        return Err(AgentError::new(
+            ErrorCode::InvalidArgument,
+            "Invalid operation identity",
+        ));
+    }
+    let value = serde_json::to_value(payload)
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid operation payload"))?;
+    // serde_json's default map sorts keys, so wire property order cannot break replay.
+    let bytes = serde_json::to_vec(&value)
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid operation payload"))?;
+    let hash = format!("sha256:{:x}", Sha256::digest(bytes));
+    Ok(hash)
+}
+
+fn replay<T: DeserializeOwned>(
+    conn: &rusqlite::Connection,
+    caller_id: &str,
+    request_id: &str,
+    operation: &str,
+    hash: &str,
+) -> AgentResult<Option<T>> {
+    let previous = conn.query_row("SELECT payload_hash,operation,state,result_json FROM agent_operation_receipts WHERE caller_id=?1 AND request_id=?2", params![caller_id,request_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?,row.get::<_, Option<String>>(3)?))).optional().map_err(io_error)?;
+    if let Some((previous_hash, previous_operation, state, result)) = previous {
+        if previous_hash != hash || previous_operation != operation {
+            return Err(AgentError::new(
+                ErrorCode::IdempotencyConflict,
+                "Request ID already belongs to another payload",
+            ));
+        }
+        if state != "committed" {
+            return Err(AgentError::new(
+                ErrorCode::IoFailed,
+                "Operation needs recovery",
+            ));
+        }
+        return serde_json::from_str(&result.unwrap_or_default())
+            .map(Some)
+            .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid stored receipt"));
+    }
+    Ok(None)
+}
+
 impl Database {
+    /// Preflight avoids unnecessary worker conversion. Atomic commit rechecks this
+    /// same receipt with the original intent payload, even after ID allocation.
+    pub(crate) fn agent_operation_replay<T: DeserializeOwned>(
+        &self,
+        caller_id: &str,
+        request_id: &str,
+        operation: &str,
+        payload: &impl Serialize,
+    ) -> AgentResult<Option<T>> {
+        let hash = operation_hash(caller_id, request_id, payload)?;
+        replay(&self.conn, caller_id, request_id, operation, &hash)
+    }
+
     /// Invoked under the Workspace DB lock. Returning from the closure commits once;
     /// errors (including outbox failure) roll back mutation and receipt together.
     pub(crate) fn agent_atomic_operation<T: Serialize + DeserializeOwned>(
@@ -42,41 +107,10 @@ impl Database {
         payload: &impl Serialize,
         apply: impl FnOnce(&Transaction<'_>) -> AgentResult<(T, Option<OperationChange>)>,
     ) -> AgentResult<T> {
-        if caller_id.is_empty()
-            || caller_id.len() > 256
-            || request_id.is_empty()
-            || request_id.len() > 128
-        {
-            return Err(AgentError::new(
-                ErrorCode::InvalidArgument,
-                "Invalid operation identity",
-            ));
-        }
-        let value = serde_json::to_value(payload).map_err(|_| {
-            AgentError::new(ErrorCode::InvalidArgument, "Invalid operation payload")
-        })?;
-        // serde_json's default map sorts keys, so wire property order cannot break replay.
-        let bytes = serde_json::to_vec(&value).map_err(|_| {
-            AgentError::new(ErrorCode::InvalidArgument, "Invalid operation payload")
-        })?;
-        let hash = format!("sha256:{:x}", Sha256::digest(bytes));
+        let hash = operation_hash(caller_id, request_id, payload)?;
         let tx = self.conn.unchecked_transaction().map_err(io_error)?;
-        let previous = tx.query_row("SELECT payload_hash,operation,state,result_json FROM agent_operation_receipts WHERE caller_id=?1 AND request_id=?2", params![caller_id,request_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?,row.get::<_, Option<String>>(3)?))).optional().map_err(io_error)?;
-        if let Some((previous_hash, previous_operation, state, result)) = previous {
-            if previous_hash != hash || previous_operation != operation {
-                return Err(AgentError::new(
-                    ErrorCode::IdempotencyConflict,
-                    "Request ID already belongs to another payload",
-                ));
-            }
-            if state != "committed" {
-                return Err(AgentError::new(
-                    ErrorCode::IoFailed,
-                    "Operation needs recovery",
-                ));
-            }
-            return serde_json::from_str(&result.unwrap_or_default())
-                .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid stored receipt"));
+        if let Some(previous) = replay(&tx, caller_id, request_id, operation, &hash)? {
+            return Ok(previous);
         }
         let (result, change) = apply(&tx)?;
         let now = Utc::now().to_rfc3339();

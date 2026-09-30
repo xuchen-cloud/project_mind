@@ -496,7 +496,7 @@ mod tests {
         assert!(!db.table_exists("agent_context_instructions").unwrap());
         db.conn.execute_batch("DROP TABLE agent_jobs;").unwrap();
         db.migrate().unwrap();
-        assert_eq!(db.schema_version().unwrap(), 26);
+        assert_eq!(db.schema_version().unwrap(), super::super::CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
