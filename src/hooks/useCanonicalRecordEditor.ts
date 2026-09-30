@@ -4,7 +4,7 @@ import { agentApi } from "../services/agentApi";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import type { RecordEditorState, RecordMetadata, RecordTarget } from "../lib/record-document-types";
-import { projectRecordSaveKey, workspaceRecordSaveKey, type CommittedRecordBody, type RecordSaveCoordinator } from "../lib/record-save-coordinator";
+import { projectRecordSaveKey, workspaceRecordSaveKey, RecordSaveFailure, type CommittedRecordBody, type RecordSaveCoordinator } from "../lib/record-save-coordinator";
 import { subscribeRecordHeadChanges } from "../lib/record-document-events";
 import { registerCanonicalRecordEditor, type RecordEditorFlushOutcome } from "../lib/record-editor-registration";
 
@@ -20,11 +20,12 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   flushEditor?: () => Promise<RecordEditorFlushOutcome>;
 }) {
   const key = target ? targetKey(target) : null;
-  const [loaded, setLoaded] = useState<{ key: string; state: RecordEditorState; binding: AgentWorkspaceBinding } | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; attempt: number; state: RecordEditorState; binding: AgentWorkspaceBinding } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [syncError, setSyncError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
   const [incomingConflict, setIncomingConflict] = useState<RecordEditorState | null>(null);
+  const refreshSequence = useRef(0);
   const incomingReceiver = useRef(receiveIncoming);
   incomingReceiver.current = receiveIncoming;
   const editorFlusher = useRef(flushEditor);
@@ -32,7 +33,8 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   const baseline = useRef<{ key: string; binding: AgentWorkspaceBinding; revision: number; metadata: RecordMetadata; codeLanguage: string | null; session: string } | null>(null);
   const targetRef = useRef(target);
   targetRef.current = target;
-  const ready = enabled && !!key && loaded?.key === key && baseline.current?.key === key;
+  const currentLoad = loaded?.key === key && loaded?.attempt === attempt;
+  const ready = enabled && !!key && currentLoad && baseline.current?.key === key;
 
   useEffect(() => {
     baseline.current = null;
@@ -65,7 +67,7 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
         });
         if (cancelled) { stop(); return; }
         unregister = stop;
-        setLoaded({ key, state, binding: status.binding });
+        setLoaded({ key, attempt, state, binding: status.binding });
       } catch (failure) {
         if (!cancelled) setError(failure);
       }
@@ -89,7 +91,6 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     if (!enabled || !key) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    let refreshSequence = 0;
     void subscribeRecordHeadChanges((change) => {
       const base = baseline.current;
       if (disposed || !base || targetKey(change.target) !== base.key
@@ -97,9 +98,9 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
         || coordinator.ownsRequest(change.requestId)
         || ((change.headRevision === null || change.headRevision <= base.revision)
           && (change.metadataRevision === null || change.metadataRevision === base.metadata.revision))) return;
-      const sequence = ++refreshSequence;
+      const sequence = ++refreshSequence.current;
       void recordDocumentApi.editorGet(base.binding, change.target).then((state) => {
-        if (disposed || sequence !== refreshSequence || baseline.current !== base || state.head.headRevision < base.revision) return;
+        if (disposed || sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
         if (coordinator.getLatestSnapshot(base.key) || !incomingReceiver.current?.(state, base)) {
           setIncomingConflict(state);
           return;
@@ -109,12 +110,33 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
         base.codeLanguage = state.head.projection.codeLanguage;
         setIncomingConflict(null);
         setSyncError(null);
-        setLoaded({ key: base.key, binding: base.binding, state });
+        setLoaded({ key: base.key, attempt, binding: base.binding, state });
       }).catch((failure) => { if (!disposed) setSyncError(failure); });
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; })
       .catch((failure) => { if (!disposed) setSyncError(failure); });
     return () => { disposed = true; unlisten?.(); };
-  }, [coordinator, enabled, key]);
+  }, [coordinator, enabled, key, attempt]);
+
+  useEffect(() => {
+    if (!enabled || !key || !ready) return;
+    let disposed = false;
+    let seenFailure: unknown;
+    const stop = coordinator.subscribe(() => {
+      const failure = coordinator.getRecordStatus(key).lastError;
+      const base = baseline.current;
+      const currentTarget = targetRef.current;
+      if (disposed || !base || base.key !== key || !currentTarget || failure === seenFailure
+        || !(failure instanceof RecordSaveFailure) || failure.code !== "REVISION_CONFLICT") return;
+      seenFailure = failure;
+      const sequence = ++refreshSequence.current;
+      void recordDocumentApi.editorGet(base.binding, currentTarget).then((state) => {
+        if (disposed || sequence !== refreshSequence.current || baseline.current !== base) return;
+        setIncomingConflict(state);
+        setSyncError(null);
+      }).catch((failure) => { if (!disposed) setSyncError(failure); });
+    });
+    return () => { disposed = true; stop(); };
+  }, [coordinator, enabled, key, ready, attempt]);
 
   const capture = useCallback((document: JSONContent, origin: CommittedRecordBody["origin"] = "manual"): CommittedRecordBody | null => {
     const base = baseline.current;
@@ -137,9 +159,9 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     return true;
   }, [key]);
 
-  return { ready, state: loaded?.key === key ? loaded.state : null, error, syncError, incomingConflict,
-    binding: loaded?.key === key ? loaded.binding : null,
-    loadIdentity: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}:${attempt}` : null,
+  return { ready, state: currentLoad && loaded ? loaded.state : null, error, syncError, incomingConflict,
+    binding: currentLoad && loaded ? loaded.binding : null,
+    loadIdentity: currentLoad && loaded ? `${loaded.binding.workspaceId}:${key}:${loaded.attempt}` : null,
     recordKey: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}` : undefined,
     capture, checkpoint, acknowledgeMetadata, retry: () => setAttempt((value) => value + 1) };
 }

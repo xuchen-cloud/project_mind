@@ -48,6 +48,16 @@ pub(crate) struct RecordMetadataApply {
     pub new_tags: Vec<RecordMetadataNewTag>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordCreate {
+    pub scope: Scope,
+    pub title: Option<String>,
+    pub tag_ids: Vec<i64>,
+    pub document: Value,
+    pub code_language: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum RecordEditorRecord {

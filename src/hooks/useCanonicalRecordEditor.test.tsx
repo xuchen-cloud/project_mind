@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { useCanonicalRecordEditor } from "./useCanonicalRecordEditor";
 import { agentApi } from "../services/agentApi";
 import { recordDocumentApi } from "../services/recordDocumentApi";
-import { RecordSaveCoordinator } from "../lib/record-save-coordinator";
+import { RecordSaveCoordinator, RecordSaveFailure } from "../lib/record-save-coordinator";
 import type { RecordEditorState, RecordTarget } from "../lib/record-document-types";
 import { subscribeRecordHeadChanges, type RecordHeadChanged } from "../lib/record-document-events";
 
@@ -141,6 +141,23 @@ it("ignores notifications from a different Workspace generation", async () => {
   expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(1);
 });
 
+it("reads the latest body after a failed CAS without advancing or replacing the draft baseline", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => { throw new RecordSaveFailure("Conflict", { retryable: false, code: "REVISION_CONFLICT" }); } } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const incoming = { ...editor, head: { ...editor.head, headRevision: 5 } };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => {
+    coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Draft", tagIds: [], defaultCodeLanguage: null,
+      committedContent: { html: "<p>Draft</p>", markdown: "Draft", text: "Draft" }, canonicalBody: result.current.capture(document)! });
+    await coordinator.flush().catch(() => undefined);
+  });
+  await waitFor(() => expect(result.current.incomingConflict).toBe(incoming));
+  expect(result.current.capture(document)?.baseRevision).toBe(4);
+  expect(result.current.state).toBe(editor);
+  expect(coordinator.getLatestSnapshot("project:1:7")?.title).toBe("Draft");
+});
+
 it("keeps its editing baseline after a notification refresh fails", async () => {
   const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
   const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming: () => true }));
@@ -166,4 +183,20 @@ it("gives an explicit reload a fresh hydration identity while keeping clipboard 
   await waitFor(() => expect(result.current.capture(document)?.baseRevision).toBe(5));
   expect(result.current.loadIdentity).not.toBe(identity);
   expect(result.current.recordKey).toBe(recordKey);
+});
+
+it("never labels the previous document as the result of an explicit reload", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  let resolve!: (value: RecordEditorState) => void;
+  vi.mocked(recordDocumentApi.editorGet).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  act(() => result.current.retry());
+  expect(result.current.state).toBeNull();
+  expect(result.current.loadIdentity).toBeNull();
+  expect(result.current.capture(document)).toBeNull();
+  const incoming = { ...editor, head: { ...editor.head, headRevision: 5 } };
+  await waitFor(() => expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(2));
+  await act(async () => resolve(incoming));
+  expect(result.current.state).toBe(incoming);
 });

@@ -13,6 +13,7 @@ preserveRecordFilters,workspacePath
 } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
+import { CanonicalRecordCreation, createBlankCanonicalRecord } from "../../lib/canonical-record-creation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -56,6 +57,7 @@ recordFocusDraftFromRecord,
 recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordHistoryAction } from "../record/RecordHistoryAction";
+import { RecordConflictActions } from "../record/RecordConflictActions";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
@@ -114,6 +116,8 @@ export function WorkspaceRecordFocusPage({
   );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const resolvingConflictRef = useRef(false);
+  const sidebarRecordCreation = useRef(new CanonicalRecordCreation());
   const lastSavedUpdatedAtRef = useRef<string | null>(initialDraft?.updatedAt ?? null);
   const titleValueRef = useRef(initialDraft?.title ?? "");
   const tagIdsValueRef = useRef<number[]>(initialDraft?.tagIds ?? []);
@@ -199,6 +203,7 @@ export function WorkspaceRecordFocusPage({
     setContent(draft.content);
     setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
     lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
+    resolvingConflictRef.current = false;
     setHydratedRecordKey(canonical.loadIdentity);
   }, [canonical.state, canonical.loadIdentity, hydratedRecordKey, recordId, saveCoordinator]);
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
@@ -243,7 +248,7 @@ export function WorkspaceRecordFocusPage({
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
-      if (!editingReady || recordId === null) return false;
+      if (resolvingConflictRef.current || !editingReady || recordId === null) return false;
       const document = editorControllerRef.current?.getCommittedDocumentJson();
       if (!document) return false;
       const canonicalBody = canonical.capture(document, origin);
@@ -354,12 +359,8 @@ export function WorkspaceRecordFocusPage({
   };
 
   async function createWorkspaceRecordInFocus() {
-    const record = await projectMindApi.workspaceRecordUpsert({
-      markdown: "",
-      html: "<p></p>",
-      defaultCodeLanguage: null,
-      tagIds: [],
-    });
+    const { record } = await createBlankCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, sidebarRecordCreation.current);
+    sidebarRecordCreation.current.reset();
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
     navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
@@ -466,7 +467,24 @@ export function WorkspaceRecordFocusPage({
           <div className="home-content home-note-content">
             <div className="grid gap-4">
               {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
-            {canonical.incomingConflict ? <p role="alert" className="text-sm text-text-soft">这条记录已在其他窗口更新；当前草稿已保留，请先处理版本冲突。</p> : null}
+            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
+              target={{ scope: { kind: "workspace" }, recordId }} incoming={canonical.incomingConflict} workspaceRoot={saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? ""}
+              availableTags={availableTags} assetHandlers={workspaceAssetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
+              getDraft={() => {
+                const editor = editorControllerRef.current;
+                if (!editor) throw new Error("编辑器尚未就绪，草稿已保留");
+                return { title: titleValueRef.current, tagIds: [...tagIdsValueRef.current], document: editor.getCommittedDocumentJson(), html: editor.getCommittedValue().html, codeLanguage: codeLanguageValueRef.current };
+              }}
+              onReload={() => {
+                saveCoordinator.discard(workspaceRecordSaveKey(recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+              }}
+              onSavedAs={async (state) => {
+                saveCoordinator.discard(workspaceRecordSaveKey(recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+                await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                navigate(preserveRecordFilters(`/workspace/records/${state.record.id}`, searchParams));
+              }} /> : null}
             {canonical.error ? <div role="alert" className="text-sm text-text-soft">
                 <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
                 <button type="button" onClick={canonical.retry}>重新加载编辑器</button>

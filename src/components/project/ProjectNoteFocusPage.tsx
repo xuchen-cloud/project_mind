@@ -53,6 +53,8 @@ recordFocusDraftFromRecord,
 recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordHistoryAction } from "../record/RecordHistoryAction";
+import { RecordConflictActions } from "../record/RecordConflictActions";
+import { recordPath } from "../../lib/formatters";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
@@ -124,6 +126,7 @@ export function ProjectNoteFocusPage({
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const resolvingConflictRef = useRef(false);
   const lastSavedTitleRef = useRef(initialDraft?.title ?? "");
   const titleValueRef = useRef(initialDraft?.title ?? "");
   const tagIdsValueRef = useRef<number[]>(initialDraft?.tagIds ?? []);
@@ -233,6 +236,7 @@ export function ProjectNoteFocusPage({
     setContent(draft.content);
     setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
     lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
+    resolvingConflictRef.current = false;
     setHydratedRecordKey(canonical.loadIdentity);
   }, [canonical.state, canonical.loadIdentity, hydratedRecordKey, projectId, recordId, saveCoordinator]);
   const assetHandlers = useMemo<RichEditorAssetHandlers | undefined>(() => {
@@ -291,7 +295,7 @@ export function ProjectNoteFocusPage({
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
-      if (!editingReady || projectId === null || recordId === null) return false;
+      if (resolvingConflictRef.current || !editingReady || projectId === null || recordId === null) return false;
       const document = editorControllerRef.current?.getCommittedDocumentJson();
       if (!document) return false;
       const canonicalBody = canonical.capture(document, origin);
@@ -507,7 +511,25 @@ export function ProjectNoteFocusPage({
         >
           <div className="grid gap-4">
             {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
-            {canonical.incomingConflict ? <p role="alert" className="text-sm text-text-soft">这条记录已在其他窗口更新；当前草稿已保留，请先处理版本冲突。</p> : null}
+            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
+              target={{ scope: { kind: "project", projectId }, recordId }} incoming={canonical.incomingConflict}
+              workspaceRoot={workspaceSaveCoordinator?.workspaceKey ?? queryClient.getQueryData<{ currentWorkspace?: { rootPath: string } }>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? ""}
+              availableTags={availableTags} assetHandlers={assetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
+              getDraft={() => {
+                const editor = editorControllerRef.current;
+                if (!editor) throw new Error("编辑器尚未就绪，草稿已保留");
+                return { title: titleValueRef.current, tagIds: [...tagIdsValueRef.current], document: editor.getCommittedDocumentJson(), html: editor.getCommittedValue().html, codeLanguage: codeLanguageValueRef.current };
+              }}
+              onReload={() => {
+                saveCoordinator.discard(projectRecordSaveKey(projectId, recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+              }}
+              onSavedAs={async (state) => {
+                saveCoordinator.discard(projectRecordSaveKey(projectId, recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+                await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
+                navigate(preserveRecordFilters(recordPath(projectId, state.record.id), searchParams));
+              }} /> : null}
             {canonical.error ? <div role="alert" className="text-sm text-text-soft">
               <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
               <button type="button" onClick={canonical.retry}>重新加载编辑器</button>

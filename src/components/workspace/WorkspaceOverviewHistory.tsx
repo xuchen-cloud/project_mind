@@ -1,4 +1,5 @@
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
+import type { JSONContent } from "@tiptap/core";
 import {
   useEffect,
   useRef,
@@ -48,6 +49,7 @@ interface WorkspaceOverviewHistoryProps {
   aiSettings: AiSettingsSnapshot | null;
   saving?: boolean;
   onCreateRecord: (input: {
+    document: JSONContent;
     title?: string;
     markdown: string;
     html: string;
@@ -102,6 +104,9 @@ export function WorkspaceOverviewHistory({
   const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
   const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
+  const [creatingRecord, setCreatingRecord] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const creationActive = useRef(false);
   const [recordContextMenu, setRecordContextMenu] = useState<{
     x: number;
     y: number;
@@ -144,14 +149,24 @@ export function WorkspaceOverviewHistory({
   }
 
   async function createRecord() {
+    if (creationActive.current) return;
+    const editor = recordDraftEditorRef.current;
+    if (!editor) return;
     const normalized = normalizeRichEditorValue(
-      recordDraftEditorRef.current?.getValue() ?? recordDraftValue,
+      editor.getCommittedValue(),
     );
     if (!normalized.markdown.trim()) {
       return;
     }
 
-    await onCreateRecord({
+    if (editor.getPendingAiReviewCount() > 0) {
+      setCreationError("请先接受或取消待确认的 AI 内容，草稿已保留。");
+      return;
+    }
+    creationActive.current = true; setCreatingRecord(true); setCreationError(null);
+    try {
+      await onCreateRecord({
+      document: editor.getCommittedDocumentJson(),
       title: recordDraftTitle.trim() || undefined,
       markdown: normalized.markdown,
       html: normalized.html,
@@ -163,6 +178,8 @@ export function WorkspaceOverviewHistory({
     setRecordDraftCodeLanguage(null);
     setRecordDraftTagIds([]);
     onCloseCompose();
+    } catch (failure) { setCreationError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { creationActive.current = false; setCreatingRecord(false); }
   }
 
   function openRecordContextMenu(event: ReactMouseEvent, noteId: number) {
@@ -208,6 +225,7 @@ export function WorkspaceOverviewHistory({
             </div>
             <RichEditor
               contentIdentity="workspace-record-draft"
+              readOnly={!active || creatingRecord}
               html={recordDraftValue.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={recordDraftCodeLanguage}
@@ -237,7 +255,7 @@ export function WorkspaceOverviewHistory({
               onOpenAiSettings={() => openSettings("ai-rewrite")}
             />
             <div className="project-history-record__composer-actions">
-              <Button type="button" size="sm" variant="ghost" onClick={onCloseCompose}>
+              <Button type="button" size="sm" variant="ghost" disabled={creatingRecord} onClick={onCloseCompose}>
                 取消
               </Button>
               <Button
@@ -245,11 +263,13 @@ export function WorkspaceOverviewHistory({
                 size="sm"
                 variant="primary"
                 leadingIcon={<Save size={14} />}
+                disabled={creatingRecord}
                 onClick={() => void createRecord()}
               >
                 保存记录
               </Button>
             </div>
+            {creationError ? <p role="alert" className="text-ui text-danger">{creationError}</p> : null}
           </div>
         </article>
       ) : null}

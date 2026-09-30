@@ -303,6 +303,33 @@ pub(crate) async fn record_quick_note_transfer(
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]
+pub(crate) async fn record_create(
+    state: State<'_, AppState>,
+    input: RecordCommandInput<RecordCreate>,
+) -> Result<ApiResponse<RecordEditorState>, String> {
+    let result = async {
+        let request = gui_request(
+            &state,
+            &input,
+            &input.data.scope,
+            &["record.read", "record.write", "record.metadata.write"],
+        )?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        let service = RecordDocumentService::new(&*state, &utility);
+        let head = service.create(&request, &input.data).await?;
+        notify_record_changed(
+            &state,
+            &request,
+            &head.target,
+            Some(head.head_revision),
+            None,
+        );
+        service.editor_get(&request, &head.target).await
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+#[tauri::command]
 pub(crate) fn record_metadata_get(
     state: State<'_, AppState>,
     input: RecordCommandInput<RecordTarget>,

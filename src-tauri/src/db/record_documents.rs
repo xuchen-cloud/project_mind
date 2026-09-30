@@ -210,6 +210,43 @@ fn snapshot(
 }
 
 impl Database {
+    pub(crate) fn record_create(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordCreate,
+        projection: &RecordDocumentProjection,
+    ) -> AgentResult<RecordDocumentHead> {
+        input.scope.validate()?;
+        projection.validate()?;
+        self.record_document_scope_from_gui(&input.scope, &projection.document)?;
+        let compatibility = self.record_compatibility_html(
+            &RecordTarget {
+                scope: input.scope.clone(),
+                record_id: 1,
+            },
+            projection,
+        )?;
+        self.agent_atomic_operation(caller, request_id, "record.create", input, |tx| {
+            let timestamp = Utc::now().to_rfc3339();
+            match input.scope {
+                Scope::Project { project_id } => self.insert_project_note(project_id, None, "", "<p></p>", None, &timestamp).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot create Record"))?,
+                Scope::Workspace => { tx.execute("INSERT INTO workspace_notes(note_kind,title,content_markdown,content_html,created_at,updated_at) VALUES ('workspace_note',NULL,'','<p></p>',?1,?1)", [&timestamp]).map_err(io_error)?; }
+            }
+            let target = RecordTarget { scope: input.scope.clone(), record_id: tx.last_insert_rowid() };
+            let current = metadata(tx, &target)?;
+            let (saved_metadata, _) = self.record_metadata_transaction(tx, &RecordMetadataUpdate {
+                target: target.clone(), expected_revision: current.revision,
+                title: input.title.clone(), tag_ids: input.tag_ids.clone(),
+            })?;
+            let (project, workspace) = match input.scope { Scope::Workspace => (None, Some(target.record_id)), Scope::Project { .. } => (Some(target.record_id), None) };
+            tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)", params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,timestamp]).map_err(io_error)?;
+            Self::record_write_projection(tx, &target, projection, &compatibility)?;
+            let initial = head(tx, &target)?.ok_or_else(damaged)?;
+            snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &json!({"kind":"gui"}), request_id, None)?;
+            Ok((initial, Some(OperationChange { object_key: format!("record:{}",target.key()?), scope: target.scope, revision: projection.body_hash.clone() })))
+        })
+    }
     pub(crate) fn record_quick_note_source(
         &self,
         scope: &Scope,
@@ -552,6 +589,14 @@ impl Database {
         document: &Value,
     ) -> AgentResult<Value> {
         source(&self.conn, target)?;
+        self.record_document_scope_from_gui(&target.scope, document)
+    }
+    pub(crate) fn record_document_scope_from_gui(
+        &self,
+        scope: &Scope,
+        document: &Value,
+    ) -> AgentResult<Value> {
+        scope.validate()?;
         if serde_json::to_vec(document)
             .map_err(|_| invalid("Invalid editor document"))?
             .len()
@@ -559,13 +604,22 @@ impl Database {
         {
             return Err(invalid("Record document exceeds size limit"));
         }
-        let project_root = match target.scope {
+        let project_root = match *scope {
             Scope::Project { project_id } => Some(
                 self.project_root_path(project_id)
                     .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?,
             ),
             Scope::Workspace => None,
         };
+        if project_root
+            .as_ref()
+            .is_some_and(|path| !path.starts_with(&self.workspace_root))
+        {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Project is outside the Workspace",
+            ));
+        }
         fn visit(
             node: &mut Value,
             root: &std::path::Path,
@@ -1585,6 +1639,73 @@ mod tests {
         assert!(!projection
             .html
             .contains(&database.workspace_root.to_string_lossy().to_string()));
+    }
+    #[test]
+    fn record_creation_is_atomic_and_replays_the_original_intent() {
+        let (_directory, database, _target, projection) = setup();
+        let mut input = RecordCreate {
+            scope: Scope::Workspace,
+            title: Some(" New record ".into()),
+            tag_ids: vec![99999],
+            document: projection.document.clone(),
+            code_language: projection.code_language.clone(),
+        };
+        let count = || {
+            database
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM workspace_notes WHERE note_kind='workspace_note'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+        };
+        let before = count();
+        assert_eq!(
+            database
+                .record_create("gui", "bad-create", &input, &projection)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(count(), before);
+        input.tag_ids.clear();
+        let created = database
+            .record_create("gui", "create-1", &input, &projection)
+            .unwrap();
+        let replay = database
+            .record_create("gui", "create-1", &input, &projection)
+            .unwrap();
+        assert_eq!(created.target.record_id, replay.target.record_id);
+        assert_eq!(count(), before + 1);
+        assert_eq!(created.head_revision, 1);
+        assert_eq!(
+            database
+                .record_metadata_get(&created.target)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("New record")
+        );
+        assert_eq!(
+            database
+                .record_version_capacity(&created.target)
+                .unwrap()
+                .version_count,
+            1
+        );
+        assert_eq!(
+            database
+                .record_document_source(&created.target)
+                .unwrap()
+                .markdown,
+            projection.markdown
+        );
+        input.title = Some("Different intent".into());
+        assert!(database
+            .record_create("gui", "create-1", &input, &projection)
+            .is_err());
+        assert_eq!(count(), before + 1);
     }
     #[test]
     fn ai_metadata_apply_rolls_back_new_tags_on_failure_and_replays_without_body_versions() {

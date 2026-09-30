@@ -46,6 +46,27 @@ function canonicalSnapshot(markdown: string): CommittedProjectRecordSnapshot {
 }
 
 describe("RecordSaveCoordinator", () => {
+  it("discards a reviewed conflict and its queued successors without touching another record", async () => {
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => { throw new RecordSaveFailure("Conflict", { retryable: false, code: "REVISION_CONFLICT" }); } } });
+    coordinator.submit(snapshot(7, "failed"));
+    coordinator.submit(snapshot(7, "later draft"));
+    coordinator.submit(snapshot(8, "other record"));
+    await coordinator.flush().catch(() => undefined);
+    coordinator.discard("project:1:7");
+    expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+    expect(coordinator.getLatestSnapshot("project:1:8")?.committedContent.markdown).toBe("other record");
+    await expect(coordinator.flush("project:1:7")).resolves.toBeUndefined();
+  });
+  it("refuses to discard a native save that is still running", async () => {
+    const pending = deferred<{ updatedAt: string }>();
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist: () => pending.promise } });
+    coordinator.submit(snapshot(7, "running"));
+    await Promise.resolve();
+    expect(() => coordinator.discard("project:1:7")).toThrow("仍在保存");
+    expect(coordinator.getLatestSnapshot("project:1:7")).not.toBeNull();
+    pending.resolve({ updatedAt: "saved" });
+    await coordinator.flush();
+  });
   it("flushes one record independently of a conflict in another record", async () => {
     const coordinator = new RecordSaveCoordinator({ adapter: { persist: async (value) => {
       if (value.recordId === 8) throw new RecordSaveFailure("Other record conflict", { retryable: false, code: "REVISION_CONFLICT" });

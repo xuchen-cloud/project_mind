@@ -38,6 +38,7 @@ import { completeQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metad
 import { deriveQuickNoteMetadata } from "../../lib/quick-note-metadata";
 import type { QuickNoteTransferContext, QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
 import { CanonicalQuickNoteTransfer } from "../../lib/canonical-quick-note-transfer";
+import { CanonicalRecordCreation } from "../../lib/canonical-record-creation";
 import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import { extractTagMentionIds } from "../../lib/tagMentions";
@@ -104,6 +105,8 @@ export function ProjectOverviewPage({
   const queryClient = useQueryClient();
   const saveCoordinator = useRecordSaveCoordinator();
   const quickNoteTransfer = useMemo(() => new CanonicalQuickNoteTransfer(), []);
+  const recordCreation = useMemo(() => new CanonicalRecordCreation(), []);
+  const [creatingRecord, setCreatingRecord] = useState(false);
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setProjectSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
@@ -465,30 +468,25 @@ export function ProjectOverviewPage({
   }
 
   async function createRecord() {
-    const nextValue = recordDraftEditorRef.current?.getValue() ?? recordDraftValue;
-
-    if (!projectId || !nextValue.markdown.trim()) return;
-
-    const externalizedValue = await externalizeEmbeddedImageDataUrls(
-      nextValue,
-      projectQuickNoteAssetHandlers,
-    );
-    const normalized = normalizeRichEditorValue(externalizedValue);
-    const tagIds = await ensureTagIdsFromText(normalized.markdown, recordDraftTagIds);
-    const savedRecord = await projectMindApi.projectRecordUpsert({
-      projectId,
-      title: recordDraftTitle.trim() || undefined,
-      markdown: normalized.markdown,
-      html: normalized.html,
-      defaultCodeLanguage: recordDraftCodeLanguage,
-      tagIds,
-    });
-    upsertRecordInProjectCache(savedRecord);
-    closeRecordDraft();
-    setRecordDraftTitle("");
-    setRecordDraftValue(EMPTY_VALUE);
-    setRecordDraftCodeLanguage(null);
-    setRecordDraftTagIds([]);
+    const editor = recordDraftEditorRef.current;
+    if (!projectId || !editor || creatingRecord || !editor.getCommittedValue().markdown.trim()) return;
+    if (editor.getPendingAiReviewCount() > 0) {
+      pushToast({ tone: "info", title: "请先处理 AI 候选", detail: "接受或取消待确认的 AI 内容后再创建记录，草稿已保留。" });
+      return;
+    }
+    setCreatingRecord(true);
+    try {
+      const saved = await recordCreation.create(saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "", {
+        scope: { kind: "project", projectId }, title: recordDraftTitle.trim() || null,
+        document: editor.getCommittedDocumentJson(), codeLanguage: recordDraftCodeLanguage, tagIds: recordDraftTagIds,
+      });
+      upsertRecordInProjectCache(saved.record as NoteRecord);
+      recordCreation.reset();
+      closeRecordDraft();
+      setRecordDraftTitle(""); setRecordDraftValue(EMPTY_VALUE); setRecordDraftCodeLanguage(null); setRecordDraftTagIds([]);
+    } catch (failure) {
+      pushToast({ tone: "error", title: "创建记录失败", detail: String(failure) });
+    } finally { setCreatingRecord(false); }
   }
 
   async function saveRecord(
@@ -706,7 +704,6 @@ export function ProjectOverviewPage({
                     <RichEditor
                       contentIdentity={`project-record-draft:${activeProject.id}`}
                       html={recordDraftValue.html}
-                      readOnly={!visible}
                       aiSettings={aiSettings}
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
@@ -733,6 +730,7 @@ export function ProjectOverviewPage({
                       }}
                       contactMentions={contactMentionOptions}
                       controllerRef={recordDraftEditorRef}
+                      readOnly={!visible || creatingRecord}
                       onOpenAiSettings={() => openSettings("ai-rewrite")}
                     />
                     <div className="project-history-record__composer-actions">
@@ -741,6 +739,7 @@ export function ProjectOverviewPage({
                         size="sm"
                         variant="ghost"
                         onClick={closeRecordDraft}
+                        disabled={creatingRecord}
                       >
                         取消
                       </Button>
@@ -749,6 +748,7 @@ export function ProjectOverviewPage({
                         size="sm"
                         variant="primary"
                         leadingIcon={<Save size={14} />}
+                        disabled={creatingRecord}
                         onClick={() => void createRecord()}
                       >
                         保存记录

@@ -35,6 +35,13 @@ export interface RecordMetadataUpdate {
 }
 export interface RecordMetadataApply { metadata: RecordMetadataUpdate; newTags: Array<{ label: string; colorKey: string }> }
 export interface RecordMetadataApplyResult { metadata: RecordMetadata; tags: DocumentTagRecord[] }
+export interface RecordCreateInput {
+  scope: AgentScope;
+  title: string | null;
+  tagIds: number[];
+  document: JSONContent;
+  codeLanguage: string | null;
+}
 export interface RecordEditorState {
   head: RecordDocumentHead;
   metadata: RecordMetadata;

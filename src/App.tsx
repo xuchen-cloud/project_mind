@@ -444,6 +444,7 @@ export function WorkspaceLayout({
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
+  const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
   const workspaceVisible = hasWorkspace;
@@ -868,16 +869,13 @@ export function WorkspaceLayout({
     if (activeProjectId === null) {
       return;
     }
-    const record = await projectMindApi.projectRecordUpsert({
-      projectId: activeProjectId,
-      markdown: "",
-      html: "<p></p>",
-      defaultCodeLanguage: null,
-      tagIds: [],
-    });
+    const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
+    const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
+    const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
+    creation.reset();
     await refreshProjectScope(queryClient, activeProjectId);
     navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
-  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope]);
+  }, [activeProjectId, currentWorkspace?.rootPath, location.search, navigate, queryClient, refreshProjectScope]);
 
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {

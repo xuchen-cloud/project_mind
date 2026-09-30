@@ -3,13 +3,13 @@ import type { AttributeSpec } from "@tiptap/pm/model";
 import { recordDocumentSchema } from "../components/rich-editor/extensions";
 import { parseRecordHtml } from "../lib/record-document-html";
 import { serializeRecordDocument } from "../lib/record-document-format";
-import { canonicalDocumentJson, RECORD_DOCUMENT_SCHEMA_VERSION, RecordDocumentError, validateRecordDocument } from "../lib/record-document";
+import { canonicalDocumentJson, createRecordDocument, RECORD_DOCUMENT_SCHEMA_VERSION, RecordDocumentError, validateRecordDocument } from "../lib/record-document";
 import { applyRecordPatch, type RecordPatchOperation, type RecordPatchPreview } from "../lib/record-patch";
 import { compareRecordDocuments } from "../lib/record-version-compare";
 
 interface DocumentWorkerRequest {
   requestId: string;
-  method: "record.initialize" | "record.validate" | "record.patch" | "record.compare" | "record.schema";
+  method: "record.initialize" | "record.create" | "record.validate" | "record.patch" | "record.compare" | "record.schema";
   data?: { html?: string; assetBasePath?: string | null; document?: JSONContent; otherDocument?: JSONContent; codeLanguage?: string | null; operations?: RecordPatchOperation[] };
 }
 
@@ -36,6 +36,7 @@ export async function handleRecordDocumentRequest(request: DocumentWorkerRequest
     let document: JSONContent;
     let patch: Omit<RecordPatchPreview, "document"> | undefined;
     if (request.method === "record.initialize" && typeof data.html === "string") document = parseRecordHtml(data.html, recordDocumentSchema, { assetBasePath: data.assetBasePath });
+    else if (request.method === "record.create" && data.document) document = createRecordDocument(data.document, recordDocumentSchema);
     else if (request.method === "record.validate" && data.document) document = data.document;
     else if (request.method === "record.patch" && data.document && data.operations) {
       const preview = await applyRecordPatch(data.document, data.operations, recordDocumentSchema);

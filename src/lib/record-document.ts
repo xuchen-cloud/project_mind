@@ -127,6 +127,18 @@ function normalize(document: JSONContent, schema: Schema, initialize: boolean): 
 export const initializeRecordDocument = (document: JSONContent, schema: Schema) => normalize(document, schema, true);
 export const validateRecordDocument = (document: JSONContent, schema: Schema) => normalize(document, schema, false);
 
+/** A distinct Record owns fresh identities even when copied from another tree. */
+export function createRecordDocument(document: JSONContent, schema: Schema): JSONContent {
+  checkShape(document, schema);
+  const copy = structuredClone(document);
+  const strip = (node: JSONContent) => {
+    if (blockTypes.has(node.type ?? "") && node.attrs) delete node.attrs.blockId;
+    node.content?.forEach(strip);
+  };
+  strip(copy);
+  return initializeRecordDocument(copy, schema);
+}
+
 export function canonicalDocumentJson(document: JSONContent): string {
   const sorted = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(sorted);

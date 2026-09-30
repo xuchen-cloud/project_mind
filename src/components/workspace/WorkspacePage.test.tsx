@@ -34,6 +34,8 @@ const projectMutationMocks = vi.hoisted(() => ({
 const workspaceRecordMutationMocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
 }));
+const recordCreationMocks = vi.hoisted(() => ({ bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: recordCreationMocks }));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: apiMocks,
@@ -1067,11 +1069,10 @@ describe("WorkspacePage", () => {
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     await user.click(screen.getByRole("button", { name: "新增记录" }));
 
-    expect(workspaceRecordMutationMocks.mutateAsync).toHaveBeenCalledWith({
-      markdown: "",
-      html: "<p></p>",
-      tagIds: [],
-    });
+    await waitFor(() => expect(recordCreationMocks.create).toHaveBeenCalledWith(expect.any(Object), {
+      scope: { kind: "workspace" }, title: null, document: { type: "doc", content: [{ type: "paragraph" }] }, tagIds: [], codeLanguage: null,
+    }, expect.any(String)));
+    expect(workspaceRecordMutationMocks.mutateAsync).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/99");
     });

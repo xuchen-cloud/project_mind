@@ -51,6 +51,7 @@ buildWorkspaceNoteImageAssetHandlers,
 externalizeEmbeddedImageDataUrls,
 } from "../rich-editor/noteImageAssets";
 import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
+import { CanonicalRecordCreation, createBlankCanonicalRecord } from "../../lib/canonical-record-creation";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
@@ -76,6 +77,7 @@ export function WorkspacePage({
   const queryClient = useQueryClient();
   const saveCoordinator = useRecordSaveCoordinator();
   const quickNoteTransfer = useMemo(() => new CanonicalQuickNoteTransfer(), []);
+  const recordCreation = useMemo(() => new CanonicalRecordCreation(), []);
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setWorkspaceSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
@@ -346,11 +348,8 @@ export function WorkspacePage({
   }
 
   async function createWorkspaceRecordInFocus() {
-    const record = await workspaceRecordMutation.mutateAsync({
-      markdown: "",
-      html: "<p></p>",
-      tagIds: [],
-    });
+    const { record } = await createBlankCanonicalRecord(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, recordCreation);
+    recordCreation.reset();
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
     navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
@@ -604,17 +603,11 @@ export function WorkspacePage({
                 aiSettings={aiSettings}
                 saving={workspaceRecordMutation.isPending}
                 onCreateRecord={async (input) => {
-                  const externalizedValue = await externalizeEmbeddedImageDataUrls(
-                    { html: input.html, markdown: input.markdown, text: input.markdown },
-                    workspaceAssetHandlers,
-                  );
-                  const tagIds = await ensureWorkspaceTagIds(externalizedValue.markdown, input.tagIds ?? []);
-                  await workspaceRecordMutation.mutateAsync({
-                    ...input,
-                    markdown: externalizedValue.markdown,
-                    html: externalizedValue.html,
-                    tagIds,
+                  await recordCreation.create(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", {
+                    scope: { kind: "workspace" }, document: input.document, title: input.title ?? null,
+                    tagIds: input.tagIds ?? [], codeLanguage: input.defaultCodeLanguage ?? null,
                   });
+                  recordCreation.reset();
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
                 }}

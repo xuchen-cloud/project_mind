@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { JSONContent } from "@tiptap/core";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import type { RecordTarget, RecordVersion, RecordVersionCapacity, RecordVersionPage, RecordVersionPreview, RecordVersionOrigin } from "../../lib/record-document-types";
 import type { RecordVersionDifference } from "../../lib/record-version-compare";
+import { recordBlockDescriptions } from "../../lib/record-block-descriptions";
 import { RecordVersionRestoreSession } from "../../lib/record-version-restore";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { Button, Dialog } from "../../ui/components";
@@ -12,16 +12,6 @@ import "./record-history.css";
 
 const origins: Record<RecordVersionOrigin,string> = { baseline: "初始版本", manual: "手动编辑", agent: "智能助手", editor_ai: "接受 AI 内容", quick_note: "QuickNote 转存", restore: "恢复版本", import: "导入内容" };
 function timestamp(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString(); }
-function blockDescriptions(document: JSONContent) {
-  const result = new Map<string,string>();
-  function text(node: JSONContent): string { return node.text ?? node.content?.map(text).join(" ") ?? String(node.attrs?.title ?? node.attrs?.alt ?? "图片或附件"); }
-  function visit(node: JSONContent) {
-    if (typeof node.attrs?.blockId === "string") result.set(node.attrs.blockId,text(node));
-    node.content?.forEach(visit);
-  }
-  visit(document);
-  return result;
-}
 export default function RecordHistoryDialog({ binding, target, assetHandlers, onClose, onRestored }: {
   binding: AgentWorkspaceBinding; target: RecordTarget; assetHandlers?: RichEditorAssetHandlers;
   onClose: () => void; onRestored: () => void;
@@ -92,8 +82,8 @@ export default function RecordHistoryDialog({ binding, target, assetHandlers, on
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { active.current = false; if (mounted.current) setBusy(false); }
   }
-  const before = preview ? blockDescriptions(preview.version.projection.document) : new Map<string,string>();
-  const after = latest ? blockDescriptions(latest.projection.document) : new Map<string,string>();
+  const before = preview ? recordBlockDescriptions(preview.version.projection.document) : new Map<string,string>();
+  const after = latest ? recordBlockDescriptions(latest.projection.document) : new Map<string,string>();
   return <Dialog open title="版本历史" description="每次重要修改都保留快照；恢复正文会形成新版本。" onClose={() => { if (!busy) onClose(); }} widthClassName="max-w-5xl" bodyClassName="overflow-hidden"
     footer={<>
       <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>关闭</Button>

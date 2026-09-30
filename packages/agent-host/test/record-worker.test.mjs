@@ -34,6 +34,19 @@ test('standalone worker produces one canonical tree and matching compatibility p
   assert.equal(unsupported.error.code, 'INVALID_PATCH');
 });
 
+test('creating a distinct Record regenerates every block identity without changing content', { timeout: 10000 }, async () => {
+  const [initial] = await requests([{ requestId: 'source', method: 'record.initialize', data: { html: '<blockquote><p>Copy me</p></blockquote><p>Second</p>' } }]);
+  const [created] = await requests([{ requestId: 'create', method: 'record.create', data: { document: initial.data.document, codeLanguage: 'Python' } }]);
+  assert.ok(created.ok);
+  assert.equal(created.data.codeLanguage, 'python');
+  assert.equal(created.data.markdown, initial.data.markdown);
+  const ids = (node) => [node.attrs?.blockId, ...(node.content ?? []).flatMap(ids)].filter(Boolean);
+  assert.equal(ids(created.data.document).length, ids(initial.data.document).length);
+  assert.ok(ids(created.data.document).every((id) => !ids(initial.data.document).includes(id)));
+  const [invalid] = await requests([{ requestId: 'bad-create', method: 'record.create', data: { document: { type: 'doc', content: [{ type: 'unsupported' }] } } }]);
+  assert.equal(invalid.ok, false);
+});
+
 test('Rust schema fixture stays in sync with the actual editor/worker schema', { timeout: 10000 }, async () => {
   const [response] = await requests([{ requestId: 'schema', method: 'record.schema' }]);
   const expected = JSON.parse(await readFile(new URL('../../../src-tauri/src/record_document_schema.json', import.meta.url), 'utf8'));

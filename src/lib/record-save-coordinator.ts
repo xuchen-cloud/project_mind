@@ -273,6 +273,16 @@ export class RecordSaveCoordinator {
     return statusForTasks(this.tasksByRecord.get(recordKey) ?? []);
   }
 
+  /** Only an explicit conflict-resolution action may abandon queued drafts. */
+  discard(recordKey: string) {
+    if (this.tasksByRecord.get(recordKey)?.some((task) => task.state === "running")) {
+      throw new RecordSaveFailure("这条记录仍在保存，请稍后处理冲突", { retryable: true, code: "EDITOR_BUSY" });
+    }
+    this.tasksByRecord.delete(recordKey);
+    this.latestSequenceByRecord.delete(recordKey);
+    this.emit();
+  }
+
   private async runRecord(recordKey: string) {
     const tasks = this.tasksByRecord.get(recordKey) ?? [];
     if (tasks.some((task) => task.state === "running")) {

@@ -14,7 +14,7 @@ import { queryKeys } from "./lib/queryKeys";
 import { fixtureEditorState } from "./test/recordDocumentFixture";
 import type { RecordTarget } from "./lib/record-document-types";
 import type { ProjectPageData, WorkspacePageData } from "./lib/types";
-const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn() }));
+const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn(), bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
 vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
 
@@ -1064,13 +1064,10 @@ describe("WorkspaceLayout", () => {
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
     await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
 
-    expect(projectMindApi.projectRecordUpsert).toHaveBeenCalledWith({
-      projectId: 1,
-      markdown: "",
-      html: "<p></p>",
-      tagIds: [],
-      defaultCodeLanguage: null,
-    });
+    await waitFor(() => expect(recordMocks.create).toHaveBeenCalledWith(expect.any(Object), {
+      scope: { kind: "project", projectId: 1 }, title: null, document: { type: "doc", content: [{ type: "paragraph" }] }, tagIds: [], codeLanguage: null,
+    }, expect.any(String)));
+    expect(projectMindApi.projectRecordUpsert).not.toHaveBeenCalled();
     expect(await screen.findByText("record focus route body")).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
   });

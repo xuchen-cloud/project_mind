@@ -97,6 +97,64 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
     ) -> AgentResult<()> {
         self.access(request, target, operation, |_| Ok(()))
     }
+    pub(crate) async fn create(
+        &self,
+        request: &RequestContext,
+        input: &crate::record_documents::RecordCreate,
+    ) -> AgentResult<RecordDocumentHead> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Record creation requires the local editor",
+            ));
+        }
+        let (previous, portable) = self.store.with_current(|binding, db| {
+            request.authorize(binding, &input.scope, "record.write")?;
+            request.authorize(binding, &input.scope, "record.metadata.write")?;
+            let previous = db.agent_operation_replay(
+                &request.caller.key(),
+                &request.request_id,
+                "record.create",
+                input,
+            )?;
+            if previous.is_some() {
+                return Ok((previous, None));
+            }
+            Ok((
+                None,
+                Some(db.record_document_scope_from_gui(&input.scope, &input.document)?),
+            ))
+        })?;
+        if let Some(previous) = previous {
+            return Ok(previous);
+        }
+        let converted = self
+            .utility
+            .request(
+                &request.request_id,
+                "record.create",
+                json!({"document":portable,"codeLanguage":input.code_language}),
+            )
+            .await?;
+        let projection: RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid new Record projection",
+                )
+            })?;
+        projection.validate()?;
+        self.store.with_current(|binding, db| {
+            request.authorize(binding, &input.scope, "record.write")?;
+            request.authorize(binding, &input.scope, "record.metadata.write")?;
+            db.record_create(
+                &request.caller.key(),
+                &request.request_id,
+                input,
+                &projection,
+            )
+        })
+    }
     pub(crate) async fn quick_note_transfer(
         &self,
         request: &RequestContext,
@@ -798,6 +856,84 @@ mod tests {
                 record_id: record.id,
             },
         )
+    }
+    #[tokio::test]
+    async fn record_service_creation_rechecks_binding_after_conversion() {
+        let (_directory, store, mut utility, mut request, _target) = setup();
+        request
+            .scope_grant
+            .operations
+            .push("record.metadata.write".into());
+        let binding = store.binding.clone();
+        utility.on_request = Some(Box::new(move || {
+            binding.lock().unwrap().generation = "reopened".into()
+        }));
+        let count = || {
+            store
+                .db
+                .lock()
+                .unwrap()
+                .workspace_page_get()
+                .unwrap()
+                .records
+                .len()
+        };
+        let before = count();
+        let input = crate::record_documents::RecordCreate {
+            scope: Scope::Workspace,
+            title: Some("New".into()),
+            tag_ids: vec![],
+            document: utility.projection.document.clone(),
+            code_language: None,
+        };
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .create(&request, &input)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        assert_eq!(count(), before);
+    }
+    #[tokio::test]
+    #[ignore = "requires prepared fixed Node runtime and built Record worker"]
+    async fn record_service_creation_owns_fresh_ids_and_replays_without_a_duplicate() {
+        let (_directory, store, _utility, mut request, target) = setup();
+        request
+            .scope_grant
+            .operations
+            .push("record.metadata.write".into());
+        let utility = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = RecordDocumentService::new(&store, &utility);
+        let source = service.editor_get(&request, &target).await.unwrap();
+        let input = crate::record_documents::RecordCreate {
+            scope: Scope::Workspace,
+            title: Some("Copy".into()),
+            tag_ids: vec![],
+            document: source.head.projection.document.clone(),
+            code_language: None,
+        };
+        request.request_id = "create-copy".into();
+        let created = service.create(&request, &input).await.unwrap();
+        let replay = service.create(&request, &input).await.unwrap();
+        assert_eq!(created.target.record_id, replay.target.record_id);
+        assert_ne!(
+            created.projection.document["content"][0]["attrs"]["blockId"],
+            source.head.projection.document["content"][0]["attrs"]["blockId"]
+        );
+        assert_eq!(created.projection.markdown, source.head.projection.markdown);
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .workspace_page_get()
+                .unwrap()
+                .records
+                .len(),
+            2
+        );
     }
     #[tokio::test]
     #[ignore = "requires prepared fixed Node runtime and built Record worker"]

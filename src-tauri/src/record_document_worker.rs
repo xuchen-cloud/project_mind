@@ -106,6 +106,7 @@ impl RecordDocumentWorker {
             || !matches!(
                 method,
                 "record.initialize"
+                    | "record.create"
                     | "record.validate"
                     | "record.patch"
                     | "record.compare"

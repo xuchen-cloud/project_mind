@@ -6,7 +6,7 @@ import type {
   RecordVersionCapacity, RecordVersionPage,
   RecordQuickNoteTransferInput,
   RecordRestoreInput, RecordVersionPreview,
-  RecordMetadataApply, RecordMetadataApplyResult,
+  RecordMetadataApply, RecordMetadataApplyResult, RecordCreateInput,
 } from "../lib/record-document-types";
 import type { RecordVersionDifference } from "../lib/record-version-compare";
 
@@ -14,6 +14,9 @@ function call<T>(command: string, binding: AgentWorkspaceBinding, data: unknown,
   return callAgentCommand<T>(command, requestId, { input: { binding, requestId, data } });
 }
 export const recordDocumentApi = {
+  create(binding: AgentWorkspaceBinding, input: RecordCreateInput, requestId: string) {
+    return call<RecordEditorState>("record_create", binding, input, requestId);
+  },
   bindingGet(workspaceRoot: string, requestId = crypto.randomUUID()) {
     return callAgentCommand<AgentWorkspaceBinding>("record_workspace_binding_get", requestId, { input: { workspaceRoot, requestId } });
   },
