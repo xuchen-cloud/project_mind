@@ -56,8 +56,9 @@ export interface RecordBodySaveInput {
   editSessionId: string | null;
   metadata?: RecordMetadataUpdate;
 }
+export interface RecordCommittedHead { target: RecordTarget; headRevision: number; bodyHash: string }
 export interface RecordCommitResult {
-  head: RecordDocumentHead;
+  head: RecordCommittedHead;
   noChange: boolean;
   beforeVersion: string;
   afterVersion: string | null;
@@ -75,7 +76,7 @@ export interface RecordQuickNoteTransferInput {
 }
 export type RecordCheckpointReason = "due" | "leave_editor" | "open_history" | "shutdown" | "recovery";
 export interface RecordCheckpointInput { target: RecordTarget; baseRevision: number; reason: RecordCheckpointReason }
-export interface RecordCheckpointResult { head: RecordDocumentHead; versionId: string | null; checkpointed: boolean }
+export interface RecordCheckpointResult { head: RecordCommittedHead; versionId: string | null; checkpointed: boolean }
 export type RecordVersionOrigin = "baseline" | "manual" | "agent" | "editor_ai" | "quick_note" | "restore" | "import";
 export interface RecordVersionSummary {
   id: string;
@@ -95,4 +96,4 @@ export interface RecordVersion extends Omit<RecordVersionSummary, "bodyHash"> {
 export interface RecordVersionPreview { version: RecordVersion; html: string }
 export interface RecordRestoreInput { target: RecordTarget; baseRevision: number; versionId: string }
 export interface RecordVersionPage { versions: RecordVersionSummary[]; nextBefore: number | null }
-export interface RecordVersionCapacity { versionCount: number; snapshotBytes: number; retainedAssetCount: number }
+export interface RecordVersionCapacity { versionCount: number; snapshotBytes: number; retainedAssetCount: number; receiptCount: number; receiptBytes: number }

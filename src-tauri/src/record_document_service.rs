@@ -9,10 +9,10 @@ use crate::{
     db::Database,
     record_documents::{
         record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
-        RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection, RecordEditorState,
-        RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata, RecordPatchPreparation,
-        RecordPatchResult, RecordQuickNoteTransfer, RecordRestoreInput, RecordTarget,
-        RecordVersion, RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
+        RecordCommittedHead, RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection,
+        RecordEditorState, RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata,
+        RecordPatchPreparation, RecordPatchResult, RecordQuickNoteTransfer, RecordRestoreInput,
+        RecordTarget, RecordVersion, RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -119,7 +119,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         &self,
         request: &RequestContext,
         input: &crate::record_documents::RecordCreate,
-    ) -> AgentResult<RecordDocumentHead> {
+    ) -> AgentResult<RecordCommittedHead> {
         if !matches!(request.caller, Caller::Gui) {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
@@ -403,7 +403,9 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 &source.source_hash,
                 &projection,
                 &request.binding.workspace_id,
-            )
+            )?;
+            db.record_document_head(target)?
+                .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Record is missing"))
         })
     }
     pub(crate) async fn editor_get(
@@ -1040,10 +1042,29 @@ mod tests {
         let replay = service.create(&request, &input).await.unwrap();
         assert_eq!(created.target.record_id, replay.target.record_id);
         assert_ne!(
-            created.projection.document["content"][0]["attrs"]["blockId"],
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&created.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document["content"][0]["attrs"]["blockId"],
             source.head.projection.document["content"][0]["attrs"]["blockId"]
         );
-        assert_eq!(created.projection.markdown, source.head.projection.markdown);
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&created.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .markdown,
+            source.head.projection.markdown
+        );
         assert_eq!(
             store
                 .db
@@ -1093,11 +1114,39 @@ mod tests {
         let saved = service.quick_note_transfer(&request, &input).await.unwrap();
         assert_eq!(saved.head.head_revision, 2);
         assert_eq!(
-            saved.head.projection.document["content"][0]["attrs"]["blockId"],
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document["content"][0]["attrs"]["blockId"],
             first_id
         );
-        assert_eq!(saved.head.projection.text, "Fixture 正文\n\nCaptured idea");
-        assert!(saved.head.projection.code_language.is_none());
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .text,
+            "Fixture 正文\n\nCaptured idea"
+        );
+        assert!(store
+            .db
+            .lock()
+            .unwrap()
+            .record_document_head(&saved.head.target)
+            .unwrap()
+            .unwrap()
+            .projection
+            .code_language
+            .is_none());
         let replayed = service.quick_note_transfer(&request, &input).await.unwrap();
         assert_eq!(replayed.head.head_revision, 2);
         assert_eq!(replayed.after_version, saved.after_version);
@@ -1133,9 +1182,29 @@ mod tests {
         };
         let saved = service.quick_note_transfer(&request, &input).await.unwrap();
         assert_ne!(saved.head.target.record_id, target.record_id);
-        assert_eq!(saved.head.projection.text, "New idea");
         assert_eq!(
-            saved.head.projection.code_language.as_deref(),
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .text,
+            "New idea"
+        );
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .code_language
+                .as_deref(),
             Some("python")
         );
         assert_eq!(saved.head.head_revision, 2);
@@ -1510,7 +1579,18 @@ mod tests {
         };
         let saved = service.save(&request, &input).await.unwrap();
         assert_eq!(saved.head.head_revision, 2);
-        assert_eq!(saved.head.projection.markdown, "Manual change");
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .markdown,
+            "Manual change"
+        );
         request.request_id = "actual-checkpoint".into();
         let checkpoint = service
             .checkpoint(
@@ -1545,16 +1625,46 @@ mod tests {
                 block_id: id.clone(),
                 expected_block_hash: format!(
                     "sha256:{:x}",
-                    Sha256::digest(saved.head.projection.document["content"][0].to_string())
+                    Sha256::digest(
+                        store
+                            .db
+                            .lock()
+                            .unwrap()
+                            .record_document_head(&saved.head.target)
+                            .unwrap()
+                            .unwrap()
+                            .projection
+                            .document["content"][0]
+                            .to_string()
+                    )
                 ),
                 text: " with agent".into(),
             }],
         };
         let result = service.patch(&request, &patch).await.unwrap();
         assert_eq!(result.after_revision, 3);
-        assert_eq!(result.head.projection.markdown, "Manual change with agent");
         assert_eq!(
-            result.head.projection.document["content"][0]["attrs"]["blockId"],
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&result.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .markdown,
+            "Manual change with agent"
+        );
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&result.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document["content"][0]["attrs"]["blockId"],
             id
         );
         assert_eq!(
@@ -1611,10 +1721,29 @@ mod tests {
         let restored = service.restore(&request, &restore).await.unwrap();
         assert_eq!(restored.head.head_revision, 4);
         assert_eq!(
-            restored.head.projection.document,
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&restored.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document,
             baseline.projection.document
         );
-        assert_eq!(restored.head.projection.markdown, "Fixture 正文");
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&restored.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .markdown,
+            "Fixture 正文"
+        );
         let retry = service.restore(&request, &restore).await.unwrap();
         assert_eq!(retry.after_version, restored.after_version);
         assert_eq!(

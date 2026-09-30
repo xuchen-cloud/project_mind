@@ -266,6 +266,64 @@ impl Database {
         }
         tx.commit().map_err(io_error)
     }
+    /// Upgrade the previous full-response receipts one row at a time. Payload
+    /// hashes and commit revisions survive; no historic body needs a second copy.
+    pub(crate) fn record_compact_operation_receipts(&self) -> AgentResult<()> {
+        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
+        let mut cursor = 0_i64;
+        loop {
+            let row = tx.query_row("SELECT rowid,result_json FROM agent_operation_receipts WHERE rowid>?1 AND operation IN ('record.create','record.document.initialize','record.document.commit','record.document.checkpoint','record.quick_note.transfer','record.version.restore','record.patch') AND (json_type(result_json,'$.projection')='object' OR json_type(result_json,'$.head.projection')='object') ORDER BY rowid LIMIT 1", [cursor], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?))).optional().map_err(io_error)?;
+            let Some((rowid, stored)) = row else {
+                break;
+            };
+            cursor = rowid;
+            let mut value: Value = serde_json::from_str(&stored).map_err(|_| damaged())?;
+            let head = if value.get("head").is_some() {
+                value.get_mut("head").ok_or_else(damaged)?
+            } else {
+                &mut value
+            };
+            let projection = head.get("projection").ok_or_else(damaged)?;
+            let document = projection.get("document").ok_or_else(damaged)?;
+            let language: Option<String> = serde_json::from_value(
+                projection
+                    .get("codeLanguage")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            )
+            .map_err(|_| damaged())?;
+            let hash = projection
+                .get("bodyHash")
+                .and_then(Value::as_str)
+                .ok_or_else(damaged)?
+                .to_string();
+            if body_hash(document, &language) != hash {
+                return Err(damaged());
+            }
+            let target: RecordTarget =
+                serde_json::from_value(head.get("target").cloned().ok_or_else(damaged)?)
+                    .map_err(|_| damaged())?;
+            target.key()?;
+            if head
+                .get("headRevision")
+                .and_then(Value::as_u64)
+                .is_none_or(|revision| revision == 0 || revision > i64::MAX as u64)
+            {
+                return Err(damaged());
+            }
+            let map = head.as_object_mut().ok_or_else(damaged)?;
+            map.remove("projection");
+            map.remove("editSessionId");
+            map.remove("checkpointDueAt");
+            map.insert("bodyHash".into(), json!(hash));
+            tx.execute(
+                "UPDATE agent_operation_receipts SET result_json=?1 WHERE rowid=?2",
+                params![value.to_string(), rowid],
+            )
+            .map_err(io_error)?;
+        }
+        tx.commit().map_err(io_error)
+    }
     pub(crate) fn record_create(
         &self,
         caller: &str,
@@ -273,7 +331,7 @@ impl Database {
         input: &RecordCreate,
         projection: &RecordDocumentProjection,
         workspace_id: &str,
-    ) -> AgentResult<RecordDocumentHead> {
+    ) -> AgentResult<RecordCommittedHead> {
         input.scope.validate()?;
         projection.validate()?;
         self.record_document_scope_from_gui(&input.scope, &projection.document)?;
@@ -302,7 +360,7 @@ impl Database {
             Self::record_write_projection(tx, &target, projection, &compatibility, workspace_id)?;
             let initial = head(tx, &target)?.ok_or_else(damaged)?;
             snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &json!({"kind":"gui"}), request_id, None)?;
-            Ok((initial, Some(OperationChange { object_key: target.object_key(workspace_id)?, scope: target.scope, revision: projection.body_hash.clone() })))
+            Ok((RecordCommittedHead::from(&initial), Some(OperationChange { object_key: target.object_key(workspace_id)?, scope: target.scope, revision: projection.body_hash.clone() })))
         })
     }
     pub(crate) fn record_quick_note_source(
@@ -881,7 +939,7 @@ impl Database {
                 operation_id,
                 request_id: patch.request_id.clone(),
                 object: patch.record.clone(),
-                result_revision: saved.head.projection.body_hash.clone(),
+                result_revision: saved.head.body_hash.clone(),
                 file_version: None,
                 undo_available: !saved.no_change,
             };
@@ -1068,10 +1126,17 @@ impl Database {
         let key = target.key()?;
         let (version_count,snapshot_bytes): (i64,i64) = self.conn.query_row("SELECT count(*),COALESCE(sum(length(CAST(document_snapshot AS BLOB))+length(CAST(html AS BLOB))+length(CAST(markdown AS BLOB))+length(CAST(text AS BLOB))),0) FROM record_versions WHERE record_key=?1", [&key], |row|Ok((row.get(0)?,row.get(1)?))).map_err(io_error)?;
         let retained_asset_count: i64 = self.conn.query_row("SELECT count(DISTINCT asset_ref) FROM record_version_assets JOIN record_versions ON record_versions.id=version_id WHERE record_key=?1", [&key], |row|row.get(0)).map_err(io_error)?;
+        let project_id = match target.scope {
+            Scope::Workspace => None,
+            Scope::Project { project_id } => Some(project_id),
+        };
+        let (receipt_count,receipt_bytes): (i64,i64) = self.conn.query_row("SELECT count(*),COALESCE(sum(length(CAST(result_json AS BLOB))),0) FROM agent_operation_receipts WHERE operation LIKE 'record.%' AND state='committed' AND COALESCE(json_extract(result_json,'$.head.target.recordId'),json_extract(result_json,'$.target.recordId'))=?1 AND COALESCE(json_extract(result_json,'$.head.target.scope.kind'),json_extract(result_json,'$.target.scope.kind'))=?2 AND COALESCE(json_extract(result_json,'$.head.target.scope.projectId'),json_extract(result_json,'$.target.scope.projectId')) IS ?3", params![target.record_id,if project_id.is_some() {"project"} else {"workspace"},project_id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(io_error)?;
         Ok(RecordVersionCapacity {
             version_count: version_count as u64,
             snapshot_bytes: snapshot_bytes as u64,
             retained_asset_count: retained_asset_count as u64,
+            receipt_count: receipt_count as u64,
+            receipt_bytes: receipt_bytes as u64,
         })
     }
     pub(crate) fn record_document_checkpoint(
@@ -1090,12 +1155,12 @@ impl Database {
             if current.head_revision != input.base_revision { return Err(conflict(&current)); }
             let due = current.checkpoint_due_at.as_deref().map(chrono::DateTime::parse_from_rfc3339).transpose().map_err(|_|damaged())?;
             if current.edit_session_id.is_none() || (matches!(input.reason,RecordCheckpointReason::Due) && due.is_none_or(|due|due > Utc::now())) {
-                return Ok((RecordCheckpointResult{head:current,version_id:None,checkpointed:false},None));
+                return Ok((RecordCheckpointResult{head:(&current).into(),version_id:None,checkpointed:false},None));
             }
             let id = snapshot(tx,&current,&current_source.title,&RecordVersionOrigin::Manual,&json!({"kind":"gui","checkpointReason":input.reason}),request_id,None)?;
             tx.execute("UPDATE record_document_heads SET edit_session_id=NULL,edit_started_at=NULL,checkpoint_due_at=NULL WHERE record_key=?1", [input.target.key()?]).map_err(io_error)?;
             let updated = head(tx,&input.target)?.ok_or_else(damaged)?;
-            Ok((RecordCheckpointResult{head:updated,version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
+            Ok((RecordCheckpointResult{head:(&updated).into(),version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
         })
     }
     pub(crate) fn record_version_restore(
@@ -1407,18 +1472,18 @@ impl Database {
         expected_source_hash: &str,
         projection: &RecordDocumentProjection,
         workspace_id: &str,
-    ) -> AgentResult<RecordDocumentHead> {
+    ) -> AgentResult<RecordCommittedHead> {
         let compatibility = self.record_compatibility_html(target, projection)?;
         self.agent_atomic_operation(caller,request_id,"record.document.initialize", &(target,expected_source_hash,projection), |tx| {
             let current_source = source(tx,target)?;
-            if let Some(current) = head(tx,target)? { return Ok((current,None)); }
+            if let Some(current) = head(tx,target)? { return Ok((RecordCommittedHead::from(&current),None)); }
             if current_source.source_hash != expected_source_hash { return Err(AgentError::new(ErrorCode::RevisionConflict,"Legacy Record changed before baseline conversion")); }
             let (project,workspace) = match target.scope { Scope::Workspace => (None,Some(target.record_id)),Scope::Project { .. } => (Some(target.record_id),None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)",params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,Utc::now().to_rfc3339()]).map_err(io_error)?;
             Self::record_write_projection(tx,target,projection,&compatibility, workspace_id)?;
             let initial = head(tx,target)?.ok_or_else(|| AgentError::new(ErrorCode::IoFailed,"Cannot read new Record head"))?;
             snapshot(tx,&initial,&current_source.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
-            Ok((initial,Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
+            Ok((RecordCommittedHead::from(&initial),Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
         })
     }
     pub(crate) fn record_document_commit(
@@ -1524,7 +1589,7 @@ impl Database {
         if current.projection.body_hash == input.projection.body_hash {
             return Ok((
                 RecordCommitResult {
-                    head: current,
+                    head: (&current).into(),
                     no_change: true,
                     before_version: latest_version,
                     after_version: None,
@@ -1600,7 +1665,7 @@ impl Database {
         };
         Ok((
             RecordCommitResult {
-                head: updated,
+                head: (&updated).into(),
                 no_change: false,
                 before_version,
                 after_version,
@@ -1719,7 +1784,12 @@ mod tests {
             .content_markdown
             .is_empty());
         assert_eq!(
-            saved.head.projection.document["content"][0]["attrs"]["blockId"],
+            database
+                .record_document_head(&saved.head.target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document["content"][0]["attrs"]["blockId"],
             projection.document["content"][0]["attrs"]["blockId"]
         );
         assert_eq!(version_count(&database), 2);
@@ -2651,6 +2721,78 @@ mod tests {
         (project.id, database.conn.last_insert_rowid())
     }
     #[test]
+    fn record_autosave_receipts_store_commit_credentials_without_body_copies() {
+        let (_directory, database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+                "workspace-test",
+            )
+            .unwrap();
+        let mut commit = RecordDocumentCommit {
+            target: target.clone(),
+            base_revision: 1,
+            projection: changed(&projection, &"Large draft ".repeat(10000)),
+            origin: RecordVersionOrigin::Manual,
+            actor: json!({"kind":"gui"}),
+            edit_session_id: Some("a".repeat(32)),
+        };
+        let saved = database
+            .record_document_commit("gui", "autosave-first", &commit, "workspace-test")
+            .unwrap();
+        commit.base_revision = 2;
+        commit.projection = changed(&projection, "Later body");
+        database
+            .record_document_commit("gui", "autosave-later", &commit, "workspace-test")
+            .unwrap();
+        let receipt: String = database.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id='autosave-first'", [], |row| row.get(0)).unwrap();
+        assert!(
+            receipt.len() < 2048,
+            "receipt copied the body: {} bytes",
+            receipt.len()
+        );
+        assert!(!receipt.contains("Large draft"));
+        commit.base_revision = 1;
+        commit.projection = changed(&projection, &"Large draft ".repeat(10000));
+        let replay = database
+            .record_document_commit("gui", "autosave-first", &commit, "workspace-test")
+            .unwrap();
+        assert_eq!(replay.head.head_revision, saved.head.head_revision);
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            3
+        );
+        assert_eq!(version_count(&database), 1);
+        let capacity = database.record_version_capacity(&target).unwrap();
+        assert_eq!(capacity.receipt_count, 3);
+        assert!(capacity.receipt_bytes < 4096);
+        let mut legacy = serde_json::to_value(&saved).unwrap();
+        legacy["head"] = json!({"target":target,"headRevision":saved.head.head_revision,"projection":commit.projection,"editSessionId":"a".repeat(32),"checkpointDueAt":"old"});
+        database.conn.execute("UPDATE agent_operation_receipts SET result_json=?1 WHERE request_id='autosave-first'", [legacy.to_string()]).unwrap();
+        database.record_compact_operation_receipts().unwrap();
+        database.record_compact_operation_receipts().unwrap();
+        let compacted: String = database.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id='autosave-first'", [], |row| row.get(0)).unwrap();
+        assert!(compacted.len() < 2048);
+        assert!(!compacted.contains("Large draft"));
+        assert_eq!(
+            database
+                .record_document_commit("gui", "autosave-first", &commit, "workspace-test")
+                .unwrap()
+                .head
+                .head_revision,
+            2
+        );
+    }
+    #[test]
     fn record_change_log_uses_canonical_object_keys_and_migrates_legacy_rows() {
         let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
@@ -2886,6 +3028,11 @@ mod tests {
             .record_document_commit("gui", "second", &input, "workspace-test")
             .unwrap();
         assert_eq!(second.before_version, first.before_version);
+        let second_checkpoint_due_at = database
+            .record_document_head(&second.head.target)
+            .unwrap()
+            .unwrap()
+            .checkpoint_due_at;
         assert_eq!(version_count(&database), 1);
         input.base_revision = 3;
         let unchanged = database
@@ -2895,8 +3042,12 @@ mod tests {
         assert_eq!(unchanged.head.head_revision, 3);
         assert_eq!(version_count(&database), 1);
         assert_eq!(
-            unchanged.head.checkpoint_due_at,
-            second.head.checkpoint_due_at
+            database
+                .record_document_head(&unchanged.head.target)
+                .unwrap()
+                .unwrap()
+                .checkpoint_due_at,
+            second_checkpoint_due_at
         );
         input.origin = RecordVersionOrigin::Agent;
         input.edit_session_id = None;
@@ -2906,7 +3057,12 @@ mod tests {
             .unwrap();
         assert_ne!(boundary.before_version, first.before_version);
         assert_eq!(version_count(&database), 3);
-        assert!(boundary.head.edit_session_id.is_none());
+        assert!(database
+            .record_document_head(&boundary.head.target)
+            .unwrap()
+            .unwrap()
+            .edit_session_id
+            .is_none());
     }
 
     #[test]
@@ -2957,7 +3113,12 @@ mod tests {
             .unwrap();
         assert!(saved.checkpointed);
         assert_eq!(saved.head.head_revision, 2);
-        assert!(saved.head.edit_session_id.is_none());
+        assert!(database
+            .record_document_head(&saved.head.target)
+            .unwrap()
+            .unwrap()
+            .edit_session_id
+            .is_none());
         assert_eq!(version_count(&database), 2);
         assert!(
             database
@@ -2993,7 +3154,7 @@ mod tests {
         let restored = database
             .record_version_restore("gui", "restore", &restore, "workspace-test")
             .unwrap();
-        assert_eq!(restored.head.projection.body_hash, projection.body_hash);
+        assert_eq!(restored.head.body_hash, projection.body_hash);
         assert_eq!(restored.head.head_revision, 3);
         assert_eq!(version_count(&database), 3);
         assert_eq!(
@@ -3174,9 +3335,16 @@ mod tests {
         let last = database
             .record_document_commit("gui", "last", &input, "workspace-test")
             .unwrap();
-        let due =
-            chrono::DateTime::parse_from_rfc3339(last.head.checkpoint_due_at.as_deref().unwrap())
-                .unwrap();
+        let due = chrono::DateTime::parse_from_rfc3339(
+            database
+                .record_document_head(&last.head.target)
+                .unwrap()
+                .unwrap()
+                .checkpoint_due_at
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
         assert!(due <= before + Duration::seconds(1));
         assert_eq!(version_count(&database), 1);
         drop(database);

@@ -27,6 +27,6 @@ export async function fixtureBodySave(input: RecordBodySaveInput, previous: Note
   const record = await persist({ noteId: input.target.recordId, title: input.metadata?.title ?? previous.title ?? null,
     tagIds: input.metadata?.tagIds ?? (previous.tags ?? []).map((tag) => tag.id), html, markdown, defaultCodeLanguage: input.codeLanguage });
   const editor = fixtureEditorState(input.target, record, input.baseRevision + 1);
-  return { editor, commit: { head: editor.head, noChange: false, beforeVersion: "v1", afterVersion: null,
+  return { editor, commit: { head: { target: editor.head.target, headRevision: editor.head.headRevision, bodyHash: editor.head.projection.bodyHash }, noChange: false, beforeVersion: "v1", afterVersion: null,
     ...(input.metadata ? { metadata: editor.metadata } : {}) } };
 }

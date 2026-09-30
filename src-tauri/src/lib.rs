@@ -140,6 +140,7 @@ impl WorkspaceRuntime {
     ) -> Result<Self> {
         let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
         db.record_migrate_operation_keys(&metadata.workspace_id).map_err(|error| anyhow!(error.message))?;
+        db.record_compact_operation_receipts().map_err(|error| anyhow!(error.message))?;
         if let Err(error) = db.record_seal_pending_checkpoints(true, &metadata.workspace_id) {
             let _ = app_handle.emit("record:checkpoint-error", error);
         }
@@ -195,6 +196,7 @@ impl WorkspaceRuntime {
         let mut db_guard = lock_mutex(&self.db);
         let next_db = Database::open(&self.paths.db_path, &self.paths.root_path, secret_password)?;
         next_db.record_migrate_operation_keys(&self.agent_binding.workspace_id).map_err(|error| anyhow!(error.message))?;
+        next_db.record_compact_operation_receipts().map_err(|error| anyhow!(error.message))?;
         *db_guard = next_db;
         let execution = db_guard.ai_execution_settings_get()?;
         self.ai_jobs.set_max_concurrency(execution.max_concurrency);

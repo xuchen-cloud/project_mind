@@ -21,7 +21,7 @@ const latest = version(2,"Revised idea");
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(recordDocumentApi.versionsList).mockResolvedValue({ versions: [summary(latest),summary(old)], nextBefore: null });
-  vi.mocked(recordDocumentApi.capacity).mockResolvedValue({ versionCount: 2, snapshotBytes: 1024, retainedAssetCount: 1 });
+  vi.mocked(recordDocumentApi.capacity).mockResolvedValue({ versionCount: 2, snapshotBytes: 1024, retainedAssetCount: 1, receiptCount: 3, receiptBytes: 500 });
   vi.mocked(recordDocumentApi.versionPreview).mockImplementation(async (_binding,_target,id) => ({ version: id === old.id ? old : latest, html: id === old.id ? old.projection.html : latest.projection.html }));
   vi.mocked(recordDocumentApi.versionGet).mockResolvedValue(latest);
   vi.mocked(recordDocumentApi.versionsCompare).mockResolvedValue({ added: [], deleted: [], modified: [blockId], moved: [] });

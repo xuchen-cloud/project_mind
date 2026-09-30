@@ -113,6 +113,25 @@ pub(crate) struct RecordDocumentHead {
     pub checkpoint_due_at: Option<String>,
 }
 
+/// Stable operation credentials. Autosave receipts must never carry another
+/// full body; callers read the current editor state separately from this result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordCommittedHead {
+    pub target: RecordTarget,
+    pub head_revision: u64,
+    pub body_hash: String,
+}
+impl From<&RecordDocumentHead> for RecordCommittedHead {
+    fn from(head: &RecordDocumentHead) -> Self {
+        Self {
+            target: head.target.clone(),
+            head_revision: head.head_revision,
+            body_hash: head.projection.body_hash.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordLegacySource {
@@ -163,7 +182,7 @@ pub(crate) struct RecordDocumentCommit {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordCommitResult {
-    pub head: RecordDocumentHead,
+    pub head: RecordCommittedHead,
     pub no_change: bool,
     pub before_version: String,
     pub after_version: Option<String>,
@@ -212,7 +231,7 @@ pub(crate) enum RecordCheckpointReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordCheckpointResult {
-    pub head: RecordDocumentHead,
+    pub head: RecordCommittedHead,
     pub version_id: Option<String>,
     pub checkpointed: bool,
 }
@@ -260,6 +279,8 @@ pub(crate) struct RecordVersionCapacity {
     pub version_count: u64,
     pub snapshot_bytes: u64,
     pub retained_asset_count: u64,
+    pub receipt_count: u64,
+    pub receipt_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,7 +305,7 @@ pub(crate) enum RecordPatchPreparation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordPatchResult {
-    pub head: RecordDocumentHead,
+    pub head: RecordCommittedHead,
     pub before_revision: u64,
     pub after_revision: u64,
     pub created_block_ids: Vec<String>,

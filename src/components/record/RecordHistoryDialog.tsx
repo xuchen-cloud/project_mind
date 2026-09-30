@@ -94,7 +94,7 @@ export default function RecordHistoryDialog({ binding, target, assetHandlers, on
       <p className="text-body">恢复版本 {preview?.version.versionNumber} 的正文和代码语言？当前标题与标签会保留。</p>
       <div className="mt-2 flex gap-2"><Button type="button" size="sm" variant="primary" disabled={busy} onClick={() => void restore()}>{busy ? "恢复中…" : "确认恢复正文"}</Button><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>取消</Button></div>
     </div> : null}
-    {capacity ? <p className="mb-3 text-ui text-text-soft">{capacity.versionCount} 个版本 · 快照 {(capacity.snapshotBytes / 1024 / 1024).toFixed(2)} MB · 保留 {capacity.retainedAssetCount} 个资源</p> : null}
+    {capacity ? <p className="mb-3 text-ui text-text-soft">{capacity.versionCount} 个版本 · 快照 {(capacity.snapshotBytes / 1024 / 1024).toFixed(2)} MB · {capacity.receiptCount} 条保存记录占 {(capacity.receiptBytes / 1024 / 1024).toFixed(2)} MB · 保留 {capacity.retainedAssetCount} 个资源</p> : null}
     <div className="record-history__columns">
       <div className="record-history__versions"><HomeSidebarList label="记录版本">
         {!page && !error ? <p role="status" className="text-ui text-text-soft">正在读取历史…</p> : null}
