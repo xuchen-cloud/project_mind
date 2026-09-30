@@ -14,7 +14,8 @@ export interface RecordConflictDraft {
 }
 export type RecordConflictMode = "compare" | "reload" | "copy";
 
-export function RecordConflictActions({ binding, target, incoming, workspaceRoot, availableTags, assetHandlers, getDraft, pendingReviewCount, onReload, onSavedAs }: {
+export function RecordConflictActions({ visible = true, binding, target, incoming, workspaceRoot, availableTags, assetHandlers, getDraft, pendingReviewCount, onReload, onSavedAs }: {
+  visible?: boolean;
   binding: AgentWorkspaceBinding; target: RecordTarget; incoming: RecordEditorState; workspaceRoot: string;
   availableTags: ProjectTagRecord[]; assetHandlers?: RichEditorAssetHandlers;
   getDraft: () => RecordConflictDraft; pendingReviewCount: () => number;
@@ -27,15 +28,18 @@ export function RecordConflictActions({ binding, target, incoming, workspaceRoot
   const creation = useRef(new CanonicalRecordCreation());
   const active = useRef(false);
   const mounted = useRef(true);
+  const visibility = useRef({ visible, revision: 0 });
+  if (visibility.current.visible !== visible) visibility.current = { visible, revision: visibility.current.revision + 1 };
   const identity = useRef("");
-  identity.current = `${binding.workspaceId}:${binding.generation}:${JSON.stringify(target)}`;
+  identity.current = `${binding.workspaceId}:${binding.generation}:${JSON.stringify(target)}:${visibility.current.revision}`;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { if (!visible) { setMode(null); setDraft(null); setError(null); } }, [visible]);
   function open(next: RecordConflictMode) {
     try { setDraft(structuredClone(getDraft())); setError(null); setMode(next); }
     catch (failure) { setError(String(failure)); }
   }
   async function confirm() {
-    if (active.current || mode === "compare" || !mode) return;
+    if (!visible || active.current || mode === "compare" || !mode) return;
     const capturedIdentity = identity.current;
     active.current = true; setBusy(true); setError(null);
     try {
@@ -56,10 +60,11 @@ export function RecordConflictActions({ binding, target, incoming, workspaceRoot
         if (pendingReviewCount() > 0) throw new Error("请先接受或取消待确认的 AI 内容，另存结果已保留");
         await onSavedAs(saved);
       }
-      if (mounted.current) setMode(null);
-    } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure)); }
+      if (mounted.current && capturedIdentity === identity.current) setMode(null);
+    } catch (failure) { if (mounted.current && capturedIdentity === identity.current) setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { active.current = false; if (mounted.current) setBusy(false); }
   }
+  if (!visible) return null;
   return <div className="rounded-[var(--radius-8)] border border-border p-3">
     <p role="alert" className="text-body text-text-muted">这条记录已在别处更新。当前草稿已保留，保存队列不会覆盖新内容。</p>
     <div className="mt-2 flex flex-wrap gap-2">

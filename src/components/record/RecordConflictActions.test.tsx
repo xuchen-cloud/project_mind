@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { RecordConflictActions, type RecordConflictDraft } from "./RecordConflictActions";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
@@ -58,5 +58,25 @@ it("copies the latest committed draft and retains the created identity if queue 
   }, expect.any(String));
   fireEvent.click(confirm);
   await waitFor(() => expect(onSavedAs).toHaveBeenCalledTimes(2));
+  expect(recordDocumentApi.create).toHaveBeenCalledOnce();
+});
+it("closes a hidden resident page's dialog and does not resolve its draft after a late creation reply", async () => {
+  let complete!: (state: typeof incoming) => void;
+  vi.mocked(recordDocumentApi.create).mockReturnValue(new Promise((resolve) => { complete = resolve; }));
+  const onSavedAs = vi.fn();
+  const callbacks = { onReload: vi.fn(), onSavedAs };
+  const view = render(<RecordConflictActions {...props} {...callbacks} />);
+  fireEvent.click(screen.getByRole("button", { name: "另存 Record" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认另存 Record" }));
+  await waitFor(() => expect(recordDocumentApi.create).toHaveBeenCalledOnce());
+  view.rerender(<RecordConflictActions {...props} {...callbacks} visible={false} />);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  view.rerender(<RecordConflictActions {...props} {...callbacks} visible />);
+  await act(async () => { complete(incoming); });
+  expect(onSavedAs).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "另存 Record" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认另存 Record" }));
+  await waitFor(() => expect(onSavedAs).toHaveBeenCalledOnce());
   expect(recordDocumentApi.create).toHaveBeenCalledOnce();
 });

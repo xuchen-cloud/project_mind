@@ -48,4 +48,18 @@ describe("Record canonical document", () => {
     expect(canonicalDocumentJson(document)).toBe(canonicalDocumentJson(JSON.parse(JSON.stringify(document))));
     expect(missing.content[0]).not.toHaveProperty("attrs");
   });
+
+  it("rejects malformed nullable attributes and preserves numeric IDs from HTML", () => {
+    const image = (attrs: Record<string, unknown>) => ({ type: "doc", content: [{ type: "image", attrs: { src: "https://example.com/image.png", ...attrs } }] });
+    for (const attrs of [{ alt: true }, { title: 12 }, { width: -1 }, { height: "12px" }, { documentId: "01" }, { documentId: 9007199254740992 }, { annotationState: false }]) {
+      expect(() => initializeRecordDocument(image(attrs), schema)).toThrow(/Invalid attribute/);
+    }
+    const document = initializeRecordDocument({ type: "doc", content: [
+      { type: "image", attrs: { src: "https://example.com/image.png", width: 320, height: "240", documentId: "8" } },
+      { type: "paragraph", content: [{ type: "tagMention", attrs: { tagId: "9" } }, { type: "contactMention", attrs: { contactId: 10 } }] },
+    ] }, schema);
+    expect(document.content![0].attrs).toMatchObject({ width: 320, height: "240", documentId: "8" });
+    expect(document.content![1].content![0].attrs?.tagId).toBe("9");
+    expect(() => initializeRecordDocument({ type: "doc", content: [{ type: "table", content: [{ type: "tableRow", content: [{ type: "tableCell", attrs: { colwidth: true }, content: [{ type: "paragraph" }] }] }] }] }, schema)).toThrow(/Invalid attribute/);
+  });
 });

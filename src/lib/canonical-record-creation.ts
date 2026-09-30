@@ -2,7 +2,7 @@ import type { AgentScope, AgentWorkspaceBinding } from "./agent-types";
 import type { RecordCreateInput, RecordEditorState } from "./record-document-types";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import { buildProjectNoteImageAssetHandlers, buildWorkspaceNoteImageAssetHandlers, materializeEmbeddedRecordImages } from "../components/rich-editor/noteImageAssets";
-import type { JSONContent } from "@tiptap/core";
+import { recordMentionTagIds } from "./record-object-ids";
 
 type PreparedCreation = { binding: AgentWorkspaceBinding; input: RecordCreateInput };
 type CreationAttempt = { fingerprint: string; requestId: string; prepared: Promise<PreparedCreation>; result?: RecordEditorState };
@@ -46,12 +46,7 @@ export class CanonicalRecordCreation {
     if (expectedBinding && (binding.workspaceId !== expectedBinding.workspaceId || binding.generation !== expectedBinding.generation)) throw new Error("Workspace 已切换，草稿已保留");
     const handlers = input.scope.kind === "project" ? buildProjectNoteImageAssetHandlers(input.scope.projectId) : buildWorkspaceNoteImageAssetHandlers();
     await materializeEmbeddedRecordImages(input.document, handlers);
-    const tags = new Set(input.tagIds);
-    const visit = (node: JSONContent) => {
-      if (node.type === "tagMention" && Number.isSafeInteger(node.attrs?.tagId) && node.attrs!.tagId > 0) tags.add(node.attrs!.tagId);
-      node.content?.forEach(visit);
-    };
-    visit(input.document);
+    const tags = new Set([...input.tagIds, ...recordMentionTagIds(input.document)]);
     return { binding, input: { ...input, tagIds: [...tags].sort((a, b) => a - b) } };
   }
 }

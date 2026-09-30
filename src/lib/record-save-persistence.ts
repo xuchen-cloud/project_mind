@@ -12,18 +12,9 @@ import { AgentApiError } from "../services/agentApi";
 import type { RecordBodySaveInput } from "./record-document-types";
 import type { JSONContent } from "@tiptap/core";
 import { extractTagMentionIds } from "./tagMentions";
+import { recordMentionTagIds } from "./record-object-ids";
 
 const canonicalDrafts = new WeakMap<object, { document: JSONContent; preparing?: Promise<void> }>();
-
-function canonicalMentionTags(document: JSONContent): number[] {
-  const tags: number[] = [];
-  const visit = (node: JSONContent) => {
-    if (node.type === "tagMention" && Number.isSafeInteger(node.attrs?.tagId) && node.attrs!.tagId > 0) tags.push(node.attrs!.tagId);
-    for (const child of node.content ?? []) visit(child);
-  };
-  visit(document);
-  return tags;
-}
 
 async function persistCanonicalSnapshot(snapshot: Readonly<CommittedRecordSnapshot>): Promise<RecordSaveResult> {
   const body = snapshot.canonicalBody!;
@@ -46,7 +37,7 @@ async function persistCanonicalSnapshot(snapshot: Readonly<CommittedRecordSnapsh
   const target = { recordId: snapshot.recordId, scope: snapshot.scope === "project"
     ? { kind: "project" as const, projectId: snapshot.projectId } : { kind: "workspace" as const } };
   const title = snapshot.title.trim() || null;
-  const tagIds = Array.from(new Set([...snapshot.tagIds, ...canonicalMentionTags(draft.document)])).sort((a, b) => a - b);
+  const tagIds = Array.from(new Set([...snapshot.tagIds, ...recordMentionTagIds(draft.document)])).sort((a, b) => a - b);
   const base = body.metadataBase;
   const metadataChanged = base && (title !== base.title
     || JSON.stringify(tagIds) !== JSON.stringify([...base.tagIds].sort((a, b) => a - b)));

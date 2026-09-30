@@ -54,9 +54,9 @@ it("does not write unchanged headers or infer tags from stale markdown", async (
   expect(vi.mocked(recordDocumentApi.bodySave).mock.calls[0]?.[1].metadata).toBeUndefined();
 });
 
-it("adds mention tags from the committed tree", async () => {
+it.each([8, "8"])("adds mention tags from the committed tree with ID %s", async (tagId) => {
   const snapshot = fixture();
-  snapshot.canonicalBody!.document.content![0].content = [{ type: "tagMention", attrs: { tagId: 8, label: "Actual", colorKey: "blue" } }];
+  snapshot.canonicalBody!.document.content![0].content = [{ type: "tagMention", attrs: { tagId, label: "Actual", colorKey: "blue" } }];
   vi.mocked(recordDocumentApi.bodySave).mockRejectedValue(new Error("captured"));
   await expect(persistRecordSnapshot(snapshot)).rejects.toThrow("captured");
   expect(vi.mocked(recordDocumentApi.bodySave).mock.calls[0]?.[1].metadata?.tagIds).toEqual([4, 8]);

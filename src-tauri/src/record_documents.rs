@@ -381,6 +381,24 @@ impl RecordDocumentProjection {
     }
 }
 
+pub(crate) fn positive_object_id(value: &Value) -> Option<u64> {
+    match value {
+        Value::String(value)
+            if !value.starts_with('0') && value.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            value.parse().ok()
+        }
+        Value::Number(value) => value
+            .as_f64()
+            .filter(|value| {
+                value.fract() == 0.0 && *value > 0.0 && *value <= 9_007_199_254_740_991.0
+            })
+            .map(|value| value as u64),
+        _ => None,
+    }
+    .filter(|id| *id > 0 && *id <= 9_007_199_254_740_991)
+}
+
 fn validate_attrs(value: Option<&Value>, ty: &EditorType) -> AgentResult<()> {
     let Some(value) = value else {
         return Ok(());
@@ -410,6 +428,21 @@ fn validate_attrs(value: Option<&Value>, ty: &EditorType) -> AgentResult<()> {
             || (default.is_string() && !value.is_string())
         {
             return Err(invalid("Invalid editor attribute type"));
+        }
+        if default.is_null() && !value.is_null() {
+            let valid = match name.as_str() {
+                "colwidth" => widths,
+                "documentId" | "refId" | "tagId" | "contactId" => {
+                    positive_object_id(value).is_some()
+                }
+                "width" | "height" => {
+                    positive_object_id(value).is_some_and(|size| size <= 1_000_000)
+                }
+                _ => value.is_string(),
+            };
+            if !valid {
+                return Err(invalid("Invalid editor attribute type"));
+            }
         }
         if matches!(name.as_str(), "colspan" | "rowspan")
             && !value
@@ -467,6 +500,36 @@ mod tests {
             projection.validate().unwrap_err().code,
             ErrorCode::InvalidPatch
         );
+    }
+    #[test]
+    fn record_nullable_attributes_match_worker_types_and_html_ids() {
+        let image = schema()
+            .nodes
+            .iter()
+            .find(|node| node.name == "image")
+            .unwrap();
+        for attrs in [
+            json!({"alt": true}),
+            json!({"title": 12}),
+            json!({"width": -1}),
+            json!({"height": "12px"}),
+            json!({"documentId": "01"}),
+            json!({"documentId": 9_007_199_254_740_992_u64}),
+            json!({"annotationState": false}),
+        ] {
+            assert_eq!(
+                validate_attrs(Some(&attrs), image).unwrap_err().code,
+                ErrorCode::InvalidPatch
+            );
+        }
+        validate_attrs(Some(&json!({"width": 320, "height": "240", "documentId": "8", "annotationState": "{\"shape\":\"rect\"}"})), image).unwrap();
+        let cell = schema()
+            .nodes
+            .iter()
+            .find(|node| node.name == "tableCell")
+            .unwrap();
+        assert!(validate_attrs(Some(&json!({"colwidth": true})), cell).is_err());
+        validate_attrs(Some(&json!({"colwidth": [100, 0]})), cell).unwrap();
     }
 }
 

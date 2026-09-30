@@ -869,13 +869,15 @@ export function WorkspaceLayout({
     if (activeProjectId === null) {
       return;
     }
-    const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
-    const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
-    const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
-    creation.reset();
-    await refreshProjectScope(queryClient, activeProjectId);
-    navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
-  }, [activeProjectId, currentWorkspace?.rootPath, location.search, navigate, queryClient, refreshProjectScope]);
+    try {
+      const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
+      const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
+      const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
+      await refreshProjectScope(queryClient, activeProjectId);
+      creation.reset();
+      navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
+    } catch (error) { pushToast({ tone: "error", title: "新建记录失败", detail: String(error) }); }
+  }, [activeProjectId, currentWorkspace?.rootPath, location.search, navigate, pushToast, queryClient, refreshProjectScope]);
 
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {

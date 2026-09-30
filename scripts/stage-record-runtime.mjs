@@ -1,8 +1,9 @@
-import { readFile, writeFile, mkdir, copyFile, cp, chmod, rm, rename, mkdtemp, lstat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile, chmod, rm, rename, mkdtemp, lstat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { verifyRecordWorkerDistribution } from './record-worker-notices.mjs';
 
 const repository = fileURLToPath(new URL('..', import.meta.url));
 const host = path.join(repository, 'packages/agent-host');
@@ -11,6 +12,7 @@ const target = process.argv[2] ?? `${process.platform === 'win32' ? 'win' : proc
 if (!manifest.targets[target]) throw new Error(`Unsupported document utility target: ${target}`);
 const executable = target.startsWith('win-') ? 'node.exe' : 'node';
 const runtime = path.join(host, 'runtime', target);
+const distribution = await verifyRecordWorkerDistribution(path.join(host, 'dist'));
 const receipt = JSON.parse(await readFile(path.join(runtime, 'verified-runtime.json'), 'utf8'));
 const checksum = async (file) => createHash('sha256').update(await readFile(file)).digest('hex');
 if (receipt.target !== target || receipt.nodeVersion !== manifest.nodeVersion
@@ -43,14 +45,17 @@ try {
   await copyFile(path.join(runtime, executable), path.join(staging, executable));
   await copyFile(path.join(runtime, 'LICENSE'), path.join(staging, 'NODE-LICENSE'));
   await copyFile(path.join(host, 'src/record-worker-entry.mjs'), path.join(staging, 'src/record-worker-entry.mjs'));
-  await cp(path.join(host, 'dist'), path.join(staging, 'dist'), { recursive: true, dereference: false, filter: async (source) => {
-    if ((await lstat(source)).isSymbolicLink()) throw new Error('Document utility distribution contains a symbolic link');
-    return true;
-  } });
+  await mkdir(path.join(staging, 'dist'));
+  for (const file of [...distribution.manifest.bundles.map((entry) => entry.file), 'THIRD-PARTY-NOTICES.txt', 'record-worker-distribution.json']) {
+    await copyFile(path.join(host, 'dist', file), path.join(staging, 'dist', file));
+  }
+  const copied = await verifyRecordWorkerDistribution(path.join(staging, 'dist'));
+  if (copied.manifestChecksum !== distribution.manifestChecksum) throw new Error('Utility build changed while staging resources');
   if (!target.startsWith('win-')) await chmod(path.join(staging, executable), 0o755);
   const nodeChecksum = createHash('sha256').update(await readFile(path.join(staging, executable))).digest('hex');
   await writeFile(path.join(staging, 'runtime.json'), JSON.stringify({ target, nodeVersion: manifest.nodeVersion,
-    nodeChecksum, sourceArchive: manifest.targets[target].archive, sourceArchiveChecksum: manifest.targets[target].sha256 }, null, 2));
+    nodeChecksum, sourceArchive: manifest.targets[target].archive, sourceArchiveChecksum: manifest.targets[target].sha256,
+    workerDistributionChecksum: distribution.manifestChecksum, workerNoticesChecksum: distribution.manifest.noticesChecksum }, null, 2));
   const destination = path.join(resources, 'agent-host');
   await rm(destination, { recursive: true, force: true });
   await rename(staging, destination);

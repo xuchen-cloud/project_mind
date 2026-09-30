@@ -348,11 +348,13 @@ export function WorkspacePage({
   }
 
   async function createWorkspaceRecordInFocus() {
-    const { record } = await createBlankCanonicalRecord(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, recordCreation);
-    recordCreation.reset();
-    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
-    navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    try {
+      const { record } = await createBlankCanonicalRecord(saveCoordinator?.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, recordCreation);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+      recordCreation.reset();
+      navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    } catch (error) { pushToast({ tone: "error", title: "新建记录失败", detail: String(error) }); }
   }
 
   async function renameWorkspaceSidebarRecord(recordId: number, title: string) {
@@ -607,9 +609,9 @@ export function WorkspacePage({
                     scope: { kind: "workspace" }, document: input.document, title: input.title ?? null,
                     tagIds: input.tagIds ?? [], codeLanguage: input.defaultCodeLanguage ?? null,
                   });
-                  recordCreation.reset();
                   await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+                  recordCreation.reset();
                 }}
                 onUpdateRecord={async (note, input) => {
                   const externalizedValue = await externalizeEmbeddedImageDataUrls(

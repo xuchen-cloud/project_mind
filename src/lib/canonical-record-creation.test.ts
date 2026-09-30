@@ -1,10 +1,11 @@
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { CanonicalRecordCreation } from "./canonical-record-creation";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import { materializeEmbeddedRecordImages } from "../components/rich-editor/noteImageAssets";
 import type { RecordEditorState } from "./record-document-types";
 vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(), create: vi.fn() } }));
 vi.mock("../components/rich-editor/noteImageAssets", () => ({ materializeEmbeddedRecordImages: vi.fn(async () => undefined), buildProjectNoteImageAssetHandlers: vi.fn(), buildWorkspaceNoteImageAssetHandlers: vi.fn() }));
+beforeEach(() => vi.clearAllMocks());
 
 it("retains the same bound creation intent and prepared assets after losing a native response", async () => {
   const binding = { workspaceId: "workspace", generation: "opened" };
@@ -18,4 +19,13 @@ it("retains the same bound creation intent and prepared assets after losing a na
   expect(materializeEmbeddedRecordImages).toHaveBeenCalledOnce();
   const calls = vi.mocked(recordDocumentApi.create).mock.calls;
   expect(calls[1]).toEqual(calls[0]);
+});
+
+it("keeps tag metadata when HTML hydration supplies string mention IDs", async () => {
+  vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue({ workspaceId: "workspace", generation: "opened" });
+  vi.mocked(recordDocumentApi.create).mockResolvedValue({} as RecordEditorState);
+  const input = { scope: { kind: "workspace" as const }, title: null, tagIds: [4], document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "tagMention", attrs: { tagId: "9" } }, { type: "tagMention", attrs: { tagId: 4 } }] }] }, codeLanguage: null };
+  await new CanonicalRecordCreation().create("/workspace", input);
+  expect(vi.mocked(recordDocumentApi.create).mock.calls[0][1].tagIds).toEqual([4, 9]);
+  expect(input.document.content[0].content[0].attrs.tagId).toBe("9");
 });

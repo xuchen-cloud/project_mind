@@ -511,7 +511,7 @@ export function ProjectNoteFocusPage({
         >
           <div className="grid gap-4">
             {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
-            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
+            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions visible={visible} key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
               target={{ scope: { kind: "project", projectId }, recordId }} incoming={canonical.incomingConflict}
               workspaceRoot={workspaceSaveCoordinator?.workspaceKey ?? queryClient.getQueryData<{ currentWorkspace?: { rootPath: string } }>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? ""}
               availableTags={availableTags} assetHandlers={assetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
@@ -524,10 +524,10 @@ export function ProjectNoteFocusPage({
                 saveCoordinator.discard(projectRecordSaveKey(projectId, recordId));
                 resolvingConflictRef.current = true; canonical.retry();
               }}
-              onSavedAs={async (state) => {
+              onSavedAs={(state) => {
                 saveCoordinator.discard(projectRecordSaveKey(projectId, recordId));
                 resolvingConflictRef.current = true; canonical.retry();
-                await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
+                void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
                 navigate(preserveRecordFilters(recordPath(projectId, state.record.id), searchParams));
               }} /> : null}
             {canonical.error ? <div role="alert" className="text-sm text-text-soft">

@@ -359,11 +359,13 @@ export function WorkspaceRecordFocusPage({
   };
 
   async function createWorkspaceRecordInFocus() {
-    const { record } = await createBlankCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, sidebarRecordCreation.current);
-    sidebarRecordCreation.current.reset();
-    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
-    navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    try {
+      const { record } = await createBlankCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, sidebarRecordCreation.current);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+      sidebarRecordCreation.current.reset();
+      navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    } catch (error) { pushToast({ tone: "error", title: "新建记录失败", detail: String(error) }); }
   }
 
   async function renameWorkspaceSidebarRecord(nextRecordId: number, nextTitle: string) {
@@ -467,7 +469,7 @@ export function WorkspaceRecordFocusPage({
           <div className="home-content home-note-content">
             <div className="grid gap-4">
               {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
-            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
+            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions visible={visible} key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
               target={{ scope: { kind: "workspace" }, recordId }} incoming={canonical.incomingConflict} workspaceRoot={saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? ""}
               availableTags={availableTags} assetHandlers={workspaceAssetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
               getDraft={() => {
@@ -479,10 +481,10 @@ export function WorkspaceRecordFocusPage({
                 saveCoordinator.discard(workspaceRecordSaveKey(recordId));
                 resolvingConflictRef.current = true; canonical.retry();
               }}
-              onSavedAs={async (state) => {
+              onSavedAs={(state) => {
                 saveCoordinator.discard(workspaceRecordSaveKey(recordId));
                 resolvingConflictRef.current = true; canonical.retry();
-                await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                void queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
                 navigate(preserveRecordFilters(`/workspace/records/${state.record.id}`, searchParams));
               }} /> : null}
             {canonical.error ? <div role="alert" className="text-sm text-text-soft">

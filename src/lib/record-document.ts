@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import type { Schema, AttributeSpec } from "@tiptap/pm/model";
 import { TableMap } from "@tiptap/pm/tables";
+import { positiveRecordObjectId } from "./record-object-ids";
 
 export const RECORD_DOCUMENT_SCHEMA_VERSION = 1;
 export const RECORD_BLOCK_TYPES = ["paragraph", "heading", "codeBlock", "blockquote",
@@ -67,6 +68,13 @@ function checkAttrs(attrs: JSONContent["attrs"], allowed: Record<string, Attribu
     if (!scalar && !widths) fail(`Invalid attribute value ${key} in ${owner}`);
     const defaultValue = allowed[key].default;
     if (defaultValue !== null && defaultValue !== undefined && typeof value !== typeof defaultValue) fail(`Invalid attribute type ${key} in ${owner}`);
+    if (defaultValue === null && value !== null) {
+      const valid = key === "colwidth" ? widths
+        : ["documentId", "refId", "tagId", "contactId"].includes(key) ? positiveRecordObjectId(value) !== null
+        : key === "width" || key === "height" ? positiveRecordObjectId(value) !== null && Number(value) <= 1000000
+        : typeof value === "string";
+      if (!valid) fail(`Invalid attribute type ${key} in ${owner}`);
+    }
     if ((key === "colspan" || key === "rowspan") && (!Number.isSafeInteger(value) || value < 1 || value > 1000)) fail(`Invalid table span ${key}`);
     if (key === "level" && (!Number.isSafeInteger(value) || value < 1 || value > 4)) fail("Invalid heading level");
   }

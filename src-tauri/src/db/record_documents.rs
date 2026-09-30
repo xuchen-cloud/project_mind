@@ -685,6 +685,7 @@ impl Database {
             0,
             &mut 0,
         )?;
+        self.record_validate_assets(scope, &portable)?;
         Ok(portable)
     }
     pub(super) fn ensure_record_document_schema(&mut self) -> anyhow::Result<()> {
@@ -1060,12 +1061,144 @@ impl Database {
             )
         })
     }
+    fn record_validate_assets(&self, scope: &Scope, document: &Value) -> AgentResult<()> {
+        let project_root = match *scope {
+            Scope::Project { project_id } => Some(
+                self.project_root_path(project_id)
+                    .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?,
+            ),
+            Scope::Workspace => None,
+        };
+        fn visit(
+            database: &Database,
+            scope: &Scope,
+            project_root: Option<&std::path::Path>,
+            node: &Value,
+        ) -> AgentResult<()> {
+            if matches!(
+                node.get("type").and_then(Value::as_str),
+                Some("image" | "attachment")
+            ) {
+                if let Some(relative) = node.pointer("/attrs/path").and_then(Value::as_str) {
+                    if !relative_asset(relative) {
+                        return Err(invalid("Invalid retained asset path"));
+                    }
+                    let local = database.workspace_root.join(relative);
+                    let allowed = if let Some(root) = project_root {
+                        let within = local.strip_prefix(root).map_err(|_| {
+                            AgentError::new(
+                                ErrorCode::ScopeDenied,
+                                "Record asset is outside this Project",
+                            )
+                        })?;
+                        // Legacy Project assets remain portable. Private Workspace/
+                        // Project state can never be exposed as a managed attachment.
+                        !within
+                            .components()
+                            .any(|part| part.as_os_str() == super::WORKSPACE_HIDDEN_DIR_NAME)
+                            || within.starts_with(
+                                std::path::Path::new(super::WORKSPACE_HIDDEN_DIR_NAME)
+                                    .join(super::PROJECT_NOTE_ASSET_DIR_NAME)
+                                    .join("project"),
+                            )
+                    } else {
+                        std::path::Path::new(relative).starts_with("assets")
+                            || std::path::Path::new(relative).starts_with(
+                                std::path::Path::new(super::WORKSPACE_HIDDEN_DIR_NAME)
+                                    .join(super::PROJECT_NOTE_ASSET_DIR_NAME)
+                                    .join("workspace"),
+                            )
+                    };
+                    if !allowed {
+                        return Err(AgentError::new(
+                            ErrorCode::ScopeDenied,
+                            "Record asset is outside its managed resource scope",
+                        ));
+                    }
+                    let mut component = database.workspace_root.clone();
+                    for part in std::path::Path::new(relative).components() {
+                        component.push(part);
+                        match std::fs::symlink_metadata(&component) {
+                            Ok(info) if info.file_type().is_symlink() => {
+                                return Err(AgentError::new(
+                                    ErrorCode::ScopeDenied,
+                                    "Record asset contains a symbolic link",
+                                ))
+                            }
+                            Ok(_) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                            Err(_) => {
+                                return Err(AgentError::new(
+                                    ErrorCode::IoFailed,
+                                    "Cannot inspect Record asset",
+                                ))
+                            }
+                        }
+                    }
+                    if let Some(id) = node
+                        .pointer("/attrs/documentId")
+                        .filter(|value| !value.is_null())
+                    {
+                        let id = positive_object_id(id)
+                            .ok_or_else(|| invalid("Invalid managed document ID"))?
+                            as i64;
+                        let owner = database
+                            .conn
+                            .query_row(
+                                "SELECT project_id,managed_path FROM documents WHERE id=?1",
+                                [id],
+                                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                            )
+                            .optional()
+                            .map_err(io_error)?;
+                        if let Some((owner, path)) = owner {
+                            if *scope != (Scope::Project { project_id: owner }) {
+                                return Err(AgentError::new(
+                                    ErrorCode::ScopeDenied,
+                                    "Managed document belongs to another scope",
+                                ));
+                            }
+                            let current = database.decode_path_ref(&path) == local;
+                            let mut statement = database.conn.prepare("SELECT managed_path FROM document_versions WHERE document_id=?1").map_err(io_error)?;
+                            let versions = statement
+                                .query_map([id], |row| row.get::<_, String>(0))
+                                .map_err(io_error)?
+                                .collect::<Result<Vec<_>, _>>()
+                                .map_err(io_error)?;
+                            if !current
+                                && !versions
+                                    .iter()
+                                    .any(|path| database.decode_path_ref(path) == local)
+                            {
+                                return Err(AgentError::new(
+                                    ErrorCode::ScopeDenied,
+                                    "Managed document path differs from its retained versions",
+                                ));
+                            }
+                        }
+                        // An explicitly deleted File may still occur in an immutable
+                        // Record version. Keep its reference so the UI shows missing
+                        // source; restoring a Record never recreates that File.
+                    }
+                }
+            }
+            if let Some(children) = node.get("content").and_then(Value::as_array) {
+                for child in children {
+                    visit(database, scope, project_root, child)?;
+                }
+            }
+            Ok(())
+        }
+        visit(self, scope, project_root.as_deref(), document)
+    }
+
     fn record_compatibility_html(
         &self,
         target: &RecordTarget,
         projection: &RecordDocumentProjection,
     ) -> AgentResult<String> {
         let assets = projection.validate()?;
+        self.record_validate_assets(&target.scope, &projection.document)?;
         if let Scope::Project { project_id } = target.scope {
             let root = self
                 .project_root_path(project_id)
@@ -1639,6 +1772,254 @@ mod tests {
         assert!(!projection
             .html
             .contains(&database.workspace_root.to_string_lossy().to_string()));
+    }
+    #[test]
+    fn record_assets_reject_private_state_and_preserve_owned_media() {
+        let (_directory, database, target, projection) = setup();
+        for path in [
+            ".project-mind/workspace.sqlite",
+            ".project-mind/tmp/request.json",
+            "Other Project/image.png",
+        ] {
+            let mut candidate = projection.document.clone();
+            candidate["content"][2]["attrs"]["path"] = json!(path);
+            assert_eq!(
+                database
+                    .record_document_scope_from_gui(&target.scope, &candidate)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::ScopeDenied
+            );
+        }
+        let mut candidate = projection.document.clone();
+        candidate["content"][2]["attrs"]["path"] =
+            json!(".project-mind/embedded-note-assets/workspace/image.png");
+        assert!(database
+            .record_document_scope_from_gui(&target.scope, &candidate)
+            .is_ok());
+    }
+    #[test]
+    fn record_managed_document_ids_must_match_scope_and_retained_file_paths() {
+        let (_directory, mut database, _target, projection) = setup();
+        let project = database
+            .project_create(crate::models::ProjectCreateInput {
+                name: "Owned assets".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let other = database
+            .project_create(crate::models::ProjectCreateInput {
+                name: "Other assets".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let source = database.workspace_root.join("sample.png");
+        std::fs::write(&source, "managed-image").unwrap();
+        let document = database
+            .document_import(crate::models::DocumentImportInput {
+                project_id: project.id,
+                source_path: source.to_string_lossy().into(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        let scope = Scope::Project {
+            project_id: project.id,
+        };
+        let mut candidate =
+            json!({"type":"doc","content":[projection.document["content"][2].clone()]});
+        candidate["content"][0]["attrs"]["path"] = json!(document.managed_path);
+        candidate["content"][0]["attrs"]["documentId"] = json!(document.id.to_string());
+        assert!(database
+            .record_document_scope_from_gui(&scope, &candidate)
+            .is_ok());
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(&Scope::Workspace, &candidate)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        candidate["content"][0]["attrs"]["path"] = json!(std::path::Path::new(&project.root_path)
+            .join("invented.png")
+            .to_string_lossy());
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(&scope, &candidate)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        candidate["content"][0]["attrs"]["path"] = json!(std::path::Path::new(&other.root_path)
+            .join("invented.png")
+            .to_string_lossy());
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(
+                    &Scope::Project {
+                        project_id: other.id
+                    },
+                    &candidate
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        candidate["content"][0]["attrs"]["path"] = json!(document.managed_path);
+        database
+            .conn
+            .execute("DELETE FROM documents WHERE id=?1", [document.id])
+            .unwrap();
+        std::fs::remove_file(&document.managed_path).unwrap();
+        // Retained references remain valid when the user explicitly deletes a
+        // whole File, but the absent external source is never recreated.
+        assert!(database
+            .record_document_scope_from_gui(&scope, &candidate)
+            .is_ok());
+        assert!(!std::path::Path::new(&document.managed_path).exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn record_assets_reject_symbolic_links_before_migration_and_gui_preview() {
+        let (_directory, database, target, projection) = setup();
+        let external = tempfile::tempdir().unwrap();
+        std::fs::write(external.path().join("图片.png"), "outside").unwrap();
+        std::os::unix::fs::symlink(external.path(), database.workspace_root.join("assets"))
+            .unwrap();
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(&target.scope, &projection.document)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let source = database.record_document_source(&target).unwrap();
+        assert_eq!(
+            database
+                .record_document_initialize(
+                    "gui",
+                    "symlink",
+                    &target,
+                    &source.source_hash,
+                    &projection
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert!(database.record_document_head(&target).unwrap().is_none());
+        assert_eq!(
+            database
+                .record_version_editor_html(&target, &projection)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+    }
+    #[test]
+    fn removing_current_media_keeps_physical_assets_and_immutable_versions_restorable() {
+        let (_directory, database, target, projection) = setup();
+        std::fs::create_dir_all(database.workspace_root.join("assets")).unwrap();
+        std::fs::write(
+            database.workspace_root.join("assets/图片.png"),
+            "retained-image",
+        )
+        .unwrap();
+        std::fs::write(
+            database.workspace_root.join("assets/文件.pdf"),
+            "retained-file",
+        )
+        .unwrap();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline-media",
+                &target,
+                &source.source_hash,
+                &projection,
+            )
+            .unwrap();
+        let baseline = database
+            .record_versions_list(&target, None, 1)
+            .unwrap()
+            .versions[0]
+            .id
+            .clone();
+        let document = json!({"type":"doc","content":[projection.document["content"][0].clone()]});
+        let removed = RecordDocumentProjection {
+            body_hash: body_hash(&document, &projection.code_language),
+            document,
+            html: format!(
+                "<p data-block-id=\"{}\"><strong>Fixture 正文</strong></p>",
+                "1".repeat(32)
+            ),
+            markdown: "**Fixture 正文**".into(),
+            text: "Fixture 正文".into(),
+            code_language: projection.code_language.clone(),
+            schema_version: 1,
+        };
+        database
+            .record_document_commit(
+                "gui",
+                "remove-media",
+                &RecordDocumentCommit {
+                    target: target.clone(),
+                    base_revision: 1,
+                    projection: removed,
+                    origin: RecordVersionOrigin::EditorAi,
+                    actor: json!({"kind":"gui"}),
+                    edit_session_id: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .record_version_capacity(&target)
+                .unwrap()
+                .retained_asset_count,
+            2
+        );
+        assert_eq!(
+            std::fs::read_to_string(database.workspace_root.join("assets/图片.png")).unwrap(),
+            "retained-image"
+        );
+        let stored = database.record_version_get(&target, &baseline).unwrap();
+        assert_eq!(stored.projection.document, projection.document);
+        database
+            .record_version_restore(
+                "gui",
+                "restore-media",
+                &RecordRestoreInput {
+                    target: target.clone(),
+                    base_revision: 2,
+                    version_id: baseline.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .projection
+                .document["content"][2]["attrs"]["blockId"],
+            json!("6".repeat(32))
+        );
+        let unchanged = database
+            .record_version_get(&target, &baseline)
+            .unwrap()
+            .projection;
+        assert_eq!(
+            serde_json::to_value(unchanged).unwrap(),
+            serde_json::to_value(stored.projection).unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(database.workspace_root.join("assets/文件.pdf")).unwrap(),
+            "retained-file"
+        );
     }
     #[test]
     fn record_creation_is_atomic_and_replays_the_original_intent() {

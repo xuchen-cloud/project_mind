@@ -15,7 +15,7 @@
     "test:pi": "node --test test/pi/*.test.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
-    "test:record": "node --test test/record-worker.test.mjs"
+    "test:record": "node --test test/record-worker.test.mjs test/record-worker-notices.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.99.1"
