@@ -428,7 +428,12 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             ));
         }
         self.access(request, &input.target, "record.metadata.write", |db| {
-            db.record_metadata_update(&request.caller.key(), &request.request_id, input)
+            db.record_metadata_update(
+                &request.caller.key(),
+                &request.request_id,
+                input,
+                &request.binding.workspace_id,
+            )
         })
     }
     pub(crate) fn metadata_get(
@@ -455,7 +460,14 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             request,
             &input.metadata.target,
             "record.metadata.write",
-            |db| db.record_metadata_apply(&request.caller.key(), &request.request_id, input),
+            |db| {
+                db.record_metadata_apply(
+                    &request.caller.key(),
+                    &request.request_id,
+                    input,
+                    &request.binding.workspace_id,
+                )
+            },
         )
     }
     pub(crate) async fn save(
@@ -730,7 +742,12 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             ));
         }
         self.access(request, &input.target, "record.write", |db| {
-            db.record_document_checkpoint(&request.caller.key(), &request.request_id, input)
+            db.record_document_checkpoint(
+                &request.caller.key(),
+                &request.request_id,
+                input,
+                &request.binding.workspace_id,
+            )
         })
     }
     pub(crate) async fn versions_compare(
@@ -1321,7 +1338,7 @@ mod tests {
             other.title = Some("Other header".into());
             db.lock()
                 .unwrap()
-                .record_metadata_update("gui", "other-header", &other)
+                .record_metadata_update("gui", "other-header", &other, "workspace-test")
                 .unwrap();
         }));
         request.request_id = "combined-stale".into();

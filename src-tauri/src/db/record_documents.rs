@@ -211,6 +211,61 @@ fn snapshot(
 }
 
 impl Database {
+    /// Preserve outbox sequence, payload revision and dates while upgrading the
+    /// previous Workspace-local Record key format. No object lookup is needed:
+    /// logs for explicitly deleted Records still retain their original identity.
+    pub(crate) fn record_migrate_operation_keys(&self, workspace_id: &str) -> AgentResult<()> {
+        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
+        let mut cursor = 0_i64;
+        loop {
+            let mut statement = tx.prepare("SELECT seq,object_key,scope_key FROM agent_change_log WHERE seq>?1 AND object_key LIKE 'record:%' ORDER BY seq LIMIT 500").map_err(io_error)?;
+            let rows = statement
+                .query_map([cursor], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(io_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(io_error)?;
+            drop(statement);
+            if rows.is_empty() {
+                break;
+            }
+            for (seq, key, scope_key) in rows {
+                cursor = seq;
+                let parts: Vec<_> = key.split(':').collect();
+                let (scope, id) = match parts.as_slice() {
+                    ["record", "workspace", id] => (Scope::Workspace, *id),
+                    ["record", "project", project, id] => (
+                        Scope::Project {
+                            project_id: project.parse().map_err(|_| damaged())?,
+                        },
+                        *id,
+                    ),
+                    _ => return Err(damaged()),
+                };
+                if scope.key() != scope_key {
+                    return Err(damaged());
+                }
+                let target = RecordTarget {
+                    scope,
+                    record_id: id.parse().map_err(|_| damaged())?,
+                };
+                if format!("record:{}", target.key()?) != key {
+                    return Err(damaged());
+                }
+                tx.execute(
+                    "UPDATE agent_change_log SET object_key=?1 WHERE seq=?2",
+                    params![target.object_key(workspace_id)?, seq],
+                )
+                .map_err(io_error)?;
+            }
+        }
+        tx.commit().map_err(io_error)
+    }
     pub(crate) fn record_create(
         &self,
         caller: &str,
@@ -241,13 +296,13 @@ impl Database {
             let (saved_metadata, _) = self.record_metadata_transaction(tx, &RecordMetadataUpdate {
                 target: target.clone(), expected_revision: current.revision,
                 title: input.title.clone(), tag_ids: input.tag_ids.clone(),
-            })?;
+            }, workspace_id)?;
             let (project, workspace) = match input.scope { Scope::Workspace => (None, Some(target.record_id)), Scope::Project { .. } => (Some(target.record_id), None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)", params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,timestamp]).map_err(io_error)?;
             Self::record_write_projection(tx, &target, projection, &compatibility, workspace_id)?;
             let initial = head(tx, &target)?.ok_or_else(damaged)?;
             snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &json!({"kind":"gui"}), request_id, None)?;
-            Ok((initial, Some(OperationChange { object_key: format!("record:{}",target.key()?), scope: target.scope, revision: projection.body_hash.clone() })))
+            Ok((initial, Some(OperationChange { object_key: target.object_key(workspace_id)?, scope: target.scope, revision: projection.body_hash.clone() })))
         })
     }
     pub(crate) fn record_quick_note_source(
@@ -342,7 +397,7 @@ impl Database {
             let current_metadata = metadata(tx, &target)?;
             let update = RecordMetadataUpdate { target: target.clone(), expected_revision: input.metadata_revision.clone().unwrap_or_else(||current_metadata.revision.clone()),
                 title: if input.record_id.is_some() { current_metadata.title } else { input.title.clone() }, tag_ids: input.tag_ids.clone() };
-            let (saved_metadata, _) = self.record_metadata_transaction(tx, &update)?;
+            let (saved_metadata, _) = self.record_metadata_transaction(tx, &update, workspace_id)?;
             if input.record_id.is_none() {
                 let initial = empty.ok_or_else(||invalid("New Record requires an empty baseline"))?;
                 if !initial.text.is_empty() || !initial.validate()?.is_empty() { return Err(invalid("New Record baseline must be empty")); }
@@ -420,15 +475,17 @@ impl Database {
         caller: &str,
         request_id: &str,
         input: &RecordMetadataUpdate,
+        workspace_id: &str,
     ) -> AgentResult<RecordMetadata> {
         self.agent_atomic_operation(caller, request_id, "record.metadata.update", input, |tx| {
-            self.record_metadata_transaction(tx, input)
+            self.record_metadata_transaction(tx, input, workspace_id)
         })
     }
     fn record_metadata_transaction(
         &self,
         tx: &Transaction<'_>,
         input: &RecordMetadataUpdate,
+        workspace_id: &str,
     ) -> AgentResult<(RecordMetadata, Option<OperationChange>)> {
         if !input.expected_revision.starts_with("sha256:")
             || input.expected_revision.len() != 71
@@ -502,7 +559,7 @@ impl Database {
         }
         let saved = metadata(tx, &input.target)?;
         let change = OperationChange {
-            object_key: format!("record:{}", input.target.key()?),
+            object_key: input.target.object_key(workspace_id)?,
             scope: input.target.scope.clone(),
             revision: saved.revision.clone(),
         };
@@ -513,6 +570,7 @@ impl Database {
         caller: &str,
         request_id: &str,
         input: &RecordMetadataApply,
+        workspace_id: &str,
     ) -> AgentResult<RecordMetadata> {
         if input.new_tags.len() > 3 {
             return Err(AgentError::new(
@@ -545,7 +603,7 @@ impl Database {
                     update.tag_ids.push(id);
                 }
             }
-            self.record_metadata_transaction(tx, &update)
+            self.record_metadata_transaction(tx, &update, workspace_id)
         })
     }
     pub(crate) fn record_metadata_tags(
@@ -851,17 +909,25 @@ impl Database {
     }
     /// Run only while holding the current Workspace database lock. Each Record
     /// remains independently atomic; a damaged snapshot is never overwritten.
-    pub(crate) fn record_seal_pending_checkpoints(&self, recovery: bool) -> AgentResult<u32> {
-        self.record_seal_checkpoints(if recovery {
-            RecordCheckpointReason::Recovery
-        } else {
-            RecordCheckpointReason::Due
-        })
+    pub(crate) fn record_seal_pending_checkpoints(
+        &self,
+        recovery: bool,
+        workspace_id: &str,
+    ) -> AgentResult<u32> {
+        self.record_seal_checkpoints(
+            if recovery {
+                RecordCheckpointReason::Recovery
+            } else {
+                RecordCheckpointReason::Due
+            },
+            workspace_id,
+        )
     }
 
     pub(crate) fn record_seal_checkpoints(
         &self,
         reason: RecordCheckpointReason,
+        workspace_id: &str,
     ) -> AgentResult<u32> {
         let mut sealed = 0;
         loop {
@@ -875,6 +941,7 @@ impl Database {
                     "system:record-checkpoints",
                     &request_id,
                     &input,
+                    workspace_id,
                 )?;
                 if result.checkpointed {
                     sealed += 1;
@@ -1012,6 +1079,7 @@ impl Database {
         caller: &str,
         request_id: &str,
         input: &RecordCheckpointInput,
+        workspace_id: &str,
     ) -> AgentResult<RecordCheckpointResult> {
         if input.base_revision == 0 || input.base_revision > i64::MAX as u64 {
             return Err(invalid("Invalid checkpoint revision"));
@@ -1027,7 +1095,7 @@ impl Database {
             let id = snapshot(tx,&current,&current_source.title,&RecordVersionOrigin::Manual,&json!({"kind":"gui","checkpointReason":input.reason}),request_id,None)?;
             tx.execute("UPDATE record_document_heads SET edit_session_id=NULL,edit_started_at=NULL,checkpoint_due_at=NULL WHERE record_key=?1", [input.target.key()?]).map_err(io_error)?;
             let updated = head(tx,&input.target)?.ok_or_else(damaged)?;
-            Ok((RecordCheckpointResult{head:updated,version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:format!("record:{}",input.target.key()?),scope:input.target.scope.clone(),revision:current.projection.body_hash})))
+            Ok((RecordCheckpointResult{head:updated,version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
         })
     }
     pub(crate) fn record_version_restore(
@@ -1350,7 +1418,7 @@ impl Database {
             Self::record_write_projection(tx,target,projection,&compatibility, workspace_id)?;
             let initial = head(tx,target)?.ok_or_else(|| AgentError::new(ErrorCode::IoFailed,"Cannot read new Record head"))?;
             snapshot(tx,&initial,&current_source.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
-            Ok((initial,Some(OperationChange{object_key:format!("record:{}",target.key()?),scope:target.scope.clone(),revision:projection.body_hash.clone()})))
+            Ok((initial,Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
         })
     }
     pub(crate) fn record_document_commit(
@@ -1402,7 +1470,8 @@ impl Database {
         self.agent_atomic_operation(caller, request_id, "record.document.commit", intent, |tx| {
             let (saved_metadata, metadata_change) = match metadata {
                 Some(metadata) => {
-                    let (saved, change) = self.record_metadata_transaction(tx, metadata)?;
+                    let (saved, change) =
+                        self.record_metadata_transaction(tx, metadata, workspace_id)?;
                     (Some(saved), change)
                 }
                 None => (None, None),
@@ -1538,7 +1607,7 @@ impl Database {
                 metadata: None,
             },
             Some(OperationChange {
-                object_key: format!("record:{}", input.target.key()?),
+                object_key: input.target.object_key(workspace_id)?,
                 scope: input.target.scope.clone(),
                 revision: p.body_hash.clone(),
             }),
@@ -2270,7 +2339,7 @@ mod tests {
         };
         assert_eq!(
             database
-                .record_metadata_apply("gui", "bad-ai", &input)
+                .record_metadata_apply("gui", "bad-ai", &input, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidArgument
@@ -2289,10 +2358,10 @@ mod tests {
         );
         input.new_tags.pop();
         let saved = database
-            .record_metadata_apply("gui", "ai-1", &input)
+            .record_metadata_apply("gui", "ai-1", &input, "workspace-test")
             .unwrap();
         let replay = database
-            .record_metadata_apply("gui", "ai-1", &input)
+            .record_metadata_apply("gui", "ai-1", &input, "workspace-test")
             .unwrap();
         assert_eq!(saved.revision, replay.revision);
         assert_eq!(saved.tag_ids.len(), 1);
@@ -2317,7 +2386,7 @@ mod tests {
         assert_eq!(tags[0].label, "New tag");
         assert_eq!(
             database
-                .record_metadata_apply("gui", "stale-ai", &input)
+                .record_metadata_apply("gui", "stale-ai", &input, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -2415,7 +2484,7 @@ mod tests {
             tag_ids: vec![],
         };
         let updated = database
-            .record_metadata_update("gui", "title-1", &input)
+            .record_metadata_update("gui", "title-1", &input, "workspace-test")
             .unwrap();
         assert_eq!(updated.title.as_deref(), Some("New title"));
         assert_ne!(updated.revision, before.revision);
@@ -2440,14 +2509,14 @@ mod tests {
         );
         assert_eq!(
             database
-                .record_metadata_update("gui", "title-1", &input)
+                .record_metadata_update("gui", "title-1", &input, "workspace-test")
                 .unwrap()
                 .revision,
             updated.revision
         );
         assert_eq!(
             database
-                .record_metadata_update("gui", "title-stale", &input)
+                .record_metadata_update("gui", "title-stale", &input, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -2460,7 +2529,7 @@ mod tests {
         };
         assert_eq!(
             database
-                .record_metadata_update("gui", "bad-tags", &invalid_tags)
+                .record_metadata_update("gui", "bad-tags", &invalid_tags, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::ScopeDenied
@@ -2580,6 +2649,40 @@ mod tests {
             )
             .unwrap();
         (project.id, database.conn.last_insert_rowid())
+    }
+    #[test]
+    fn record_change_log_uses_canonical_object_keys_and_migrates_legacy_rows() {
+        let (_directory, database, target, projection) = setup();
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &projection,
+                "workspace-test",
+            )
+            .unwrap();
+        let expected = format!("workspace-test/workspace/record/{}", target.record_id);
+        let actual: String = database.conn.query_row("SELECT object_key FROM agent_change_log WHERE operation='record.document.initialize'", [], |row| row.get(0)).unwrap();
+        assert_eq!(actual, expected);
+        database.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES ('record:project:7:42','project:7','record.patch','rev','old')", []).unwrap();
+        database
+            .record_migrate_operation_keys("workspace-test")
+            .unwrap();
+        database
+            .record_migrate_operation_keys("workspace-test")
+            .unwrap();
+        let migrated: (String,String,String) = database.conn.query_row("SELECT object_key,revision,created_at FROM agent_change_log WHERE operation='record.patch'", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(
+            migrated,
+            (
+                "workspace-test/project:7/record/42".into(),
+                "rev".into(),
+                "old".into()
+            )
+        );
     }
     #[test]
     fn record_reference_edges_follow_cas_restore_and_entity_deletion_atomically() {
@@ -2844,13 +2947,13 @@ mod tests {
         };
         assert!(
             !database
-                .record_document_checkpoint("gui", "early", &checkpoint)
+                .record_document_checkpoint("gui", "early", &checkpoint, "workspace-test")
                 .unwrap()
                 .checkpointed
         );
         checkpoint.reason = RecordCheckpointReason::Recovery;
         let saved = database
-            .record_document_checkpoint("system", "recovered", &checkpoint)
+            .record_document_checkpoint("system", "recovered", &checkpoint, "workspace-test")
             .unwrap();
         assert!(saved.checkpointed);
         assert_eq!(saved.head.head_revision, 2);
@@ -2858,13 +2961,13 @@ mod tests {
         assert_eq!(version_count(&database), 2);
         assert!(
             database
-                .record_document_checkpoint("system", "recovered", &checkpoint)
+                .record_document_checkpoint("system", "recovered", &checkpoint, "workspace-test")
                 .unwrap()
                 .checkpointed
         );
         assert!(
             !database
-                .record_document_checkpoint("gui", "again", &checkpoint)
+                .record_document_checkpoint("gui", "again", &checkpoint, "workspace-test")
                 .unwrap()
                 .checkpointed
         );
@@ -2987,7 +3090,7 @@ mod tests {
         };
         assert!(
             database
-                .record_document_checkpoint("timer", "due", &checkpoint)
+                .record_document_checkpoint("timer", "due", &checkpoint, "workspace-test")
                 .unwrap()
                 .checkpointed
         );
@@ -3093,8 +3196,18 @@ mod tests {
         let pending = database.record_pending_checkpoints(true, 10).unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].base_revision, 3);
-        assert_eq!(database.record_seal_pending_checkpoints(true).unwrap(), 1);
-        assert_eq!(database.record_seal_pending_checkpoints(true).unwrap(), 0);
+        assert_eq!(
+            database
+                .record_seal_pending_checkpoints(true, "workspace-test")
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .record_seal_pending_checkpoints(true, "workspace-test")
+                .unwrap(),
+            0
+        );
         assert!(database
             .record_pending_checkpoints(true, 10)
             .unwrap()

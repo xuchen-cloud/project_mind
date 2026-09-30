@@ -72,6 +72,16 @@ pub(crate) struct RecordEditorState {
     pub record: RecordEditorRecord,
 }
 impl RecordTarget {
+    pub fn object_key(&self, workspace_id: &str) -> AgentResult<String> {
+        self.key()?;
+        crate::agent::models::ObjectRef {
+            workspace_id: workspace_id.into(),
+            scope: self.scope.clone(),
+            kind: crate::agent::models::ObjectKind::Record,
+            id: self.record_id.to_string(),
+        }
+        .key()
+    }
     pub fn key(&self) -> AgentResult<String> {
         self.scope.validate()?;
         if self.record_id <= 0 {

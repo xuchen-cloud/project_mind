@@ -139,7 +139,8 @@ impl WorkspaceRuntime {
         secret_password: Option<String>,
     ) -> Result<Self> {
         let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
-        if let Err(error) = db.record_seal_pending_checkpoints(true) {
+        db.record_migrate_operation_keys(&metadata.workspace_id).map_err(|error| anyhow!(error.message))?;
+        if let Err(error) = db.record_seal_pending_checkpoints(true, &metadata.workspace_id) {
             let _ = app_handle.emit("record:checkpoint-error", error);
         }
         let execution = db.ai_execution_settings_get()?;
@@ -193,6 +194,7 @@ impl WorkspaceRuntime {
 
         let mut db_guard = lock_mutex(&self.db);
         let next_db = Database::open(&self.paths.db_path, &self.paths.root_path, secret_password)?;
+        next_db.record_migrate_operation_keys(&self.agent_binding.workspace_id).map_err(|error| anyhow!(error.message))?;
         *db_guard = next_db;
         let execution = db_guard.ai_execution_settings_get()?;
         self.ai_jobs.set_max_concurrency(execution.max_concurrency);
@@ -315,7 +317,7 @@ impl AppState {
         let current = lock_mutex(&self.current_workspace);
         if let Some(workspace) = current.as_ref() {
             lock_mutex(&workspace.db)
-                .record_seal_checkpoints(record_documents::RecordCheckpointReason::Shutdown)
+                .record_seal_checkpoints(record_documents::RecordCheckpointReason::Shutdown, &workspace.agent_binding.workspace_id)
                 .map_err(|error| anyhow!(error.message))?;
         }
         Ok(())
@@ -1244,7 +1246,7 @@ pub fn run() {
                     let current = lock_mutex(&state.current_workspace);
                     if let Some(workspace) = current.as_ref() {
                         let db = lock_mutex(&workspace.db);
-                        if let Err(error) = db.record_seal_pending_checkpoints(false) {
+                        if let Err(error) = db.record_seal_pending_checkpoints(false, &workspace.agent_binding.workspace_id) {
                             let _ = record_handle.emit("record:checkpoint-error", error);
                         }
                     }
