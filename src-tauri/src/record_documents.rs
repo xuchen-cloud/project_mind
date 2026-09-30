@@ -399,6 +399,40 @@ pub(crate) fn positive_object_id(value: &Value) -> Option<u64> {
     .filter(|id| *id > 0 && *id <= 9_007_199_254_740_991)
 }
 
+fn safe_record_link(value: Option<&Value>) -> bool {
+    let Some(value) = value
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    if value.chars().any(|ch| matches!(ch, '\u{0000}'..='\u{0020}' | '\u{00a0}' | '\u{1680}' | '\u{180e}' | '\u{2000}'..='\u{2029}' | '\u{205f}' | '\u{3000}')) { return false; }
+    let Some((scheme, _)) = value.split_once(':') else {
+        return true;
+    };
+    let is_scheme = scheme
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphabetic)
+        && scheme
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'+' | b'.' | b'-'));
+    !is_scheme
+        || matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http"
+                | "https"
+                | "ftp"
+                | "ftps"
+                | "mailto"
+                | "tel"
+                | "callto"
+                | "sms"
+                | "cid"
+                | "xmpp"
+        )
+}
+
 fn validate_attrs(value: Option<&Value>, ty: &EditorType) -> AgentResult<()> {
     let Some(value) = value else {
         return Ok(());
@@ -531,6 +565,55 @@ mod tests {
         assert!(validate_attrs(Some(&json!({"colwidth": true})), cell).is_err());
         validate_attrs(Some(&json!({"colwidth": [100, 0]})), cell).unwrap();
     }
+    #[test]
+    fn record_links_and_reference_identities_match_shared_converter() {
+        for href in [
+            "javascript:alert(1)",
+            "java\nscript:alert(1)",
+            "data:text/html,x",
+            "file:///private/x",
+            "asset://localhost/x",
+            "workspace:private.sqlite",
+        ] {
+            let mut projection = fixture();
+            projection.document["content"][0]["content"][0]["marks"] =
+                json!([{"type":"link","attrs":{"href":href}}]);
+            projection.body_hash = body_hash(&projection.document, &projection.code_language);
+            assert_eq!(
+                projection.validate().unwrap_err().code,
+                ErrorCode::InvalidPatch
+            );
+        }
+        for href in [
+            "https://example.com/path",
+            "mailto:person@example.com",
+            "tel:+12345",
+            "#section",
+            "guide/page",
+            "//example.com/page",
+        ] {
+            assert!(safe_record_link(Some(&json!(href))));
+            let mut projection = fixture();
+            projection.document["content"][0]["content"][0]["marks"] =
+                json!([{"type":"link","attrs":{"href":href}}]);
+            projection.body_hash = body_hash(&projection.document, &projection.code_language);
+            projection.validate().unwrap();
+        }
+        for node in [
+            json!({"type":"internalReference","attrs":{"refKind":"private_kind","refId":1}}),
+            json!({"type":"internalReference","attrs":{"refKind":"note","refId":null}}),
+            json!({"type":"tagMention","attrs":{"tagId":null}}),
+            json!({"type":"contactMention","attrs":{}}),
+        ] {
+            let mut projection = fixture();
+            projection.document["content"][0]["content"][0] = node;
+            projection.body_hash = body_hash(&projection.document, &projection.code_language);
+            assert_eq!(
+                projection.validate().unwrap_err().code,
+                ErrorCode::InvalidPatch
+            );
+        }
+    }
 }
 
 fn validate_node(
@@ -607,7 +690,34 @@ fn validate_node(
                 .find(|ty| ty.name == name)
                 .ok_or_else(|| invalid("Unknown mark"))?;
             validate_attrs(mark.get("attrs"), ty)?;
+            if name == "link" && !safe_record_link(mark.pointer("/attrs/href")) {
+                return Err(invalid("Invalid link URL"));
+            }
         }
+    }
+    let identity = match name {
+        "internalReference" => Some("refId"),
+        "tagMention" => Some("tagId"),
+        "contactMention" => Some("contactId"),
+        _ => None,
+    };
+    if identity.is_some_and(|key| {
+        node.get("attrs")
+            .and_then(|attrs| attrs.get(key))
+            .and_then(positive_object_id)
+            .is_none()
+    }) {
+        return Err(invalid("Invalid reference or mention identity"));
+    }
+    if name == "internalReference"
+        && !matches!(
+            node.pointer("/attrs/refKind")
+                .and_then(Value::as_str)
+                .unwrap_or("note"),
+            "note" | "todo" | "document"
+        )
+    {
+        return Err(invalid("Invalid internal reference kind"));
     }
     if name == "text" {
         if !node

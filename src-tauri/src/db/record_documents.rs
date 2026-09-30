@@ -1,4 +1,5 @@
 use super::agent_operations::{io_error, OperationChange};
+use super::record_references::{reference_identities, validate_references, write_reference_edges};
 use super::Database;
 use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
@@ -216,6 +217,7 @@ impl Database {
         request_id: &str,
         input: &RecordCreate,
         projection: &RecordDocumentProjection,
+        workspace_id: &str,
     ) -> AgentResult<RecordDocumentHead> {
         input.scope.validate()?;
         projection.validate()?;
@@ -228,6 +230,7 @@ impl Database {
             projection,
         )?;
         self.agent_atomic_operation(caller, request_id, "record.create", input, |tx| {
+            validate_references(tx, &input.scope, &projection.document, &Default::default(), workspace_id)?;
             let timestamp = Utc::now().to_rfc3339();
             match input.scope {
                 Scope::Project { project_id } => self.insert_project_note(project_id, None, "", "<p></p>", None, &timestamp).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot create Record"))?,
@@ -241,7 +244,7 @@ impl Database {
             })?;
             let (project, workspace) = match input.scope { Scope::Workspace => (None, Some(target.record_id)), Scope::Project { .. } => (Some(target.record_id), None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)", params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,timestamp]).map_err(io_error)?;
-            Self::record_write_projection(tx, &target, projection, &compatibility)?;
+            Self::record_write_projection(tx, &target, projection, &compatibility, workspace_id)?;
             let initial = head(tx, &target)?.ok_or_else(damaged)?;
             snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &json!({"kind":"gui"}), request_id, None)?;
             Ok((initial, Some(OperationChange { object_key: format!("record:{}",target.key()?), scope: target.scope, revision: projection.body_hash.clone() })))
@@ -298,6 +301,7 @@ impl Database {
         expected_source_hash: &str,
         projection: &RecordDocumentProjection,
         empty: Option<&RecordDocumentProjection>,
+        workspace_id: &str,
     ) -> AgentResult<RecordCommitResult> {
         input.scope.validate()?;
         if input.expected_markdown.trim().is_empty()
@@ -349,7 +353,7 @@ impl Database {
             }
             let commit = RecordDocumentCommit { target: target.clone(), base_revision: input.base_revision.unwrap_or(1), projection: projection.clone(),
                 origin: RecordVersionOrigin::QuickNote, actor: json!({"kind":"gui","source":"quick_note"}), edit_session_id: None };
-            let (mut saved, change) = Self::record_commit_transaction(tx, request_id, &commit, &compatibility, None)?;
+            let (mut saved, change) = Self::record_commit_transaction(tx, request_id, &commit, &compatibility, None, workspace_id)?;
             match input.scope {
                 Scope::Project { project_id } => { tx.execute("UPDATE projects SET summary='',summary_html='<p></p>',summary_markdown='',quick_note_code_language=NULL,updated_at=?1 WHERE id=?2",params![timestamp,project_id]).map_err(io_error)?; }
                 Scope::Workspace => {
@@ -686,6 +690,13 @@ impl Database {
             &mut 0,
         )?;
         self.record_validate_assets(scope, &portable)?;
+        validate_references(
+            &self.conn,
+            scope,
+            &portable,
+            &reference_identities(&portable)?,
+            "preflight",
+        )?;
         Ok(portable)
     }
     pub(super) fn ensure_record_document_schema(&mut self) -> anyhow::Result<()> {
@@ -741,6 +752,7 @@ impl Database {
         patch: &crate::agent::outputs::RecordPatch,
         projection: &RecordDocumentProjection,
         metadata: &RecordPatchMetadata,
+        workspace_id: &str,
     ) -> AgentResult<RecordPatchResult> {
         let target = record_patch_target(patch)?;
         let compatibility = self.record_compatibility_html(&target, projection)?;
@@ -799,8 +811,14 @@ impl Database {
                 actor: json!({"kind":"agent","caller":caller}),
                 edit_session_id: None,
             };
-            let (saved, change) =
-                Self::record_commit_transaction(tx, &operation_id, &commit, &compatibility, None)?;
+            let (saved, change) = Self::record_commit_transaction(
+                tx,
+                &operation_id,
+                &commit,
+                &compatibility,
+                None,
+                workspace_id,
+            )?;
             let receipt = crate::agent::outputs::OperationReceipt {
                 operation_id,
                 request_id: patch.request_id.clone(),
@@ -1017,9 +1035,16 @@ impl Database {
         caller: &str,
         request_id: &str,
         input: &RecordRestoreInput,
+        workspace_id: &str,
     ) -> AgentResult<RecordCommitResult> {
         let historic = self.record_version_get(&input.target, &input.version_id)?;
-        self.record_version_restore_projection(caller, request_id, input, &historic.projection)
+        self.record_version_restore_projection(
+            caller,
+            request_id,
+            input,
+            &historic.projection,
+            workspace_id,
+        )
     }
     pub(crate) fn record_version_restore_projection(
         &self,
@@ -1027,6 +1052,7 @@ impl Database {
         request_id: &str,
         input: &RecordRestoreInput,
         projection: &RecordDocumentProjection,
+        workspace_id: &str,
     ) -> AgentResult<RecordCommitResult> {
         if input.base_revision == 0 || input.base_revision > i64::MAX as u64 {
             return Err(invalid("Invalid restore revision"));
@@ -1058,10 +1084,26 @@ impl Database {
                 &commit,
                 &compatibility,
                 Some(&input.version_id),
+                workspace_id,
             )
         })
     }
     fn record_validate_assets(&self, scope: &Scope, document: &Value) -> AgentResult<()> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT id,root_path FROM projects")
+            .map_err(io_error)?;
+        let roots = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(io_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(io_error)?;
+        let roots: Vec<_> = roots
+            .into_iter()
+            .map(|(id, path)| (id, self.decode_path_ref(&path)))
+            .collect();
         let project_root = match *scope {
             Scope::Project { project_id } => Some(
                 self.project_root_path(project_id)
@@ -1073,17 +1115,45 @@ impl Database {
             database: &Database,
             scope: &Scope,
             project_root: Option<&std::path::Path>,
+            project_roots: &[(i64, std::path::PathBuf)],
             node: &Value,
         ) -> AgentResult<()> {
             if matches!(
                 node.get("type").and_then(Value::as_str),
                 Some("image" | "attachment")
             ) {
+                if node
+                    .pointer("/attrs/documentId")
+                    .is_some_and(|id| !id.is_null())
+                    && node
+                        .pointer("/attrs/path")
+                        .and_then(Value::as_str)
+                        .is_none()
+                {
+                    return Err(invalid(
+                        "Managed document references require a retained asset path",
+                    ));
+                }
                 if let Some(relative) = node.pointer("/attrs/path").and_then(Value::as_str) {
                     if !relative_asset(relative) {
                         return Err(invalid("Invalid retained asset path"));
                     }
                     let local = database.workspace_root.join(relative);
+                    let nearest_depth = project_roots
+                        .iter()
+                        .filter(|(_, root)| local.starts_with(root))
+                        .map(|(_, root)| root.components().count())
+                        .max();
+                    if project_roots.iter().any(|(id, root)| {
+                        local.starts_with(root)
+                            && Some(root.components().count()) == nearest_depth
+                            && *scope != (Scope::Project { project_id: *id })
+                    }) {
+                        return Err(AgentError::new(
+                            ErrorCode::ScopeDenied,
+                            "Record asset belongs to another Project resource root",
+                        ));
+                    }
                     let allowed = if let Some(root) = project_root {
                         let within = local.strip_prefix(root).map_err(|_| {
                             AgentError::new(
@@ -1184,12 +1254,12 @@ impl Database {
             }
             if let Some(children) = node.get("content").and_then(Value::as_array) {
                 for child in children {
-                    visit(database, scope, project_root, child)?;
+                    visit(database, scope, project_root, project_roots, child)?;
                 }
             }
             Ok(())
         }
-        visit(self, scope, project_root.as_deref(), document)
+        visit(self, scope, project_root.as_deref(), &roots, document)
     }
 
     fn record_compatibility_html(
@@ -1244,7 +1314,9 @@ impl Database {
         target: &RecordTarget,
         projection: &RecordDocumentProjection,
         html: &str,
+        workspace_id: &str,
     ) -> AgentResult<()> {
+        write_reference_edges(tx, target, &projection.document, workspace_id)?;
         let timestamp = Utc::now().to_rfc3339();
         let affected = match target.scope {
             Scope::Workspace => tx.execute("UPDATE workspace_notes SET content_html=?1,content_markdown=?2,default_code_language=?3,updated_at=?4 WHERE id=?5 AND note_kind='workspace_note'", params![html,projection.markdown,projection.code_language,timestamp,target.record_id]),
@@ -1266,6 +1338,7 @@ impl Database {
         target: &RecordTarget,
         expected_source_hash: &str,
         projection: &RecordDocumentProjection,
+        workspace_id: &str,
     ) -> AgentResult<RecordDocumentHead> {
         let compatibility = self.record_compatibility_html(target, projection)?;
         self.agent_atomic_operation(caller,request_id,"record.document.initialize", &(target,expected_source_hash,projection), |tx| {
@@ -1274,7 +1347,7 @@ impl Database {
             if current_source.source_hash != expected_source_hash { return Err(AgentError::new(ErrorCode::RevisionConflict,"Legacy Record changed before baseline conversion")); }
             let (project,workspace) = match target.scope { Scope::Workspace => (None,Some(target.record_id)),Scope::Project { .. } => (Some(target.record_id),None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)",params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,Utc::now().to_rfc3339()]).map_err(io_error)?;
-            Self::record_write_projection(tx,target,projection,&compatibility)?;
+            Self::record_write_projection(tx,target,projection,&compatibility, workspace_id)?;
             let initial = head(tx,target)?.ok_or_else(|| AgentError::new(ErrorCode::IoFailed,"Cannot read new Record head"))?;
             snapshot(tx,&initial,&current_source.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
             Ok((initial,Some(OperationChange{object_key:format!("record:{}",target.key()?),scope:target.scope.clone(),revision:projection.body_hash.clone()})))
@@ -1285,8 +1358,9 @@ impl Database {
         caller: &str,
         request_id: &str,
         input: &RecordDocumentCommit,
+        workspace_id: &str,
     ) -> AgentResult<RecordCommitResult> {
-        self.record_document_commit_intent(caller, request_id, input, input, None)
+        self.record_document_commit_intent(caller, request_id, input, input, None, workspace_id)
     }
     pub(crate) fn record_document_commit_intent(
         &self,
@@ -1295,6 +1369,7 @@ impl Database {
         input: &RecordDocumentCommit,
         intent: &impl serde::Serialize,
         metadata: Option<&RecordMetadataUpdate>,
+        workspace_id: &str,
     ) -> AgentResult<RecordCommitResult> {
         if input.base_revision == 0
             || input.base_revision > i64::MAX as u64
@@ -1332,8 +1407,14 @@ impl Database {
                 }
                 None => (None, None),
             };
-            let (mut saved, body_change) =
-                Self::record_commit_transaction(tx, request_id, input, &compatibility, None)?;
+            let (mut saved, body_change) = Self::record_commit_transaction(
+                tx,
+                request_id,
+                input,
+                &compatibility,
+                None,
+                workspace_id,
+            )?;
             saved.metadata = saved_metadata;
             Ok((saved, body_change.or(metadata_change)))
         })
@@ -1344,6 +1425,7 @@ impl Database {
         input: &RecordDocumentCommit,
         compatibility: &str,
         restored_from: Option<&str>,
+        workspace_id: &str,
     ) -> AgentResult<(RecordCommitResult, Option<OperationChange>)> {
         let manual = matches!(input.origin, RecordVersionOrigin::Manual);
         let current_source = source(tx, &input.target)?;
@@ -1356,6 +1438,19 @@ impl Database {
         if current.head_revision != input.base_revision {
             return Err(conflict(&current));
         }
+        let mut retained = reference_identities(&current.projection.document)?;
+        if let Some(id) = restored_from {
+            retained.extend(reference_identities(
+                &version(tx, &input.target, id)?.projection.document,
+            )?);
+        }
+        validate_references(
+            tx,
+            &input.target.scope,
+            &input.projection.document,
+            &retained,
+            workspace_id,
+        )?;
         let latest_version: String = tx.query_row("SELECT id FROM record_versions WHERE record_key=?1 ORDER BY version_number DESC LIMIT 1", [input.target.key()?], |row| row.get(0)).map_err(io_error)?;
         if current.projection.body_hash == input.projection.body_hash {
             return Ok((
@@ -1417,7 +1512,7 @@ impl Database {
         };
         let p = &input.projection;
         tx.execute("UPDATE record_document_heads SET head_revision=?1,document_json=?2,html=?3,markdown=?4,text=?5,body_hash=?6,schema_version=?7,code_language=?8,edit_session_id=?9,edit_started_at=?10,checkpoint_due_at=?11,updated_at=?12 WHERE record_key=?13 AND head_revision=?14",params![revision as i64,p.document.to_string(),p.html,p.markdown,p.text,p.body_hash,p.schema_version,p.code_language,session,started,due,now.to_rfc3339(),input.target.key()?,input.base_revision as i64]).map_err(io_error)?;
-        Self::record_write_projection(tx, &input.target, p, compatibility)?;
+        Self::record_write_projection(tx, &input.target, p, compatibility, workspace_id)?;
         let updated = head(tx, &input.target)?.ok_or_else(|| {
             AgentError::new(ErrorCode::IoFailed, "Cannot read updated Record head")
         })?;
@@ -1509,6 +1604,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         database
@@ -1543,6 +1639,7 @@ mod tests {
                 &quick.source_hash,
                 &candidate,
                 None,
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(saved.head.head_revision, 2);
@@ -1565,6 +1662,7 @@ mod tests {
                 &quick.source_hash,
                 &candidate,
                 None,
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(replay.head.head_revision, 2);
@@ -1577,6 +1675,7 @@ mod tests {
                 &quick.source_hash,
                 &candidate,
                 None,
+                "workspace-test",
             )
             .unwrap_err();
         assert_eq!(stale.code, ErrorCode::SourceChanged);
@@ -1593,6 +1692,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         database
@@ -1622,7 +1722,8 @@ mod tests {
                     &input,
                     &quick.source_hash,
                     &candidate,
-                    None
+                    None,
+                    "workspace-test"
                 )
                 .unwrap_err()
                 .code,
@@ -1664,7 +1765,8 @@ mod tests {
                     &fresh,
                     &quick.source_hash,
                     &candidate,
-                    None
+                    None,
+                    "workspace-test"
                 )
                 .unwrap_err()
                 .code,
@@ -1718,6 +1820,7 @@ mod tests {
                 &quick.source_hash,
                 &candidate,
                 Some(&empty),
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(saved.head.head_revision, 2);
@@ -1745,6 +1848,7 @@ mod tests {
                 &quick.source_hash,
                 &candidate,
                 Some(&empty),
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(
@@ -1835,6 +1939,16 @@ mod tests {
         assert!(database
             .record_document_scope_from_gui(&scope, &candidate)
             .is_ok());
+        let mut remote = candidate.clone();
+        remote["content"][0]["attrs"]["path"] = Value::Null;
+        remote["content"][0]["attrs"]["src"] = json!("https://example.com/image.png");
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(&scope, &remote)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidPatch
+        );
         assert_eq!(
             database
                 .record_document_scope_from_gui(&Scope::Workspace, &candidate)
@@ -1903,7 +2017,8 @@ mod tests {
                     "symlink",
                     &target,
                     &source.source_hash,
-                    &projection
+                    &projection,
+                    "workspace-test"
                 )
                 .unwrap_err()
                 .code,
@@ -1917,6 +2032,35 @@ mod tests {
                 .code,
             ErrorCode::ScopeDenied
         );
+    }
+    #[test]
+    fn record_assets_cannot_hide_a_project_root_inside_legacy_workspace_assets() {
+        let (_directory, mut database, target, projection) = setup();
+        let (project, _) = reference_target(&mut database, "Overlapping resource root");
+        database
+            .conn
+            .execute(
+                "UPDATE projects SET root_path='workspace:assets/owned' WHERE id=?1",
+                [project],
+            )
+            .unwrap();
+        let mut candidate = projection.document.clone();
+        candidate["content"][2]["attrs"]["path"] = json!("assets/owned/image.png");
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(&target.scope, &candidate)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert!(database
+            .record_document_scope_from_gui(
+                &Scope::Project {
+                    project_id: project
+                },
+                &json!({"type":"doc","content":[candidate["content"][2].clone()]})
+            )
+            .is_ok());
     }
     #[test]
     fn removing_current_media_keeps_physical_assets_and_immutable_versions_restorable() {
@@ -1940,6 +2084,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let baseline = database
@@ -1973,6 +2118,7 @@ mod tests {
                     actor: json!({"kind":"gui"}),
                     edit_session_id: None,
                 },
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(
@@ -1997,6 +2143,7 @@ mod tests {
                     base_revision: 2,
                     version_id: baseline.clone(),
                 },
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(
@@ -2044,7 +2191,7 @@ mod tests {
         let before = count();
         assert_eq!(
             database
-                .record_create("gui", "bad-create", &input, &projection)
+                .record_create("gui", "bad-create", &input, &projection, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::ScopeDenied
@@ -2052,10 +2199,10 @@ mod tests {
         assert_eq!(count(), before);
         input.tag_ids.clear();
         let created = database
-            .record_create("gui", "create-1", &input, &projection)
+            .record_create("gui", "create-1", &input, &projection, "workspace-test")
             .unwrap();
         let replay = database
-            .record_create("gui", "create-1", &input, &projection)
+            .record_create("gui", "create-1", &input, &projection, "workspace-test")
             .unwrap();
         assert_eq!(created.target.record_id, replay.target.record_id);
         assert_eq!(count(), before + 1);
@@ -2084,7 +2231,7 @@ mod tests {
         );
         input.title = Some("Different intent".into());
         assert!(database
-            .record_create("gui", "create-1", &input, &projection)
+            .record_create("gui", "create-1", &input, &projection, "workspace-test")
             .is_err());
         assert_eq!(count(), before + 1);
     }
@@ -2099,6 +2246,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let baseline = database.record_metadata_get(&target).unwrap();
@@ -2220,6 +2368,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let result = database.workspace_record_upsert(WorkspaceRecordUpsertInput {
@@ -2255,6 +2404,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let before = database.record_metadata_get(&target).unwrap();
@@ -2331,6 +2481,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         assert_eq!(initial.head_revision, 1);
@@ -2349,13 +2500,13 @@ mod tests {
             edit_session_id: None,
         };
         let saved = database
-            .record_document_commit("run:test", "patch", &input)
+            .record_document_commit("run:test", "patch", &input, "workspace-test")
             .unwrap();
         assert_eq!(saved.head.head_revision, 2);
         assert!(saved.after_version.is_some());
         assert_eq!(
             database
-                .record_document_commit("run:test", "patch", &input)
+                .record_document_commit("run:test", "patch", &input, "workspace-test")
                 .unwrap()
                 .head
                 .head_revision,
@@ -2363,7 +2514,7 @@ mod tests {
         );
         assert_eq!(
             database
-                .record_document_commit("run:test", "stale", &input)
+                .record_document_commit("run:test", "stale", &input, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -2401,6 +2552,200 @@ mod tests {
         changed.body_hash = body_hash(&changed.document, &changed.code_language);
         changed
     }
+    fn reference_projection(
+        projection: &RecordDocumentProjection,
+        id: i64,
+    ) -> RecordDocumentProjection {
+        let mut document = projection.clone();
+        document.document["content"][0]["content"] = json!([{"type":"internalReference","attrs":{"refKind":"note","refId":id.to_string(),"label":"Target"}}]);
+        document.body_hash = body_hash(&document.document, &document.code_language);
+        document
+    }
+    fn reference_target(database: &mut Database, name: &str) -> (i64, i64) {
+        let project = database
+            .project_create(crate::models::ProjectCreateInput {
+                name: name.into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        database
+            .insert_project_note(
+                project.id,
+                Some("Target"),
+                "Target",
+                "<p>Target</p>",
+                None,
+                &Utc::now().to_rfc3339(),
+            )
+            .unwrap();
+        (project.id, database.conn.last_insert_rowid())
+    }
+    #[test]
+    fn record_reference_edges_follow_cas_restore_and_entity_deletion_atomically() {
+        let (_directory, mut database, target, projection) = setup();
+        let (project, referenced) = reference_target(&mut database, "Reference targets");
+        let linked = reference_projection(&projection, referenced);
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &linked,
+                "workspace-test",
+            )
+            .unwrap();
+        let source_key = format!("workspace-test/workspace/record/{}", target.record_id);
+        let target_key = format!("workspace-test/project:{project}/record/{referenced}");
+        let edges = || {
+            database.conn.query_row("SELECT count(*) FROM content_reference_edges WHERE source_object_key=?1 AND target_object_key=?2 AND relation='internal_reference'", params![source_key,target_key], |row| row.get::<_,i64>(0)).unwrap()
+        };
+        assert_eq!(edges(), 1);
+        let baseline = database
+            .record_versions_list(&target, None, 50)
+            .unwrap()
+            .versions[0]
+            .id
+            .clone();
+        let commit = RecordDocumentCommit {
+            target: target.clone(),
+            base_revision: 1,
+            projection: projection.clone(),
+            origin: RecordVersionOrigin::Agent,
+            actor: json!({"kind":"test"}),
+            edit_session_id: None,
+        };
+        database
+            .record_document_commit("gui", "remove-reference", &commit, "workspace-test")
+            .unwrap();
+        assert_eq!(edges(), 0);
+        let restore = RecordRestoreInput {
+            target: target.clone(),
+            base_revision: 2,
+            version_id: baseline,
+        };
+        database.conn.execute_batch("CREATE TEMP TRIGGER reject_record_edge BEFORE INSERT ON content_reference_edges BEGIN SELECT RAISE(ABORT, 'edge failure'); END;").unwrap();
+        assert_eq!(
+            database
+                .record_version_restore("gui", "failed-edge-restore", &restore, "workspace-test")
+                .unwrap_err()
+                .code,
+            ErrorCode::IoFailed
+        );
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            2
+        );
+        assert_eq!(edges(), 0);
+        assert_eq!(database.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='failed-edge-restore'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        database
+            .conn
+            .execute_batch("DROP TRIGGER reject_record_edge;")
+            .unwrap();
+        database
+            .record_version_restore("gui", "restore-reference", &restore, "workspace-test")
+            .unwrap();
+        assert_eq!(edges(), 1);
+        database
+            .conn
+            .execute(
+                "DELETE FROM workspace_notes WHERE id=?1",
+                [target.record_id],
+            )
+            .unwrap();
+        assert_eq!(edges(), 0);
+    }
+    #[test]
+    fn record_new_invalid_references_reject_all_writes_and_existing_missing_sources_survive() {
+        let (_directory, mut database, target, projection) = setup();
+        let (project, referenced) = reference_target(&mut database, "Owned reference targets");
+        let linked = reference_projection(&projection, referenced);
+        let source = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &source.source_hash,
+                &linked,
+                "workspace-test",
+            )
+            .unwrap();
+        database
+            .conn
+            .execute("DELETE FROM notes WHERE id=?1", [referenced])
+            .unwrap();
+        let mut retained = linked.clone();
+        retained.document["content"][1]["content"][0]["content"][0]["content"][0]["content"] =
+            json!([{"type":"text","text":"Unrelated edit"}]);
+        retained.body_hash = body_hash(&retained.document, &retained.code_language);
+        let mut commit = RecordDocumentCommit {
+            target: target.clone(),
+            base_revision: 1,
+            projection: retained,
+            origin: RecordVersionOrigin::Agent,
+            actor: json!({"kind":"test"}),
+            edit_session_id: None,
+        };
+        database
+            .record_document_commit("gui", "keep-missing-reference", &commit, "workspace-test")
+            .unwrap();
+        commit.base_revision = 2;
+        commit.projection = reference_projection(&projection, referenced + 10000);
+        assert_eq!(
+            database
+                .record_document_commit("gui", "invented-reference", &commit, "workspace-test")
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(
+            database
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            2
+        );
+        assert_eq!(database.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='invented-reference'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        let other = database
+            .project_create(crate::models::ProjectCreateInput {
+                name: "Other scope".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        // Project-scope checking also rejects a real target from another Project.
+        database
+            .insert_project_note(
+                project,
+                Some("Target"),
+                "Target",
+                "<p>Target</p>",
+                None,
+                &Utc::now().to_rfc3339(),
+            )
+            .unwrap();
+        let cross_scope = reference_projection(&projection, database.conn.last_insert_rowid());
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(
+                    &Scope::Project {
+                        project_id: other.id
+                    },
+                    &cross_scope.document
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+    }
     fn version_count(database: &Database) -> i64 {
         database
             .conn
@@ -2418,6 +2763,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let mut input = RecordDocumentCommit {
@@ -2429,18 +2775,18 @@ mod tests {
             edit_session_id: Some("a".repeat(32)),
         };
         let first = database
-            .record_document_commit("gui", "first", &input)
+            .record_document_commit("gui", "first", &input, "workspace-test")
             .unwrap();
         input.base_revision = 2;
         input.projection = changed(&projection, "Second");
         let second = database
-            .record_document_commit("gui", "second", &input)
+            .record_document_commit("gui", "second", &input, "workspace-test")
             .unwrap();
         assert_eq!(second.before_version, first.before_version);
         assert_eq!(version_count(&database), 1);
         input.base_revision = 3;
         let unchanged = database
-            .record_document_commit("gui", "unchanged", &input)
+            .record_document_commit("gui", "unchanged", &input, "workspace-test")
             .unwrap();
         assert!(unchanged.no_change);
         assert_eq!(unchanged.head.head_revision, 3);
@@ -2453,7 +2799,7 @@ mod tests {
         input.edit_session_id = None;
         input.projection = changed(&projection, "Agent boundary");
         let boundary = database
-            .record_document_commit("agent", "boundary", &input)
+            .record_document_commit("agent", "boundary", &input, "workspace-test")
             .unwrap();
         assert_ne!(boundary.before_version, first.before_version);
         assert_eq!(version_count(&database), 3);
@@ -2471,6 +2817,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let baseline = database
@@ -2488,7 +2835,7 @@ mod tests {
             edit_session_id: Some("a".repeat(32)),
         };
         database
-            .record_document_commit("gui", "draft", &input)
+            .record_document_commit("gui", "draft", &input, "workspace-test")
             .unwrap();
         let mut checkpoint = RecordCheckpointInput {
             target: target.clone(),
@@ -2541,7 +2888,7 @@ mod tests {
             version_id: baseline.clone(),
         };
         let restored = database
-            .record_version_restore("gui", "restore", &restore)
+            .record_version_restore("gui", "restore", &restore, "workspace-test")
             .unwrap();
         assert_eq!(restored.head.projection.body_hash, projection.body_hash);
         assert_eq!(restored.head.head_revision, 3);
@@ -2572,7 +2919,7 @@ mod tests {
         );
         assert_eq!(
             database
-                .record_version_restore("gui", "restore", &restore)
+                .record_version_restore("gui", "restore", &restore, "workspace-test")
                 .unwrap()
                 .head
                 .head_revision,
@@ -2584,7 +2931,7 @@ mod tests {
         };
         assert!(
             database
-                .record_version_restore("gui", "same", &no_change)
+                .record_version_restore("gui", "same", &no_change, "workspace-test")
                 .unwrap()
                 .no_change
         );
@@ -2606,6 +2953,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let baseline = database
@@ -2623,7 +2971,7 @@ mod tests {
             edit_session_id: Some("a".repeat(32)),
         };
         database
-            .record_document_commit("gui", "draft", &input)
+            .record_document_commit("gui", "draft", &input, "workspace-test")
             .unwrap();
         database
             .conn
@@ -2650,7 +2998,7 @@ mod tests {
         };
         assert_eq!(
             database
-                .record_version_restore("gui", "stale-restore", &restore)
+                .record_version_restore("gui", "stale-restore", &restore, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -2668,7 +3016,7 @@ mod tests {
         };
         assert_eq!(
             database
-                .record_version_restore("gui", "damaged-restore", &restore)
+                .record_version_restore("gui", "damaged-restore", &restore, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::IoFailed
@@ -2696,6 +3044,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let mut input = RecordDocumentCommit {
@@ -2707,7 +3056,7 @@ mod tests {
             edit_session_id: Some("a".repeat(32)),
         };
         database
-            .record_document_commit("gui", "first", &input)
+            .record_document_commit("gui", "first", &input, "workspace-test")
             .unwrap();
         let before = Utc::now();
         database
@@ -2720,7 +3069,7 @@ mod tests {
         input.base_revision = 2;
         input.projection = changed(&projection, "Last persisted draft");
         let last = database
-            .record_document_commit("gui", "last", &input)
+            .record_document_commit("gui", "last", &input, "workspace-test")
             .unwrap();
         let due =
             chrono::DateTime::parse_from_rfc3339(last.head.checkpoint_due_at.as_deref().unwrap())
@@ -2777,6 +3126,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         let patch:RecordPatch=serde_json::from_value(json!({"record":ObjectRef{workspace_id:"w1".into(),scope:target.scope.clone(),kind:ObjectKind::Record,id:target.record_id.to_string()},"baseRevision":1,"requestId":"patch","operations":[{"op":"append","parentBlockId":null,"blocks":[{"type":"paragraph","content":[{"type":"text","text":"New"}]}]}]})).unwrap();
@@ -2799,7 +3149,7 @@ mod tests {
             no_change: false,
         };
         let saved = database
-            .record_patch_commit("run:test", &patch, &changed, &metadata)
+            .record_patch_commit("run:test", &patch, &changed, &metadata, "workspace-test")
             .unwrap();
         assert_eq!(saved.before_revision, 1);
         assert_eq!(saved.after_revision, 2);
@@ -2813,7 +3163,7 @@ mod tests {
         changed.body_hash = body_hash(&changed.document, &changed.code_language);
         metadata.created_block_ids = vec!["e".repeat(32)];
         let replay = database
-            .record_patch_commit("run:test", &patch, &changed, &metadata)
+            .record_patch_commit("run:test", &patch, &changed, &metadata, "workspace-test")
             .unwrap();
         assert_eq!(replay.created_block_ids, saved.created_block_ids);
         assert_eq!(replay.receipt.operation_id, saved.receipt.operation_id);
@@ -2856,6 +3206,7 @@ mod tests {
                 &target,
                 &source.source_hash,
                 &projection,
+                "workspace-test",
             )
             .unwrap();
         database.conn.execute_batch("CREATE TRIGGER reject_record_change BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(FAIL, 'full'); END;").unwrap();
@@ -2872,7 +3223,7 @@ mod tests {
         };
         assert_eq!(
             database
-                .record_document_commit("gui", "failed", &input)
+                .record_document_commit("gui", "failed", &input, "workspace-test")
                 .unwrap_err()
                 .code,
             ErrorCode::IoFailed

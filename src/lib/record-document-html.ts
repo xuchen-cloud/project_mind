@@ -1,7 +1,7 @@
 import { parseFragment, type DefaultTreeAdapterMap } from "parse5";
 import { is, selectAll, selectOne, type Options } from "css-select";
 import { DOMParser as SchemaParser, type Schema } from "@tiptap/pm/model";
-import { canonicalDocumentJson, initializeRecordDocument, RecordDocumentError } from "./record-document";
+import { canonicalDocumentJson, initializeRecordDocument, isSafeRecordLink, RecordDocumentError } from "./record-document";
 import { serializeRecordDocument } from "./record-document-format";
 
 type HtmlAst = DefaultTreeAdapterMap["node"];
@@ -113,6 +113,9 @@ export function parseRecordHtml(html: string, schema: Schema, options: { assetBa
     if (node.nodeType !== 1) { node.childNodes.forEach(check); return; }
     const tag = node.tagName.toLowerCase();
     const custom = node.getAttribute("data-type");
+    if (tag === "a" && !custom && node.hasAttribute("href") && !isSafeRecordLink(node.getAttribute("href"))) {
+      throw new RecordDocumentError("Unsupported legacy link URL: preserve the original content for review");
+    }
     if ((custom && !customTypes.has(custom)) || (!neutralTags.has(tag) && !tags.some((selector) => node.matches(selector)))) {
       throw new RecordDocumentError(`Unsupported legacy HTML node: ${tag}${custom ? ` (${custom})` : ""}`);
     }

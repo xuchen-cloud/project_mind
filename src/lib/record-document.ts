@@ -44,8 +44,12 @@ function checkShape(document: JSONContent, schema: Schema) {
         if (!markType) fail(`Unknown mark: ${mark.type}`);
         if (Object.keys(mark).some((key) => key !== "type" && key !== "attrs")) fail("Unknown mark field");
         checkAttrs(mark.attrs, markType.spec.attrs ?? {}, `mark ${mark.type}`);
+        if (mark.type === "link" && !isSafeRecordLink(mark.attrs?.href)) fail("Invalid link URL");
       }
     }
+    const identity = node.type === "internalReference" ? "refId" : node.type === "tagMention" ? "tagId" : node.type === "contactMention" ? "contactId" : null;
+    if (identity && positiveRecordObjectId(node.attrs?.[identity]) === null) fail("Invalid reference or mention identity");
+    if (node.type === "internalReference" && !["note", "todo", "document"].includes(node.attrs?.refKind ?? "note")) fail("Invalid internal reference kind");
     if (node.content !== undefined) {
       if (!Array.isArray(node.content) || node.type === "text") fail("Invalid node content");
       node.content.forEach((child) => visit(child, depth + 1, node.type));
@@ -54,6 +58,12 @@ function checkShape(document: JSONContent, schema: Schema) {
   visit(document, 0);
   if (document.type !== "doc") fail("Invalid document root");
   if (new TextEncoder().encode(JSON.stringify(document)).length > 1024 * 1024) fail("Invalid document size: limit is 1 MiB");
+}
+
+export function isSafeRecordLink(value: unknown) {
+  if (typeof value !== "string" || !value || /[\u0000-\u0020\u00a0\u1680\u180e\u2000-\u2029\u205f\u3000]/u.test(value)) return false;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(value)?.[1].toLowerCase();
+  return scheme === undefined || ["http", "https", "ftp", "ftps", "mailto", "tel", "callto", "sms", "cid", "xmpp"].includes(scheme);
 }
 
 function checkAttrs(attrs: JSONContent["attrs"], allowed: Record<string, AttributeSpec>, owner: string) {

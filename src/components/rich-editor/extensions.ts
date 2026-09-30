@@ -1,6 +1,7 @@
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
+import { isSafeRecordLink } from "../../lib/record-document";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -195,6 +196,7 @@ export function buildRichEditorExtensions(placeholder: string, options: RecordCl
     }),
     Link.configure({
       openOnClick: false,
+      isAllowedUri: isSafeRecordLink,
       HTMLAttributes: {
         class: "rich-editor__link",
       },

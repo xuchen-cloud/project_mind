@@ -38,3 +38,25 @@ it("requires managed attachment URLs to carry an explicit retained asset path", 
     { type: "attachment", attrs: { href: "workspace:projects/other/private.pdf", title: "Unsafe reference" } },
   ] }, schema), schema)).toThrow(/managed|asset/i);
 });
+
+it("rejects unsafe link schemes before they can be silently changed by HTML rendering", () => {
+  const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true }));
+  const linked = (href: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Link", marks: [{ type: "link", attrs: { href } }] }] }] });
+  for (const href of ["javascript:alert(1)", "java\nscript:alert(1)", "data:text/html,secret", "file:///private/file", "asset://localhost/private", "workspace:private.sqlite"]) {
+    expect(() => initializeRecordDocument(linked(href), schema)).toThrow(/link/i);
+  }
+  for (const href of ["https://example.com/path", "mailto:person@example.com", "tel:+12345", "#section", "guide/page", "//example.com/page"]) {
+    const document = initializeRecordDocument(linked(href), schema);
+    expect(serializeRecordDocument(document, schema).html).toContain(`href="${href}"`);
+  }
+});
+
+it("requires complete supported reference identities instead of defaulting malformed references", () => {
+  const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true }));
+  for (const node of [
+    { type: "internalReference", attrs: { refKind: "private_kind", refId: 1 } },
+    { type: "internalReference", attrs: { refKind: "note", refId: null } },
+    { type: "tagMention", attrs: { tagId: null } },
+    { type: "contactMention", attrs: {} },
+  ]) expect(() => initializeRecordDocument({ type: "doc", content: [{ type: "paragraph", content: [node] }] }, schema)).toThrow(/reference|mention/i);
+});

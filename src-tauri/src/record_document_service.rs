@@ -89,6 +89,24 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
     pub(crate) fn new(store: &'a S, utility: &'a W) -> Self {
         Self { store, utility }
     }
+    /// Called inside the authorized database phase immediately before commit.
+    /// Workspace access alone cannot mint references into ungranted Projects.
+    fn authorize_references(
+        request: &RequestContext,
+        db: &Database,
+        document: &Value,
+        operation: &str,
+    ) -> AgentResult<()> {
+        // The trusted Workspace GUI already offers references across Projects.
+        // Remote and built-in callers must carry each Project's explicit grant.
+        if matches!(request.caller, Caller::Gui) && request.scope_grant.workspace_content {
+            return Ok(());
+        }
+        for scope in db.record_reference_scopes(document)? {
+            request.authorize(&request.binding, &scope, operation)?;
+        }
+        Ok(())
+    }
     pub(crate) fn authorize_target(
         &self,
         request: &RequestContext,
@@ -147,11 +165,13 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         self.store.with_current(|binding, db| {
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
+            Self::authorize_references(request, db, &projection.document, "record.write")?;
             db.record_create(
                 &request.caller.key(),
                 &request.request_id,
                 input,
                 &projection,
+                &request.binding.workspace_id,
             )
         })
     }
@@ -310,6 +330,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             request.authorize(binding, &input.scope, "record.quick_note.write")?;
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
+            Self::authorize_references(request, db, &projection.document, "record.write")?;
             db.record_quick_note_transfer(
                 &request.caller.key(),
                 &request.request_id,
@@ -317,6 +338,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 &quick.source_hash,
                 &projection,
                 empty.as_ref(),
+                &request.binding.workspace_id,
             )
         })
     }
@@ -373,12 +395,14 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             })?;
         projection.validate()?;
         self.access(request, target, "record.read", |db| {
+            Self::authorize_references(request, db, &projection.document, "record.read")?;
             db.record_document_initialize(
                 &request.caller.key(),
                 &request.request_id,
                 target,
                 &source.source_hash,
                 &projection,
+                &request.binding.workspace_id,
             )
         })
     }
@@ -519,12 +543,14 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &input.target)
             .await?;
         self.access(request, &input.target, "record.write", |db| {
+            Self::authorize_references(request, db, &commit.projection.document, "record.write")?;
             db.record_document_commit_intent(
                 &request.caller.key(),
                 &request.request_id,
                 &commit,
                 input,
                 input.metadata.as_ref(),
+                &request.binding.workspace_id,
             )
         })
     }
@@ -573,7 +599,14 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &target)
             .await?;
         self.access(request, &target, "record.patch", |db| {
-            db.record_patch_commit(&request.caller.key(), patch, &projection, &metadata)
+            Self::authorize_references(request, db, &projection.document, "record.patch")?;
+            db.record_patch_commit(
+                &request.caller.key(),
+                patch,
+                &projection,
+                &metadata,
+                &request.binding.workspace_id,
+            )
         })
     }
     pub(crate) fn versions_list(
@@ -649,11 +682,18 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &input.target)
             .await?;
         self.access(request, &input.target, "record.restore", |db| {
+            Self::authorize_references(
+                request,
+                db,
+                &version.projection.document,
+                "record.restore",
+            )?;
             db.record_version_restore_projection(
                 &request.caller.key(),
                 &request.request_id,
                 input,
                 &version.projection,
+                &request.binding.workspace_id,
             )
         })
     }
@@ -856,6 +896,70 @@ mod tests {
                 record_id: record.id,
             },
         )
+    }
+    #[tokio::test]
+    async fn workspace_patch_cannot_add_references_to_an_ungranted_project() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        let (project_id, record_id) = {
+            let mut db = store.db.lock().unwrap();
+            let project = db
+                .project_create(crate::models::ProjectCreateInput {
+                    name: "Private Project".into(),
+                    summary: None,
+                    status: None,
+                })
+                .unwrap();
+            let record = db
+                .project_record_upsert(crate::models::ProjectRecordUpsertInput {
+                    project_id: project.id,
+                    note_id: None,
+                    title: Some("Reference target".into()),
+                    markdown: "Target".into(),
+                    html: "<p>Target</p>".into(),
+                    default_code_language: None,
+                    tag_ids: vec![],
+                })
+                .unwrap();
+            (project.id, record.id)
+        };
+        utility.projection.document["content"][0]["content"] = json!([{"type":"internalReference","attrs":{"refKind":"note","refId":record_id,"label":"Reference target"}}]);
+        utility.projection.body_hash = crate::record_documents::body_hash(
+            &utility.projection.document,
+            &utility.projection.code_language,
+        );
+        request.caller = Caller::Connection {
+            grant_id: "workspace-only".into(),
+        };
+        request.request_id = "ungranted-reference".into();
+        let patch = serde_json::from_value(json!({"record":ObjectRef {workspace_id:request.binding.workspace_id.clone(),scope:target.scope.clone(),kind:ObjectKind::Record,id:target.record_id.to_string()},"baseRevision":1,"requestId":request.request_id,"operations":[{"op":"append","parentBlockId":null,"blocks":[{"type":"paragraph","content":[{"type":"internalReference","attrs":{"refKind":"note","refId":record_id,"label":"Reference target"}}]}]}]})).unwrap();
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .patch(&request, &patch)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let db = store.db.lock().unwrap();
+        assert_eq!(
+            db.record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+        request.scope_grant.project_ids.push(project_id);
+        RecordDocumentService::<Store, Utility>::authorize_references(
+            &request,
+            &db,
+            &utility.projection.document,
+            "record.patch",
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn record_service_creation_rechecks_binding_after_conversion() {
@@ -1140,6 +1244,7 @@ mod tests {
                         actor: json!({"kind":"agent"}),
                         edit_session_id: None,
                     },
+                    "workspace-test",
                 )
                 .unwrap();
         }));

@@ -31,3 +31,8 @@ CREATE TABLE IF NOT EXISTS record_version_assets (
   asset_ref TEXT NOT NULL,
   UNIQUE(version_id,asset_ref)
 );
+CREATE TRIGGER IF NOT EXISTS record_reference_edges_delete AFTER DELETE ON record_document_heads BEGIN
+  DELETE FROM content_reference_edges
+    WHERE source_object_key GLOB '*/' || substr(OLD.record_key,1,length(OLD.record_key)-length(CAST(COALESCE(OLD.project_note_id,OLD.workspace_note_id) AS TEXT))-1)
+      || '/record/' || COALESCE(OLD.project_note_id,OLD.workspace_note_id);
+END;

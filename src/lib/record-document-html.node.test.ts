@@ -27,6 +27,8 @@ it("diagnoses unsupported custom nodes and attributes instead of silently deleti
   expect(() => parseRecordHtml('<p data-path="retain">Body</p>', schema)).toThrow(/Unsupported/);
   expect(() => parseRecordHtml('<p style="text-align: right">Body</p>', schema)).toThrow(/Unsupported/);
   expect(() => parseRecordHtml('<video src="video.mp4"></video>', schema)).toThrow(/Unsupported/);
+  expect(() => parseRecordHtml('<p><a href="javascript:alert(1)">Preserve original link</a></p>', schema)).toThrow(/link/i);
+  expect(() => parseRecordHtml('<p><span data-type="internal-reference" data-ref-kind="private_kind" data-ref-id="12">Preserve original reference</span></p>', schema)).toThrow(/reference/i);
 });
 
 it("migrates Project-relative managed paths using a trusted portable base without rewriting user text", () => {
