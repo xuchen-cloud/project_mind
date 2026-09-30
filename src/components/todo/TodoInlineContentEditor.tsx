@@ -17,7 +17,6 @@ import { parseDueDateInput } from "./todo-utils";
 import { TodoDueDate } from "./TodoDueDate";
 import {
   focusTodoEditorInput,
-  getTodoEditorPickerPosition,
   handleTodoEditorMentionKeyDown,
   handleTodoEditorReferenceKeyDown,
   handleTodoEditorTagKeyDown,
@@ -265,7 +264,7 @@ export function TodoInlineContentEditor({
           containerClassName="todo-inline-editor"
           autoFocus
           disabled={saving}
-          textClassName="text-body leading-6 font-medium"
+          textClassName="todo-body-text"
           onChange={(nextValue, nextSelection) => {
             setDraft(nextValue);
             controller.setControllerState((current) => ({
@@ -356,7 +355,7 @@ export function TodoInlineContentEditor({
           loading={referenceLoading}
           results={referenceResults}
           activeIndex={controller.controllerState.referenceActiveIndex}
-          className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+          anchorRef={editorRef}
           onHoverIndex={(referenceActiveIndex) =>
             controller.setControllerState((current) => ({ ...current, referenceActiveIndex }))
           }
@@ -369,9 +368,7 @@ export function TodoInlineContentEditor({
           activeIndex={controller.controllerState.mentionActiveIndex}
           query={controller.mentionTrigger?.query ?? ""}
           canCreate={controller.mentionCreatable}
-          portal
-          className="fixed z-[120]"
-          style={getTodoEditorPickerPosition(editorRef.current)}
+          anchorRef={editorRef}
           onHoverIndex={(mentionActiveIndex) =>
             controller.setControllerState((current) => ({ ...current, mentionActiveIndex }))
           }
@@ -385,9 +382,7 @@ export function TodoInlineContentEditor({
           activeIndex={controller.controllerState.tagActiveIndex}
           query={controller.tagTrigger?.query ?? ""}
           canCreate={false}
-          portal
-          className="fixed z-[120]"
-          style={getTodoEditorPickerPosition(editorRef.current)}
+          anchorRef={editorRef}
           onHoverIndex={(tagActiveIndex) =>
             controller.setControllerState((current) => ({ ...current, tagActiveIndex }))
           }
@@ -403,7 +398,7 @@ export function TodoInlineContentEditor({
       tabIndex={editable ? 0 : undefined}
       aria-label={editable ? displayValue : undefined}
       className={cn(
-        "todo-inline-content w-full bg-transparent text-body font-medium leading-6 text-text whitespace-pre-wrap break-words",
+        "todo-inline-content w-full bg-transparent whitespace-pre-wrap break-words",
         savedPulse && "todo-inline-content--saved",
       )}
       onClick={() => {

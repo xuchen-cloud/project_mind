@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronDown, ChevronUp, Check, Circle, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, Pencil, Trash2 } from "lucide-react";
 
 import { useDismissOnOutside } from "../../hooks/useDismissOnOutside";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
@@ -27,7 +27,7 @@ import type {
   TodoRecord,
   TodoTagUpdateHandler,
 } from "../../lib/types";
-import { ActionContextMenu, IconButton, type ContextMenuAction } from "../../ui/components";
+import { ActionContextMenu, Button, IconButton, type ContextMenuAction } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { commitListLayoutChange } from "../../ui/listLayoutMotion";
 import {
@@ -37,7 +37,9 @@ import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import { parseProgressInput, priorityColorValue, sortTodoProgresses } from "./todo-utils";
+import { parseProgressInput, priorityColorValue, sortTodoProgresses, TODO_PRIORITY_OPTIONS } from "./todo-utils";
+import { TODO_COMPLETION_HOLD_MS, TODO_COMPLETION_EXIT_MS, waitForTodoCompletion } from "./todo-motion";
+import { TodoPrioritySelector } from "./TodoPrioritySelector";
 import { TodoDueDate } from "./TodoDueDate";
 
 const SUBITEM_CONTROLS_HOT_ZONE_PX = 14;
@@ -99,8 +101,12 @@ export function TodoListItem({
   allowTagCreation?: boolean;
 }) {
   const [contentEditing, setContentEditing] = useState(false);
+  const [cardEditing, setCardEditing] = useState(false);
+  const cardEditRef = useDismissOnOutside<HTMLElement>({ enabled: cardEditing, onDismiss: () => setCardEditing(false), listenFocusIn: false });
   const [tagEditing, setTagEditing] = useState(false);
+  const completionRequests = useRef(new Map<number, symbol>());
   const [inlineProgressEditing, setInlineProgressEditing] = useState(false);
+  const [addProgressRequest, setAddProgressRequest] = useState(0);
   const [historyEditingProgressIds, setHistoryEditingProgressIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -159,7 +165,7 @@ export function TodoListItem({
   const canShowSubitemControls = allowInlineProgress || canExpand;
   const shouldShowSubitemControls =
     canShowSubitemControls &&
-    (subitemControlsVisible || expanded || contentEditing || tagEditing || progressEditing);
+    (cardEditing || subitemControlsVisible || expanded || contentEditing || tagEditing || progressEditing);
   function resolveListContainer() {
     return document.getElementById(`todo-${todo.id}`)?.closest("[data-list-layout-motion]") ?? null;
   }
@@ -223,6 +229,8 @@ export function TodoListItem({
     progress: TodoProgressRecord,
     nextStatus: TodoRecord["status"],
   ) {
+    const request = Symbol();
+    completionRequests.current.set(progressId, request);
     const currentProgress =
       mergedProgresses.find((candidate) => candidate.id === progressId) ?? progress;
     const phase = nextStatus === "finished" ? "completing" : "restoring";
@@ -241,6 +249,10 @@ export function TodoListItem({
     }));
 
     try {
+      if (nextStatus === "finished") {
+        await waitForTodoCompletion();
+      }
+      if (completionRequests.current.get(progressId) !== request) return;
       await onUpdateProgress(progressId, {
         content: currentProgress.content,
         progressDate: currentProgress.progressDate,
@@ -294,6 +306,7 @@ export function TodoListItem({
         onOpenInternalReference={onOpenInternalReference}
         onOpenContactMention={onOpenContactMention}
         onEditingChange={handleHistoryProgressEditingChange}
+        onContinueAdding={() => setAddProgressRequest((request) => request + 1)}
       />
     );
   }
@@ -332,17 +345,70 @@ export function TodoListItem({
     setSubitemControlsVisible(false);
   }
 
+  const priorityLabel = TODO_PRIORITY_OPTIONS.find((option) => option.value === todo.priority)?.optionLabel;
+  const subtasksEmpty = visibleUnfinishedSubItems.length === 0 &&
+    !(finishedPanelPresence.mounted && canExpand) && !cardEditing && !inlineProgressEditing;
+
+  const subitemControls = allowInlineProgress || canExpand ? (
+    <div
+      className={cn(
+        "todo-card__subitem-row",
+        shouldShowSubitemControls && "todo-card__subitem-row--visible",
+      )}
+      data-visibility="hover"
+      onPointerLeave={handleSubitemControlsPointerLeave}
+    >
+      <div className={cn("todo-card__add-subtask", cardEditing && "todo-rail__composer-add-subtask")}>
+        <TodoInlineProgressEditor
+          startAddingRequest={addProgressRequest}
+          continueOnEnter
+          latestProgress={null}
+          editable={allowInlineProgress}
+          onError={onError}
+          internalReferenceContext={internalReferenceContext}
+          onOpenInternalReference={onOpenInternalReference}
+          onOpenContactMention={onOpenContactMention}
+          onEditingChange={setInlineProgressEditing}
+          onSave={(payload) => onAddProgress(todo.id, payload)}
+          onUpdateLatestProgress={onUpdateProgress}
+          onDeleteLatestProgress={onDeleteProgress}
+        />
+      </div>
+      {canExpand ? (
+        <IconButton
+          ref={expandButtonRef}
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={cn(
+            "todo-card__expand",
+            progressEditing && "todo-card__expand--hidden",
+          )}
+          disabled={progressEditing}
+          tabIndex={progressEditing ? -1 : undefined}
+          aria-hidden={progressEditing || undefined}
+          aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
+          onClick={() => commitExpanded()}
+        >
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </IconButton>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <article
       id={`todo-${todo.id}`}
       data-todo-id={todo.id}
       data-layout-motion-id={`todo-${todo.id}`}
-      ref={expanded ? expandedItemRef : undefined}
-      className="todo-card group"
+      ref={(node) => { expandedItemRef.current = node; cardEditRef.current = node; }}
+      className={cn("todo-card group", cardEditing && "todo-card--editing todo-rail__composer")}
       data-state={todoState}
       style={
         {
           "--todo-priority-color": priorityColorValue(todo.priority),
+          "--todo-completion-hold": `${TODO_COMPLETION_HOLD_MS}ms`,
+          "--todo-completion-exit": `${TODO_COMPLETION_EXIT_MS}ms`,
         } as CSSProperties
       }
       onContextMenu={(event) => {
@@ -368,7 +434,7 @@ export function TodoListItem({
                   internalReferenceContext={internalReferenceContext}
                   onOpenInternalReference={onOpenInternalReference}
                   onOpenContactMention={onOpenContactMention}
-                  onEditingChange={setContentEditing}
+                  onEditingChange={(editing) => { setContentEditing(editing); if (editing) setCardEditing(true); }}
                   onSave={(content, dueDate) => onUpdateContent(todo.id, content, dueDate)}
                 />
               </div>
@@ -384,18 +450,50 @@ export function TodoListItem({
               >
                 <span className="todo-card__check-ring">
                   <span className="todo-card__check-glyph" aria-hidden="true">
-                    {todo.status === "finished" ? <Check size={14} /> : <Circle size={14} />}
+                    {todo.status === "finished" ? <Check size={11} /> : null}
                   </span>
                 </span>
               </button>
             </div>
+            {!cardEditing ? <span className="todo-card__priority-mark" role="img" aria-label={priorityLabel} title={priorityLabel} /> : null}
+          </div>
 
+          <div className="todo-card__subtasks" data-empty={subtasksEmpty || undefined}>
+            {visibleUnfinishedSubItems.length > 0 ? (
+              <div className="todo-card__progress-stack">
+                {visibleUnfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
+              </div>
+            ) : null}
+
+            {cardEditing ? subitemControls : null}
+
+            {finishedPanelPresence.mounted && canExpand ? (
+              <div
+                className="todo-card__finished-panel"
+                data-presence={finishedPanelPresence.state}
+                aria-hidden={finishedPanelPresence.state === "closing" || undefined}
+                inert={finishedPanelPresence.state === "closing" ? true : undefined}
+                onTransitionEnd={finishedPanelPresence.onTransitionEnd}
+              >
+                <div className="grid">
+                  {finishedSubItems.map((progress, index) =>
+                    renderProgressItem(progress, index > 0),
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          {cardEditing ? (
+            <TodoPrioritySelector value={todo.priority} onChange={(priority) => {
+              Promise.resolve(onUpdatePriority(todo.id, priority)).catch((error) => onError?.(String(error)));
+            }} />
+          ) : null}
             {(todo.tags ?? []).length > 0 ||
             (allowTagCreation &&
-              (contentEditing || tagEditing) &&
+              (cardEditing || contentEditing || tagEditing) &&
               onUpdateTags) ? (
               <div
-                className="todo-card__tag-row"
+                className={cn("todo-card__tag-row", cardEditing && "todo-rail__composer-tags")}
                 onMouseDownCapture={() => setTagEditing(true)}
                 onFocusCapture={() => setTagEditing(true)}
                 onBlurCapture={(event) => {
@@ -405,14 +503,16 @@ export function TodoListItem({
                 }}
               >
                 <EntityTagEditor
+
                   projectId={todo.projectId}
                   availableTags={scopedAvailableTags}
                   tags={todo.tags ?? []}
                   compact
-                  inputPlaceholder="# 新增标签"
-                  showInputLeadingIcon={false}
+                  inputPlaceholder={cardEditing ? "新增标签" : "# 新增标签"}
+                  revealInput={cardEditing}
+
                   mode={
-                    (contentEditing || tagEditing) && onUpdateTags
+                    (cardEditing || contentEditing || tagEditing) && onUpdateTags
                       ? allowTagCreation
                         ? "full"
                         : "edit"
@@ -442,78 +542,8 @@ export function TodoListItem({
                 />
               </div>
             ) : null}
-          </div>
-
-          <div className="todo-card__subtasks">
-            {visibleUnfinishedSubItems.length > 0 ? (
-              <div className="todo-card__progress-stack">
-                {visibleUnfinishedSubItems.map((progress) => renderProgressItem(progress, false))}
-              </div>
-            ) : null}
-
-            {allowInlineProgress || canExpand ? (
-              <>
-                <div
-                  className={cn(
-                    "todo-card__subitem-row",
-                    shouldShowSubitemControls && "todo-card__subitem-row--visible",
-                  )}
-                  data-visibility="hover"
-                  onPointerLeave={handleSubitemControlsPointerLeave}
-                >
-                  <div className="todo-card__add-subtask">
-                    <TodoInlineProgressEditor
-                      latestProgress={null}
-                      editable={allowInlineProgress}
-                      onError={onError}
-                      internalReferenceContext={internalReferenceContext}
-                      onOpenInternalReference={onOpenInternalReference}
-                      onOpenContactMention={onOpenContactMention}
-                      onEditingChange={setInlineProgressEditing}
-                      onSave={(payload) => onAddProgress(todo.id, payload)}
-                      onUpdateLatestProgress={onUpdateProgress}
-                      onDeleteLatestProgress={onDeleteProgress}
-                    />
-                  </div>
-                  {canExpand ? (
-                    <IconButton
-                      ref={expandButtonRef}
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className={cn(
-                        "todo-card__expand",
-                        progressEditing && "todo-card__expand--hidden",
-                      )}
-                      disabled={progressEditing}
-                      tabIndex={progressEditing ? -1 : undefined}
-                      aria-hidden={progressEditing || undefined}
-                      aria-label={expanded ? "收起已完成子项" : "展开已完成子项"}
-                      onClick={() => commitExpanded()}
-                    >
-                      {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </IconButton>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-
-            {finishedPanelPresence.mounted && canExpand ? (
-              <div
-                className="todo-card__finished-panel"
-                data-presence={finishedPanelPresence.state}
-                aria-hidden={finishedPanelPresence.state === "closing" || undefined}
-                inert={finishedPanelPresence.state === "closing" ? true : undefined}
-                onTransitionEnd={finishedPanelPresence.onTransitionEnd}
-              >
-                <div className="grid">
-                  {finishedSubItems.map((progress, index) =>
-                    renderProgressItem(progress, index > 0),
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </div>
+          {!cardEditing ? subitemControls : null}
+          {cardEditing ? <Button className="todo-card__finish-edit" size="sm" onClick={() => setCardEditing(false)}>完成</Button> : null}
         </div>
       </div>
     </article>
@@ -534,6 +564,7 @@ function TodoHistoryProgressItem({
   onOpenInternalReference,
   onOpenContactMention,
   onEditingChange,
+  onContinueAdding,
 }: {
   progress: TodoProgressRecord;
   internalReferenceContext: InternalReferenceContext;
@@ -553,6 +584,7 @@ function TodoHistoryProgressItem({
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
+  onContinueAdding: () => void;
   onEditingChange: (progressId: number, editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -610,7 +642,7 @@ function TodoHistoryProgressItem({
     }
   }, [optimisticProgress, progress]);
 
-  async function handleSave() {
+  async function handleSave(reason?: "enter" | "blur") {
     if (saveInFlightRef.current) {
       return;
     }
@@ -639,6 +671,7 @@ function TodoHistoryProgressItem({
       && parsed.dueDate === (displayProgress.dueDate ?? null)
     ) {
       setEditing(false);
+      if (reason === "enter") onContinueAdding();
       return;
     }
 
@@ -659,6 +692,7 @@ function TodoHistoryProgressItem({
         ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         status: progress.status ?? "unfinished",
       });
+      if (reason === "enter") onContinueAdding();
     } catch (error) {
       setOptimisticProgress(null);
       setEditing(true);
@@ -697,11 +731,11 @@ function TodoHistoryProgressItem({
               value={draft}
               autoFocus
               disabled={saving}
-              placeholder="输入子任务，Enter 保存"
+              placeholder="输入子任务，Enter 添加下一项"
               internalReferenceContext={internalReferenceContext}
               onChange={setDraft}
-              onCommit={() => {
-                void handleSave();
+              onCommit={(reason) => {
+                void handleSave(reason);
               }}
               onCancel={() => setEditing(false)}
             />

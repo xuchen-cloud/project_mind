@@ -44,7 +44,7 @@ export function PageWidthSettingsPanel() {
       <div className="grid gap-1">
         <h2 className="text-title font-semibold text-text">页面宽度</h2>
         <p className="text-body leading-6 text-text-soft">
-          控制 Workspace、项目页的 QuickNote / Record，以及专注编辑页的内容宽度。
+          控制 Workspace、项目首页，以及 Record 焦点编辑页的内容宽度。
         </p>
       </div>
 

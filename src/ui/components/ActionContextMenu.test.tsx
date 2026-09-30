@@ -25,7 +25,7 @@ describe("ActionContextMenu", () => {
     );
 
     const panel = screen.getByRole("menu", { name: "测试菜单" }).parentElement;
-    expect(panel).toHaveStyle({ left: "52px", top: "112px", transformOrigin: "176px 36px" });
+    expect(panel).toHaveStyle({ left: "52px", top: "106px", transformOrigin: "176px 42px" });
   });
 
   it("clamps a top-left pointer origin to the visible panel corner", () => {
@@ -273,8 +273,8 @@ describe("ActionContextMenu", () => {
     expect(boldButton.className).toContain("context-menu__inline-action");
     expect(boldButton.className).toContain("aspect-square");
     expect(boldButton.className).toContain("w-full");
-    expect(boldButton.querySelector("svg")).toHaveAttribute("width", "12");
-    expect(boldButton.querySelector("svg")).toHaveAttribute("height", "12");
+    expect(boldButton.querySelector("svg")).toHaveAttribute("width", "14");
+    expect(boldButton.querySelector("svg")).toHaveAttribute("height", "14");
 
     await user.click(boldButton);
     expect(onBold).toHaveBeenCalledTimes(1);
@@ -309,7 +309,7 @@ describe("ActionContextMenu", () => {
     );
 
     const group = screen.getByRole("group", { name: "AI 技能列表" });
-    expect(group).toHaveStyle({ maxHeight: "84px" });
+    expect(group).toHaveStyle({ maxHeight: "102px" });
     expect(screen.getByRole("menuitem", { name: "技能 6" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: "技能 6" }));

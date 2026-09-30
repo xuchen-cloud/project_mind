@@ -1,7 +1,7 @@
 # Project Mind Cache Strategy
 
 状态：正式基线  
-更新时间：2026-08-23
+更新时间：2026-09-28
 
 ## 目标
 
@@ -31,6 +31,7 @@ React Query 是持久业务数据的前端唯一内存缓存：
 - mutation 应优先精确更新缓存；确实影响聚合结果时才失效对应 query family。
 - query key 必须从 `src/lib/queryKeys.ts` 获取，禁止新增散落的同义 key。
 - Todo 集合 key 显式区分 Workspace 自有集合、Project 自有集合和 Workspace Rail 聚合集合；聚合结果不得使用含义模糊的 Workspace Todo key。
+- 待办侧栏必须通过 Query observer 订阅实际渲染的集合及项目元数据；仅监听 QueryCache 事件不会阻止 GC。Active / Warm 侧栏保留这些缓存，卸载后仍按默认 GC 回收。重新挂载时若视图缓存仍在但集合已缺失，自动重新加载集合。
 
 项目页签在鼠标移入或键盘聚焦时预取 `project-page` 与项目标签设置。预取不得阻塞点击导航。
 
@@ -69,7 +70,7 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 - 普通 Project 与 Record 导航只同步读取当前 Committed Content、标题、标签、代码语言及 Record/Project 身份，然后立即提交路由。内容规范化、managed image 外部化、数据库写入和 React Query 同步均在导航之后执行。
 - 保存任务由当前 Workspace 的 `RecordSaveCoordinator` 持有，不依赖来源页面继续挂载。任务按 Record 串行，不同 Record 可以独立推进。
 - 同一 Record 只有最新提交的成功结果可以写回 React Query；仍在排队或失败的较新快照不会被较旧结果覆盖。
-- 失败任务保留其快照，并通过全局状态和 Toast 显示。可重试失败能够从状态栏重试，且不阻塞普通导航。
+- 失败任务保留其快照，并通过 Toast 显示。可重试失败能够从失败通知重试，且不阻塞普通导航。
 - 正常退出、切换 Workspace 和安装更新是 flush barrier：必须等待对应 Workspace 的队列完成；flush 失败会取消该生命周期动作并保留任务。
 
 ## 性能验收
@@ -80,13 +81,8 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 - Workspace Overview 首次打开后必须始终保持挂载，且不占用 5 个 Project 驻留名额。
 - 隐藏页面必须设置 `aria-hidden` 与 `inert`，并暂停页面级查询。
 
-## 平台验证记录
+## 平台验证状态
 
-2026-08-23 的自动化门禁使用真实 Workspace layout、router 与 QueryClient，确定性覆盖 A → B → C → D → E → A、访问第 6 个 Project、LRU 重排、关闭页签、Project/Workspace Focus 跨壳复用、请求计数以及长历史下的 5/2 实例上限。这些契约不包含平台分支。
+自动化门禁覆盖 A → B → C → D → E → A、访问第六个 Project、LRU 重排、关闭页签、Project / Workspace Focus 跨壳复用、请求次数以及 5/2 实例上限。
 
-维护者已明确批准将 macOS / Windows 的实机切换与内存采样延期至 #56；该延期不阻塞 #48 的提交、合并或发布，也不应被解读为平台实测已通过。
-
-| 平台 | 当前结果 | 记录 |
-| --- | --- | --- |
-| macOS WebKit | 自动化与 debug `.app` 构建通过；实机切换/内存采样待执行 | 已生成当前分支的 `ProjectMind.app`；本会话的 Accessibility 启动未返回可操作状态，先前 Tauri dev binary 也不是可识别的 `.app` target。两次尝试均未被误记为切换或内存实测。 |
-| Windows WebView2 | 自动化通过；实机切换/内存采样待执行 | 当前执行环境没有 Windows/WebView2 主机。后续需在 Windows 上执行相同 A–F、跨 Project Focus、关闭页签与长历史场景，并记录 resident shell/Focus 数量和进程内存稳定结果。 |
+macOS WebKit 与 Windows WebView2 的真实切换、长历史和内存采样仍未完成，由 [Issue #56](https://github.com/xuchen-cloud/project_mind/issues/56) 跟踪；统一验收清单见[未完成事项](remaining-work.md)。

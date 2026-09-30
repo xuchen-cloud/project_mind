@@ -304,7 +304,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByText("Todo List")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
     expect(screen.getByLabelText("QuickNote")).toBeInTheDocument();
   });
 
@@ -329,7 +329,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
-    expect(screen.getByText("Todo List")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("AI")).not.toBeInTheDocument();
     });
@@ -337,11 +337,19 @@ describe("WorkspacePage", () => {
 
   it("always opens Todo in Workspace View regardless of the Project-page preference", async () => {
     useUiStore.setState({ projectTodoViewMode: "current-project" });
+    apiMocks.workspacePageGet.mockResolvedValue({
+      quickNote: null, records: [], finishedTodos: [],
+      unfinishedTodos: [{
+        id: 71, scope: "workspace", projectId: null, content: "工作区独立待办",
+        status: "unfinished", priority: "not_urgent_important", progresses: [], tags: [],
+        createdAt: "2026-04-06T08:00:00.000Z", updatedAt: "2026-04-06T08:00:00.000Z",
+      }],
+    });
     renderPage();
 
-    await screen.findByText("Todo List");
-    expect(screen.getByRole("button", { name: "分组显示" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("button", { name: "当前项目" })).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: "待办", exact: true });
+    expect(await screen.findByText("工作区独立待办")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "待办范围" })).not.toBeInTheDocument();
   });
 
   it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
@@ -349,7 +357,7 @@ describe("WorkspacePage", () => {
 
     renderPage();
 
-    await screen.findByText("Todo List");
+    await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     await user.type(screen.getByPlaceholderText("写下要做的事"), "整理复盘 #跨项目");
     await user.click(screen.getByRole("button", { name: "创建" }));
@@ -413,7 +421,7 @@ describe("WorkspacePage", () => {
 
     renderPage();
 
-    await screen.findByText("Todo List");
+    await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
     const ownership = screen.getByRole("combobox", { name: "Todo 归属" });
     expect(ownership).toHaveTextContent("Workspace");
@@ -436,7 +444,7 @@ describe("WorkspacePage", () => {
     });
   });
 
-  it("keeps flat Todo cards free of Workspace and Project source labels", async () => {
+  it("groups Workspace Todos by ownership without repeating source labels on cards", async () => {
     const user = userEvent.setup();
 
     apiMocks.projectsList.mockResolvedValueOnce([
@@ -499,7 +507,8 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await screen.findByText("整理跨项目复盘");
-    await user.click(screen.getByRole("button", { name: "分组显示" }));
+    expect(screen.getByRole("heading", { name: "工作区", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Alpha", exact: true })).toBeInTheDocument();
     const workspaceTodoCard = screen.getByText("整理跨项目复盘").closest("article");
     expect(within(workspaceTodoCard!).queryByText("Workspace")).not.toBeInTheDocument();
     const projectTodoCard = screen.getByText("推进 Alpha 发布").closest("article");
@@ -508,13 +517,13 @@ describe("WorkspacePage", () => {
         name: "打开 Project Alpha",
       }),
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "按优先级" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "待办排序" }), "priority");
     expect(Array.from(document.querySelectorAll(".todo-list__collection > article")).map((card) => card.id)).toEqual([
-      "todo-8",
       "todo-7",
+      "todo-8",
     ]);
     await user.click(within(projectTodoCard!).getByRole("button", { name: "推进 Alpha 发布" }));
-    expect(await within(projectTodoCard!).findByPlaceholderText("# 新增标签")).toBeInTheDocument();
+    expect(await within(projectTodoCard!).findByRole("textbox", { name: "新增标签" })).toBeInTheDocument();
     expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({
       projectId: 1,
     });
@@ -978,7 +987,7 @@ describe("WorkspacePage", () => {
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     const recordPage = screen.getByTestId("workspace-page-body-record");
 
-    await user.click(within(sidebar).getByRole("button", { name: "# 预算" }));
+    await user.click(within(sidebar).getByRole("button", { name: /#\s*预算/ }));
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
@@ -1027,7 +1036,7 @@ describe("WorkspacePage", () => {
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
 
-    await user.click(screen.getByRole("button", { name: /预算复盘 更新于/ }));
+    await user.click(screen.getByRole("button", { name: /预算复盘/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=%E9%A2%84%E7%AE%97");
 

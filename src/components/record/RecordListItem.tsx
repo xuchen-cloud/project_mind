@@ -9,9 +9,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus, Pencil, Ellipsis, Mic } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Plus, Volume2 } from "lucide-react";
 
-import { tagColorValue } from "../../lib/constants";
 import { formatDateTime } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -399,6 +398,28 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
     );
   }
 
+  function renderRecordActions() { return <>
+          <IconButton
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="打开专注页"
+            onMouseDown={(event) => {
+              if (!editing) {
+                event.stopPropagation();
+              }
+            }}
+            onClick={(event) => {
+              if (!editing) {
+                event.stopPropagation();
+              }
+              void openFocusPage();
+            }}
+          >
+            <ExternalLink size={15} />
+          </IconButton>
+  </>; }
+
   function renderHeader() {
     return (
       <div className="project-history-record__header">
@@ -412,7 +433,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               onBlur={() => void handleTitleBlur()}
             />
           ) : (
-            <p className="project-history-record__title">{record.isVoice ? <Mic size={15} aria-label="语音记录" /> : null}{titleDisplay}</p>
+            <p className="project-history-record__title">{titleDisplay}{record.isVoice ? <Volume2 className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
           )}
         </div>
         <div className="project-history-record__header-actions">
@@ -436,32 +457,10 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
             </span>
           ) : (
             <div className="project-history-record__meta">
-              <span>更新于 {formatDateTime(record.updatedAt)}</span>
+              <span>{homepage ? formatHomeTimestamp(record.updatedAt) : `更新于 ${formatDateTime(record.updatedAt)}`}</span>
             </div>
           )}
-          {homepage && !editing ? <>
-            <IconButton type="button" size="sm" variant="ghost" aria-label="编辑记录" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); enterEditing(); }}><Pencil size={15} /></IconButton>
-            <IconButton type="button" size="sm" variant="ghost" aria-label="记录操作" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenContextMenu(event, record.id); }}><Ellipsis size={15} /></IconButton>
-          </> : null}
-          <IconButton
-            type="button"
-            size="sm"
-            variant="ghost"
-            aria-label="打开专注页"
-            onMouseDown={(event) => {
-              if (!editing) {
-                event.stopPropagation();
-              }
-            }}
-            onClick={(event) => {
-              if (!editing) {
-                event.stopPropagation();
-              }
-              void openFocusPage();
-            }}
-          >
-            <ExternalLink size={15} />
-          </IconButton>
+          {!homepage || editing ? renderRecordActions() : null}
         </div>
       </div>
     );
@@ -476,6 +475,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
       return (
         <div className="project-history-record__tag-row">
           <EntityTagEditor
+            inputPlaceholder="新增标签"
             projectId={projectId}
             availableTags={availableTags}
             tags={selectedTags}
@@ -494,25 +494,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
 
     return (
       <div className="project-history-record__tag-row" aria-label="记录标签">
-        <div className="project-history-record__tag-list">
-          {recordTags.map((tag) => (
-            <span
-              key={tag.id}
-              className="project-history-record__tag"
-              style={{
-                backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
-                color: tagColorValue(tag.colorKey),
-              }}
-            >
-              <span
-                className="project-history-record__tag-dot"
-                style={{ backgroundColor: tagColorValue(tag.colorKey) }}
-                aria-hidden="true"
-              />
-              {tag.label}
-            </span>
-          ))}
-        </div>
+        <EntityTagEditor tags={recordTags} availableTags={availableTags} mode="display" onChange={() => undefined} />
       </div>
     );
   }
@@ -528,7 +510,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
         )}
       >
         {renderHeader()}
-        {renderTagRow()}
+        {!homepage || editing ? renderTagRow() : null}
       </div>
     );
   }
@@ -640,6 +622,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               eagerManagedImages
             />
           </CollapsibleRecordContent>}
+          {homepage && recordTags.length > 0 ? <div className="home-record-footer"><div className="home-record-tags">{renderTagRow()}</div></div> : null}
         </div>
       )}
     </article>
@@ -808,4 +791,11 @@ function buildRecordSaveSignature(
     tagIds: normalizedTagIds,
     defaultCodeLanguage,
   });
+}
+
+function formatHomeTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

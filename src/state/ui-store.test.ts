@@ -45,7 +45,6 @@ describe("useUiStore", () => {
     useUiStore.getState().setProjectDocumentTagId(9, 3);
     useUiStore.getState().setTodoRailTab("finished");
     useUiStore.getState().setTodoRailSortMode("priority");
-    useUiStore.getState().setTodoRailDisplayMode("flat");
     useUiStore.getState().setProjectTodoViewMode("workspace");
     useUiStore.getState().openProjectTab(9);
     useUiStore.getState().openSettings("contacts");
@@ -64,7 +63,6 @@ describe("useUiStore", () => {
     expect(state.projectFileFilters[9]).toEqual({ query: "brief", tagId: 3 });
     expect(state.todoRailTab).toBe("finished");
     expect(state.todoRailSortMode).toBe("priority");
-    expect(state.todoRailDisplayMode).toBe("flat");
     expect(state.projectTodoViewMode).toBe("workspace");
     expect(state.settingsOpen).toBe(true);
     expect(state.openProjectIds).toEqual([9]);
@@ -124,7 +122,6 @@ describe("useUiStore", () => {
         projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
         projectSidebarCollapsed: false,
         todoRailCollapsed: false,
-        todoRailDisplayMode: "grouped",
         projectTodoViewMode: "current-project",
       },
       version: 1,

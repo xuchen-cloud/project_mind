@@ -71,13 +71,14 @@ export function DocumentContextMenuAction({
       role="menuitem"
       disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 rounded-[var(--radius-6)] px-2.5 py-2 text-left text-ui transition-colors",
+        "context-menu__item",
         disabled
           ? "cursor-not-allowed text-text-soft"
           : danger
             ? "text-danger hover:bg-[color-mix(in_srgb,var(--color-danger)_9%,transparent)]"
             : "text-text-muted hover:bg-bg-hover hover:text-text",
       )}
+      data-tone={danger ? "danger" : undefined}
       onClick={onClick}
     >
       <span className="shrink-0">{icon}</span>

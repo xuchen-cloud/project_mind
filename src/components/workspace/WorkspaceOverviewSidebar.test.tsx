@@ -1,8 +1,15 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { fireEvent, render as baseRender, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
+
+function render(element: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return baseRender(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+}
 
 describe("WorkspaceOverviewSidebar", () => {
   beforeEach(() => useUiStore.setState(createUiStoreState()));
@@ -91,7 +98,7 @@ describe("WorkspaceOverviewSidebar", () => {
     );
 
     expect(screen.queryByText("长期方法")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "# 尚未使用" }));
+    fireEvent.click(screen.getByRole("button", { name: /#\s*尚未使用/ }));
     expect(onTagChange).toHaveBeenCalledWith(23);
   });
 });

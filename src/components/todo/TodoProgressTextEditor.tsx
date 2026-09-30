@@ -11,7 +11,6 @@ import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker"
 import { TodoReferenceEditor } from "./TodoReferenceEditor";
 import {
   focusTodoEditorInput,
-  getTodoEditorPickerPosition,
   handleTodoEditorMentionKeyDown,
   handleTodoEditorReferenceKeyDown,
   handleTodoEditorTagKeyDown,
@@ -32,7 +31,7 @@ interface TodoProgressTextEditorProps {
   normalizeValue?: (value: string) => string;
   disableMentionTrigger?: (trigger: { start: number; end: number }) => boolean;
   onChange: (nextValue: string) => void;
-  onCommit: () => void;
+  onCommit: (reason?: "enter" | "blur") => void;
   onCancel: () => void;
 }
 
@@ -51,6 +50,7 @@ export function TodoProgressTextEditor({
 }: TodoProgressTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const skipBlurRef = useRef(false);
+  const commitReasonRef = useRef<"enter" | "blur">("blur");
   const contactMentionOptions = useContactMentionOptions();
   const controller = useTodoEditorController({
     draft: value,
@@ -167,7 +167,7 @@ export function TodoProgressTextEditor({
   }
 
   return (
-    <div className="relative">
+    <div className="todo-progress-text-editor relative min-w-0">
       <TodoReferenceEditor
         editorRef={editorRef}
         value={value}
@@ -192,7 +192,9 @@ export function TodoProgressTextEditor({
             skipBlurRef.current = false;
             return;
           }
-          onCommit();
+          const reason = commitReasonRef.current;
+          commitReasonRef.current = "blur";
+          onCommit(reason);
         }}
         onKeyDown={(event) => {
           if (
@@ -249,8 +251,9 @@ export function TodoProgressTextEditor({
             return;
           }
 
-          if (event.key === "Enter") {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
             event.preventDefault();
+            commitReasonRef.current = "enter";
             event.currentTarget.blur();
           }
 
@@ -267,7 +270,7 @@ export function TodoProgressTextEditor({
         loading={referenceLoading}
         results={referenceResults}
         activeIndex={controller.controllerState.referenceActiveIndex}
-        className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+        anchorRef={editorRef}
         onHoverIndex={(referenceActiveIndex) =>
           controller.setControllerState((current) => ({ ...current, referenceActiveIndex }))
         }
@@ -280,9 +283,7 @@ export function TodoProgressTextEditor({
         activeIndex={controller.controllerState.mentionActiveIndex}
         query={controller.mentionTrigger?.query ?? ""}
         canCreate={controller.mentionCreatable}
-        portal
-        className="fixed z-[120]"
-        style={getTodoEditorPickerPosition(editorRef.current)}
+        anchorRef={editorRef}
         onHoverIndex={(mentionActiveIndex) =>
           controller.setControllerState((current) => ({ ...current, mentionActiveIndex }))
         }
@@ -296,9 +297,7 @@ export function TodoProgressTextEditor({
         activeIndex={controller.controllerState.tagActiveIndex}
         query={controller.tagTrigger?.query ?? ""}
         canCreate={false}
-        portal
-        className="fixed z-[120]"
-        style={getTodoEditorPickerPosition(editorRef.current)}
+        anchorRef={editorRef}
         onHoverIndex={(tagActiveIndex) =>
           controller.setControllerState((current) => ({ ...current, tagActiveIndex }))
         }

@@ -8,6 +8,7 @@ export interface ToastItem {
   tone: ToastTone;
   title: string;
   detail?: string;
+  action?: { label: string; onClick: () => void };
 }
 
 export interface FeedbackStatus {

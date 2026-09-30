@@ -1,0 +1,15 @@
+{
+  "name": "@project-mind/agent-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated Agent Host protocol scaffold; Pi integration is gated by AI-01.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "check": "node --check src/index.mjs && node --check src/protocol.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

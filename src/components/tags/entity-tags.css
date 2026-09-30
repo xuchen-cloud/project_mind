@@ -1,0 +1,53 @@
+.entity-tag-list { display:flex; flex-wrap:wrap; gap:7px; }
+/* Single visual definition for note, record and todo tags in every state. */
+.entity-tag-chip {
+  --entity-tag-background:color-mix(in srgb,var(--color-text-primary) 8%,var(--color-bg));
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  box-sizing:border-box; min-height:24px; max-width:100%; padding:3px 9px;
+  border:0; border-radius:999px; background:var(--entity-tag-background); color:var(--color-text-secondary);
+  font-family:var(--font-ui); font-size:10px; line-height:18px; font-weight:500;
+  white-space:nowrap; vertical-align:middle; box-shadow:none;
+}
+.entity-tag-chip--interactive:hover,
+.entity-tag-chip--input:hover,
+.entity-tag-chip--input:focus-within { background:color-mix(in srgb,var(--entity-tag-background) 94%,var(--color-text-secondary)); }
+.entity-tag-chip--input { cursor:text; }
+.entity-tag-chip--input input {
+  width:64px; min-width:0; flex:none; padding:0; margin:0; border:0;
+  background:transparent; color:inherit; font:inherit; outline:none; box-shadow:none;
+}
+.entity-tag-chip--input input::placeholder { color:var(--color-text-disabled); opacity:1; }
+.entity-tag-chip--input input:focus::placeholder { opacity:0; }
+.entity-tag-chip--input input:focus-visible { outline:none; box-shadow:none; }
+.entity-tag-chip--input > span { flex:none; color:var(--color-text-disabled); }
+.entity-tag-chip--reveal { gap:0; min-width:28px; }
+.entity-tag-chip--reveal input { width:0; opacity:0; transition:width var(--duration-standard) var(--ease-soft), opacity var(--duration-standard) var(--ease-soft); }
+.entity-tag-chip--reveal:focus-within input,
+.entity-tag-chip--reveal[data-has-input="true"] input { width:64px; opacity:1; padding-left:6px; }
+@media (hover:hover) {
+  .entity-tag-chip--reveal:hover input { width:64px; opacity:1; padding-left:6px; }
+}
+@media (hover:none) {
+  .entity-tag-chip--reveal input { width:64px; opacity:1; padding-left:6px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .entity-tag-chip--reveal input { transition:none; }
+}
+
+/* Reserve the expanded input footprint before hover so wrapping never moves
+   the trigger away from the pointer or grows its containing menu. */
+.entity-tag-input-slot {
+  display:flex;
+  align-items:center;
+  flex:0 0 92px;
+  max-width:100%;
+  min-width:0;
+}
+.entity-tag-input-slot > .entity-tag-chip--input { flex:none; max-width:100%; }
+
+
+/* File/sidebar previews retain their caption size and 20px row height. */
+.entity-tag-chip--compact {
+  min-height:20px; padding:2px 6px; gap:2px;
+  font-size:var(--text-caption); line-height:var(--text-caption--line-height);
+}

@@ -1,0 +1,49 @@
+.home-empty {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  padding:28px 16px;
+  color:var(--color-text-tertiary);
+  font-family:var(--font-ui);
+  font-weight:var(--weight-regular);
+}
+.home-empty__art {
+  flex-shrink:0;
+  width:28px;
+  height:28px;
+  margin-bottom:12px;
+  color:color-mix(in srgb, var(--color-text-tertiary) 75%, var(--color-bg));
+}
+.home-empty__title { margin:0; font-size:var(--type-label-size); line-height:var(--type-label-line); font-weight:var(--weight-regular); }
+.home-empty__description { max-width:288px; margin:8px 0 0; color:var(--color-text-tertiary); font-size:var(--type-caption-size); line-height:var(--type-label-line); text-wrap:pretty; }
+.home-empty__action {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  margin-top:12px;
+  padding:4px 8px;
+  min-height:32px;
+  border:0;
+  border-radius:var(--radius-6);
+  background:transparent;
+  color:var(--color-text-secondary);
+  font-family:inherit;
+  font-size:var(--type-caption-size);
+  line-height:var(--type-label-line);
+  font-weight:var(--weight-regular);
+  cursor:pointer;
+}
+.home-empty__action:hover:not(:disabled) { background:var(--color-bg-hover); color:var(--color-text); }
+.home-empty__action:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
+.home-empty__action:disabled { opacity:.5; cursor:default; }
+.home-empty--records { padding:clamp(32px, 6vh, 64px) 16px 40px; }
+.home-empty__art--bear { width:128px; height:auto; margin-bottom:24px; color:color-mix(in srgb, var(--color-text-secondary) 82%, var(--color-bg)); }
+.home-empty--records .home-empty__description { margin-top:12px; }
+.home-empty--records .home-empty__action { margin-top:14px; }
+.home-empty__paper { fill:var(--color-bg); }
+.home-empty__scarf { fill:color-mix(in srgb, var(--color-text-secondary) 50%, var(--color-bg)); }
+.home-empty__laptop { fill:color-mix(in srgb, var(--color-text-secondary) 24%, var(--color-bg)); }
+.home-empty--todos { padding-top:40px; }
+.home-empty--files { padding-top:12px; }

@@ -28,6 +28,8 @@ function isProgressDatePrefixTrigger(
 
 export function TodoInlineProgressEditor({
   latestProgress,
+  continueOnEnter = false,
+  startAddingRequest = 0,
   editable,
   onSave,
   onUpdateLatestProgress,
@@ -39,6 +41,8 @@ export function TodoInlineProgressEditor({
   onEditingChange,
 }: {
   latestProgress: { id: number; content: string; progressDate: string; dueDate?: string | null } | null;
+  continueOnEnter?: boolean;
+  startAddingRequest?: number;
   editable: boolean;
   onSave: (payload: { content: string; progressDate: string; dueDate?: string | null }) => Promise<unknown> | void;
   onUpdateLatestProgress?: (
@@ -53,6 +57,7 @@ export function TodoInlineProgressEditor({
   onEditingChange?: (editing: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [editorCycle, setEditorCycle] = useState(0);
   const [mode, setMode] = useState<"add" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
   const [optimisticLatestProgress, setOptimisticLatestProgress] = useState<{
@@ -67,6 +72,14 @@ export function TodoInlineProgressEditor({
   const editing = mode !== null;
   const displayLatestProgress =
     latestProgress === null ? null : (optimisticLatestProgress ?? latestProgress);
+
+  useEffect(() => {
+    if (startAddingRequest > 0) {
+      setDraft("");
+      setEditorCycle((cycle) => cycle + 1);
+      setMode("add");
+    }
+  }, [startAddingRequest]);
 
   useEffect(() => {
     onEditingChange?.(editing);
@@ -101,7 +114,7 @@ export function TodoInlineProgressEditor({
     }
   }, [latestProgress, optimisticLatestProgress]);
 
-  async function handleSave() {
+  async function handleSave(reason?: "enter" | "blur") {
     if (saveInFlightRef.current) {
       return;
     }
@@ -145,6 +158,11 @@ export function TodoInlineProgressEditor({
           progressDate: parsed.progressDate,
           ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         });
+        if (continueOnEnter && reason === "enter") {
+          setEditorCycle((cycle) => cycle + 1);
+          setDraft("");
+          setMode("add");
+        }
       }
     } catch (error) {
       setOptimisticLatestProgress(null);
@@ -162,15 +180,16 @@ export function TodoInlineProgressEditor({
         <span className="todo-subtask-editor-row__check-placeholder" aria-hidden="true" />
         <div className="relative min-w-0 flex-1">
           <TodoProgressTextEditor
+            key={editorCycle}
             value={draft}
             autoFocus
             disabled={saving}
-            placeholder="输入子任务，Enter 保存"
+            placeholder={continueOnEnter ? "输入子任务，Enter 添加下一项" : "输入子任务，Enter 保存"}
             internalReferenceContext={internalReferenceContext}
             disableMentionTrigger={(trigger) => isProgressDatePrefixTrigger(draft, trigger)}
             onChange={setDraft}
-            onCommit={() => {
-              void handleSave();
+            onCommit={(reason) => {
+              void handleSave(reason);
             }}
             onCancel={() => setMode(null)}
           />
@@ -230,7 +249,7 @@ export function TodoInlineProgressEditor({
         {content ?? (
           <span className="todo-inline-progress-trigger__empty">
             <Plus size={12} aria-hidden="true" />
-            添加子任务
+            <span className="todo-inline-progress-trigger__label">添加子任务</span>
           </span>
         )}
       </div>

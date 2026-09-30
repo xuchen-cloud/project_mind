@@ -1,3 +1,4 @@
+pub mod agent;
 mod ai_jobs;
 mod ai_provider;
 mod db;
@@ -113,6 +114,7 @@ pub struct SeedDemoWorkspaceResult {
 }
 
 pub(crate) struct WorkspaceRuntime {
+    agent_binding: agent::models::WorkspaceBinding,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
@@ -146,6 +148,10 @@ impl WorkspaceRuntime {
         );
 
         Ok(Self {
+            agent_binding: agent::models::WorkspaceBinding {
+                workspace_id: metadata.workspace_id.clone(),
+                generation: format!("{:032x}", rand::random::<u128>()),
+            },
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
@@ -451,7 +457,16 @@ fn ensure_main_window<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<(
         .find(|window| window.label == "main")
         .ok_or_else(|| tauri::Error::AssetNotFound("main window config".into()))?;
 
-    WebviewWindowBuilder::from_config(app.handle(), window_config)?.build()?;
+    let builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // Wry positions the native titlebar container, not the button center.
+        // Include the native button frame offset when centering in the 44px row.
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 24.0))
+        .initialization_script("document.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('native-titlebar-overlay'));");
+    builder.build()?;
     Ok(())
 }
 
@@ -1239,6 +1254,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            agent::commands::agent_status_get,
+            agent::commands::agent_context_get,
+            agent::commands::agent_settings_get,
+            agent::commands::agent_settings_update,
+            agent::commands::agent_instructions_list,
+            agent::commands::agent_instruction_upsert,
+            agent::commands::agent_instruction_delete,
+            agent::commands::agent_changes_list,
             voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,

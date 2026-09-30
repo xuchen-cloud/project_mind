@@ -99,7 +99,8 @@ vi.mock("../../state/feedback-store", () => ({
   }),
 }));
 
-vi.mock("../../state/ui-store", () => ({
+vi.mock("../../state/ui-store", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../state/ui-store")>(),
   useUiStore: () => ({
     openSettings: vi.fn(),
     pageWidthMode: "adaptive",
@@ -117,8 +118,8 @@ vi.mock("../../todo", () => ({
   ),
 }));
 
-vi.mock("./WorkspaceOverviewSidebar", () => ({
-  WorkspaceOverviewSidebar: ({ onOpenRecord }: { onOpenRecord: (recordId: number) => void }) => (
+vi.mock("../home/HomeNoteSidebar", () => ({
+  HomeNoteSidebar: ({ onOpenRecord }: { onOpenRecord: (recordId: number) => void }) => (
     <button type="button" onClick={() => onOpenRecord(8)}>
       Open record 8
     </button>

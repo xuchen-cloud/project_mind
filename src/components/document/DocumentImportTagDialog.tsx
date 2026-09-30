@@ -10,7 +10,6 @@ interface DocumentImportTagDialogProps {
   onChangeSelectedTagIds: (tagIds: number[]) => void;
   onClose: () => void;
   onConfirm: () => void;
-  onManageTags: () => void;
 }
 
 export function DocumentImportTagDialog({
@@ -21,7 +20,6 @@ export function DocumentImportTagDialog({
   onChangeSelectedTagIds,
   onClose,
   onConfirm,
-  onManageTags,
 }: DocumentImportTagDialogProps) {
   return (
     <Dialog
@@ -66,9 +64,7 @@ export function DocumentImportTagDialog({
           <span className="text-ui text-text-soft">
             不选也可以，空选择代表这些文件暂时不挂 tag。
           </span>
-          <Button type="button" size="sm" variant="ghost" onClick={onManageTags}>
-            管理标签
-          </Button>
+
         </div>
       </div>
     </Dialog>

@@ -1,13 +1,16 @@
+import "./entity-tags.css";
+import "../../ui/components/recommendation.css";
 import { useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
-import { Circle, Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 
-import { tagColorValue } from "../../lib/constants";
 import { colorKeyForTagLabel, findTagByLabel } from "../../lib/tags";
 import type { DocumentTagRecord, ProjectTagRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
+import { AnchoredPicker } from "../../ui/components/AnchoredPicker";
 import { cn } from "../../ui/lib/cn";
 
 interface EntityTagEditorProps {
+  revealInput?: boolean;
   projectId?: number | null;
   availableTags: ProjectTagRecord[];
   tags: DocumentTagRecord[];
@@ -16,7 +19,6 @@ interface EntityTagEditorProps {
   mode?: "full" | "edit" | "display";
   inputRef?: Ref<HTMLInputElement>;
   inputPlaceholder?: string;
-  showInputLeadingIcon?: boolean;
   onChange: (tagIds: number[]) => Promise<unknown> | void;
   onCreated?: (tag: ProjectTagRecord) => void;
   onPendingChange?: (pending: boolean) => void;
@@ -25,6 +27,7 @@ interface EntityTagEditorProps {
 }
 
 export function EntityTagEditor({
+  revealInput = false,
   projectId,
   availableTags,
   tags,
@@ -32,8 +35,7 @@ export function EntityTagEditor({
   compact = false,
   mode = "full",
   inputRef,
-  inputPlaceholder = "#标签",
-  showInputLeadingIcon = true,
+  inputPlaceholder = "新增标签",
   onChange,
   onCreated,
   onPendingChange,
@@ -130,19 +132,11 @@ export function EntityTagEditor({
             type="button"
             aria-label={`移除标签 ${tag.label}`}
             className="entity-tag-chip entity-tag-chip--interactive max-w-[12rem]"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
-              color: tagColorValue(tag.colorKey),
-            }}
             disabled={busy}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onChange(tags.filter((item) => item.id !== tag.id).map((item) => item.id))}
           >
-            <Circle
-              size={8}
-              className="entity-tag-chip__dot shrink-0 fill-current"
-              aria-hidden="true"
-            />
+            <span aria-hidden="true">#</span>
             <span className="truncate">{tag.label}</span>
             <X size={10} aria-hidden="true" />
           </button>
@@ -150,34 +144,30 @@ export function EntityTagEditor({
           <span
             key={tag.id}
             className="entity-tag-chip max-w-[12rem]"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
-              color: tagColorValue(tag.colorKey),
-            }}
           >
-            <Circle
-              size={8}
-              className="entity-tag-chip__dot shrink-0 fill-current"
-              aria-hidden="true"
-            />
+            <span aria-hidden="true">#</span>
             <span className="truncate">{tag.label}</span>
           </span>
         )
       ))}
       {canCreate ? (
+        <span className={revealInput ? "entity-tag-input-slot" : "contents"}>
         <label
+          data-has-input={input.length > 0 || undefined}
           className={cn(
             "entity-tag-chip entity-tag-chip--input",
+            revealInput && "entity-tag-chip--reveal",
             compact ? "max-w-[10rem]" : "max-w-[16rem]",
           )}
         >
-          {showInputLeadingIcon ? <Plus size={11} aria-hidden="true" /> : null}
+          <span aria-hidden="true">#</span>
           <input
             ref={handleInputRef}
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-soft"
             value={input}
             disabled={busy || creating}
-            placeholder={inputPlaceholder}
+            aria-label="新增标签"
+            placeholder={inputPlaceholder.replace(/^#\s*/, "")}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={() => {
@@ -185,29 +175,27 @@ export function EntityTagEditor({
             }}
           />
         </label>
+        </span>
       ) : null}
       {canCreate && suggestions.length > 0 && input.trim().length > 0 ? (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-30 grid min-w-40 gap-1 rounded-[var(--radius-8)] border border-border bg-bg p-1 shadow-[var(--shadow-md)]">
+        <AnchoredPicker anchorRef={localInputRef}>
+        <div className="tag-mention-picker recommendation-panel">
           {suggestions.map((tag) => (
             <button
               key={tag.id}
               type="button"
-              className="entity-tag-chip entity-tag-chip--interactive w-full justify-start text-left"
-              style={{
-                backgroundColor: `color-mix(in srgb, ${tagColorValue(tag.colorKey)} 12%, transparent)`,
-                color: tagColorValue(tag.colorKey),
-              }}
+              className="recommendation-item"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => void commitLabel(tag.label)}
             >
-              <Circle
-                size={8}
-                className="entity-tag-chip__dot fill-current"
-              />
-              <span className="truncate">{tag.label}</span>
+              <span className="recommendation-row">
+                <span className="recommendation-icon" aria-hidden="true">#</span>
+                <span className="recommendation-title recommendation-copy">{tag.label}</span>
+              </span>
             </button>
           ))}
         </div>
+        </AnchoredPicker>
       ) : null}
     </div>
   );

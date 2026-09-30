@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useFeedbackStore } from "../../state/feedback-store";
-import { StatusBar } from "./StatusBar";
 import { ToastStack } from "./ToastStack";
 
 describe("feedback surfaces", () => {
@@ -30,20 +29,20 @@ describe("feedback surfaces", () => {
     expect(onDismiss).toHaveBeenCalledWith(1);
   });
 
-  it("uses a polite live region for normal status and an alert for an error", () => {
-    const { rerender } = render(<StatusBar />);
-    expect(screen.getByRole("status")).toHaveTextContent("等待下一步操作");
+  it("keeps the save retry action in an error toast", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    const onDismiss = vi.fn();
+    render(<ToastStack toasts={[{
+      id: 1,
+      tone: "error",
+      title: "后台保存失败",
+      action: { label: "重试保存", onClick: onRetry },
+    }]} onDismiss={onDismiss} />);
 
-    act(() => {
-      useFeedbackStore.getState().setStatus({
-        tone: "error",
-        label: "Failed",
-        message: "同步失败",
-      });
-    });
-    rerender(<StatusBar />);
-
-    expect(screen.getByRole("alert")).toHaveTextContent("同步失败");
+    await user.click(screen.getByRole("button", { name: "重试保存" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onDismiss).toHaveBeenCalledWith(1);
   });
 
   it("keeps dismissed toast visuals for 160ms without repeating live-region semantics", () => {
@@ -101,4 +100,33 @@ describe("feedback surfaces", () => {
     act(() => vi.advanceTimersByTime(160));
     expect(document.querySelectorAll(".toast-item")).toHaveLength(2);
   });
+});
+
+
+it("expires ordinary notices independently after four seconds and retains errors/actions", () => {
+  vi.useFakeTimers();
+  try {
+    const onDismiss = vi.fn();
+    const first = { id: 11, tone: "info" as const, title: "已复制" };
+    const second = { id: 12, tone: "success" as const, title: "导出成功" };
+    const persistent = [
+      { id: 13, tone: "error" as const, title: "保存失败" },
+      { id: 14, tone: "info" as const, title: "已删除", action: { label: "撤销", onClick: vi.fn() } },
+    ];
+    const { rerender, unmount } = render(<ToastStack toasts={[first, ...persistent]} onDismiss={onDismiss} />);
+    act(() => vi.advanceTimersByTime(2000));
+    rerender(<ToastStack toasts={[first, second, ...persistent]} onDismiss={onDismiss} />);
+    act(() => vi.advanceTimersByTime(1999));
+    expect(onDismiss).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onDismiss.mock.calls).toEqual([[11]]);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(onDismiss.mock.calls).toEqual([[11], [12]]);
+    rerender(<ToastStack toasts={[...persistent, { id: 15, tone: "info", title: "即将关闭" }]} onDismiss={onDismiss} />);
+    unmount();
+    act(() => vi.advanceTimersByTime(10000));
+    expect(onDismiss).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });

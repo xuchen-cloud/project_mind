@@ -1,10 +1,11 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import "../../ui/components/recommendation.css";
+import { useEffect, useState, type RefObject, type CSSProperties } from "react";
+import { AnchoredPicker } from "../../ui/components/AnchoredPicker";
 import { createPortal } from "react-dom";
 import { UserPlus, UserRound } from "lucide-react";
 
 import type { ContactRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
-import { PopoverPanel } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 
 interface UseContactMentionSearchOptions {
@@ -66,6 +67,7 @@ export function ContactMentionPicker({
   className,
   style,
   portal = false,
+  anchorRef,
   onHoverIndex,
   onSelect,
   onCreate,
@@ -79,6 +81,7 @@ export function ContactMentionPicker({
   className?: string;
   style?: CSSProperties;
   portal?: boolean;
+  anchorRef?: RefObject<HTMLElement | null>;
   onHoverIndex?: (index: number) => void;
   onSelect: (contact: ContactRecord) => void;
   onCreate?: (name: string) => void;
@@ -93,9 +96,9 @@ export function ContactMentionPicker({
   const showCreateRow = canCreate && Boolean(onCreate);
 
   const content = (
-    <PopoverPanel
+    <div
       className={cn(
-        "contact-mention-picker w-[min(26rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-1",
+        "contact-mention-picker recommendation-panel",
         className,
       )}
       style={style}
@@ -103,10 +106,10 @@ export function ContactMentionPicker({
       <div
         role="listbox"
         aria-label="联系人选择器"
-        className="grid max-h-72 min-w-[15rem] gap-0.5 overflow-x-hidden overflow-y-auto"
+        className="recommendation-list"
       >
         {loading ? (
-          <div className="px-2.5 py-2 text-ui text-text-soft">正在搜索联系人...</div>
+          <div className="recommendation-empty">正在搜索联系人...</div>
         ) : (
           <>
             {results.map((contact, index) => (
@@ -115,30 +118,25 @@ export function ContactMentionPicker({
                 type="button"
                 role="option"
                 aria-selected={index === activeIndex}
-                className={cn(
-                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
-                  index === activeIndex
-                    ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
-                    : "hover:bg-bg-hover",
-                )}
+                className="contact-mention-picker__item recommendation-item"
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => onHoverIndex?.(index)}
                 onFocus={() => onHoverIndex?.(index)}
                 onClick={() => onSelect(contact)}
               >
-                <div className="flex items-start gap-2.5">
-                  <span className="shrink-0 pt-0.5 text-accent">
+                <div className="recommendation-row">
+                  <span className="recommendation-icon">
                     <UserRound size={14} />
                   </span>
-                  <div className="min-w-0 flex-1">
+                  <div className="recommendation-copy">
                     <p
-                      className="text-[13px] font-medium leading-4.5 text-text [overflow-wrap:anywhere]"
+                      className="recommendation-title"
                       title={contact.name}
                     >
                       {contact.name}
                     </p>
                     <p
-                      className="mt-0.5 text-[11px] leading-4 text-text-soft [overflow-wrap:anywhere]"
+                      className="recommendation-subtitle"
                       title={buildContactSubtitle(contact)}
                     >
                       {buildContactSubtitle(contact)}
@@ -153,22 +151,17 @@ export function ContactMentionPicker({
                 type="button"
                 role="option"
                 aria-selected={createIndex === activeIndex}
-                className={cn(
-                  "contact-mention-picker__item w-full rounded-[var(--radius-6)] px-2.5 py-1.5 text-left transition-colors duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
-                  createIndex === activeIndex
-                    ? "bg-[color-mix(in_srgb,var(--color-accent)_12%,var(--color-bg))]"
-                    : "hover:bg-bg-hover",
-                )}
+                className="contact-mention-picker__item recommendation-item"
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => onHoverIndex?.(createIndex)}
                 onFocus={() => onHoverIndex?.(createIndex)}
                 onClick={() => onCreate?.(query.trim())}
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="shrink-0 text-accent">
+                <div className="recommendation-row">
+                  <span className="recommendation-icon">
                     <UserPlus size={14} />
                   </span>
-                  <p className="min-w-0 flex-1 text-[13px] leading-4.5 text-text">
+                  <p className="recommendation-title recommendation-copy">
                     新建联系人 “{query.trim()}”
                   </p>
                 </div>
@@ -176,13 +169,15 @@ export function ContactMentionPicker({
             ) : null}
 
             {results.length === 0 && !showCreateRow ? (
-              <div className="px-2.5 py-2 text-ui text-text-soft">没有匹配的联系人。</div>
+              <div className="recommendation-empty">没有匹配的联系人。</div>
             ) : null}
           </>
         )}
       </div>
-    </PopoverPanel>
+    </div>
   );
+
+  if (anchorRef) return <AnchoredPicker anchorRef={anchorRef}>{content}</AnchoredPicker>;
 
   if (portal && typeof document !== "undefined") {
     return createPortal(content, document.body);

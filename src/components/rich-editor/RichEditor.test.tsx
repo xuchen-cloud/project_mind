@@ -1197,7 +1197,7 @@ describe("RichEditor images", () => {
     expect(within(imageMenu).queryByRole("menuitem", { name: "在系统中打开原图" })).not.toBeInTheDocument();
     expect(within(imageMenu).getByText("技能")).toBeInTheDocument();
     const skillGroup = within(imageMenu).getByRole("group", { name: "图片 AI 技能列表" });
-    expect(skillGroup).toHaveStyle({ maxHeight: "84px" });
+    expect(skillGroup).toHaveStyle({ maxHeight: "102px" });
     expect(within(skillGroup).getAllByRole("menuitem")).toHaveLength(4);
     expect(within(imageMenu).getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
       "复制图片",
@@ -3836,7 +3836,7 @@ describe("RichEditor context menus", () => {
     const aiSkillGroup = within(menu).getByRole("group", {
       name: "AI 技能列表",
     });
-    expect(aiSkillGroup).toHaveStyle({ maxHeight: "84px" });
+    expect(aiSkillGroup).toHaveStyle({ maxHeight: "102px" });
     expect(within(aiSkillGroup).getByRole("menuitem", { name: "暂无启用技能" })).toBeDisabled();
     expect(within(menu).getByRole("menuitem", { name: /使用 AI 编辑/ })).toBeInTheDocument();
     expect(within(menu).queryByRole("group", { name: "新增区块" })).not.toBeInTheDocument();

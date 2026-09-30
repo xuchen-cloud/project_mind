@@ -185,3 +185,21 @@ _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag �
 **Record Export**：
 单条 Workspace Record 或 Project Record 在其 Committed Content 状态下形成的本地可携带副本，可表现为 Markdown/ZIP、DOCX 或 PDF，但不改变原 Record。
 _Avoid_：Backup、Workspace Export、未确认内容快照
+
+### AI 工作上下文
+
+**AI Overview**：
+由助手维护、有版本与来源依据的作用域理解，供按问题渐进读取；独立于用户 QuickNote，不是普通 Record。
+_Avoid_：Project QuickNote、项目主页、用户已确认事实
+
+**Scope Grant**：
+可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
+_Avoid_：当前页面、模型声明的授权
+
+**Context Instruction**：
+用户明确保存的作用域上下文说明，与模型生成知识、QuickNote 分离；模型不能自行修改。
+_Avoid_：磁盘 AGENTS 自动发现、模型推断、QuickNote
+
+**Operation Receipt**：
+同一调用方和请求在 Workspace 中的持久成功结果，与数据和变更日志一起提交，供安全重试使用。
+_Avoid_：模型自述完成、临时通知

@@ -1,13 +1,17 @@
-import { ArrowLeft, Save } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
+import { TodoModuleRail } from "../../todo";
+import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
+import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
+import { HomeRecordHeader } from "../home/HomeRecordHeader";
+import "../home/home.css";
+import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
+import { useQuery,useQueryClient } from "@tanstack/react-query";
+import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import { parseRouteId, preserveRecordFilters, projectPath } from "../../lib/formatters";
-import { withPageWidthClass } from "../../lib/pageWidth";
+import { parseRouteId,preserveRecordFilters,projectPath } from "../../lib/formatters";
 import {
-  PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
-  type ProjectRecordFocusSaveRequestDetail,
+PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+type ProjectRecordFocusSaveRequestDetail,
 } from "../../lib/record-focus-save";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -18,36 +22,35 @@ import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import {
-  createRecordSaveCoordinator,
-  useRecordSaveCoordinator,
+createRecordSaveCoordinator,
+useRecordSaveCoordinator,
 } from "../../lib/record-save-runtime";
 import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { Button, IconButton, PageLoadingSkeleton, TextField } from "../../ui/components";
-import { cn } from "../../ui/lib/cn";
+import { PageLoadingSkeleton,TextField } from "../../ui/components";
 import {
-  getRenderableRichTextHtml,
-  normalizeRichEditorValue,
-  RichEditor,
-  type RichEditorAssetHandlers,
-  type RichEditorController,
-  type RichEditorPersistState,
-  type RichEditorValue,
+getRenderableRichTextHtml,
+normalizeRichEditorValue,
+RichEditor,
+type RichEditorAssetHandlers,
+type RichEditorController,
+type RichEditorPersistState,
+type RichEditorValue,
 } from "../rich-editor";
 import {
-  buildProjectNoteImageAssetHandlers,
+buildProjectNoteImageAssetHandlers,
 } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
-import type { ProjectPageData, ProjectTagRecord } from "../../lib/types";
+import type { ProjectPageData,ProjectTagRecord } from "../../lib/types";
 import type { RichTextStyleSettings } from "../../lib/types";
 import {
-  recordFocusDraftFromRecord,
-  recordFocusDraftFromSnapshot,
+recordFocusDraftFromRecord,
+recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
@@ -99,7 +102,8 @@ export function ProjectNoteFocusPage({
   );
   const focusScrollRef = useRef<HTMLDivElement | null>(null);
   const { pushToast } = useFeedbackStore();
-  const { openSettings, pageWidthMode, projectSidebarCollapsed } = useUiStore();
+  const { openSettings, projectTodoViewMode, setProjectTodoViewMode } = useUiStore();
+  const openContactMention = useContactMentionNavigation();
   const navigateInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
@@ -415,68 +419,11 @@ export function ProjectNoteFocusPage({
 
   return (
     <div
-      className="page-cold-entry project-overview-focus h-full min-h-0"
+      className="home-page home-note-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-focus-page-key={`${projectId}:${recordId}`}
       data-cold-entry={wasProjectPageCachedAtMount.current ? undefined : "true"}
     >
-      {/* Header */}
-      <header className="project-overview-focus__chrome">
-        <div
-          className={cn(
-            "project-overview-focus__chrome-inner",
-            projectSidebarCollapsed && "project-overview-focus__chrome-inner--dock-left",
-          )}
-        >
-          <div className="project-overview-focus__meta">
-            <div className="flex items-center gap-3">
-              <IconButton
-                type="button"
-                size="sm"
-                variant="ghost"
-                aria-label="返回项目"
-                onClick={handleBack}
-              >
-                <ArrowLeft size={16} />
-              </IconButton>
-              <div>
-                <p className="text-caption text-text-soft">{project?.name ?? "Project"}</p>
-                <p className="text-ui font-medium text-text">记录</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="project-overview-focus__header-actions">
-            <Button type="button" size="sm" variant="ghost" onClick={() => openSettings("page-width")}>
-              页面宽度
-            </Button>
-            <RecordExportAction
-              title={titleValueRef.current}
-              getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
-              exportTo={runExport}
-            />
-            <span
-              className={cn(
-                "text-caption",
-                persistState === "saving"
-                  ? "text-text-soft"
-                  : persistState === "saved"
-                    ? "text-green-600"
-                    : persistState === "error"
-                      ? "text-red-600"
-                      : "text-text-soft"
-              )}
-            >
-              {persistState === "saving"
-                ? "保存中..."
-                : persistState === "saved"
-                  ? "已保存"
-                  : persistState === "error"
-                    ? "保存失败"
-                    : ""}
-            </span>
-          </div>
-        </div>
-      </header>
+      <div className="project-overview-focus relative h-full min-h-0 min-w-0 flex-1">
 
       {/* Content */}
       <div
@@ -485,13 +432,10 @@ export function ProjectNoteFocusPage({
         data-testid="project-record-focus-scroll"
       >
         <div
-          className={withPageWidthClass(
-            "mx-auto w-full px-6 py-6",
-            pageWidthMode,
-            "focus",
-          )}
+          className="home-content home-note-content"
         >
           <div className="grid gap-4">
+            <HomeRecordHeader onOpenHome={handleBack} identityKey={`project:${project?.rootPath}`} projectRoot={project?.rootPath} scopeName={project?.name || "项目"} title={title}>
             <div className="flex min-w-0 items-center gap-2">
               <TextField
                 ref={titleInputRef}
@@ -531,8 +475,15 @@ export function ProjectNoteFocusPage({
                 }}
                 onOpenAiSettings={() => openSettings("ai-rewrite")}
               />
+              <RecordExportAction
+              title={titleValueRef.current}
+              getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
+              exportTo={runExport}
+            />
+              <HomeSaveIndicator state={persistState} />
             </div>
-            <EntityTagEditor
+            </HomeRecordHeader>
+            <EntityTagEditor inputPlaceholder="新增标签"
               projectId={projectId}
               availableTags={availableTags}
               tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
@@ -610,6 +561,19 @@ export function ProjectNoteFocusPage({
           </div>
         </div>
       </div>
+      </div>
+      <HomeWorkspaceRail>
+        <TodoModuleRail
+          scope={projectTodoViewMode === "workspace" ? { kind: "workspace" } : { kind: "current-project", projectId }}
+          enabled={visible}
+          canCreateTodo={projectTodoViewMode === "workspace" || !project?.isArchived}
+          availableTags={projectTodoViewMode === "workspace" ? [] : availableTags}
+          showViewModeSwitch
+          onViewModeChange={setProjectTodoViewMode}
+          onOpenInternalReference={openInternalReference}
+          onOpenContactMention={openContactMention}
+        />
+      </HomeWorkspaceRail>
     </div>
   );
 }

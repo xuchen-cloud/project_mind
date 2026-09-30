@@ -15,7 +15,7 @@ vi.mock("../../services/desktopApi", () => ({
 }));
 
 describe("RecordExportAction", () => {
-  it("opens the format dialog from the Record more-actions menu", async () => {
+  it("opens the format dialog directly from the export button", async () => {
     const user = userEvent.setup();
     render(
       <header data-testid="filtered-record-header" style={{ backdropFilter: "blur(16px)" }}>
@@ -27,10 +27,7 @@ describe("RecordExportAction", () => {
       </header>,
     );
 
-    await user.click(screen.getByRole("button", { name: "记录更多操作" }));
-    const exportMenuItem = screen.getByRole("menuitem", { name: "导出…" });
-    expect(screen.getByTestId("filtered-record-header")).not.toContainElement(exportMenuItem);
-    await user.click(exportMenuItem);
+    await user.click(screen.getByRole("button", { name: "导出为" }));
 
     const dialog = screen.getByRole("dialog", { name: "导出 Record" });
     expect(screen.getByTestId("filtered-record-header")).not.toContainElement(dialog);

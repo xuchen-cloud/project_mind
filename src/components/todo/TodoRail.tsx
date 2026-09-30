@@ -1,6 +1,12 @@
+import { HomeSidebarList } from "../home/HomeSidebarList";
+import "./todo.css";
+import { useTodoListMotion } from "./useTodoListMotion";
+import { TodoPrioritySelector } from "./TodoPrioritySelector";
+import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
+import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, ListTree, Plus, RefreshCw, Search, X } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, SlidersHorizontal, Plus, Search, X } from "lucide-react";
 
 import {
   splitInternalReferenceText,
@@ -24,7 +30,7 @@ import {
   TODO_RAIL_WIDTH_MIN_PX,
   useUiStore,
 } from "../../state/ui-store";
-import { Button, IconButton, ResizeHandle } from "../../ui/components";
+import { Button, IconButton, ResizeHandle, SearchField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { ContactMentionPicker, useContactMentionSearch } from "../contact";
 import {
@@ -36,8 +42,7 @@ import { EntityTagEditor } from "../tags/EntityTagEditor";
 import { TagMentionPicker, useTagMentionSearch } from "../tags/TagMentionPicker";
 import { TodoInlineProgressEditor } from "./TodoInlineProgressEditor";
 import { TodoList } from "./TodoList";
-import { TodoSortSwitch } from "./TodoSortSwitch";
-import { parseDueDateInput, priorityColorValue, sortTodos, TODO_PRIORITY_OPTIONS } from "./todo-utils";
+import { parseDueDateInput, parseProgressInput, priorityColorValue, sortTodos } from "./todo-utils";
 import {
   buildTodoComposerDraftStorageKey,
   clearTodoComposerDraft,
@@ -49,7 +54,6 @@ import {
 import { TodoDueDate } from "./TodoDueDate";
 import {
   focusTodoEditorInput,
-  getTodoEditorPickerPosition,
   handleTodoEditorMentionKeyDown,
   handleTodoEditorReferenceKeyDown,
   handleTodoEditorTagKeyDown,
@@ -99,7 +103,6 @@ interface TodoRailProps {
   onDeleteProgress: (progressId: number) => Promise<unknown> | void;
   onDeleteTodo: (todoId: number) => Promise<unknown> | void;
   onRefresh?: () => Promise<unknown> | void;
-  refreshing?: boolean;
   onError?: (message: string) => void;
   onOpenInternalReference?: (reference: InternalReferenceTarget) => Promise<boolean> | boolean;
   onOpenContactMention?: (mention: ContactMentionTarget) => Promise<boolean> | boolean;
@@ -130,7 +133,6 @@ export function TodoRail({
   onDeleteProgress,
   onDeleteTodo,
   onRefresh,
-  refreshing = false,
   onError,
   onOpenInternalReference,
   onOpenContactMention,
@@ -145,15 +147,12 @@ export function TodoRail({
     setTodoRailTab: setTab,
     todoRailSortMode: sortMode,
     setTodoRailSortMode: setSortMode,
-    todoRailDisplayMode: displayMode,
-    setTodoRailDisplayMode: setDisplayMode,
   } = useUiStore();
   const draftStorageKey = buildTodoComposerDraftStorageKey(projectId);
   const railRef = useRef<HTMLElement | null>(null);
+  const listScrollRef = useTodoListMotion();
   const composerRef = useRef<HTMLDivElement | null>(null);
   const addTodoButtonRef = useRef<HTMLButtonElement | null>(null);
-  const currentProjectViewRef = useRef<HTMLButtonElement | null>(null);
-  const workspaceViewRef = useRef<HTMLButtonElement | null>(null);
   const initialComposerDraft = readTodoComposerDraft(draftStorageKey);
   const internalReferenceContext =
     projectId === undefined
@@ -179,7 +178,9 @@ export function TodoRail({
     "created" | "unknown" | null
   >(() => initialComposerDraft?.creationOutcome ?? null);
   const [composerCreatedTags, setComposerCreatedTags] = useState<ProjectTagRecord[]>([]);
+  const [editingSubtask, setEditingSubtask] = useState<{ index: number; content: string } | null>(null);
   const [ownershipPickerOpen, setOwnershipPickerOpen] = useState(false);
+  const ownershipPresence = useMotionPresence(ownershipPickerOpen);
   const [ownershipQuery, setOwnershipQuery] = useState("");
   const [createPending, setCreatePending] = useState(false);
   const [composerTagPending, setComposerTagPending] = useState(false);
@@ -289,11 +290,11 @@ export function TodoRail({
     });
   }, [createOwnershipOptions, ownershipQuery]);
   const todoGroups = useMemo(() => {
-    if (!workspaceView || displayMode !== "grouped") return [];
+    if (!workspaceView) return [];
     const groups: Array<{ key: string; title: string; todos: TodoRecord[] }> = [];
     const workspaceTodos = todos.filter((todo) => todo.scope === "workspace");
     if (workspaceTodos.length > 0) {
-      groups.push({ key: "workspace", title: "Workspace", todos: workspaceTodos });
+      groups.push({ key: "workspace", title: "工作区", todos: workspaceTodos });
     }
     for (const project of createOwnershipOptions ?? []) {
       const projectTodos = todos.filter(
@@ -303,9 +304,13 @@ export function TodoRail({
         groups.push({ key: `project:${project.projectId}`, title: project.name, todos: projectTodos });
       }
     }
+    // Keep tasks visible even if project metadata arrives after their collection.
+    for (const todo of todos) {
+      if (todo.scope !== "project" || groups.some((group) => group.key === `project:${todo.projectId}`)) continue;
+      groups.push({ key: `project:${todo.projectId}`, title: todo.projectName ?? "项目", todos: todos.filter((item) => item.scope === "project" && item.projectId === todo.projectId) });
+    }
     return groups;
-  }, [createOwnershipOptions, displayMode, todos, workspaceView]);
-  const showSortSwitch = todos.length > 1;
+  }, [createOwnershipOptions, todos, workspaceView]);
   const createDisabled =
     createPending ||
     composerTagPending ||
@@ -633,6 +638,7 @@ export function TodoRail({
     if (createOwnershipOptions) setCreateProjectId(null);
     setSelectedTagIds([]);
     setDraftSubtasks([]);
+    setEditingSubtask(null);
     setComposerCreationOutcome(null);
     setComposerCreatedTags([]);
     setComposerTagPending(false);
@@ -754,6 +760,7 @@ export function TodoRail({
       setComposerCreatedTags([]);
     }
     setCreateProjectId(nextProjectId);
+    window.requestAnimationFrame(() => ownershipButtonRef.current?.focus());
     setOwnershipPickerOpen(false);
     setOwnershipQuery("");
     controller.setControllerState((current) => ({
@@ -785,7 +792,7 @@ export function TodoRail({
         allowInlineProgress={tab === "unfinished"}
         expandedTodoIds={expandedTodoIds}
         onToggleExpanded={toggleExpanded}
-        emptyText={tab === "unfinished" ? "当前没有未完成 Todo。" : "当前没有已完成 Todo。"}
+        emptyText={tab === "unfinished" ? "暂无待办" : "暂无已完成待办"}
         onToggleStatus={onToggleStatus}
         onUpdatePriority={onUpdatePriority}
         onUpdateContent={onUpdateContent}
@@ -801,7 +808,7 @@ export function TodoRail({
         availableTagScopeProjectId={projectId ?? null}
         canCreateTagsForTodo={canCreateTagsForTodo}
         onEmptyClick={
-          allowEmptyClick && tab === "unfinished"
+          allowEmptyClick && tab === "unfinished" && canCreateTodo && !isComposing
             ? () => {
                 setIsComposing(true);
               }
@@ -846,23 +853,44 @@ export function TodoRail({
         className="left-0"
       />
       <div className="todo-rail__header flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-title font-medium text-text">{title}</h2>
+        <div className="todo-rail__heading">
+          <h2>{tab === "finished" ? "已完成" : title}</h2>
+          {showViewModeSwitch ? (
+            <label className="todo-rail__scope-picker">
+              <select aria-label="待办范围" value={viewMode}
+                onChange={(event) => {
+                  const nextViewMode = event.currentTarget.value as "workspace" | "current-project";
+                  event.currentTarget.blur();
+                  onViewModeChange?.(nextViewMode);
+                }}>
+                <option value="current-project">当前项目</option>
+                <option value="workspace">工作区</option>
+              </select>
+              <ChevronDown size={12} aria-hidden="true" />
+            </label>
+          ) : scopeLabel ? <span className="todo-rail__scope">{scopeLabel}</span> : null}
         </div>
         <div className="todo-rail__header-actions flex shrink-0 items-center">
-          {onRefresh ? (
-            <IconButton
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label="刷新代办列表"
-              title="刷新代办列表"
-              disabled={refreshing}
-              onClick={() => void onRefresh()}
-            >
-              <RefreshCw className={cn(refreshing && "spin")} size={14} />
-            </IconButton>
-          ) : null}
+          <IconButton
+            type="button" size="sm" variant="ghost" className="todo-rail__archive"
+            aria-label={tab === "finished" ? "返回未完成" : "查看已完成"}
+            title={tab === "finished" ? "返回未完成" : "查看已完成"}
+            aria-pressed={tab === "finished"}
+            onClick={() => setTab(tab === "unfinished" ? "finished" : "unfinished")}>
+            <Archive size={14} />
+          </IconButton>
+          <label className="todo-rail__sort-picker" title={`排序：${sortMode === "time" ? "按时间" : "按优先级"}`}>
+            <SlidersHorizontal size={14} aria-hidden="true" />
+            <select aria-label="待办排序" value={sortMode}
+              onChange={(event) => {
+                const nextSortMode = event.currentTarget.value as "time" | "priority";
+                event.currentTarget.blur();
+                setSortMode(nextSortMode);
+              }}>
+              <option value="time">按时间</option>
+              <option value="priority">按优先级</option>
+            </select>
+          </label>
           <IconButton
             ref={addTodoButtonRef}
             type="button"
@@ -887,95 +915,6 @@ export function TodoRail({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
-        <div className="todo-rail__toolbar flex flex-nowrap items-center justify-between gap-3">
-          <div className="todo-rail__toolbar-scope min-w-0">
-            {showViewModeSwitch ? (
-              <div
-                className="todo-rail__view-switch"
-                role="tablist"
-                aria-label="待办范围"
-              >
-                <button
-                  ref={currentProjectViewRef}
-                  type="button"
-                  role="tab"
-                  aria-selected={!workspaceView}
-                  tabIndex={!workspaceView ? 0 : -1}
-                  className="todo-rail__view-switch-button"
-                  onClick={() => onViewModeChange?.("current-project")}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key !== "ArrowRight" &&
-                      event.key !== "ArrowDown" &&
-                      event.key !== "End"
-                    ) {
-                      return;
-                    }
-                    event.preventDefault();
-                    workspaceViewRef.current?.focus();
-                    onViewModeChange?.("workspace");
-                  }}
-                >
-                  当前项目
-                </button>
-                <button
-                  ref={workspaceViewRef}
-                  type="button"
-                  role="tab"
-                  aria-selected={workspaceView}
-                  tabIndex={workspaceView ? 0 : -1}
-                  className="todo-rail__view-switch-button"
-                  onClick={() => onViewModeChange?.("workspace")}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key !== "ArrowLeft" &&
-                      event.key !== "ArrowUp" &&
-                      event.key !== "Home"
-                    ) {
-                      return;
-                    }
-                    event.preventDefault();
-                    currentProjectViewRef.current?.focus();
-                    onViewModeChange?.("current-project");
-                  }}
-                >
-                  整个工作区
-                </button>
-              </div>
-            ) : (
-              <p className="todo-rail__scope">{scopeLabel}</p>
-            )}
-            {tab === "finished" ? (
-              <span className="todo-rail__finished-label">已完成</span>
-            ) : null}
-          </div>
-          <div className="todo-rail__list-controls flex items-center">
-            {workspaceView ? (
-              <IconButton
-                type="button"
-                size="sm"
-                variant="subtle"
-                className="todo-rail__icon-toggle"
-                aria-label="分组显示"
-                aria-pressed={displayMode === "grouped"}
-                title={
-                  displayMode === "grouped"
-                    ? "分组显示（点击切换为平铺）"
-                    : "平铺显示（点击切换为分组）"
-                }
-                onClick={() =>
-                  setDisplayMode(displayMode === "grouped" ? "flat" : "grouped")
-                }
-              >
-                <ListTree size={14} />
-              </IconButton>
-            ) : null}
-            {showSortSwitch ? (
-              <TodoSortSwitch value={sortMode} onChange={setSortMode} />
-            ) : null}
-          </div>
-        </div>
-
         {isComposing ? (
           <div
             ref={composerRef}
@@ -1000,7 +939,7 @@ export function TodoRail({
                 rows={1}
                 data-max-lines="6"
                 disabled={composerLocked}
-                className="todo-editor-field todo-rail__composer-input w-full resize-none text-body text-text placeholder:text-text-soft"
+                className="todo-editor-field todo-rail__composer-input w-full resize-none placeholder:text-text-soft"
                 value={content}
                 onChange={(event) => {
                   const nextSelectionStart = event.target.selectionStart;
@@ -1103,7 +1042,7 @@ export function TodoRail({
                 loading={referenceLoading}
                 results={referenceResults}
                 activeIndex={controller.controllerState.referenceActiveIndex}
-                className="absolute left-0 top-[calc(100%+6px)] z-20 w-[22rem]"
+                anchorRef={composerInputRef}
                 onHoverIndex={(referenceActiveIndex) =>
                   controller.setControllerState((current) => ({ ...current, referenceActiveIndex }))
                 }
@@ -1116,9 +1055,7 @@ export function TodoRail({
                 activeIndex={controller.controllerState.mentionActiveIndex}
                 query={controller.mentionTrigger?.query ?? ""}
                 canCreate={controller.mentionCreatable}
-                portal
-                className="fixed z-[120]"
-                style={getTodoEditorPickerPosition(composerInputRef.current)}
+                anchorRef={composerInputRef}
                 onHoverIndex={(mentionActiveIndex) =>
                   controller.setControllerState((current) => ({ ...current, mentionActiveIndex }))
                 }
@@ -1132,42 +1069,12 @@ export function TodoRail({
                 activeIndex={controller.controllerState.tagActiveIndex}
                 query={controller.tagTrigger?.query ?? ""}
                 canCreate={false}
-                portal
-                className="fixed z-[120]"
-                style={getTodoEditorPickerPosition(composerInputRef.current)}
+                anchorRef={composerInputRef}
                 onHoverIndex={(tagActiveIndex) =>
                   controller.setControllerState((current) => ({ ...current, tagActiveIndex }))
                 }
                 onSelect={handleTagInsert}
               />
-                </div>
-                <div className="todo-rail__composer-tags">
-                  <EntityTagEditor
-                    key={composerTagProjectId ?? "workspace"}
-                    projectId={composerTagProjectId}
-                    availableTags={composerAvailableTags}
-                    tags={selectedComposerTags}
-                    busy={composerLocked}
-                    inputRef={composerTagInputRef}
-                    compact
-                    inputPlaceholder="# 新增标签"
-                    showInputLeadingIcon={false}
-                    mode="full"
-                    onCreated={(tag) => {
-                      setComposerCreatedTags((current) => [
-                        ...current.filter((candidate) => candidate.id !== tag.id),
-                        tag,
-                      ]);
-                    }}
-                    onChange={(tagIds) => setSelectedTagIds(tagIds)}
-                    onPendingChange={setComposerTagPending}
-                    onCommitSettled={(error) => {
-                      composerTagCommitSucceededRef.current = error === null;
-                      if (error !== null) {
-                        onError?.(`Tag 保存失败：${String(error)}`);
-                      }
-                    }}
-                  />
                 </div>
                 {composerCreationOutcome !== null ? (
                   <div className="todo-rail__composer-recovery">
@@ -1205,12 +1112,28 @@ export function TodoRail({
                         <div
                           key={`${subtask.content}:${subtask.progressDate}:${index}`}
                           className="todo-rail__composer-subtask-row"
+                          data-editing={editingSubtask?.index === index || undefined}
                         >
                           <span
                             className="todo-subtask-editor-row__check-placeholder"
                             aria-hidden="true"
                           />
-                          <p className="min-w-0 flex-1 text-ui leading-[1.2rem] text-text-muted">
+                          {editingSubtask?.index === index ? <TodoProgressTextEditor
+                            value={editingSubtask.content} autoFocus disabled={composerLocked}
+                            internalReferenceContext={composerInternalReferenceContext}
+                            onChange={(content) => setEditingSubtask({ index, content })}
+                            onCancel={() => setEditingSubtask(null)}
+                            onCommit={() => {
+                              const parsed = parseProgressInput(editingSubtask.content, new Date(), subtask.progressDate, subtask.dueDate);
+                              if (!parsed.ok) { onError?.(parsed.error); return; }
+                              setDraftSubtasks((current) => current.map((item, i) => i === index ? { content: parsed.content, progressDate: parsed.progressDate, dueDate: parsed.dueDate } : item));
+                              setEditingSubtask(null);
+                            }}
+                          /> : <p className="min-w-0 flex-1 text-ui leading-[1.2rem] text-text-muted" tabIndex={composerLocked ? -1 : 0}
+                            aria-label={`编辑子任务 ${subtask.content}`}
+                            onClick={(event) => { if (!composerLocked && !(event.target instanceof Element && event.target.closest("a, button"))) setEditingSubtask({ index, content: subtask.content }); }}
+                            onKeyDown={(event) => { if (event.key === "Enter" && !composerLocked) { event.preventDefault(); setEditingSubtask({ index, content: subtask.content }); } }}>
+
                             <InternalReferenceInlineText
                               value={subtask.content}
                               className="break-words"
@@ -1219,8 +1142,8 @@ export function TodoRail({
                               onOpenContactMention={onOpenContactMention}
                             />
                             {subtask.dueDate ? <TodoDueDate value={subtask.dueDate} /> : null}
-                          </p>
-                          <IconButton
+                          </p>}
+                          {editingSubtask?.index !== index ? <IconButton
                             type="button"
                             size="sm"
                             variant="ghost"
@@ -1233,13 +1156,14 @@ export function TodoRail({
                             }
                           >
                             <X size={12} />
-                          </IconButton>
+                          </IconButton> : null}
                         </div>
                       ))}
                     </div>
                   ) : null}
                   <div className="todo-rail__composer-add-subtask">
                     <TodoInlineProgressEditor
+                      continueOnEnter
                       latestProgress={null}
                       editable={!composerLocked}
                       onError={onError}
@@ -1254,6 +1178,7 @@ export function TodoRail({
                 </div>
               </div>
               <div className="todo-rail__composer-meta">
+              <TodoPrioritySelector value={priority} onChange={setPriority} disabled={composerLocked} />
               {createOwnershipOptions ? (
                 <div
                   className="todo-rail__ownership relative flex min-w-0 flex-[1_1_12rem] items-center gap-2 text-ui text-text-soft"
@@ -1284,7 +1209,13 @@ export function TodoRail({
                         ownershipPickerOpen && "todo-rail__ownership-select--open",
                       )}
                       disabled={composerLocked}
+                      onMouseDown={(event) => {
+                        // Safari can blur the search input with no relatedTarget before click.
+                        // Keep focus inside the picker until this click toggles it.
+                        event.preventDefault();
+                      }}
                       onClick={() => {
+                        if (ownershipPickerOpen) ownershipButtonRef.current?.focus();
                         setOwnershipPickerOpen((current) => !current);
                         setOwnershipQuery("");
                       }}
@@ -1301,11 +1232,9 @@ export function TodoRail({
                         )}
                       />
                     </button>
-                    {ownershipPickerOpen ? (
-                      <div className="todo-rail__ownership-panel">
-                        <label className="todo-rail__ownership-search">
-                          <Search aria-hidden="true" size={13} />
-                          <input
+                    {ownershipPresence.mounted ? (
+                      <div className="todo-rail__ownership-panel" data-presence={ownershipPresence.state} inert={!ownershipPickerOpen ? true : undefined} aria-hidden={!ownershipPickerOpen || undefined} onTransitionEnd={ownershipPresence.onTransitionEnd}>
+                          <SearchField className="todo-rail__ownership-search"
                             autoFocus
                             type="search"
                             role="searchbox"
@@ -1322,7 +1251,6 @@ export function TodoRail({
                               }
                             }}
                           />
-                        </label>
                         <div id="todo-ownership-options" role="listbox" className="todo-rail__ownership-options">
                           <button
                             type="button"
@@ -1360,18 +1288,36 @@ export function TodoRail({
                   </span>
                 </div>
               ) : null}
-              <div className="todo-rail__priority-options" aria-label="Todo 优先级">
-                {TODO_PRIORITY_OPTIONS.map((option) => (
-                  <PriorityDotButton
-                    key={option.value}
-                    priority={option.value}
-                    active={priority === option.value}
-                    title={option.optionLabel}
-                    onClick={() => setPriority(option.value)}
-                    disabled={composerLocked}
+                <div className="todo-rail__composer-tags">
+                  <EntityTagEditor
+                    key={composerTagProjectId ?? "workspace"}
+                    projectId={composerTagProjectId}
+                    availableTags={composerAvailableTags}
+                    tags={selectedComposerTags}
+                    busy={composerLocked}
+                    inputRef={composerTagInputRef}
+                    compact
+                    inputPlaceholder="新增标签"
+
+                    revealInput
+
+                    mode="full"
+                    onCreated={(tag) => {
+                      setComposerCreatedTags((current) => [
+                        ...current.filter((candidate) => candidate.id !== tag.id),
+                        tag,
+                      ]);
+                    }}
+                    onChange={(tagIds) => setSelectedTagIds(tagIds)}
+                    onPendingChange={setComposerTagPending}
+                    onCommitSettled={(error) => {
+                      composerTagCommitSucceededRef.current = error === null;
+                      if (error !== null) {
+                        onError?.(`Tag 保存失败：${String(error)}`);
+                      }
+                    }}
                   />
-                ))}
-              </div>
+                </div>
               <Button
                 type="button"
                 size="sm"
@@ -1405,13 +1351,13 @@ export function TodoRail({
           </div>
         ) : null}
 
-        <div className="todo-rail__list-scroll min-h-0 flex-1 overflow-y-auto">
-          {workspaceView && displayMode === "grouped" ? (
+        <HomeSidebarList label="待办列表" scrollRef={listScrollRef} variant="todo">
+          {workspaceView ? (
             todoGroups.length > 0 ? (
               <div className="grid gap-4">
                 {todoGroups.map((group) => (
                   <section key={group.key} className="grid gap-2">
-                    <h3 className="text-ui font-semibold text-text-muted">{group.title}</h3>
+                    {todoGroups.length > 1 ? <h3 className="todo-rail__group-title">{group.title}</h3> : null}
                     {renderTodoList(group.todos)}
                   </section>
                 ))}
@@ -1422,27 +1368,8 @@ export function TodoRail({
           ) : (
             renderTodoList(todos, true)
           )}
-        </div>
-        <div className="todo-rail__completion-footer">
-          <button
-            type="button"
-            className="todo-rail__completion-button"
-            onClick={() => setTab(tab === "unfinished" ? "finished" : "unfinished")}
-          >
-            {tab === "unfinished" ? (
-              <>
-                <span>查看已完成</span>
-                {finishedTodos.length > 0 ? (
-                  <span className="todo-rail__completion-count" aria-label={`${finishedTodos.length} 项`}>
-                    {finishedTodos.length}
-                  </span>
-                ) : null}
-              </>
-            ) : (
-              "返回未完成"
-            )}
-          </button>
-        </div>
+        </HomeSidebarList>
+
       </div>
     </aside>
   );
@@ -1455,37 +1382,4 @@ function readCreatedTodoId(value: unknown) {
   return typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id > 0
     ? value.id
     : null;
-}
-
-function PriorityDotButton({
-  active,
-  priority,
-  title,
-  onClick,
-  disabled,
-}: {
-  active: boolean;
-  priority: TodoPriority;
-  title?: string;
-  onClick: () => void;
-  disabled: boolean;
-}) {
-  const colorValue = priorityColorValue(priority);
-
-  return (
-    <button
-      type="button"
-      aria-label={title}
-      aria-pressed={active}
-      title={title}
-      disabled={disabled}
-      className="todo-rail__priority-button"
-      onClick={onClick}
-    >
-      <span
-        className={cn("todo-rail__priority-dot", active && "todo-rail__priority-dot--active")}
-        style={{ color: colorValue }}
-      />
-    </button>
-  );
 }

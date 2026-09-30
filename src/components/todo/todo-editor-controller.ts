@@ -314,18 +314,6 @@ export function insertMentionToken(
   );
 }
 
-export function getTodoEditorPickerPosition(target: HTMLElement | null) {
-  if (!target) {
-    return undefined;
-  }
-
-  const rect = target.getBoundingClientRect();
-  return {
-    left: rect.left,
-    top: rect.bottom + 6,
-  };
-}
-
 export function handleTodoEditorMentionKeyDown({
   event,
   open,

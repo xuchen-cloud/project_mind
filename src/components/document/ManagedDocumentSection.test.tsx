@@ -421,6 +421,16 @@ describe("ManagedDocumentSection", () => {
     expect(screen.queryByDisplayValue("Context target.pdf")).not.toBeInTheDocument();
   });
 
+  it("dismisses the file menu on blank space inside the file section but keeps menu clicks open", async () => {
+    const { container } = renderSection([buildDocument({ id: 21, baseName: "Spec brief.pdf" })]);
+    fireEvent.contextMenu(document.getElementById("document-21") as HTMLElement);
+    const menu = await screen.findByRole("menu", { name: "文件操作" });
+    fireEvent.pointerDown(menu);
+    expect(menu).toBeInTheDocument();
+    fireEvent.pointerDown(container.firstElementChild!);
+    expect(screen.queryByRole("menu", { name: "文件操作" })).not.toBeInTheDocument();
+  });
+
   it("shows ordered document actions and reveals the file location from the context menu", async () => {
     const user = userEvent.setup();
 

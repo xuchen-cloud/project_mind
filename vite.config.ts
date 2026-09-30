@@ -56,6 +56,8 @@ export default defineConfig({
     },
   },
   server: {
+    // File-provider backed worktrees can miss native filesystem events.
+    watch: { usePolling: true, interval: 300 },
     port: 1420,
     strictPort: true,
   },
@@ -64,7 +66,10 @@ export default defineConfig({
     strictPort: true,
   },
   test: {
-    exclude: [...configDefaults.exclude, "product-site/**"],
+    // Bound concurrent jsdom/editor/PDF work to avoid CPU-starvation timeouts.
+    maxWorkers: 4,
+    // Backend packages own their Node test runner and must not load jsdom.
+    exclude: [...configDefaults.exclude, "product-site/**", "packages/agent-host/**"],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,

@@ -4631,7 +4631,7 @@ export function RichEditor({
             results={referenceResults}
             activeIndex={referenceActiveIndex}
             portal
-            className="fixed z-[120] w-[22rem]"
+            className="fixed z-[120]"
             style={{
               left: `${referencePicker.position.left}px`,
               top: `${referencePicker.position.top}px`,
@@ -5020,10 +5020,10 @@ const CodeLanguageFloatingToolbar = forwardRef<
       aria-label="代码类型"
     >
       {contextMenuOpen ? (
-        <div className="rich-editor__code-language-context-panel" role="menu" aria-label="代码类型应用范围">
+        <div className="rich-editor__code-language-context-panel context-menu__panel" role="menu" aria-label="代码类型应用范围">
           <button
             type="button"
-            className="rich-editor__code-language-context-option"
+            className="rich-editor__code-language-context-option context-menu__item"
             role="menuitem"
             disabled={!normalizedLanguage}
             onClick={() => runContextAction(onApplyToDocument)}

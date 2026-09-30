@@ -1,43 +1,34 @@
 # Project Mind System Design
 
-状态：当前正式基线  
-更新时间：2026-08-25
+状态：当前正式基线
+
+更新时间：2026-09-28
+
+代码基线：`develop` / `880aafb`
 
 ## 1. 架构摘要
 
-Project Mind 当前是一个 `workspace-first` 的本地桌面应用，采用以下主技术栈：
-
-- `Tauri 2`
-- `React 19`
-- `TypeScript`
-- `React Query`
-- `Zustand`
-- `Tailwind CSS v4`
-- `SQLite`
-
-当前系统可以概括为五个核心运行单元：
-
-1. `React Workspace Shell`
-2. `Typed Service Layer`
-3. `Tauri Command Host`
-4. `Workspace Runtime + SQLite + Managed Filesystem`
-5. `AI Job / Provider Layer`
+Project Mind 是 `Tauri 2 + React 19 + TypeScript + SQLite` 的本地桌面应用。
 
 ```mermaid
 flowchart LR
-  A["React App"] --> B["projectMindApi / desktopApi"]
-  B --> C["Tauri Commands"]
-  C --> D["Workspace Runtime"]
-  D --> E[("workspace.sqlite3")]
-  D --> F["Workspace Filesystem"]
-  D --> G["AI Jobs / Providers"]
+  UI[React Workspace Shell] --> API[Typed service layer]
+  API --> CMD[Tauri commands]
+  CMD --> RT[Workspace runtime]
+  RT --> DB[(workspace.sqlite3)]
+  RT --> FS[Workspace filesystem]
+  RT --> AI[AI providers and jobs]
+  RT --> VOICE[Voice session runtime]
 ```
 
-## 2. Workspace 与存储边界
+核心边界：
 
-### 2.1 Workspace 文件结构
+1. React 负责页面、编辑现场与即时反馈。
+2. Typed service layer 是前端访问 Tauri command 的边界。
+3. Workspace runtime 持有当前 Workspace 的数据库、文件、保存和录音生命周期。
+4. SQLite 与 Workspace 文件系统共同构成本地事实来源。
 
-每个 workspace 都是一个真实目录：
+## 2. Workspace 与持久化
 
 ```text
 <workspace-root>/
@@ -48,299 +39,116 @@ flowchart LR
     logs/
     tmp/
   <Project A>/
-  <Project B>/
+    .project-mind/embedded-note-assets/
 ```
 
-约束：
+- 当前数据库 schema 为 v25：v22 引入 Voice Record，v23 引入会议纪要，v24 增加录音可靠性，v25 增加恢复状态。
+- Workspace 自有文件使用 `workspace:<relative-path>` 或作用域相对路径持久化。
+- 外部导入源可显式记录 `absolute:` 原路径；受管副本必须保持可迁移。
+- `Local Session` 可以记录本机最近 Workspace 根目录，但不能写入 Workspace 数据。
+- 升级前按 schema 版本创建备份。v21 负责将仍存在的旧 Brief 与结论复制为 Record，不删除原始行。
 
-- `workspace.json` 保存工作区元信息与安全模式相关数据
-- `workspace.sqlite3` 是主业务数据库
-- AI 缓存、日志、临时文件都跟随 workspace
-- 项目目录直接落在 workspace 根目录，而不是系统 app data
+路径规则由 `npm run check:portable-paths` 自动检查。
 
-### 2.2 文件落位
+## 3. 前端结构
 
-当前文件系统策略是“用户能看到项目文件，系统元数据尽量隐藏”：
+### 3.1 路由与 Shell
 
-- 项目导入文件默认进入对应项目目录
-- 记录中托管图片进入 `<project-root>/.project-mind/embedded-note-assets/`
-- 文件历史版本进入该文件对应的 `history_dir_path`
-
-### 2.3 路径可迁移性
-
-路径持久化遵循以下强制规则：
-
-- Workspace 自有的托管文件引用必须以相对于 Workspace 或 Project 业务作用域根目录的路径持久化，禁止写入机器相关的绝对路径。
-- SQLite 路径字段使用 `workspace:<relative-path>` 作为 Workspace 内文件的规范形式；富文本中的托管图片和附件使用作用域相对路径，例如 `.project-mind/embedded-note-assets/image.png`。
-- SQLite、富文本 HTML、Workspace 元数据、设置、缓存和导出元数据都不得持久化 Unix 用户目录路径、Windows 盘符路径、UNC 路径、`file://` URI 或 Tauri `asset:` URL。
-- Tauri command / API 只允许在读取后的运行时边界临时还原绝对路径。任何回写都必须先重新规范化，不能把已还原路径直接写回持久层。
-- 无法证明属于当前 Workspace 的本地绝对资源引用不得原样保留；写入边界应清空无效引用，避免制造不可迁移数据。远程 HTTP(S) URL 与内嵌 `data:` URL 不属于文件系统路径。
-
-明确例外仅有两类：
-
-- 外部导入源的 `original_path` 可以用显式的 `absolute:` 形式记录，因为它描述 Workspace 外部来源；托管副本的 `managed_path` 仍必须使用 `workspace:` 相对形式。
-- 应用本机的 `Local Session` 可以保存最近打开的 Workspace 根目录，以便重新发现 Workspace；该文件不属于 Workspace 数据，也不得被复制进 Workspace。
-
-重命名规则：
-
-- Project 改名只移动 Project 目录和更新结构化路径字段；相对富文本资源引用保持不变，不做基于旧 Project 名的全文路径重写。
-- 仓库 Markdown 链接必须使用仓库相对路径。`npm run check:portable-paths` 负责阻止机器本地绝对路径重新进入文档。
-
-### 2.4 历史数据库兼容边界
-
-- 全新工作区不创建历史领域表、状态选项或关联列；只有检测到旧数据库时才补齐迁移所需的最小兼容结构。
-- v21 在一个 Savepoint 内把仍存在的历史 Brief 与结论复制为 Project Record，并用来源 Tag 和 `legacy_domain_record_migrations` 保存映射；失败会完整回滚后重试。
-- 对已运行旧 v13 迁移的工作区，v21 会识别并复用当时生成的 Brief Record，避免重复。旧 v13 在此前版本中已经删除的结论无法由本版本恢复；除此之外，v21 不删除或清空任何现存历史行及关联。
-- 升级前仍会按 schema 版本创建数据库备份；当前命令、搜索和页面不会读取历史领域对象。
-
-### 2.5 会话与 secrets
-
-本地状态分成两层：
-
-- `Workspace Metadata`
-  - 跟随 workspace 存储
-  - 管理工作区本身的安全模式
-- `Local Session`
-  - 保存在本机
-  - 用于记录最近工作区和部分 UI 持久偏好
-
-当前 AI 密钥策略：
-
-- 已保存的 API Key 默认锁定
-- 需要用户输入 workspace 密码执行解锁
-- 解锁状态通过 `workspace_status_get` 与 `ai_settings_get` 反映
-
-## 3. 当前前端结构
-
-### 3.1 路由层
-
-当前主路由定义在 [src/main.tsx](../src/main.tsx)：
+路由定义在 [`src/main.tsx`](../src/main.tsx)：
 
 - `/workspace`
+- `/workspace/records/:noteId`
 - `/projects/:projectId`
-- `/projects/:projectId/summary`
 - `/projects/:projectId/records/:noteId`
 - `/settings/:section`
 
-说明：
+[`src/App.tsx`](../src/App.tsx) 负责 Workspace Gate、顶栏、resident pages、全局浮层、设置和 Workspace 生命周期。
 
-- 默认入口会重定向到 `/workspace`
-- `summary` 路由当前主要承担兼容跳转职责
+### 3.2 当前页面
 
-### 3.2 Workspace Shell
+- [`WorkspacePage`](../src/components/workspace/WorkspacePage.tsx)
+- [`WorkspaceRecordFocusPage`](../src/components/workspace/WorkspaceRecordFocusPage.tsx)
+- [`ProjectOverviewPage`](../src/components/project/ProjectOverviewPage.tsx)
+- [`ProjectNoteFocusPage`](../src/components/project/ProjectNoteFocusPage.tsx)
 
-入口位于 [src/App.tsx](../src/App.tsx)。
+Workspace 与 Project 首页共享 `src/components/home/` 中的封面、标题、QuickNote、Record、侧栏和滚动基础组件。Todo 统一使用 `src/components/todo/`，避免 Workspace、Project 和 Record 页面复制实现。
 
-职责：
+### 3.3 状态职责
 
-- Workspace Gate 与已进入工作区后的主 shell 切换
-- 顶栏、项目侧边栏、状态栏、Toast、设置对话框的全局挂载
-- 工作区切换后清理 scoped query 和 AI job 同步
-- 主窗口退出和顶栏“切换 Workspace”会先要求全部主/Project 窗口完成 Record 保存屏障；退出会终止整个应用，切换会关闭 Project 子窗口，再通过 `workspace_close` 释放当前 runtime、清除自动恢复指针并返回 Workspace Gate；最近使用列表继续保留
-- 根据当前路由决定主页面内容
+- React Query：持久业务实体和 command 结果缓存。
+- Zustand：跨会话 UI 偏好，例如页面宽度、侧栏宽度和 Todo Rail 宽度。
+- 组件本地状态：短期编辑、浮层和键盘交互。
+- `RecordSaveCoordinator`：Record Focus 卸载后的后台保存、失败重试和退出 flush。
+- Voice session runtime：Recording Session 的唯一所有者，独立于主窗口和字幕浮窗生命周期。
 
-当前 shell 级关键查询包括：
+Query key 统一定义在 [`src/lib/queryKeys.ts`](../src/lib/queryKeys.ts)。
 
-- `["workspace-status"]`
-- `["projects", "all"]`
-- `["ai-settings"]`
-- `["rich-text-style"]`
-- `["overview", projectId]`
-- `["workspace-overview"]`
+## 4. 页面驻留与缓存
 
-### 3.3 页面层
+Project 页面使用 Active / Warm / Cold 模型：
 
-当前正式主页面包括：
+- Active：当前可见并完整运行。
+- Warm：保留页面和编辑现场，设置 `inert`、`aria-hidden` 并暂停页面查询。
+- Cold：卸载页面实例，只保留 Query 数据、最近路由和持久 UI 偏好。
 
-- [src/components/workspace/WorkspacePage.tsx](../src/components/workspace/WorkspacePage.tsx)
-- [src/components/project/ProjectQuickNotePage.tsx](../src/components/project/ProjectQuickNotePage.tsx)
-- [src/components/project/ProjectNoteFocusPage.tsx](../src/components/project/ProjectNoteFocusPage.tsx)
+Workspace Overview 是 Pinned 页面，不参与 Project LRU。Project Record Focus 与 Workspace Record Focus 共用最多两个编辑器实例的 Focus LRU。具体上限与缓存规则见[缓存策略](cache-strategy.md)。
 
-职责：
+## 5. Service Layer
 
-- 组织页面级查询、变更与布局
-- 决定 overview / history 模式
-- 组合富文本、Todo、文件、AI 等模块
+- [`desktopApi.ts`](../src/services/desktopApi.ts)：Tauri invoke、系统窗口、文件与目录选择、Reveal。
+- [`projectMindApi.ts`](../src/services/projectMindApi.ts)：Workspace、Project、Record、Todo、File、Tag、Contact、AI 等业务命令。
+- [`voiceApi.ts`](../src/services/voiceApi.ts)：录音会话、转写、纪要、回放和语音设置。
 
-### 3.4 组件与交互胶水层
+前端组件不得自行拼接 command 名或持久化路径。
 
-当前 feature 组件主要分布在：
+## 6. 数据模型
 
-- `src/components/layout/*`
-- `src/components/workspace/*`
-- `src/components/project/*`
-- `src/components/todo/*`
-- `src/components/document/*`
-- `src/components/rich-editor/*`
-- `src/components/ai/*`
-- `src/components/settings/*`
+通用业务类型位于 [`src/lib/types.ts`](../src/lib/types.ts)，语音类型位于 [`src/lib/voice-types.ts`](../src/lib/voice-types.ts)。当前主要聚合是 Project Page、Workspace Page、Todo 集合和 Voice Record Snapshot。
 
-常见职责：
+关键一致性规则：
 
-- 页面内局部布局
-- 富文本编辑器扩展
-- 文件导入流程
-- 标签与联系人补全
-- Todo 进展交互
+- Workspace、Project、Record、Todo 和 File 的归属不能由 UI 标签推断。
+- Transcript 是 Voice Record 的只读事实来源。
+- Meeting Minutes Snapshot 是可替换派生结果；复制进正文后脱离快照生命周期。
+- Todo 聚合视图不改变 Todo 的真实归属。
 
-### 3.5 状态层
+## 7. 富文本、推荐与菜单
 
-当前状态划分如下：
+`RichEditor` 支持 HTML / Markdown、内部引用、联系人、Tag、图片、附件、表格、代码和 AI Editor Skill。
 
-- `React Query`
-  - 持久业务实体
-  - 远近端命令结果缓存
-- `Zustand`
-  - UI 临时态与持久偏好
-- `AI job sync`
-  - 运行中 AI 作业状态
+Tag、Internal Reference 和 Contact Mention 的推荐面板在 Todo 与富文本中复用相同的视觉和层级规则。右键菜单以 `ActionContextMenu` 及统一 CSS 基准实现；文件标签编辑保留业务交互，但不复制菜单样式。
 
-主要 store：
+只有 Committed Content 可以写入数据库。待确认的 AI Modification 与 AI Answer 不属于保存内容。
 
-- [src/state/ui-store.ts](../src/state/ui-store.ts)
-- `feedback-store`
-- `ai-job-store`
+## 8. Voice Record
 
-`ui-store` 当前持久化的关键偏好包括：
+Voice Record 后端位于 `src-tauri/src/voice/`：
 
-- 记录编辑宽度
-- 页面宽度模式
-- Todo Rail 宽度
-- 项目侧边栏宽度
+- `capture/`：macOS 与 Windows 原生采集适配。
+- `session.rs`、`runtime.rs`：单一 Recording Session 生命周期。
+- `storage.rs`、`recovery.rs`：双轨分片、manifest、恢复和清理。
+- `recognition.rs`、`local_asr.rs`、`live_paraformer.rs`：本地与云端识别。
+- `activity.rs`、`fsmn.rs`：语音活动检测。
+- `processing.rs`、`transcript_assembly.rs`：转写与派生处理。
 
-### 3.6 项目页签驻留与缓存
+前端控制和展示位于 `src/components/voice/`。主窗口与字幕浮窗读取同一后端快照；窗口关闭不能隐式结束录音。
 
-项目 Overview 页采用浏览器式三态模型：
+Voice Record 的剩余实机证据与源码 TODO 核对见[未完成事项](remaining-work.md)。
 
-- `Active`：当前可见页，完整运行。
-- `Warm`：最近两个项目页保留 React 与编辑器现场，页面设置为 `inert`，并暂停页面级查询。
-- `Cold`：只保留 React Query 数据、最近路由和持久化 UI 状态，页面实例被回收。
+## 9. AI 与导出
 
-驻留顺序由 `useResidentProjectPages` 管理，使用有界 LRU，完整驻留项目页最多三个。项目页签在 pointer hover 或 keyboard focus 时预取项目聚合数据与标签设置；Cold 页切换时同步纳入当前渲染，避免等待 effect 造成空白帧。
+AI Provider Profile 按默认角色或 Skill override 解析。Editor Skill Job 与 Record Metadata Job 保持独立语义，具体决策见 ADR。
 
-Workspace Overview 由 `useResidentWorkspacePage` 独立管理。它在首次访问后作为 `Pinned` 页面常驻，不参与项目 LRU 和页面数量回收；只在 workspace 作用域被清理或页面缓存被禁用时卸载。
+Record Export 从同一个 Committed Content 文档模型生成 Markdown/ZIP、DOCX 或 PDF，避免各格式分别解释正文。
 
-React Query 的 query key 统一定义在 `src/lib/queryKeys.ts`。默认数据新鲜期为 15 秒、GC 时间为 10 分钟；窗口聚焦、网络重连和重新挂载不会隐式刷新。详细约束见 `docs/cache-strategy.md`。
+## 10. 工程门禁
 
-Project Record Focus 的强制保存由 Workspace 范围的 `RecordSaveCoordinator` 承担。页面离开前只捕获最新 Committed Content 快照并立即导航；coordinator 在页面卸载后继续处理 managed image、持久化、同 Record 排序、失败保留与 React Query 最新结果同步。正常退出、Workspace 切换和更新安装会先 flush 当前 Workspace 队列。
+- `npm run test:unit`
+- `npm run build`
+- `npm run check:ui-standards`
+- `npm run check:portable-paths`
+- `npm run check:bundle-boundaries`（构建后）
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
 
-图片标注、Record Focus 页面和非默认设置面板通过 dynamic import 加载。生产构建使用 `check:bundle-boundaries` 防止 Canvas 重新进入启动预加载，并限制主入口脚本不超过 250 KiB。
-
-## 4. Service Layer
-
-### 4.1 desktopApi
-
-位于 [src/services/desktopApi.ts](../src/services/desktopApi.ts)。
-
-职责：
-
-- 封装 Tauri `invoke`
-- 打开文件与目录
-- 选择目录与文件
-- Reveal 到系统文件管理器
-
-### 4.2 projectMindApi
-
-位于 [src/services/projectMindApi.ts](../src/services/projectMindApi.ts)。
-
-职责：
-
-- 作为前端唯一 typed command wrapper
-- 统一把 TS 输入映射到 Tauri command
-- 收敛业务命令命名
-
-当前主要命令分组：
-
-- workspace 生命周期
-- projects / overview
-- notes / workspace notes
-- todos
-- documents / project tags
-- contacts
-- AI editor skills / jobs / settings
-- rich text style
-
-## 5. 当前数据模型摘要
-
-核心类型定义位于 [src/lib/types.ts](../src/lib/types.ts)。
-
-当前正式主模型包括：
-
-- `ProjectRecord`
-- `NoteRecord`
-- `WorkspaceNoteRecord`
-- `TodoRecord`
-- `TodoProgressRecord`
-- `DocumentRecord`
-- `ProjectTagRecord`
-- `ContactRecord`
-- `AiSettingsSnapshot`
-
-当前页面聚合结果是 `ProjectPageData` 与 `WorkspacePageData`，页面只消费 Record、Document 与 Todo 等现行对象。
-
-## 6. 富文本与引用体系
-
-当前富文本由 `RichEditor` 承担，支持以下关键能力：
-
-- Markdown / HTML 双表示
-- 内部引用 `[[...]]`
-- 联系人提及 `@...`
-- 标签触发与补全
-- 图片与附件相关扩展
-- 选区级 AI 改写动作
-
-当前使用范围：
-
-- Workspace QuickNote
-- Workspace Record
-- Project 默认笔记
-- Project Record
-
-## 7. 文件管理链路
-
-文件相关能力主要由以下部分组成：
-
-- `useDocumentImportFlow`
-- `useDocumentMutations`
-- `ProjectSidebar`
-- `DocumentImportTagDialog`
-
-典型流程：
-
-1. 选择或拖拽文件
-2. 打开导入前标签对话框
-3. 调用 `document_import`
-4. 刷新项目 overview 与标签设置
-5. 在侧边栏文件页中继续使用项目标签
-
-## 8. AI 架构
-
-### 8.1 当前 AI 能力
-
-当前正式暴露的 AI 能力包括：
-
-- 可配置的 AI Editor Skill，包括文字改写、解释与图片文字提取；技能可单独选择模型，也可继承默认模型角色。
-- Record 的 AI Metadata Fill；它使用通用默认模型，通过独立 `record_metadata` Job 从 Committed Content 生成标题与同作用域 Tag 建议，并由原子命令写入。
-
-### 8.2 Job 模式
-
-`Editor Skill Job` 通过统一机制执行，特点：
-
-- 前端 enqueue
-- 轮询或同步 job target
-- 读取 job result
-- 同步到 UI
-
-## 9. 当前系统边界
-
-### 9.1 已成立边界
-
-- 工作区是唯一持久上下文边界
-- 前端只通过 typed service 访问后端
-- SQLite 是当前唯一业务真相源
-- 文件与数据库共同构成可迁移工作区
-
-### 9.2 暂不保证的边界
-
-- 历史数据库结构只保证无损升级和来源追溯，不再提供旧对象的业务 API
-- 跨平台桌面兼容性尚未做完备验收
+真实平台验证不由单元测试替代；未完成的实机项目统一记录在 [`remaining-work.md`](remaining-work.md)。

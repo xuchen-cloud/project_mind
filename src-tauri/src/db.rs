@@ -1,3 +1,6 @@
+pub(crate) mod agent;
+mod agent_operations;
+mod agent_instructions;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -77,7 +80,8 @@ const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
 const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
 const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
 const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECOVERY_SCHEMA_VERSION;
+const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
+const CURRENT_SCHEMA_VERSION: i64 = AGENT_FOUNDATION_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -502,8 +506,8 @@ impl Database {
         )?;
 
         if is_fresh_workspace {
-            self.set_schema_version(CURRENT_SCHEMA_VERSION)?;
-        } else if initial_schema_version < CURRENT_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
+        } else if initial_schema_version < LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION {
             self.ensure_legacy_domain_schema()?;
             self.ensure_column(
                 "projects",
@@ -748,6 +752,7 @@ impl Database {
         if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }
+        self.ensure_agent_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -5492,7 +5497,8 @@ impl Database {
               t.updated_at
             FROM todos t
             LEFT JOIN projects p ON p.id = t.project_id
-            WHERE (
+            WHERE t.status = 'unfinished'
+              AND (
               (?1 IS NOT NULL AND t.scope = 'project' AND t.project_id = ?1)
               OR
               (?1 IS NULL AND (
@@ -9556,6 +9562,31 @@ mod tests {
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn reference_search_excludes_finished_todos_but_preserves_existing_targets() {
+        let (harness, mut db) = setup_database();
+        let project = create_project(&mut db, &harness.workspace_root);
+        for (scope, project_id) in [(TodoScope::Workspace, None), (TodoScope::Project, Some(project.id))] {
+            let todo = db.todo_create(TodoCreateInput {
+                scope, project_id, content: "推荐状态回归".to_string(),
+                priority: "not_urgent_important".to_string(), due_date: None, tag_ids: vec![],
+            }).unwrap();
+            for status in ["unfinished", "finished", "unfinished"] {
+                db.todo_update_status(TodoUpdateStatusInput { todo_id: todo.id, status: status.to_string() }).unwrap();
+                for search_scope in ["workspace", "project"] {
+                    for query in ["", "推荐状态", "todo:推荐状态"] {
+                        let hits = db.internal_reference_search(InternalReferenceSearchInput {
+                            scope: search_scope.to_string(), project_id: Some(project.id), query: query.to_string(), limit: 8,
+                        }).unwrap();
+                        let expected = status == "unfinished" && (search_scope == "workspace" || project_id.is_some());
+                        assert_eq!(hits.iter().any(|hit| hit.kind == "todo" && hit.id == todo.id), expected, "{search_scope}, {query}, {status}");
+                    }
+                }
+                assert!(db.internal_reference_resolve(InternalReferenceResolveInput { kind: "todo".to_string(), id: todo.id }).unwrap().is_some());
+            }
+        }
+    }
 
     #[test]
     fn database_failure_during_project_delete_leaves_managed_files_in_place() {

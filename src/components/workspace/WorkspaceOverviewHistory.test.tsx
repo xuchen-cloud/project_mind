@@ -317,86 +317,8 @@ describe("WorkspaceOverviewHistory", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the tag row hidden when a tagless workspace record enters editing normally", () => {
-    render(
-      <WorkspaceOverviewHistory
-        notes={[baseNote]}
-        focusId={null}
-        composeRecord={false}
-        pageWidthMode="adaptive"
-        availableTags={[]}
-        onCreateRecord={vi.fn()}
-        onUpdateRecord={vi.fn()}
-        onDeleteRecord={vi.fn()}
-        onCloseCompose={vi.fn()}
-        contactMentionOptions={{}}
-        onOpenInternalReference={vi.fn()}
-      />,
-    );
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
 
-    expect(screen.getByLabelText("工作区记录编辑器")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("#标签")).not.toBeInTheDocument();
-    expect(
-      document.querySelector("#record-7 .project-history-record__tag-row"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("opens and focuses the tag editor from the workspace record header add tag button", async () => {
-    render(
-      <WorkspaceOverviewHistory
-        notes={[baseNote]}
-        focusId={null}
-        composeRecord={false}
-        pageWidthMode="adaptive"
-        availableTags={[]}
-        onCreateRecord={vi.fn()}
-        onUpdateRecord={vi.fn()}
-        onDeleteRecord={vi.fn()}
-        onCloseCompose={vi.fn()}
-        contactMentionOptions={{}}
-        onOpenInternalReference={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: "添加标签" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
-    fireEvent.mouseDown(screen.getByRole("button", { name: "添加标签" }), { button: 0 });
-
-    const tagInput = await screen.findByPlaceholderText("#标签");
-    await waitFor(() => {
-      expect(tagInput).toHaveFocus();
-    });
-    expect(screen.queryByLabelText("工作区记录编辑器")).toBeInTheDocument();
-    expect(document.querySelector("#record-7 .project-history-record__tag-row")).toBeInTheDocument();
-  });
-
-  it("enters editing only from the explicit edit action", () => {
-    render(
-      <WorkspaceOverviewHistory
-        notes={[baseNote]}
-        focusId="record-7"
-        composeRecord={false}
-        pageWidthMode="adaptive"
-        availableTags={[]}
-        onCreateRecord={vi.fn()}
-        onUpdateRecord={vi.fn()}
-        onDeleteRecord={vi.fn()}
-        onCloseCompose={vi.fn()}
-        contactMentionOptions={{}}
-        onOpenInternalReference={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
-
-    const editor = screen.getByLabelText("工作区记录编辑器");
-    expect(editor).toBeInTheDocument();
-    expect(document.getElementById("record-7")).toHaveClass("project-history-record--editing");
-  });
 
   it("opens the workspace record focus page from a single card click", async () => {
     render(
@@ -452,42 +374,6 @@ describe("WorkspaceOverviewHistory", () => {
     expect(onDeleteRecord).toHaveBeenCalledWith(7);
   });
 
-  it("opens the record context menu from an edited record header but not the editor body", async () => {
-    render(
-      <WorkspaceOverviewHistory
-        notes={[baseNote]}
-        focusId={null}
-        composeRecord={false}
-        pageWidthMode="adaptive"
-        availableTags={[]}
-        onCreateRecord={vi.fn()}
-        onUpdateRecord={vi.fn()}
-        onDeleteRecord={vi.fn()}
-        onCloseCompose={vi.fn()}
-        contactMentionOptions={{}}
-        onOpenInternalReference={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
-
-    fireEvent.contextMenu(screen.getByPlaceholderText("记录标题"), {
-      clientX: 52,
-      clientY: 64,
-    });
-    expect(screen.getByRole("menu", { name: "记录操作" })).toBeInTheDocument();
-
-    fireEvent.scroll(window);
-    await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: "记录操作" })).not.toBeInTheDocument();
-    });
-
-    fireEvent.contextMenu(screen.getByLabelText("工作区记录编辑器"), {
-      clientX: 52,
-      clientY: 96,
-    });
-    expect(screen.queryByRole("menu", { name: "记录操作" })).not.toBeInTheDocument();
-  });
 
   it("closes the record context menu when the page scrolls", async () => {
     render(
@@ -518,44 +404,6 @@ describe("WorkspaceOverviewHistory", () => {
     });
   });
 
-  it("saves and exits editing with Ctrl+Enter", async () => {
-    const onUpdateRecord = vi.fn(async () => undefined);
-
-    render(
-      <WorkspaceOverviewHistory
-        notes={[baseNote]}
-        focusId={null}
-        composeRecord={false}
-        pageWidthMode="adaptive"
-        availableTags={[]}
-        onCreateRecord={vi.fn()}
-        onUpdateRecord={onUpdateRecord}
-        onDeleteRecord={vi.fn()}
-        onCloseCompose={vi.fn()}
-        contactMentionOptions={{}}
-        onOpenInternalReference={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑记录" }));
-
-    const editor = screen.getByLabelText("工作区记录编辑器");
-    fireEvent.change(editor, { target: { value: "更新后的记录" } });
-    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
-
-    await waitFor(() => {
-      expect(onUpdateRecord).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 7 }),
-        expect.objectContaining({
-          markdown: "更新后的记录",
-          html: "<p>更新后的记录</p>",
-        }),
-      );
-    });
-    await waitFor(() => {
-      expect(screen.queryByLabelText("工作区记录编辑器")).not.toBeInTheDocument();
-    });
-  });
 });
 
 function buildMockRichValue(value: string) {

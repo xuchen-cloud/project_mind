@@ -35,8 +35,8 @@ export function TodoModuleRail({
     <TodoRail
       projectId={scope.kind === "current-project" ? scope.projectId : undefined}
       focusTodoId={focusTodoId}
-      title="Todo List"
-      scopeLabel={scope.kind === "workspace" ? "整个工作区" : "当前项目"}
+      title="待办"
+      scopeLabel={scope.kind === "workspace" ? "" : "当前项目"}
       viewMode={viewMode}
       showViewModeSwitch={showViewModeSwitch}
       canCreateTodo={canCreateTodo}
@@ -88,7 +88,6 @@ export function TodoModuleRail({
       onDeleteProgress={(progressId) => todo.change({ type: "delete-progress", progressId })}
       onDeleteTodo={(todoId) => todo.change({ type: "delete", todoId })}
       onRefresh={() => todo.refresh()}
-      refreshing={todo.refreshing}
       onError={(message) =>
         pushToast({ tone: "error", title: "Todo 处理失败", detail: message })
       }
