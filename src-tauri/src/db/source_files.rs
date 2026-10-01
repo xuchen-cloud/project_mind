@@ -18,6 +18,90 @@ fn storage_error(_: rusqlite::Error) -> AgentError {
 }
 
 impl Database {
+    pub(super) fn source_prune_file_cache(
+        &self,
+        binding: &WorkspaceBinding,
+        scope: &crate::agent::models::Scope,
+    ) -> AgentResult<()> {
+        let project_id = match scope {
+            crate::agent::models::Scope::Project { project_id } => Some(*project_id),
+            _ => None,
+        };
+        self.conn.execute(
+            "DELETE FROM source_index_snapshots AS s
+             WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'
+             AND (NOT EXISTS(SELECT 1 FROM documents d JOIN document_versions v ON v.document_id=d.id
+                 JOIN source_file_version_hashes h ON h.document_version_id=v.id
+                 WHERE CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3
+                 AND d.storage_mode!='managed_note_image' AND v.version_number=s.version AND h.content_hash=s.revision)
+                 OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))",
+            params![binding.workspace_id, scope.key(), project_id],
+        ).map_err(storage_error)?;
+        self.conn.execute(
+            "UPDATE source_index_snapshots AS s SET is_current=EXISTS(SELECT 1 FROM documents d
+             WHERE CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3 AND d.current_version_number=s.version)
+             WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'",
+            params![binding.workspace_id, scope.key(), project_id],
+        ).map_err(storage_error)?;
+        Ok(())
+    }
+    pub(crate) fn source_file_search_plan(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        source: &SourceReadTarget,
+        include_history: bool,
+        title: &str,
+    ) -> AgentResult<FileReadPlan> {
+        let plan = self.source_file_plan(request, binding, source)?;
+        let current: bool = self
+            .conn
+            .query_row(
+                "SELECT current_version_number=?2 FROM documents WHERE id=?1",
+                params![plan.object.id, plan.file_version],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        if (!include_history && !current)
+            || title != plan.title.chars().take(1000).collect::<String>()
+        {
+            return Err(AgentError::new(
+                ErrorCode::SourceChanged,
+                "File search candidate is no longer current",
+            ));
+        }
+        Ok(plan)
+    }
+    pub(crate) fn source_index_file(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        source: &SourceReadTarget,
+        plan: &FileReadPlan,
+        cached: &crate::source_search_index::IndexSource,
+    ) -> AgentResult<()> {
+        let current = self.source_file_plan(request, binding, source)?;
+        if &current != plan {
+            return Err(AgentError::new(
+                ErrorCode::SourceChanged,
+                "File changed before indexing",
+            ));
+        }
+        if cached.object != current.object
+            || cached.revision != current.registered_hash
+            || cached.version != Some(current.file_version)
+            || cached.current != source.file_version.is_none()
+            || cached.title != current.title.chars().take(1000).collect::<String>()
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid File index ownership",
+            ));
+        }
+        let index = crate::source_search_index::SourceIndex::prepare(&self.conn)?;
+        self.source_prune_file_cache(binding, &source.object.scope)?;
+        index.replace(cached)
+    }
     pub(crate) fn source_file_plan(
         &self,
         request: &RequestContext,
@@ -60,19 +144,27 @@ impl Database {
             .id
             .parse::<i64>()
             .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File identity"))?;
-        let row: Option<(u32, String, String, Option<String>)> = self
+        let row: Option<(u32, String, String, Option<String>, String)> = self
             .conn
             .query_row(
-                "SELECT v.version_number,v.managed_path,v.name,h.content_hash
+                "SELECT v.version_number,v.managed_path,v.name,h.content_hash,v.created_at
              FROM documents d JOIN document_versions v ON v.document_id=d.id
              LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id
              WHERE d.id=?1 AND v.version_number=COALESCE(?2,d.current_version_number)",
                 params![id, source.file_version],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .optional()
             .map_err(storage_error)?;
-        let (version, path, name, hash) = row.ok_or_else(|| {
+        let (version, path, name, hash, updated_at) = row.ok_or_else(|| {
             AgentError::new(ErrorCode::NotFound, "File Version is no longer retained")
         })?;
         let hash = hash.ok_or_else(|| {
@@ -113,6 +205,7 @@ impl Database {
             file_version: version,
             registered_hash: hash,
             title: name,
+            updated_at,
             path: self.decode_path_ref(&path),
             format,
         })
@@ -215,6 +308,390 @@ mod tests {
         )
     }
     #[tokio::test]
+    async fn source_file_search_rechecks_authority_and_bytes_after_async_capture() {
+        use crate::agent::models::SourceLocator;
+        use crate::source_search_index::{IndexChunk, IndexCoverage, IndexSource, SourceIndex};
+        use crate::source_service::{
+            BoundSourceStore, SourcePolicyUpdate, SourceSearchInput, SourceService,
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Changing<'a> {
+            inner: &'a FileStore,
+            phase: AtomicUsize,
+            scenario: &'a str,
+            path: &'a str,
+            request: &'a RequestContext,
+            object: &'a ObjectRef,
+        }
+        impl BoundSourceStore for Changing<'_> {
+            fn with_current<T>(
+                &self,
+                action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+            ) -> AgentResult<T> {
+                if self.phase.fetch_add(1, Ordering::SeqCst) == 2 {
+                    match self.scenario {
+                        "switch" => {
+                            self.inner.binding.lock().unwrap().generation = "reopened".into()
+                        }
+                        "exclude" => {
+                            SourceService::new(self.inner)
+                                .set_policy(
+                                    self.request,
+                                    &SourcePolicyUpdate {
+                                        object: self.object.clone(),
+                                        expected_revision: 0,
+                                        excluded: true,
+                                    },
+                                )
+                                .unwrap();
+                        }
+                        "edit" => std::fs::write(self.path, b"xyz").unwrap(),
+                        _ => unreachable!(),
+                    }
+                }
+                self.inner.with_current(action)
+            }
+        }
+        for scenario in ["switch", "exclude", "edit"] {
+            let (_root, store, mut request, source, file) = registered_fixture(b"abc", "txt");
+            request.scope_grant.operations.push("settings.write".into());
+            {
+                let db = store.db.lock().unwrap();
+                SourceIndex::prepare(&db.conn)
+                    .unwrap()
+                    .replace(&IndexSource {
+                        object: source.object.clone(),
+                        revision: source.revision.clone().unwrap(),
+                        title: file.name.clone(),
+                        chunks: vec![IndexChunk {
+                            text: "abc".into(),
+                            locator: SourceLocator::Paragraph { start: 1, end: 1 },
+                            block_id: None,
+                        }],
+                        version: Some(1),
+                        current: true,
+                        updated_at: "2026-10-01T00:00:00Z".into(),
+                        coverage: IndexCoverage {
+                            chars: 3,
+                            complete: true,
+                        },
+                    })
+                    .unwrap();
+            }
+            let changing = Changing {
+                inner: &store,
+                phase: AtomicUsize::new(0),
+                scenario,
+                path: &file.managed_path,
+                request: &request,
+                object: &source.object,
+            };
+            let result = SourceService::new(&changing)
+                .search(
+                    &request,
+                    &SourceSearchInput {
+                        scope: source.object.scope.clone(),
+                        query: "abc".into(),
+                        selected: vec![],
+                        include_history: false,
+                        limit: None,
+                        budget_chars: None,
+                    },
+                )
+                .await;
+            match scenario {
+                "exclude" => {
+                    let page = result.unwrap();
+                    assert!(page.items.is_empty());
+                    assert_eq!(page.stale_count, 0);
+                    assert!(!page.has_more);
+                }
+                "switch" => assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged),
+                _ => assert_eq!(result.unwrap_err().code, ErrorCode::SourceChanged),
+            }
+        }
+    }
+    #[tokio::test]
+    async fn source_file_search_prunes_foreign_cache_before_ranking_or_capacity() {
+        use crate::agent::models::SourceLocator;
+        use crate::source_search_index::{IndexChunk, IndexCoverage, IndexSource, SourceIndex};
+        use crate::source_service::{SourceSearchInput, SourceService};
+        let (root, store, request, source, file) = registered_fixture(b"abc", "txt");
+        {
+            let mut db = store.db.lock().unwrap();
+            let private = db
+                .project_create(ProjectCreateInput {
+                    name: "Private".into(),
+                    summary: None,
+                    status: None,
+                })
+                .unwrap();
+            let path = root.path().join("private.txt");
+            std::fs::write(&path, b"abc").unwrap();
+            let hidden = db
+                .document_import(DocumentImportInput {
+                    project_id: private.id,
+                    source_path: path.to_string_lossy().into(),
+                    is_starred: false,
+                    tag_ids: None,
+                })
+                .unwrap();
+            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2", params![source.revision,hidden.id]).unwrap();
+            let index = SourceIndex::prepare(&db.conn).unwrap();
+            for (id, title) in [(file.id, file.name.clone()), (hidden.id, "abc".into())] {
+                index
+                    .replace(&IndexSource {
+                        object: ObjectRef {
+                            id: id.to_string(),
+                            ..source.object.clone()
+                        },
+                        revision: source.revision.clone().unwrap(),
+                        title,
+                        chunks: vec![IndexChunk {
+                            text: "abc".into(),
+                            locator: SourceLocator::Paragraph { start: 1, end: 1 },
+                            block_id: None,
+                        }],
+                        version: Some(1),
+                        current: true,
+                        updated_at: "2026-10-01T00:00:00Z".into(),
+                        coverage: IndexCoverage {
+                            chars: 3,
+                            complete: true,
+                        },
+                    })
+                    .unwrap();
+            }
+        }
+        let service = SourceService::new(&store);
+        let page = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: source.object.scope.clone(),
+                    query: "abc".into(),
+                    selected: vec![],
+                    include_history: false,
+                    limit: Some(1),
+                    budget_chars: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].source_ref.object, source.object);
+        assert_eq!(page.stale_count, 0);
+        assert!(!page.has_more);
+        assert_eq!(
+            service
+                .cache_capacity(&request, &source.object.scope)
+                .unwrap()
+                .snapshots,
+            1
+        );
+    }
+    #[tokio::test]
+    async fn source_file_index_budget_history_policy_and_deletion_follow_real_business_versions() {
+        use crate::source_service::{
+            SourceIndexBudget, SourcePolicyUpdate, SourceSearchInput, SourceService,
+        };
+        use sha2::{Digest, Sha256};
+        let text = format!("old evidence {}", "中".repeat(4000));
+        let (root, store, mut request, mut source, file) =
+            registered_fixture(text.as_bytes(), "txt");
+        request.scope_grant.operations.push("settings.write".into());
+        source.revision = None;
+        let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+        )
+        .unwrap();
+        let service = SourceService::new(&store);
+        let mut query = SourceSearchInput {
+            scope: source.object.scope.clone(),
+            query: "evidence".into(),
+            selected: vec![],
+            include_history: false,
+            limit: None,
+            budget_chars: None,
+        };
+        service
+            .index_file(
+                &request,
+                &source,
+                SourceIndexBudget {
+                    max_chars: 1900,
+                    max_chunks: 10000,
+                },
+                &worker,
+            )
+            .await
+            .unwrap();
+        let partial = service.search(&request, &query).await.unwrap();
+        assert_eq!(partial.items.len(), 1);
+        assert_eq!(partial.items[0].coverage.chars, 1900);
+        assert!(!partial.items[0].coverage.complete);
+        service
+            .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .cache_capacity(&request, &query.scope)
+                .unwrap()
+                .snapshots,
+            1
+        );
+        let next_path = root.path().join("next.txt");
+        std::fs::write(&next_path, b"new evidence").unwrap();
+        {
+            let mut db = store.db.lock().unwrap();
+            db.document_add_version(crate::models::DocumentAddVersionInput {
+                document_id: file.id,
+                source_path: Some(next_path.to_string_lossy().into()),
+            })
+            .unwrap();
+            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2 AND version_number=2",params![format!("sha256:{:x}",Sha256::digest(b"new evidence")),file.id]).unwrap();
+        }
+        // The old cache stops being current even before the new version is indexed.
+        assert!(service
+            .search(&request, &query)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        service
+            .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        let current = service.search(&request, &query).await.unwrap();
+        assert_eq!(current.items.len(), 1);
+        assert_eq!(current.items[0].source_ref.file_version, Some(2));
+        query.include_history = true;
+        let history = service.search(&request, &query).await.unwrap();
+        assert_eq!(history.items.len(), 2);
+        assert!(history
+            .items
+            .iter()
+            .any(|item| item.source_ref.file_version == Some(1) && item.coverage.complete));
+        assert_eq!(
+            service
+                .cache_capacity(&request, &query.scope)
+                .unwrap()
+                .snapshots,
+            2
+        );
+        request.request_id = "exclude-indexed-file".into();
+        service
+            .set_policy(
+                &request,
+                &SourcePolicyUpdate {
+                    object: source.object.clone(),
+                    expected_revision: 0,
+                    excluded: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            service
+                .cache_capacity(&request, &query.scope)
+                .unwrap()
+                .content_bytes,
+            0
+        );
+        assert!(service
+            .search(&request, &query)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        request.request_id = "include-indexed-file".into();
+        service
+            .set_policy(
+                &request,
+                &SourcePolicyUpdate {
+                    object: source.object.clone(),
+                    expected_revision: 1,
+                    excluded: false,
+                },
+            )
+            .unwrap();
+        service
+            .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .cache_capacity(&request, &query.scope)
+                .unwrap()
+                .snapshots,
+            1
+        );
+        store
+            .db
+            .lock()
+            .unwrap()
+            .document_delete(crate::models::DocumentDeleteInput {
+                document_id: file.id,
+            })
+            .unwrap();
+        assert_eq!(
+            service
+                .cache_capacity(&request, &query.scope)
+                .unwrap()
+                .snapshots,
+            0
+        );
+        let deleted = service.search(&request, &query).await.unwrap();
+        assert!(deleted.items.is_empty());
+        assert_eq!(deleted.stale_count, 0);
+        assert!(!deleted.has_more);
+    }
+    #[tokio::test]
+    async fn source_file_index_search_uses_registered_current_version_and_rejects_stale_bytes() {
+        use crate::source_service::{SourceIndexBudget, SourceSearchInput, SourceService};
+        let (_root, store, request, source, file) = registered_fixture(b"current evidence", "txt");
+        let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+        )
+        .unwrap();
+        let service = SourceService::new(&store);
+        service
+            .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        let query = SourceSearchInput {
+            scope: source.object.scope.clone(),
+            query: "evidence".into(),
+            selected: vec![],
+            include_history: false,
+            limit: None,
+            budget_chars: None,
+        };
+        let page = service.search(&request, &query).await.unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].source_ref.file_version, Some(1));
+        assert_eq!(
+            page.items[0].source_ref.revision,
+            source.revision.clone().unwrap()
+        );
+        assert_eq!(page.items[0].source_ref.object, source.object);
+        assert_eq!(page.items[0].source_ref.block_id, None);
+        assert!(page.items[0].coverage.complete);
+        assert!(crate::agent::context::serialized_chars(&page).unwrap() <= 3000);
+        std::fs::write(&file.managed_path, b"changed evidence").unwrap();
+        let changed = service.search(&request, &query).await.unwrap();
+        assert!(changed.items.is_empty());
+        assert_eq!(changed.stale_count, 1);
+        assert_eq!(
+            service
+                .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceChanged
+        );
+    }
+    #[tokio::test]
     async fn source_file_read_pages_preserve_unicode_without_repeating_chunk_overlap() {
         use crate::agent::models::SourceLocator;
         use crate::source_service::{
@@ -280,9 +757,7 @@ mod tests {
     }
     #[tokio::test]
     async fn source_file_service_rejects_results_after_binding_policy_bytes_or_version_change() {
-        use crate::source_service::{
-            BoundSourceStore, SourcePolicyUpdate, SourceService, SourceUtility,
-        };
+        use crate::source_service::{SourcePolicyUpdate, SourceService, SourceUtility};
         struct Paused<'a> {
             worker: &'a crate::source_extraction_worker::SourceExtractionWorker,
             extracted: tokio::sync::Notify,

@@ -210,6 +210,80 @@ fn clipped_locator(span: &Span, start: usize, end: usize) -> SourceLocator {
     }
 }
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
+    pub(crate) async fn index_file<W: SourceUtility>(
+        &self,
+        request: &RequestContext,
+        source: &crate::source_service::SourceReadTarget,
+        budget: crate::source_service::SourceIndexBudget,
+        utility: &W,
+    ) -> AgentResult<()> {
+        use crate::source_search_index::{IndexChunk, IndexCoverage, IndexSource};
+        let max_chars = budget.max_chars.min(2 * 1024 * 1024);
+        let max_chunks = budget.max_chunks.min(10000);
+        if max_chars == 0 || max_chunks == 0 {
+            return Err(invalid("Source index budgets must be positive"));
+        }
+        let extraction = self.extract_file(request, source, utility).await?;
+        let data: Extraction =
+            serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
+        let mut complete = data.coverage["complete"] == true;
+        let mut chunks = vec![];
+        let mut previous_location = None;
+        let mut covered = 0;
+        let mut chars = 0;
+        for chunk in data.chunks {
+            if chunks.len() == max_chunks || chars == max_chars {
+                complete = false;
+                break;
+            }
+            let location = match &chunk.locator {
+                SourceLocator::Paragraph { start, .. } => (false, *start),
+                SourceLocator::Page { page, .. } => (true, *page),
+                _ => return Err(protocol()),
+            };
+            if previous_location != Some(location) {
+                covered = 0;
+            }
+            if chunk.range.start > covered || chunk.range.end <= covered {
+                return Err(protocol());
+            }
+            let end = chunk.range.end.min(covered + max_chars - chars);
+            let mut locator = chunk.locator;
+            if let SourceLocator::Page { end: local_end, .. } = &mut locator {
+                *local_end = end as u32;
+            }
+            chunks.push(IndexChunk {
+                text: chunk.text.chars().take(end - chunk.range.start).collect(),
+                locator,
+                block_id: None,
+            });
+            chars += end - covered;
+            covered = end;
+            previous_location = Some(location);
+            if end < chunk.range.end {
+                complete = false;
+                break;
+            }
+        }
+        let cached = IndexSource {
+            object: extraction.object.clone(),
+            revision: extraction.revision.clone(),
+            title: extraction.title.chars().take(1000).collect(),
+            version: Some(extraction.file_version),
+            updated_at: extraction.plan.updated_at.clone(),
+            current: source.file_version.is_none(),
+            chunks,
+            coverage: IndexCoverage {
+                chars: chars as u32,
+                complete,
+            },
+        };
+        self.verify_file_extraction(request, source, &extraction)
+            .await?;
+        self.store.with_current(|binding, db| {
+            db.source_index_file(request, binding, source, &extraction.plan, &cached)
+        })
+    }
     pub(crate) async fn read_file<W: SourceUtility>(
         &self,
         request: &RequestContext,

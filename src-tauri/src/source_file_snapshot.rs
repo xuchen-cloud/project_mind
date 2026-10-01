@@ -45,6 +45,7 @@ pub(crate) struct FileReadPlan {
     pub file_version: u32,
     pub registered_hash: String,
     pub title: String,
+    pub updated_at: String,
     pub path: PathBuf,
     pub format: FileSourceFormat,
 }
@@ -54,6 +55,23 @@ pub(crate) struct FileByteSnapshot {
     pub revision: String,
     plan: FileReadPlan,
     stamp: FileStamp,
+}
+/// A byte verification receipt contains no source body. Search may retain a
+/// bounded set of these without retaining up to 50 whole PDF byte buffers.
+#[derive(Debug, Clone)]
+pub(crate) struct FileVerification {
+    revision: String,
+    plan: FileReadPlan,
+    stamp: FileStamp,
+}
+impl FileByteSnapshot {
+    pub(crate) fn verification(&self) -> FileVerification {
+        FileVerification {
+            revision: self.revision.clone(),
+            plan: self.plan.clone(),
+            stamp: self.stamp.clone(),
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileStamp {
@@ -218,6 +236,12 @@ pub(crate) async fn verify_file(
     plan: &FileReadPlan,
     snapshot: &FileByteSnapshot,
 ) -> AgentResult<()> {
+    verify_file_receipt(plan, &snapshot.verification()).await
+}
+pub(crate) async fn verify_file_receipt(
+    plan: &FileReadPlan,
+    snapshot: &FileVerification,
+) -> AgentResult<()> {
     if plan != &snapshot.plan || plan.registered_hash != snapshot.revision {
         return Err(AgentError::new(
             ErrorCode::InvalidArgument,
@@ -248,6 +272,7 @@ mod tests {
     fn plan(path: PathBuf, bytes: &[u8]) -> FileReadPlan {
         FileReadPlan {
             title: "Fixture File".into(),
+            updated_at: "2026-10-01T00:00:00Z".into(),
             object: ObjectRef {
                 workspace_id: "file-workspace".into(),
                 scope: Scope::Project { project_id: 7 },

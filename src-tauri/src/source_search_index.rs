@@ -232,6 +232,7 @@ impl<'a> SourceIndex<'a> {
         selected: &[String],
         include_history: bool,
         limit: usize,
+        kinds: Option<&[ObjectKind]>,
     ) -> AgentResult<SearchPage> {
         request.authorize(binding, scope, "source.read")?;
         let query = query.trim();
@@ -264,9 +265,13 @@ impl<'a> SourceIndex<'a> {
             serde_json::to_string(&escaped).map_err(|_| invalid("Invalid search text"))?;
         let selected_json =
             serde_json::to_string(selected).map_err(|_| invalid("Invalid selected sources"))?;
+        let kinds_json = kinds
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| invalid("Invalid source kinds"))?;
         // Apply scope/policy/current-version constraints before materializing
         // candidates, including the short-query fallback.
-        let filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current) AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')";
+        let filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current) AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9))) AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')";
         let matches = if long.is_empty() {
             format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
         } else {
@@ -284,7 +289,8 @@ impl<'a> SourceIndex<'a> {
                     short_json,
                     query,
                     selected_json,
-                    limit.min(50) as i64 + 1
+                    limit.min(50) as i64 + 1,
+                    kinds_json
                 ],
                 |row| {
                     Ok((
@@ -413,6 +419,33 @@ mod tests {
         }
     }
     #[test]
+    fn source_index_filters_supported_kinds_before_ranking_limit_and_pagination_hint() {
+        let conn = Connection::open_in_memory().unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        let scope = Scope::Project { project_id: 1 };
+        let visible = source(1, scope.clone(), "Visible", "evidence");
+        index.replace(&visible).unwrap();
+        let mut unsupported = source(2, scope.clone(), "evidence", "evidence");
+        unsupported.object.kind = ObjectKind::QuickNote;
+        unsupported.version = None;
+        index.replace(&unsupported).unwrap();
+        let page = index
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "evidence",
+                &[],
+                false,
+                1,
+                Some(&[ObjectKind::Record, ObjectKind::File]),
+            )
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].source_ref.object, visible.object);
+        assert!(!page.has_more);
+    }
+    #[test]
     fn source_index_upgrades_earlier_cache_without_losing_exclusion_policy() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE source_index_snapshots (id INTEGER PRIMARY KEY,object_key TEXT NOT NULL,workspace_id TEXT NOT NULL,scope_key TEXT NOT NULL,object_json TEXT NOT NULL,revision TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 0,title TEXT NOT NULL,updated_at TEXT NOT NULL,is_current INTEGER NOT NULL CHECK(is_current IN (0,1)),UNIQUE(object_key,revision,version)); CREATE TABLE source_index_exclusions(object_key TEXT PRIMARY KEY);").unwrap();
@@ -437,7 +470,8 @@ mod tests {
                 "evidence",
                 &[],
                 false,
-                8
+                8,
+                None
             )
             .unwrap()
             .items
@@ -453,6 +487,7 @@ mod tests {
                 &[],
                 false,
                 8,
+                None,
             )
             .unwrap();
         assert_eq!(page.items.len(), 1);
@@ -480,6 +515,7 @@ mod tests {
                     &[],
                     false,
                     8,
+                    None,
                 )
                 .unwrap();
             assert_eq!(page.items.len(), 1, "Query {query}");
@@ -510,6 +546,7 @@ mod tests {
                     &[],
                     false,
                     500,
+                    None,
                 )
                 .unwrap();
             assert_eq!(page.items.len(), 50);
@@ -527,7 +564,8 @@ mod tests {
                 "' OR 1=1 --",
                 &[],
                 false,
-                8
+                8,
+                None
             )
             .unwrap()
             .items
@@ -558,7 +596,16 @@ mod tests {
             .unwrap();
         assert_eq!(
             index
-                .search(&request(), &binding(), &scope, "evidence", &[], false, 8)
+                .search(
+                    &request(),
+                    &binding(),
+                    &scope,
+                    "evidence",
+                    &[],
+                    false,
+                    8,
+                    None
+                )
                 .unwrap()
                 .items
                 .len(),
@@ -573,13 +620,23 @@ mod tests {
                 &[],
                 false,
                 8,
+                None,
             )
             .err()
             .expect("ungranted scope");
         assert_eq!(denied.code, ErrorCode::ScopeDenied);
         index.exclude(&item.object, true).unwrap();
         assert!(index
-            .search(&request(), &binding(), &scope, "evidence", &[], false, 8)
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "evidence",
+                &[],
+                false,
+                8,
+                None
+            )
             .unwrap()
             .items
             .is_empty());
@@ -591,13 +648,31 @@ mod tests {
         current.version = Some(2);
         index.replace(&current).unwrap();
         assert!(index
-            .search(&request(), &binding(), &scope, "searchable", &[], false, 8)
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "searchable",
+                &[],
+                false,
+                8,
+                None
+            )
             .unwrap()
             .items
             .is_empty());
         assert_eq!(
             index
-                .search(&request(), &binding(), &scope, "searchable", &[], true, 8)
+                .search(
+                    &request(),
+                    &binding(),
+                    &scope,
+                    "searchable",
+                    &[],
+                    true,
+                    8,
+                    None
+                )
                 .unwrap()
                 .items
                 .len(),
@@ -637,7 +712,8 @@ mod tests {
                     "evidence",
                     &[],
                     true,
-                    8
+                    8,
+                    None
                 )
                 .unwrap()
                 .items
@@ -670,6 +746,7 @@ mod tests {
                 &[],
                 false,
                 8,
+                None,
             )
             .unwrap();
         assert_eq!(page.items.len(), 1);
@@ -697,7 +774,8 @@ mod tests {
                     "evidence",
                     &[],
                     history,
-                    8
+                    8,
+                    None
                 )
                 .unwrap()
                 .items
@@ -720,7 +798,8 @@ mod tests {
                     "evidence",
                     &[],
                     true,
-                    8
+                    8,
+                    None
                 )
                 .unwrap()
                 .items[0]
@@ -758,6 +837,7 @@ mod tests {
                 &[],
                 false,
                 8,
+                None,
             )
             .unwrap();
         assert_eq!(page.items.len(), 1);
@@ -789,6 +869,7 @@ mod tests {
                 &[],
                 false,
                 8,
+                None,
             )
             .unwrap();
         let record_hit = page
@@ -835,6 +916,7 @@ mod tests {
                 &[selected.object.key().unwrap()],
                 false,
                 8,
+                None,
             )
             .unwrap();
         assert_eq!(

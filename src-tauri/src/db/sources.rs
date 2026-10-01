@@ -50,7 +50,7 @@ impl Database {
         let resolved_scope=match (&object.kind,&object.scope) {
             (ObjectKind::Record,Scope::Workspace)=> self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",[id],|_|Ok(Scope::Workspace)).optional(),
             (ObjectKind::Record,Scope::Project { .. })=>self.conn.query_row("SELECT n.project_id FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=?1",[id],|row| Ok(Scope::Project { project_id:row.get(0)? })).optional(),
-            (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1 AND d.storage_mode!='managed_note_image'",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
             _=>return Err(AgentError::new(ErrorCode::SourceNotReady,"This source kind is not ready for reading")),
         }.map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Source is no longer present"))?;
         let resolved = ObjectRef {
@@ -309,11 +309,7 @@ impl Database {
     }
     /// Prune derived bodies whose business object/version is gone, moved, or
     /// excluded before counts/pagination are computed. Policies remain durable.
-    fn source_prune_record_cache(
-        &self,
-        binding: &WorkspaceBinding,
-        scope: &Scope,
-    ) -> AgentResult<()> {
+    fn source_prune_cache(&self, binding: &WorkspaceBinding, scope: &Scope) -> AgentResult<()> {
         let ownership=match scope {
             Scope::Workspace=>"EXISTS(SELECT 1 FROM workspace_notes n WHERE CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.note_kind='workspace_note')",
             Scope::Project {..}=>"EXISTS(SELECT 1 FROM notes n JOIN projects p ON p.id=n.project_id WHERE CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.project_id=?3)",
@@ -328,6 +324,7 @@ impl Database {
                 .execute(&sql, params![binding.workspace_id, scope.key(), project_id]),
         }
         .map_err(io_error)?;
+        self.source_prune_file_cache(binding, scope)?;
         Ok(())
     }
     pub(crate) fn source_index_record(
@@ -354,15 +351,15 @@ impl Database {
             ));
         }
         let index = crate::source_search_index::SourceIndex::prepare(&self.conn)?;
-        self.source_prune_record_cache(binding, &source.object.scope)?;
+        self.source_prune_cache(binding, &source.object.scope)?;
         index.replace(cached)
     }
-    pub(crate) fn source_search_records(
+    pub(crate) fn source_search_candidates(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
         input: &crate::source_service::SourceSearchInput,
-    ) -> AgentResult<crate::source_service::SourceSearchPage> {
+    ) -> AgentResult<crate::source_search_index::SearchPage> {
         request.authorize(binding, &input.scope, "source.read")?;
         self.source_live_scope(&input.scope)?;
         let mut selected = vec![];
@@ -376,8 +373,8 @@ impl Database {
             selected.push(object.key()?);
         }
         let index = crate::source_search_index::SourceIndex::prepare(&self.conn)?;
-        self.source_prune_record_cache(binding, &input.scope)?;
-        let candidates = index.search(
+        self.source_prune_cache(binding, &input.scope)?;
+        index.search(
             request,
             binding,
             &input.scope,
@@ -385,70 +382,45 @@ impl Database {
             &selected,
             input.include_history,
             input.limit.unwrap_or(8),
-        )?;
-        let mut items = vec![];
-        let mut stale_count = 0;
-        for candidate in candidates.items {
-            if candidate.source_ref.object.kind != ObjectKind::Record {
-                continue;
-            }
+            Some(&[ObjectKind::Record, ObjectKind::File]),
+        )
+    }
+    pub(crate) fn source_verify_search_page(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &crate::source_service::SourceSearchInput,
+        page: &crate::source_service::SourceSearchPage,
+    ) -> AgentResult<()> {
+        request.authorize(binding, &input.scope, "source.read")?;
+        self.source_live_scope(&input.scope)?;
+        for candidate in &page.items {
             let target = SourceReadTarget {
                 object: candidate.source_ref.object.clone(),
                 revision: Some(candidate.source_ref.revision.clone()),
                 record_version: candidate.source_ref.record_version,
                 file_version: candidate.source_ref.file_version,
             };
-            match self.source_record_fingerprint(request, binding, &target) {
-                Ok(current)
-                    if candidate.title == current.title.chars().take(1000).collect::<String>() =>
-                {
-                    items.push(candidate)
+            match target.object.kind {
+                ObjectKind::Record => {
+                    self.source_record_fingerprint(request, binding, &target)?;
                 }
-                Ok(_) => stale_count += 1,
-                Err(error)
-                    if matches!(
-                        error.code,
-                        ErrorCode::SourceChanged | ErrorCode::SourceNotReady
-                    ) =>
-                {
-                    stale_count += 1
+                ObjectKind::File => {
+                    self.source_file_search_plan(
+                        request,
+                        binding,
+                        &target,
+                        input.include_history,
+                        &candidate.title,
+                    )?;
                 }
-                Err(error)
-                    if matches!(error.code, ErrorCode::NotFound | ErrorCode::ScopeDenied) =>
-                {
-                    ()
+                _ => {
+                    return Err(AgentError::new(
+                        ErrorCode::SourceNotReady,
+                        "Unsupported source search candidate",
+                    ))
                 }
-                Err(error) => return Err(error),
             }
-        }
-        // Rejected ownership never contributes a title, count or pagination hint.
-        let has_more = candidates.has_more && !items.is_empty();
-        Ok(crate::source_service::SourceSearchPage {
-            items,
-            has_more,
-            stale_count,
-        })
-    }
-    pub(crate) fn source_verify_search_page(
-        &self,
-        request: &RequestContext,
-        binding: &WorkspaceBinding,
-        scope: &Scope,
-        page: &crate::source_service::SourceSearchPage,
-    ) -> AgentResult<()> {
-        request.authorize(binding, scope, "source.read")?;
-        self.source_live_scope(scope)?;
-        for candidate in &page.items {
-            self.source_record_fingerprint(
-                request,
-                binding,
-                &SourceReadTarget {
-                    object: candidate.source_ref.object.clone(),
-                    revision: Some(candidate.source_ref.revision.clone()),
-                    record_version: candidate.source_ref.record_version,
-                    file_version: candidate.source_ref.file_version,
-                },
-            )?;
         }
         Ok(())
     }
@@ -461,7 +433,7 @@ impl Database {
         request.authorize(binding, scope, "source.read")?;
         self.source_live_scope(scope)?;
         let index = crate::source_search_index::SourceIndex::prepare(&self.conn)?;
-        self.source_prune_record_cache(binding, scope)?;
+        self.source_prune_cache(binding, scope)?;
         index.capacity(request, binding, scope)
     }
 }
@@ -488,8 +460,8 @@ mod tests {
             action(&self.binding, &self.db)
         }
     }
-    #[test]
-    fn source_reads_search_and_indexing_reject_an_archived_project() {
+    #[tokio::test]
+    async fn source_reads_search_and_indexing_reject_an_archived_project() {
         use crate::{
             models::ProjectArchiveInput,
             source_service::{SourceReadInput, SourceReadView},
@@ -576,6 +548,7 @@ mod tests {
             );
             assert!(SourceService::new(&active)
                 .search(&request, &search)
+                .await
                 .unwrap()
                 .items
                 .is_empty());
@@ -593,7 +566,7 @@ mod tests {
             ErrorCode::ScopeDenied
         );
         assert_eq!(
-            service.search(&request, &search).unwrap_err().code,
+            service.search(&request, &search).await.unwrap_err().code,
             ErrorCode::ScopeDenied
         );
         assert_eq!(
@@ -610,8 +583,8 @@ mod tests {
             ErrorCode::ScopeDenied
         );
     }
-    #[test]
-    fn source_search_prunes_foreign_cache_before_ranking_pagination_or_capacity() {
+    #[tokio::test]
+    async fn source_search_prunes_foreign_cache_before_ranking_pagination_or_capacity() {
         let directory = tempfile::tempdir().unwrap();
         let mut db = Database::open(
             &directory.path().join("source.sqlite"),
@@ -760,6 +733,7 @@ mod tests {
                     budget_chars: None,
                 },
             )
+            .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].title, "Visible");

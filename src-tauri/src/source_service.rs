@@ -292,7 +292,7 @@ fn flatten_record(
     Ok((text, spans))
 }
 pub(crate) struct SourceService<'a, S> {
-    store: &'a S,
+    pub(super) store: &'a S,
 }
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
@@ -504,18 +504,98 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         self.store
             .with_current(|binding, db| db.source_index_record(request, binding, source, &cached))
     }
-    pub(crate) fn search(
+    pub(crate) async fn search(
         &self,
         request: &RequestContext,
         input: &SourceSearchInput,
     ) -> AgentResult<SourceSearchPage> {
+        use crate::agent::models::ObjectKind;
         let budget = input.budget_chars.unwrap_or(3000).min(12000);
         if budget == 0 {
             return Err(invalid("Source search budget must be positive"));
         }
-        let mut page = self
+        let candidates = self
             .store
-            .with_current(|binding, db| db.source_search_records(request, binding, input))?;
+            .with_current(|binding, db| db.source_search_candidates(request, binding, input))?;
+        let mut page = SourceSearchPage {
+            items: vec![],
+            has_more: false,
+            stale_count: 0,
+        };
+        let mut file_checks = vec![];
+        for candidate in candidates.items {
+            let source = SourceReadTarget {
+                object: candidate.source_ref.object.clone(),
+                revision: Some(candidate.source_ref.revision.clone()),
+                record_version: candidate.source_ref.record_version,
+                file_version: candidate.source_ref.file_version,
+            };
+            let verified = match source.object.kind {
+                ObjectKind::Record => self.store.with_current(|binding, db| {
+                    let fingerprint = db.source_record_fingerprint(request, binding, &source)?;
+                    if candidate.title != fingerprint.title.chars().take(1000).collect::<String>() {
+                        return Err(changed());
+                    }
+                    Ok(None)
+                }),
+                ObjectKind::File => {
+                    async {
+                        let plan = self.store.with_current(|binding, db| {
+                            db.source_file_search_plan(
+                                request,
+                                binding,
+                                &source,
+                                input.include_history,
+                                &candidate.title,
+                            )
+                        })?;
+                        // Release the potentially 50 MiB byte buffer immediately;
+                        // only the verified identity/stat receipt survives ranking.
+                        let receipt = crate::source_file_snapshot::capture_file(&plan)
+                            .await?
+                            .verification();
+                        let current = self.store.with_current(|binding, db| {
+                            db.source_file_search_plan(
+                                request,
+                                binding,
+                                &source,
+                                input.include_history,
+                                &candidate.title,
+                            )
+                        })?;
+                        if current != plan {
+                            return Err(changed());
+                        }
+                        Ok(Some((plan, receipt)))
+                    }
+                    .await
+                }
+                _ => continue,
+            };
+            match verified {
+                Ok(file) => {
+                    if let Some((plan, receipt)) = file {
+                        file_checks.push((source, plan, receipt));
+                    }
+                    page.items.push(candidate);
+                }
+                Err(error)
+                    if matches!(
+                        error.code,
+                        ErrorCode::SourceChanged | ErrorCode::SourceNotReady
+                    ) =>
+                {
+                    page.stale_count += 1
+                }
+                Err(error)
+                    if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) =>
+                {
+                    ()
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        page.has_more = candidates.has_more && !page.items.is_empty();
         while crate::agent::context::serialized_chars(&page)? > budget {
             if page.items.pop().is_none() {
                 return Err(AgentError::new(
@@ -525,8 +605,31 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             }
             page.has_more = true;
         }
+        // Recheck retained results after all async captures and budget trimming.
+        // Revocation is checked before filesystem inspection and after it.
+        for (source, plan, receipt) in file_checks {
+            if !page.items.iter().any(|item| {
+                item.source_ref.object == source.object
+                    && item.source_ref.file_version == source.file_version
+            }) {
+                continue;
+            }
+            let current = self.store.with_current(|binding, db| {
+                db.source_file_search_plan(
+                    request,
+                    binding,
+                    &source,
+                    input.include_history,
+                    &plan.title.chars().take(1000).collect::<String>(),
+                )
+            })?;
+            if current != plan {
+                return Err(changed());
+            }
+            crate::source_file_snapshot::verify_file_receipt(&plan, &receipt).await?;
+        }
         self.store.with_current(|binding, db| {
-            db.source_verify_search_page(request, binding, &input.scope, &page)?;
+            db.source_verify_search_page(request, binding, input, &page)?;
             Ok(page)
         })
     }
@@ -1054,6 +1157,7 @@ mod tests {
                     budget_chars: None,
                 },
             )
+            .await
             .unwrap();
         assert_eq!(found.items.len(), 1);
         assert_eq!(found.items[0].source_ref.revision, page.source_ref.revision);
@@ -1497,9 +1601,9 @@ mod tests {
             ErrorCode::WorkspaceChanged
         );
     }
-    #[test]
-    fn source_search_indexes_committed_blocks_and_rechecks_real_revision_before_returning_evidence()
-    {
+    #[tokio::test]
+    async fn source_search_indexes_committed_blocks_and_rechecks_real_revision_before_returning_evidence(
+    ) {
         let (_directory, store, request, input) = fixture("合同风险 evidence");
         let service = SourceService::new(&store);
         let query = SourceSearchInput {
@@ -1513,7 +1617,7 @@ mod tests {
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
-        let page = service.search(&request, &query).unwrap();
+        let page = service.search(&request, &query).await.unwrap();
         assert_eq!(page.items.len(), 1);
         assert_eq!(
             page.items[0].source_ref.block_id.as_deref(),
@@ -1524,13 +1628,16 @@ mod tests {
         assert!(crate::agent::context::serialized_chars(&page).unwrap() <= 3000);
         let document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"1234567890abcdef1234567890abcdef"},"content":[{"type":"text","text":"新的证据 evidence"}]}]});
         commit_document(&store, &input, document, "新的证据 evidence");
-        let stale = service.search(&request, &query).unwrap();
+        let stale = service.search(&request, &query).await.unwrap();
         assert!(stale.items.is_empty());
         assert_eq!(stale.stale_count, 1);
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
-        assert_eq!(service.search(&request, &query).unwrap().stale_count, 0);
+        assert_eq!(
+            service.search(&request, &query).await.unwrap().stale_count,
+            0
+        );
         let fresh = service
             .search(
                 &request,
@@ -1539,6 +1646,7 @@ mod tests {
                     ..query
                 },
             )
+            .await
             .unwrap();
         assert_eq!(fresh.items.len(), 1);
         assert_eq!(
@@ -1546,8 +1654,8 @@ mod tests {
             service.read(&request, &input).unwrap().source_ref.revision
         );
     }
-    #[test]
-    fn source_index_record_reports_partial_when_scope_batch_character_budget_is_reached() {
+    #[tokio::test]
+    async fn source_index_record_reports_partial_when_scope_batch_character_budget_is_reached() {
         let body = format!("evidence {}", "a".repeat(900));
         let (_directory, store, request, input) = fixture(&body);
         let service = SourceService::new(&store);
@@ -1573,13 +1681,14 @@ mod tests {
                     budget_chars: None,
                 },
             )
+            .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
         assert!(!page.items[0].coverage.complete);
         assert_eq!(page.items[0].coverage.chars, 600);
     }
-    #[test]
-    fn source_index_chunk_budget_keeps_unique_coverage_and_later_rebuild_becomes_complete() {
+    #[tokio::test]
+    async fn source_index_chunk_budget_keeps_unique_coverage_and_later_rebuild_becomes_complete() {
         let body = format!("evidence {}", "a".repeat(4000));
         let (_directory, store, request, input) = fixture(&body);
         let service = SourceService::new(&store);
@@ -1601,20 +1710,20 @@ mod tests {
             limit: None,
             budget_chars: None,
         };
-        let partial = service.search(&request, &query).unwrap();
+        let partial = service.search(&request, &query).await.unwrap();
         assert_eq!(partial.items.len(), 1);
         assert_eq!(partial.items[0].coverage.chars, 3400);
         assert!(!partial.items[0].coverage.complete);
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
-        let complete = service.search(&request, &query).unwrap();
+        let complete = service.search(&request, &query).await.unwrap();
         assert_eq!(complete.items.len(), 1);
         assert_eq!(complete.items[0].coverage.chars, 4009);
         assert!(complete.items[0].coverage.complete);
     }
-    #[test]
-    fn source_cache_does_not_keep_deleted_record_body_or_history() {
+    #[tokio::test]
+    async fn source_cache_does_not_keep_deleted_record_body_or_history() {
         use crate::models::WorkspaceRecordDeleteInput;
         let (_directory, store, request, input) = fixture("deleted evidence");
         let service = SourceService::new(&store);
@@ -1650,6 +1759,7 @@ mod tests {
                     budget_chars: None,
                 },
             )
+            .await
             .unwrap();
         assert!(search.items.is_empty());
         assert_eq!(search.stale_count, 0);
@@ -1660,8 +1770,8 @@ mod tests {
         assert_eq!(after.chunks, 0);
         assert_eq!(after.content_bytes, 0);
     }
-    #[test]
-    fn source_search_discards_candidates_if_workspace_switches_before_response() {
+    #[tokio::test]
+    async fn source_search_discards_candidates_if_workspace_switches_before_response() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct SwitchingStore {
             inner: Store,
@@ -1697,6 +1807,7 @@ mod tests {
         assert_eq!(
             SourceService::new(&store)
                 .search(&request, &query)
+                .await
                 .unwrap_err()
                 .code,
             ErrorCode::WorkspaceChanged
