@@ -49,14 +49,18 @@ pub(crate) struct RecordVersionDifference {
 }
 
 pub(crate) trait BoundRecordStore {
+    /// Required for every adapter, including headless entry points. An adapter
+    /// may acknowledge no live editors, but cannot silently omit coordination.
+    fn flush_editors(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> impl std::future::Future<Output = AgentResult<()>> + Send;
     fn submission_lock(
         &self,
-        _binding: &WorkspaceBinding,
-        _target: &RecordTarget,
-    ) -> impl std::future::Future<Output = AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>>> + Send
-    {
-        async { Ok(None) }
-    }
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> impl std::future::Future<Output = AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>>> + Send;
     fn with_current<T>(
         &self,
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
@@ -114,6 +118,18 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         operation: &str,
     ) -> AgentResult<()> {
         self.access(request, target, operation, |_| Ok(()))
+    }
+    pub(crate) async fn flush_editors(
+        &self,
+        request: &RequestContext,
+        target: &RecordTarget,
+        operation: &str,
+    ) -> AgentResult<()> {
+        self.authorize_target(request, target, operation)?;
+        self.store.flush_editors(&request.binding, target).await?;
+        // The acknowledgement may arrive after a Workspace switch. Never keep
+        // the previous database or authorization alive across this await.
+        self.authorize_target(request, target, operation)
     }
     pub(crate) async fn create(
         &self,
@@ -314,14 +330,13 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             (initial, Some(empty))
         };
         let _submission = if let Some(record_id) = input.record_id {
+            let target = RecordTarget {
+                scope: input.scope.clone(),
+                record_id,
+            };
+            self.flush_editors(request, &target, "record.write").await?;
             self.store
-                .submission_lock(
-                    &request.binding,
-                    &RecordTarget {
-                        scope: input.scope.clone(),
-                        record_id,
-                    },
-                )
+                .submission_lock(&request.binding, &target)
                 .await?
         } else {
             None
@@ -608,6 +623,9 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 )
             })?;
         projection.validate()?;
+        // Coordinate after pure conversion and before the submission lock:
+        // editor autosave needs that same lock to flush its committed draft.
+        self.flush_editors(request, &target, "record.patch").await?;
         let _submission = self
             .store
             .submission_lock(&request.binding, &target)
@@ -690,6 +708,8 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         }
         let version = self
             .regenerated_version(request, &input.target, &input.version_id, "record.restore")
+            .await?;
+        self.flush_editors(request, &input.target, "record.restore")
             .await?;
         let _submission = self
             .store
@@ -778,6 +798,23 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
 }
 
 impl BoundRecordStore for crate::AppState {
+    async fn flush_editors(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> AgentResult<()> {
+        use tauri::{Emitter, Manager};
+        let windows = self.app_handle.webview_windows().into_keys().collect();
+        self.record_editors
+            .flush(binding, target, &windows, |flush| {
+                self.app_handle
+                    .emit_to(&flush.window, "record:flush-request", flush)
+                    .map_err(|_| {
+                        AgentError::new(ErrorCode::EditorBusy, "无法联系记录编辑窗口，草稿已保留")
+                    })
+            })
+            .await
+    }
     async fn submission_lock(
         &self,
         binding: &WorkspaceBinding,
@@ -828,8 +865,32 @@ mod tests {
     struct Store {
         binding: Arc<Mutex<WorkspaceBinding>>,
         db: Arc<Mutex<Database>>,
+        flush_calls: AtomicUsize,
+        flush_error: Mutex<Option<ErrorCode>>,
+        on_flush: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     }
     impl BoundRecordStore for Store {
+        async fn flush_editors(
+            &self,
+            _binding: &WorkspaceBinding,
+            _target: &RecordTarget,
+        ) -> AgentResult<()> {
+            self.flush_calls.fetch_add(1, Ordering::Relaxed);
+            if let Some(code) = *self.flush_error.lock().unwrap() {
+                return Err(AgentError::new(code, "Editor refused the write"));
+            }
+            if let Some(callback) = self.on_flush.lock().unwrap().as_ref() {
+                callback();
+            }
+            Ok(())
+        }
+        async fn submission_lock(
+            &self,
+            _binding: &WorkspaceBinding,
+            _target: &RecordTarget,
+        ) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> {
+            Ok(None)
+        }
         fn with_current<T>(
             &self,
             action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
@@ -903,6 +964,9 @@ mod tests {
             Store {
                 binding: Arc::new(Mutex::new(binding)),
                 db: Arc::new(Mutex::new(db)),
+                flush_calls: AtomicUsize::new(0),
+                flush_error: Mutex::new(None),
+                on_flush: Mutex::new(None),
             },
             Utility {
                 calls: AtomicUsize::new(0),
@@ -1147,9 +1211,11 @@ mod tests {
             .projection
             .code_language
             .is_none());
+        *store.flush_error.lock().unwrap() = Some(ErrorCode::EditorReviewPending);
         let replayed = service.quick_note_transfer(&request, &input).await.unwrap();
         assert_eq!(replayed.head.head_revision, 2);
         assert_eq!(replayed.after_version, saved.after_version);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 1);
         assert!(store
             .db
             .lock()
@@ -1548,9 +1614,251 @@ mod tests {
         let saved = service.patch(&request, &patch).await.unwrap();
         assert_eq!(saved.after_revision, 2);
         assert!(saved.receipt.undo_available);
+        *store.flush_error.lock().unwrap() = Some(ErrorCode::EditorReviewPending);
         let replay = service.patch(&request, &patch).await.unwrap();
         assert_eq!(replay.receipt.operation_id, saved.receipt.operation_id);
         assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 1);
+    }
+    fn append_patch(
+        request: &RequestContext,
+        target: &RecordTarget,
+        projection: &RecordDocumentProjection,
+    ) -> crate::agent::outputs::RecordPatch {
+        use crate::agent::outputs::{BlockEdit, RecordPatch};
+        use sha2::{Digest, Sha256};
+        RecordPatch {
+            record: ObjectRef {
+                workspace_id: request.binding.workspace_id.clone(),
+                scope: target.scope.clone(),
+                kind: ObjectKind::Record,
+                id: target.record_id.to_string(),
+            },
+            base_revision: 1,
+            request_id: request.request_id.clone(),
+            operations: vec![BlockEdit::AppendInline {
+                block_id: "1".repeat(32),
+                expected_block_hash: format!(
+                    "sha256:{:x}",
+                    Sha256::digest(projection.document["content"][0].to_string())
+                ),
+                text: " suffix".into(),
+            }],
+        }
+    }
+    fn suffix_projection(projection: &RecordDocumentProjection) -> RecordDocumentProjection {
+        let mut result = projection.clone();
+        result.document["content"][0]["content"][0]["text"] = json!("Fixture 正文 suffix");
+        result.html = result.html.replace("Fixture 正文", "Fixture 正文 suffix");
+        result.markdown = result
+            .markdown
+            .replace("Fixture 正文", "Fixture 正文 suffix");
+        result.text = result.text.replace("Fixture 正文", "Fixture 正文 suffix");
+        result.body_hash =
+            crate::record_documents::body_hash(&result.document, &result.code_language);
+        result
+    }
+    #[tokio::test]
+    async fn shared_record_patch_requires_editor_acknowledgement_before_writing() {
+        for code in [ErrorCode::EditorReviewPending, ErrorCode::EditorBusy] {
+            let (_directory, store, mut utility, mut request, target) = setup();
+            RecordDocumentService::new(&store, &utility)
+                .head_get(&request, &target)
+                .await
+                .unwrap();
+            request.request_id = "blocked-patch".into();
+            request.caller = Caller::BuiltinRun {
+                run_id: "run".into(),
+            };
+            *store.flush_error.lock().unwrap() = Some(code);
+            let patch = append_patch(&request, &target, &utility.projection);
+            utility.projection = suffix_projection(&utility.projection);
+            let service = RecordDocumentService::new(&store, &utility);
+            assert_eq!(
+                service.patch(&request, &patch).await.unwrap_err().code,
+                code
+            );
+            assert_eq!(store.flush_calls.load(Ordering::Relaxed), 1);
+            let db = store.db.lock().unwrap();
+            assert_eq!(
+                db.record_document_head(&target)
+                    .unwrap()
+                    .unwrap()
+                    .head_revision,
+                1
+            );
+            assert_eq!(
+                db.record_version_capacity(&target).unwrap().version_count,
+                1
+            );
+            assert!(db
+                .agent_operation_replay::<RecordPatchResult>(
+                    &request.caller.key(),
+                    &request.request_id,
+                    "record.patch",
+                    &patch,
+                )
+                .unwrap()
+                .is_none());
+        }
+    }
+    #[tokio::test]
+    async fn shared_record_patch_preserves_draft_saved_by_editor_flush() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        request.request_id = "patch-after-draft".into();
+        let patch = append_patch(&request, &target, &utility.projection);
+        let draft = RecordDocumentCommit {
+            target: target.clone(),
+            base_revision: 1,
+            projection: suffix_projection(&utility.projection),
+            origin: RecordVersionOrigin::Manual,
+            actor: json!({"kind":"gui"}),
+            edit_session_id: Some("a".repeat(32)),
+        };
+        utility.projection = draft.projection.clone();
+        let db = store.db.clone();
+        *store.on_flush.lock().unwrap() = Some(Box::new(move || {
+            db.lock()
+                .unwrap()
+                .record_document_commit("gui", "editor-flush", &draft, "workspace-test")
+                .unwrap();
+        }));
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .patch(&request, &patch)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let db = store.db.lock().unwrap();
+        let current = db.record_document_head(&target).unwrap().unwrap();
+        assert_eq!(current.head_revision, 2);
+        assert_eq!(current.projection.text, utility.projection.text);
+        assert_eq!(
+            db.record_version_capacity(&target).unwrap().receipt_count,
+            2
+        );
+        assert!(db
+            .agent_operation_replay::<RecordPatchResult>(
+                &request.caller.key(),
+                &request.request_id,
+                "record.patch",
+                &patch
+            )
+            .unwrap()
+            .is_none());
+    }
+    #[tokio::test]
+    async fn shared_record_patch_rechecks_workspace_after_editor_flush() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        RecordDocumentService::new(&store, &utility)
+            .head_get(&request, &target)
+            .await
+            .unwrap();
+        request.request_id = "patch-before-switch".into();
+        let patch = append_patch(&request, &target, &utility.projection);
+        utility.projection = suffix_projection(&utility.projection);
+        let binding = store.binding.clone();
+        *store.on_flush.lock().unwrap() = Some(Box::new(move || {
+            binding.lock().unwrap().generation = "generation-2".into();
+        }));
+        assert_eq!(
+            RecordDocumentService::new(&store, &utility)
+                .patch(&request, &patch)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        assert_eq!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+    }
+    #[tokio::test]
+    async fn shared_record_restore_and_quick_note_respect_pending_editor_review() {
+        let (_directory, store, utility, mut request, target) = setup();
+        request.scope_grant.operations.extend([
+            "record.quick_note.write".into(),
+            "record.metadata.write".into(),
+        ]);
+        let service = RecordDocumentService::new(&store, &utility);
+        let baseline = service.editor_get(&request, &target).await.unwrap();
+        let version = service
+            .versions_list(&request, &target, None, 1)
+            .unwrap()
+            .versions[0]
+            .id
+            .clone();
+        *store.flush_error.lock().unwrap() = Some(ErrorCode::EditorReviewPending);
+        request.request_id = "blocked-restore".into();
+        let restore = RecordRestoreInput {
+            target: target.clone(),
+            version_id: version,
+            base_revision: 1,
+        };
+        assert_eq!(
+            service.restore(&request, &restore).await.unwrap_err().code,
+            ErrorCode::EditorReviewPending
+        );
+        store
+            .db
+            .lock()
+            .unwrap()
+            .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
+                markdown: "Captured idea".into(),
+                html: "<p>Captured idea</p>".into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        request.request_id = "blocked-quick-note".into();
+        let transfer = RecordQuickNoteTransfer {
+            scope: target.scope.clone(),
+            record_id: Some(target.record_id),
+            base_revision: Some(1),
+            metadata_revision: Some(baseline.metadata.revision),
+            expected_markdown: "Captured idea".into(),
+            title: None,
+            tag_ids: vec![],
+        };
+        assert_eq!(
+            service
+                .quick_note_transfer(&request, &transfer)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::EditorReviewPending
+        );
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 2);
+        let db = store.db.lock().unwrap();
+        assert_eq!(
+            db.record_document_head(&target)
+                .unwrap()
+                .unwrap()
+                .head_revision,
+            1
+        );
+        assert_eq!(
+            db.record_quick_note_source(&target.scope).unwrap().markdown,
+            "Captured idea"
+        );
+        assert_eq!(
+            db.record_version_capacity(&target).unwrap().receipt_count,
+            1
+        );
     }
     #[tokio::test]
     #[ignore = "requires the prepared fixed Node runtime and built Record worker"]
@@ -1744,8 +2052,11 @@ mod tests {
                 .markdown,
             "Fixture 正文"
         );
+        let flushes = store.flush_calls.load(Ordering::Relaxed);
+        *store.flush_error.lock().unwrap() = Some(ErrorCode::EditorReviewPending);
         let retry = service.restore(&request, &restore).await.unwrap();
         assert_eq!(retry.after_version, restored.after_version);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), flushes);
         assert_eq!(
             service
                 .versions_list(&request, &target, None, 20)

@@ -1,5 +1,5 @@
-//! Trusted local editor adapter. Bridge/Pi adapters must use their persisted
-//! grants and the editor coordination barrier before enabling external writes.
+//! Trusted local editor adapter. Shared Record writes enforce editor
+//! coordination; Bridge/Pi adapters must also provide their persisted grants.
 use crate::{
     agent::{
         access::{Caller, RequestContext, ScopeGrant},
@@ -14,28 +14,7 @@ use crate::{
     AppState,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager, State, WebviewWindow};
-
-async fn flush_editors(
-    state: &AppState,
-    request: &RequestContext,
-    target: &RecordTarget,
-) -> AgentResult<()> {
-    let utility = AppDocumentUtility(state.app_handle.clone());
-    RecordDocumentService::new(state, &utility).authorize_target(request, target, "record.read")?;
-    let windows = state.app_handle.webview_windows().into_keys().collect();
-    state
-        .record_editors
-        .flush(&request.binding, target, &windows, |flush| {
-            state
-                .app_handle
-                .emit_to(&flush.window, "record:flush-request", flush)
-                .map_err(|_| {
-                    AgentError::new(ErrorCode::EditorBusy, "无法联系记录编辑窗口，草稿已保留")
-                })
-        })
-        .await
-}
+use tauri::{Emitter, State, WebviewWindow};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -133,11 +112,12 @@ pub(crate) async fn record_editors_flush(
 ) -> Result<ApiResponse<RecordEditorState>, String> {
     let result = async {
         let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
-        flush_editors(&state, &request, &input.data).await?;
         let utility = AppDocumentUtility(state.app_handle.clone());
-        RecordDocumentService::new(&*state, &utility)
-            .editor_get(&request, &input.data)
-            .await
+        let service = RecordDocumentService::new(&*state, &utility);
+        service
+            .flush_editors(&request, &input.data, "record.read")
+            .await?;
+        service.editor_get(&request, &input.data).await
     }
     .await;
     Ok(ApiResponse::from_result(input.request_id, result))
@@ -312,29 +292,6 @@ pub(crate) async fn record_quick_note_transfer(
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
-        // A lost response replays its receipt without requiring another editor flush.
-        let replayed: Option<RecordCommitResult> =
-            crate::record_document_service::BoundRecordStore::with_current(
-                &*state,
-                |binding, db| {
-                    request.authorize(binding, &input.data.scope, "record.quick_note.write")?;
-                    db.agent_operation_replay(
-                        &request.caller.key(),
-                        &request.request_id,
-                        "record.quick_note.transfer",
-                        &input.data,
-                    )
-                },
-            )?;
-        let target = input.data.record_id.map(|record_id| RecordTarget {
-            scope: input.data.scope.clone(),
-            record_id,
-        });
-        if replayed.is_none() {
-            if let Some(target) = &target {
-                flush_editors(&state, &request, target).await?;
-            }
-        }
         let commit = service.quick_note_transfer(&request, &input.data).await?;
         notify_record_changed(
             &state,
@@ -579,23 +536,6 @@ pub(crate) async fn record_version_restore(
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
-        service.authorize_target(&request, &input.data.target, "record.restore")?;
-        let previous: Option<RecordCommitResult> =
-            crate::record_document_service::BoundRecordStore::with_current(
-                &*state,
-                |binding, db| {
-                    request.authorize(binding, &input.data.target.scope, "record.restore")?;
-                    db.agent_operation_replay(
-                        &request.caller.key(),
-                        &request.request_id,
-                        "record.version.restore",
-                        &input.data,
-                    )
-                },
-            )?;
-        if previous.is_none() {
-            flush_editors(&state, &request, &input.data.target).await?;
-        }
         let commit = service.restore(&request, &input.data).await?;
         notify_record_changed(
             &state,
@@ -611,4 +551,4 @@ pub(crate) async fn record_version_restore(
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 // Public Agent/bridge patch/restore capabilities remain disabled until their
-// persisted grants and request adapters use this same coordination barrier.
+// persisted grants and request adapters are implemented. Coordination is enforced by the service.

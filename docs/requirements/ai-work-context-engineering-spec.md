@@ -342,6 +342,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 ### 业务事件
 
 - 在数据库事务内写实体、引用边、收据和 change log；提交后通知 Tauri `mind:changed`。没有提交成功不得发成功事件。
+- Record 变更标识与引用边统一由 `ObjectRef.key()` 生成（如 `<workspaceId>/project:7/record/42`）；打开工作区时迁移旧 `record:project:7:42` / `record:workspace:42` 日志，保留原 seq、时间和 revision。
 - GUI 所有相关写入口也必须更新 change log，包括 QuickNote、Record 正文/metadata、Todo 及子项、File 导入/新版本/改名/删除、Project 改名/Archive、Transcript 完成。不能只监听 Agent 写入。
 - 事件携带 workspaceId、generation、seq、changedRefs；前端验证当前 Workspace 后只 invalidate 相关 projectPage/workspacePage/todo/search/reference/overview keys。
 - 隐藏页面只标脏，重新可见时 fetch；打开窗口按 lastSeq 补读。change log 保留30天，超出范围返回 resetRequired，并刷新该 Workspace 缓存；删除标记在来源 registry 中保留用于引用失效。
@@ -415,6 +416,8 @@ type RecordPatch = {
 7. 托管图片/附件的物理清理必须同时检查当前正文和所有保留版本；从当前块删除图片不删除历史仍引用的资产。File历史引用按既有File Version生命周期；用户显式删除整个File后历史显示来源缺失，不能声称恢复了被删除的外部文件。
 8. 首期不自动裁剪历史、不在删除会话时删除Record版本；提供容量统计。快照可压缩/按内容hash去重，恢复仍校验hash。意外退出后当前head仍是最后一次autosave，启动时封存待完成编辑checkpoint，不回滚到旧历史版本。
 
+Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提交 revision、body hash 和版本/元信息结果），不复制正文树或 HTML/Markdown/纯文本；正文通过 head / version 单独读取。重试仍返回原提交 revision，不把当前 head 冒充原结果。既有完整正文回执在工作区打开时校验 hash 后压缩，容量统计包含保存回执占用。
+
 新增表：`record_document_heads(record_key PK,head_revision,document_json,body_hash,schema_version,edit_session_id,checkpoint_due_at,updated_at)`；`record_versions(id PK,record_key,version_number,head_revision,document_snapshot,html,markdown,code_language,title_snapshot,body_hash,origin,actor_json,operation_id,restored_from_version_id,created_at, UNIQUE(record_key,version_number))`；`record_version_assets(version_id,asset_ref, UNIQUE(version_id,asset_ref))`。current head与snapshot都用Workspace相对资源路径，不注入本机路径。Record实体删除沿既有删除流程清理本实体历史；本计划不开放Agent整对象删除。
 
 ### GUI与Agent并发
@@ -423,6 +426,7 @@ type RecordPatch = {
 
 - 内置应用patch前向所有持有目标Record的窗口请求flush Committed Content，并短暂获取该Record提交锁；有未接受AI预览时，返回EDITOR_REVIEW_PENDING，保留patch候选并定位该编辑器，不自动接受/丢弃预览。
 - 外部patch同样走当前Workspace的保存协调：窗口有dirty正文时先请求flush（不含预览）。flush导致revision变化则返回冲突；2s无响应返回EDITOR_BUSY；有未决AI预览也返回EDITOR_REVIEW_PENDING。不存在打开窗口时可直接CAS；绝不把其他窗口未保存草稿当作可覆盖旧值。
+- 共享写入服务强制执行 patch、版本恢复和已有 Record 的 QuickNote 追加协调，入口只提供窗口适配接口。纯转换后、提交锁前请求 flush，等待后重新验证 Workspace binding，再获取锁并执行最终 CAS；幂等回放直接返回原凭证。GUI autosave 负责响应 flush，不递归请求协调；headless 适配器明确确认无窗口并继续 CAS。
 - GUI排队autosave从所基于的headRevision开始CAS；前一条由同一coordinator成功写入时更新链上的expectedRevision；外部更改后的旧队列不能无条件追写。冲突保留本地draft并展示“查看差异/重载/另存Record”，不丢输入、不自动last-write-wins。
 - patch提交成功后清洁编辑器接收新head并通过事务映射光标；脏编辑器只显示冲突提示。headless M4没有窗口时跳过UI协调，仍保留CAS。
 
