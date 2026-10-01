@@ -123,6 +123,7 @@ fn validate_read(input: &SourceReadInput) -> AgentResult<Option<NativeRange>> {
                 }
                 Some(SourceLocator::Time { start_ms, end_ms })
                     if start_ms < end_ms
+                        && *end_ms <= crate::agent::models::MAX_SAFE_SOURCE_TIME_MS
                         && input.source.object.kind
                             == crate::agent::models::ObjectKind::Transcript =>
                 {

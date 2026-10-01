@@ -130,7 +130,7 @@ impl<'a> SourceIndex<'a> {
                 SourceLocator::Time { start_ms, end_ms }
                     if source.object.kind == ObjectKind::Transcript
                         && *end_ms >= *start_ms
-                        && *end_ms <= 9_007_199_254_740_991 =>
+                        && *end_ms <= crate::agent::models::MAX_SAFE_SOURCE_TIME_MS =>
                 {
                     ()
                 }

@@ -72,7 +72,7 @@ impl Database {
                 .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid Transcript time"))?;
             let end = u64::try_from(end)
                 .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid Transcript time"))?;
-            if start >= end {
+            if start >= end || end > crate::agent::models::MAX_SAFE_SOURCE_TIME_MS {
                 return Err(AgentError::new(
                     ErrorCode::IoFailed,
                     "Invalid Transcript time range",
@@ -621,5 +621,46 @@ mod tests {
         assert_eq!(after.source_ref.revision, before.source_ref.revision);
         assert_eq!(after.text, "真实原话🙂");
         assert!(!after.text.contains("纪要"));
+    }
+    #[test]
+    fn source_transcript_does_not_return_or_accept_unsafe_numeric_time_locators() {
+        let (_root, store, request, mut input, session, _) = setup(false);
+        input.view = SourceReadView::Range;
+        input.selection = Some(SourceSelection {
+            block_id: None,
+            locator: Some(SourceLocator::Time {
+                start_ms: 100,
+                end_ms: 9_007_199_254_740_992,
+            }),
+        });
+        assert_eq!(
+            SourceService::new(&store)
+                .read(&request, &input)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        store
+            .db
+            .lock()
+            .unwrap()
+            .voice_transcript_append_final(
+                &session,
+                "too-long",
+                1000,
+                9_007_199_254_740_992,
+                "不能安全表示的时间",
+                None,
+            )
+            .unwrap();
+        input.view = SourceReadView::Full;
+        input.selection = None;
+        assert_eq!(
+            SourceService::new(&store)
+                .read(&request, &input)
+                .unwrap_err()
+                .code,
+            ErrorCode::IoFailed
+        );
     }
 }
