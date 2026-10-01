@@ -154,3 +154,13 @@ File tombstone 在日志清理与重开后保留，queued/running 提取任务�
 主 agent Standards / Spec 自查与真实 SQLite 测试覆盖 SQL 拒绝删除、outbox 回滚、队列取消、持久 tombstone、外来同字节原路径/暂存路径、活跃 staging 互斥，以及缺失 head 和正常 head 两种状态在七个阶段的 14 次 Linux SIGKILL。删除专项 6 个父用例及一个由父用例启动的 ignored fixture；测试清理使用既有 cfg(test) 文件移除边界，不将它称为各平台真实回收站、磁盘满或断电验收。Rust 全目标库 380 passed、19 默认忽略；source 显式真实进程专项 109 passed、Record 100 passed。前端未改，既有 959 passed/1 个驻留用例超时门槛保留。
 
 本阶段原生 File 导入、版本、改名/metadata 和删除已有自身的 outbox/恢复，relocate 的旧覆盖语义仍需结合登记 hash 收紧。公开 source.search/read、File adapters、普通 source worker 分发、Schema 29、GUI CAS/上传、Windows 实包及产品恢复诊断仍未交付。#100/#114 保持 OPEN，未发布阶段 PR、合并 main 或关闭 Issue。
+
+### File 重新定位与原件约束（2026-10-01 后续阶段）
+
+原生 document_relocate 不再把任意新位置的字节覆盖到同一历史版本。先要求当前 Version 具有权威登记 SHA-256、head 与 version 的路径一致，校验现存 head 未被外部改动，再流式准备所选源。只有与登记 hash 完全一致的字节可重新绑定源位置或恢复缺失 head；不同内容必须走新增版本流程，未登记的旧版本不能凭当前字节或相同文件名冒充历史原件。已有 head 保持原物理文件，缺失 head 用不覆盖 rename 落位；源文件、File ID、版本号、版本计数与历史 hash 保持。相同位置/字节/health 不写凭证或日志，返回前再次核验当前 head。
+
+恢复私有 journal 与其他 File 写入共用 Workspace 初始化入口。位置字段、health、Project touch、稳定凭证和 File outbox 在同一事务提交；失败恢复此前缺失状态或原 metadata，提交后仅清理 staging。校验真实 Workspace、File/Project/Version、登记 hash、源绑定和物理身份，同字节外来修复目标也保留并报错；活跃 descriptor-less staging 先取得 File 锁。未知旧版本的修复/显式登记交互仍需 #114 提供，当前选择拒绝不可靠恢复，不创建假原件或新旧正文副本。
+
+主 agent Standards / Spec 自查及专项 6 个父用例通过，包含正常/缺失 head 两种状态五个阶段的 10 次 Linux SIGKILL、outbox 回滚、不同内容/未知旧版本拒绝、外部编辑保留、同字节外来目标、无变化和活跃 staging 互斥。Rust 全目标库 386 passed、20 默认忽略；source 显式真实进程专项 109 passed，Record 100 passed。未改前端，前一阶段 959 passed/1 个驻留用例超时门槛保留。原生 File 各写入口的 hash/outbox/journal 已有内核，GUI 稳定 requestId/CAS、短锁外层、上传/精确 patch、恢复交互与实包故障验收仍未交付；不把内核阶段当作 #114 整体交付。
+
+最新只读核对 #99 为 CLOSED、#104 为 OPEN；依赖 Issue 的正文与完成状态须分别核对，不能仅凭旧 Blocked by 文本断言未交付。正式会话/摘要、真实成果模块和助手 UI 的注册接缝仍不能虚构。公开 source.search/read、File adapters 与普通 source worker 分发保持关闭，内部惰性表未发布为 Schema 29；#100/#114 保持 OPEN，无阶段 PR、main 合并或 Issue 关闭。

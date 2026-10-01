@@ -17,6 +17,7 @@ pub(crate) mod file_versions;
 mod file_imports;
 mod file_metadata;
 mod file_deletions;
+mod file_relocations;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -43,7 +44,7 @@ use crate::{
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
         ContactUpsertInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
-        DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
+        DocumentRecord, DocumentTagRecord,
         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
@@ -3665,49 +3666,6 @@ impl Database {
             path: managed_path.to_string_lossy().to_string(),
             mime_type: input.mime_type,
         })
-    }
-
-    pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
-        let _file_locks = self.file_native_write_locks(input.document_id)?;
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let new_source = PathBuf::from(&input.new_source_path);
-        if !new_source.exists() {
-            return Err(anyhow!("relocation source file does not exist"));
-        }
-
-        let managed_path = PathBuf::from(&current.managed_path);
-        if let Some(parent) = managed_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::copy(&new_source, &managed_path)?;
-
-        self.conn.execute(
-            r#"
-            UPDATE documents
-            SET original_path = ?1, health = 'normal', updated_at = ?2
-            WHERE id = ?3
-            "#,
-            params![
-                self.encode_path_ref(&new_source),
-                now_iso(),
-                input.document_id
-            ],
-        )?;
-        self.conn.execute(
-            r#"
-            UPDATE document_versions
-            SET source_path = ?1
-            WHERE document_id = ?2 AND version_number = ?3
-            "#,
-            params![
-                self.encode_path_ref(&new_source),
-                input.document_id,
-                current.current_version_number
-            ],
-        )?;
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
     }
 
     pub fn document_list_versions(
