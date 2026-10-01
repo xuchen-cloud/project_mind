@@ -261,6 +261,17 @@ impl<'a> SourceIndex<'a> {
                     .replace('_', "!_")
             })
             .collect();
+        let title_terms: Vec<_> = long
+            .iter()
+            .chain(short.iter())
+            .map(|term| {
+                term.replace('!', "!!")
+                    .replace('%', "!%")
+                    .replace('_', "!_")
+            })
+            .collect();
+        let title_terms_json =
+            serde_json::to_string(&title_terms).map_err(|_| invalid("Invalid title search"))?;
         let short_json =
             serde_json::to_string(&escaped).map_err(|_| invalid("Invalid search text"))?;
         let selected_json =
@@ -271,13 +282,33 @@ impl<'a> SourceIndex<'a> {
             .map_err(|_| invalid("Invalid source kinds"))?;
         // Apply scope/policy/current-version constraints before materializing
         // candidates, including the short-query fallback.
-        let filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current) AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9))) AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')";
+        let source_filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current)
+            AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9)))
+            AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1)";
+        let filters = format!("{source_filters} AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')");
         let matches = if long.is_empty() {
             format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
         } else {
             format!("SELECT source_index_fts.rowid,bm25(source_index_fts) AS rank,snippet(source_index_fts,1,'','','…',64) AS excerpt FROM source_index_fts JOIN source_index_chunks c ON c.id=source_index_fts.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id WHERE source_index_fts MATCH ?1 AND {filters}")
         };
-        let sql = format!("WITH matches AS MATERIALIZED ({matches}), ranked AS (SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,c.locator_json,c.block_id,m.rank,m.excerpt,ROW_NUMBER() OVER(PARTITION BY s.id ORDER BY m.rank,c.ordinal) AS n FROM matches m JOIN source_index_chunks c ON c.id=m.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id) SELECT object_key,object_json,revision,version,title,locator_json,block_id,rank,excerpt,coverage_json FROM ranked WHERE n=1 ORDER BY (title=?6 COLLATE NOCASE) DESC,(object_key IN (SELECT value FROM json_each(?7))) DESC,rank,updated_at DESC,object_key,version DESC LIMIT ?8");
+        // A title-only source has no body chunk or invented paragraph anchor.
+        // Apply the identical source filters before it joins ranking/pagination.
+        let sql = format!("WITH matches AS MATERIALIZED ({matches}), ranked AS (
+            SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,
+                   c.locator_json,c.block_id,m.rank,m.excerpt,
+                   ROW_NUMBER() OVER(PARTITION BY s.id ORDER BY m.rank,c.ordinal) AS n
+            FROM matches m JOIN source_index_chunks c ON c.id=m.rowid
+            JOIN source_index_snapshots s ON s.id=c.snapshot_id
+            UNION ALL
+            SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,
+                   'null' AS locator_json,NULL AS block_id,0.0 AS rank,'' AS excerpt,1 AS n
+            FROM source_index_snapshots s WHERE {source_filters}
+              AND NOT EXISTS(SELECT 1 FROM source_index_chunks c WHERE c.snapshot_id=s.id)
+              AND NOT EXISTS(SELECT 1 FROM json_each(?10) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!')
+        ) SELECT object_key,object_json,revision,version,title,locator_json,block_id,rank,excerpt,coverage_json
+        FROM ranked WHERE n=1
+        ORDER BY (title=?6 COLLATE NOCASE) DESC,(object_key IN (SELECT value FROM json_each(?7))) DESC,
+                 rank,updated_at DESC,object_key,version DESC LIMIT ?8");
         let mut statement = self.conn.prepare(&sql).map_err(io_error)?;
         let rows = statement
             .query_map(
@@ -290,7 +321,8 @@ impl<'a> SourceIndex<'a> {
                     query,
                     selected_json,
                     limit.min(50) as i64 + 1,
-                    kinds_json
+                    kinds_json,
+                    title_terms_json
                 ],
                 |row| {
                     Ok((
@@ -335,7 +367,7 @@ impl<'a> SourceIndex<'a> {
                     {
                         return Err(invalid("Corrupt source cache scope"));
                     }
-                    let locator = serde_json::from_str(&locator)
+                    let locator: Option<SourceLocator> = serde_json::from_str(&locator)
                         .map_err(|_| invalid("Corrupt source locator"))?;
                     let excerpt: String = excerpt.chars().take(240).collect();
                     let source_ref = SourceRef {
@@ -346,7 +378,7 @@ impl<'a> SourceIndex<'a> {
                         object,
                         revision,
                         block_id,
-                        locator: Some(locator),
+                        locator,
                         title: title.clone(),
                         excerpt: excerpt.clone(),
                     };
@@ -417,6 +449,88 @@ mod tests {
                 complete: true,
             },
         }
+    }
+    #[test]
+    fn source_index_discovers_title_only_sources_without_fabricating_body_or_locator() {
+        let conn = Connection::open_in_memory().unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        let scope = Scope::Project { project_id: 1 };
+        let mut scan = source(1, scope.clone(), "扫描验收资料", "unused");
+        scan.object.kind = ObjectKind::File;
+        scan.chunks.clear();
+        scan.coverage = IndexCoverage {
+            chars: 0,
+            complete: false,
+        };
+        index.replace(&scan).unwrap();
+        let found = index
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "验收",
+                &[],
+                false,
+                8,
+                Some(&[ObjectKind::File]),
+            )
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.object, scan.object);
+        assert_eq!(found.items[0].source_ref.excerpt, "");
+        assert!(found.items[0].source_ref.locator.is_none());
+        assert_eq!(found.items[0].coverage.chars, 0);
+        assert!(!found.items[0].coverage.complete);
+        index.exclude(&scan.object, true).unwrap();
+        assert!(index
+            .search(&request(), &binding(), &scope, "验收", &[], true, 8, None)
+            .unwrap()
+            .items
+            .is_empty());
+        let mut empty = source(2, scope.clone(), "Empty 100% plan", "unused");
+        empty.chunks.clear();
+        empty.coverage = IndexCoverage {
+            chars: 0,
+            complete: true,
+        };
+        index.replace(&empty).unwrap();
+        let found = index
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "Empty plan",
+                &[],
+                false,
+                8,
+                None,
+            )
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.object, empty.object);
+        assert!(found.items[0].source_ref.locator.is_none());
+        assert!(index
+            .search(
+                &request(),
+                &binding(),
+                &scope,
+                "absent%",
+                &[],
+                false,
+                8,
+                None
+            )
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(
+            index
+                .search(&request(), &binding(), &scope, "%", &[], false, 8, None)
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
     }
     #[test]
     fn source_index_filters_supported_kinds_before_ranking_limit_and_pagination_hint() {

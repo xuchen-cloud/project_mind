@@ -933,8 +933,8 @@ mod tests {
         }
     }
     // Two real PDF pages, one with ASCII text and one without a text layer.
-    fn mixed_pdf() -> Vec<u8> {
-        let stream = "BT /F1 12 Tf 20 100 Td (Readable evidence) Tj ET";
+    fn mixed_pdf(text: &str) -> Vec<u8> {
+        let stream = format!("BT /F1 12 Tf 20 100 Td ({text}) Tj ET");
         let objects = [
             "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
             "<< /Type /Pages /Count 2 /Kids [4 0 R 5 0 R] >>".to_string(),
@@ -961,12 +961,69 @@ mod tests {
         pdf.into_bytes()
     }
     #[tokio::test]
+    async fn source_file_scan_is_discoverable_by_title_and_read_preserves_needs_ocr() {
+        use crate::source_service::{
+            SourceIndexBudget, SourceReadInput, SourceReadView, SourceSearchInput, SourceService,
+        };
+        let (_root, store, request, source, _file) = registered_fixture(&mixed_pdf(""), "pdf");
+        let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+        )
+        .unwrap();
+        let service = SourceService::new(&store);
+        service
+            .index_file(&request, &source, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        let page = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: source.object.scope.clone(),
+                    query: "证据资料".into(),
+                    selected: vec![],
+                    include_history: false,
+                    limit: None,
+                    budget_chars: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].source_ref.file_version, Some(1));
+        assert_eq!(page.items[0].source_ref.object, source.object);
+        assert_eq!(page.items[0].excerpt, "");
+        assert!(page.items[0].source_ref.locator.is_none());
+        assert_eq!(page.items[0].coverage.chars, 0);
+        assert!(!page.items[0].coverage.complete);
+        let read = service
+            .read_file(
+                &request,
+                &SourceReadInput {
+                    source,
+                    view: SourceReadView::Full,
+                    selection: None,
+                    cursor: None,
+                    budget_chars: None,
+                },
+                &worker,
+            )
+            .await
+            .unwrap();
+        assert_eq!(read.text, "");
+        assert!(read.spans.is_empty());
+        assert!(!read.complete);
+        assert!(!read.range_complete);
+        assert_eq!(read.extraction.unwrap().state, "needs_ocr");
+    }
+    #[tokio::test]
     async fn source_file_read_reports_partial_pdf_coverage_and_exact_page_character_ranges() {
         use crate::agent::models::SourceLocator;
         use crate::source_service::{
             SourceReadInput, SourceReadView, SourceSelection, SourceService,
         };
-        let (_root, store, request, source, _file) = registered_fixture(&mixed_pdf(), "pdf");
+        let (_root, store, request, source, _file) =
+            registered_fixture(&mixed_pdf("Readable evidence"), "pdf");
         let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
         )

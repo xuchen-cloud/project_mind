@@ -937,6 +937,45 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn source_empty_record_is_discoverable_by_title_without_invented_block_evidence() {
+        let (_directory, store, request, input) = fixture("initial");
+        commit_document(
+            &store,
+            &input,
+            json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"1234567890abcdef1234567890abcdef"}}]}),
+            "",
+        );
+        let service = SourceService::new(&store);
+        service
+            .index_record(&request, &input.source, SourceIndexBudget::default())
+            .unwrap();
+        let found = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: Scope::Workspace,
+                    query: "分页验收".into(),
+                    selected: vec![],
+                    include_history: false,
+                    limit: None,
+                    budget_chars: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.object, input.source.object);
+        assert_eq!(found.items[0].coverage.chars, 0);
+        assert!(found.items[0].coverage.complete);
+        assert_eq!(found.items[0].excerpt, "");
+        assert!(found.items[0].source_ref.block_id.is_none());
+        assert!(found.items[0].source_ref.locator.is_none());
+        let read = service.read(&request, &input).unwrap();
+        assert_eq!(read.text, "");
+        assert!(read.spans.is_empty());
+        assert!(read.complete);
+    }
+    #[tokio::test]
     async fn source_legacy_record_denies_access_and_preserves_body_when_conversion_is_unavailable()
     {
         let (_directory, store, mut request, mut input) = fixture("unrelated");
