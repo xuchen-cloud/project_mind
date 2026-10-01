@@ -798,28 +798,31 @@ fn contact_delete(
     with_db(state, |db| db.contact_delete(input))
 }
 
+// Retired desktop adapters deliberately have no AppState/database access. Old
+// renderer requests cannot mutate even Records that lack a canonical baseline.
+fn reject_legacy_record_write<I, O>(_: I) -> CommandResult<O> {
+    Err("旧记录写入接口已停用，请通过正文或元信息保存接口提交；草稿已保留".into())
+}
+
 #[tauri::command]
 fn project_record_upsert(
-    state: State<'_, AppState>,
     input: ProjectRecordUpsertInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_record_upsert(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn project_quick_note_commit(
-    state: State<'_, AppState>,
     input: ProjectQuickNoteCommitInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_quick_note_commit(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn project_record_metadata_apply(
-    state: State<'_, AppState>,
     input: ProjectRecordMetadataApplyInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_record_metadata_apply(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
@@ -924,26 +927,23 @@ fn workspace_quick_note_upsert(
 
 #[tauri::command]
 fn workspace_quick_note_commit(
-    state: State<'_, AppState>,
     input: WorkspaceQuickNoteCommitInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_quick_note_commit(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn workspace_record_upsert(
-    state: State<'_, AppState>,
     input: WorkspaceRecordUpsertInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_record_upsert(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn workspace_record_metadata_apply(
-    state: State<'_, AppState>,
     input: WorkspaceRecordMetadataApplyInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_record_metadata_apply(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
