@@ -256,7 +256,8 @@ mod tests {
             .unwrap();
         crate::source_search_index::SourceIndex::prepare(&db.conn).unwrap();
         let hash = format!("sha256:{:x}", Sha256::digest(bytes));
-        db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2 AND version_number=1",params![hash,file.id]).unwrap();
+        let registered: String = db.conn.query_row("SELECT h.content_hash FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1 AND v.version_number=1", [file.id], |row| row.get(0)).unwrap();
+        assert_eq!(registered, hash);
         let binding = WorkspaceBinding {
             workspace_id: "file-workspace".into(),
             generation: "opened".into(),
@@ -555,7 +556,8 @@ mod tests {
                     tag_ids: None,
                 })
                 .unwrap();
-            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2", params![source.revision,hidden.id]).unwrap();
+            let registered: String = db.conn.query_row("SELECT h.content_hash FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1", [hidden.id], |row| row.get(0)).unwrap();
+            assert_eq!(Some(registered), source.revision);
             let index = SourceIndex::prepare(&db.conn).unwrap();
             for (id, title) in [(file.id, file.name.clone()), (hidden.id, "abc".into())] {
                 index
@@ -1276,7 +1278,7 @@ mod tests {
             let source = root.path().join(format!("{name}.txt"));
             std::fs::write(&source, b"abc").unwrap();
             let file = db
-                .document_import(DocumentImportInput {
+                .document_import_legacy_fixture(DocumentImportInput {
                     project_id: project.id,
                     source_path: source.to_string_lossy().into(),
                     is_starred: false,

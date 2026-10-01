@@ -14,6 +14,7 @@ mod native_changes;
 pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
+mod file_imports;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -38,8 +39,7 @@ use crate::{
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentDeleteInput,
-        DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
+        ContactUpsertInput, DocumentDeleteInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
@@ -3453,85 +3453,6 @@ impl Database {
         ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
 
-    pub fn document_import(&mut self, input: DocumentImportInput) -> Result<DocumentRecord> {
-        self.file_version_recover_pending()?;
-        let _file_project_lock = self.file_project_lock(input.project_id, false)?;
-        self.ensure_project_file_layout(input.project_id)?;
-        let timestamp = now_iso();
-        let source = PathBuf::from(&input.source_path);
-        if !source.exists() {
-            return Err(anyhow!("source file does not exist"));
-        }
-
-        let project = self.project_record(input.project_id)?;
-        let target_dir = self.document_target_dir(input.project_id)?;
-
-        let file_name = source
-            .file_name()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| anyhow!("invalid file name"))?
-            .to_string();
-        self.ensure_document_name_available(input.project_id, &file_name, None)?;
-        let managed_path = target_dir.join(&file_name);
-        let storage_mode = self.materialize_file_for_target(
-            Path::new(&project.root_path),
-            &source,
-            &managed_path,
-        )?;
-
-        let mime = mime_guess::from_path(&source)
-            .first_or_octet_stream()
-            .essence_str()
-            .to_string();
-
-        self.conn.execute(
-            r#"
-            INSERT INTO documents (
-              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
-            "#,
-            params![
-                input.project_id,
-                file_name,
-                file_name,
-                self.encode_path_ref(&source),
-                self.encode_path_ref(&managed_path),
-                storage_mode,
-                mime,
-                bool_to_int(input.is_starred),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let id = self.conn.last_insert_rowid();
-        let history_dir = self.history_dir_path_for(&managed_path, id);
-        self.conn.execute(
-            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
-            params![self.encode_path_ref(&history_dir), id],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, 1, ?2, ?3, ?4, ?5)
-            "#,
-            params![
-                id,
-                file_name,
-                self.encode_path_ref(&source),
-                self.encode_path_ref(&managed_path),
-                timestamp
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(id, tag_ids, &timestamp)?;
-        }
-        self.touch_project(input.project_id)?;
-        self.document_record(id)
-    }
-
     pub fn document_import_note_image(
         &mut self,
         input: DocumentImportNoteImageInput,
@@ -3610,81 +3531,6 @@ impl Database {
                 timestamp
             ],
         )?;
-        self.touch_project(input.project_id)?;
-        self.document_record(id)
-    }
-
-    pub fn document_import_clipboard_image(
-        &mut self,
-        input: DocumentImportClipboardImageInput,
-    ) -> Result<DocumentRecord> {
-        self.ensure_project_file_layout(input.project_id)?;
-        let timestamp = now_iso();
-        let target_dir = self.document_target_dir(input.project_id)?;
-        let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
-
-        self.ensure_document_name_available(input.project_id, &file_name, None)?;
-
-        let managed_path = target_dir.join(&file_name);
-        if let Some(parent) = managed_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let bytes = STANDARD
-            .decode(input.data_base64.trim())
-            .context("failed to decode clipboard image")?;
-
-        fs::write(&managed_path, &bytes).with_context(|| {
-            format!(
-                "failed to write clipboard image to {}",
-                managed_path.display()
-            )
-        })?;
-
-        self.conn.execute(
-            r#"
-            INSERT INTO documents (
-              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
-            "#,
-            params![
-                input.project_id,
-                file_name,
-                file_name,
-                self.encode_path_ref(&managed_path),
-                self.encode_path_ref(&managed_path),
-                "managed_clipboard",
-                input.mime_type,
-                bool_to_int(input.is_starred),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let id = self.conn.last_insert_rowid();
-        let history_dir = self.history_dir_path_for(&managed_path, id);
-        self.conn.execute(
-            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
-            params![self.encode_path_ref(&history_dir), id],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, 1, ?2, ?3, ?4, ?5)
-            "#,
-            params![
-                id,
-                file_name,
-                self.encode_path_ref(&managed_path),
-                self.encode_path_ref(&managed_path),
-                timestamp
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(id, tag_ids, &timestamp)?;
-        }
         self.touch_project(input.project_id)?;
         self.document_record(id)
     }
@@ -6798,48 +6644,6 @@ impl Database {
         })
     }
 
-    fn materialize_file_for_target(
-        &self,
-        project_root: &Path,
-        source: &Path,
-        target_path: &Path,
-    ) -> Result<String> {
-        if source == target_path {
-            return Ok("managed_existing".to_string());
-        }
-
-        if target_path.exists() {
-            return Err(anyhow!(
-                "target file already exists at {}",
-                target_path.display()
-            ));
-        }
-
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        if path_is_within(source, project_root) {
-            fs::rename(source, target_path).with_context(|| {
-                format!(
-                    "failed to move file from {} to {}",
-                    source.display(),
-                    target_path.display()
-                )
-            })?;
-            Ok("managed_move".to_string())
-        } else {
-            fs::copy(source, target_path).with_context(|| {
-                format!(
-                    "failed to copy file from {} to {}",
-                    source.display(),
-                    target_path.display()
-                )
-            })?;
-            Ok("managed_copy".to_string())
-        }
-    }
-
     fn history_dir_path_for(&self, managed_path: &Path, document_id: i64) -> PathBuf {
         managed_path
             .parent()
@@ -9451,12 +9255,6 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn path_is_within(path: &Path, root: &Path) -> bool {
-    match (path.canonicalize(), root.canonicalize()) {
-        (Ok(path), Ok(root)) => path.starts_with(root),
-        _ => path.starts_with(root),
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -51,7 +51,7 @@ impl std::error::Error for CommitFailure {}
 fn conflict(code: ErrorCode, message: &str) -> anyhow::Error {
     CommitFailure(AgentError::new(code, message)).into()
 }
-fn valid_hash(hash: &str) -> bool {
+pub(super) fn valid_hash(hash: &str) -> bool {
     hash.strip_prefix("sha256:").is_some_and(|value| {
         value.len() == 64
             && value
@@ -61,12 +61,12 @@ fn valid_hash(hash: &str) -> bool {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileIdentity {
+pub(super) struct FileIdentity {
     device: u64,
     file: u64,
 }
 #[cfg(unix)]
-fn identity(file: &File) -> Result<FileIdentity> {
+pub(super) fn identity(file: &File) -> Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
     let metadata = file.metadata()?;
     Ok(FileIdentity {
@@ -75,7 +75,7 @@ fn identity(file: &File) -> Result<FileIdentity> {
     })
 }
 #[cfg(windows)]
-fn identity(file: &File) -> Result<FileIdentity> {
+pub(super) fn identity(file: &File) -> Result<FileIdentity> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
@@ -94,10 +94,10 @@ fn identity(file: &File) -> Result<FileIdentity> {
     Ok(id)
 }
 #[cfg(not(any(unix, windows)))]
-fn identity(_file: &File) -> Result<FileIdentity> {
+pub(super) fn identity(_file: &File) -> Result<FileIdentity> {
     bail!("File identity is unsupported")
 }
-fn path_identity(path: &Path) -> Result<FileIdentity> {
+pub(super) fn path_identity(path: &Path) -> Result<FileIdentity> {
     regular(path)?;
     identity(
         &crate::source_file_snapshot::open_regular(path).map_err(|error| anyhow!(error.message))?,
@@ -181,17 +181,17 @@ pub(crate) struct CommittedVersion {
     pub content_hash: String,
     pub no_change: bool,
 }
-fn token() -> String {
+pub(super) fn token() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
-fn regular(path: &Path) -> Result<()> {
+pub(super) fn regular(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         bail!("File Version requires a regular file");
     }
     Ok(())
 }
-fn checksum(path: &Path) -> Result<String> {
+pub(super) fn checksum(path: &Path) -> Result<String> {
     regular(path)?;
     let mut input =
         crate::source_file_snapshot::open_regular(path).map_err(|error| anyhow!(error.message))?;
@@ -217,7 +217,10 @@ fn checksum(path: &Path) -> Result<String> {
     }
     Ok(format!("sha256:{:x}", digest.finalize()))
 }
-fn snapshot(source: &Path, destination: &Path) -> Result<(String, FileIdentity, FileIdentity)> {
+pub(super) fn snapshot(
+    source: &Path,
+    destination: &Path,
+) -> Result<(String, FileIdentity, FileIdentity)> {
     snapshot_bounded(source, destination, None)
 }
 fn snapshot_bounded(
@@ -281,22 +284,22 @@ fn snapshot_bounded(
     ))
 }
 #[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<()> {
+pub(super) fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
     Ok(())
 }
 // Windows durable moves use MOVEFILE_WRITE_THROUGH; directory handles do not
 // support FlushFileBuffers portably. Real package crash acceptance is pending.
 #[cfg(windows)]
-fn sync_directory(_path: &Path) -> Result<()> {
+pub(super) fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(not(any(unix, windows)))]
-fn sync_directory(_path: &Path) -> Result<()> {
+pub(super) fn sync_directory(_path: &Path) -> Result<()> {
     bail!("File journal durability is unsupported")
 }
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     rustix::fs::renameat_with(
         rustix::fs::CWD,
         from,
@@ -314,7 +317,7 @@ fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(windows)]
-fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
     let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -325,10 +328,10 @@ fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
+pub(super) fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
     bail!("Exclusive File moves are unsupported")
 }
-fn relative(root: &Path, path: &Path) -> Result<String> {
+pub(super) fn relative(root: &Path, path: &Path) -> Result<String> {
     let relative = path.strip_prefix(root)?;
     if relative.as_os_str().is_empty()
         || relative
@@ -354,13 +357,20 @@ fn relative(root: &Path, path: &Path) -> Result<String> {
         .map(str::to_owned)
         .ok_or_else(|| anyhow!("Invalid managed File path encoding"))
 }
-fn create_owned_directories(root: &Path, path: &Path) -> Result<()> {
+pub(super) fn create_owned_directories(root: &Path, path: &Path) -> Result<()> {
     let relative_path = relative(root, path)?;
     let mut parent = root.to_path_buf();
     for component in Path::new(&relative_path).components() {
         let next = parent.join(component);
         if !next.exists() {
-            fs::create_dir(&next)?;
+            match fs::create_dir(&next) {
+                Ok(()) => (),
+                // Independent connections may initialize the same lock or
+                // journal parent. Validate its type below rather than failing
+                // a legitimate writer or trusting a raced-in symlink.
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+                Err(error) => return Err(error.into()),
+            }
             sync_directory(&parent)?;
         }
         if !fs::symlink_metadata(&next)?.is_dir() {
@@ -370,7 +380,7 @@ fn create_owned_directories(root: &Path, path: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn owned(root: &Path, value: &str) -> Result<PathBuf> {
+pub(super) fn owned(root: &Path, value: &str) -> Result<PathBuf> {
     let path = root.join(value);
     if relative(root, &path)? != value {
         bail!("Invalid File journal path");
@@ -397,7 +407,12 @@ impl Database {
         let file = self.file_version_lock(document_id)?;
         Ok((project, file))
     }
-    fn file_storage_lock(&self, directory: &str, object_id: i64, exclusive: bool) -> Result<File> {
+    pub(super) fn file_storage_lock(
+        &self,
+        directory: &str,
+        object_id: i64,
+        exclusive: bool,
+    ) -> Result<File> {
         use fs2::FileExt;
         if object_id <= 0 {
             bail!("Invalid File identity");
@@ -579,6 +594,7 @@ impl Database {
         self.file_journal_clear(directory)
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
+        self.file_import_recover_pending()?;
         let base = self.workspace_root.join(JOURNALS);
         if !base.exists() {
             return Ok(());
@@ -1186,7 +1202,7 @@ mod tests {
         let original = root.path().join("report.html");
         fs::write(&original, b"unknown legacy").unwrap();
         let first = db
-            .document_import(DocumentImportInput {
+            .document_import_legacy_fixture(DocumentImportInput {
                 project_id: project.id,
                 source_path: original.to_string_lossy().into(),
                 is_starred: false,
@@ -1577,7 +1593,7 @@ mod tests {
             let original = external.path().join("report.html");
             fs::write(&original, old_bytes).unwrap();
             let document = db
-                .document_import(DocumentImportInput {
+                .document_import_legacy_fixture(DocumentImportInput {
                     project_id: project.id,
                     source_path: original.to_string_lossy().into(),
                     is_starred: false,
@@ -1676,7 +1692,7 @@ mod tests {
         let original = external.path().join("report.html");
         fs::write(&original, b"<h1>original</h1>\r\n").unwrap();
         let document = db
-            .document_import(DocumentImportInput {
+            .document_import_legacy_fixture(DocumentImportInput {
                 project_id: project.id,
                 source_path: original.to_string_lossy().into(),
                 is_starred: false,
@@ -2118,7 +2134,7 @@ mod tests {
         fs::write(&source, b"unknown current bytes").unwrap();
         let unknown = fixture
             .db
-            .document_import(DocumentImportInput {
+            .document_import_legacy_fixture(DocumentImportInput {
                 project_id: fixture.document.project_id,
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
@@ -2251,7 +2267,7 @@ mod tests {
             let original = external.path().join("report.html");
             fs::write(&original, b"<h1>original</h1>\r\n").unwrap();
             let document = db
-                .document_import(DocumentImportInput {
+                .document_import_legacy_fixture(DocumentImportInput {
                     project_id: project.id,
                     source_path: original.to_string_lossy().into(),
                     is_starred: false,

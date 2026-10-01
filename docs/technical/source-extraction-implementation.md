@@ -118,3 +118,17 @@ Transcript final 使用 Voice Record ID；每个不可变 final 的日志 revisi
 主 agent 的 Standards / Spec 自查修复了同字节外来路径误删、尚在准备时被恢复删除、同 requestId 等锁后误报 CAS 冲突，以及 Project 目录变化与 File 提交的竞态。测试使用真实数据库、共享初始化和原生版本服务；Linux 子进程在 staging、descriptor、归档、落位、SQL 提交前及提交后六处 SIGKILL，分别验证原生与已登记请求的恢复和最多一次重试。数据库版本插入/outbox 故障通过 SQLite trigger 注入，不将这些故障注入称为真实磁盘满。Windows 分支尚未进行实包验证。公开 source.search/read 和 File 写入 capability 仍为 implemented:false，普通桌面不启用 source worker，内部表未发布为 Schema 29；#100/#114 均未完整交付。
 
 阶段最终验证：Rust 全目标库 360 passed、16 默认忽略；source 显式真实进程专项 108 passed，Record 100 passed。File 内核包含 14 个父用例及一个由父用例启动的 ignored 子进程 fixture，不将空环境直接运行该 helper 计作崩溃验收。新增 journal 准备后外部编辑的子进程握手，确认返回 FILE_CHANGED_UNREGISTERED/recoveryPending、保留用户新字节与 journal、无新 head/回执/日志。构建、portable paths、UI standards、bundle 检查通过，主入口 188 KiB/250 KiB；前端本阶段只改错误码类型，未重复运行既有全量超时用例，前一阶段 959 passed/1 个驻留用例超时的发布门槛仍保留。没有应用窗口、真实 Provider、Windows 实包、发布 PR、main 合并或 Issue 关闭。
+
+### File 导入原子登记（2026-10-01 后续阶段）
+
+普通本地 File 导入与剪贴板 File 导入复用同一个提交内核；仍使用既有 documents/document_versions，每个成功导入的真实版本 1 在同一事务登记实际捕获字节的 SHA-256、标签、Project touch、稳定凭证和 File outbox。新 File 的登记不追补未知旧 File 历史；测试中的旧未登记对象明确移除权威登记行，receipt/outbox 的 hash 不能代替它。Record 内嵌图片仍是 managed_note_image，不登记为来源 File。
+
+导入准备流式保留原始字节，不移走输入文件；已在目标路径的文件只在显式新 File 导入时接管，失败不删除用户源文件。剪贴板走相同 journal，不遗留先前的孤立 inbox 文件，并限制解码前后 100 MiB。实际 Project 共享锁、导入命名空间锁与跨 Project ID 分配锁避免目录变更、恢复误清活跃 staging 和并发预选同一个 File ID；没有为预留 ID 插入 File stub。已有或准备期间出现的历史目录拒绝接管，目标复制不覆盖外来文件。
+
+journal 在落位前同步；File 主行、版本行、当前版本字节 hash、标签和 outbox 的写入失败会一起回滚。共享 Workspace 初始化通过原恢复入口处理未提交复制、接管和已提交清理；回收复制文件前校验实际 Workspace/Project 路径、无业务引用、hash 与物理身份，同字节外来目标也保留并报错。成功通知由现有 GUI 捕获提交日志，在释放 storage/File 锁后发送；失败事务没有成功通知。未提交 journal 冲突仍可能阻止 Workspace 打开，产品恢复诊断和短锁外层服务待接入。
+
+主 agent 自行完成 Standards / Spec 检查；四个实际数据库连接同时向四个 Project 导入可得到唯一 File ID，发现并修复共享父目录首次创建竞争。专项 8 个父用例通过，涵盖普通复制、原路径接管和剪贴板三种来源在五个阶段的 15 次 Linux SIGKILL、SQLite 版本/outbox 故障、外来目标/历史目录、活跃 staging 互斥与真实 File 提交通知。忽略的子进程 fixture 由父用例启动，不单独计作验收。Rust 全目标库 368 passed、17 默认忽略。没有更改前端或重跑既有前端超时用例，959 passed/1 个驻留用例超时的发布门槛仍保留。
+
+File 改名/metadata、relocate 与删除自身的原子 outbox/恢复仍待下一工作包；本阶段只补齐两类原生 File 导入。客户端稳定 requestId、公开 file.create、真实成果模块接缝、上传/CAS GUI 接入、Windows 实包与真正磁盘满仍未交付。source.search/read 与 File 公开能力继续 implemented:false，普通桌面没有启用/分发 source worker，私有表不称为已发布 Schema 29；#100/#114 保持 OPEN，不执行阶段发布 PR、合并或关闭。
+
+本阶段显式 source 过滤专项 109 passed（含上述名称匹配 source 的导入用例与真实固定提取进程），Record 专项 100 passed；portable paths 检查通过。固定资源未并发 staging，未启动应用窗口、真实 Provider 或 Windows 实包。
