@@ -315,6 +315,9 @@ mod tests {
         binding: Mutex<WorkspaceBinding>,
         db: Mutex<Database>,
     }
+    impl crate::committed_changes::CommittedChangePublisher for Store {
+        fn publish_committed(&self, _changes: crate::committed_changes::CommittedChanges) {}
+    }
     impl BoundSourceStore for Store {
         fn with_current<T>(
             &self,
@@ -964,6 +967,13 @@ mod tests {
             phase: AtomicUsize,
             change_at: usize,
             project_id: i64,
+        }
+        impl crate::committed_changes::CommittedChangePublisher for Changing<'_> {
+            fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+                crate::committed_changes::CommittedChangePublisher::publish_committed(
+                    self.inner, changes,
+                );
+            }
         }
         impl BoundSourceStore for Changing<'_> {
             fn with_current<T>(

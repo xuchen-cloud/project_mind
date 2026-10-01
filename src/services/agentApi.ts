@@ -54,4 +54,7 @@ export const agentApi = {
   changesList(binding: AgentWorkspaceBinding, scope: AgentScope, afterSeq: number, limit = 200, requestId = crypto.randomUUID()): Promise<AgentChangePage> {
     return callAgentCommand("agent_changes_list", requestId, { input: { binding, requestId, data: { scope, afterSeq, limit } } });
   },
+  businessChangesList(binding: AgentWorkspaceBinding, afterSeq: number, limit = 200, requestId = crypto.randomUUID()): Promise<AgentChangePage> {
+    return callAgentCommand("agent_business_changes_list", requestId, { input: { binding, requestId, data: { afterSeq, limit } } });
+  },
 };

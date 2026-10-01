@@ -86,6 +86,21 @@ pub(crate) fn agent_context_get(
     ApiResponse::from_result(input.request_id, result)
 }
 
+#[tauri::command]
+pub(crate) fn agent_business_changes_list(
+    state: State<'_, AppState>,
+    input: AgentCommandInput<super::changes::ChangeInput>,
+) -> ApiResponse<super::changes::ChangePage> {
+    let result = with_gui_service(
+        &state,
+        &input.binding,
+        &input.request_id,
+        &Scope::Workspace,
+        |request, binding, repo| repo.db.gui_business_changes(request, binding, &input.data),
+    );
+    ApiResponse::from_result(input.request_id, result)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentCommandInput<T> {

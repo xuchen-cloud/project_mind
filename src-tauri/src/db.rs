@@ -7,6 +7,7 @@ mod workspace_record_references;
 mod sources;
 mod source_files;
 mod source_native;
+mod committed_changes;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{

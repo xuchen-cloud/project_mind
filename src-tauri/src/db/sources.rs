@@ -498,6 +498,9 @@ mod tests {
         db: Database,
         binding: WorkspaceBinding,
     }
+    impl crate::committed_changes::CommittedChangePublisher for Store {
+        fn publish_committed(&self, _changes: crate::committed_changes::CommittedChanges) {}
+    }
     impl BoundSourceStore for Store {
         fn with_current<T>(
             &self,

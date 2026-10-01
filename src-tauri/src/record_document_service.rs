@@ -48,7 +48,9 @@ pub(crate) struct RecordVersionDifference {
     pub moved: Vec<String>,
 }
 
-pub(crate) trait BoundRecordStore {
+pub(crate) trait BoundRecordStore:
+    crate::committed_changes::CommittedChangePublisher
+{
     /// Required for every adapter, including headless entry points. An adapter
     /// may acknowledge no live editors, but cannot silently omit coordination.
     fn flush_editors(
@@ -90,6 +92,21 @@ pub(crate) struct RecordDocumentService<'a, S, W> {
     utility: &'a W,
 }
 impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W> {
+    fn with_current<T>(
+        &self,
+        request: &RequestContext,
+        action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        let (result, changes) = self.store.with_current(|binding, db| {
+            crate::committed_changes::capture_committed(binding, db, &request.request_id, || {
+                action(binding, db)
+            })
+        })?;
+        if let Some(changes) = changes {
+            self.store.publish_committed(changes);
+        }
+        result
+    }
     pub(crate) fn new(store: &'a S, utility: &'a W) -> Self {
         Self { store, utility }
     }
@@ -142,7 +159,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 "Record creation requires the local editor",
             ));
         }
-        let (previous, portable) = self.store.with_current(|binding, db| {
+        let (previous, portable) = self.with_current(request, |binding, db| {
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
             let previous = db.agent_operation_replay(
@@ -178,7 +195,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 )
             })?;
         projection.validate()?;
-        self.store.with_current(|binding, db| {
+        self.with_current(request, |binding, db| {
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
             Self::authorize_references(request, db, &projection.document, "record.write")?;
@@ -202,7 +219,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 "QuickNote transfer requires the local editor",
             ));
         }
-        let (replayed, quick, previous) = self.store.with_current(|binding, db| {
+        let (replayed, quick, previous) = self.with_current(request, |binding, db| {
             request.authorize(binding, &input.scope, "record.quick_note.write")?;
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
@@ -341,7 +358,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         } else {
             None
         };
-        self.store.with_current(|binding, db| {
+        self.with_current(request, |binding, db| {
             request.authorize(binding, &input.scope, "record.quick_note.write")?;
             request.authorize(binding, &input.scope, "record.write")?;
             request.authorize(binding, &input.scope, "record.metadata.write")?;
@@ -365,7 +382,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         action: impl FnOnce(&Database) -> AgentResult<T>,
     ) -> AgentResult<T> {
         target.key()?;
-        self.store.with_current(|binding, db| {
+        self.with_current(request, |binding, db| {
             request.authorize(binding, &target.scope, operation)?;
             let claimed = ObjectRef {
                 workspace_id: request.binding.workspace_id.clone(),
@@ -868,6 +885,28 @@ mod tests {
         flush_calls: AtomicUsize,
         flush_error: Mutex<Option<ErrorCode>>,
         on_flush: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+        events: Mutex<Vec<Value>>,
+        heads: Mutex<Vec<crate::committed_changes::RecordHeadChange>>,
+    }
+    impl crate::committed_changes::CommittedChangePublisher for Store {
+        fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+            assert!(
+                self.db.try_lock().is_ok(),
+                "notification must be outside the database lock"
+            );
+            assert!(
+                self.binding.try_lock().is_ok(),
+                "notification must be outside the binding lock"
+            );
+            self.heads
+                .lock()
+                .unwrap()
+                .extend(changes.record_heads.clone());
+            self.events
+                .lock()
+                .unwrap()
+                .push(serde_json::to_value(changes).unwrap());
+        }
     }
     impl BoundRecordStore for Store {
         async fn flush_editors(
@@ -967,6 +1006,8 @@ mod tests {
                 flush_calls: AtomicUsize::new(0),
                 flush_error: Mutex::new(None),
                 on_flush: Mutex::new(None),
+                events: Mutex::new(vec![]),
+                heads: Mutex::new(vec![]),
             },
             Utility {
                 calls: AtomicUsize::new(0),
@@ -979,6 +1020,63 @@ mod tests {
                 record_id: record.id,
             },
         )
+    }
+    #[tokio::test]
+    async fn record_service_publishes_after_commit_and_replay_or_rollback_never_publishes() {
+        let (root, store, utility, mut request, target) = setup();
+        request
+            .scope_grant
+            .operations
+            .push("record.metadata.write".into());
+        let service = RecordDocumentService::new(&store, &utility);
+        service.head_get(&request, &target).await.unwrap();
+        store.events.lock().unwrap().clear();
+        let before = service.metadata_get(&request, &target).unwrap();
+        let input = RecordMetadataUpdate {
+            target: target.clone(),
+            expected_revision: before.revision,
+            title: Some("Committed notification".into()),
+            tag_ids: vec![],
+        };
+        request.request_id = "notify-metadata".into();
+        let saved = service.metadata_update(&request, &input).unwrap();
+        {
+            let events = store.events.lock().unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0]["binding"],
+                serde_json::to_value(&request.binding).unwrap()
+            );
+            assert_eq!(events[0]["requestId"], "notify-metadata");
+            assert!(events[0]["seq"].as_i64().unwrap() > 0);
+        }
+        store.events.lock().unwrap().clear();
+        assert_eq!(
+            service.metadata_update(&request, &input).unwrap().revision,
+            saved.revision
+        );
+        assert!(store.events.lock().unwrap().is_empty());
+        let connection = rusqlite::Connection::open(root.path().join("app.sqlite")).unwrap();
+        connection.execute_batch("CREATE TRIGGER fail_notification_outbox BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(ABORT,'fixture outbox failure'); END;").unwrap();
+        request.request_id = "rolled-back-notification".into();
+        let rejected = RecordMetadataUpdate {
+            target: target.clone(),
+            expected_revision: saved.revision.clone(),
+            title: Some("Never committed".into()),
+            tag_ids: vec![],
+        };
+        assert_eq!(
+            service
+                .metadata_update(&request, &rejected)
+                .unwrap_err()
+                .code,
+            ErrorCode::IoFailed
+        );
+        assert!(store.events.lock().unwrap().is_empty());
+        assert_eq!(
+            service.metadata_get(&request, &target).unwrap().revision,
+            saved.revision
+        );
     }
     #[tokio::test]
     async fn workspace_patch_cannot_add_references_to_an_ungranted_project() {
@@ -1531,9 +1629,18 @@ mod tests {
             metadata: None,
         };
         let service = RecordDocumentService::new(&store, &utility);
+        store.events.lock().unwrap().clear();
+        store.heads.lock().unwrap().clear();
         let saved = service.save(&request, &input).await.unwrap();
         assert_eq!(saved.head.head_revision, 2);
+        assert_eq!(store.events.lock().unwrap().len(), 1);
+        let heads = store.heads.lock().unwrap().clone();
+        assert_eq!(heads.len(), 1);
+        assert_eq!(heads[0].head_revision, Some(2));
+        assert_eq!(heads[0].target.key().unwrap(), target.key().unwrap());
+        assert_eq!(heads[0].request_id, request.request_id);
         let replay = service.save(&request, &input).await.unwrap();
+        assert_eq!(store.events.lock().unwrap().len(), 1);
         assert_eq!(replay.head.head_revision, 2);
         assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
         assert_eq!(

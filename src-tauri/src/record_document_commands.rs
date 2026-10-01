@@ -14,7 +14,7 @@ use crate::{
     AppState,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, State, WebviewWindow};
+use tauri::{State, WebviewWindow};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -121,34 +121,6 @@ pub(crate) async fn record_editors_flush(
     }
     .await;
     Ok(ApiResponse::from_result(input.request_id, result))
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RecordHeadChanged<'a> {
-    binding: &'a WorkspaceBinding,
-    target: &'a RecordTarget,
-    request_id: &'a str,
-    head_revision: Option<u64>,
-    metadata_revision: Option<&'a str>,
-}
-fn notify_record_changed(
-    state: &AppState,
-    request: &RequestContext,
-    target: &RecordTarget,
-    head_revision: Option<u64>,
-    metadata: Option<&RecordMetadata>,
-) {
-    let _ = state.app_handle.emit(
-        "record:head-changed",
-        RecordHeadChanged {
-            binding: &request.binding,
-            target,
-            request_id: &request.request_id,
-            head_revision,
-            metadata_revision: metadata.map(|value| value.revision.as_str()),
-        },
-    );
 }
 
 #[derive(Deserialize)]
@@ -259,13 +231,6 @@ pub(crate) async fn record_body_save(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         let commit = service.save(&request, &input.data).await?;
-        notify_record_changed(
-            &state,
-            &request,
-            &commit.head.target,
-            Some(commit.head.head_revision),
-            commit.metadata.as_ref(),
-        );
         let editor = service.editor_get(&request, &input.data.target).await?;
         Ok(RecordEditorSaveResult { commit, editor })
     }
@@ -293,13 +258,6 @@ pub(crate) async fn record_quick_note_transfer(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         let commit = service.quick_note_transfer(&request, &input.data).await?;
-        notify_record_changed(
-            &state,
-            &request,
-            &commit.head.target,
-            Some(commit.head.head_revision),
-            commit.metadata.as_ref(),
-        );
         let editor = service.editor_get(&request, &commit.head.target).await?;
         Ok(RecordEditorSaveResult { commit, editor })
     }
@@ -321,13 +279,6 @@ pub(crate) async fn record_create(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         let head = service.create(&request, &input.data).await?;
-        notify_record_changed(
-            &state,
-            &request,
-            &head.target,
-            Some(head.head_revision),
-            None,
-        );
         service.editor_get(&request, &head.target).await
     }
     .await;
@@ -367,13 +318,6 @@ pub(crate) fn record_metadata_apply(
                 db.record_metadata_tags(&input.data.metadata.target, &metadata.tag_ids)
             },
         )?;
-        notify_record_changed(
-            &state,
-            &request,
-            &input.data.metadata.target,
-            None,
-            Some(&metadata),
-        );
         Ok(RecordMetadataApplyResult { metadata, tags })
     })();
     ApiResponse::from_result(input.request_id, result)
@@ -399,7 +343,6 @@ pub(crate) fn record_metadata_update(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let metadata =
             RecordDocumentService::new(&*state, &utility).metadata_update(&request, &input.data)?;
-        notify_record_changed(&state, &request, &input.data.target, None, Some(&metadata));
         Ok(metadata)
     })();
     ApiResponse::from_result(input.request_id, result)
@@ -537,13 +480,6 @@ pub(crate) async fn record_version_restore(
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         let commit = service.restore(&request, &input.data).await?;
-        notify_record_changed(
-            &state,
-            &request,
-            &commit.head.target,
-            Some(commit.head.head_revision),
-            None,
-        );
         let editor = service.editor_get(&request, &input.data.target).await?;
         Ok(RecordEditorSaveResult { commit, editor })
     }

@@ -22,6 +22,7 @@ mod system_fonts;
 pub mod voice;
 mod workspace;
 mod workspace_initialization;
+mod committed_changes;
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -1333,6 +1334,7 @@ pub fn run() {
             agent::commands::agent_instruction_upsert,
             agent::commands::agent_instruction_delete,
             agent::commands::agent_changes_list,
+            agent::commands::agent_business_changes_list,
             voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,

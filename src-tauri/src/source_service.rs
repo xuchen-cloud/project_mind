@@ -11,7 +11,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) trait BoundSourceStore {
+pub(crate) trait BoundSourceStore:
+    crate::committed_changes::CommittedChangePublisher
+{
     fn with_current<T>(
         &self,
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
@@ -294,6 +296,22 @@ pub(crate) struct SourceService<'a, S> {
     pub(super) store: &'a S,
 }
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
+    fn with_committed<T>(
+        &self,
+        request: &RequestContext,
+        action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        let (result, changes) = self.store.with_current(|binding, db| {
+            crate::committed_changes::capture_committed(binding, db, &request.request_id, || {
+                action(binding, db)
+            })
+        })?;
+        if let Some(changes) = changes {
+            self.store.publish_committed(changes);
+        }
+        result
+    }
+
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
@@ -408,7 +426,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 )
             })?;
         projection.validate()?;
-        self.store.with_current(|binding, db| {
+        self.with_committed(request, |binding, db| {
             if db
                 .source_record_baseline(request, binding, source)?
                 .is_none()
@@ -655,8 +673,9 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         request: &RequestContext,
         input: &SourcePolicyUpdate,
     ) -> AgentResult<SourcePolicy> {
-        self.store
-            .with_current(|binding, db| db.source_policy_update(request, binding, input))
+        self.with_committed(request, |binding, db| {
+            db.source_policy_update(request, binding, input)
+        })
     }
     pub(crate) fn read(
         &self,
@@ -773,6 +792,14 @@ mod tests {
     struct Store {
         binding: Mutex<WorkspaceBinding>,
         db: Mutex<Database>,
+        events: Mutex<Vec<crate::committed_changes::CommittedChanges>>,
+    }
+    impl crate::committed_changes::CommittedChangePublisher for Store {
+        fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+            assert!(self.db.try_lock().is_ok());
+            assert!(self.binding.try_lock().is_ok());
+            self.events.lock().unwrap().push(changes);
+        }
     }
     impl BoundSourceStore for Store {
         fn with_current<T>(
@@ -1154,6 +1181,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(serde_json::to_value(repeated).unwrap(), first);
+        let events = store.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].changed_refs, vec![input.source.object.clone()]);
+        assert_eq!(events[0].record_heads[0].head_revision, Some(1));
+        drop(events);
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
@@ -1253,6 +1285,7 @@ mod tests {
             Store {
                 binding: Mutex::new(binding),
                 db: Mutex::new(db),
+                events: Mutex::new(vec![]),
             },
             request,
             input,
@@ -1522,6 +1555,11 @@ mod tests {
         let result = service.set_policy(&request, &update).unwrap();
         assert_eq!(result.revision, 1);
         assert!(result.excluded);
+        assert_eq!(store.events.lock().unwrap().len(), 1);
+        assert_eq!(
+            store.events.lock().unwrap()[0].changed_refs,
+            vec![input.source.object.clone()]
+        );
         assert_eq!(
             service.read(&request, &input).unwrap_err().code,
             ErrorCode::ScopeDenied
@@ -1549,6 +1587,7 @@ mod tests {
         let replay = service.set_policy(&request, &update).unwrap();
         assert_eq!(replay.revision, 1);
         assert!(replay.excluded);
+        assert_eq!(store.events.lock().unwrap().len(), 2);
         assert_eq!(
             service.read(&request, &input).unwrap().text,
             "excluded evidence"
@@ -1589,6 +1628,14 @@ mod tests {
         struct SwitchingStore {
             inner: Store,
             phase: AtomicUsize,
+        }
+        impl crate::committed_changes::CommittedChangePublisher for SwitchingStore {
+            fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+                crate::committed_changes::CommittedChangePublisher::publish_committed(
+                    &self.inner,
+                    changes,
+                );
+            }
         }
         impl BoundSourceStore for SwitchingStore {
             fn with_current<T>(
@@ -1793,6 +1840,14 @@ mod tests {
         struct SwitchingStore {
             inner: Store,
             phase: AtomicUsize,
+        }
+        impl crate::committed_changes::CommittedChangePublisher for SwitchingStore {
+            fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+                crate::committed_changes::CommittedChangePublisher::publish_committed(
+                    &self.inner,
+                    changes,
+                );
+            }
         }
         impl BoundSourceStore for SwitchingStore {
             fn with_current<T>(

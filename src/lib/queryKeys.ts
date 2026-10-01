@@ -14,6 +14,7 @@ export const queryKeys = {
     ["documentVersions"],
   ] as const,
   workspaceStatus: ["workspace-status"] as const,
+  searchAll: ["search"] as const,
   projects: {
     all: ["projects", "all"] as const,
   },

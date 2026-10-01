@@ -212,6 +212,9 @@ mod tests {
         db: std::sync::Mutex<Database>,
         binding: std::sync::Mutex<WorkspaceBinding>,
     }
+    impl crate::committed_changes::CommittedChangePublisher for FileStore {
+        fn publish_committed(&self, _changes: crate::committed_changes::CommittedChanges) {}
+    }
     impl crate::source_service::BoundSourceStore for FileStore {
         fn with_current<T>(
             &self,
@@ -308,6 +311,13 @@ mod tests {
             path: &'a str,
             request: &'a RequestContext,
             object: &'a ObjectRef,
+        }
+        impl crate::committed_changes::CommittedChangePublisher for Changing<'_> {
+            fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+                crate::committed_changes::CommittedChangePublisher::publish_committed(
+                    self.inner, changes,
+                );
+            }
         }
         impl BoundSourceStore for Changing<'_> {
             fn with_current<T>(

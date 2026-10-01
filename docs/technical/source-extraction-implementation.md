@@ -53,8 +53,14 @@
 
 共享 `open_workspace_database` 统一执行数据库打开、旧 Record 日志键迁移、正文回执压缩和 pending checkpoint 恢复，桌面初次打开、解锁及锁定导致的数据库重开均复用；未来 headless Host 也应复用这个入口。封存失败保留最新 autosave 并返回诊断，由桌面适配器显示；数据库重开失败不提前替换密钥状态。新增连续三次（含密码）重开测试通过，验证不复制正文回执、不重复封存、不回滚当前 head。
 
+共享 Record 服务在事务 outbox 提交后捕获 `mind:changed`，并在释放 Workspace/数据库锁后发布；兼容的 `record:head-changed` 由同一提交通知生成，Tauri 命令只负责转发。正文保存、metadata、创建、恢复、QuickNote transfer，以及 source 按需基线/排除策略复用这个边界。回执重放与回滚不重复通知；通知捕获/投递失败不改变已提交回执，日志是恢复依据。未来共享服务的 Host 实现必须提供 publisher，但 CLI/Pi 接入仍未开放。
+
+每窗口的日志消费者先监听、再按当前 binding 补读有界日志，事件本身不推进游标；漏掉的通知、focus、同一路径重开后的新 generation 均可恢复。只 invalidate 对应页面、Todo、搜索与 agent scope；Warm 禁用观察者只标脏，显示后读取。GUI 专用全 Workspace 补读包括已删除 Project 的日志 scope，连接仍受原 grant 限制；过期日志 resetRequired 刷新工作区缓存，工作区切换/卸载后的旧异步返回丢弃。
+
+本批最终 Rust 全量 308 项通过、15 项默认忽略；来源专项 75 项及 Record 专项 99 项（均显式含固定进程）通过，覆盖提交后锁释放、正文/metadata 通知、重放/回滚无重复通知、基线唯一通知、canonical 去重与 200 项上限、GUI/外部连接权限。前端全量 139 文件/954 项通过，随后新增同路径重开用例并修复绑定刷新；最终通知/绑定/编辑器回归 3 文件/20 项通过。构建及路径/UI/bundle 检查通过，启动脚本 187 KiB/250 KiB。未启动应用窗口、使用真实 Provider 或执行 Windows 实包验证。
+
 ## 后续责任
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
 
-Record 的按需基线接口与 Workspace Record typed token 已实现；前者尚待后台队列调用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。其他业务来源、500ms 合并、GUI 全量业务事件和持久后台队列尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+Record 的按需基线接口与 Workspace Record typed token 已实现；前者尚待后台队列调用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。Transcript/正式会话来源、500ms 合并、其余 GUI 业务写入的 outbox 和持久后台队列尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
