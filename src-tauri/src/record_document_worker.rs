@@ -53,6 +53,8 @@ impl RecordDocumentWorker {
             ("macos", "x86_64") => "darwin-x64",
             ("windows", "aarch64") => "win-arm64",
             ("windows", "x86_64") => "win-x64",
+            // Cloud development only; this does not add a supported release target.
+            ("linux", "x86_64") => "linux-x64",
             _ => {
                 return Err(AgentError::new(
                     ErrorCode::RuntimeUnavailable,

@@ -932,7 +932,7 @@ mod tests {
 
     #[test]
     fn recovery_after_file_rename_restores_audio_duration_before_resuming() {
-        use crate::voice::capture::{bounded_audio_frames, SourceTimeline};
+        use crate::voice::capture::{bounded_audio_frames, AudioSource, SourceTimeline};
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
         db.voice_session_create(&RecordTarget::Workspace, "crash", "crash", "Voice")

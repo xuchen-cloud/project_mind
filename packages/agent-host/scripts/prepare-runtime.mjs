@@ -10,7 +10,7 @@ const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const manifest = JSON.parse(await readFile(path.join(packageRoot, 'runtime-manifest.json'), 'utf8'));
 const [target, archive] = process.argv.slice(2);
 const entry = manifest.targets[target];
-if (!entry || !archive) throw new Error('Usage: prepare-runtime.mjs <darwin-arm64|darwin-x64|win-x64|win-arm64> <official-archive>');
+if (!entry || !archive) throw new Error(`Usage: prepare-runtime.mjs <${Object.keys(manifest.targets).join('|')}> <official-archive>`);
 const hash = createHash('sha256');
 for await (const chunk of createReadStream(archive)) hash.update(chunk);
 if (hash.digest('hex') !== entry.sha256) throw new Error('Official Node archive checksum does not match the pinned manifest');

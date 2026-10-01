@@ -2642,6 +2642,29 @@ mod tests {
         )
         .unwrap();
         assert_ne!(annotated.data_base64, normalized.data_base64);
+        assert!(prepare_provider_image(
+            &path_text,
+            "image/svg+xml",
+            &annotated_signature,
+            Some(annotations),
+            "openai_compatible",
+        )
+        .is_err());
+        fs::remove_file(path).unwrap();
+    }
+
+    // Text rasterization uses native fonts only on the supported desktop
+    // platforms. The generic normalization/signature test above runs everywhere.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn image_text_annotations_render_distinct_glyphs() {
+        let path = std::env::temp_dir().join(format!(
+            "project-mind-image-text-annotations-{}.png",
+            std::process::id()
+        ));
+        let image = RgbaImage::from_pixel(3200, 1600, Rgba([255, 255, 255, 0]));
+        DynamicImage::ImageRgba8(image).save(&path).unwrap();
+        let path_text = path.to_string_lossy().to_string();
         let text_a = r#"{"version":1,"image":{"width":3200,"height":1600},"items":[{"id":"t","type":"text","x":10,"y":10,"width":400,"height":80,"fontSize":40,"text":"ABC"}]}"#;
         let text_b = text_a.replace("ABC", "XYZ");
         let text_a_signature = image_target_signature(&path_text, Some(text_a)).unwrap();
@@ -2663,14 +2686,6 @@ mod tests {
         )
         .unwrap();
         assert_ne!(rendered_a.data_base64, rendered_b.data_base64);
-        assert!(prepare_provider_image(
-            &path_text,
-            "image/svg+xml",
-            &annotated_signature,
-            Some(annotations),
-            "openai_compatible",
-        )
-        .is_err());
         fs::remove_file(path).unwrap();
     }
 

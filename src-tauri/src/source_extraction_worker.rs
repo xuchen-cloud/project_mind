@@ -114,6 +114,8 @@ impl SourceExtractionWorker {
             ("macos", "x86_64") => "darwin-x64",
             ("windows", "aarch64") => "win-arm64",
             ("windows", "x86_64") => "win-x64",
+            #[cfg(any(debug_assertions, test))]
+            ("linux", "x86_64") => "linux-x64",
             _ => return Err(unavailable()),
         };
         if runtime["nodeVersion"] != "24.21.0" || runtime["target"] != target {
