@@ -120,7 +120,7 @@ impl Database {
                         AgentError::new(ErrorCode::IoFailed, "Invalid committed Record identity")
                     })?,
                 };
-                let head_revision = self
+                let mut head_revision = self
                     .conn
                     .query_row(
                         "SELECT head_revision FROM record_document_heads WHERE record_key=?1",
@@ -140,6 +140,7 @@ impl Database {
                     Err(error) if error.code == ErrorCode::NotFound => None,
                     Err(error) => return Err(error),
                 };
+                if metadata_revision.is_none() { head_revision = None; }
                 record_heads.push(RecordHeadChange {
                     binding: binding.clone(),
                     target,

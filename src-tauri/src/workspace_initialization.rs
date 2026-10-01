@@ -17,9 +17,11 @@ pub(crate) fn open_workspace_database(
     secret_password: Option<String>,
     workspace_id: &str,
 ) -> Result<OpenedWorkspaceDatabase> {
-    let db = Database::open(db_path, root_path, secret_password)?;
+    let mut db = Database::open(db_path, root_path, secret_password)?;
+    db.bind_native_workspace(workspace_id)?;
     db.record_migrate_operation_keys(workspace_id)
         .map_err(|error| anyhow!(error.message))?;
+    db.source_registry_reconcile()?;
     db.record_compact_operation_receipts()
         .map_err(|error| anyhow!(error.message))?;
     let checkpoint_error = db.record_seal_pending_checkpoints(true, workspace_id).err();

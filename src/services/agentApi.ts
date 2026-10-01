@@ -3,6 +3,7 @@ import type {
   AgentContextEntry, AgentContextInput, AgentError, AgentResponse,
   AgentStatus, AgentWorkspaceBinding, AgentScope, AgentScopeSettings, AgentSettingsUpdate,
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
+  SourceMaintenanceProgress,
 } from "../lib/agent-types";
 
 export class AgentApiError extends Error {
@@ -29,6 +30,10 @@ export async function callAgentCommand<T>(command: string, requestId: string, ar
 
 /** Explicit binding prevents an old panel from silently switching to a new Workspace. */
 export const agentApi = {
+  /** Metadata control only, guarded by explicit development flags in both hosts. */
+  sourceMaintenance(binding: AgentWorkspaceBinding, scope: AgentScope, action: "activate" | "cancel" | "resume" | null = null, requestId = crypto.randomUUID()): Promise<SourceMaintenanceProgress | null> {
+    return callAgentCommand("agent_source_maintenance", requestId, { input: { binding, scope, action, requestId } });
+  },
   statusGet(requestId = crypto.randomUUID()): Promise<AgentStatus> {
     return callAgentCommand("agent_status_get", requestId, { requestId });
   },

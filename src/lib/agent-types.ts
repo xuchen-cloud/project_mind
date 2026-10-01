@@ -1,6 +1,21 @@
 /** Wire contracts mirrored from src-tauri/src/agent. AI-09 adds schema generation. */
 export type AgentScope = { kind: "workspace" } | { kind: "project"; projectId: number };
 export interface AgentWorkspaceBinding { workspaceId: string; generation: string }
+/** Internal development extraction progress; job completion is not coverage. */
+export interface SourceMaintenanceProgress {
+  scope: AgentScope;
+  batchId: string;
+  chargedChars: number;
+  chargedChunks: number;
+  attemptedJobs: number;
+  cancelled: boolean;
+  budgetExhausted: boolean;
+  foregroundBusy: boolean;
+  pendingJobs: number;
+  failedJobs: number;
+  partialSources: number;
+  backfillComplete: boolean;
+}
 export type AgentErrorCode =
   | "INVALID_ARGUMENT" | "NOT_FOUND" | "SCOPE_DENIED" | "WORKSPACE_NOT_OPEN"
   | "WORKSPACE_CHANGED" | "REVISION_CONFLICT" | "SOURCE_NOT_READY" | "SOURCE_CHANGED"

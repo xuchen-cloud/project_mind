@@ -552,6 +552,7 @@ mod tests {
             conn,
             workspace_root: Default::default(),
             secret_password: None,
+            native_workspace_id: None,
         };
         let repository = WorkspaceContextRepository {
             db: &db,

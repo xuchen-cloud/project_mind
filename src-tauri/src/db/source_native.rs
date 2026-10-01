@@ -12,6 +12,30 @@ use crate::{
 };
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
+
+pub(super) fn todo_revision(todo: &crate::models::TodoRecord) -> String {
+    let mut tag_ids: Vec<_> = todo.tags.iter().map(|tag| tag.id).collect();
+    tag_ids.sort_unstable();
+    let subtasks: Vec<_> = todo.progresses.iter().map(|subtask| serde_json::json!({
+        "id":subtask.id, "content":subtask.content, "status":subtask.status, "dueDate":subtask.due_date,
+        "order":subtask.order_index, "date":subtask.progress_date, "completedAt":subtask.completed_at
+    })).collect();
+    format!("sha256:{:x}", Sha256::digest(serde_json::json!({
+        "content":todo.content,"status":todo.status,"priority":todo.priority,"dueDate":todo.due_date,
+        "tagIds":tag_ids, "subtasks":subtasks
+    }).to_string()))
+}
+
+pub(super) fn project_revision(name: &str, status: &str, archived: bool) -> String {
+    format!("sha256:{:x}", Sha256::digest(
+        serde_json::json!({"name":name,"status":status,"archived":archived}).to_string()))
+}
+
+pub(super) fn quick_note_revision(html: &str, code_language: &Option<String>, title: &str, tag_ids: &[i64]) -> String {
+    format!("sha256:{:x}", Sha256::digest(serde_json::json!({
+        "html":html,"codeLanguage":code_language,"title":title,"tagIds":tag_ids
+    }).to_string()))
+}
 impl Database {
     pub(crate) fn source_quick_note_snapshot(
         &self,
@@ -29,6 +53,23 @@ impl Database {
                 "Invalid QuickNote source target",
             ));
         }
+        let snapshot = self.source_quick_note_current(object)?;
+        if input
+            .revision
+            .as_ref()
+            .is_some_and(|expected| expected != &snapshot.source.revision)
+        {
+            return Err(AgentError::new(
+                ErrorCode::SourceChanged,
+                "QuickNote source revision changed",
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    /// Storage-only semantic projection for native outbox capture. Public reads
+    /// resolve ownership, grants, archive state and exclusions before this call.
+    pub(super) fn source_quick_note_current(&self, object: crate::agent::models::ObjectRef) -> AgentResult<NativeQuickNoteSnapshot> {
         let (title, html, markdown, code_language, updated_at): (String,String,String,Option<String>,String) = match object.scope {
             crate::agent::models::Scope::Project {..} => self.conn.query_row(
                 "SELECT name,summary_html,summary_markdown,quick_note_code_language,updated_at FROM projects WHERE id=?1",
@@ -60,25 +101,7 @@ impl Database {
         }
         // The durable HTML is already Committed Content with Workspace-relative
         // resources. Redundant Markdown and timestamps do not mint revisions.
-        let revision = format!(
-            "sha256:{:x}",
-            Sha256::digest(
-                serde_json::json!({
-                    "html":html,"codeLanguage":code_language,"title":title,"tagIds":tag_ids
-                })
-                .to_string()
-            )
-        );
-        if input
-            .revision
-            .as_ref()
-            .is_some_and(|expected| expected != &revision)
-        {
-            return Err(AgentError::new(
-                ErrorCode::SourceChanged,
-                "QuickNote source revision changed",
-            ));
-        }
+        let revision = quick_note_revision(&html, &code_language, &title, &tag_ids);
         Ok(NativeQuickNoteSnapshot {
             source: NativeSourceSnapshot {
                 object,
@@ -186,16 +209,7 @@ impl Database {
                     })?,
                 )
                 .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot read Todo source"))?;
-            let mut tag_ids: Vec<_> = todo.tags.iter().map(|tag| tag.id).collect();
-            tag_ids.sort_unstable();
-            let subtasks: Vec<_> = todo.progresses.iter().map(|subtask| serde_json::json!({
-                "id":subtask.id, "content":subtask.content, "status":subtask.status, "dueDate":subtask.due_date,
-                "order":subtask.order_index, "date":subtask.progress_date, "completedAt":subtask.completed_at
-            })).collect();
-            let revision = format!("sha256:{:x}", Sha256::digest(serde_json::json!({
-                "content":todo.content,"status":todo.status,"priority":todo.priority,"dueDate":todo.due_date,
-                "tagIds":tag_ids, "subtasks":subtasks
-            }).to_string()));
+            let revision = todo_revision(&todo);
             if input
                 .revision
                 .as_ref()
@@ -242,12 +256,7 @@ impl Database {
         let (name, status, archived, updated_at) = row.ok_or_else(|| {
             AgentError::new(ErrorCode::NotFound, "Project source is no longer present")
         })?;
-        let revision = format!(
-            "sha256:{:x}",
-            Sha256::digest(
-                serde_json::json!({"name":name,"status":status,"archived":archived}).to_string()
-            )
-        );
+        let revision = project_revision(&name, &status, archived);
         if input
             .revision
             .as_ref()

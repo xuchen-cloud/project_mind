@@ -88,7 +88,7 @@ pub(crate) fn managed_path(root: &Path, relative: &str) -> Result<std::path::Pat
     Ok(path)
 }
 
-pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>) {
+pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>, handle: tauri::AppHandle) {
     if workspace
         .voice_recovery_running
         .swap(true, Ordering::AcqRel)
@@ -96,7 +96,7 @@ pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>) {
         return;
     }
     std::thread::spawn(move || {
-        let outcome = recover_one(&workspace);
+        let outcome = recover_one(&workspace, &handle);
         if let Err(error) = outcome {
             eprintln!("voice recovery worker: {error}");
         }
@@ -106,7 +106,7 @@ pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>) {
     });
 }
 
-fn recover_one(workspace: &WorkspaceRuntime) -> Result<()> {
+fn recover_one(workspace: &WorkspaceRuntime, handle: &tauri::AppHandle) -> Result<()> {
     if workspace.voice_recovery_interrupt.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -118,7 +118,21 @@ fn recover_one(workspace: &WorkspaceRuntime) -> Result<()> {
     let result = replay(workspace, &gap);
     match result {
         Ok(Some((end, results))) => {
-            lock_mutex(&workspace.db).voice_cloud_commit(&gap, end, &results)?;
+            let (result, changes) = {
+                use tauri::Manager;
+                let state = handle.state::<crate::AppState>();
+                let current = lock_mutex(&state.current_workspace);
+                if workspace.voice_recovery_interrupt.load(Ordering::Acquire)
+                    || !current.as_ref().is_some_and(|current| current.agent_binding == workspace.agent_binding) {
+                    lock_mutex(&workspace.db).voice_cloud_release(gap.id, None, 0)?;
+                    return Ok(());
+                }
+                let mut db = lock_mutex(&workspace.db);
+                crate::committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, "voice-recovery", |db|
+                    db.voice_cloud_commit(&gap, end, &results))?
+            };
+            if let Some(changes) = changes { crate::committed_changes::publish_to(handle, changes); }
+            result?;
             workspace.kick_voice_minutes();
         }
         Ok(None) => lock_mutex(&workspace.db).voice_cloud_release(gap.id, None, 0)?,

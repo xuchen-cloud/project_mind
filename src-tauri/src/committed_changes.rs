@@ -52,6 +52,27 @@ pub(crate) fn capture_committed<T>(
     };
     Ok((result, changes))
 }
+/// Native GUI DTOs use anyhow and mutable database access. Capture committed
+/// rows even when an action reports a later cleanup error; never publish rows
+/// from a rolled-back transaction, or turn notification failure into write failure.
+pub(crate) fn capture_native_committed<T>(
+    binding: &WorkspaceBinding,
+    db: &mut crate::db::Database,
+    request_id: &str,
+    action: impl FnOnce(&mut crate::db::Database) -> anyhow::Result<T>,
+) -> anyhow::Result<(anyhow::Result<T>, Option<CommittedChanges>)> {
+    let before = db.committed_change_watermark().map_err(|e| anyhow::anyhow!(e.message))?;
+    let result = action(db);
+    let changes = match db.committed_changes_since(binding, request_id, before) {
+        Ok(changes) => changes,
+        Err(error) => {
+            eprintln!("Committed change notification capture failed: {}", error.message);
+            None
+        }
+    };
+    Ok((result, changes))
+}
+
 pub(crate) trait CommittedChangePublisher {
     /// Delivery failure cannot undo a successful transaction. Consumers recover
     /// via changes.list, including after a lost notification or app restart.
@@ -59,10 +80,14 @@ pub(crate) trait CommittedChangePublisher {
 }
 impl CommittedChangePublisher for crate::AppState {
     fn publish_committed(&self, changes: CommittedChanges) {
-        use tauri::Emitter;
-        for head in &changes.record_heads {
-            let _ = self.app_handle.emit("record:head-changed", head);
-        }
-        let _ = self.app_handle.emit("mind:changed", &changes);
+        publish_to(&self.app_handle, changes);
     }
+}
+
+pub(crate) fn publish_to(handle: &tauri::AppHandle, changes: CommittedChanges) {
+    use tauri::Emitter;
+    for head in &changes.record_heads {
+        let _ = handle.emit("record:head-changed", head);
+    }
+    let _ = handle.emit("mind:changed", &changes);
 }

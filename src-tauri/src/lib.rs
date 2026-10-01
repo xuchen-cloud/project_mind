@@ -8,6 +8,7 @@ mod record_document_worker;
 mod source_extraction_worker;
 mod source_search_index;
 mod source_service;
+mod source_maintenance;
 mod source_file_snapshot;
 mod source_file_read;
 mod source_text_page;
@@ -372,8 +373,22 @@ fn with_db<T>(
     let runtime = state
         .current_workspace()
         .map_err(|error| error.to_string())?;
-    let mut db = lock_mutex(&runtime.db);
-    task(&mut db).map_err(|error| error.to_string())
+    let request_id = format!("gui:{:032x}", rand::random::<u128>());
+    let (result, changes) = {
+        let current = lock_mutex(&state.current_workspace);
+        if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &runtime)) {
+            return Err("Workspace changed before the command acquired storage".into());
+        }
+        let mut db = lock_mutex(&runtime.db);
+        committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
+            .map_err(|error| error.to_string())?
+    };
+    // Both the transaction and storage lock are released before event delivery.
+    if let Some(changes) = changes {
+        use committed_changes::CommittedChangePublisher;
+        state.publish_committed(changes);
+    }
+    result.map_err(|error| error.to_string())
 }
 
 fn with_workspace_runtime<T>(
@@ -1251,6 +1266,7 @@ pub fn run() {
             }
 
             app.manage(state);
+            source_maintenance::start(app.handle());
             let record_handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("record-checkpoints".into())
@@ -1282,7 +1298,13 @@ pub fn run() {
                             continue;
                         }
                         let mut db = lock_mutex(&workspace.db);
-                        match voice.snapshot(&mut db, &workspace.paths.root_path) {
+                        let captured = committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, "voice-supervisor", |db|
+                            voice.snapshot(db, &workspace.paths.root_path));
+                        let (result, changes) = match captured {
+                            Ok(captured) => captured,
+                            Err(error) => (Err(error), None),
+                        };
+                        let (recover, error) = match result {
                             Ok(snapshot) => {
                                 let busy = !workspace.ai_secrets_unlocked()
                                     || snapshot.as_ref().is_some_and(|session| {
@@ -1290,21 +1312,24 @@ pub fn run() {
                                     });
                                 workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
                                 let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
-                                drop(db);
-                                drop(current);
-                                if recover {
-                                    voice::recovery::kick(workspace.clone());
-                                }
+                                (recover, None)
                             }
                             Err(error) => {
-                                let _ = handle.emit("voice:error", error.to_string());
+                                (false, Some(error))
                             }
-                        }
+                        };
+                        drop(db);
+                        drop(current);
+                        drop(voice);
+                        if let Some(changes) = changes { committed_changes::publish_to(&handle, changes); }
+                        if let Some(error) = error { let _ = handle.emit("voice:error", error.to_string()); }
+                        if recover { voice::recovery::kick(workspace.clone(), handle.clone()); }
                     }
                 })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            source_maintenance::agent_source_maintenance,
             record_document_commands::record_editor_register,
             record_document_commands::record_cut_register,
             record_document_commands::record_cut_claim,

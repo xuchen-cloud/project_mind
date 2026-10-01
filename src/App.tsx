@@ -1,6 +1,7 @@
 import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
 import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
+import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
 import { HomeNoteSidebar } from "./components/home/HomeNoteSidebar";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
 import { flushQuickNotes } from "./lib/quick-note-transfer";
@@ -297,6 +298,7 @@ export function WorkspaceLayout({
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   const businessChangeError = useWorkspaceBusinessChanges(currentWorkspace?.rootPath);
+  useSourceMaintenanceSelection(currentWorkspace?.rootPath, activeProjectId);
   useEffect(() => {
     if (businessChangeError) setStatus({ tone: "error", label: "Refresh failed", message: "工作区变更同步失败，重新切回窗口后会重试" });
   }, [businessChangeError, setStatus]);

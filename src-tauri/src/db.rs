@@ -10,6 +10,9 @@ mod source_native;
 mod source_transcript;
 pub(crate) mod source_index_queue;
 mod committed_changes;
+mod native_changes;
+pub(crate) mod source_registry;
+pub(crate) mod source_maintenance;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -241,6 +244,7 @@ pub struct Database {
     conn: Connection,
     workspace_root: PathBuf,
     secret_password: Option<String>,
+    native_workspace_id: Option<String>,
 }
 
 pub struct VoiceMinutesLine {
@@ -312,8 +316,13 @@ impl Database {
             conn,
             workspace_root: workspace_root.to_path_buf(),
             secret_password,
+            native_workspace_id: None,
         };
+        if crate::workspace::workspace_paths(workspace_root).metadata_path.exists() {
+            db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
+        }
         db.migrate()?;
+        db.source_registry_prepare()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)
     }
@@ -1168,6 +1177,21 @@ impl Database {
         text: &str,
         language: Option<&str>,
     ) -> Result<VoiceTranscriptSegment> {
+        let tx = self.conn.unchecked_transaction()?;
+        let result = self.voice_transcript_append_final_in_transaction(session_id, provider_key, start_ms, end_ms, text, language)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    fn voice_transcript_append_final_in_transaction(
+        &self,
+        session_id: &str,
+        provider_key: &str,
+        start_ms: u64,
+        end_ms: u64,
+        text: &str,
+        language: Option<&str>,
+    ) -> Result<VoiceTranscriptSegment> {
         let provider_key = provider_key.trim();
         let text = text.trim();
         if provider_key.is_empty()
@@ -1183,7 +1207,7 @@ impl Database {
         let start = i64::try_from(start_ms)?;
         let end = i64::try_from(end_ms)?;
         let id = format!("{session_id}:{provider_key}");
-        self.conn.execute(
+        let inserted = self.conn.execute(
             r#"
             INSERT INTO voice_transcript_segments
               (id, session_id, provider_key, start_ms, end_ms, text, language, created_at)
@@ -1226,6 +1250,9 @@ impl Database {
             return Err(anyhow!(
                 "provider key conflicts with an existing final Transcript segment"
             ));
+        }
+        if inserted == 1 {
+            native_changes::append_transcript_final(&self.conn, self.native_workspace_id.as_deref(), session_id, &stored.0)?;
         }
         Ok(VoiceTranscriptSegment {
             id: stored.0,
@@ -2164,7 +2191,7 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub fn project_create(&mut self, input: ProjectCreateInput) -> Result<ProjectRecord> {
+    fn project_create_native(&self, input: ProjectCreateInput) -> Result<(ProjectRecord, native_changes::ProjectRootCreate)> {
         let timestamp = now_iso();
         let base = self.workspace_root.clone();
         if !base.exists() {
@@ -2185,7 +2212,8 @@ impl Database {
                 project_dir.display()
             ));
         }
-        fs::create_dir_all(&project_dir)?;
+        fs::create_dir(&project_dir)?;
+        let directory = native_changes::ProjectRootCreate::new(project_dir.clone());
 
         let summary = input.summary.unwrap_or_default();
         let summary_markdown = summary.clone();
@@ -2213,7 +2241,7 @@ impl Database {
         )?;
 
         let id = self.conn.last_insert_rowid();
-        self.project_record(id)
+        Ok((self.project_record(id)?, directory))
     }
 
     pub fn project_page_get(&mut self, input: ProjectIdInput) -> Result<ProjectPageData> {
@@ -2252,7 +2280,7 @@ impl Database {
         })
     }
 
-    fn rename_project_root(&mut self, current: &ProjectRecord, next_name: &str) -> Result<()> {
+    fn rename_project_root(&self, current: &ProjectRecord, next_name: &str) -> Result<Option<native_changes::ProjectRootRename>> {
         let current_dir = PathBuf::from(&current.root_path);
         if !current_dir.exists() {
             return Err(anyhow!(
@@ -2265,7 +2293,7 @@ impl Database {
             .workspace_root
             .join(project_directory_name(next_name.trim())?);
         if current_dir == next_dir {
-            return Ok(());
+            return Ok(None);
         }
 
         if next_dir.exists() {
@@ -2344,58 +2372,48 @@ impl Database {
             )
         })?;
 
-        let tx = self.conn.transaction()?;
-        let update_result: Result<()> = (|| {
-            tx.execute(
-                "UPDATE projects SET root_path = ?1 WHERE id = ?2",
-                params![next_root_path_ref, current.id],
+        let rename = native_changes::ProjectRootRename::new(current_dir, next_dir);
+        self.conn.execute(
+            "UPDATE projects SET root_path = ?1 WHERE id = ?2",
+            params![next_root_path_ref, current.id],
+        )?;
+
+        for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
+            &document_path_updates
+        {
+            self.conn.execute(
+                r#"
+                UPDATE documents
+                SET managed_path = ?1,
+                    history_dir_path = ?2,
+                    original_path = ?3
+                WHERE id = ?4
+                "#,
+                params![
+                    managed_path_ref,
+                    history_dir_ref,
+                    original_path_ref,
+                    document_id
+                ],
             )?;
-
-            for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
-                &document_path_updates
-            {
-                tx.execute(
-                    r#"
-                    UPDATE documents
-                    SET managed_path = ?1,
-                        history_dir_path = ?2,
-                        original_path = ?3
-                    WHERE id = ?4
-                    "#,
-                    params![
-                        managed_path_ref,
-                        history_dir_ref,
-                        original_path_ref,
-                        document_id
-                    ],
-                )?;
-            }
-
-            for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
-                tx.execute(
-                    r#"
-                    UPDATE document_versions
-                    SET managed_path = ?1,
-                        source_path = ?2
-                    WHERE id = ?3
-                    "#,
-                    params![managed_path_ref, source_path_ref, version_id],
-                )?;
-            }
-
-            tx.commit()?;
-            Ok(())
-        })();
-
-        if let Err(error) = update_result {
-            let _ = fs::rename(&next_dir, &current_dir);
-            return Err(error);
         }
 
-        Ok(())
+        for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
+            self.conn.execute(
+                r#"
+                UPDATE document_versions
+                SET managed_path = ?1,
+                    source_path = ?2
+                WHERE id = ?3
+                "#,
+                params![managed_path_ref, source_path_ref, version_id],
+            )?;
+        }
+
+        Ok(Some(rename))
     }
 
-    pub fn project_update(&mut self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
+    fn project_update_native(&self, input: ProjectUpdateInput) -> Result<(ProjectRecord, Option<native_changes::ProjectRootRename>)> {
         let current = self.project_record(input.project_id)?;
         let project_name = match input.name.as_deref() {
             Some(value) => {
@@ -2442,9 +2460,9 @@ impl Database {
             .as_deref()
             .map(normalize_code_language)
             .unwrap_or_else(|| current.summary_code_language.clone());
-        if project_name != current.name {
-            self.rename_project_root(&current, &project_name)?;
-        }
+        let rename = if project_name != current.name {
+            self.rename_project_root(&current, &project_name)?
+        } else { None };
         self.conn.execute(
             "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, quick_note_code_language = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
             params![
@@ -2458,10 +2476,10 @@ impl Database {
                 input.project_id
             ],
         )?;
-        self.project_record(input.project_id)
+        Ok((self.project_record(input.project_id)?, rename))
     }
 
-    pub fn project_set_archive(&mut self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
+    fn project_set_archive_native(&self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
         self.conn.execute(
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
@@ -2513,6 +2531,7 @@ impl Database {
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let path = self.encode_path_ref(Path::new(&current.root_path));
         let transaction = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        native_changes::append_project_deletions(&transaction, self.native_workspace_id.as_deref(), input.project_id)?;
         transaction.execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
         transaction.execute("INSERT INTO project_asset_cleanup(project_id, path) VALUES (?1, ?2)", params![input.project_id, path])?;
         transaction.commit()?;
@@ -2853,10 +2872,12 @@ impl Database {
 
     pub fn project_record_delete(&mut self, input: ProjectRecordDeleteInput) -> Result<NoteRecord> {
         let current = self.note_record(input.note_id)?;
-        self.conn
-            .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
-        self.voice_retry_asset_cleanup()?;
+        let tx = self.conn.unchecked_transaction()?;
+        native_changes::append_record_deletions(&tx, self.native_workspace_id.as_deref(), &crate::agent::models::Scope::Project { project_id: current.project_id }, input.note_id)?;
+        tx.execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
         self.touch_project(current.project_id)?;
+        tx.commit()?;
+        self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
@@ -3020,7 +3041,7 @@ impl Database {
         }
     }
 
-    pub fn workspace_quick_note_get(&mut self) -> Result<Option<WorkspaceRecord>> {
+    pub fn workspace_quick_note_get(&self) -> Result<Option<WorkspaceRecord>> {
         let quick_note_id = self
             .conn
             .query_row(
@@ -3041,8 +3062,8 @@ impl Database {
             .transpose()
     }
 
-    pub fn workspace_quick_note_upsert(
-        &mut self,
+    fn workspace_quick_note_upsert_native(
+        &self,
         input: WorkspaceQuickNoteUpsertInput,
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
@@ -3151,14 +3172,17 @@ impl Database {
         input: WorkspaceRecordDeleteInput,
     ) -> Result<WorkspaceRecord> {
         let current = self.workspace_note_record(input.note_id)?;
-
-        self.conn
-            .execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        let note_kind: String = self.conn.query_row("SELECT note_kind FROM workspace_notes WHERE id=?1", [input.note_id], |r| r.get(0))?;
+        if note_kind != WORKSPACE_NOTE_KIND_STANDARD { return Err(anyhow!("Workspace Record target is not a Record")); }
+        let tx = self.conn.unchecked_transaction()?;
+        native_changes::append_record_deletions(&tx, self.native_workspace_id.as_deref(), &crate::agent::models::Scope::Workspace, input.note_id)?;
+        tx.execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        tx.commit()?;
         self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
-    pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
+    fn todo_create_native(&self, input: TodoCreateInput) -> Result<TodoRecord> {
         let scope = input.scope;
         self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
         let scope_value = match scope {
@@ -3195,7 +3219,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+    fn todo_update_content_native(&self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(
             current.scope,
@@ -3215,7 +3239,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_update_tags(&mut self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
+    fn todo_update_tags_native(&self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
         let timestamp = now_iso();
         let current = self.todo_record(input.todo_id)?;
         self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
@@ -3227,7 +3251,7 @@ impl Database {
         self.todo_record(input.todo_id)
     }
 
-    pub fn todo_update_status(&mut self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
+    fn todo_update_status_native(&self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.status, now_iso(), input.todo_id],
@@ -3237,7 +3261,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_update_priority(&mut self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
+    fn todo_update_priority_native(&self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET priority = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.priority, now_iso(), input.todo_id],
@@ -3247,7 +3271,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_add_progress(&mut self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
+    fn todo_add_progress_native(&self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(todo.scope, todo.project_id, &input.content, None)?;
@@ -3275,8 +3299,8 @@ impl Database {
         self.todo_progress_record(progress_id)
     }
 
-    pub fn todo_update_progress(
-        &mut self,
+    fn todo_update_progress_native(
+        &self,
         input: TodoUpdateProgressInput,
     ) -> Result<TodoProgressRecord> {
         let current = self.todo_progress_record(input.progress_id)?;
@@ -3321,7 +3345,7 @@ impl Database {
     }
 
     fn validate_todo_internal_references(
-        &mut self,
+        &self,
         source_scope: TodoScope,
         source_project_id: Option<i64>,
         content: &str,
@@ -3365,8 +3389,8 @@ impl Database {
         Ok(())
     }
 
-    pub fn todo_delete_progress(
-        &mut self,
+    fn todo_delete_progress_native(
+        &self,
         input: TodoDeleteProgressInput,
     ) -> Result<TodoProgressRecord> {
         let current = self.todo_progress_record(input.progress_id)?;
@@ -3384,7 +3408,7 @@ impl Database {
         Ok(current)
     }
 
-    pub fn todo_delete(&mut self, input: TodoDeleteInput) -> Result<TodoRecord> {
+    fn todo_delete_native(&self, input: TodoDeleteInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.conn
             .execute("DELETE FROM todos WHERE id = ?1", [input.todo_id])?;
@@ -5656,7 +5680,7 @@ impl Database {
     }
 
     pub fn internal_reference_resolve(
-        &mut self,
+        &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
         match input.kind.trim() {
@@ -6698,7 +6722,7 @@ impl Database {
         Ok(())
     }
 
-    fn replace_todo_tags(&mut self, todo_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+    fn replace_todo_tags(&self, todo_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
         let project_id = self.conn.query_row(
             "SELECT project_id FROM todos WHERE id = ?1",
             [todo_id],
@@ -6717,7 +6741,7 @@ impl Database {
     }
 
     fn write_todo_tags(
-        &mut self,
+        &self,
         todo_id: i64,
         normalized_tag_ids: &[i64],
         timestamp: &str,

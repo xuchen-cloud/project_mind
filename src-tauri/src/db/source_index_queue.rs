@@ -31,6 +31,8 @@ pub(crate) struct SourceBackfillProgress {
 }
 pub(crate) enum SourceIndexOutcome {
     Completed,
+    /// Host cancellation/foreground preemption is not an extraction failure.
+    Yield,
     Retry,
     Failed(ErrorCode),
 }
@@ -423,6 +425,7 @@ impl Database {
         } else {
             match outcome {
                 SourceIndexOutcome::Completed => ("completed", attempt, None),
+                SourceIndexOutcome::Yield => ("queued", attempt.saturating_sub(1), None),
                 SourceIndexOutcome::Retry if attempt < 3 => ("queued", attempt, None),
                 SourceIndexOutcome::Retry => ("failed", attempt, Some("RETRY_EXHAUSTED".into())),
                 SourceIndexOutcome::Failed(code) => (

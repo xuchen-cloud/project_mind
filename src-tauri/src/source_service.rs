@@ -315,6 +315,9 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
+    pub(crate) fn registry_entry(&self, request: &RequestContext, object: &ObjectRef) -> AgentResult<Option<crate::db::source_registry::SourceRegistryEntry>> {
+        self.store.with_current(|binding, db| db.source_registry_entry(request, binding, object))
+    }
     pub(crate) fn backfill_index_queue(
         &self,
         request: &RequestContext,
@@ -347,7 +350,6 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         record_utility: &R,
         file_utility: &F,
     ) -> AgentResult<Option<ObjectRef>> {
-        use crate::{agent::models::ObjectKind, db::source_index_queue::SourceIndexOutcome};
         if budget.max_chars == 0 || budget.max_chunks == 0 {
             return Err(invalid("Source index budgets must be positive"));
         }
@@ -357,6 +359,23 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         let Some(lease) = lease else {
             return Ok(None);
         };
+        self.index_claimed(request, &lease, budget, record_utility, file_utility).await?;
+        Ok(Some(lease.object))
+    }
+    /// The host retains the lease while awaiting this future, so it can yield
+    /// abandoned work without waiting for lease expiry or consuming a retry.
+    pub(crate) async fn index_claimed<R: crate::record_document_service::DocumentUtility, F: SourceUtility>(
+        &self,
+        request: &RequestContext,
+        lease: &crate::db::source_index_queue::SourceIndexLease,
+        budget: SourceIndexBudget,
+        record_utility: &R,
+        file_utility: &F,
+    ) -> AgentResult<()> {
+        use crate::{agent::models::ObjectKind, db::source_index_queue::SourceIndexOutcome};
+        if budget.max_chars == 0 || budget.max_chunks == 0 {
+            return Err(invalid("Source index budgets must be positive"));
+        }
         let source = SourceReadTarget {
             object: lease.object.clone(),
             revision: None,
@@ -410,7 +429,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 "Source index lease changed while processing",
             ));
         }
-        Ok(Some(lease.object))
+        Ok(())
     }
     pub(crate) async fn extract_file<W: SourceUtility>(
         &self,

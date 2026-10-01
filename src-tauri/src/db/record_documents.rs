@@ -3,7 +3,7 @@ use super::record_references::{reference_identities, validate_references, write_
 use super::Database;
 use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
-    models::Scope,
+    models::{ObjectKind, ObjectRef, Scope},
 };
 use crate::record_documents::*;
 use chrono::{Duration, Utc};
@@ -440,6 +440,9 @@ impl Database {
             if quick.markdown != input.expected_markdown || quick.source_hash != expected_source_hash {
                 return Err(AgentError::new(ErrorCode::SourceChanged,"QuickNote changed before transfer"));
             }
+            let quick_object = ObjectRef { workspace_id: workspace_id.into(), scope: input.scope.clone(), kind: ObjectKind::QuickNote,
+                id: match input.scope { Scope::Project { project_id } => project_id, Scope::Workspace => quick.quick_note_id.ok_or_else(damaged)? }.to_string() };
+            let quick_before = self.source_quick_note_current(quick_object.clone())?.source.revision;
             let timestamp = Utc::now().to_rfc3339();
             let target = if let Some(record_id) = input.record_id {
                 let target = RecordTarget { scope: input.scope.clone(), record_id };
@@ -474,6 +477,11 @@ impl Database {
                     tx.execute("UPDATE workspace_notes SET content_html='<p></p>',content_markdown='',default_code_language=NULL,updated_at=?1 WHERE id=?2",params![timestamp,quick_note_id]).map_err(io_error)?;
                     self.replace_workspace_note_tags(quick_note_id,&[],&timestamp).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot clear QuickNote tags"))?;
                 }
+            }
+            let quick_after = self.source_quick_note_current(quick_object.clone())?.source.revision;
+            if quick_after != quick_before {
+                tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'quick_note.clear',?3,?4)",
+                    params![quick_object.key()?,quick_object.scope.key(),quick_after,timestamp]).map_err(io_error)?;
             }
             saved.metadata = Some(saved_metadata);
             Ok((saved, change))
@@ -1824,6 +1832,7 @@ mod tests {
         candidate.markdown.push_str("\n\nCaptured");
         candidate.text.push_str("\n\nCaptured");
         candidate.body_hash = body_hash(&candidate.document, &candidate.code_language);
+        let before_transfer = database.committed_change_watermark().unwrap();
         let saved = database
             .record_quick_note_transfer(
                 "gui",
@@ -1852,6 +1861,7 @@ mod tests {
             projection.document["content"][0]["attrs"]["blockId"]
         );
         assert_eq!(version_count(&database), 2);
+        assert_eq!(database.committed_change_watermark().unwrap(), before_transfer + 2);
         let replay = database
             .record_quick_note_transfer(
                 "gui",
@@ -1865,6 +1875,7 @@ mod tests {
             .unwrap();
         assert_eq!(replay.head.head_revision, 2);
         assert_eq!(version_count(&database), 2);
+        assert_eq!(database.committed_change_watermark().unwrap(), before_transfer + 2);
         let stale = database
             .record_quick_note_transfer(
                 "gui",

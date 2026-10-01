@@ -67,7 +67,7 @@ Transcript 原生来源接入真实 `voice_records` 与已持久化 final segmen
 
 存量 backfill 每批 1–200 个真实业务对象，只读目录信息，游标和入队原子保存，排除项与 Record 私有图片不入队。Project 范围与 Workspace 直属来源分开遍历；完成目录遍历保留起始水位以继续消费后来变更。中途停顿超过日志保留、无法证明 delta 完整时重新做有界目录遍历。任务状态 completed 表示这次索引批次已结束，cache coverage 仍独立保留 partial，不承诺已完整读取或概览已最新。队列/目录表仍为内部惰性准备，不作为已发布 Schema。
 
-共享 SourceService 提供目录 backfill、日志合并与处理单个有界任务的接缝，真实固定转换进程已验证自动建立旧 Record 唯一基线并进入索引；处理/哈希期间不持业务锁。此内核尚未挂接桌面 assistant 启用/激活调度，也未启动后台循环。正式运行时需继续接预算总量、前台优先、取消/进度、其余 GUI 业务 outbox 以及资源分发门禁。
+共享 SourceService 提供目录 backfill、日志合并与处理单个有界任务的接缝，真实固定转换进程已验证自动建立旧 Record 唯一基线并进入索引；处理/哈希期间不持业务锁。后续阶段已接入显式开发开关下的桌面启用/激活调度与持久预算；普通构建仍不开启后台来源循环。产品运行时、进度 UI、File 业务 outbox 和资源分发仍保留门禁。
 
 修复日志全部清理后的恢复边界：变化页与提交捕获从 SQLite 单调 sequence 恢复末尾水位，空日志不再丢掉 resetRequired。新增队列 11 项（含真实转换进程）及空日志恢复 1 项；最终来源专项 93 项显式通过，Rust lib 全量 326 项通过/16 项默认忽略。最终前端全量 139 文件/955 项通过；最终 Rust 全目标测试同样通过（库 326 项/16 项默认忽略，其余目标零用例），Record 专项 99 项显式通过；既有构建、路径/UI/bundle 检查均通过。本批 Standards/Spec 由主 agent 自查，修复了同路径重开绑定、重叠时间定位与空日志水位问题；剩余接入职责仍见下文，未启动 review 子 agent。
 
@@ -77,4 +77,29 @@ Transcript 原生来源接入真实 `voice_records` 与已持久化 final segmen
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
 
-Record 的按需基线接口与 Workspace Record typed token 已实现；队列内核已调用前者，桌面/Host 自动调度尚未挂接。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、其余 GUI 业务写入的 outbox、知识依赖失效及桌面自动队列调度尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+Record 的按需基线接口与 Workspace Record typed token 已实现；队列内核已调用前者，显式开发模式已接入桌面自动调度，普通产品与 headless Host 尚未启用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、File 写入的 outbox/CAS/journal、知识模块对失效水位的消费及产品桌面自动队列调度尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；内部表准备不代表已发布 Schema 29。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+
+### GUI 原生写入与删除身份（2026-10-01 后续阶段）
+
+Todo/子任务、Workspace QuickNote、Project 创建/改名/QuickNote/归档、Transcript final 以及 Record/Project 删除已接入事务 outbox。正文、标签、owner touch 和日志一次提交；语义无变化不制造日志。QuickNote 修订复用来源读取的持久 HTML、真实标题和标签，不创建 Record 正文版本。QuickNote transfer 同事务记录 Record 和清空后的真实 QuickNote，回执重放不重复入队。
+
+原生数据库连接从真实 Workspace manifest 或共享初始化绑定稳定 ID，不通过路径或标题推造身份。GUI 命令、Voice supervisor 与补转写在捕获提交日志后释放业务锁，再发送同源 `mind:changed`；操作后续阶段失败时仍通知已提交的 final，回滚则没有成功通知。通知捕获失败不撤销已提交业务结果。Project 改名的现有目录回滚延伸至 outbox 提交；这不是文件系统崩溃 journal，也不替代 #114。
+
+Transcript final 使用 Voice Record ID；每个不可变 final 的日志 revision 是 delivery watermark，不是可用于 evidence 的 SourceRef hash。完整来源修订仍由现有受预算保护的读取服务生成；录音路径不为每段 final 重新分配、哈希整份不断增长的 Transcript。重复 delivery 不重复日志，补转写段、恢复游标和 outbox 同事务提交。
+
+内部 `source_registry` 只保留规范对象键、scope、变更水位和删除标记；不存正文、摘录或第二套版本。删除前记录被级联删除的 Record、Todo、File、QuickNote 与 Transcript 身份；日志清理和重开不删除 tombstone。注册条目不表示该来源已可读、索引完整或会话模块已就绪。现存日志键迁移后可恢复目录元信息，不把未知旧字节补登记为历史 File Version。
+
+`source_dependency_invalidations` 复用现有 `content_reference_edges(relation=derived_from)`，原文变更、删除、排除和项目归档在写事务内传播失效水位，循环依赖有界终止；不重写 evidence 版本或引用边。内部读取接缝仅返回授权 owner scope 的失效水位/原因，不泄露其跨 scope 证据。确认失效水位必须在真实知识 owner 的发布/CAS 事务中执行，旧刷新不能清除更晚的 source change，发布回滚也回滚确认。知识模块须以真实 owner 和依赖注册、消费失效水位并重新校验发布，尚未生成 Overview/知识节点或正式会话摘要。删除、归档、排除同事务取消相关提取任务；旧 lease 不能结算为完成。
+
+
+### 开发模式自动索引调度（2026-10-01 后续阶段）
+
+仅 debug 构建且 `PROJECT_MIND_SOURCE_INDEXING_DEV=1` 启动单个桌面来源循环；GUI 同时需要 `VITE_MIND_SOURCE_INDEXING_DEV=1`。真实活动路由登记所选 scope，预加载/驻留页面不登记；助手配置启用后按持久目录和日志游标自动处理。失效 binding 拒绝，切路由丢弃旧 binding 查询，已发出的选择命令顺序结算。关闭助手、切 scope、取消、前台 run 或未结束 Voice Session 会停止下一项并中断正在等待的转换；进程 future 释放后按原 token 让出队列 lease，不消耗提取失败重试。重新打开页面不撤销取消，显式 resume 也不提前重置预算。
+
+预算 ledger 复用 `agent_jobs(kind=maintenance)` 的 `source-maintenance:<workspaceId>` 命名空间，与 `extract` 作业分开；后续维护消费者须只处理自己的命名空间。全 Workspace 每 20 分钟一批，最多 100 次作业、8 Mi Unicode 索引字符、40000 chunks；每次最多 2 Mi/10000，转换前持久预留，完成后按实际唯一字符覆盖与 chunks 退还余额。失败、取消、崩溃保留保守预留；空队列不计次数。重开、旧 token 和 scope 切换不刷新累计额度；过期后只开始一个新有界批次，不补跑遗漏的每个周期。空闲时只读水位，不反复写入预留。这是本地索引配额，不是 Overview 模型输入/调用或 run 的检索返回预算；没有调用 Provider。
+
+内部 metadata 命令提供 cancel/resume 及预算、待处理、失败、部分来源、目录遍历进度；不把目录 complete 或任务 completed 当成完整 coverage。用户可见进度 UI、产品默认调度/资源分发、分段来源覆盖续跑、Overview 维护和正式会话模块仍待对应工作包接入。公开 source.search/read capability 继续 `implemented:false`，没有 GUI/CLI/MCP/Pi 来源读取 adapter；内部表没有发布为 Schema 29。
+
+专项验证包含真实 SQLite 的累计预留、故障回滚、代际恢复、取消、前台抢占，以及真实固定 Node 的唯一 Record 基线与检索结果；没有运行应用窗口、真实 Provider 或 Windows 实包。
+
+阶段验证：Rust 全目标库 346 passed、15 默认忽略；source 显式 include-ignored 为 108 passed，Record 为 100 passed；前端相关 4 文件 14 passed，全量 140 文件 959 passed、1 个既有 Project 驻留用例超时；构建、portable paths、UI standards、bundle 检查通过（主入口 188 KiB）。主 agent 已自行核对事务/锁释放、授权/代际、原始版本与 partial coverage 的 Standards / Spec 两轴；File 共享写入与产品调度仍未完成，前端全绿及实包验收门槛未满足。阶段提交不代表 #100 已交付，不新建发布 PR、不合并 main、不关闭 Issue。

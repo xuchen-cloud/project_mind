@@ -104,7 +104,10 @@ impl Database {
             if input.excluded==previous.0 {return Ok((SourcePolicy {object:object.clone(),revision:previous.1,excluded:previous.0},None));}
             let revision=previous.1.checked_add(1).filter(|revision|*revision<=i64::MAX as u64).ok_or_else(||AgentError::new(ErrorCode::BudgetExceeded,"Source policy revision exhausted"))?;
             tx.execute("INSERT INTO source_access_policies(object_key,excluded,revision) VALUES (?1,?2,?3) ON CONFLICT(object_key) DO UPDATE SET excluded=excluded.excluded,revision=excluded.revision",params![key,input.excluded,revision as i64]).map_err(io_error)?;
-            if input.excluded {tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1",[&key]).map_err(io_error)?;}
+            if input.excluded {
+                tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1",[&key]).map_err(io_error)?;
+                tx.execute("UPDATE agent_jobs SET state='cancelled',error=NULL WHERE kind='extract' AND dedupe_key=?1 AND state IN ('queued','running')",[format!("source-index:{key}")]).map_err(io_error)?;
+            }
             let policy=SourcePolicy {object:object.clone(),revision,excluded:input.excluded};
             let change=super::agent_operations::OperationChange {object_key:key,scope:object.scope.clone(),revision:format!("sha256:{:x}",Sha256::digest(serde_json::to_vec(&policy).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Invalid source policy"))?))};
             Ok((policy,Some(change)))

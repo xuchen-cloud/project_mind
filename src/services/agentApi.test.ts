@@ -9,6 +9,12 @@ beforeEach(() => vi.clearAllMocks());
 const binding = { workspaceId: "w1", generation: "open-1" };
 const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上次的决定" };
 
+it("sends bounded development scheduling controls with the explicit binding", async () => {
+  vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r1", ok: true, data: null });
+  expect(await agentApi.sourceMaintenance(binding, context.scope, "cancel", "r1")).toBeNull();
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_source_maintenance", { input: { binding, scope: context.scope, action: "cancel", requestId: "r1" } });
+});
+
 it("passes explicit Workspace binding without eagerly reading anything", async () => {
   expect(desktopApi.command).not.toHaveBeenCalled();
   const data = { identity: { scope: context.scope, name: "项目", archived: false }, status: "not_built",
