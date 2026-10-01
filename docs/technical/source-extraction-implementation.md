@@ -10,6 +10,8 @@
 - 固定 Node 24.21.0 权限隔离进程，空 PATH；每 Workspace 一个任务、60 秒硬截止、512 MiB JS heap、70 MiB 输入帧及 16 MiB 输出帧。应用退出或请求取消时 kill-on-drop，不在提取过程中持有业务 DB 锁。
 - JS bundle、PDF 字符映射表、标准字体、许可文本和 SHA-256 清单独立分发；原生构造器校验 Node、入口和所有资源，缺失或不兼容时拒绝运行。
 - Record 与提取进程共用有界执行内核，但保留各自独立的并发槽、容量和时间限制。
+- 内部检索缓存使用打包 SQLite 的 FTS5 trigram；1～2 字查询以转义后的字面 LIKE 回退，返回硬限 50 项。作用域、排除项、当前/显式历史版本在候选阶段过滤，精确标题与选中来源优先。
+- 缓存替换在单事务中写入，失败保留原当前版本；删除来源清除全部历史缓存。未独立封存的 Record autosave head 只保留一个当前缓存，不逐次保存完整正文。
 
 [DOMMatrix 上游](https://github.com/thednp/dommatrix) 提供兼容实现，当前锁定 3.1.2；其完整 MIT 许可由构建从实际依赖生成。PDF.js CMap 的 Adobe 许可及标准字体的 Foxit/Liberation 许可一并保留。
 
@@ -25,4 +27,6 @@
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。后续共享来源服务必须先核对 ObjectRef 真实归属、Scope Grant、来源排除策略和当前版本 hash，读取有界字节快照，在处理后复查 binding 和版本才提交索引。Record 索引从 Committed JSON 携带 blockId；此 File 提取投影不能代替它。
 
-FTS5 trigram、短查询有界 LIKE、SourceRef 分页读取、500ms Record 合并和来源后台队列尚未接入。主程序构建仍不启用该能力；Windows 实包与完整 AI 工作流在对应验收门禁中继续保留。
+内部检索缓存另有 9 项真实 SQLite 验证，覆盖中英混合召回、短查询字面语义、范围隔离、历史版本、回滚、删除与稳定定位。
+
+SourceRef 分页读取、业务所有权/版本复核、500ms Record 合并和来源后台队列尚未接入；检索缓存也尚未接入业务入口。主程序构建仍不启用该能力；Windows 实包与完整 AI 工作流在对应验收门禁中继续保留。
