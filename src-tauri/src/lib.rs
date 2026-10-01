@@ -8,6 +8,7 @@ mod record_document_worker;
 mod source_extraction_worker;
 mod source_search_index;
 mod source_service;
+mod source_file_snapshot;
 mod utility_process;
 mod record_document_service;
 mod record_document_commands;

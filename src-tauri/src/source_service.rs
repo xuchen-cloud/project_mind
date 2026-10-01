@@ -257,6 +257,80 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
+    pub(crate) async fn read_record<W: crate::record_document_service::DocumentUtility>(
+        &self,
+        request: &RequestContext,
+        input: &SourceReadInput,
+        utility: &W,
+    ) -> AgentResult<SourceReadPage> {
+        match self.read(request, input) {
+            Err(error) if error.code == ErrorCode::SourceNotReady => {
+                self.prepare_record(request, &input.source, utility).await?;
+                self.read(request, input)
+            }
+            result => result,
+        }
+    }
+    /// Maintenance of the existing committed body, not a content edit. The
+    /// fixed converter runs outside business locks; a second authorized phase
+    /// validates policy/binding and the original legacy hash before committing.
+    pub(crate) async fn prepare_record<W: crate::record_document_service::DocumentUtility>(
+        &self,
+        request: &RequestContext,
+        source: &SourceReadTarget,
+        utility: &W,
+    ) -> AgentResult<()> {
+        let Some((target, legacy)) = self
+            .store
+            .with_current(|binding, db| db.source_record_baseline(request, binding, source))?
+        else {
+            return Ok(());
+        };
+        // A baseline belongs to one object, independently of a caller's batch
+        // request. Concurrent conversion may generate different fresh IDs;
+        // transaction head checks still commit exactly one baseline.
+        let operation_id = format!("source-baseline-{:032x}", rand::random::<u128>());
+        let data = serde_json::json!({
+            "html":legacy.html,
+            "assetBasePath":legacy.asset_base_path,
+            "codeLanguage":legacy.code_language
+        });
+        let converted = utility
+            .request(&operation_id, "record.initialize", data)
+            .await?;
+        let projection: crate::record_documents::RecordDocumentProjection =
+            serde_json::from_value(converted).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RuntimeIncompatible,
+                    "Invalid source baseline projection",
+                )
+            })?;
+        projection.validate()?;
+        self.store.with_current(|binding, db| {
+            if db
+                .source_record_baseline(request, binding, source)?
+                .is_none()
+            {
+                return Ok(());
+            }
+            if !(matches!(request.caller, crate::agent::access::Caller::Gui)
+                && request.scope_grant.workspace_content)
+            {
+                for scope in db.record_reference_scopes(&projection.document)? {
+                    request.authorize(binding, &scope, "source.read")?;
+                }
+            }
+            db.record_document_initialize(
+                &request.caller.key(),
+                &operation_id,
+                &target,
+                &legacy.source_hash,
+                &projection,
+                &binding.workspace_id,
+            )?;
+            Ok(())
+        })
+    }
     pub(crate) fn index_record(
         &self,
         request: &RequestContext,
@@ -409,6 +483,19 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 "Choose an explicit full view or nonempty source range",
             ));
         }
+        let cursor: Option<ReadCursor> = input
+            .cursor
+            .as_ref()
+            .map(|encoded| {
+                if encoded.len() > 2048 {
+                    return Err(invalid("Invalid source cursor"));
+                }
+                let bytes = URL_SAFE_NO_PAD
+                    .decode(encoded)
+                    .map_err(|_| invalid("Invalid source cursor"))?;
+                serde_json::from_slice(&bytes).map_err(|_| invalid("Invalid source cursor"))
+            })
+            .transpose()?;
         let snapshot = self.store.with_current(|binding, db| {
             db.source_record_snapshot(request, binding, &input.source)
         })?;
@@ -425,15 +512,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 .map_err(|_| invalid("Invalid source selection"))?
             )
         );
-        let offset = if let Some(encoded) = &input.cursor {
-            if encoded.len() > 2048 {
-                return Err(invalid("Invalid source cursor"));
-            }
-            let bytes = URL_SAFE_NO_PAD
-                .decode(encoded)
-                .map_err(|_| invalid("Invalid source cursor"))?;
-            let cursor: ReadCursor =
-                serde_json::from_slice(&bytes).map_err(|_| invalid("Invalid source cursor"))?;
+        let offset = if let Some(cursor) = cursor {
             if cursor.object_key != key || cursor.selection_hash != selection_hash {
                 return Err(invalid("Cursor belongs to another source selection"));
             }
@@ -598,6 +677,282 @@ mod tests {
         ) -> AgentResult<T> {
             action(&self.binding.lock().unwrap(), &self.db.lock().unwrap())
         }
+    }
+    fn add_legacy(store: &Store, input: &mut SourceReadInput, text: &str) -> RecordTarget {
+        let record = store
+            .db
+            .lock()
+            .unwrap()
+            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                note_id: None,
+                title: Some("存量来源".into()),
+                html: format!("<p>{text}</p>"),
+                markdown: text.into(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        input.source.object.id = record.id.to_string();
+        RecordTarget {
+            scope: Scope::Workspace,
+            record_id: record.id,
+        }
+    }
+    struct PausedConverter {
+        worker: crate::record_document_worker::RecordDocumentWorker,
+        converted: tokio::sync::Notify,
+        resume: tokio::sync::Notify,
+    }
+    impl PausedConverter {
+        fn new() -> Self {
+            Self {
+                worker: crate::record_document_worker::RecordDocumentWorker::development().unwrap(),
+                converted: tokio::sync::Notify::new(),
+                resume: tokio::sync::Notify::new(),
+            }
+        }
+    }
+    impl crate::record_document_service::DocumentUtility for PausedConverter {
+        async fn request(&self, id: &str, method: &str, data: Value) -> AgentResult<Value> {
+            let result = self.worker.request(id, method, data).await;
+            self.converted.notify_one();
+            self.resume.notified().await;
+            result
+        }
+    }
+    struct UnavailableConverter;
+    impl crate::record_document_service::DocumentUtility for UnavailableConverter {
+        async fn request(&self, _id: &str, _method: &str, _data: Value) -> AgentResult<Value> {
+            Err(AgentError::new(
+                ErrorCode::RuntimeUnavailable,
+                "Converter resources unavailable",
+            ))
+        }
+    }
+    #[tokio::test]
+    async fn source_legacy_record_denies_access_and_preserves_body_when_conversion_is_unavailable()
+    {
+        let (_directory, store, mut request, mut input) = fixture("unrelated");
+        let target = add_legacy(&store, &mut input, "保留原正文");
+        let service = SourceService::new(&store);
+        request.scope_grant.workspace_content = false;
+        assert_eq!(
+            service
+                .read_record(&request, &input, &UnavailableConverter)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        request.scope_grant.workspace_content = true;
+        input.budget_chars = Some(0);
+        assert_eq!(
+            service
+                .read_record(&request, &input, &UnavailableConverter)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        input.budget_chars = None;
+        input.cursor = Some("malformed cursor".into());
+        assert_eq!(
+            service
+                .read_record(&request, &input, &UnavailableConverter)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        input.cursor = None;
+        assert_eq!(
+            service
+                .read_record(&request, &input, &UnavailableConverter)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RuntimeUnavailable
+        );
+        let db = store.db.lock().unwrap();
+        assert!(db.record_document_head(&target).unwrap().is_none());
+        assert_eq!(
+            db.record_document_source(&target).unwrap().markdown,
+            "保留原正文"
+        );
+    }
+    #[tokio::test]
+    #[ignore = "requires the prepared fixed Node runtime and built Record worker"]
+    async fn source_legacy_record_rechecks_binding_policy_and_committed_content() {
+        for scenario in ["switch", "exclude", "edit"] {
+            let (_directory, store, request, mut input) = fixture("unrelated");
+            let target = add_legacy(&store, &mut input, "旧的证据");
+            let utility = PausedConverter::new();
+            let service = SourceService::new(&store);
+            let read = service.read_record(&request, &input, &utility);
+            let intervene = async {
+                utility.converted.notified().await;
+                match scenario {
+                    "switch" => store.binding.lock().unwrap().generation = "another-open".into(),
+                    "exclude" => {
+                        let mut policy_request = request.clone();
+                        policy_request.request_id = "exclude-during-conversion".into();
+                        policy_request
+                            .scope_grant
+                            .operations
+                            .push("settings.write".into());
+                        service
+                            .set_policy(
+                                &policy_request,
+                                &SourcePolicyUpdate {
+                                    object: input.source.object.clone(),
+                                    expected_revision: 0,
+                                    excluded: true,
+                                },
+                            )
+                            .unwrap();
+                    }
+                    _ => {
+                        store
+                            .db
+                            .lock()
+                            .unwrap()
+                            .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                                note_id: Some(target.record_id),
+                                title: Some("并发标题".into()),
+                                html: "<p>后来的证据</p>".into(),
+                                markdown: "后来的证据".into(),
+                                default_code_language: None,
+                                tag_ids: vec![],
+                            })
+                            .unwrap();
+                    }
+                }
+                utility.resume.notify_one();
+            };
+            let (result, _) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                tokio::join!(read, intervene)
+            })
+            .await
+            .unwrap();
+            let expected = match scenario {
+                "switch" => ErrorCode::WorkspaceChanged,
+                "exclude" => ErrorCode::ScopeDenied,
+                _ => ErrorCode::RevisionConflict,
+            };
+            assert_eq!(result.unwrap_err().code, expected, "{scenario}");
+            let db = store.db.lock().unwrap();
+            assert!(db.record_document_head(&target).unwrap().is_none());
+            assert_eq!(
+                db.record_document_source(&target).unwrap().markdown,
+                if scenario == "edit" {
+                    "后来的证据"
+                } else {
+                    "旧的证据"
+                }
+            );
+        }
+    }
+    #[tokio::test]
+    #[ignore = "requires the prepared fixed Node runtime and built Record worker"]
+    async fn source_legacy_record_concurrent_conversion_preserves_the_new_committed_head() {
+        let (_directory, store, request, mut input) = fixture("unrelated");
+        let target = add_legacy(&store, &mut input, "旧的证据");
+        let utility = PausedConverter::new();
+        let other = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = SourceService::new(&store);
+        let read = service.read_record(&request, &input, &utility);
+        let intervene = async {
+            utility.converted.notified().await;
+            service
+                .prepare_record(&request, &input.source, &other)
+                .await
+                .unwrap();
+            let head = store
+                .db
+                .lock()
+                .unwrap()
+                .record_document_head(&target)
+                .unwrap()
+                .unwrap();
+            let mut document = head.projection.document;
+            document["content"][0]["content"][0]["text"] = json!("后来的已保存证据");
+            commit_document(&store, &input, document, "后来的已保存证据");
+            utility.resume.notify_one();
+        };
+        let (page, _) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            tokio::join!(read, intervene)
+        })
+        .await
+        .unwrap();
+        let page = page.unwrap();
+        assert_eq!(page.text, "后来的已保存证据");
+        let db = store.db.lock().unwrap();
+        let head = db.record_document_head(&target).unwrap().unwrap();
+        assert_eq!(head.head_revision, 2);
+        assert_eq!(
+            page.spans[0].block_id.as_deref(),
+            head.projection.document["content"][0]["attrs"]["blockId"].as_str()
+        );
+        assert_eq!(
+            db.record_versions_list(&target, None, 50)
+                .unwrap()
+                .versions
+                .len(),
+            1
+        );
+    }
+    #[tokio::test]
+    #[ignore = "requires the prepared fixed Node runtime and built Record worker"]
+    async fn source_legacy_record_is_read_without_opening_an_editor() {
+        let (_directory, store, mut request, mut input) = fixture("other committed Record");
+        let legacy = store.db.lock().unwrap().workspace_record_upsert(WorkspaceRecordUpsertInput {
+            note_id: None,
+            title: Some("存量来源".into()),
+            html: "<h2>真实标题</h2><p>原始证据🙂</p><pre><code class=\"language-rust\">let x = 7;</code></pre>".into(),
+            markdown: "## 真实标题\n\n原始证据🙂\n\n```rust\nlet x = 7;\n```".into(),
+            default_code_language: Some("rust".into()),
+            tag_ids: vec![],
+        }).unwrap();
+        input.source.object.id = legacy.id.to_string();
+        request.request_id = "read-legacy-baseline".into();
+        let utility = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = SourceService::new(&store);
+        let page = service
+            .read_record(&request, &input, &utility)
+            .await
+            .unwrap();
+        assert_eq!(page.text, "真实标题\n\n原始证据🙂\n\nlet x = 7;");
+        assert_eq!(page.source_ref.title, "存量来源");
+        assert_eq!(page.spans.len(), 3);
+        assert!(page
+            .spans
+            .iter()
+            .all(|span| span.block_id.as_ref().is_some_and(|id| id.len() == 32)));
+        assert!(page.complete);
+        let first = serde_json::to_value(&page).unwrap();
+        let repeated = service
+            .read_record(&request, &input, &utility)
+            .await
+            .unwrap();
+        assert_eq!(serde_json::to_value(repeated).unwrap(), first);
+        service
+            .index_record(&request, &input.source, SourceIndexBudget::default())
+            .unwrap();
+        let found = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: Scope::Workspace,
+                    query: "原始证据".into(),
+                    selected: vec![],
+                    include_history: false,
+                    limit: None,
+                    budget_chars: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.revision, page.source_ref.revision);
     }
     fn fixture(text: &str) -> (tempfile::TempDir, Store, RequestContext, SourceReadInput) {
         let directory = tempfile::tempdir().unwrap();

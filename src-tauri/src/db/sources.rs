@@ -267,6 +267,38 @@ impl Database {
             document,
         })
     }
+    pub(crate) fn source_record_baseline(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &SourceReadTarget,
+    ) -> AgentResult<Option<(RecordTarget, crate::record_documents::RecordLegacySource)>> {
+        match self.source_record_fingerprint(request, binding, input) {
+            Ok(_) => Ok(None),
+            Err(error)
+                if error.code == ErrorCode::SourceNotReady
+                    && input.object.kind == ObjectKind::Record
+                    && input.revision.is_none()
+                    && input.record_version.is_none()
+                    && input.file_version.is_none() =>
+            {
+                // Fingerprinting has already confirmed ownership, current
+                // binding, live scope and policy before reporting a missing head.
+                let target = RecordTarget {
+                    scope: input.object.scope.clone(),
+                    record_id: input.object.id.parse().map_err(|_| {
+                        AgentError::new(
+                            ErrorCode::InvalidArgument,
+                            "Invalid Record source identity",
+                        )
+                    })?,
+                };
+                let source = self.record_document_source(&target)?;
+                Ok(Some((target, source)))
+            }
+            Err(error) => Err(error),
+        }
+    }
     /// Prune derived bodies whose business object/version is gone, moved, or
     /// excluded before counts/pagination are computed. Policies remain durable.
     fn source_prune_record_cache(
