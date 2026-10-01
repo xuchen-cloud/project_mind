@@ -596,6 +596,7 @@ impl Database {
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
         self.file_import_recover_pending()?;
         self.file_metadata_recover_pending()?;
+        self.file_delete_recover_pending()?;
         let base = self.workspace_root.join(JOURNALS);
         if !base.exists() {
             return Ok(());

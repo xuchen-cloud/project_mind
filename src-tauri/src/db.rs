@@ -16,6 +16,7 @@ pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
 mod file_imports;
 mod file_metadata;
+mod file_deletions;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -40,7 +41,7 @@ use crate::{
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentDeleteInput, DocumentImportClipboardNoteImageInput,
+        ContactUpsertInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
@@ -3716,21 +3717,6 @@ impl Database {
         let document = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(document.project_id)?;
         self.fetch_document_versions(input.document_id)
-    }
-
-    pub fn document_delete(&mut self, input: DocumentDeleteInput) -> Result<DocumentRecord> {
-        let _file_locks = self.file_native_write_locks(input.document_id)?;
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-
-        let managed_assets = collect_document_managed_assets_for_delete(&current);
-        move_paths_to_trash(&managed_assets)?;
-
-        self.conn
-            .execute("DELETE FROM documents WHERE id = ?1", [input.document_id])?;
-
-        self.touch_project(current.project_id)?;
-        Ok(current)
     }
 
     pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
@@ -8888,21 +8874,6 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_document_managed_assets_for_delete(document: &DocumentRecord) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let managed_path = PathBuf::from(&document.managed_path);
-    if managed_path.exists() {
-        paths.push(managed_path);
-    }
-
-    let history_dir = PathBuf::from(&document.history_dir_path);
-    if history_dir.exists() {
-        paths.push(history_dir);
-    }
-
-    paths
-}
-
 fn move_paths_to_trash(paths: &[PathBuf]) -> Result<()> {
     if paths.is_empty() {
         return Ok(());
@@ -9003,7 +8974,7 @@ fn escape_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DocumentAddVersionInput, DocumentUpdateMetaInput};
+    use crate::models::{DocumentAddVersionInput, DocumentDeleteInput, DocumentUpdateMetaInput};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},

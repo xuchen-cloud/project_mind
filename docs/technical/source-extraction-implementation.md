@@ -142,3 +142,15 @@ File 改名/metadata、relocate 与删除自身的原子 outbox/恢复仍待下�
 全量并发测试发现共享 agent_atomic_operation 的 deferred 事务可能在读回执之后与另一连接的写锁竞争；改为 BEGIN IMMEDIATE，在读取回执/CAS 前预留写锁。实际双连接测试持有 writer 时，等待方不进入 apply，释放后只提交一份凭证。此修改不增加公开 adapter，也不代替未来 Workspace Host 单写者约束。主 agent 自查 Standards / Spec：事务/outbox 故障恢复完整旧状态，归属标签不跨 scope，原始版本身份与缺失状态保持，通知继续在锁释放后发布。GUI 稳定 requestId、短锁外层、用户恢复诊断和 Windows 实包仍待接入。
 
 本阶段最终验证：Rust 全目标库 374 passed、18 默认忽略；source 显式真实进程专项 109 passed，Record 100 passed。metadata 专项包含 5 个父用例及父用例启动的 helper，双连接 writer 测试另计；14 次 Linux SIGKILL 验证七个改名阶段与两种历史状态。未改前端，既有 959 passed/1 个驻留用例超时门槛继续保留。File 删除/relocate 自身的持久恢复与原子 outbox 仍待后续；本阶段不宣称 #100/#114 已交付，不发布 PR、合并 main 或关闭 Issue。公开能力、普通 worker 分发与 Schema 门禁保持。
+
+### File 删除与可恢复资源清理（2026-10-01 后续阶段）
+
+原生 File 删除复用实际 File ID、Project/File 锁和持久凭证。先捕获各权威 Version 的路径/hash/物理身份并同步 journal，再把存在的版本逐个移入私有暂存区；缺失版本保持缺失。删除主行、版本/标签级联、Project touch、稳定删除凭证与真实 File tombstone 在同一个 SQLite 事务提交。写入或 outbox 失败恢复全部原路径，不再出现数据库保留 File、托管文件已被删除的状态；未知旧版本的捕获 hash 不作为历史登记。
+
+提交后清理继续走既有原生 trash 边界，暂存保留原文件名；只清理权威 Version，不把整个历史目录中的非版本文件一起删除。历史目录仅在为空时移除。部分清理可从 committed receipt 继续，不重复删除日志；回收前同时校验字节与物理身份，同字节替换文件也保留。不递归删除带有额外未知数据的已提交 journal。共享初始化与后续写入复用恢复入口，descriptor-less staging 先取得 File 锁；提交后清理失败保留 journal 并记录诊断，不能声称逻辑删除失败。恢复冲突目前仍可能阻止 Workspace 打开，产品诊断/清理进度 UI 与短锁外层待接入。
+
+File tombstone 在日志清理与重开后保留，queued/running 提取任务由同事务触发器取消，依赖失效沿现有图传播；不另建 File 正文、版本或删除 registry。GUI 按现有提交捕获边界在锁释放后发布真实 File 引用，回滚不通知。客户端稳定 requestId 和公开删除 adapter 不在本阶段开放；Record 内嵌图片仍不冒充来源 File。
+
+主 agent Standards / Spec 自查与真实 SQLite 测试覆盖 SQL 拒绝删除、outbox 回滚、队列取消、持久 tombstone、外来同字节原路径/暂存路径、活跃 staging 互斥，以及缺失 head 和正常 head 两种状态在七个阶段的 14 次 Linux SIGKILL。删除专项 6 个父用例及一个由父用例启动的 ignored fixture；测试清理使用既有 cfg(test) 文件移除边界，不将它称为各平台真实回收站、磁盘满或断电验收。Rust 全目标库 380 passed、19 默认忽略；source 显式真实进程专项 109 passed、Record 100 passed。前端未改，既有 959 passed/1 个驻留用例超时门槛保留。
+
+本阶段原生 File 导入、版本、改名/metadata 和删除已有自身的 outbox/恢复，relocate 的旧覆盖语义仍需结合登记 hash 收紧。公开 source.search/read、File adapters、普通 source worker 分发、Schema 29、GUI CAS/上传、Windows 实包及产品恢复诊断仍未交付。#100/#114 保持 OPEN，未发布阶段 PR、合并 main 或关闭 Issue。
