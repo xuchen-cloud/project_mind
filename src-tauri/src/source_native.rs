@@ -16,6 +16,7 @@ pub(crate) struct NativeSourceSnapshot {
     pub revision: String,
     pub title: String,
     pub paragraphs: Vec<String>,
+    pub locators: Vec<SourceLocator>,
     pub updated_at: String,
 }
 fn invalid(message: &str) -> AgentError {
@@ -59,10 +60,12 @@ fn index_snapshot(
             let end = (offset + 1800).min(allowed);
             chunks.push(IndexChunk {
                 text: characters[offset..end].iter().collect(),
-                locator: SourceLocator::Paragraph {
-                    start: index as u32 + 1,
-                    end: index as u32 + 1,
-                },
+                locator: snapshot.locators.get(index).cloned().unwrap_or(
+                    SourceLocator::Paragraph {
+                        start: index as u32 + 1,
+                        end: index as u32 + 1,
+                    },
+                ),
                 block_id: None,
             });
             unique_chars += end - covered;
@@ -92,7 +95,11 @@ fn index_snapshot(
     };
     Ok(cached)
 }
-fn validate_read(input: &SourceReadInput) -> AgentResult<Option<(u32, u32)>> {
+enum NativeRange {
+    Paragraph(u32, u32),
+    Time(u64, u64),
+}
+fn validate_read(input: &SourceReadInput) -> AgentResult<Option<NativeRange>> {
     if input.budget_chars == Some(0)
         || input.source.revision.as_ref().is_some_and(|revision| {
             revision.len() != 71
@@ -109,9 +116,23 @@ fn validate_read(input: &SourceReadInput) -> AgentResult<Option<(u32, u32)>> {
         (SourceReadView::Range, Some(selection)) if selection.block_id.is_none() => {
             match &selection.locator {
                 Some(SourceLocator::Paragraph { start, end }) if *start > 0 && end >= start => {
-                    Some((*start, *end))
+                    if input.source.object.kind == crate::agent::models::ObjectKind::Transcript {
+                        return Err(invalid("Choose a Transcript time range"));
+                    }
+                    Some(NativeRange::Paragraph(*start, *end))
                 }
-                _ => return Err(invalid("Choose a native source paragraph range")),
+                Some(SourceLocator::Time { start_ms, end_ms })
+                    if start_ms < end_ms
+                        && input.source.object.kind
+                            == crate::agent::models::ObjectKind::Transcript =>
+                {
+                    Some(NativeRange::Time(*start_ms, *end_ms))
+                }
+                _ => {
+                    return Err(invalid(
+                        "Choose a native source paragraph or Transcript time range",
+                    ))
+                }
             }
         }
         _ => {
@@ -128,7 +149,8 @@ fn read_snapshot(
 ) -> AgentResult<SourceReadPage> {
     let range = validate_read(input)?;
     let cursor = crate::source_text_page::decode_cursor(input)?;
-    if range.is_some_and(|(_, end)| end as usize > snapshot.paragraphs.len()) {
+    if matches!(&range, Some(NativeRange::Paragraph(_, end)) if *end as usize > snapshot.paragraphs.len())
+    {
         return Err(invalid("Paragraph range exceeds native source fields"));
     }
     let mut text = String::new();
@@ -136,7 +158,22 @@ fn read_snapshot(
     let mut chars = 0;
     for (index, paragraph) in snapshot.paragraphs.iter().enumerate() {
         let number = index as u32 + 1;
-        if range.is_some_and(|(start, end)| number < start || number > end) {
+        let locator = snapshot
+            .locators
+            .get(index)
+            .cloned()
+            .unwrap_or(SourceLocator::Paragraph {
+                start: number,
+                end: number,
+            });
+        if match (&range, &locator) {
+            (Some(NativeRange::Paragraph(start, end)), _) => number < *start || number > *end,
+            (Some(NativeRange::Time(start, end)), SourceLocator::Time { start_ms, end_ms }) => {
+                *end_ms <= *start || *start_ms >= *end
+            }
+            (Some(NativeRange::Time(_, _)), _) => true,
+            (None, _) => false,
+        } {
             continue;
         }
         if !text.is_empty() {
@@ -150,11 +187,13 @@ fn read_snapshot(
             start,
             end: chars,
             block_id: None,
-            locator: SourceLocator::Paragraph {
-                start: number,
-                end: number,
-            },
+            locator,
         });
+    }
+    if range.is_some() && spans.is_empty() {
+        return Err(invalid(
+            "Time range does not contain final Transcript segments",
+        ));
     }
     crate::source_text_page::paginate(
         input,
@@ -184,9 +223,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     ) -> AgentResult<()> {
         if !matches!(
             source.object.kind,
-            crate::agent::models::ObjectKind::Project | crate::agent::models::ObjectKind::Todo
+            crate::agent::models::ObjectKind::Project
+                | crate::agent::models::ObjectKind::Todo
+                | crate::agent::models::ObjectKind::Transcript
         ) {
-            return Err(invalid("Choose a Project or Todo native source"));
+            return Err(invalid(
+                "Choose a Project, Todo or Transcript native source",
+            ));
         }
         let snapshot = self
             .store
@@ -203,9 +246,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         validate_read(input)?;
         if !matches!(
             input.source.object.kind,
-            crate::agent::models::ObjectKind::Project | crate::agent::models::ObjectKind::Todo
+            crate::agent::models::ObjectKind::Project
+                | crate::agent::models::ObjectKind::Todo
+                | crate::agent::models::ObjectKind::Transcript
         ) {
-            return Err(invalid("Choose a Project or Todo native source"));
+            return Err(invalid(
+                "Choose a Project, Todo or Transcript native source",
+            ));
         }
         let snapshot = self.store.with_current(|binding, db| {
             db.source_native_snapshot(request, binding, &input.source)

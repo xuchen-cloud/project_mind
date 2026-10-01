@@ -548,16 +548,16 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 file_version: candidate.source_ref.file_version,
             };
             let verified = match source.object.kind {
-                ObjectKind::Project | ObjectKind::Todo | ObjectKind::QuickNote => {
-                    self.store.with_current(|binding, db| {
-                        let snapshot = db.source_native_snapshot(request, binding, &source)?;
-                        if candidate.title != snapshot.title.chars().take(1000).collect::<String>()
-                        {
-                            return Err(changed());
-                        }
-                        Ok(None)
-                    })
-                }
+                ObjectKind::Project
+                | ObjectKind::Todo
+                | ObjectKind::QuickNote
+                | ObjectKind::Transcript => self.store.with_current(|binding, db| {
+                    let snapshot = db.source_native_snapshot(request, binding, &source)?;
+                    if candidate.title != snapshot.title.chars().take(1000).collect::<String>() {
+                        return Err(changed());
+                    }
+                    Ok(None)
+                }),
                 ObjectKind::Record => self.store.with_current(|binding, db| {
                     let fingerprint = db.source_record_fingerprint(request, binding, &source)?;
                     if candidate.title != fingerprint.title.chars().take(1000).collect::<String>() {
@@ -684,7 +684,9 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     ) -> AgentResult<SourceReadPage> {
         if matches!(
             input.source.object.kind,
-            crate::agent::models::ObjectKind::Project | crate::agent::models::ObjectKind::Todo
+            crate::agent::models::ObjectKind::Project
+                | crate::agent::models::ObjectKind::Todo
+                | crate::agent::models::ObjectKind::Transcript
         ) {
             return self.read_native(request, input);
         }

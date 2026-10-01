@@ -40,6 +40,7 @@ impl Database {
                 | ObjectKind::Project
                 | ObjectKind::Todo
                 | ObjectKind::QuickNote
+                | ObjectKind::Transcript
         ) {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
@@ -61,6 +62,7 @@ impl Database {
             (ObjectKind::Project,_)=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
             (ObjectKind::QuickNote,Scope::Workspace)=>self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='today_quick_note'",[id],|_|Ok(Scope::Workspace)).optional(),
             (ObjectKind::QuickNote,Scope::Project {..})=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::Transcript,_)=>self.conn.query_row("SELECT n.project_id FROM voice_records v LEFT JOIN notes n ON n.id=v.project_note_id LEFT JOIN workspace_notes w ON w.id=v.workspace_note_id WHERE v.id=?1 AND (n.id IS NOT NULL OR w.id IS NOT NULL)",[id],|row| Ok(match row.get::<_,Option<i64>>(0)? { Some(project_id)=>Scope::Project {project_id},None=>Scope::Workspace })).optional(),
             (ObjectKind::Todo,_)=>self.conn.query_row("SELECT scope,project_id FROM todos WHERE id=?1",[id],|row| {
                 let kind: String = row.get(0)?;
                 Ok(if kind == "workspace" { Scope::Workspace } else { Scope::Project {project_id: row.get(1)?} })
@@ -394,6 +396,7 @@ impl Database {
             ObjectKind::Project,
             ObjectKind::Todo,
             ObjectKind::QuickNote,
+            ObjectKind::Transcript,
         ];
         if input.kinds.iter().any(|kind| !supported.contains(kind)) {
             return Err(AgentError::new(
@@ -445,7 +448,10 @@ impl Database {
                 file_version: candidate.source_ref.file_version,
             };
             match target.object.kind {
-                ObjectKind::Project | ObjectKind::Todo | ObjectKind::QuickNote => {
+                ObjectKind::Project
+                | ObjectKind::Todo
+                | ObjectKind::QuickNote
+                | ObjectKind::Transcript => {
                     self.source_native_snapshot(request, binding, &target)?;
                 }
                 ObjectKind::Record => {

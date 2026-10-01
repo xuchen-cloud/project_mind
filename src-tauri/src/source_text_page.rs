@@ -46,7 +46,9 @@ pub(crate) fn decode_cursor(input: &SourceReadInput) -> AgentResult<Option<ReadC
         })
         .transpose()
 }
-fn locator_span(first: &SourceLocator, last: &SourceLocator) -> Option<SourceLocator> {
+fn locator_span(spans: &[SourceReadSpan]) -> Option<SourceLocator> {
+    let first = &spans.first()?.locator;
+    let last = &spans.last()?.locator;
     match (first, last) {
         (SourceLocator::Paragraph { start, .. }, SourceLocator::Paragraph { end, .. }) => {
             Some(SourceLocator::Paragraph {
@@ -64,11 +66,17 @@ fn locator_span(first: &SourceLocator, last: &SourceLocator) -> Option<SourceLoc
             start: *start,
             end: *end,
         }),
-        (SourceLocator::Time { start_ms, .. }, SourceLocator::Time { end_ms, .. }) => {
-            Some(SourceLocator::Time {
-                start_ms: *start_ms,
-                end_ms: *end_ms,
-            })
+        (SourceLocator::Time { .. }, SourceLocator::Time { .. }) => {
+            let (start_ms, end_ms) =
+                spans
+                    .iter()
+                    .try_fold((u64::MAX, 0), |(start, end), span| match &span.locator {
+                        SourceLocator::Time { start_ms, end_ms } => {
+                            Some((start.min(*start_ms), end.max(*end_ms)))
+                        }
+                        _ => None,
+                    })?;
+            Some(SourceLocator::Time { start_ms, end_ms })
         }
         _ => None,
     }
@@ -187,9 +195,7 @@ pub(crate) fn paginate(
                     None
                 }
             });
-        source_ref.locator = page_spans
-            .first()
-            .and_then(|first| locator_span(&first.locator, &page_spans.last()?.locator));
+        source_ref.locator = locator_span(&page_spans);
         Ok(SourceReadPage {
             source_ref,
             text: text[offset..end].into(),

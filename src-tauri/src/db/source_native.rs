@@ -85,6 +85,7 @@ impl Database {
                 revision,
                 title,
                 paragraphs: vec![],
+                locators: vec![],
                 updated_at,
             },
             html,
@@ -128,6 +129,7 @@ impl Database {
                  OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))",
             rusqlite::params![binding.workspace_id, scope.key(), project_id],
         ).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot clean QuickNote source cache"))?;
+        self.source_prune_transcript_cache(binding, scope)?;
         Ok(())
     }
     pub(crate) fn source_index_native(
@@ -158,6 +160,9 @@ impl Database {
         binding: &WorkspaceBinding,
         input: &SourceReadTarget,
     ) -> AgentResult<NativeSourceSnapshot> {
+        if input.object.kind == ObjectKind::Transcript {
+            return self.source_transcript_snapshot(request, binding, input);
+        }
         if input.object.kind == ObjectKind::QuickNote {
             return Ok(self
                 .source_quick_note_snapshot(request, binding, input)?
@@ -221,6 +226,7 @@ impl Database {
                 revision,
                 title: todo.content,
                 paragraphs,
+                locators: vec![],
                 updated_at: todo.updated_at,
             });
         }
@@ -256,6 +262,7 @@ impl Database {
             object,
             revision,
             title: name.clone(),
+            locators: vec![],
             updated_at,
             paragraphs: vec![
                 format!("名称：{name}"),

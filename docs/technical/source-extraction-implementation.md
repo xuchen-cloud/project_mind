@@ -29,7 +29,7 @@
 - Todo 原生来源包含当前内容、状态、优先级、期限与真实 Subtask；子项 ID、内容、状态、期限、顺序和完成信息共同进入语义修订，更新时间不是并发依据。子任务通过所属 Todo 的段落范围定位，不伪造独立 Record/版本或 block ID。
 - QuickNote 只转换持久化的 Committed HTML；空 HTML 按既有 Markdown 转换补投影，冗余 Markdown 和更新时间不改变已有 HTML 的修订。修订基于既有持久化 HTML（资源已相对化）、code language 和语义元信息；等价 HTML 的序列化变化会保守使旧引用失效。复用固定 Record 转换进程，转换产物与临时 block ID 不落业务表，不创建正文版本、不写 Overview，来源标题明确标注“临时想法”。
 - 五类来源共用实际所有权、Scope Grant、Workspace generation、排除与 Archive 检查；QuickNote 转换在锁外执行，原生读取、索引提交和混合检索返回前复查当前修订。原生来源只保存一份当前缓存，includeHistory 不产生不存在的原生历史；删除、排除、错误业务归属在排名和统计前清理。
-- 共享 source search 增加显式 `kinds`，默认混合已实现的 Record/File/Project/Todo/QuickNote；筛选发生在排名、limit 和 hasMore 前。尚未实现的 kind 返回 SourceNotReady，公开 capability 继续关闭。
+- 共享 source search 增加显式 `kinds`，默认混合已实现的 Record/File/Project/Todo/QuickNote/Transcript；筛选发生在排名、limit 和 hasMore 前。尚未实现的 kind 返回 SourceNotReady，公开 capability 继续关闭。
 - 缓存统计分别报告对象、快照、chunk 和已存储内容字节；后者是 payload 统计，不包含 FTS/B-tree 页面开销，不能冒充整个 SQLite 文件大小。
 - Workspace Record 使用 `[[workspace_record:<id>|<label>]]` 专用引用，旧 `note:<id>` 继续指向 Project Record。文本/HTML/Committed JSON/Markdown 转换、候选搜索与导航、正文/Todo 归属校验和可携带导出一起兼容；同号对象不混淆，删除后不回退到另一张表。Project 内容拒绝新增 Workspace 引用。引用候选列表复用公共滚动边缘测量，限制到浮层可用高度，遮罩不覆盖滚动条或阻挡点击。
 
@@ -59,8 +59,12 @@
 
 本批最终 Rust 全量 308 项通过、15 项默认忽略；来源专项 75 项及 Record 专项 99 项（均显式含固定进程）通过，覆盖提交后锁释放、正文/metadata 通知、重放/回滚无重复通知、基线唯一通知、canonical 去重与 200 项上限、GUI/外部连接权限。前端全量 139 文件/954 项通过，随后新增同路径重开用例并修复绑定刷新；最终通知/绑定/编辑器回归 3 文件/20 项通过。构建及路径/UI/bundle 检查通过，启动脚本 187 KiB/250 KiB。未启动应用窗口、使用真实 Provider 或执行 Windows 实包验证。
 
+Transcript 原生来源接入真实 `voice_records` 与已持久化 final segments，以 Voice Record ID 定位原始转写，和可编辑 Record 正文保持独立。只读时间范围/Unicode 分页、1800/200 chunk、语义修订、当前缓存和混合 kind 检索复用共享边界；不提供 Record/File 版本或 block ID。重复 final delivery 和 Record 正文修改不改变转写修订，追加 final segment 会使旧读取/缓存失效；时间定位保留实际段边界，重叠段的引用覆盖使用所有已读段的最小/最大时间。
+
+本批新增 7 项真实数据库/共享服务测试，覆盖原始转写/正文隔离、final 重放、时间范围、实际 owner/Scope Grant/generation、排除与 Archive、分页及序列化预算、部分索引覆盖、删除缓存、投影后并发提交与重叠时间定位。来源专项在最后两项加入前 80 项（含固定进程）通过；最终 Rust 全量 315 项通过、15 项默认忽略，包含最终 7 项 Transcript 测试。内部转写快照超过 2 Mi Unicode 字符或 10000 段返回 BudgetExceeded，尚待分段快照读取，不能标成截断后完整。正式会话分支/消息及会话摘要仍待对应业务模块提供已提交注册接缝，未假造 branch ID 或摘要版本。
+
 ## 后续责任
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
 
-Record 的按需基线接口与 Workspace Record typed token 已实现；前者尚待后台队列调用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。Transcript/正式会话来源、500ms 合并、其余 GUI 业务写入的 outbox 和持久后台队列尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+Record 的按需基线接口与 Workspace Record typed token 已实现；前者尚待后台队列调用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、500ms 合并、其余 GUI 业务写入的 outbox 和持久后台队列尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
