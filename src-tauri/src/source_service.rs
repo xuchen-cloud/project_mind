@@ -125,6 +125,8 @@ pub(crate) struct SourceSearchInput {
     pub scope: Scope,
     pub query: String,
     #[serde(default)]
+    pub kinds: Vec<crate::agent::models::ObjectKind>,
+    #[serde(default)]
     pub selected: Vec<ObjectRef>,
     #[serde(default)]
     pub include_history: bool,
@@ -172,6 +174,13 @@ struct TextSpan {
     end: usize,
     block_id: String,
     paragraph: u32,
+}
+pub(crate) fn committed_paragraphs(document: &Value) -> AgentResult<Vec<String>> {
+    let (text, spans) = flatten_record(document, None)?;
+    Ok(spans
+        .into_iter()
+        .map(|span| text[span.start_byte..span.end_byte].to_owned())
+        .collect())
 }
 fn invalid(message: &str) -> AgentError {
     AgentError::new(ErrorCode::InvalidArgument, message)
@@ -521,6 +530,16 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 file_version: candidate.source_ref.file_version,
             };
             let verified = match source.object.kind {
+                ObjectKind::Project | ObjectKind::Todo | ObjectKind::QuickNote => {
+                    self.store.with_current(|binding, db| {
+                        let snapshot = db.source_native_snapshot(request, binding, &source)?;
+                        if candidate.title != snapshot.title.chars().take(1000).collect::<String>()
+                        {
+                            return Err(changed());
+                        }
+                        Ok(None)
+                    })
+                }
                 ObjectKind::Record => self.store.with_current(|binding, db| {
                     let fingerprint = db.source_record_fingerprint(request, binding, &source)?;
                     if candidate.title != fingerprint.title.chars().take(1000).collect::<String>() {
@@ -644,6 +663,12 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         request: &RequestContext,
         input: &SourceReadInput,
     ) -> AgentResult<SourceReadPage> {
+        if matches!(
+            input.source.object.kind,
+            crate::agent::models::ObjectKind::Project | crate::agent::models::ObjectKind::Todo
+        ) {
+            return self.read_native(request, input);
+        }
         if input.source.revision.as_ref().is_some_and(|revision| {
             revision.len() != 71
                 || !revision.starts_with("sha256:")
@@ -809,6 +834,81 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn source_project_reads_only_project_identity_and_preserves_reference_across_quick_note_edits(
+    ) {
+        use crate::models::{ProjectCreateInput, ProjectUpdateInput};
+        let (_directory, store, mut request, mut input) = fixture("unrelated Record");
+        let project = store
+            .db
+            .lock()
+            .unwrap()
+            .project_create(ProjectCreateInput {
+                name: "项目来源".into(),
+                summary: Some("PRIVATE QUICK NOTE".into()),
+                status: Some("active".into()),
+            })
+            .unwrap();
+        request.scope_grant.project_ids.push(project.id);
+        input.source.object = ObjectRef {
+            workspace_id: request.binding.workspace_id.clone(),
+            scope: Scope::Project {
+                project_id: project.id,
+            },
+            kind: ObjectKind::Project,
+            id: project.id.to_string(),
+        };
+        input.budget_chars = None;
+        let service = SourceService::new(&store);
+        let first = service.read(&request, &input).unwrap();
+        assert_eq!(first.source_ref.object, input.source.object);
+        assert_eq!(first.source_ref.title, "项目来源");
+        assert_eq!(first.text, "名称：项目来源\n\n状态：active\n\n归档：false");
+        assert!(!first.text.contains("PRIVATE QUICK NOTE"));
+        assert!(first.spans.iter().all(|span| span.block_id.is_none()));
+        assert_eq!(first.source_ref.record_version, None);
+        assert_eq!(first.source_ref.file_version, None);
+        store
+            .db
+            .lock()
+            .unwrap()
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: None,
+                summary: "Later buffer".into(),
+                summary_markdown: Some("Later buffer".into()),
+                summary_html: Some("<p>Later buffer</p>".into()),
+                summary_code_language: None,
+                status: None,
+            })
+            .unwrap();
+        input.source.revision = Some(first.source_ref.revision.clone());
+        let same = service.read(&request, &input).unwrap();
+        assert_eq!(same.source_ref.revision, first.source_ref.revision);
+        assert_eq!(same.text, first.text);
+        store
+            .db
+            .lock()
+            .unwrap()
+            .project_update(ProjectUpdateInput {
+                project_id: project.id,
+                name: None,
+                summary: "Later buffer".into(),
+                summary_markdown: Some("Later buffer".into()),
+                summary_html: Some("<p>Later buffer</p>".into()),
+                summary_code_language: None,
+                status: Some("done".into()),
+            })
+            .unwrap();
+        assert_eq!(
+            service.read(&request, &input).unwrap_err().code,
+            ErrorCode::SourceChanged
+        );
+        input.source.revision = None;
+        let current = service.read(&request, &input).unwrap();
+        assert!(current.text.contains("状态：done"));
+        assert_ne!(current.source_ref.revision, first.source_ref.revision);
+    }
+    #[tokio::test]
     async fn source_empty_record_is_discoverable_by_title_without_invented_block_evidence() {
         let (_directory, store, request, input) = fixture("initial");
         commit_document(
@@ -827,6 +927,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: Scope::Workspace,
                     query: "分页验收".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: None,
@@ -1062,6 +1163,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: Scope::Workspace,
                     query: "原始证据".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: None,
@@ -1520,6 +1622,7 @@ mod tests {
         let query = SourceSearchInput {
             scope: Scope::Workspace,
             query: "合同风险".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,
@@ -1586,6 +1689,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: Scope::Workspace,
                     query: "evidence".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: None,
@@ -1616,6 +1720,7 @@ mod tests {
         let query = SourceSearchInput {
             scope: Scope::Workspace,
             query: "evidence".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,
@@ -1664,6 +1769,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: Scope::Workspace,
                     query: "evidence".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: true,
                     limit: None,
@@ -1710,6 +1816,7 @@ mod tests {
         let query = SourceSearchInput {
             scope: Scope::Workspace,
             query: "evidence".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,

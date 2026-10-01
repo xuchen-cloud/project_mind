@@ -22,9 +22,14 @@
 - 文件捕获、固定进程提取、分页投影均在业务锁外运行，各异步阶段前后重新核对授权与版本，并在返回分页前复查字节。当前版本切换使游标失效，即使新旧字节 hash 相同；显式历史版本仍读取其保留路径。提取期间切换工作区、排除、外部改写或新增版本均丢弃旧结果。
 - File 文本读取使用默认 4000、硬限 12000 的序列化 Unicode 字符预算，包含引用、范围、游标及提取状态；全文和段落/PDF 页内范围分页去除提取 chunk 重叠，不重复证据。SourceRef 明确携带 File Version、实际字节 hash 和段落/页内字符定位，不伪造 Record blockId。部分 PDF、扫描/加密或无效文本状态保留真实 coverage，提取末页不等于完整阅读；原始 HTML 字节仍由后续 file.source.read/版本服务负责。
 - File 提取可按可信批次预算提交共享索引，版本号始终对应实际 File Version；段落/页内重叠不重复计数，预算截断同步调整页内范围。读取服务与混合 Record/File 检索共享授权边界，File 搜索在排行后逐项核对实际字节，返回前再次检查授权、当前版本和 stat/hash；只保留无正文的核验凭证，避免搜索 50 个 PDF 时长期保留 50 份字节缓冲。
-- File 删除、版本删除、错误业务归属、未登记 hash 或排除状态在排行/分页/统计前清理；新增版本立即让旧缓存退出默认当前检索，历史版本仅在 includeHistory 下可见。共享检索仅允许已实现的 Record/File kind 进入排行与 hasMore，尚未实现的来源类型不占用候选预算。Record 私有正文图片不作为独立 File 来源。
+- File 删除、版本删除、错误业务归属、未登记 hash 或排除状态在排行/分页/统计前清理；新增版本立即让旧缓存退出默认当前检索，历史版本仅在 includeHistory 下可见。共享检索支持已实现的 Record/File/Project/Todo/QuickNote kind 进入排行与 hasMore，尚未实现的来源类型不占用候选预算。Record 私有正文图片不作为独立 File 来源。
 - 无正文 chunk 的来源也可按标题发现；同样在排行前检查 scope、kind、排除与当前/历史版本，支持多词和转义后的字面查询。空 Record、扫描件等不生成假正文 chunk、excerpt、blockId 或 locator；保留真实零字符 coverage。实际扫描 PDF 的读取仍返回 needs_ocr，不能因标题命中宣称已读原文。
 - Record/File 共用纯文本分页内核；统一完整序列化预算、Unicode 字节游标校验、段落/页内范围裁剪、真实覆盖与末页标记。业务服务分别负责来源投影和前后授权/字节复查，分页内核不授予权限，也不创建正文版本。现有 Record 游标结构保持兼容，File 游标继续绑定实际版本号。
+- Project 原生来源只读名称、状态和 Archive，语义修订不含 QuickNote、路径或更新时间；Project QuickNote 另有 `quick_note` kind，以 Project ID 和 Project scope 定位。Workspace QuickNote 使用 `workspace_notes` 中真实 `today_quick_note` ID，同号 Record 不回退或混淆。
+- Todo 原生来源包含当前内容、状态、优先级、期限与真实 Subtask；子项 ID、内容、状态、期限、顺序和完成信息共同进入语义修订，更新时间不是并发依据。子任务通过所属 Todo 的段落范围定位，不伪造独立 Record/版本或 block ID。
+- QuickNote 只转换持久化的 Committed HTML；空 HTML 按既有 Markdown 转换补投影，冗余 Markdown 和更新时间不改变已有 HTML 的修订。修订基于既有持久化 HTML（资源已相对化）、code language 和语义元信息；等价 HTML 的序列化变化会保守使旧引用失效。复用固定 Record 转换进程，转换产物与临时 block ID 不落业务表，不创建正文版本、不写 Overview，来源标题明确标注“临时想法”。
+- 五类来源共用实际所有权、Scope Grant、Workspace generation、排除与 Archive 检查；QuickNote 转换在锁外执行，原生读取、索引提交和混合检索返回前复查当前修订。原生来源只保存一份当前缓存，includeHistory 不产生不存在的原生历史；删除、排除、错误业务归属在排名和统计前清理。
+- 共享 source search 增加显式 `kinds`，默认混合已实现的 Record/File/Project/Todo/QuickNote；筛选发生在排名、limit 和 hasMore 前。尚未实现的 kind 返回 SourceNotReady，公开 capability 继续关闭。
 - 缓存统计分别报告对象、快照、chunk 和已存储内容字节；后者是 payload 统计，不包含 FTS/B-tree 页面开销，不能冒充整个 SQLite 文件大小。
 - Workspace Record 使用 `[[workspace_record:<id>|<label>]]` 专用引用，旧 `note:<id>` 继续指向 Project Record。文本/HTML/Committed JSON/Markdown 转换、候选搜索与导航、正文/Todo 归属校验和可携带导出一起兼容；同号对象不混淆，删除后不回退到另一张表。Project 内容拒绝新增 Workspace 引用。引用候选列表复用公共滚动边缘测量，限制到浮层可用高度，遮罩不覆盖滚动条或阻挡点击。
 
@@ -43,6 +48,8 @@
 本批标题发现新增缓存、真实扫描 PDF 和空 Record 3 项；来源专项 64 项（含真实进程）通过。
 
 原生测试验证资源篡改拒绝、同 Workspace 排队、其他 Workspace 独立运行、超时终止后可重试、响应覆盖与定位的一致性。共用执行内核调整后，Record 85 项（含默认忽略的实际进程用例）及既有 Node 转换/许可 6 项通过。
+
+本批原生来源新增 11 项真实服务测试（含 3 项固定转换/提取进程测试）：Project/QuickNote 隔离、原生修订与单份缓存、错误 owner/Scope Grant、Archive/排除/Workspace generation、Unicode 分页、原生版本与 block 选择拒绝、Todo/子项变更及删除、五类混合检索和 kind/limit，以及转换/投影后的 freshness fence。来源全量在最终 fence 用例加入前为 74 项通过；最终 Rust 全量为 304 项通过、15 项默认忽略。最终 fence 已包含在 Rust 全量中。没有启动应用窗口、发送 Provider 请求或改动前端。
 
 ## 后续责任
 

@@ -33,7 +33,14 @@ impl Database {
                 "Source is outside this Workspace",
             ));
         }
-        if !matches!(object.kind, ObjectKind::Record | ObjectKind::File) {
+        if !matches!(
+            object.kind,
+            ObjectKind::Record
+                | ObjectKind::File
+                | ObjectKind::Project
+                | ObjectKind::Todo
+                | ObjectKind::QuickNote
+        ) {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
                 "This source kind is not ready for reading",
@@ -51,6 +58,13 @@ impl Database {
             (ObjectKind::Record,Scope::Workspace)=> self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",[id],|_|Ok(Scope::Workspace)).optional(),
             (ObjectKind::Record,Scope::Project { .. })=>self.conn.query_row("SELECT n.project_id FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=?1",[id],|row| Ok(Scope::Project { project_id:row.get(0)? })).optional(),
             (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1 AND d.storage_mode!='managed_note_image'",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::Project,_)=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::QuickNote,Scope::Workspace)=>self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='today_quick_note'",[id],|_|Ok(Scope::Workspace)).optional(),
+            (ObjectKind::QuickNote,Scope::Project {..})=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::Todo,_)=>self.conn.query_row("SELECT scope,project_id FROM todos WHERE id=?1",[id],|row| {
+                let kind: String = row.get(0)?;
+                Ok(if kind == "workspace" { Scope::Workspace } else { Scope::Project {project_id: row.get(1)?} })
+            }).optional(),
             _=>return Err(AgentError::new(ErrorCode::SourceNotReady,"This source kind is not ready for reading")),
         }.map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Source is no longer present"))?;
         let resolved = ObjectRef {
@@ -94,6 +108,27 @@ impl Database {
             Ok((policy,Some(change)))
         })
     }
+    pub(super) fn source_read_object(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<ObjectRef> {
+        let resolved = self.source_resolve_business(request, binding, object, "source.read")?;
+        self.source_live_scope(&resolved.scope)?;
+        self.source_prepare()?;
+        let excluded: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
+            [resolved.key()?],|row|row.get(0),
+        ).map_err(io_error)?;
+        if excluded {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Source is excluded from AI access",
+            ));
+        }
+        Ok(resolved)
+    }
     pub(super) fn source_live_scope(&self, scope: &Scope) -> AgentResult<()> {
         if let Scope::Project { project_id } = scope {
             let archived: bool = self
@@ -131,15 +166,13 @@ impl Database {
         binding: &WorkspaceBinding,
         input: &SourceReadTarget,
     ) -> AgentResult<SourceFingerprint> {
-        let resolved =
-            self.source_resolve_business(request, binding, &input.object, "source.read")?;
+        let resolved = self.source_read_object(request, binding, &input.object)?;
         if resolved.kind != ObjectKind::Record {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
                 "This source kind is not a Record",
             ));
         }
-        self.source_live_scope(&resolved.scope)?;
         if input.file_version.is_some() || input.record_version == Some(0) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
@@ -152,14 +185,6 @@ impl Database {
                 AgentError::new(ErrorCode::InvalidArgument, "Invalid Record source identity")
             })?,
         };
-        self.source_prepare()?;
-        let excluded:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",[resolved.key()?],|row|row.get(0)).map_err(io_error)?;
-        if excluded {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "Source is excluded from AI access",
-            ));
-        }
         let (body_hash, title, metadata, updated_at) = if let Some(number) = input.record_version {
             let (hash,title,created):(String,Option<String>,String)=self.conn.query_row("SELECT body_hash,title_snapshot,created_at FROM record_versions WHERE record_key=?1 AND version_number=?2",params![target.key()?,number],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Record source version is no longer retained"))?;
             let title = title.unwrap_or_default();
@@ -325,6 +350,7 @@ impl Database {
         }
         .map_err(io_error)?;
         self.source_prune_file_cache(binding, scope)?;
+        self.source_prune_native_cache(binding, scope)?;
         Ok(())
     }
     pub(crate) fn source_index_record(
@@ -362,6 +388,19 @@ impl Database {
     ) -> AgentResult<crate::source_search_index::SearchPage> {
         request.authorize(binding, &input.scope, "source.read")?;
         self.source_live_scope(&input.scope)?;
+        let supported = [
+            ObjectKind::Record,
+            ObjectKind::File,
+            ObjectKind::Project,
+            ObjectKind::Todo,
+            ObjectKind::QuickNote,
+        ];
+        if input.kinds.iter().any(|kind| !supported.contains(kind)) {
+            return Err(AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Requested source kind is not ready for search",
+            ));
+        }
         let mut selected = vec![];
         for object in &input.selected {
             if object.workspace_id != binding.workspace_id || object.scope != input.scope {
@@ -382,7 +421,11 @@ impl Database {
             &selected,
             input.include_history,
             input.limit.unwrap_or(8),
-            Some(&[ObjectKind::Record, ObjectKind::File]),
+            Some(if input.kinds.is_empty() {
+                &supported
+            } else {
+                &input.kinds
+            }),
         )
     }
     pub(crate) fn source_verify_search_page(
@@ -402,6 +445,9 @@ impl Database {
                 file_version: candidate.source_ref.file_version,
             };
             match target.object.kind {
+                ObjectKind::Project | ObjectKind::Todo | ObjectKind::QuickNote => {
+                    self.source_native_snapshot(request, binding, &target)?;
+                }
                 ObjectKind::Record => {
                     self.source_record_fingerprint(request, binding, &target)?;
                 }
@@ -529,6 +575,7 @@ mod tests {
         let search = SourceSearchInput {
             scope: target.object.scope.clone(),
             query: "evidence".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,
@@ -727,6 +774,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: target.scope.clone(),
                     query: "evidence".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: Some(1),

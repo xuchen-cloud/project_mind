@@ -108,8 +108,7 @@ impl Database {
         binding: &WorkspaceBinding,
         source: &SourceReadTarget,
     ) -> AgentResult<FileReadPlan> {
-        let object =
-            self.source_resolve_business(request, binding, &source.object, "source.read")?;
+        let object = self.source_read_object(request, binding, &source.object)?;
         if object.kind != ObjectKind::File
             || source.record_version.is_some()
             || source.file_version == Some(0)
@@ -117,19 +116,6 @@ impl Database {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Invalid File source target",
-            ));
-        }
-        self.source_live_scope(&object.scope)?;
-        self.source_prepare()?;
-        let excluded: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
-            [object.key()?],
-            |row| row.get(0),
-        ).map_err(storage_error)?;
-        if excluded {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "Source is excluded from AI access",
             ));
         }
         if !self
@@ -392,6 +378,7 @@ mod tests {
                     &SourceSearchInput {
                         scope: source.object.scope.clone(),
                         query: "abc".into(),
+                        kinds: vec![],
                         selected: vec![],
                         include_history: false,
                         limit: None,
@@ -409,6 +396,128 @@ mod tests {
                 "switch" => assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged),
                 _ => assert_eq!(result.unwrap_err().code, ErrorCode::SourceChanged),
             }
+        }
+    }
+    #[tokio::test]
+    #[ignore = "requires prepared fixed Node source and Record workers"]
+    async fn source_mixed_native_record_file_search_preserves_kinds_before_limiting() {
+        use crate::{
+            models::{ProjectRecordUpsertInput, ProjectUpdateInput, TodoCreateInput, TodoScope},
+            source_service::{SourceIndexBudget, SourceSearchInput, SourceService},
+        };
+        let (_root, store, request, file, _) = registered_fixture(b"mixed evidence", "txt");
+        let project_id = request.scope_grant.project_ids[0];
+        let (record, todo) = {
+            let mut db = store.db.lock().unwrap();
+            db.project_update(ProjectUpdateInput {
+                project_id,
+                name: None,
+                summary: "mixed evidence".into(),
+                summary_markdown: None,
+                summary_html: None,
+                summary_code_language: None,
+                status: Some("mixed evidence".into()),
+            })
+            .unwrap();
+            let record = db
+                .project_record_upsert(ProjectRecordUpsertInput {
+                    project_id,
+                    note_id: None,
+                    title: Some("mixed evidence".into()),
+                    html: "<p>mixed evidence</p>".into(),
+                    markdown: "mixed evidence".into(),
+                    default_code_language: None,
+                    tag_ids: vec![],
+                })
+                .unwrap();
+            let todo = db
+                .todo_create(TodoCreateInput {
+                    scope: TodoScope::Project,
+                    project_id: Some(project_id),
+                    content: "mixed evidence".into(),
+                    priority: "normal".into(),
+                    due_date: None,
+                    tag_ids: vec![],
+                })
+                .unwrap();
+            (record, todo)
+        };
+        let target = |kind, id: i64| SourceReadTarget {
+            object: ObjectRef {
+                kind,
+                id: id.to_string(),
+                ..file.object.clone()
+            },
+            revision: None,
+            record_version: None,
+            file_version: None,
+        };
+        let record = target(ObjectKind::Record, record.id);
+        let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+        )
+        .unwrap();
+        let converter = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = SourceService::new(&store);
+        service
+            .prepare_record(&request, &record, &converter)
+            .await
+            .unwrap();
+        service
+            .index_record(&request, &record, SourceIndexBudget::default())
+            .unwrap();
+        service
+            .index_file(&request, &file, SourceIndexBudget::default(), &worker)
+            .await
+            .unwrap();
+        service
+            .index_native(
+                &request,
+                &target(ObjectKind::Project, project_id),
+                SourceIndexBudget::default(),
+            )
+            .unwrap();
+        service
+            .index_native(
+                &request,
+                &target(ObjectKind::Todo, todo.id),
+                SourceIndexBudget::default(),
+            )
+            .unwrap();
+        service
+            .index_quick_note(
+                &request,
+                &target(ObjectKind::QuickNote, project_id),
+                SourceIndexBudget::default(),
+                &converter,
+            )
+            .await
+            .unwrap();
+        let mut query = SourceSearchInput {
+            scope: file.object.scope.clone(),
+            query: "mixed evidence".into(),
+            kinds: vec![],
+            selected: vec![],
+            include_history: false,
+            limit: None,
+            budget_chars: Some(12000),
+        };
+        let mixed = service.search(&request, &query).await.unwrap();
+        assert_eq!(mixed.items.len(), 5);
+        assert!(!mixed.has_more);
+        for kind in [
+            ObjectKind::Record,
+            ObjectKind::File,
+            ObjectKind::Project,
+            ObjectKind::Todo,
+            ObjectKind::QuickNote,
+        ] {
+            query.kinds = vec![kind];
+            query.limit = Some(1);
+            let filtered = service.search(&request, &query).await.unwrap();
+            assert_eq!(filtered.items.len(), 1);
+            assert_eq!(filtered.items[0].source_ref.object.kind, kind);
+            assert!(!filtered.has_more);
         }
     }
     #[tokio::test]
@@ -470,6 +579,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: source.object.scope.clone(),
                     query: "abc".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: Some(1),
@@ -509,6 +619,7 @@ mod tests {
         let mut query = SourceSearchInput {
             scope: source.object.scope.clone(),
             query: "evidence".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,
@@ -662,6 +773,7 @@ mod tests {
         let query = SourceSearchInput {
             scope: source.object.scope.clone(),
             query: "evidence".into(),
+            kinds: vec![],
             selected: vec![],
             include_history: false,
             limit: None,
@@ -981,6 +1093,7 @@ mod tests {
                 &SourceSearchInput {
                     scope: source.object.scope.clone(),
                     query: "证据资料".into(),
+                    kinds: vec![],
                     selected: vec![],
                     include_history: false,
                     limit: None,
