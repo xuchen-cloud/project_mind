@@ -108,7 +108,11 @@ impl Database {
         apply: impl FnOnce(&Transaction<'_>) -> AgentResult<(T, Option<OperationChange>)>,
     ) -> AgentResult<T> {
         let hash = operation_hash(caller_id, request_id, payload)?;
-        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
+        // Reserve the writer before reading the receipt/CAS. A deferred read
+        // transaction cannot safely upgrade while another connection already
+        // owns the writer reservation, even with SQLite's busy timeout.
+        let tx = Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
+            .map_err(io_error)?;
         if let Some(previous) = replay(&tx, caller_id, request_id, operation, &hash)? {
             return Ok(previous);
         }
@@ -255,5 +259,53 @@ impl crate::agent::changes::ChangeRepository for super::agent::WorkspaceContextR
         input: &crate::agent::changes::ChangeInput,
     ) -> AgentResult<crate::agent::changes::ChangePage> {
         self.db.agent_changes_list(grant, input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{io_error, Database};
+    #[test]
+    fn atomic_operation_waits_for_writer_before_reading_receipt_or_applying() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("app.sqlite");
+        let mut writer = Database::open(&path, root.path(), None).unwrap();
+        let waiting = Database::open(&path, root.path(), None).unwrap();
+        let tx = writer
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('held-writer','first','now')",[]).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (applied_tx, applied_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            waiting.agent_atomic_operation("gui","writer-wait","test.writer",&"intent",|tx| {
+                applied_tx.send(()).unwrap();
+                tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('waiting-writer','second','now')",[]).map_err(io_error)?;
+                Ok((true,None))
+            })
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(matches!(
+            applied_rx.recv_timeout(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        tx.commit().unwrap();
+        applied_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(handle.join().unwrap().unwrap());
+        let receipts: i64 = writer
+            .conn
+            .query_row(
+                "SELECT count(*) FROM agent_operation_receipts WHERE request_id='writer-wait'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(receipts, 1);
     }
 }

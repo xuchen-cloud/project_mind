@@ -15,6 +15,7 @@ pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
 mod file_imports;
+mod file_metadata;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -41,7 +42,7 @@ use crate::{
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
         ContactUpsertInput, DocumentDeleteInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
-        DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
+        DocumentRecord, DocumentRelocateInput, DocumentTagRecord,
         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
@@ -3665,39 +3666,6 @@ impl Database {
         })
     }
 
-    pub fn document_update_meta(
-        &mut self,
-        input: DocumentUpdateMetaInput,
-    ) -> Result<DocumentRecord> {
-        let _file_locks = self.file_native_write_locks(input.document_id)?;
-        let timestamp = now_iso();
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let next_base_name = match input.base_name.as_deref() {
-            Some(base_name) => self.normalize_document_base_name(base_name, &current.base_name)?,
-            None => current.base_name.clone(),
-        };
-
-        if next_base_name != current.base_name {
-            self.move_document_storage(&current, &next_base_name)?;
-        }
-
-        self.conn.execute(
-            "UPDATE documents SET base_name = ?1, is_starred = ?2, updated_at = ?3 WHERE id = ?4",
-            params![
-                next_base_name,
-                bool_to_int(input.is_starred.unwrap_or(current.is_starred)),
-                timestamp,
-                input.document_id
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(input.document_id, tag_ids, &timestamp)?;
-        }
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
-    }
-
     pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
         let _file_locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
@@ -6325,40 +6293,6 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn replace_document_tags(
-        &mut self,
-        document_id: i64,
-        tag_ids: &[i64],
-        timestamp: &str,
-    ) -> Result<()> {
-        let project_id = self.conn.query_row(
-            "SELECT project_id FROM documents WHERE id = ?1",
-            [document_id],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
-        for &tag_id in &normalized_tag_ids {
-            self.scoped_file_tag_record(Some(project_id), tag_id)?;
-        }
-
-        self.conn.execute(
-            "DELETE FROM document_tag_links WHERE document_id = ?1",
-            params![document_id],
-        )?;
-
-        for tag_id in normalized_tag_ids {
-            self.conn.execute(
-                r#"
-                INSERT INTO document_tag_links (document_id, tag_id, created_at)
-                VALUES (?1, ?2, ?3)
-                "#,
-                params![document_id, tag_id, timestamp],
-            )?;
-        }
-
-        Ok(())
-    }
-
     fn replace_note_tags(&self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
         let project_id = self.conn.query_row(
             "SELECT project_id FROM notes WHERE id = ?1",
@@ -6497,13 +6431,6 @@ impl Database {
 
     fn ensure_project_file_layout(&mut self, _project_id: i64) -> Result<()> {
         self.backfill_file_layout_metadata()
-    }
-
-    fn document_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
-        let project = self.project_record(project_id)?;
-        let project_root = PathBuf::from(&project.root_path);
-        fs::create_dir_all(&project_root)?;
-        Ok(project_root)
     }
 
     fn note_image_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
@@ -6649,189 +6576,6 @@ impl Database {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(format!(".{}.pm-versions", document_id))
-    }
-
-    fn move_document_storage(
-        &mut self,
-        document: &DocumentRecord,
-        next_base_name: &str,
-    ) -> Result<()> {
-        struct VersionStoragePlan {
-            version_id: i64,
-            source_path: PathBuf,
-            temp_path: Option<PathBuf>,
-            final_name: String,
-            final_path: PathBuf,
-            final_path_ref: String,
-        }
-
-        let target_dir = self.document_target_dir(document.project_id)?;
-        self.ensure_document_name_available(
-            document.project_id,
-            next_base_name,
-            Some(document.id),
-        )?;
-
-        let history_dir = PathBuf::from(&document.history_dir_path);
-        let next_current_name =
-            versioned_file_name(next_base_name, document.current_version_number);
-        let next_current_path = target_dir.join(&next_current_name);
-        let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
-        let versions = self.fetch_document_versions(document.id)?;
-        let known_paths = versions
-            .iter()
-            .map(|version| PathBuf::from(&version.managed_path))
-            .collect::<HashSet<_>>();
-
-        if next_history_dir.exists() && next_history_dir != history_dir {
-            return Err(anyhow!(
-                "target history folder already exists at {}",
-                next_history_dir.display()
-            ));
-        }
-
-        if let Some(parent) = next_current_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let needs_history_dir = versions
-            .iter()
-            .any(|version| version.version_number != document.current_version_number);
-        if needs_history_dir {
-            fs::create_dir_all(&next_history_dir)?;
-        }
-
-        let mut plans = Vec::with_capacity(versions.len());
-        for version in versions {
-            let source_path = PathBuf::from(&version.managed_path);
-            let final_name = versioned_file_name(next_base_name, version.version_number);
-            let final_path = if version.version_number == document.current_version_number {
-                next_current_path.clone()
-            } else {
-                next_history_dir.join(&final_name)
-            };
-
-            if final_path.exists() && !known_paths.contains(&final_path) {
-                return Err(anyhow!(
-                    "target file already exists at {}",
-                    final_path.display()
-                ));
-            }
-
-            let temp_path = if source_path.exists() && source_path != final_path {
-                let temp_name =
-                    format!(".{}.pm-rename-{}.tmp", document.id, version.version_number);
-                let candidate = source_path.with_file_name(temp_name);
-                if candidate.exists() {
-                    return Err(anyhow!(
-                        "temporary rename path already exists at {}",
-                        candidate.display()
-                    ));
-                }
-                Some(candidate)
-            } else {
-                None
-            };
-
-            plans.push(VersionStoragePlan {
-                version_id: version.id,
-                source_path,
-                temp_path,
-                final_name,
-                final_path: final_path.clone(),
-                final_path_ref: self.encode_path_ref(&final_path),
-            });
-        }
-
-        let next_current_path_ref = self.encode_path_ref(&next_current_path);
-        let next_history_dir_ref = self.encode_path_ref(&next_history_dir);
-
-        let rollback_file_moves = |plans: &[VersionStoragePlan], finalized_count: usize| {
-            for plan in plans.iter().take(finalized_count).rev() {
-                if plan.final_path.exists() && plan.final_path != plan.source_path {
-                    let _ = fs::rename(&plan.final_path, &plan.source_path);
-                }
-            }
-            for plan in plans.iter().skip(finalized_count) {
-                if let Some(temp_path) = &plan.temp_path {
-                    if temp_path.exists() {
-                        let _ = fs::rename(temp_path, &plan.source_path);
-                    }
-                }
-            }
-        };
-
-        for plan in &plans {
-            if let Some(temp_path) = &plan.temp_path {
-                fs::rename(&plan.source_path, temp_path).with_context(|| {
-                    format!(
-                        "failed to prepare file rename from {} to {}",
-                        plan.source_path.display(),
-                        temp_path.display()
-                    )
-                })?;
-            }
-        }
-
-        let mut finalized_count = 0usize;
-        for plan in &plans {
-            if let Some(temp_path) = &plan.temp_path {
-                if let Some(parent) = plan.final_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                if let Err(error) = fs::rename(temp_path, &plan.final_path).with_context(|| {
-                    format!(
-                        "failed to move renamed file from {} to {}",
-                        temp_path.display(),
-                        plan.final_path.display()
-                    )
-                }) {
-                    rollback_file_moves(&plans, finalized_count);
-                    return Err(error);
-                }
-                finalized_count += 1;
-            }
-        }
-
-        let tx = match self.conn.transaction() {
-            Ok(tx) => tx,
-            Err(error) => {
-                rollback_file_moves(&plans, finalized_count);
-                return Err(error.into());
-            }
-        };
-
-        let update_result: Result<()> = (|| {
-            tx.execute(
-                "UPDATE documents SET name = ?1, managed_path = ?2, history_dir_path = ?3 WHERE id = ?4",
-                params![
-                    next_current_name,
-                    next_current_path_ref,
-                    next_history_dir_ref,
-                    document.id
-                ],
-            )?;
-
-            for plan in &plans {
-                tx.execute(
-                    "UPDATE document_versions SET name = ?1, managed_path = ?2 WHERE id = ?3",
-                    params![plan.final_name, plan.final_path_ref, plan.version_id],
-                )?;
-            }
-
-            tx.commit()?;
-            Ok(())
-        })();
-
-        if let Err(error) = update_result {
-            rollback_file_moves(&plans, finalized_count);
-            return Err(error);
-        }
-
-        if history_dir != next_history_dir && history_dir.exists() {
-            let _ = fs::remove_dir(&history_dir);
-        }
-
-        Ok(())
     }
 
     fn refresh_document_health(&mut self, project_id: i64) -> Result<()> {
@@ -9259,7 +9003,7 @@ fn escape_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::DocumentAddVersionInput;
+    use crate::models::{DocumentAddVersionInput, DocumentUpdateMetaInput};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},

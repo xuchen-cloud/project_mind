@@ -162,7 +162,12 @@ impl Database {
         relative(&self.workspace_root, &base)?;
         for entry in fs::read_dir(&base)? {
             let entry = entry?;
-            if !entry.file_type()?.is_dir() || entry.file_type()?.is_symlink() {
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if !kind.is_dir() || kind.is_symlink() {
                 bail!("Invalid File import directory");
             }
             let directory = entry.path();

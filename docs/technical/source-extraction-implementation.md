@@ -132,3 +132,13 @@ journal 在落位前同步；File 主行、版本行、当前版本字节 hash�
 File 改名/metadata、relocate 与删除自身的原子 outbox/恢复仍待下一工作包；本阶段只补齐两类原生 File 导入。客户端稳定 requestId、公开 file.create、真实成果模块接缝、上传/CAS GUI 接入、Windows 实包与真正磁盘满仍未交付。source.search/read 与 File 公开能力继续 implemented:false，普通桌面没有启用/分发 source worker，私有表不称为已发布 Schema 29；#100/#114 保持 OPEN，不执行阶段发布 PR、合并或关闭。
 
 本阶段显式 source 过滤专项 109 passed（含上述名称匹配 source 的导入用例与真实固定提取进程），Record 专项 100 passed；portable paths 检查通过。固定资源未并发 staging，未启动应用窗口、真实 Provider 或 Windows 实包。
+
+### File 改名与 metadata 原子提交（2026-10-01 后续阶段）
+
+原生 File 改名、标签与收藏现在复用 metadata 提交内核。先验证实际 Project 标签和规范名称，取得 Project/File 锁，记录全部既有 Version 的原路径、新路径、临时位置及物理身份；journal 同步后，全部待移动文件先进入私有临时位置，再落位到新名。File head、所有版本名称/路径、metadata、标签、Project touch、凭证和真实 File outbox 在一个事务提交，不新增版本、不倒退版本号、不改登记 hash。无语义变化不写凭证/日志；Record 内嵌图片不变成来源 File。
+
+共享初始化与后续写入恢复未提交改名，提交后只清理 journal；恢复也采用两段不覆盖移动，允许历史版本缺失、旧名与新名交叠以及恢复本身被中断。先核验所有待恢复文件的 hash 与物理身份，外来同字节路径不覆盖、不删除，未知旧版本的捕获 hash 只用于恢复，不登记为历史原件。私有描述符读取上限 1 MiB，超限在移动前拒绝。目录尚无 descriptor 时也先取得 File 锁，避免删除活跃准备；目录遍历允许另一连接已经完成清理的条目消失。
+
+全量并发测试发现共享 agent_atomic_operation 的 deferred 事务可能在读回执之后与另一连接的写锁竞争；改为 BEGIN IMMEDIATE，在读取回执/CAS 前预留写锁。实际双连接测试持有 writer 时，等待方不进入 apply，释放后只提交一份凭证。此修改不增加公开 adapter，也不代替未来 Workspace Host 单写者约束。主 agent 自查 Standards / Spec：事务/outbox 故障恢复完整旧状态，归属标签不跨 scope，原始版本身份与缺失状态保持，通知继续在锁释放后发布。GUI 稳定 requestId、短锁外层、用户恢复诊断和 Windows 实包仍待接入。
+
+本阶段最终验证：Rust 全目标库 374 passed、18 默认忽略；source 显式真实进程专项 109 passed，Record 100 passed。metadata 专项包含 5 个父用例及父用例启动的 helper，双连接 writer 测试另计；14 次 Linux SIGKILL 验证七个改名阶段与两种历史状态。未改前端，既有 959 passed/1 个驻留用例超时门槛继续保留。File 删除/relocate 自身的持久恢复与原子 outbox 仍待后续；本阶段不宣称 #100/#114 已交付，不发布 PR、合并 main 或关闭 Issue。公开能力、普通 worker 分发与 Schema 门禁保持。

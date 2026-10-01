@@ -595,6 +595,7 @@ impl Database {
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
         self.file_import_recover_pending()?;
+        self.file_metadata_recover_pending()?;
         let base = self.workspace_root.join(JOURNALS);
         if !base.exists() {
             return Ok(());
@@ -603,7 +604,12 @@ impl Database {
         for entry in fs::read_dir(&base)? {
             let entry = entry?;
             let directory = entry.path();
-            if !entry.file_type()?.is_dir() || entry.file_type()?.is_symlink() {
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if !kind.is_dir() || kind.is_symlink() {
                 bail!("Invalid File journal directory");
             }
             let name = entry.file_name();
