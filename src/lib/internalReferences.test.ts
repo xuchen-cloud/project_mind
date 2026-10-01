@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { buildInternalReferenceTarget, buildInternalReferenceToken } from "./internalReferences";
+import { buildInternalReferenceTarget, buildInternalReferenceToken, splitInternalReferenceText, buildInternalReferenceHtml, readInternalReferenceElement } from "./internalReferences";
 
 describe("internalReferences", () => {
+  it("keeps Workspace Record tokens distinct from colliding Project Record IDs", () => {
+    const references = splitInternalReferenceText("[[note:42|项目资料]] 和 [[workspace_record:42|个人方法]]")
+      .filter((segment) => segment.type === "reference")
+      .map((segment) => segment.reference);
+    expect(references).toEqual([
+      { refKind: "note", refId: 42, label: "项目资料" },
+      { refKind: "workspace_record", refId: 42, label: "个人方法" },
+    ]);
+    const workspace = buildInternalReferenceTarget({kind:"workspace_record",id:42,label:"个人方法"});
+    expect(buildInternalReferenceToken(workspace)).toBe("[[workspace_record:42|个人方法]]");
+    const container = document.createElement("div");
+    container.innerHTML = buildInternalReferenceHtml(workspace);
+    expect(readInternalReferenceElement(container.firstElementChild as HTMLElement)).toEqual(workspace);
+  });
   it("strips nested internal reference labels and truncates Todo chips", () => {
     expect(
       buildInternalReferenceToken({

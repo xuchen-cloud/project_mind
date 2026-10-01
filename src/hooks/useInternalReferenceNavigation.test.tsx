@@ -76,6 +76,14 @@ describe("useInternalReferenceNavigation", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/projects/7?focus=todo-18");
     expect(mocks.openFile).not.toHaveBeenCalled();
   });
+  it("navigates a Workspace Record through its typed resolver rather than guessing a Project route", async () => {
+    mocks.resolveReference.mockResolvedValue({kind:"workspace_record",id:42,label:"个人方法",scope:"workspace",projectId:null,route:"/workspace/records/42"});
+    const {result}=renderHook(()=>useInternalReferenceNavigation());
+    await expect(result.current({refKind:"workspace_record",refId:42,label:"个人方法"})).resolves.toBe(true);
+    expect(mocks.resolveReference).toHaveBeenCalledWith({kind:"workspace_record",id:42});
+    expect(mocks.navigate).toHaveBeenCalledWith("/workspace/records/42");
+    expect(mocks.openFile).not.toHaveBeenCalled();
+  });
 
   it("navigates Workspace Todo references to the Workspace Rail", async () => {
     mocks.resolveReference.mockResolvedValue({

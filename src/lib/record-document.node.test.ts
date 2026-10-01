@@ -5,6 +5,20 @@ import { buildRichEditorExtensions } from "../components/rich-editor/extensions"
 import { initializeRecordDocument, canonicalDocumentJson } from "./record-document";
 import { serializeRecordDocument } from "./record-document-format";
 
+it("preserves Workspace Record identity through committed JSON, HTML and Markdown", () => {
+  const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true }));
+  const canonical = initializeRecordDocument({ type: "doc", content: [{ type: "paragraph", content: [
+    { type: "internalReference", attrs: {refKind:"note",refId:42,label:"项目资料"} },
+    { type: "text", text: " 和 " },
+    { type: "internalReference", attrs: {refKind:"workspace_record",refId:42,label:"个人方法"} },
+  ] }] }, schema);
+  const result = serializeRecordDocument(canonical, schema);
+  expect(result.markdown).toBe("[[note:42|项目资料]] 和 [[workspace_record:42|个人方法]]");
+  expect(result.html).toContain('data-ref-kind="workspace_record"');
+  expect(result.html).toContain('data-ref-kind="note"');
+  expect(canonical.content![0].content![2].attrs!.refKind).toBe("workspace_record");
+});
+
 it("validates the editor document in a worker without a browser DOM", () => {
   expect(typeof document).toBe("undefined");
   const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true }));

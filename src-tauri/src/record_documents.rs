@@ -745,7 +745,7 @@ fn validate_node(
             node.pointer("/attrs/refKind")
                 .and_then(Value::as_str)
                 .unwrap_or("note"),
-            "note" | "todo" | "document"
+            "note" | "workspace_record" | "todo" | "document"
         )
     {
         return Err(invalid("Invalid internal reference kind"));

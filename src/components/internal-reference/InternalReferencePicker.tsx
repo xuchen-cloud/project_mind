@@ -9,6 +9,7 @@ import type {
   InternalReferenceSearchResult,
 } from "../../lib/types";
 import { getInternalReferenceKindLabel } from "../../lib/internalReferences";
+import { HomeSidebarList } from "../home/HomeSidebarList";
 import { projectMindApi } from "../../services/projectMindApi";
 import { cn } from "../../ui/lib/cn";
 
@@ -104,7 +105,7 @@ export function InternalReferencePicker({
       )}
       style={style}
     >
-      <div
+      <HomeSidebarList label="内部引用候选"><div
         role="listbox"
         aria-label="内部引用选择器"
         className="recommendation-list"
@@ -147,7 +148,7 @@ export function InternalReferencePicker({
         ) : (
           <div className="recommendation-empty">没有找到可引用的内容。</div>
         )}
-      </div>
+      </div></HomeSidebarList>
     </div>
   );
 
@@ -163,6 +164,7 @@ export function InternalReferencePicker({
 function renderKindIcon(kind: InternalReferenceSearchResult["kind"]) {
   switch (kind) {
     case "note":
+    case "workspace_record":
       return <NotebookPen size={13} />;
     case "todo":
       return <ListTodo size={13} />;

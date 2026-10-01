@@ -41,6 +41,7 @@ fn references(document: &Value) -> AgentResult<Vec<Reference>> {
                     .unwrap_or("note")
                 {
                     "note" => "note",
+                    "workspace_record" => "workspace_record",
                     "todo" => "todo",
                     "document" => "document",
                     _ => return Err(invalid("Invalid internal reference kind")),
@@ -105,6 +106,10 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
         // never be guessed as Workspace Records with a colliding numeric ID.
         "note" => (
             "SELECT project_id FROM notes WHERE id=?1",
+            Some(ObjectKind::Record),
+        ),
+        "workspace_record" => (
+            "SELECT NULL FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",
             Some(ObjectKind::Record),
         ),
         "todo" => (

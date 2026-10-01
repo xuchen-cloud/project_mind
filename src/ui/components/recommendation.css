@@ -7,6 +7,24 @@
   font-family:var(--font-ui); font-size:12px; font-weight:400; line-height:18px;
 }
 .recommendation-list { display:grid; gap:2px; min-width:0; max-height:280px; overflow:auto; }
+/* Reuse the common measurement/continuous fade, with the picker's own color. */
+.internal-reference-picker .home-side__list-frame { position:relative; display:flex; flex-direction:column; min-height:0; }
+.internal-reference-picker .home-side__list {
+  min-height:0; max-height:min(280px, max(0px, calc(var(--picker-available-height, 288px) - 8px)));
+  overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;
+}
+.internal-reference-picker .home-side__list > div { display:block; padding-right:0; }
+.internal-reference-picker .recommendation-list { max-height:none; overflow:visible; }
+.internal-reference-picker .home-side__list-frame::before,
+.internal-reference-picker .home-side__list-frame::after {
+  content:""; position:absolute; left:0; right:8px; height:min(40px, 35%); z-index:1; pointer-events:none;
+}
+.internal-reference-picker .home-side__list-frame::before {
+  top:0; opacity:var(--scroll-fade-top-opacity, 0); background:linear-gradient(to bottom, var(--color-bg), transparent);
+}
+.internal-reference-picker .home-side__list-frame::after {
+  bottom:0; opacity:var(--scroll-fade-bottom-opacity, 0); background:linear-gradient(to top, var(--color-bg), transparent);
+}
 .recommendation-panel .recommendation-item {
   display:block; width:100%; min-width:0; padding:4px 6px;
   border:0; border-radius:5px; background:transparent; color:inherit;

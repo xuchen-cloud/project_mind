@@ -1728,6 +1728,65 @@ mod tests {
         )
     }
     #[test]
+    fn record_workspace_reference_keeps_colliding_project_identity_and_scope_rules() {
+        let (_directory, mut database, target, mut projection) = setup();
+        let (project, project_record) = reference_target(&mut database, "Project target");
+        assert_eq!(
+            project_record, target.record_id,
+            "fixture must exercise colliding business IDs"
+        );
+        projection.document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"content":[{"type":"internalReference","attrs":{"refKind":"workspace_record","refId":target.record_id,"label":"个人方法"}},{"type":"text","text":" 和 "},{"type":"internalReference","attrs":{"refKind":"note","refId":project_record,"label":"项目资料"}}]}]});
+        projection.code_language = None;
+        projection.body_hash = body_hash(&projection.document, &None);
+        projection.markdown = format!(
+            "[[workspace_record:{}|个人方法]] 和 [[note:{}|项目资料]]",
+            target.record_id, project_record
+        );
+        projection.text = "个人方法 和 项目资料".into();
+        projection.html=format!("<p data-block-id=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"><span data-type=\"internal-reference\" data-ref-kind=\"workspace_record\" data-ref-id=\"{}\" data-label=\"个人方法\">个人方法</span> 和 <span data-type=\"internal-reference\" data-ref-kind=\"note\" data-ref-id=\"{}\" data-label=\"项目资料\">项目资料</span></p>",target.record_id,project_record);
+        projection.validate().unwrap();
+        database
+            .record_document_scope_from_gui(&Scope::Workspace, &projection.document)
+            .unwrap();
+        assert_eq!(
+            database
+                .record_document_scope_from_gui(
+                    &Scope::Project {
+                        project_id: project
+                    },
+                    &projection.document
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let legacy = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "workspace-reference-baseline",
+                &target,
+                &legacy.source_hash,
+                &projection,
+                "workspace-test",
+            )
+            .unwrap();
+        let mut statement=database.conn.prepare("SELECT target_object_key FROM content_reference_edges WHERE source_object_key=?1 ORDER BY target_object_key").unwrap();
+        let edges: Vec<String> = statement
+            .query_map([target.object_key("workspace-test").unwrap()], |row| {
+                row.get(0)
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut expected = vec![
+            format!("workspace-test/workspace/record/{}", target.record_id),
+            format!("workspace-test/project:{project}/record/{project_record}"),
+        ];
+        expected.sort();
+        assert_eq!(edges, expected);
+    }
+    #[test]
     fn quick_note_transfer_is_atomic_replayable_and_preserves_existing_block_ids() {
         let (_directory, mut database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();

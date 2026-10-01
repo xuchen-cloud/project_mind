@@ -3,6 +3,7 @@ mod agent_operations;
 mod agent_instructions;
 mod record_documents;
 mod record_references;
+mod workspace_record_references;
 mod sources;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
@@ -153,6 +154,7 @@ const WORKSPACE_SEARCH_PRIORITY_TAG: u8 = 9;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InternalReferenceFilterKind {
     Note,
+    WorkspaceRecord,
     Todo,
     Document,
 }
@@ -161,7 +163,10 @@ impl InternalReferenceFilterKind {
     fn matches_result_kind(self, kind: &str) -> bool {
         matches!(
             (self, kind),
-            (Self::Note, "note") | (Self::Todo, "todo") | (Self::Document, "document")
+            (Self::Note, "note" | "workspace_record")
+                | (Self::WorkspaceRecord, "workspace_record")
+                | (Self::Todo, "todo")
+                | (Self::Document, "document")
         )
     }
 }
@@ -5434,6 +5439,13 @@ impl Database {
         let query_is_empty = query.is_empty();
         let mut candidates = Vec::new();
 
+        if scope == "workspace"
+            && (parsed_query.kind_filter.is_none()
+                || parsed_query.kind_filter.is_some_and(|kind| kind.matches_result_kind("workspace_record")))
+        {
+            candidates.extend(self.workspace_record_reference_candidates()?);
+        }
+
         if parsed_query.kind_filter.is_none()
             || parsed_query
                 .kind_filter
@@ -5643,6 +5655,7 @@ impl Database {
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
         match input.kind.trim() {
+            "workspace_record" => self.workspace_record_reference_resolve(input.id),
             "note" => self
                 .conn
                 .query_row(
@@ -8476,7 +8489,7 @@ fn normalize_internal_reference_label(kind: &str, value: &str) -> String {
     let normalized =
         normalize_internal_reference_match_text(&strip_internal_reference_label_tokens(value));
     let fallback = match kind {
-        "note" => "记录",
+        "note" | "workspace_record" => "记录",
         "todo" => "Todo",
         "document" => "文件",
         _ => "未命名引用",
@@ -8555,6 +8568,7 @@ fn parse_internal_reference_search_query(raw: &str) -> ParsedInternalReferenceSe
     let normalized_prefix = prefix.trim().to_ascii_lowercase();
     let kind_filter = match normalized_prefix.as_str() {
         "note" => Some(InternalReferenceFilterKind::Note),
+        "workspace_record" => Some(InternalReferenceFilterKind::WorkspaceRecord),
         "todo" => Some(InternalReferenceFilterKind::Todo),
         "doc" | "document" => Some(InternalReferenceFilterKind::Document),
         _ => None,
@@ -8591,7 +8605,7 @@ fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
         let Some((kind, id)) = target.split_once(':') else {
             continue;
         };
-        if matches!(kind, "note" | "todo" | "document") {
+        if matches!(kind, "note" | "workspace_record" | "todo" | "document") {
             if let Ok(id) = id.parse::<i64>() {
                 references.push((kind.to_string(), id));
             }

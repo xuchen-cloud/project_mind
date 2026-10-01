@@ -277,7 +277,7 @@ export interface WorkspacePageData {
   finishedTodos: TodoRecord[];
 }
 
-export type InternalReferenceKind = "note" | "todo" | "document";
+export type InternalReferenceKind = "note" | "workspace_record" | "todo" | "document";
 export type InternalReferenceScope = "project" | "workspace";
 
 export interface InternalReferenceContext {

@@ -141,6 +141,7 @@ const markdownSerializer = new MarkdownSerializer(
         buildInternalReferenceToken({
           refKind:
             node.attrs.refKind === "todo" ||
+            node.attrs.refKind === "workspace_record" ||
             node.attrs.refKind === "document"
               ? node.attrs.refKind
               : "note",

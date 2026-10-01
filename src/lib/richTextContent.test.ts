@@ -39,6 +39,12 @@ describe("renderMarkdownToHtml", () => {
     expect(html).toContain('data-type="tag-mention"');
     expect(html).toContain('data-tag-id="5"');
   });
+  it("renders both Record scopes without changing historical note tokens", () => {
+    const html = renderMarkdownToHtml("[[note:42|项目资料]] 和 [[workspace_record:42|个人方法]]");
+    expect(html).toContain('data-ref-kind="note"');
+    expect(html).toContain('data-ref-kind="workspace_record"');
+    expect(richTextHtmlToPlainText(html)).toBe("记录 项目资料 和 记录 个人方法");
+  });
 
   it("does not keep the fence-closing newline inside code blocks", () => {
     const html = renderMarkdownToHtml(["```ts", "const value = 1;", "```"].join("\n"));

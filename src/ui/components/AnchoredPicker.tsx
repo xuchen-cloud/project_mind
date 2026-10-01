@@ -20,6 +20,7 @@ export function AnchoredPicker({ anchorRef, children }: {
       const height = panel.scrollHeight;
       const up = height > below && above > below;
       panel.style.maxHeight = `${up ? above : below}px`;
+      panel.style.setProperty("--picker-available-height", `${up ? above : below}px`);
       panel.style.left = `${Math.max(edge, Math.min(rect.left, window.innerWidth - panel.offsetWidth - edge))}px`;
       panel.style.top = `${Math.max(edge, up ? rect.top - gap - Math.min(height, above) : rect.bottom + gap)}px`;
       panel.style.visibility = rect.bottom < 0 || rect.top >= window.innerHeight ? "hidden" : "visible";

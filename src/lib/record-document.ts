@@ -49,7 +49,7 @@ function checkShape(document: JSONContent, schema: Schema) {
     }
     const identity = node.type === "internalReference" ? "refId" : node.type === "tagMention" ? "tagId" : node.type === "contactMention" ? "contactId" : null;
     if (identity && positiveRecordObjectId(node.attrs?.[identity]) === null) fail("Invalid reference or mention identity");
-    if (node.type === "internalReference" && !["note", "todo", "document"].includes(node.attrs?.refKind ?? "note")) fail("Invalid internal reference kind");
+    if (node.type === "internalReference" && !["note", "workspace_record", "todo", "document"].includes(node.attrs?.refKind ?? "note")) fail("Invalid internal reference kind");
     if (node.content !== undefined) {
       if (!Array.isArray(node.content) || node.type === "text") fail("Invalid node content");
       node.content.forEach((child) => visit(child, depth + 1, node.type));

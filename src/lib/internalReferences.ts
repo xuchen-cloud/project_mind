@@ -30,18 +30,20 @@ const INTERNAL_REFERENCE_COMPACT_LABEL_MAX_CHARS = 15;
 
 const INTERNAL_REFERENCE_KIND_SET = new Set<InternalReferenceKind>([
   "note",
+  "workspace_record",
   "todo",
   "document",
 ]);
 const INTERNAL_REFERENCE_TOKEN_PATTERN =
-  /\[\[(note|todo|document):(\d+)\|([^[\]\r\n]+?)\]\]/gu;
+  /\[\[(note|workspace_record|todo|document):(\d+)\|([^[\]\r\n]+?)\]\]/gu;
 const INTERNAL_REFERENCE_EMBEDDED_TOKEN_PATTERN =
-  /(?:\[\[(?:note|todo|document):\d+\|[^[\]\r\n]+?\]\])|(?:【【(?:note|todo|document):\d+\|[^【】\r\n]+?】】)/gu;
+  /(?:\[\[(?:note|workspace_record|todo|document):\d+\|[^[\]\r\n]+?\]\])|(?:【【(?:note|workspace_record|todo|document):\d+\|[^【】\r\n]+?】】)/gu;
 const INTERNAL_REFERENCE_SELECTOR = "[data-type='internal-reference']";
 
 export function getInternalReferenceKindLabel(kind: InternalReferenceKind) {
   switch (kind) {
     case "note":
+    case "workspace_record":
       return "记录";
     case "todo":
       return "Todo";
@@ -248,6 +250,7 @@ function isInternalReferenceKind(value: unknown): value is InternalReferenceKind
 function getInternalReferenceFallbackLabel(refKind?: InternalReferenceKind) {
   switch (refKind) {
     case "note":
+    case "workspace_record":
       return "记录";
     case "todo":
       return "Todo";

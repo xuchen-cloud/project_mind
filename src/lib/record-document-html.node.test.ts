@@ -7,6 +7,13 @@ import { serializeRecordDocument } from "./record-document-format";
 
 const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true, portableAssets: true }));
 
+it("round trips both Record reference scopes through legacy HTML conversion", () => {
+  const document=parseRecordHtml('<p><span data-type="internal-reference" data-ref-kind="workspace_record" data-ref-id="42" data-label="个人方法">个人方法</span> 和 <span data-type="internal-reference" data-ref-kind="note" data-ref-id="42" data-label="项目资料">项目资料</span></p>',schema);
+  const projection=serializeRecordDocument(document,schema);
+  expect(projection.markdown).toBe("[[workspace_record:42|个人方法]] 和 [[note:42|项目资料]]");
+  expect(parseRecordHtml(projection.html,schema)).toEqual(document);
+});
+
 it("uses the same editor parse rules for a lossless legacy baseline without a browser", () => {
   const html = '<h2>标题 <strong>粗体</strong></h2><ul><li><p>列表</p></li></ul>'
     + '<table><tbody><tr><td colwidth="120"><p>单元格</p></td></tr></tbody></table>'
