@@ -18,7 +18,7 @@ function packageRoot(moduleId) {
 
 /** Include only packages present in emitted chunks, including transitive ones.
  * Missing license text fails the build so packaging cannot silently omit it. */
-export async function recordWorkerNoticeAssets(bundle) {
+export async function recordWorkerNoticeAssets(bundle, utility = 'Record document utility') {
   const chunks = Object.values(bundle).filter((entry) => entry.type === 'chunk');
   const roots = [...new Set(chunks.flatMap((chunk) => Object.keys(chunk.modules).map(packageRoot)).filter(Boolean))];
   const packages = await Promise.all(roots.map(async (root) => {
@@ -39,7 +39,7 @@ export async function recordWorkerNoticeAssets(bundle) {
     return { name: manifest.name, version: manifest.version, license: manifest.license, texts };
   }));
   packages.sort((a, b) => a.name.localeCompare(b.name, 'en') || a.version.localeCompare(b.version, 'en'));
-  const notices = 'Third-party notices for the Project Mind Record document utility\n'
+  const notices = `Third-party notices for the Project Mind ${utility}\n`
     + 'Generated from the packages included in this build. Node.js is licensed separately in NODE-LICENSE.\n\n'
     + packages.map((entry) => `${entry.name}@${entry.version}\nLicense: ${typeof entry.license === 'string' ? entry.license : JSON.stringify(entry.license)}\n`
       + entry.texts.map(({ name, text }) => `--- ${name} ---\n${text.trimEnd()}\n`).join('\n')).join('\n' + '='.repeat(80) + '\n\n');

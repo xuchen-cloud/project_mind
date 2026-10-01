@@ -4,18 +4,12 @@ use crate::agent::errors::{AgentError, AgentResult, ErrorCode};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
-    process::Stdio,
     time::Duration,
-};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    process::Command,
 };
 
 const REQUEST_LIMIT: usize = 4 * 1024 * 1024;
 const RESPONSE_LIMIT: usize = 12 * 1024 * 1024;
 static WORKER_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-const NODE_VERSION_GUARD: &str = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20utility%20runtime%27)";
 
 #[derive(Clone)]
 pub(crate) struct RecordDocumentWorker {
@@ -134,8 +128,6 @@ impl RecordDocumentWorker {
             .map_err(|_| {
                 AgentError::new(ErrorCode::RuntimeUnavailable, "Document utility stopped")
             })?;
-        let temporary = tempfile::tempdir()
-            .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare utility process"))?;
         let source = self.entry.parent().ok_or_else(|| {
             AgentError::new(ErrorCode::RuntimeUnavailable, "Utility entry is missing")
         })?;
@@ -148,96 +140,19 @@ impl RecordDocumentWorker {
                 )
             })?
             .join("dist");
-        let mut command = Command::new(&self.node);
-        command
-            .arg("--permission")
-            .arg("--max-old-space-size=256")
-            .arg(format!("--allow-fs-read={}", source.display()))
-            .arg(format!("--allow-fs-read={}", distribution.display()))
-            .arg(format!("--import={NODE_VERSION_GUARD}"))
-            .arg(&self.entry)
-            .current_dir(temporary.path())
-            .env_clear()
-            .env("HOME", temporary.path())
-            .env("USERPROFILE", temporary.path())
-            .env("PATH", "")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        {
-            if let Some(root) = std::env::var_os("SystemRoot") {
-                command.env("SystemRoot", root);
-            }
-            command.creation_flags(0x08000000);
-        }
-        let mut child = command.spawn().map_err(|_| {
-            AgentError::new(
-                ErrorCode::RuntimeUnavailable,
-                "Cannot start packaged utility process",
-            )
-        })?;
-        let mut input = child
-            .stdin
-            .take()
-            .ok_or_else(|| AgentError::new(ErrorCode::IoFailed, "Utility input is unavailable"))?;
-        let output = child
-            .stdout
-            .take()
-            .ok_or_else(|| AgentError::new(ErrorCode::IoFailed, "Utility output is unavailable"))?;
-        let result = tokio::time::timeout(self.timeout, async {
-            let send = async {
-                input.write_all(&frame).await?;
-                input.shutdown().await?;
-                // ChildStdin::shutdown does not release the pipe handle. EOF is
-                // required for the one-request worker to settle and exit.
-                drop(input);
-                Ok::<_, std::io::Error>(())
-            };
-            let receive = async {
-                let mut bytes = Vec::new();
-                output
-                    .take(RESPONSE_LIMIT as u64 + 1)
-                    .read_to_end(&mut bytes)
-                    .await?;
-                Ok::<_, std::io::Error>(bytes)
-            };
-            let (_, bytes) = tokio::try_join!(send, receive)
-                .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Utility pipe failed"))?;
-            if bytes.len() > RESPONSE_LIMIT {
-                return Err(AgentError::new(
-                    ErrorCode::RuntimeIncompatible,
-                    "Utility response exceeds frame limit",
-                ));
-            }
-            let status = child.wait().await.map_err(|_| {
-                AgentError::new(ErrorCode::IoFailed, "Cannot settle utility process")
-            })?;
-            if !status.success() {
-                return Err(AgentError::new(
-                    ErrorCode::RuntimeIncompatible,
-                    "Utility process exited unsuccessfully",
-                ));
-            }
-            decode_response(request_id, &bytes)
-        })
-        .await;
-        match result {
-            Ok(result) => {
-                if result.is_err() {
-                    let _ = child.kill().await;
-                }
-                result
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                Err(AgentError::new(
-                    ErrorCode::IoFailed,
-                    "Document utility timed out",
-                ))
-            }
-        }
+        let bytes = crate::utility_process::run_utility_process(
+            &self.node,
+            &self.entry,
+            &distribution,
+            &frame,
+            crate::utility_process::UtilityLimits {
+                timeout: self.timeout,
+                response_bytes: RESPONSE_LIMIT,
+                heap_mib: 256,
+            },
+        )
+        .await?;
+        decode_response(request_id, &bytes)
     }
 }
 fn decode_response(request_id: &str, bytes: &[u8]) -> AgentResult<Value> {

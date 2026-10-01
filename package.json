@@ -21,7 +21,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:agent": "cargo test --manifest-path src-tauri/Cargo.toml --lib agent --quiet && vitest run src/services/agentApi.test.ts src/lib/queryKeys.test.ts && npm run build:record-worker && npm --prefix packages/agent-host run check && npm --prefix packages/agent-host test",
-    "test:record": "npm run build:record-worker && npm run stage:record-runtime && vitest run src/lib/record-document.test.ts src/lib/record-document.node.test.ts src/lib/record-document-html.node.test.ts src/lib/record-patch.node.test.ts src/lib/record-version-compare.node.test.ts src/components/rich-editor/extensions/StableRecordBlocks.test.ts src/components/rich-editor/RichEditor.test.tsx src/components/rich-editor/noteImageAssets.test.ts src/lib/record-save-persistence.test.ts src/lib/record-save-coordinator.test.ts src/lib/record-save-runtime.test.tsx --maxWorkers=1 && npm --prefix packages/agent-host run test:record && cargo test --manifest-path src-tauri/Cargo.toml --lib record --quiet -- --include-ignored"
+    "test:record": "npm run build:record-worker && npm run stage:record-runtime && vitest run src/lib/record-document.test.ts src/lib/record-document.node.test.ts src/lib/record-document-html.node.test.ts src/lib/record-patch.node.test.ts src/lib/record-version-compare.node.test.ts src/components/rich-editor/extensions/StableRecordBlocks.test.ts src/components/rich-editor/RichEditor.test.tsx src/components/rich-editor/noteImageAssets.test.ts src/lib/record-save-persistence.test.ts src/lib/record-save-coordinator.test.ts src/lib/record-save-runtime.test.tsx --maxWorkers=1 && npm --prefix packages/agent-host run test:record && cargo test --manifest-path src-tauri/Cargo.toml --lib record --quiet -- --include-ignored",
+    "build:source-worker": "vite build --config vite.source-worker.config.ts",
+    "stage:source-runtime": "node scripts/stage-source-runtime.mjs",
+    "test:source": "npm run build:source-worker && vitest run src/lib/source-text.node.test.ts src/lib/source-pdf.node.test.ts src/workers/source-extraction-worker.node.test.ts --maxWorkers=1 && node --test packages/agent-host/test/source-worker.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-sc": "^5.2.10",
@@ -34,6 +37,7 @@
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "@thednp/dommatrix": "3.1.2",
     "@tiptap/extension-highlight": "^3.22.1",
     "@tiptap/extension-image": "^3.22.1",
     "@tiptap/extension-link": "^3.21.0",

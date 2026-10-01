@@ -49,4 +49,20 @@ npm --prefix packages/agent-host run test:record
 
 `src/record-worker-entry.mjs` 独立加载构建出的无浏览器编辑器转换模块。它没有模型、工具、文件读写或数据库接口，只通过有界 JSONL 接收 `record.initialize`、`record.validate`、`record.patch`、`record.compare` 与 `record.schema`，输出稳定块 JSON、HTML/Markdown/text 投影及正文 hash。未知节点/属性与不合法 patch 返回诊断；不伪造成功。Rust fixture 同步脚本为 `scripts/update-record-schema.mjs`。
 
-此 worker 和 Rust head/version 库仍在 AI-16 的实现阶段，尚未接入全部 GUI 保存入口、窗口协调、版本历史界面和正式资源分发。
+Record utility 已接 canonical GUI 保存、共享写入协调、版本历史和固定 Node 资源分发。AI-16 的剩余验收与发布状态以 Issue #113 为准。
+
+
+## Source extraction utility
+
+```sh
+npm run test:source
+npm run build:record-worker
+npm run stage:record-runtime
+npm run stage:source-runtime
+```
+
+AI-03 的独立提取层接收已授权、固定版本的字节快照，不接收路径、URL、工具或凭据。每进程只接一份输入；UTF-8 txt/Markdown/HTML 限 10 MiB，PDF 限 50 MiB、500 页；提取总量限 2 Mi Unicode 字符，每块 1800 字符、同段落或同页重叠 200。结果携带覆盖范围，截断、缺文本页、扫描件、加密、编码异常分别返回明确状态。HTML 索引文本不能替代原始 File 源码。
+
+PDF.js 6.2.108、固定 DOMMatrix 兼容实现、CMap 和标准字体均打包进独立 bundle，含全部许可与 SHA-256 清单；不依赖 node_modules、开发 Node 或 native canvas。Node 和许可复用 Record 固定 runtime。原生端执行 Node 权限隔离、512 MiB JS heap 上限、60 秒硬超时及每 Workspace 一个任务；Record 转换仍保持自己的 10 秒/两个任务限制。
+
+此阶段只提供提取与进程边界。SourceRef 权限/版本绑定、文件 hash 复查、持久索引、排除项和后台队列仍由 AI-03 后续实现；公共检索和 Agent 能力保持禁用，尚未完整交付。
