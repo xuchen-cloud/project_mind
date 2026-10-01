@@ -198,7 +198,7 @@ impl crate::agent::changes::ChangeRepository for Database {
         let (first, max): (Option<i64>, Option<i64>) = self
             .conn
             .query_row(
-                "SELECT MIN(CASE WHEN created_at>=?1 THEN seq END),MAX(seq) FROM agent_change_log",
+                "SELECT MIN(CASE WHEN created_at>=?1 THEN seq END),COALESCE(MAX(seq),(SELECT seq FROM sqlite_sequence WHERE name='agent_change_log')) FROM agent_change_log",
                 [&cutoff],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )

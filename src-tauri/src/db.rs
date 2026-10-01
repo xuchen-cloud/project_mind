@@ -8,6 +8,7 @@ mod sources;
 mod source_files;
 mod source_native;
 mod source_transcript;
+pub(crate) mod source_index_queue;
 mod committed_changes;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;

@@ -63,8 +63,16 @@ Transcript 原生来源接入真实 `voice_records` 与已持久化 final segmen
 
 本批新增 7 项真实数据库/共享服务测试，覆盖原始转写/正文隔离、final 重放、时间范围、实际 owner/Scope Grant/generation、排除与 Archive、分页及序列化预算、部分索引覆盖、删除缓存、投影后并发提交与重叠时间定位。来源专项在最后两项加入前 80 项（含固定进程）通过；最终 Rust 全量 315 项通过、15 项默认忽略，包含最终 7 项 Transcript 测试。内部转写快照超过 2 Mi Unicode 字符或 10000 段返回 BudgetExceeded，尚待分段快照读取，不能标成截断后完整。正式会话分支/消息及会话摘要仍待对应业务模块提供已提交注册接缝，未假造 branch ID 或摘要版本。
 
+持久索引队列复用既有 `agent_jobs(kind=extract)`，每 scope 的日志游标与合并任务在同一事务提交；Record/QuickNote 500ms 合并，其他当前来源立即就绪。每 Workspace 同时仅一个活跃索引 lease，处理中新变更保留最新 seq，旧任务完成后继续排队；重开 generation 或 90s lease 超时可恢复，旧 token 不能结算新任务，失败最多三次，后续新事件可重新排队。排除和删除取消待处理/运行任务，异步索引仍走现有所有权/授权/修订与文件字节 fence，不另建正文/版本。
+
+存量 backfill 每批 1–200 个真实业务对象，只读目录信息，游标和入队原子保存，排除项与 Record 私有图片不入队。Project 范围与 Workspace 直属来源分开遍历；完成目录遍历保留起始水位以继续消费后来变更。中途停顿超过日志保留、无法证明 delta 完整时重新做有界目录遍历。任务状态 completed 表示这次索引批次已结束，cache coverage 仍独立保留 partial，不承诺已完整读取或概览已最新。队列/目录表仍为内部惰性准备，不作为已发布 Schema。
+
+共享 SourceService 提供目录 backfill、日志合并与处理单个有界任务的接缝，真实固定转换进程已验证自动建立旧 Record 唯一基线并进入索引；处理/哈希期间不持业务锁。此内核尚未挂接桌面 assistant 启用/激活调度，也未启动后台循环。正式运行时需继续接预算总量、前台优先、取消/进度、其余 GUI 业务 outbox 以及资源分发门禁。
+
+修复日志全部清理后的恢复边界：变化页与提交捕获从 SQLite 单调 sequence 恢复末尾水位，空日志不再丢掉 resetRequired。新增队列 11 项（含真实转换进程）及空日志恢复 1 项；最终来源专项 93 项显式通过，Rust lib 全量 326 项通过/16 项默认忽略。最终前端全量 139 文件/955 项通过；最终 Rust 全目标测试同样通过（库 326 项/16 项默认忽略，其余目标零用例），Record 专项 99 项显式通过；既有构建、路径/UI/bundle 检查均通过。本批 Standards/Spec 由主 agent 自查，修复了同路径重开绑定、重叠时间定位与空日志水位问题；剩余接入职责仍见下文，未启动 review 子 agent。
+
 ## 后续责任
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
 
-Record 的按需基线接口与 Workspace Record typed token 已实现；前者尚待后台队列调用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、500ms 合并、其余 GUI 业务写入的 outbox 和持久后台队列尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+Record 的按需基线接口与 Workspace Record typed token 已实现；队列内核已调用前者，桌面/Host 自动调度尚未挂接。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、其余 GUI 业务写入的 outbox、知识依赖失效及桌面自动队列调度尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；缓存准备也尚未作为已发布迁移执行。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。

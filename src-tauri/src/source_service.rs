@@ -315,6 +315,103 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
+    pub(crate) fn backfill_index_queue(
+        &self,
+        request: &RequestContext,
+        scope: &Scope,
+        max_objects: usize,
+    ) -> AgentResult<crate::db::source_index_queue::SourceBackfillProgress> {
+        self.store.with_current(|binding, db| {
+            db.source_queue_backfill(request, binding, scope, max_objects, chrono::Utc::now())
+        })
+    }
+    pub(crate) fn sync_index_queue(
+        &self,
+        request: &RequestContext,
+        scope: &Scope,
+    ) -> AgentResult<crate::db::source_index_queue::SourceQueueProgress> {
+        self.store.with_current(|binding, db| {
+            db.source_queue_sync(request, binding, scope, chrono::Utc::now())
+        })
+    }
+    /// Process one bounded job through the existing source services. Claims and
+    /// settlement hold only short locks; conversion, hashing and paging do not.
+    pub(crate) async fn index_next_queued<
+        R: crate::record_document_service::DocumentUtility,
+        F: SourceUtility,
+    >(
+        &self,
+        request: &RequestContext,
+        scope: &Scope,
+        budget: SourceIndexBudget,
+        record_utility: &R,
+        file_utility: &F,
+    ) -> AgentResult<Option<ObjectRef>> {
+        use crate::{agent::models::ObjectKind, db::source_index_queue::SourceIndexOutcome};
+        if budget.max_chars == 0 || budget.max_chunks == 0 {
+            return Err(invalid("Source index budgets must be positive"));
+        }
+        let lease = self.store.with_current(|binding, db| {
+            db.source_queue_claim(request, binding, scope, chrono::Utc::now())
+        })?;
+        let Some(lease) = lease else {
+            return Ok(None);
+        };
+        let source = SourceReadTarget {
+            object: lease.object.clone(),
+            revision: None,
+            record_version: None,
+            file_version: None,
+        };
+        let result = async {
+            match source.object.kind {
+                ObjectKind::Record => {
+                    self.prepare_record(request, &source, record_utility)
+                        .await?;
+                    self.index_record(request, &source, budget)
+                }
+                ObjectKind::File => {
+                    self.index_file(request, &source, budget, file_utility)
+                        .await
+                }
+                ObjectKind::QuickNote => {
+                    self.index_quick_note(request, &source, budget, record_utility)
+                        .await
+                }
+                ObjectKind::Project | ObjectKind::Todo | ObjectKind::Transcript => {
+                    self.index_native(request, &source, budget)
+                }
+                _ => Err(AgentError::new(
+                    ErrorCode::SourceNotReady,
+                    "Queued source kind is not ready",
+                )),
+            }
+        }
+        .await;
+        let outcome = match &result {
+            Ok(_) => SourceIndexOutcome::Completed,
+            Err(error)
+                if matches!(
+                    error.code,
+                    ErrorCode::SourceChanged | ErrorCode::RunBusy | ErrorCode::RateLimited
+                ) =>
+            {
+                SourceIndexOutcome::Retry
+            }
+            Err(error) => SourceIndexOutcome::Failed(error.code),
+        };
+        let settled = self.store.with_current(|binding, db| {
+            db.source_queue_finish(request, binding, &lease, outcome, chrono::Utc::now())
+        })?;
+        result?;
+        if !settled {
+            return Err(AgentError::new(
+                ErrorCode::SourceChanged,
+                "Source index lease changed while processing",
+            ));
+        }
+        Ok(Some(lease.object))
+    }
     pub(crate) async fn extract_file<W: SourceUtility>(
         &self,
         request: &RequestContext,
@@ -1915,5 +2012,88 @@ mod tests {
         }
         assert!(pages > 1);
         assert_eq!(text, expected);
+    }
+    #[tokio::test]
+    #[ignore = "requires the prepared fixed Node runtime and built source resources"]
+    async fn source_queue_processes_legacy_baselines_through_real_shared_workers() {
+        let (root, store, request, mut input) = fixture("existing source");
+        let target = add_legacy(&store, &mut input, "后台队列建立的原始证据🙂");
+        let converter = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let extractor = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+        )
+        .unwrap();
+        let service = SourceService::new(&store);
+        let planned = service
+            .backfill_index_queue(&request, &Scope::Workspace, 200)
+            .unwrap();
+        assert_eq!(planned.queued, 2);
+        assert!(!planned.has_more);
+        let page = service
+            .sync_index_queue(&request, &Scope::Workspace)
+            .unwrap();
+        assert!(!page.has_more);
+        assert!(!page.needs_backfill);
+        let mut processed = vec![];
+        for _ in 0..2 {
+            processed.push(
+                service
+                    .index_next_queued(
+                        &request,
+                        &Scope::Workspace,
+                        SourceIndexBudget::default(),
+                        &converter,
+                        &extractor,
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        assert!(processed.contains(&input.source.object));
+        assert!(service
+            .index_next_queued(
+                &request,
+                &Scope::Workspace,
+                SourceIndexBudget::default(),
+                &converter,
+                &extractor
+            )
+            .await
+            .unwrap()
+            .is_none());
+        let found = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: Scope::Workspace,
+                    query: "后台队列".into(),
+                    kinds: vec![crate::agent::models::ObjectKind::Record],
+                    selected: vec![],
+                    include_history: false,
+                    limit: None,
+                    budget_chars: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.object, input.source.object);
+        let db = store.db.lock().unwrap();
+        assert_eq!(
+            db.record_version_capacity(&target).unwrap().version_count,
+            1
+        );
+        let connection = rusqlite::Connection::open(root.path().join("source.sqlite")).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM agent_jobs WHERE state='completed'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
     }
 }

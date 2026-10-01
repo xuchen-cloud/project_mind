@@ -15,7 +15,7 @@ fn io_error(_: rusqlite::Error) -> AgentError {
         "Cannot read committed change notifications",
     )
 }
-fn object_from_key(key: &str, workspace_id: &str) -> Option<ObjectRef> {
+pub(super) fn object_from_key(key: &str, workspace_id: &str) -> Option<ObjectRef> {
     let parts: Vec<_> = key.split('/').collect();
     let [workspace, scope, kind, id] = parts.as_slice() else {
         return None;
@@ -70,7 +70,7 @@ impl Database {
     pub(crate) fn committed_change_watermark(&self) -> AgentResult<i64> {
         self.conn
             .query_row(
-                "SELECT COALESCE(MAX(seq),0) FROM agent_change_log",
+                "SELECT COALESCE(MAX(seq),(SELECT seq FROM sqlite_sequence WHERE name='agent_change_log'),0) FROM agent_change_log",
                 [],
                 |row| row.get(0),
             )
@@ -285,5 +285,40 @@ mod tests {
         assert!(changes.reset_required);
         assert_eq!(changes.changed_refs.len(), 200);
         assert_eq!(changes.seq, 205);
+    }
+    #[test]
+    fn gui_catch_up_resets_after_the_last_retained_log_row_is_deleted() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(&root.path().join("app.sqlite"), root.path(), None).unwrap();
+        db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES ('w/workspace/todo/1','workspace','delete','r',?1)", [Utc::now().to_rfc3339()]).unwrap();
+        db.conn.execute("DELETE FROM agent_change_log", []).unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: "w".into(),
+            generation: "g".into(),
+        };
+        let request = RequestContext {
+            binding: binding.clone(),
+            request_id: "catch-up".into(),
+            caller: Caller::Gui,
+            scope_grant: ScopeGrant {
+                workspace_id: "w".into(),
+                workspace_content: true,
+                project_ids: vec![],
+                operations: vec!["changes.read".into()],
+            },
+        };
+        let page = db
+            .gui_business_changes(
+                &request,
+                &binding,
+                &ChangeInput {
+                    after_seq: 0,
+                    limit: 200,
+                },
+            )
+            .unwrap();
+        assert!(page.reset_required);
+        assert_eq!(page.cursor, 1);
+        assert!(page.entries.is_empty());
     }
 }
