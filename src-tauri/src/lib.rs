@@ -16,6 +16,7 @@ mod source_native;
 mod utility_process;
 mod record_document_service;
 mod record_document_commands;
+mod file_document_commands;
 mod record_editor_coordination;
 mod record_export;
 mod secret_crypto;
@@ -47,7 +48,7 @@ use models::{
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
     AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput, ContactUpsertInput,
-    DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+    DocumentDeleteInput, DocumentImportClipboardImageInput,
     DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
     DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
     DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
@@ -1054,14 +1055,6 @@ fn document_list_versions(
 }
 
 #[tauri::command]
-fn document_add_version(
-    state: State<'_, AppState>,
-    input: DocumentAddVersionInput,
-) -> CommandResult<DocumentRecord> {
-    with_db(state, |db| db.document_add_version(input))
-}
-
-#[tauri::command]
 fn document_delete(
     state: State<'_, AppState>,
     input: DocumentDeleteInput,
@@ -1443,7 +1436,8 @@ pub fn run() {
             document_update_meta,
             document_relocate,
             document_list_versions,
-            document_add_version,
+            file_document_commands::document_version_prepare,
+            file_document_commands::document_add_version,
             document_delete,
             ai_settings_get,
             rich_text_style_get,

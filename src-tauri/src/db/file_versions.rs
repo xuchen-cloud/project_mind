@@ -1,5 +1,5 @@
 //! File Version commit/recovery kernel. Native GUI delegates here; registered
-//! CAS/receipts are internal. Upload adapters and GUI preflight are pending.
+//! CAS/receipts include GUI preflight. Upload adapters and short-lock service are pending.
 //! Uses existing documents/document_versions and preserves unknown old hashes.
 use super::{
     agent_operations::{io_error, OperationChange},
@@ -34,11 +34,44 @@ pub(crate) struct FileVersionUpdate {
     pub expected_content_hash: String,
     pub new_content_hash: String,
 }
+/// Trusted local GUI intent. Physical bytes are frozen by hash at preflight;
+/// unknown/externally changed bytes require an explicit registration decision.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct GuiFileVersionPrepare {
+    pub document_id: i64,
+    pub project_id: i64,
+    pub managed_path: String,
+    pub expected_version_number: u32,
+    pub source_path: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct GuiFileVersionIntent {
+    pub document_id: i64,
+    pub project_id: i64,
+    pub managed_path: String,
+    pub expected_version_number: u32,
+    pub expected_content_hash: String,
+    pub registered_content_hash: Option<String>,
+    pub new_content_hash: String,
+    pub source_path: Option<String>,
+}
+fn agent_failure(error: anyhow::Error) -> AgentError {
+    match error.downcast::<CommitFailure>() {
+        Ok(failure) => failure.0,
+        Err(_) => AgentError::new(ErrorCode::IoFailed, "Cannot prepare or commit File Version"),
+    }
+}
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CommitPayload {
     Native { document_id: i64, new_hash: String },
     Registered { update: FileVersionUpdate },
+    NativeCas {
+        intent: GuiFileVersionIntent,
+        register_current_bytes: bool,
+    },
 }
 #[derive(Debug)]
 struct CommitFailure(AgentError);
@@ -504,6 +537,17 @@ impl Database {
             {
                 ()
             }
+            CommitPayload::NativeCas { intent, .. }
+                if journal.caller_id == "gui"
+                    && intent.document_id == journal.document_id
+                    && intent.project_id == journal.project_id
+                    && i64::from(intent.expected_version_number) == journal.expected_version
+                    && intent.expected_content_hash == journal.original_captured_hash
+                    && intent.new_content_hash == journal.new_hash
+                    && relative(&self.workspace_root, Path::new(&intent.managed_path))? == journal.original =>
+            {
+                ()
+            }
             _ => bail!("File journal intent mismatch"),
         }
         let original = owned(&self.workspace_root, &journal.original)?;
@@ -666,12 +710,98 @@ impl Database {
         }
         Ok(())
     }
+    pub(crate) fn file_version_committed_path(
+        &self,
+        receipt: &CommittedVersion,
+    ) -> Result<Option<String>> {
+        let stored: Option<String> = self.conn.query_row(
+            "SELECT managed_path FROM document_versions WHERE document_id=?1 AND version_number=?2",
+            params![receipt.document_id, receipt.version_number], |row| row.get(0)).optional()?;
+        Ok(stored.map(|path| self.decode_path_ref_to_string(&path)))
+    }
+    pub(crate) fn file_version_prepare_gui(
+        &self,
+        input: &GuiFileVersionPrepare,
+    ) -> AgentResult<GuiFileVersionIntent> {
+        (|| -> Result<_> {
+            if input.document_id <= 0 || input.project_id <= 0 || input.expected_version_number == 0 {
+                return Err(conflict(ErrorCode::InvalidArgument, "Invalid File Version target"));
+            }
+            let (_project, _file) = self.file_native_write_locks(input.document_id)?;
+            let current = self.document_record(input.document_id)?;
+            if current.project_id != input.project_id || current.managed_path != input.managed_path
+                || current.current_version_number != i64::from(input.expected_version_number)
+                || current.storage_mode == "managed_note_image" {
+                return Err(conflict(ErrorCode::RevisionConflict, "File changed since it was displayed"));
+            }
+            if self.project_record(current.project_id)?.is_archived {
+                return Err(conflict(ErrorCode::ScopeDenied, "Archived Project is outside the active write scope"));
+            }
+            relative(&self.workspace_root, Path::new(&current.managed_path))?;
+            crate::source_search_index::SourceIndex::prepare(&self.conn).map_err(CommitFailure)?;
+            let known = self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2", params![current.id, current.current_version_number], |row| row.get(0)).optional()?;
+            let expected_content_hash = checksum(Path::new(&current.managed_path))?;
+            let new_content_hash = match &input.source_path {
+                Some(path) => checksum(Path::new(path))?,
+                None => expected_content_hash.clone(),
+            };
+            Ok(GuiFileVersionIntent {
+                document_id: current.id, project_id: current.project_id,
+                managed_path: current.managed_path, expected_version_number: input.expected_version_number,
+                expected_content_hash, registered_content_hash: known, new_content_hash,
+                source_path: input.source_path.clone(),
+            })
+        })().map_err(agent_failure)
+    }
+    pub(crate) fn file_version_commit_gui(
+        &mut self,
+        binding: &WorkspaceBinding,
+        request_id: &str,
+        intent: &GuiFileVersionIntent,
+        register_current_bytes: bool,
+    ) -> AgentResult<CommittedVersion> {
+        (|| -> Result<_> {
+            if self.native_workspace_id.as_deref() != Some(binding.workspace_id.as_str()) {
+                return Err(conflict(
+                    ErrorCode::WorkspaceChanged,
+                    "File Workspace binding changed",
+                ));
+            }
+            if request_id.is_empty()
+                || request_id.len() > 128
+                || intent.document_id <= 0
+                || intent.project_id <= 0
+                || intent.expected_version_number == 0
+                || !valid_hash(&intent.expected_content_hash)
+                || !valid_hash(&intent.new_content_hash)
+                || intent
+                    .registered_content_hash
+                    .as_ref()
+                    .is_some_and(|hash| !valid_hash(hash))
+            {
+                return Err(conflict(
+                    ErrorCode::InvalidArgument,
+                    "Invalid GUI File Version intent",
+                ));
+            }
+            self.file_version_commit(
+                DocumentAddVersionInput {
+                    document_id: intent.document_id,
+                    source_path: intent.source_path.clone(),
+                },
+                None,
+                Some((request_id, intent, register_current_bytes)),
+            )
+        })()
+        .map_err(agent_failure)
+    }
+    #[cfg(test)]
     pub fn document_add_version(
         &mut self,
         input: DocumentAddVersionInput,
     ) -> Result<DocumentRecord> {
         let id = input.document_id;
-        self.file_version_commit(input, None)?;
+        self.file_version_commit(input, None, None)?;
         self.document_record(id)
     }
 
@@ -753,6 +883,7 @@ impl Database {
                     source_path: Some(staged_path.to_string_lossy().into()),
                 },
                 Some((request, update)),
+                None,
             )
         })();
         result.map_err(|error| match error.downcast::<CommitFailure>() {
@@ -765,6 +896,7 @@ impl Database {
         &mut self,
         input: DocumentAddVersionInput,
         registered: Option<(&RequestContext, &FileVersionUpdate)>,
+        gui: Option<(&str, &GuiFileVersionIntent, bool)>,
     ) -> Result<CommittedVersion> {
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
@@ -791,7 +923,13 @@ impl Database {
                 return Ok(receipt);
             }
         }
-        if registered.is_none() {
+        if let Some((request_id, intent, register_current_bytes)) = gui {
+            if let Some(receipt) = self.agent_operation_replay("gui", request_id, "file.version.commit",
+                &CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }).map_err(CommitFailure)? {
+                return Ok(receipt);
+            }
+        }
+        if registered.is_none() && gui.is_none() {
             self.ensure_project_file_layout(project_id)?;
         }
         let current = self.document_record(input.document_id)?;
@@ -835,6 +973,64 @@ impl Database {
                     "File bytes are not the registered baseline; register a new version first",
                 ));
             }
+        }
+        if let Some((_, intent, register_current_bytes)) = gui {
+            if current.project_id != intent.project_id || current.managed_path != intent.managed_path
+                || current.current_version_number != i64::from(intent.expected_version_number) {
+                return Err(conflict(ErrorCode::RevisionConflict, "File Version or location changed before GUI commit"));
+            }
+            if self.project_record(current.project_id)?.is_archived {
+                return Err(conflict(ErrorCode::ScopeDenied, "Project was archived before File commit"));
+            }
+            crate::source_search_index::SourceIndex::prepare(&self.conn).map_err(CommitFailure)?;
+            let known: Option<String> = self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2", params![current.id, current.current_version_number], |row| row.get(0)).optional()?;
+            if known != intent.registered_content_hash {
+                return Err(conflict(ErrorCode::RevisionConflict, "File registration changed before GUI commit"));
+            }
+            if checksum(&original)? != intent.expected_content_hash {
+                return Err(conflict(ErrorCode::FileChangedUnregistered, "File bytes changed after GUI preflight"));
+            }
+            if known.as_ref() != Some(&intent.expected_content_hash) && !register_current_bytes {
+                return Err(conflict(ErrorCode::FileChangedUnregistered, "Confirm registration of current File bytes first"));
+            }
+        }
+        // No filesystem mutation is needed for a registered identical body.
+        // Settle its durable receipt before deriving any next-version paths or
+        // incrementing the counter; foreign next paths and u32::MAX are irrelevant.
+        let no_change = registered.is_some_and(|(_, update)| update.new_content_hash == update.expected_content_hash)
+            || gui.is_some_and(|(_, intent, _)| intent.registered_content_hash.as_ref() == Some(&intent.expected_content_hash)
+                && intent.new_content_hash == intent.expected_content_hash);
+        if no_change {
+            let (caller_id, request_id, expected_hash, payload) = match (registered, gui) {
+                (Some((request, update)), _) => (request.caller.key(), request.request_id.as_str(), &update.new_content_hash,
+                    CommitPayload::Registered { update: update.clone() }),
+                (_, Some((request_id, intent, register_current_bytes))) => ("gui".into(), request_id, &intent.new_content_hash,
+                    CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
+                _ => unreachable!("noChange requires a registered intent"),
+            };
+            let source = input.source_path.as_deref().map(PathBuf::from).unwrap_or_else(|| original.clone());
+            if checksum(&source)? != *expected_hash {
+                return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed before no-change commit"));
+            }
+            let synchronous: i64 = self.conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
+            self.conn.pragma_update(None, "synchronous", synchronous.max(2))?;
+            let result = self.agent_atomic_operation(&caller_id, request_id, "file.version.commit", &payload, |tx| {
+                let unchanged: bool = tx.query_row(
+                    "SELECT current_version_number=?2 AND project_id=?3 AND managed_path=?4 FROM documents WHERE id=?1",
+                    params![current.id, current.current_version_number, current.project_id, self.encode_path_ref(&original)], |row| row.get(0)).map_err(io_error)?;
+                if !unchanged {
+                    return Err(AgentError::new(ErrorCode::RevisionConflict, "File Version changed before no-change commit"));
+                }
+                if checksum(&original).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot verify File baseline"))? != *expected_hash {
+                    return Err(AgentError::new(ErrorCode::FileChangedUnregistered, "File bytes changed before no-change commit"));
+                }
+                Ok((CommittedVersion { document_id: current.id, version_number: current.current_version_number,
+                    content_hash: expected_hash.clone(), no_change: true }, None))
+            }).map_err(CommitFailure);
+            if let Err(error) = self.conn.pragma_update(None, "synchronous", synchronous) {
+                eprintln!("No-change File synchronous restore failed: {error}");
+            }
+            return result.map_err(Into::into);
         }
         let archive = PathBuf::from(&current.history_dir_path).join(super::versioned_file_name(
             &current.base_name,
@@ -881,7 +1077,7 @@ impl Database {
         create_owned_directories(&self.workspace_root, &base)?;
         let journal_id = token();
         let request_id = registered.map_or_else(
-            || journal_id.clone(),
+            || gui.map_or_else(|| journal_id.clone(), |(request_id, _, _)| request_id.to_owned()),
             |(request, _)| request.request_id.clone(),
         );
         let caller_id =
@@ -911,12 +1107,20 @@ impl Database {
                     ));
                 }
             }
+            if let Some((_, intent, _)) = gui {
+                if old_hash != intent.expected_content_hash {
+                    return Err(conflict(ErrorCode::FileChangedUnregistered, "File changed during GUI preparation"));
+                }
+                if new_hash != intent.new_content_hash {
+                    return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed after GUI preflight"));
+                }
+            }
             crash_point(CommitPhase::Staged);
             let payload = registered.map_or_else(
-                || CommitPayload::Native {
+                || gui.map_or_else(|| CommitPayload::Native {
                     document_id: current.id,
                     new_hash: new_hash.clone(),
-                },
+                }, |(_, intent, register_current_bytes)| CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
                 |(_, update)| CommitPayload::Registered {
                     update: update.clone(),
                 },
@@ -967,53 +1171,6 @@ impl Database {
                 return Err(error);
             }
         };
-        if registered.is_some() && journal.new_hash == journal.original_captured_hash {
-            let receipt = self
-                .agent_atomic_operation(
-                    &journal.caller_id,
-                    &journal.request_id,
-                    "file.version.commit",
-                    &journal.payload,
-                    |tx| {
-                        let head: i64 = tx
-                            .query_row(
-                                "SELECT current_version_number FROM documents WHERE id=?1",
-                                [current.id],
-                                |row| row.get(0),
-                            )
-                            .map_err(io_error)?;
-                        if head != journal.expected_version {
-                            return Err(AgentError::new(
-                                ErrorCode::RevisionConflict,
-                                "File Version changed before no-change commit",
-                            ));
-                        }
-                        if checksum(&original).map_err(|_| {
-                            AgentError::new(ErrorCode::IoFailed, "Cannot verify File baseline")
-                        })? != journal.original_captured_hash
-                        {
-                            return Err(AgentError::new(
-                                ErrorCode::FileChangedUnregistered,
-                                "File bytes changed before no-change commit",
-                            ));
-                        }
-                        Ok((
-                            CommittedVersion {
-                                document_id: current.id,
-                                version_number: current.current_version_number,
-                                content_hash: journal.new_hash.clone(),
-                                no_change: true,
-                            },
-                            None,
-                        ))
-                    },
-                )
-                .map_err(CommitFailure)?;
-            if let Err(error) = self.file_journal_clear(&directory) {
-                eprintln!("No-change File cleanup pending: {error}");
-            }
-            return Ok(receipt);
-        }
         crate::source_search_index::SourceIndex::prepare(&self.conn)
             .map_err(|error| anyhow!(error.message))?;
         let synchronous: i64 = self
@@ -1383,6 +1540,110 @@ mod tests {
         );
     }
 
+    fn gui_intent(fixture: &mut RegisteredFixture) -> super::GuiFileVersionIntent {
+        fixture.staged = {
+            let selected = fixture.root.path().join("picked.html");
+            fs::write(&selected, fs::read(&fixture.staged).unwrap()).unwrap();
+            selected
+        };
+        fixture
+            .db
+            .file_version_prepare_gui(&super::GuiFileVersionPrepare {
+                document_id: fixture.document.id,
+                project_id: fixture.document.project_id,
+                managed_path: fixture.document.managed_path.clone(),
+                expected_version_number: fixture.document.current_version_number as u32,
+                source_path: Some(fixture.staged.to_string_lossy().into()),
+            })
+            .unwrap()
+    }
+    #[test]
+    fn file_version_gui_cas_replay_and_unknown_registration() {
+        let mut fixture = registered_fixture(b"GUI new bytes");
+        let intent = gui_intent(&mut fixture);
+        let result = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "gui-save", &intent, false)
+            .unwrap();
+        assert_eq!(result.version_number, 3);
+        let replay = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "gui-save", &intent, false)
+            .unwrap();
+        assert_eq!(result, replay);
+        let mut changed = intent.clone();
+        changed.new_content_hash = hash(b"different intent");
+        assert!(fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "gui-save", &changed, false)
+            .is_err());
+        assert!(fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "stale-save", &intent, false)
+            .is_err());
+        let head = fixture.db.document_record(fixture.document.id).unwrap();
+        fs::write(&head.managed_path, b"external edits").unwrap();
+        let intent = fixture
+            .db
+            .file_version_prepare_gui(&super::GuiFileVersionPrepare {
+                document_id: head.id,
+                project_id: head.project_id,
+                managed_path: head.managed_path.clone(),
+                expected_version_number: 3,
+                source_path: None,
+            })
+            .unwrap();
+        assert_ne!(
+            intent.registered_content_hash.as_ref(),
+            Some(&intent.expected_content_hash)
+        );
+        assert!(fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "register", &intent, false)
+            .is_err());
+        let result = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "register", &intent, true)
+            .unwrap();
+        assert_eq!(result.version_number, 4);
+        assert!(!result.no_change);
+        let old_hash: String = fixture.db.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=3", [head.id], |row| row.get(0)).unwrap();
+        assert_eq!(old_hash, hash(b"GUI new bytes"));
+    }
+    #[test]
+    fn file_version_gui_no_change_and_frozen_bytes_fences() {
+        let mut fixture = registered_fixture(b"unused");
+        let mut prepare = super::GuiFileVersionPrepare {
+            document_id: fixture.document.id,
+            project_id: fixture.document.project_id,
+            managed_path: fixture.document.managed_path.clone(),
+            expected_version_number: 2,
+            source_path: None,
+        };
+        let intent = fixture.db.file_version_prepare_gui(&prepare).unwrap();
+        let seq = fixture.db.committed_change_watermark().unwrap();
+        let result = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "open-existing", &intent, false)
+            .unwrap();
+        assert!(result.no_change);
+        assert_eq!(result.version_number, 2);
+        assert_eq!(fixture.db.committed_change_watermark().unwrap(), seq);
+        fs::write(&fixture.document.managed_path, b"later external edit").unwrap();
+        assert!(fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "stale-bytes", &intent, true)
+            .is_err());
+        assert_eq!(
+            fs::read(&fixture.document.managed_path).unwrap(),
+            b"later external edit"
+        );
+        prepare.project_id += 1;
+        assert!(fixture.db.file_version_prepare_gui(&prepare).is_err());
+        prepare.project_id -= 1;
+        prepare.managed_path.push_str(".other-workspace");
+        assert!(fixture.db.file_version_prepare_gui(&prepare).is_err());
+    }
     #[test]
     fn file_version_registered_no_change_has_receipt_without_version_or_event() {
         let bytes = b"\xef\xbb\xbf<script>registered\r\nsource</script>\r\n";
@@ -1754,7 +2015,16 @@ mod tests {
             .conn
             .query_row("SELECT id FROM documents", [], |row| row.get(0))
             .unwrap();
-        if std::env::var_os("MIND_FILE_VERSION_REGISTERED_CRASH").is_some() {
+        if std::env::var_os("MIND_FILE_VERSION_GUI_CRASH").is_some() {
+            let (metadata, _) = crate::workspace::load_metadata(root).unwrap();
+            let document = db.document_record(id).unwrap();
+            let intent = db.file_version_prepare_gui(&super::GuiFileVersionPrepare {
+                document_id: id, project_id: document.project_id, managed_path: document.managed_path,
+                expected_version_number: document.current_version_number as u32,
+                source_path: Some(root.join("picked.html").to_string_lossy().into()),
+            }).unwrap();
+            db.file_version_commit_gui(&super::WorkspaceBinding { workspace_id: metadata.workspace_id, generation: "real-open".into() }, "gui-crash-save", &intent, false).unwrap();
+        } else if std::env::var_os("MIND_FILE_VERSION_REGISTERED_CRASH").is_some() {
             use crate::agent::{
                 access::{Caller, RequestContext, ScopeGrant},
                 models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
@@ -1813,6 +2083,176 @@ mod tests {
         panic!("crash boundary was not reached");
     }
 
+    #[test]
+    fn file_version_gui_recovers_process_crashes_and_retry_once() {
+        for stage in 0..=5 {
+            let mut fixture = registered_fixture(b"GUI crash-safe bytes");
+            let intent = gui_intent(&mut fixture);
+            let before = fixture.db.committed_change_watermark().unwrap();
+            let root = fixture.root;
+            let binding = fixture.binding;
+            drop(fixture.db);
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "db::file_versions::tests::file_version_crash_process_fixture",
+                    "--ignored",
+                ])
+                .env("MIND_FILE_VERSION_CRASH_FIXTURE", root.path())
+                .env("MIND_FILE_VERSION_GUI_CRASH", "1")
+                .env("MIND_FILE_VERSION_CRASH_STAGE", stage.to_string())
+                .output()
+                .unwrap();
+            assert_crashed(output.status);
+            let (_, paths) = crate::workspace::load_metadata(root.path()).unwrap();
+            let mut db = crate::workspace_initialization::open_workspace_database(
+                &paths.db_path,
+                root.path(),
+                None,
+                &binding.workspace_id,
+            )
+            .unwrap()
+            .db;
+            assert_eq!(
+                db.document_record(intent.document_id)
+                    .unwrap()
+                    .current_version_number,
+                if stage < 5 { 2 } else { 3 }
+            );
+            let result = db
+                .file_version_commit_gui(&binding, "gui-crash-save", &intent, false)
+                .unwrap();
+            assert_eq!(result.version_number, 3);
+            assert_eq!(db.committed_change_watermark().unwrap(), before + 1);
+            assert_eq!(db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='gui-crash-save'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+            assert_eq!(
+                fs::read(db.file_version_committed_path(&result).unwrap().unwrap()).unwrap(),
+                b"GUI crash-safe bytes"
+            );
+        }
+    }
+    #[test]
+    fn file_version_gui_two_connections_replay_one_version() {
+        let mut fixture = registered_fixture(b"GUI concurrent bytes");
+        let intent = gui_intent(&mut fixture);
+        let (_, paths) = crate::workspace::load_metadata(fixture.root.path()).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let root = fixture.root.path().to_path_buf();
+                let path = paths.db_path.clone();
+                let binding = fixture.binding.clone();
+                let intent = intent.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let mut db = Database::open(&path, &root, None).unwrap();
+                    barrier.wait();
+                    db.file_version_commit_gui(&binding, "gui-concurrent", &intent, false)
+                        .unwrap()
+                })
+            })
+            .collect();
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(results[0], results[1]);
+        assert_eq!(
+            fixture
+                .db
+                .document_record(intent.document_id)
+                .unwrap()
+                .current_version_number,
+            3
+        );
+        assert_eq!(fixture.db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='gui-concurrent'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
+    #[test]
+    fn file_version_gui_no_change_ignores_foreign_next_paths_and_counter_limit() {
+        let mut fixture = registered_fixture(b"unused");
+        let next = std::path::Path::new(&fixture.document.managed_path).with_file_name("report_v3.html");
+        fs::write(&next, b"foreign file").unwrap();
+        let mut prepare = super::GuiFileVersionPrepare {
+            document_id: fixture.document.id, project_id: fixture.document.project_id,
+            managed_path: fixture.document.managed_path.clone(), expected_version_number: 2, source_path: None,
+        };
+        let intent = fixture.db.file_version_prepare_gui(&prepare).unwrap();
+        assert!(fixture.db.file_version_commit_gui(&fixture.binding, "foreign-next-no-change", &intent, false).unwrap().no_change);
+        assert_eq!(fs::read(next).unwrap(), b"foreign file");
+        fixture.db.conn.execute("UPDATE documents SET current_version_number=?2 WHERE id=?1", rusqlite::params![prepare.document_id, u32::MAX]).unwrap();
+        fixture.db.conn.execute("UPDATE document_versions SET version_number=?2 WHERE document_id=?1 AND version_number=2", rusqlite::params![prepare.document_id, u32::MAX]).unwrap();
+        prepare.expected_version_number = u32::MAX;
+        let intent = fixture.db.file_version_prepare_gui(&prepare).unwrap();
+        let receipt = fixture.db.file_version_commit_gui(&fixture.binding, "max-no-change", &intent, false).unwrap();
+        assert!(receipt.no_change);
+        assert_eq!(receipt.version_number, i64::from(u32::MAX));
+    }
+    #[test]
+    fn file_version_gui_outbox_failure_rolls_back_and_archive_refuses_commit() {
+        let mut fixture = registered_fixture(b"GUI rollback bytes");
+        let intent = gui_intent(&mut fixture);
+        let before = fixture.db.committed_change_watermark().unwrap();
+        let old_bytes = fs::read(&intent.managed_path).unwrap();
+        fixture.db.conn.execute_batch("CREATE TRIGGER fail_gui_file_outbox BEFORE INSERT ON agent_change_log WHEN NEW.operation='file.version.commit' BEGIN SELECT RAISE(ABORT,'outbox unavailable'); END;").unwrap();
+        assert!(fixture.db.file_version_commit_gui(&fixture.binding, "gui-rollback", &intent, false).is_err());
+        assert_eq!(fixture.db.committed_change_watermark().unwrap(), before);
+        assert_eq!(fixture.db.document_record(intent.document_id).unwrap().current_version_number, 2);
+        assert_eq!(fs::read(&intent.managed_path).unwrap(), old_bytes);
+        assert_eq!(fixture.db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='gui-rollback'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        fixture.db.conn.execute_batch("DROP TRIGGER fail_gui_file_outbox").unwrap();
+        fixture.db.project_set_archive(crate::models::ProjectArchiveInput { project_id: intent.project_id, is_archived: true }).unwrap();
+        assert_eq!(fixture.db.file_version_commit_gui(&fixture.binding, "gui-archived", &intent, false).unwrap_err().code, super::ErrorCode::ScopeDenied);
+        assert_eq!(fs::read(&intent.managed_path).unwrap(), old_bytes);
+    }
+    #[test]
+    fn file_version_gui_rejects_changed_source_and_preserves_unknown_old_hash() {
+        let mut fixture = registered_fixture(b"GUI selected bytes");
+        let intent = gui_intent(&mut fixture);
+        fs::write(&fixture.staged, b"changed selection").unwrap();
+        assert_eq!(
+            fixture
+                .db
+                .file_version_commit_gui(&fixture.binding, "source-changed", &intent, false)
+                .unwrap_err()
+                .code,
+            super::ErrorCode::SourceChanged
+        );
+        assert_eq!(
+            fixture
+                .db
+                .document_record(intent.document_id)
+                .unwrap()
+                .current_version_number,
+            2
+        );
+        fixture.db.conn.execute("DELETE FROM source_file_version_hashes WHERE document_version_id IN (SELECT id FROM document_versions WHERE document_id=?1)", [intent.document_id]).unwrap();
+        let intent = fixture
+            .db
+            .file_version_prepare_gui(&super::GuiFileVersionPrepare {
+                document_id: intent.document_id,
+                project_id: intent.project_id,
+                managed_path: intent.managed_path,
+                expected_version_number: 2,
+                source_path: None,
+            })
+            .unwrap();
+        assert!(intent.registered_content_hash.is_none());
+        assert_eq!(
+            fixture
+                .db
+                .file_version_commit_gui(&fixture.binding, "unknown-declined", &intent, false)
+                .unwrap_err()
+                .code,
+            super::ErrorCode::FileChangedUnregistered
+        );
+        let receipt = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "unknown-accepted", &intent, true)
+            .unwrap();
+        assert_eq!(receipt.version_number, 3);
+        assert!(!receipt.no_change);
+        assert_eq!(fixture.db.conn.query_row("SELECT count(*) FROM source_file_version_hashes h JOIN document_versions v ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number<3", [intent.document_id], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    }
     #[test]
     fn file_version_registered_recovers_process_crashes_and_retry_once() {
         for stage in 0..=5 {

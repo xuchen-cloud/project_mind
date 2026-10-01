@@ -542,16 +542,31 @@ export function ProjectSidebar({
     );
   };
 
+  const versionActionGeneration = useRef(0);
+  useEffect(() => {
+    versionActionGeneration.current += 1;
+    return () => { versionActionGeneration.current += 1; };
+  }, [project.id, project.rootPath, resident]);
+
   const addDocumentVersionAndOpen = async (document: ProjectSidebarDocumentItem) => {
     if (document.health === "missing") {
       return;
     }
 
+    const actionGeneration = versionActionGeneration.current;
     try {
-      const nextDocument = await documentAddVersionMutation.mutateAsync({
+      const result = await documentAddVersionMutation.mutateAsync({
         documentId: document.id,
+        projectId: document.projectId,
+        managedPath: document.managedPath,
+        expectedVersionNumber: document.currentVersionNumber,
       });
-      await runDesktopAction(desktopApi.openFile(nextDocument.managedPath), "打开文件失败", nextDocument.managedPath);
+      if (!result || actionGeneration !== versionActionGeneration.current) return;
+      if (!result.versionPath) {
+        pushToast({ tone: "info", title: `v${result.receipt.versionNumber} 已登记`, detail: "版本已保存，请刷新文件列表后打开。" });
+        return;
+      }
+      await runDesktopAction(desktopApi.openFile(result.versionPath), "打开文件失败", result.versionPath);
     } catch {
       return;
     }
@@ -1152,7 +1167,7 @@ export function ProjectSidebar({
             />
             <DocumentContextMenuAction
               icon={<FilePlus2 size={14} />}
-              label="复制为新版本并打开"
+              label="登记当前内容并打开"
               disabled={contextMenuDocument.health === "missing"}
               onClick={() => {
                 setContextMenu(null);

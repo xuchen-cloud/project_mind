@@ -1,4 +1,5 @@
 import { desktopApi } from "./desktopApi";
+import { callAgentCommand } from "./agentApi";
 import type {
   AiCapabilityBindingRecord,
   AiCapabilityBindingUpsertInput,
@@ -20,6 +21,9 @@ import type {
   ContactSearchInput,
   ContactUpsertInput,
   DocumentAddVersionInput,
+  DocumentVersionPrepareInput,
+  PreparedDocumentVersion,
+  DocumentVersionCommitResult,
   DocumentDeleteInput,
   DocumentImportClipboardImageInput,
   DocumentImportClipboardNoteImageInput,
@@ -201,8 +205,10 @@ export const projectMindApi = {
     desktopApi.command<DocumentVersionRecord[]>("document_list_versions", {
       input,
     }),
+  documentVersionPrepare: (input: DocumentVersionPrepareInput, requestId = crypto.randomUUID()) =>
+    callAgentCommand<PreparedDocumentVersion>("document_version_prepare", requestId, { input, requestId }),
   documentAddVersion: (input: DocumentAddVersionInput) =>
-    desktopApi.command<DocumentRecord>("document_add_version", { input }),
+    callAgentCommand<DocumentVersionCommitResult>("document_add_version", input.requestId, { input }),
   documentDelete: (input: DocumentDeleteInput) =>
     desktopApi.command<DocumentRecord>("document_delete", { input }),
   aiSettingsGet: () =>

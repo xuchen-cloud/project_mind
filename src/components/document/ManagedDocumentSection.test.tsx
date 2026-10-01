@@ -447,7 +447,7 @@ describe("ManagedDocumentSection", () => {
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
       "打开文件所在位置",
       "重命名",
-      "复制为新版本并打开",
+      "登记当前内容并打开",
       "标星",
       "删除",
     ]);
@@ -457,16 +457,10 @@ describe("ManagedDocumentSection", () => {
     expect(desktopApiMocks.revealInExplorer).toHaveBeenCalledWith("/tmp/project/Spec brief.pdf");
   });
 
-  it("duplicates the current version, adds the new version, and opens the new managed file", async () => {
+  it("registers the displayed version baseline and opens the committed version", async () => {
     const user = userEvent.setup();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValueOnce(
-      buildDocument({
-        id: 22,
-        baseName: "Spec brief.pdf",
-        managedPath: "/tmp/project/Spec brief_v2.pdf",
-        currentVersionNumber: 2,
-        versionCount: 2,
-      }),
+      { receipt: { documentId: 22, versionNumber: 2, noChange: false }, versionPath: "/tmp/project/Spec brief_v2.pdf" },
     );
 
     renderSection([
@@ -477,15 +471,35 @@ describe("ManagedDocumentSection", () => {
     ]);
 
     fireEvent.contextMenu(document.getElementById("document-22") as HTMLElement);
-    await user.click(screen.getByRole("menuitem", { name: "复制为新版本并打开" }));
+    await user.click(screen.getByRole("menuitem", { name: "登记当前内容并打开" }));
 
     expect(documentMutationMocks.documentAddVersionMutation.mutateAsync).toHaveBeenCalledWith({
       documentId: 22,
+      projectId: 1,
+      managedPath: "/tmp/project/Roadmap.pdf",
+      expectedVersionNumber: 1,
     });
 
     await waitFor(() => {
       expect(desktopApiMocks.openFile).toHaveBeenCalledWith("/tmp/project/Spec brief_v2.pdf");
     });
+  });
+
+  it("does not open a cancelled registration or a late result after the view is closed", async () => {
+    const user = userEvent.setup();
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockResolvedValueOnce(null);
+    const view = renderSection([buildDocument({ id: 22 })]);
+    fireEvent.contextMenu(document.getElementById("document-22") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "登记当前内容并打开" }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+    let finish!: (value: unknown) => void;
+    documentMutationMocks.documentAddVersionMutation.mutateAsync.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.contextMenu(document.getElementById("document-22") as HTMLElement);
+    await user.click(screen.getByRole("menuitem", { name: "登记当前内容并打开" }));
+    view.unmount();
+    finish({ receipt: { documentId: 22, versionNumber: 2, noChange: false }, versionPath: "/tmp/project/late_v2.pdf" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
   });
 
   it("deletes a document from the context menu without confirmation", async () => {
@@ -519,7 +533,7 @@ describe("ManagedDocumentSection", () => {
 
     expect(screen.getByRole("menuitem", { name: "打开文件所在位置" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "复制为新版本并打开" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "登记当前内容并打开" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "删除" })).toBeEnabled();
   });
 

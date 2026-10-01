@@ -634,9 +634,33 @@ export interface DocumentListVersionsInput {
   documentId: number;
 }
 
-export interface DocumentAddVersionInput {
+export interface DocumentVersionPrepareInput {
   documentId: number;
-  sourcePath?: string;
+  projectId: number;
+  managedPath: string;
+  expectedVersionNumber: number;
+  sourcePath?: string | null;
+}
+
+export interface DocumentVersionIntent extends DocumentVersionPrepareInput {
+  expectedContentHash: string;
+  registeredContentHash: string | null;
+  newContentHash: string;
+}
+
+export interface PreparedDocumentVersion {
+  binding: import("./agent-types").AgentWorkspaceBinding;
+  intent: DocumentVersionIntent;
+}
+
+export interface DocumentAddVersionInput extends PreparedDocumentVersion {
+  requestId: string;
+  registerCurrentBytes: boolean;
+}
+
+export interface DocumentVersionCommitResult {
+  receipt: { documentId: number; versionNumber: number; contentHash: string; noChange: boolean };
+  versionPath: string | null;
 }
 
 export interface DocumentDeleteInput {

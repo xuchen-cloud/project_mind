@@ -164,3 +164,15 @@ File tombstone 在日志清理与重开后保留，queued/running 提取任务�
 主 agent Standards / Spec 自查及专项 6 个父用例通过，包含正常/缺失 head 两种状态五个阶段的 10 次 Linux SIGKILL、outbox 回滚、不同内容/未知旧版本拒绝、外部编辑保留、同字节外来目标、无变化和活跃 staging 互斥。Rust 全目标库 386 passed、20 默认忽略；source 显式真实进程专项 109 passed，Record 100 passed。未改前端，前一阶段 959 passed/1 个驻留用例超时门槛保留。原生 File 各写入口的 hash/outbox/journal 已有内核，GUI 稳定 requestId/CAS、短锁外层、上传/精确 patch、恢复交互与实包故障验收仍未交付；不把内核阶段当作 #114 整体交付。
 
 最新只读核对 #99 为 CLOSED、#104 为 OPEN；依赖 Issue 的正文与完成状态须分别核对，不能仅凭旧 Blocked by 文本断言未交付。正式会话/摘要、真实成果模块和助手 UI 的注册接缝仍不能虚构。公开 source.search/read、File adapters 与普通 source worker 分发保持关闭，内部惰性表未发布为 Schema 29；#100/#114 保持 OPEN，无阶段 PR、main 合并或 Issue 关闭。
+
+### GUI File 版本基线与稳定回执（2026-10-01 后续阶段）
+
+普通 GUI 两处 File 版本入口已改为“登记当前内容并打开”，走同一 Version commit/recovery 内核。预检核对页面所显示的真实 File/Project ID、managed_path 与版本号，返回当前 Workspace generation、实际字节 hash、既有登记 hash 和候选字节 hash。提交携带冻结 intent、稳定 requestId 与明确登记决定；Tauri 在存储锁内核对当前 Workspace binding，内核取得 Project/File 锁后重放原回执或再次验证版本/路径/登记值/实际字节。延迟确认不重读并静默换基线；工作区切换、旧版本、预检后的外部改动和所选源变化均拒绝覆盖。同一请求不同 intent 明确冲突，双数据库连接重试只新增一个 Version。
+
+已登记且字节未变化时，先以 synchronous 至少 FULL 的原子事务保存 noChange 回执，不新增版本、hash 或 outbox，也不准备文件 journal。这个分支先于下一路径推导与版本号加一，外来下一版本路径和 u32::MAX 不会阻挡无变化结算。未知旧版本或已在应用外改变的 head 需要 GUI 明确确认登记：当前字节形成新的可信版本，旧登记 hash 不改写，未登记的历史仍不登记，不把修改后的旧内容称为原件。取消确认不写入；普通无条件新增版本 helper 仅保留给测试 fixture，生产 Tauri 入口不再有旧旁路。
+
+GUI 按真实回执显示已登记版本或 noChange，打开回执对应的 Version 路径，不把成功重放后更晚的 head 当作该次成果。路径补读/通知失败不把已提交回执改成失败，路径不可用时保留成功结果并提示刷新；提交与存储锁释放后才发布 mind:changed。视图卸载、Project 变更或 Sidebar 转入 resident 后，延迟结果不再自动打开文件。公开 File/source adapters 仍未开放。
+
+主 agent Standards / Spec 自查修复 noChange 的路径占用/版本上限边界，并检查未知历史不补 hash、无条件 GUI 旁路移除、回执/日志事务、生成绑定和释放锁后通知。Rust 全目标库 394 passed、20 默认忽略；新增 GUI 内核 7 个父用例及 binding 用例覆盖 SQL/outbox 回滚、Archive、候选源变化、未知历史、旧版本/实际字节 CAS、原回执重放、双连接和 6 次 Linux SIGKILL 恢复。source 显式实际进程专项 110 passed，Record 100 passed；前端相关 4 文件 65 passed，完整 141 文件 964 passed/1 个已有 Project 驻留用例 15s 超时。构建、路径、UI standards、bundle 检查通过，主脚本 189 KiB/250 KiB；前端完整门槛仍未通过，不能进入发布流程。
+
+本阶段只补 GUI CAS/receipt/显式登记接入，预检 hash 与 File 准备仍持有旧 GUI DB Mutex，短锁外层尚未完成；上传/run 绑定、精确 UTF-8 patch、历史恢复交互、恢复诊断与真实平台故障验收仍待后续工作包。未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包。#100/#114 保持 OPEN，无阶段发布 PR、main 合并或 Issue 关闭；source.search/read 与 File capability 仍 implemented:false，普通 source worker 未分发，内部惰性表不称为已发布 Schema 29。

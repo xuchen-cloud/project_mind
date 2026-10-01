@@ -392,34 +392,19 @@ describe("projectMindApi", () => {
     });
   });
 
-  it("maps document add version without source path to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 12 });
-
-    await projectMindApi.documentAddVersion({
-      documentId: 12,
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_add_version", {
-      input: {
-        documentId: 12,
-      },
-    });
-  });
-
-  it("maps document add version with source path to the correct command", async () => {
-    serviceMocks.commandMock.mockResolvedValueOnce({ id: 12 });
-
-    await projectMindApi.documentAddVersion({
-      documentId: 12,
-      sourcePath: "/tmp/brief-v2.pdf",
-    });
-
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_add_version", {
-      input: {
-        documentId: 12,
-        sourcePath: "/tmp/brief-v2.pdf",
-      },
-    });
+  it("prepares a frozen File target before committing with binding and receipt identity", async () => {
+    const binding = { workspaceId: "workspace", generation: "opened" };
+    const target = { documentId: 12, projectId: 3, managedPath: "/workspace/project/brief.pdf", expectedVersionNumber: 2 };
+    const intent = { ...target, expectedContentHash: "sha256:old", registeredContentHash: "sha256:old", newContentHash: "sha256:new", sourcePath: "/tmp/brief-v3.pdf" };
+    const prepared = { binding, intent };
+    serviceMocks.commandMock.mockResolvedValueOnce({ apiVersion: 1, requestId: "prepare-file", ok: true, data: prepared });
+    expect(await projectMindApi.documentVersionPrepare(target, "prepare-file")).toEqual(prepared);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_version_prepare", { input: target, requestId: "prepare-file" });
+    const input = { ...prepared, requestId: "commit-file", registerCurrentBytes: false };
+    const result = { receipt: { documentId: 12, versionNumber: 3, contentHash: "sha256:new", noChange: false }, versionPath: "/workspace/project/brief_v3.pdf" };
+    serviceMocks.commandMock.mockResolvedValueOnce({ apiVersion: 1, requestId: "commit-file", ok: true, data: result });
+    expect(await projectMindApi.documentAddVersion(input)).toEqual(result);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_add_version", { input });
   });
 
   it("maps document delete to the correct command", async () => {
