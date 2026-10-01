@@ -21,6 +21,7 @@ mod secret_crypto;
 mod system_fonts;
 pub mod voice;
 mod workspace;
+mod workspace_initialization;
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -146,12 +147,13 @@ impl WorkspaceRuntime {
         paths: WorkspacePaths,
         secret_password: Option<String>,
     ) -> Result<Self> {
-        let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
-        db.record_migrate_operation_keys(&metadata.workspace_id).map_err(|error| anyhow!(error.message))?;
-        db.record_compact_operation_receipts().map_err(|error| anyhow!(error.message))?;
-        if let Err(error) = db.record_seal_pending_checkpoints(true, &metadata.workspace_id) {
+        let opened = workspace_initialization::open_workspace_database(
+            &paths.db_path, &paths.root_path, secret_password.clone(), &metadata.workspace_id,
+        )?;
+        if let Some(error) = opened.checkpoint_error {
             let _ = app_handle.emit("record:checkpoint-error", error);
         }
+        let mut db = opened.db;
         let execution = db.ai_execution_settings_get()?;
         let secret_state = Arc::new(Mutex::new(secret_password));
         let app_handle = app_handle.clone();
@@ -195,20 +197,17 @@ impl WorkspaceRuntime {
         );
     }
 
-    fn set_secret_password(&self, secret_password: Option<String>) -> Result<()> {
-        {
-            let mut secret = lock_mutex(&self.secret_state);
-            *secret = secret_password.clone();
-        }
-
+    fn set_secret_password(&self, secret_password: Option<String>) -> Result<Option<agent::errors::AgentError>> {
         let mut db_guard = lock_mutex(&self.db);
-        let next_db = Database::open(&self.paths.db_path, &self.paths.root_path, secret_password)?;
-        next_db.record_migrate_operation_keys(&self.agent_binding.workspace_id).map_err(|error| anyhow!(error.message))?;
-        next_db.record_compact_operation_receipts().map_err(|error| anyhow!(error.message))?;
+        let opened = workspace_initialization::open_workspace_database(
+            &self.paths.db_path, &self.paths.root_path, secret_password.clone(), &self.agent_binding.workspace_id,
+        )?;
+        let mut next_db = opened.db;
+        let execution = next_db.ai_execution_settings_get()?;
         *db_guard = next_db;
-        let execution = db_guard.ai_execution_settings_get()?;
+        *lock_mutex(&self.secret_state) = secret_password;
         self.ai_jobs.set_max_concurrency(execution.max_concurrency);
-        Ok(())
+        Ok(opened.checkpoint_error)
     }
 }
 
@@ -319,7 +318,9 @@ impl AppState {
     fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         verify_workspace_password(&runtime.metadata, password)?;
-        runtime.set_secret_password(Some(password.to_string()))?;
+        if let Some(error) = runtime.set_secret_password(Some(password.to_string()))? {
+            let _ = self.app_handle.emit("record:checkpoint-error", error);
+        }
         self.status_snapshot()
     }
 
@@ -335,7 +336,9 @@ impl AppState {
 
     fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
-        runtime.set_secret_password(None)?;
+        if let Some(error) = runtime.set_secret_password(None)? {
+            let _ = self.app_handle.emit("record:checkpoint-error", error);
+        }
         self.status_snapshot()
     }
 }

@@ -3125,6 +3125,100 @@ mod tests {
     }
 
     #[test]
+    fn workspace_shared_open_migrates_receipts_and_recovers_checkpoints_on_every_reopen() {
+        use crate::agent::{
+            access::ScopeGrant,
+            changes::{ChangeInput, ChangeRepository},
+        };
+        let (root, database, target, projection) = setup();
+        let legacy = database.record_document_source(&target).unwrap();
+        database
+            .record_document_initialize(
+                "gui",
+                "baseline",
+                &target,
+                &legacy.source_hash,
+                &projection,
+                "workspace-test",
+            )
+            .unwrap();
+        let input = RecordDocumentCommit {
+            target: target.clone(),
+            base_revision: 1,
+            projection: changed(&projection, "Saved before crash"),
+            origin: RecordVersionOrigin::Manual,
+            actor: json!({"kind":"gui"}),
+            edit_session_id: Some("a".repeat(32)),
+        };
+        let saved = database
+            .record_document_commit("gui", "draft", &input, "workspace-test")
+            .unwrap();
+        let mut old_receipt = serde_json::to_value(&saved).unwrap();
+        old_receipt["head"] = json!({"target":target,"headRevision":2,"projection":input.projection,"editSessionId":"a".repeat(32),"checkpointDueAt":"old"});
+        database
+            .conn
+            .execute(
+                "UPDATE agent_operation_receipts SET result_json=?1 WHERE request_id='draft'",
+                [old_receipt.to_string()],
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE agent_change_log SET object_key=?1",
+                [format!("record:{}", target.key().unwrap())],
+            )
+            .unwrap();
+        drop(database);
+        let grant = ScopeGrant {
+            workspace_id: "workspace-test".into(),
+            workspace_content: true,
+            project_ids: vec![],
+            operations: vec!["record.read".into()],
+        };
+        for password in [None, Some("reopened-password".into()), None] {
+            let opened = crate::workspace_initialization::open_workspace_database(
+                &root.path().join("app.sqlite"),
+                root.path(),
+                password,
+                "workspace-test",
+            )
+            .unwrap();
+            assert!(opened.checkpoint_error.is_none());
+            let db = opened.db;
+            let head = db.record_document_head(&target).unwrap().unwrap();
+            assert_eq!(head.head_revision, 2);
+            assert_eq!(head.projection.body_hash, saved.head.body_hash);
+            assert!(head.edit_session_id.is_none());
+            assert_eq!(
+                db.record_versions_list(&target, None, 50)
+                    .unwrap()
+                    .versions
+                    .len(),
+                2
+            );
+            let replay = db
+                .record_document_commit("gui", "draft", &input, "workspace-test")
+                .unwrap();
+            assert_eq!(replay.head.head_revision, 2);
+            assert_eq!(replay.head.body_hash, saved.head.body_hash);
+            assert!(db.record_version_capacity(&target).unwrap().receipt_bytes < 4096);
+            let changes = db
+                .agent_changes_list(
+                    &grant,
+                    &ChangeInput {
+                        after_seq: 0,
+                        limit: 200,
+                    },
+                )
+                .unwrap();
+            assert!(changes
+                .entries
+                .iter()
+                .all(|change| change.object_key == target.object_key("workspace-test").unwrap()));
+        }
+    }
+    #[test]
     fn record_head_checkpoint_recovers_autosave_and_restore_preserves_metadata_and_history() {
         let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();

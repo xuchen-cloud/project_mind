@@ -51,6 +51,8 @@
 
 本批原生来源新增 11 项真实服务测试（含 3 项固定转换/提取进程测试）：Project/QuickNote 隔离、原生修订与单份缓存、错误 owner/Scope Grant、Archive/排除/Workspace generation、Unicode 分页、原生版本与 block 选择拒绝、Todo/子项变更及删除、五类混合检索和 kind/limit，以及转换/投影后的 freshness fence。来源全量在最终 fence 用例加入前为 74 项通过；最终 Rust 全量为 304 项通过、15 项默认忽略。最终 fence 已包含在 Rust 全量中。没有启动应用窗口、发送 Provider 请求或改动前端。
 
+共享 `open_workspace_database` 统一执行数据库打开、旧 Record 日志键迁移、正文回执压缩和 pending checkpoint 恢复，桌面初次打开、解锁及锁定导致的数据库重开均复用；未来 headless Host 也应复用这个入口。封存失败保留最新 autosave 并返回诊断，由桌面适配器显示；数据库重开失败不提前替换密钥状态。新增连续三次（含密码）重开测试通过，验证不复制正文回执、不重复封存、不回滚当前 head。
+
 ## 后续责任
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
