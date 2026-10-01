@@ -6,14 +6,12 @@ use crate::{
         models::{ObjectKind, SourceLocator, SourceRef},
     },
     source_service::{
-        BoundSourceStore, SourceReadInput, SourceReadPage, SourceReadSpan, SourceReadView,
-        SourceService, SourceUtility,
+        BoundSourceStore, SourceReadInput, SourceReadPage, SourceReadView, SourceService,
+        SourceUtility,
     },
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,15 +38,6 @@ struct CharacterRange {
     start: usize,
     end: usize,
 }
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Cursor {
-    object_key: String,
-    revision: String,
-    file_version: u32,
-    selection_hash: String,
-    offset: usize,
-}
 struct Span {
     start: usize,
     end: usize,
@@ -60,13 +49,6 @@ fn invalid(message: &str) -> AgentError {
 fn protocol() -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Invalid source extraction projection")
 }
-fn source_changed() -> AgentError {
-    AgentError::new(
-        ErrorCode::SourceChanged,
-        "File source changed; restart reading its current version",
-    )
-}
-
 // Worker chunks overlap within one location. Reconstruct each location once,
 // retaining Unicode offsets rather than joining duplicate evidence.
 fn text_locations(chunks: Vec<Chunk>) -> AgentResult<Vec<(SourceLocator, String)>> {
@@ -195,20 +177,6 @@ fn projection(
     }
     Ok((text, spans))
 }
-fn clipped_locator(span: &Span, start: usize, end: usize) -> SourceLocator {
-    match &span.locator {
-        SourceLocator::Page {
-            page,
-            start: local_start,
-            ..
-        } => SourceLocator::Page {
-            page: *page,
-            start: *local_start + (start - span.start) as u32,
-            end: *local_start + (end - span.start) as u32,
-        },
-        locator => locator.clone(),
-    }
-}
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) async fn index_file<W: SourceUtility>(
         &self,
@@ -322,41 +290,8 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             }
             _ => return Err(invalid("Choose an explicit full view or File text range")),
         }
-        let cursor: Option<Cursor> = input
-            .cursor
-            .as_ref()
-            .map(|encoded| {
-                if encoded.len() > 2048 {
-                    return Err(invalid("Invalid File read cursor"));
-                }
-                let bytes = URL_SAFE_NO_PAD
-                    .decode(encoded)
-                    .map_err(|_| invalid("Invalid File read cursor"))?;
-                serde_json::from_slice(&bytes).map_err(|_| invalid("Invalid File read cursor"))
-            })
-            .transpose()?;
+        let cursor = crate::source_text_page::decode_cursor(input)?;
         let extraction = self.extract_file(request, &input.source, utility).await?;
-        let key = extraction.object.key()?;
-        let selection_hash = format!(
-            "{:x}",
-            Sha256::digest(
-                serde_json::to_vec(&(input.view, &input.selection, input.source.file_version))
-                    .map_err(|_| invalid("Invalid File selection"))?
-            )
-        );
-        let offset = if let Some(cursor) = cursor {
-            if cursor.object_key != key || cursor.selection_hash != selection_hash {
-                return Err(invalid("Cursor belongs to another File selection"));
-            }
-            if cursor.revision != extraction.revision
-                || cursor.file_version != extraction.file_version
-            {
-                return Err(source_changed());
-            }
-            cursor.offset
-        } else {
-            0
-        };
         let data: Extraction =
             serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
         let status = FileExtractionStatus {
@@ -365,113 +300,32 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             reason: data.reason,
         };
         let (text, spans) = projection(&status, text_locations(data.chunks)?, input)?;
-        if offset > text.len()
-            || !text.is_char_boundary(offset)
-            || (input.cursor.is_some() && offset == text.len())
-        {
-            return Err(invalid("File cursor is outside the selected text"));
-        }
-        let start_char = text[..offset].chars().count();
-        let tail = &text[offset..];
-        let make_page = |count: usize| -> AgentResult<SourceReadPage> {
-            let bytes = tail
-                .char_indices()
-                .nth(count)
-                .map(|(byte, _)| byte)
-                .unwrap_or(tail.len());
-            let end = offset + bytes;
-            let page_spans: Vec<_> = spans
-                .iter()
-                .filter_map(|span| {
-                    let start = span.start.max(start_char);
-                    let end = span.end.min(start_char + count);
-                    (end > start).then(|| SourceReadSpan {
-                        start: start - start_char,
-                        end: end - start_char,
-                        block_id: None,
-                        locator: clipped_locator(span, start, end),
-                    })
-                })
-                .collect();
-            let next_cursor = if end < text.len() {
-                Some(
-                    URL_SAFE_NO_PAD.encode(
-                        serde_json::to_vec(&Cursor {
-                            object_key: key.clone(),
-                            revision: extraction.revision.clone(),
-                            file_version: extraction.file_version,
-                            selection_hash: selection_hash.clone(),
-                            offset: end,
-                        })
-                        .map_err(|_| invalid("Invalid File cursor"))?,
-                    ),
-                )
-            } else {
-                None
-            };
-            let locator = page_spans.first().and_then(|first| {
-                match (&first.locator, &page_spans.last()?.locator) {
-                    (
-                        SourceLocator::Paragraph { start, .. },
-                        SourceLocator::Paragraph { end, .. },
-                    ) => Some(SourceLocator::Paragraph {
-                        start: *start,
-                        end: *end,
-                    }),
-                    (
-                        SourceLocator::Page { page, start, .. },
-                        SourceLocator::Page {
-                            page: last, end, ..
-                        },
-                    ) if page == last => Some(SourceLocator::Page {
-                        page: *page,
-                        start: *start,
-                        end: *end,
-                    }),
-                    _ => None,
-                }
-            });
-            Ok(SourceReadPage {
-                source_ref: SourceRef {
-                    object: extraction.object.clone(),
-                    revision: extraction.revision.clone(),
-                    file_version: Some(extraction.file_version),
-                    record_version: None,
-                    block_id: None,
-                    locator,
-                    title: extraction.title.chars().take(1000).collect(),
-                    excerpt: text[offset..end].chars().take(240).collect(),
-                },
-                text: text[offset..end].into(),
-                spans: page_spans,
-                complete: next_cursor.is_none()
-                    && input.view == SourceReadView::Full
-                    && status.coverage["complete"] == true,
-                range_complete: next_cursor.is_none()
-                    && (input.view == SourceReadView::Range || status.coverage["complete"] == true),
-                next_cursor,
-                extraction: Some(status.clone()),
+        let spans: Vec<_> = spans
+            .into_iter()
+            .map(|span| crate::source_text_page::TextSpan {
+                start: span.start,
+                end: span.end,
+                block_id: None,
+                locator: span.locator,
             })
-        };
-        let mut low = 0;
-        let mut high = tail.chars().take(budget).count();
-        while low < high {
-            let middle = (low + high + 1) / 2;
-            if crate::agent::context::serialized_chars(&make_page(middle)?)? <= budget {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
-        }
-        let page = make_page(low)?;
-        if (!tail.is_empty() && low == 0)
-            || crate::agent::context::serialized_chars(&page)? > budget
-        {
-            return Err(AgentError::new(
-                ErrorCode::BudgetExceeded,
-                "File metadata does not fit this read budget",
-            ));
-        }
+            .collect();
+        let page = crate::source_text_page::paginate(
+            input,
+            SourceRef {
+                object: extraction.object.clone(),
+                revision: extraction.revision.clone(),
+                title: extraction.title.clone(),
+                file_version: Some(extraction.file_version),
+                record_version: None,
+                block_id: None,
+                locator: None,
+                excerpt: String::new(),
+            },
+            &text,
+            &spans,
+            cursor,
+            Some(status),
+        )?;
         self.verify_file_extraction(request, &input.source, &extraction)
             .await?;
         Ok(page)

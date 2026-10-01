@@ -24,6 +24,7 @@
 - File 提取可按可信批次预算提交共享索引，版本号始终对应实际 File Version；段落/页内重叠不重复计数，预算截断同步调整页内范围。读取服务与混合 Record/File 检索共享授权边界，File 搜索在排行后逐项核对实际字节，返回前再次检查授权、当前版本和 stat/hash；只保留无正文的核验凭证，避免搜索 50 个 PDF 时长期保留 50 份字节缓冲。
 - File 删除、版本删除、错误业务归属、未登记 hash 或排除状态在排行/分页/统计前清理；新增版本立即让旧缓存退出默认当前检索，历史版本仅在 includeHistory 下可见。共享检索仅允许已实现的 Record/File kind 进入排行与 hasMore，尚未实现的来源类型不占用候选预算。Record 私有正文图片不作为独立 File 来源。
 - 无正文 chunk 的来源也可按标题发现；同样在排行前检查 scope、kind、排除与当前/历史版本，支持多词和转义后的字面查询。空 Record、扫描件等不生成假正文 chunk、excerpt、blockId 或 locator；保留真实零字符 coverage。实际扫描 PDF 的读取仍返回 needs_ocr，不能因标题命中宣称已读原文。
+- Record/File 共用纯文本分页内核；统一完整序列化预算、Unicode 字节游标校验、段落/页内范围裁剪、真实覆盖与末页标记。业务服务分别负责来源投影和前后授权/字节复查，分页内核不授予权限，也不创建正文版本。现有 Record 游标结构保持兼容，File 游标继续绑定实际版本号。
 - 缓存统计分别报告对象、快照、chunk 和已存储内容字节；后者是 payload 统计，不包含 FTS/B-tree 页面开销，不能冒充整个 SQLite 文件大小。
 - Workspace Record 使用 `[[workspace_record:<id>|<label>]]` 专用引用，旧 `note:<id>` 继续指向 Project Record。文本/HTML/Committed JSON/Markdown 转换、候选搜索与导航、正文/Todo 归属校验和可携带导出一起兼容；同号对象不混淆，删除后不回退到另一张表。Project 内容拒绝新增 Workspace 引用。引用候选列表复用公共滚动边缘测量，限制到浮层可用高度，遮罩不覆盖滚动条或阻挡点击。
 

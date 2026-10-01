@@ -8,10 +8,8 @@ use crate::{
     },
     db::Database,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 pub(crate) trait BoundSourceStore {
     fn with_current<T>(
@@ -166,14 +164,6 @@ pub(crate) struct SourceSnapshot {
     pub record_version: Option<u32>,
     pub document: Value,
     pub updated_at: String,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ReadCursor {
-    object_key: String,
-    revision: String,
-    selection_hash: String,
-    offset: usize,
 }
 struct TextSpan {
     start_byte: usize,
@@ -689,159 +679,41 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 "Choose an explicit full view or nonempty source range",
             ));
         }
-        let cursor: Option<ReadCursor> = input
-            .cursor
-            .as_ref()
-            .map(|encoded| {
-                if encoded.len() > 2048 {
-                    return Err(invalid("Invalid source cursor"));
-                }
-                let bytes = URL_SAFE_NO_PAD
-                    .decode(encoded)
-                    .map_err(|_| invalid("Invalid source cursor"))?;
-                serde_json::from_slice(&bytes).map_err(|_| invalid("Invalid source cursor"))
-            })
-            .transpose()?;
+        let cursor = crate::source_text_page::decode_cursor(input)?;
         let snapshot = self.store.with_current(|binding, db| {
             db.source_record_snapshot(request, binding, &input.source)
         })?;
-        let key = snapshot.object.key()?;
-        let selection_hash = format!(
-            "{:x}",
-            Sha256::digest(
-                serde_json::to_vec(&(
-                    input.view,
-                    &input.selection,
-                    input.source.record_version,
-                    input.source.file_version
-                ))
-                .map_err(|_| invalid("Invalid source selection"))?
-            )
-        );
-        let offset = if let Some(cursor) = cursor {
-            if cursor.object_key != key || cursor.selection_hash != selection_hash {
-                return Err(invalid("Cursor belongs to another source selection"));
-            }
-            if cursor.revision != snapshot.revision {
-                return Err(changed());
-            }
-            cursor.offset
-        } else {
-            0
-        };
-        // Pure document projection happens outside the current Workspace/DB locks.
+        // Pure projection and paging stay outside current Workspace/DB locks.
         let (text, spans) = flatten_record(&snapshot.document, input.selection.as_ref())?;
-        if offset > text.len()
-            || !text.is_char_boundary(offset)
-            || (input.cursor.is_some() && offset == text.len())
-        {
-            return Err(invalid("Source cursor is outside the selected text"));
-        }
-        let start_char = text[..offset].chars().count();
-        let tail = &text[offset..];
-        let make_page = |count: usize| -> AgentResult<SourceReadPage> {
-            let bytes = tail
-                .char_indices()
-                .nth(count)
-                .map(|(byte, _)| byte)
-                .unwrap_or(tail.len());
-            let end = offset + bytes;
-            let content = &text[offset..end];
-            let end_char = start_char + count;
-            let spans: Vec<_> = spans
-                .iter()
-                .filter_map(|span| {
-                    let start = span.start.max(start_char);
-                    let end = span.end.min(end_char);
-                    (end > start).then(|| SourceReadSpan {
-                        start: start - start_char,
-                        end: end - start_char,
-                        block_id: Some(span.block_id.clone()),
-                        locator: SourceLocator::Paragraph {
-                            start: span.paragraph,
-                            end: span.paragraph,
-                        },
-                    })
-                })
-                .collect();
-            let next_cursor = if end < text.len() {
-                Some(
-                    URL_SAFE_NO_PAD.encode(
-                        serde_json::to_vec(&ReadCursor {
-                            object_key: key.clone(),
-                            revision: snapshot.revision.clone(),
-                            selection_hash: selection_hash.clone(),
-                            offset: end,
-                        })
-                        .map_err(|_| invalid("Invalid source cursor"))?,
-                    ),
-                )
-            } else {
-                None
-            };
-            Ok(SourceReadPage {
-                source_ref: SourceRef {
-                    object: snapshot.object.clone(),
-                    revision: snapshot.revision.clone(),
-                    file_version: None,
-                    record_version: snapshot.record_version,
-                    block_id: input
-                        .selection
-                        .as_ref()
-                        .and_then(|selection| selection.block_id.clone())
-                        .or_else(|| {
-                            if spans.len() == 1 {
-                                spans[0].block_id.clone()
-                            } else {
-                                None
-                            }
-                        }),
-                    locator: spans.first().and_then(|first| {
-                        match (&first.locator, &spans.last()?.locator) {
-                            (
-                                SourceLocator::Paragraph { start, .. },
-                                SourceLocator::Paragraph { end, .. },
-                            ) => Some(SourceLocator::Paragraph {
-                                start: *start,
-                                end: *end,
-                            }),
-                            _ => None,
-                        }
-                    }),
-                    title: snapshot.title.chars().take(1000).collect(),
-                    excerpt: content.chars().take(240).collect(),
+        let spans: Vec<_> = spans
+            .into_iter()
+            .map(|span| crate::source_text_page::TextSpan {
+                start: span.start,
+                end: span.end,
+                block_id: Some(span.block_id),
+                locator: SourceLocator::Paragraph {
+                    start: span.paragraph,
+                    end: span.paragraph,
                 },
-                text: content.into(),
-                spans,
-                complete: next_cursor.is_none() && input.view == SourceReadView::Full,
-                range_complete: next_cursor.is_none(),
-                next_cursor,
-                extraction: None,
             })
-        };
-        // Include metadata, spans and cursor in the returned-character budget.
-        let mut low = 0;
-        let mut high = tail.chars().take(budget).count();
-        if crate::agent::context::serialized_chars(&make_page(high)?)? <= budget {
-            low = high;
-        }
-        while low < high {
-            let middle = (low + high + 1) / 2;
-            if crate::agent::context::serialized_chars(&make_page(middle)?)? <= budget {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
-        }
-        let page = make_page(low)?;
-        if (!tail.is_empty() && low == 0)
-            || crate::agent::context::serialized_chars(&page)? > budget
-        {
-            return Err(AgentError::new(
-                ErrorCode::BudgetExceeded,
-                "Source metadata does not fit this read budget",
-            ));
-        }
+            .collect();
+        let page = crate::source_text_page::paginate(
+            input,
+            SourceRef {
+                object: snapshot.object,
+                revision: snapshot.revision.clone(),
+                title: snapshot.title,
+                file_version: None,
+                record_version: snapshot.record_version,
+                block_id: None,
+                locator: None,
+                excerpt: String::new(),
+            },
+            &text,
+            &spans,
+            cursor,
+            None,
+        )?;
         self.store.with_current(|binding, db| {
             let current = db.source_record_fingerprint(request, binding, &input.source)?;
             if current.revision != snapshot.revision {

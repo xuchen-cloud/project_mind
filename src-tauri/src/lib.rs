@@ -10,6 +10,7 @@ mod source_search_index;
 mod source_service;
 mod source_file_snapshot;
 mod source_file_read;
+mod source_text_page;
 mod utility_process;
 mod record_document_service;
 mod record_document_commands;
