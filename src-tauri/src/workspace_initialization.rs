@@ -19,6 +19,7 @@ pub(crate) fn open_workspace_database(
 ) -> Result<OpenedWorkspaceDatabase> {
     let mut db = Database::open(db_path, root_path, secret_password)?;
     db.bind_native_workspace(workspace_id)?;
+    db.file_version_recover_pending()?;
     db.record_migrate_operation_keys(workspace_id)
         .map_err(|error| anyhow!(error.message))?;
     db.source_registry_reconcile()?;

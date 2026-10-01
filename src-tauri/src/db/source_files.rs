@@ -671,7 +671,8 @@ mod tests {
                 source_path: Some(next_path.to_string_lossy().into()),
             })
             .unwrap();
-            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2 AND version_number=2",params![format!("sha256:{:x}",Sha256::digest(b"new evidence")),file.id]).unwrap();
+            let registered: String = db.conn.query_row("SELECT content_hash FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1 AND v.version_number=2", [file.id], |row| row.get(0)).unwrap();
+            assert_eq!(registered, format!("sha256:{:x}", Sha256::digest(b"new evidence")));
         }
         // The old cache stops being current even before the new version is indexed.
         assert!(service
@@ -1001,20 +1002,10 @@ mod tests {
                 .await
                 .unwrap_err()
                 .code,
-            ErrorCode::SourceNotReady
-        );
-        {
-            let db = store.db.lock().unwrap();
-            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2 AND version_number=2",params![input.source.revision,file.id]).unwrap();
-        }
-        assert_eq!(
-            service
-                .read_file(&request, &input, &worker)
-                .await
-                .unwrap_err()
-                .code,
             ErrorCode::SourceChanged
         );
+        // Native version registration is now atomic with the head; the equal
+        // hash cannot make a cursor for another File Version current again.
         input.cursor = None;
         input.source.file_version = Some(1);
         input.budget_chars = Some(12000);

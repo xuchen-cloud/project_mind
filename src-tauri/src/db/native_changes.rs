@@ -283,6 +283,8 @@ impl Database {
     }
 
     pub fn project_update(&self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
+        self.file_version_recover_pending()?;
+        let _file_project_lock = self.file_project_lock(input.project_id, true)?;
         let targets = vec![
             NativeTarget {
                 kind: ObjectKind::Project,
@@ -412,6 +414,8 @@ impl Database {
         })
     }
     pub fn project_set_archive(&self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
+        self.file_version_recover_pending()?;
+        let _file_project_lock = self.file_project_lock(input.project_id, true)?;
         let target = NativeTarget {
             kind: ObjectKind::Project,
             scope: Scope::Project {

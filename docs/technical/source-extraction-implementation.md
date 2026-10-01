@@ -77,7 +77,7 @@ Transcript 原生来源接入真实 `voice_records` 与已持久化 final segmen
 
 提取 worker 不授予源访问权限，也不推断所属 Workspace/Project。共享 File 读取服务已经核对真实归属、Scope Grant、排除策略和登记版本 hash，并在异步处理后复查 binding、版本和字节。File 索引提交和检索已复用这些强制边界；File 提取投影不能代替 Committed JSON。
 
-Record 的按需基线接口与 Workspace Record typed token 已实现；队列内核已调用前者，显式开发模式已接入桌面自动调度，普通产品与 headless Host 尚未启用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、File 写入的 outbox/CAS/journal、知识模块对失效水位的消费及产品桌面自动队列调度尚待接通。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；内部表准备不代表已发布 Schema 29。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
+Record 的按需基线接口与 Workspace Record typed token 已实现；队列内核已调用前者，显式开发模式已接入桌面自动调度，普通产品与 headless Host 尚未启用。File 核验内核不授予权限；导入/版本写入时的 hash 登记及存量版本状态仍继续实现，不能将未知存量字节自动冒充原登记版本。正式会话来源、File 写入的完整 outbox/CAS/journal 接入、知识模块对失效水位的消费及产品桌面自动队列调度尚待完成。source.search/read 的 capability 标记仍为 false，没有开放 GUI/CLI/MCP/Agent 入口；内部表准备不代表已发布 Schema 29。主程序构建不启用来源 worker；文件读取在阻塞线程执行，尚未增加独立的文件系统阻塞截止；Windows 字节复核始终重新计算 hash，但未在 Windows 实包执行验证。Windows 实包与完整 AI 工作流保留对应验收门禁。
 
 ### GUI 原生写入与删除身份（2026-10-01 后续阶段）
 
@@ -103,3 +103,18 @@ Transcript final 使用 Voice Record ID；每个不可变 final 的日志 revisi
 专项验证包含真实 SQLite 的累计预留、故障回滚、代际恢复、取消、前台抢占，以及真实固定 Node 的唯一 Record 基线与检索结果；没有运行应用窗口、真实 Provider 或 Windows 实包。
 
 阶段验证：Rust 全目标库 346 passed、15 默认忽略；source 显式 include-ignored 为 108 passed，Record 为 100 passed；前端相关 4 文件 14 passed，全量 140 文件 959 passed、1 个既有 Project 驻留用例超时；构建、portable paths、UI standards、bundle 检查通过（主入口 188 KiB）。主 agent 已自行核对事务/锁释放、授权/代际、原始版本与 partial coverage 的 Standards / Spec 两轴；File 共享写入与产品调度仍未完成，前端全绿及实包验收门槛未满足。阶段提交不代表 #100 已交付，不新建发布 PR、不合并 main、不关闭 Issue。
+
+
+### File Version 提交与恢复内核（2026-10-01 后续阶段）
+
+既有 GUI `document_add_version` 已委托共享数据库内核，继续使用同一 File ID、`documents/document_versions`、base_name 与 history_dir_path。65536 字节缓冲流式准备原字节恢复快照和新内容，保留 HTML 源码、脚本、BOM 与 CRLF；输入来源不被移走。私有 journal 先同步落盘，旧文件归档与新文件落位使用不覆盖目标的原子 rename，再以一个 SQLite 事务提交 head、历史路径、新版本登记 hash、稳定凭证和真实 File outbox。写入错误会回滚数据库并恢复原路径；只登记本次新版本，不补登记未知旧历史。journal 快照是临时恢复材料，不是第二套 File 正文或版本存储。
+
+共享 Workspace 初始化在完成真实 Workspace ID 绑定后恢复未完成 journal； committed receipt 只做清理，未提交操作恢复旧版。校验实际 Workspace、操作意图、版本、路径、SHA-256 及物理文件身份，同字节外来文件也不被误删；不安全的冲突保留 journal 并报错。目录含真实 File ID，恢复先拿 File 锁，避免误清另一连接仍在准备、尚无 descriptor 的 staging。Project 目录/Archive 写入独占 Project 锁，File 写入共享 Project 锁后独占 File 锁，事务在最后获取；原生导入、改名、relocate、删除也遵循互斥顺序，但这些操作各自的 hash/outbox/journal 尚未补齐，锁不能代替它们的原子性。Project 改名的既有回滚仍不是崩溃 journal。
+
+内部已登记版本更新验证实际 owner、可信 RequestContext/grant 与当前 binding、Archive、expectedVersionNumber、不可变登记 hash 和当前实际字节。未登记或外部改动返回 FILE_CHANGED_UNREGISTERED，版本/hash 基线不同返回 REVISION_CONFLICT。只接受服务器解析的 Workspace staging 路径和匹配的新 hash，读取过程中也执行 100 MiB 上限。相同 caller/requestId 复用原稳定版本凭证，即使 staging 已清理或后来又有新版本；等待 File 锁后重新查回执，两个数据库连接的同请求并发也只提交一次。相同已登记内容返回 noChange，保存凭证但不加版本或日志；历史字节作为输入时保留原历史路径。
+
+此更新接缝没有公开 adapter，stagedContentId 的 caller/run/target 绑定、分块上传与过期、精确 patch、专用 file.restore 授权和真实成果模块接入仍待后续阶段。普通 GUI 仍由服务器产生每次调用的 nonce，既有“复制为新版本并打开”语义暂留；客户端稳定 requestId、显式基线确认、GUI noChange/恢复交互尚未统一，不能据此宣称 A34/A36 全部通过。准备与哈希仍在旧 GUI 命令的 DB 锁内，后续服务外层须将准备移至短锁之外并在提交区结算取消。持久路径冲突的产品恢复诊断、真正磁盘满与各平台实包故障验收也仍是门槛。
+
+主 agent 的 Standards / Spec 自查修复了同字节外来路径误删、尚在准备时被恢复删除、同 requestId 等锁后误报 CAS 冲突，以及 Project 目录变化与 File 提交的竞态。测试使用真实数据库、共享初始化和原生版本服务；Linux 子进程在 staging、descriptor、归档、落位、SQL 提交前及提交后六处 SIGKILL，分别验证原生与已登记请求的恢复和最多一次重试。数据库版本插入/outbox 故障通过 SQLite trigger 注入，不将这些故障注入称为真实磁盘满。Windows 分支尚未进行实包验证。公开 source.search/read 和 File 写入 capability 仍为 implemented:false，普通桌面不启用 source worker，内部表未发布为 Schema 29；#100/#114 均未完整交付。
+
+阶段最终验证：Rust 全目标库 360 passed、16 默认忽略；source 显式真实进程专项 108 passed，Record 100 passed。File 内核包含 14 个父用例及一个由父用例启动的 ignored 子进程 fixture，不将空环境直接运行该 helper 计作崩溃验收。新增 journal 准备后外部编辑的子进程握手，确认返回 FILE_CHANGED_UNREGISTERED/recoveryPending、保留用户新字节与 journal、无新 head/回执/日志。构建、portable paths、UI standards、bundle 检查通过，主入口 188 KiB/250 KiB；前端本阶段只改错误码类型，未重复运行既有全量超时用例，前一阶段 959 passed/1 个驻留用例超时的发布门槛仍保留。没有应用窗口、真实 Provider、Windows 实包、发布 PR、main 合并或 Issue 关闭。

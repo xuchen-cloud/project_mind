@@ -13,6 +13,7 @@ mod committed_changes;
 mod native_changes;
 pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
+pub(crate) mod file_versions;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -37,7 +38,7 @@ use crate::{
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
+        ContactUpsertInput, DocumentDeleteInput,
         DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
@@ -2526,6 +2527,8 @@ impl Database {
     }
 
     pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
+        self.file_version_recover_pending()?;
+        let _file_project_lock = self.file_project_lock(input.project_id, true)?;
         let current = self.project_record(input.project_id)?;
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
@@ -3451,6 +3454,8 @@ impl Database {
     }
 
     pub fn document_import(&mut self, input: DocumentImportInput) -> Result<DocumentRecord> {
+        self.file_version_recover_pending()?;
+        let _file_project_lock = self.file_project_lock(input.project_id, false)?;
         self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
         let source = PathBuf::from(&input.source_path);
@@ -3818,6 +3823,7 @@ impl Database {
         &mut self,
         input: DocumentUpdateMetaInput,
     ) -> Result<DocumentRecord> {
+        let _file_locks = self.file_native_write_locks(input.document_id)?;
         let timestamp = now_iso();
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
@@ -3847,6 +3853,7 @@ impl Database {
     }
 
     pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
+        let _file_locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
         let new_source = PathBuf::from(&input.new_source_path);
@@ -3897,166 +3904,8 @@ impl Database {
         self.fetch_document_versions(input.document_id)
     }
 
-    pub fn document_add_version(
-        &mut self,
-        input: DocumentAddVersionInput,
-    ) -> Result<DocumentRecord> {
-        let timestamp = now_iso();
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let current_path = PathBuf::from(&current.managed_path);
-        if !current_path.exists() {
-            return Err(anyhow!(
-                "current document file is missing; please relocate it before adding a version"
-            ));
-        }
-
-        let project = self.project_record(current.project_id)?;
-        let target_dir = self.document_target_dir(current.project_id)?;
-        let history_dir = PathBuf::from(&current.history_dir_path);
-        let previous_version_name =
-            versioned_file_name(&current.base_name, current.current_version_number);
-        let previous_history_path = history_dir.join(&previous_version_name);
-        let next_version_number = current.current_version_number + 1;
-        let next_name = versioned_file_name(&current.base_name, next_version_number);
-        let next_path = target_dir.join(&next_name);
-        let current_source_path_ref = self
-            .document_version_source_path_ref(input.document_id, current.current_version_number)?;
-        let source = input.source_path.as_deref().map(PathBuf::from);
-
-        if let Some(source) = source.as_ref() {
-            if !source.exists() {
-                return Err(anyhow!("version source file does not exist"));
-            }
-            if *source == current_path {
-                return Err(anyhow!(
-                    "cannot add a version from the current managed file"
-                ));
-            }
-            if next_path.exists() && next_path != *source {
-                return Err(anyhow!("target version file already exists"));
-            }
-        } else if next_path.exists() {
-            return Err(anyhow!("target version file already exists"));
-        }
-
-        fs::create_dir_all(&history_dir)?;
-        fs::rename(&current_path, &previous_history_path).with_context(|| {
-            format!(
-                "failed to archive current version from {} to {}",
-                current_path.display(),
-                previous_history_path.display()
-            )
-        })?;
-
-        let (storage_mode, next_source_path_ref) = if let Some(source) = source.as_ref() {
-            match self.materialize_file_for_target(
-                Path::new(&project.root_path),
-                source,
-                &next_path,
-            ) {
-                Ok(storage_mode) => (storage_mode, self.encode_path_ref(source)),
-                Err(error) => {
-                    let _ = fs::rename(&previous_history_path, &current_path);
-                    return Err(error);
-                }
-            }
-        } else {
-            if let Err(error) = fs::copy(&previous_history_path, &next_path).with_context(|| {
-                format!(
-                    "failed to copy archived version from {} to {}",
-                    previous_history_path.display(),
-                    next_path.display()
-                )
-            }) {
-                let _ = fs::rename(&previous_history_path, &current_path);
-                return Err(error);
-            }
-            ("managed_copy".to_string(), current_source_path_ref.clone())
-        };
-
-        if source.is_some() {
-            self.conn.execute(
-                r#"
-                UPDATE documents
-                SET name = ?1,
-                    original_path = ?2,
-                    managed_path = ?3,
-                    storage_mode = ?4,
-                    current_version_number = ?5,
-                    version_count = ?6,
-                    updated_at = ?7
-                WHERE id = ?8
-                "#,
-                params![
-                    next_name,
-                    &next_source_path_ref,
-                    self.encode_path_ref(&next_path),
-                    storage_mode,
-                    next_version_number,
-                    current.version_count + 1,
-                    timestamp,
-                    input.document_id
-                ],
-            )?;
-        } else {
-            self.conn.execute(
-                r#"
-                UPDATE documents
-                SET name = ?1,
-                    managed_path = ?2,
-                    storage_mode = ?3,
-                    current_version_number = ?4,
-                    version_count = ?5,
-                    updated_at = ?6
-                WHERE id = ?7
-                "#,
-                params![
-                    next_name,
-                    self.encode_path_ref(&next_path),
-                    storage_mode,
-                    next_version_number,
-                    current.version_count + 1,
-                    timestamp,
-                    input.document_id
-                ],
-            )?;
-        }
-        self.conn.execute(
-            r#"
-            UPDATE document_versions
-            SET name = ?1, managed_path = ?2
-            WHERE document_id = ?3 AND version_number = ?4
-            "#,
-            params![
-                previous_version_name,
-                self.encode_path_ref(&previous_history_path),
-                input.document_id,
-                current.current_version_number
-            ],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            "#,
-            params![
-                input.document_id,
-                next_version_number,
-                next_name,
-                &next_source_path_ref,
-                self.encode_path_ref(&next_path),
-                timestamp
-            ],
-        )?;
-
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
-    }
-
     pub fn document_delete(&mut self, input: DocumentDeleteInput) -> Result<DocumentRecord> {
+        let _file_locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
 
@@ -9612,6 +9461,7 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::DocumentAddVersionInput;
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},

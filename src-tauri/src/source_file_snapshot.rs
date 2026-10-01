@@ -87,7 +87,7 @@ pub(crate) struct FileStamp {
     created: u64,
 }
 impl FileStamp {
-    fn from_metadata(metadata: &Metadata) -> Self {
+    pub(crate) fn from_metadata(metadata: &Metadata) -> Self {
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
         #[cfg(windows)]
@@ -131,7 +131,7 @@ fn regular(metadata: &Metadata) -> AgentResult<FileStamp> {
     Ok(FileStamp::from_metadata(metadata))
 }
 #[cfg(unix)]
-fn open_regular(path: &Path) -> AgentResult<File> {
+pub(crate) fn open_regular(path: &Path) -> AgentResult<File> {
     use rustix::fs::{open, Mode, OFlags};
     // NOFOLLOW rejects a last-component symlink swap; NONBLOCK prevents a
     // swapped FIFO from blocking open before the handle type can be checked.
@@ -144,7 +144,7 @@ fn open_regular(path: &Path) -> AgentResult<File> {
     .map_err(|error| io_error(error.into()))
 }
 #[cfg(windows)]
-fn open_regular(path: &Path) -> AgentResult<File> {
+pub(crate) fn open_regular(path: &Path) -> AgentResult<File> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
     fs::OpenOptions::new()
@@ -154,7 +154,7 @@ fn open_regular(path: &Path) -> AgentResult<File> {
         .map_err(io_error)
 }
 #[cfg(not(any(unix, windows)))]
-fn open_regular(_path: &Path) -> AgentResult<File> {
+pub(crate) fn open_regular(_path: &Path) -> AgentResult<File> {
     Err(AgentError::new(
         ErrorCode::RuntimeUnavailable,
         "File snapshots are unsupported on this platform",

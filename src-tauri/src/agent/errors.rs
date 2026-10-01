@@ -11,6 +11,7 @@ pub enum ErrorCode {
     RevisionConflict,
     SourceNotReady,
     SourceChanged,
+    FileChangedUnregistered,
     RunBusy,
     RuntimeUnavailable,
     RuntimeIncompatible,
