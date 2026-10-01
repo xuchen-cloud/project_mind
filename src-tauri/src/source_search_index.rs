@@ -6,6 +6,7 @@ use crate::agent::{
     models::{ObjectKind, ObjectRef, Scope, SourceLocator, SourceRef, WorkspaceBinding},
 };
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 
 pub(crate) struct SourceIndex<'a> {
     conn: &'a Connection,
@@ -15,6 +16,12 @@ pub(crate) struct IndexChunk {
     pub text: String,
     pub locator: SourceLocator,
     pub block_id: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct IndexCoverage {
+    pub chars: u32,
+    pub complete: bool,
 }
 #[derive(Clone)]
 pub(crate) struct IndexSource {
@@ -27,14 +34,25 @@ pub(crate) struct IndexSource {
     pub version: Option<u32>,
     pub updated_at: String,
     pub current: bool,
+    pub coverage: IndexCoverage,
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct SearchCandidate {
     pub object_key: String,
     pub title: String,
     pub excerpt: String,
     pub score: f64,
     pub source_ref: SourceRef,
+    pub coverage: IndexCoverage,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SourceCacheCapacity {
+    pub objects: u64,
+    pub snapshots: u64,
+    pub chunks: u64,
+    pub content_bytes: u64,
 }
 pub(crate) struct SearchPage {
     pub items: Vec<SearchCandidate>,
@@ -48,13 +66,31 @@ fn io_error(_: rusqlite::Error) -> AgentError {
 }
 impl<'a> SourceIndex<'a> {
     pub(crate) fn prepare(conn: &'a Connection) -> AgentResult<Self> {
-        conn.execute_batch(include_str!("source_search_index.sql"))
-            .map_err(|_| {
-                AgentError::new(
-                    ErrorCode::SourceNotReady,
-                    "Bundled SQLite source search is unavailable",
-                )
-            })?;
+        let upgrade = || -> rusqlite::Result<()> {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(include_str!("source_search_index.sql"))?;
+            let columns = {
+                let mut statement = tx.prepare("PRAGMA table_info(source_index_snapshots)")?;
+                let names = statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                names
+            };
+            if !columns.iter().any(|column| column == "coverage_json") {
+                tx.execute_batch("ALTER TABLE source_index_snapshots ADD COLUMN coverage_json TEXT NOT NULL DEFAULT '{\"chars\":0,\"complete\":false}' CHECK(json_valid(coverage_json));")?;
+            }
+            let legacy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_index_exclusions')",[],|row|row.get(0))?;
+            if legacy {
+                tx.execute_batch("INSERT INTO source_access_policies(object_key,excluded,revision) SELECT object_key,1,1 FROM source_index_exclusions WHERE 1 ON CONFLICT(object_key) DO NOTHING; DROP TABLE source_index_exclusions;")?;
+            }
+            tx.commit()
+        };
+        upgrade().map_err(|_| {
+            AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Bundled SQLite source search is unavailable",
+            )
+        })?;
         Ok(Self { conn })
     }
     pub(crate) fn replace(&self, source: &IndexSource) -> AgentResult<()> {
@@ -129,7 +165,10 @@ impl<'a> SourceIndex<'a> {
         }
         // The sum includes the documented overlap; the extraction boundary
         // separately verifies unique coverage never exceeds 2 Mi characters.
-        if chars > 3 * 1024 * 1024 {
+        if chars > 3 * 1024 * 1024
+            || source.coverage.chars as usize > 2 * 1024 * 1024
+            || source.coverage.chars as usize > chars
+        {
             return Err(invalid("Source index exceeds capacity"));
         }
         let tx = self.conn.unchecked_transaction().map_err(io_error)?;
@@ -148,7 +187,7 @@ impl<'a> SourceIndex<'a> {
         let object = serde_json::to_string(&source.object)
             .map_err(|_| invalid("Invalid source identity"))?;
         let version = source.version.map(i64::from).unwrap_or(0);
-        let id: i64 = tx.query_row("INSERT INTO source_index_snapshots(object_key,workspace_id,scope_key,object_json,revision,version,title,updated_at,is_current) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(object_key,revision,version) DO UPDATE SET title=excluded.title,updated_at=excluded.updated_at,is_current=excluded.is_current RETURNING id",params![key,source.object.workspace_id,source.object.scope.key(),object,source.revision,version,source.title,source.updated_at,source.current], |row| row.get(0)).map_err(io_error)?;
+        let id: i64 = tx.query_row("INSERT INTO source_index_snapshots(object_key,workspace_id,scope_key,object_json,revision,version,title,updated_at,is_current,coverage_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(object_key,revision,version) DO UPDATE SET title=excluded.title,updated_at=excluded.updated_at,is_current=excluded.is_current,coverage_json=excluded.coverage_json RETURNING id",params![key,source.object.workspace_id,source.object.scope.key(),object,source.revision,version,source.title,source.updated_at,source.current,serde_json::to_string(&source.coverage).map_err(|_|invalid("Invalid source coverage"))?], |row| row.get(0)).map_err(io_error)?;
         tx.execute("DELETE FROM source_index_chunks WHERE snapshot_id=?1", [id])
             .map_err(io_error)?;
         for (ordinal, chunk) in source.chunks.iter().enumerate() {
@@ -169,24 +208,20 @@ impl<'a> SourceIndex<'a> {
             .map_err(io_error)?;
         Ok(())
     }
-    pub(crate) fn exclude(&self, object: &ObjectRef, excluded: bool) -> AgentResult<()> {
-        let key = object.key()?;
-        if excluded {
-            self.conn
-                .execute(
-                    "INSERT OR IGNORE INTO source_index_exclusions(object_key) VALUES (?1)",
-                    [key],
-                )
-                .map_err(io_error)?;
-        } else {
-            self.conn
-                .execute(
-                    "DELETE FROM source_index_exclusions WHERE object_key=?1",
-                    [key],
-                )
-                .map_err(io_error)?;
-        }
+    #[cfg(test)]
+    fn exclude(&self, object: &ObjectRef, excluded: bool) -> AgentResult<()> {
+        self.conn.execute("INSERT INTO source_access_policies(object_key,excluded,revision) VALUES (?1,?2,1) ON CONFLICT(object_key) DO UPDATE SET excluded=excluded.excluded,revision=revision+1",params![object.key()?,excluded]).map_err(io_error)?;
         Ok(())
+    }
+    /// Stored payload only: FTS/B-tree pages are additional SQLite overhead.
+    pub(crate) fn capacity(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        scope: &Scope,
+    ) -> AgentResult<SourceCacheCapacity> {
+        request.authorize(binding, scope, "source.read")?;
+        self.conn.query_row("SELECT count(DISTINCT s.object_key),count(*),(SELECT count(*) FROM source_index_chunks c JOIN source_index_snapshots t ON t.id=c.snapshot_id WHERE t.workspace_id=?1 AND t.scope_key=?2),coalesce(sum(length(CAST(s.object_json AS BLOB))+length(CAST(s.title AS BLOB))+length(s.revision)+length(s.coverage_json)),0)+(SELECT coalesce(sum(length(CAST(c.title AS BLOB))+length(CAST(c.text AS BLOB))+length(c.locator_json)+coalesce(length(c.block_id),0)),0) FROM source_index_chunks c JOIN source_index_snapshots t ON t.id=c.snapshot_id WHERE t.workspace_id=?1 AND t.scope_key=?2) FROM source_index_snapshots s WHERE s.workspace_id=?1 AND s.scope_key=?2",params![binding.workspace_id,scope.key()],|row|Ok(SourceCacheCapacity {objects:row.get::<_,i64>(0)? as u64,snapshots:row.get::<_,i64>(1)? as u64,chunks:row.get::<_,i64>(2)? as u64,content_bytes:row.get::<_,i64>(3)? as u64})).map_err(io_error)
     }
     pub(crate) fn search(
         &self,
@@ -231,13 +266,13 @@ impl<'a> SourceIndex<'a> {
             serde_json::to_string(selected).map_err(|_| invalid("Invalid selected sources"))?;
         // Apply scope/policy/current-version constraints before materializing
         // candidates, including the short-query fallback.
-        let filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current) AND NOT EXISTS(SELECT 1 FROM source_index_exclusions x WHERE x.object_key=s.object_key) AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')";
+        let filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current) AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')";
         let matches = if long.is_empty() {
             format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
         } else {
             format!("SELECT source_index_fts.rowid,bm25(source_index_fts) AS rank,snippet(source_index_fts,1,'','','…',64) AS excerpt FROM source_index_fts JOIN source_index_chunks c ON c.id=source_index_fts.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id WHERE source_index_fts MATCH ?1 AND {filters}")
         };
-        let sql = format!("WITH matches AS MATERIALIZED ({matches}), ranked AS (SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,c.locator_json,c.block_id,m.rank,m.excerpt,ROW_NUMBER() OVER(PARTITION BY s.id ORDER BY m.rank,c.ordinal) AS n FROM matches m JOIN source_index_chunks c ON c.id=m.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id) SELECT object_key,object_json,revision,version,title,locator_json,block_id,rank,excerpt FROM ranked WHERE n=1 ORDER BY (title=?6 COLLATE NOCASE) DESC,(object_key IN (SELECT value FROM json_each(?7))) DESC,rank,updated_at DESC,object_key,version DESC LIMIT ?8");
+        let sql = format!("WITH matches AS MATERIALIZED ({matches}), ranked AS (SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,c.locator_json,c.block_id,m.rank,m.excerpt,ROW_NUMBER() OVER(PARTITION BY s.id ORDER BY m.rank,c.ordinal) AS n FROM matches m JOIN source_index_chunks c ON c.id=m.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id) SELECT object_key,object_json,revision,version,title,locator_json,block_id,rank,excerpt,coverage_json FROM ranked WHERE n=1 ORDER BY (title=?6 COLLATE NOCASE) DESC,(object_key IN (SELECT value FROM json_each(?7))) DESC,rank,updated_at DESC,object_key,version DESC LIMIT ?8");
         let mut statement = self.conn.prepare(&sql).map_err(io_error)?;
         let rows = statement
             .query_map(
@@ -262,6 +297,7 @@ impl<'a> SourceIndex<'a> {
                         row.get::<_, Option<String>>(6)?,
                         row.get::<_, f64>(7)?,
                         row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
                     ))
                 },
             )
@@ -273,7 +309,18 @@ impl<'a> SourceIndex<'a> {
             .into_iter()
             .take(limit.min(50))
             .map(
-                |(key, object, revision, version, title, locator, block_id, rank, excerpt)| {
+                |(
+                    key,
+                    object,
+                    revision,
+                    version,
+                    title,
+                    locator,
+                    block_id,
+                    rank,
+                    excerpt,
+                    coverage,
+                )| {
                     let object: ObjectRef = serde_json::from_str(&object)
                         .map_err(|_| invalid("Corrupt source identity"))?;
                     if object.key()? != key
@@ -297,12 +344,15 @@ impl<'a> SourceIndex<'a> {
                         title: title.clone(),
                         excerpt: excerpt.clone(),
                     };
+                    let coverage: IndexCoverage = serde_json::from_str(&coverage)
+                        .map_err(|_| invalid("Corrupt source coverage"))?;
                     Ok(SearchCandidate {
                         object_key: key,
                         title,
                         excerpt,
                         score: -rank,
                         source_ref,
+                        coverage,
                     })
                 },
             )
@@ -356,7 +406,58 @@ mod tests {
             version: Some(1),
             updated_at: "2026-10-01T00:00:00Z".into(),
             current: true,
+            coverage: IndexCoverage {
+                chars: text.chars().count() as u32,
+                complete: true,
+            },
         }
+    }
+    #[test]
+    fn source_index_upgrades_earlier_cache_without_losing_exclusion_policy() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE source_index_snapshots (id INTEGER PRIMARY KEY,object_key TEXT NOT NULL,workspace_id TEXT NOT NULL,scope_key TEXT NOT NULL,object_json TEXT NOT NULL,revision TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 0,title TEXT NOT NULL,updated_at TEXT NOT NULL,is_current INTEGER NOT NULL CHECK(is_current IN (0,1)),UNIQUE(object_key,revision,version)); CREATE TABLE source_index_exclusions(object_key TEXT PRIMARY KEY);").unwrap();
+        let item = source(
+            1,
+            Scope::Project { project_id: 1 },
+            "Policy",
+            "policy evidence",
+        );
+        conn.execute(
+            "INSERT INTO source_index_exclusions(object_key) VALUES (?1)",
+            [item.object.key().unwrap()],
+        )
+        .unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        index.replace(&item).unwrap();
+        assert!(index
+            .search(
+                &request(),
+                &binding(),
+                &item.object.scope,
+                "evidence",
+                &[],
+                false,
+                8
+            )
+            .unwrap()
+            .items
+            .is_empty());
+        index.exclude(&item.object, false).unwrap();
+        let reopened = SourceIndex::prepare(&conn).unwrap();
+        let page = reopened
+            .search(
+                &request(),
+                &binding(),
+                &item.object.scope,
+                "evidence",
+                &[],
+                false,
+                8,
+            )
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert!(page.items[0].coverage.complete);
+        assert_eq!(page.items[0].coverage.chars, 15);
     }
     #[test]
     fn source_index_bundled_trigram_recalls_chinese_and_mixed_english() {
@@ -486,6 +587,7 @@ mod tests {
         let mut current = item.clone();
         current.revision = format!("sha256:{}", "b".repeat(64));
         current.chunks[0].text = "updated evidence".into();
+        current.coverage.chars = 16;
         current.version = Some(2);
         index.replace(&current).unwrap();
         assert!(index
@@ -642,6 +744,7 @@ mod tests {
         let mut replacement = original.clone();
         replacement.revision = format!("sha256:{}", "b".repeat(64));
         replacement.chunks[0].text = "failed evidence".into();
+        replacement.coverage.chars = 15;
         assert_eq!(
             index.replace(&replacement).unwrap_err().code,
             ErrorCode::IoFailed

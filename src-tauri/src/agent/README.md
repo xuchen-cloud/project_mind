@@ -67,3 +67,9 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin mind -- capabilities --json
 - 配置与说明提交在同一个短事务中写业务数据、成功 receipt 和 outbox。相同 caller/request/payload 重试直接返回原结果；换 payload 或 operation 返回 `IDEMPOTENCY_CONFLICT`。失败会全部回滚，成功收据不裁剪。metadata outbox 的 `agent_settings/<scope>` / `agent_instruction/<id>` 是配置键，不是可引用的业务 SourceRef。
 - `changesList` 对授权 scope 在 SQL 中过滤，单页最多 200；返回 cursor/hasMore/resetRequired。消费端不能拿这份 scoped 返回值推断其他项目标题或对象。业务写入口及提交后事件分发由 AI-03/07 接入，不能把当前 metadata outbox 误当作全量业务变更流。
 - 基础 session/run/message/output 表只提供约束：可移动相对 session_path、同 Workspace 一个活动 run、会话级联及 message evidence 清理；不开放假会话/写成果能力。Overview 和 QuickNote 始终分别存储。
+
+## 本地来源服务阶段（AI-03，尚未开放）
+
+`../source_service.rs` 与 `../db/sources.rs` 为已初始化 Record 提供有界正文/块/段落读取、固定修订游标、真实归属与最新策略复核；`../source_search_index.rs` 是可重建的 FTS5 trigram 缓存。当前 head 替换旧缓存，不逐次保留 autosave 正文；显式保留版本另带 Record Version。来源服务核对正文及 metadata 修订，返回前再次核对 Workspace binding，缓存不授予访问权限或成为独立事实源。
+
+这些内部方法尚未注册为工具，source.search/read 的 implemented 仍为 false。File 登记 hash、旧 Record 基线、其他来源、typed reference、GUI 业务事件和持久后台队列仍在 AI-03 内继续实现。排除策略须走 GUI 共享服务的 settings.write/CAS/幂等事务；缓存 payload 统计不能替代数据库实际文件大小。详情见 [来源实施记录](../../../docs/technical/source-extraction-implementation.md)。
