@@ -44,6 +44,7 @@ pub(crate) struct FileReadPlan {
     pub object: ObjectRef,
     pub file_version: u32,
     pub registered_hash: String,
+    pub title: String,
     pub path: PathBuf,
     pub format: FileSourceFormat,
 }
@@ -246,6 +247,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     fn plan(path: PathBuf, bytes: &[u8]) -> FileReadPlan {
         FileReadPlan {
+            title: "Fixture File".into(),
             object: ObjectRef {
                 workspace_id: "file-workspace".into(),
                 scope: Scope::Project { project_id: 7 },

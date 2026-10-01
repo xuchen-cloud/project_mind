@@ -18,7 +18,7 @@ fn io_error(_: rusqlite::Error) -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Cannot read source storage")
 }
 impl Database {
-    fn source_resolve_record(
+    pub(super) fn source_resolve_business(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
@@ -33,7 +33,7 @@ impl Database {
                 "Source is outside this Workspace",
             ));
         }
-        if object.kind != ObjectKind::Record {
+        if !matches!(object.kind, ObjectKind::Record | ObjectKind::File) {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
                 "This source kind is not ready for reading",
@@ -45,11 +45,13 @@ impl Database {
             .ok()
             .filter(|id| *id > 0 && id.to_string() == object.id)
             .ok_or_else(|| {
-                AgentError::new(ErrorCode::InvalidArgument, "Invalid Record source identity")
+                AgentError::new(ErrorCode::InvalidArgument, "Invalid source identity")
             })?;
-        let resolved_scope=match object.scope {
-            Scope::Workspace=> self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",[id],|_|Ok(Scope::Workspace)).optional(),
-            Scope::Project { .. }=>self.conn.query_row("SELECT n.project_id FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=?1",[id],|row| Ok(Scope::Project { project_id:row.get(0)? })).optional(),
+        let resolved_scope=match (&object.kind,&object.scope) {
+            (ObjectKind::Record,Scope::Workspace)=> self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",[id],|_|Ok(Scope::Workspace)).optional(),
+            (ObjectKind::Record,Scope::Project { .. })=>self.conn.query_row("SELECT n.project_id FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=?1",[id],|row| Ok(Scope::Project { project_id:row.get(0)? })).optional(),
+            (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            _=>return Err(AgentError::new(ErrorCode::SourceNotReady,"This source kind is not ready for reading")),
         }.map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Source is no longer present"))?;
         let resolved = ObjectRef {
             scope: resolved_scope,
@@ -71,7 +73,7 @@ impl Database {
             ));
         }
         let object =
-            self.source_resolve_record(request, binding, &input.object, "settings.write")?;
+            self.source_resolve_business(request, binding, &input.object, "settings.write")?;
         if input.expected_revision > i64::MAX as u64 {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
@@ -92,7 +94,7 @@ impl Database {
             Ok((policy,Some(change)))
         })
     }
-    fn source_live_scope(&self, scope: &Scope) -> AgentResult<()> {
+    pub(super) fn source_live_scope(&self, scope: &Scope) -> AgentResult<()> {
         if let Scope::Project { project_id } = scope {
             let archived: bool = self
                 .conn
@@ -115,7 +117,7 @@ impl Database {
         }
         Ok(())
     }
-    fn source_prepare(&self) -> AgentResult<()> {
+    pub(super) fn source_prepare(&self) -> AgentResult<()> {
         if !self.table_exists("source_access_policies").map_err(|_| {
             AgentError::new(ErrorCode::IoFailed, "Cannot inspect source policy schema")
         })? {
@@ -130,7 +132,13 @@ impl Database {
         input: &SourceReadTarget,
     ) -> AgentResult<SourceFingerprint> {
         let resolved =
-            self.source_resolve_record(request, binding, &input.object, "source.read")?;
+            self.source_resolve_business(request, binding, &input.object, "source.read")?;
+        if resolved.kind != ObjectKind::Record {
+            return Err(AgentError::new(
+                ErrorCode::SourceNotReady,
+                "This source kind is not a Record",
+            ));
+        }
         self.source_live_scope(&resolved.scope)?;
         if input.file_version.is_some() || input.record_version == Some(0) {
             return Err(AgentError::new(

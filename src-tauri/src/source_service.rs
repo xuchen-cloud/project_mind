@@ -19,6 +19,45 @@ pub(crate) trait BoundSourceStore {
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
     ) -> AgentResult<T>;
 }
+pub(crate) trait SourceUtility {
+    fn request(
+        &self,
+        workspace_id: &str,
+        request_id: &str,
+        format: &str,
+        bytes: &[u8],
+    ) -> impl std::future::Future<Output = AgentResult<Value>> + Send;
+}
+impl SourceUtility for crate::source_extraction_worker::SourceExtractionWorker {
+    async fn request(
+        &self,
+        workspace_id: &str,
+        request_id: &str,
+        format: &str,
+        bytes: &[u8],
+    ) -> AgentResult<Value> {
+        crate::source_extraction_worker::SourceExtractionWorker::request(
+            self,
+            workspace_id,
+            request_id,
+            format,
+            bytes,
+        )
+        .await
+    }
+}
+/// Internal extraction result, deliberately not a tool response: adapters must
+/// paginate/budget the chunks before any model-facing response.
+#[derive(Debug)]
+pub(crate) struct SourceFileExtraction {
+    pub object: ObjectRef,
+    pub title: String,
+    pub revision: String,
+    pub file_version: u32,
+    pub data: Value,
+    pub(super) plan: crate::source_file_snapshot::FileReadPlan,
+    pub(super) snapshot: crate::source_file_snapshot::FileByteSnapshot,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceReadTarget {
@@ -65,6 +104,8 @@ pub(crate) struct SourceReadPage {
     pub next_cursor: Option<String>,
     pub complete: bool,
     pub range_complete: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::source_file_read::FileExtractionStatus>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -256,6 +297,68 @@ pub(crate) struct SourceService<'a, S> {
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
+    }
+    pub(crate) async fn extract_file<W: SourceUtility>(
+        &self,
+        request: &RequestContext,
+        source: &SourceReadTarget,
+        utility: &W,
+    ) -> AgentResult<SourceFileExtraction> {
+        let plan = self
+            .store
+            .with_current(|binding, db| db.source_file_plan(request, binding, source))?;
+        let snapshot = crate::source_file_snapshot::capture_file(&plan).await?;
+        self.verify_file_plan(request, source, &plan)?;
+        let data = utility
+            .request(
+                &plan.object.workspace_id,
+                &request.request_id,
+                plan.format.worker_format(),
+                &snapshot.bytes,
+            )
+            .await?;
+        // Stop on revocation before inspecting the filesystem again. Utility
+        // work and both byte checks run outside Workspace database locks.
+        self.verify_file_plan(request, source, &plan)?;
+        crate::source_file_snapshot::verify_file(&plan, &snapshot).await?;
+        self.verify_file_plan(request, source, &plan)?;
+        Ok(SourceFileExtraction {
+            object: plan.object.clone(),
+            title: plan.title.clone(),
+            revision: snapshot.revision.clone(),
+            file_version: plan.file_version,
+            data,
+            plan,
+            snapshot,
+        })
+    }
+    pub(super) async fn verify_file_extraction(
+        &self,
+        request: &RequestContext,
+        source: &SourceReadTarget,
+        extraction: &SourceFileExtraction,
+    ) -> AgentResult<()> {
+        self.verify_file_plan(request, source, &extraction.plan)?;
+        crate::source_file_snapshot::verify_file(&extraction.plan, &extraction.snapshot).await?;
+        self.verify_file_plan(request, source, &extraction.plan)
+    }
+    fn verify_file_plan(
+        &self,
+        request: &RequestContext,
+        source: &SourceReadTarget,
+        plan: &crate::source_file_snapshot::FileReadPlan,
+    ) -> AgentResult<()> {
+        let current = self
+            .store
+            .with_current(|binding, db| db.source_file_plan(request, binding, source));
+        match current {
+            Ok(current) if &current == plan => Ok(()),
+            Ok(_) => Err(changed()),
+            // A previously registered current version becoming unready is a
+            // change, never permission to publish the older extraction.
+            Err(error) if error.code == ErrorCode::SourceNotReady => Err(changed()),
+            Err(error) => Err(error),
+        }
     }
     pub(crate) async fn read_record<W: crate::record_document_service::DocumentUtility>(
         &self,
@@ -610,6 +713,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 complete: next_cursor.is_none() && input.view == SourceReadView::Full,
                 range_complete: next_cursor.is_none(),
                 next_cursor,
+                extraction: None,
             })
         };
         // Include metadata, spans and cursor in the returned-character budget.
