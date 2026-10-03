@@ -12,6 +12,7 @@ pub enum ErrorCode {
     SourceNotReady,
     SourceChanged,
     FileChangedUnregistered,
+    StagedContentExpired,
     RunBusy,
     RuntimeUnavailable,
     RuntimeIncompatible,

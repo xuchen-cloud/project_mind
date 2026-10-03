@@ -218,3 +218,23 @@ Host 仍只捕获当前 Workspace binding 与生命周期屏障，使用同一�
 前端默认 4 worker 全量重现既有 Project 驻留用例的 15s 超时，其他 964 个通过；该驻留用例单独约 10.7s 通过，1 worker 完整运行 141 文件、965 tests 全通过。没有修改驻留逻辑或放宽超时，不将降低测试并发称为已修复产品性能缺陷。构建、路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB。主 agent 未发现本次改动范围内未处理的 Standards / Spec 问题；未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包，真实磁盘满与系统掉电仍未验收。
 
 本阶段完成内部精确 patch 服务与既有版本内核接入，尚无 GUI、CLI、MCP 或 Pi patch adapter；原 registered 无生命周期 helper 仅保留为测试 fixture，生产 patch 强制使用当前 Host 屏障。分块上传与 10min 过期、真实 connection 或 run 绑定、历史恢复交互、恢复诊断及 #104 成果接缝仍待后续工作包；其他原生 File 导入、改名、删除和重新定位的旧 GUI 存储锁拆分也未完成。#100 的完整自动桌面调度与知识消费者继续保留门槛。公开 source.search/read 与 File capabilities 仍 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100/#114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue。
+
+### File 分块上传与已有版本提交（2026-10-03 后续阶段）
+
+内部 FileContentService 支持 begin、append、finish、status 和一次性 update；参数接收目标 File、已登记的期望版本/hash 和字节，不接收本机路径。完整替换保持同一个 File ID 与原扩展名，支持非文本字节，复用既有 documents、document_versions、登记 hash、journal、稳定回执和原子 outbox。每次调用由当前 Host 捕获 binding 和提交屏障，使用同一正式 Schema 28 SQLite 的独立连接，不创建第二个 Host 或版本表。
+
+上传限制为 100 MiB、每块最多 1 MiB、最多 100 块、Workspace 最多四份待处理上传；长度、偏移和完整 SHA-256 均须匹配。每份上传固定 10min 有效期，不因重试延长；绑定可信 RequestContext 的 caller key、Workspace UUID、规范化 grant、目标 File 与期望版本/hash。Begin 核验实际登记和磁盘原字节，各步重新授权真实归属、Archive 与排除策略，上传临时收据事务重新核对基线和排除。Run/connection 身份只由可信 Host 提供；真实业务适配器和动态连接撤销仍须由 #102/#106 接入，不能将本模块的参数绑定称为已经完成外部连接模块。
+
+临时字节位于 Workspace 私有 file-content-stage。分块和合并文件具有持久物理身份，先保存恢复意图再追加、fsync；不可变 manifest 通过新名字发布，不覆盖外来路径。块重试验证已有前缀并只追加剩余部分，封口逐块检查并流式合并，不将 100 MiB 整体编码为请求 JSON。目录、块数、manifest 数与大小、单次读取均有界。每份最多保存一份分块内容和一份合并内容；File journal 继续独立承担正式版本的提交恢复。临时文件是上传恢复材料，不是另一套正文或版本存储。
+
+哈希、复制及大块合并不持有 GUI 数据库/Workspace 选择锁或生命周期提交屏障；短屏障只保护意图与收据结算。上传和封口在字节处理后重新检查有效期，正式 File 提交在准备 journal 后、移动原件前再次检查过期和当前 Host 屏障。进入正式提交区后结算真实结果。稳定 File 收据优先于临时文件：即使临时文件已回收、上传过期或已有后续版本，原请求仍回放其真实收据；并发重试在等到上传锁后再次检查收据。noChange 结算收据且消耗该上传，不新增版本、journal、日志或通知。
+
+共享 Workspace 初始化及后续 begin 清理已过期或已消耗的私有上传。只删除 manifest 指定且物理身份仍匹配的字节与已核验的 metadata；未知文件、同字节的外来 inode、损坏描述和恢复冲突保留诊断，不递归删目录，也不阻止原有用户内容的 Workspace 打开。部分写入继续验证原身份与已写前缀，拒绝外来重绑。恢复诊断目前是内部日志，产品查看/重试入口尚未交付。错误声明 hash 的未封口合并文件仍属于自己的临时意图，过期后按原物理身份安全回收；一份外来/损坏上传只保留在有界配额中，不阻止其他已过期上传清理和后续 begin。
+
+14 个上传专项用例通过，包括真实 SQLite、二进制/空内容、1 MiB 边界、100 块与 Workspace 四份配额、固定期限、错误长度/hash/偏移/请求、scope/Archive/排除/generation、noChange、并发稳定回放、共享重开清理和外来文件保留。父用例执行 14 个实际 Linux SIGKILL：上传八个阶段和既有 File journal 六个阶段，经共享初始化恢复后重试仅产生一个新 File Version 与日志，旧字节完整保留。Rust 全目标库 442 passed、22 默认忽略；source 显式实际进程 112 passed，Record 100 passed。
+
+前端全量首次与重复运行均只有既有驻留用例的 15s 超时，分别 964 passed / 1 failed；单独驻留用例通过。先以 ab24238 单独提交测试场景拆分：Project Shell 的 LRU/复用/关闭与六个实际 Record Focus 路由分开验证，保留全部行为断言和原 15s 时限，未修改产品缓存逻辑。拆分后 App 22 tests 通过，完整 141 文件、966 tests 通过。构建、路径、UI standards 与 bundle 检查通过，主脚本 189 KiB / 250 KiB。
+
+主 agent Standards / Spec 自查补上了错误 hash 上传的过期回收、单份外来上传与其他恢复隔离，以及并发通知验证探针的真实锁归属：另一 writer 可以在本操作释放 File lease 后立即取得自己的锁，测试用有界等待允许其结算，本操作若保留自身 lease 则仍超时失败。最终 Rust 全目标及 source/Record 实际进程专项均通过，没有剩余的本阶段审查发现。
+
+后续仍需历史恢复服务与交互、真实 run/connection 注册和撤销、GUI/CLI/MCP/Pi adapters、恢复诊断，以及其他原生 File 写入口的长 GUI 存储锁拆分。#100 完整自动桌面调度与知识消费者尚未完成。公开 source.search/read 与 File capabilities 继续 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100/#114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue；未启动应用窗口、真实 Provider 请求或 review 子 agent，Windows 实包、物理磁盘满与系统掉电仍未验收。

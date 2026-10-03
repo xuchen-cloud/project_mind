@@ -20,6 +20,11 @@ pub(crate) fn open_workspace_database(
     let mut db = Database::open(db_path, root_path, secret_password)?;
     db.bind_native_workspace(workspace_id)?;
     db.file_version_recover_pending()?;
+    // Temporary uploads must not prevent opening existing user content. Keep
+    // unknown/changed private files for diagnosis rather than deleting them.
+    if let Err(error)=crate::file_content::recover_expired(root_path,workspace_id,chrono::Utc::now().timestamp_millis()) {
+        eprintln!("File upload recovery pending: {}",error.message);
+    }
     db.record_migrate_operation_keys(workspace_id)
         .map_err(|error| anyhow!(error.message))?;
     db.source_registry_reconcile()?;

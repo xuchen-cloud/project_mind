@@ -46,6 +46,17 @@ pub(crate) struct FileCommitHost {
     secret_password: Option<String>,
     fence: Arc<crate::workspace_commit_fence::WorkspaceCommitFence>,
 }
+impl FileCommitHost {
+    pub(crate) fn database(&self) -> AgentResult<crate::db::Database> {
+        let mut db = crate::db::Database::open_runtime_connection(&self.paths.db_path, &self.paths.root_path,
+            self.secret_password.clone()).map_err(file_io)?;
+        db.bind_native_workspace(&self.binding.workspace_id).map_err(file_io)?;
+        Ok(db)
+    }
+    pub(crate) fn binding(&self) -> &WorkspaceBinding { &self.binding }
+    pub(crate) fn root(&self) -> &Path { &self.paths.root_path }
+    pub(crate) fn fence(&self) -> &crate::workspace_commit_fence::WorkspaceCommitFence { &self.fence }
+}
 pub(crate) trait BoundFileCommitStore: CommittedChangePublisher {
     fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<FileCommitHost>;
 }
@@ -460,7 +471,17 @@ mod tests {
                     .write(true)
                     .open(lock_path)
                     .unwrap();
-                fs2::FileExt::try_lock_exclusive(&lock).expect("publish after File lease release");
+                // Another legitimate writer may take its lease immediately
+                // after our commit releases it. Bounded waiting still detects
+                // an own lease retained across this synchronous publisher.
+                let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+                loop {
+                    match fs2::FileExt::try_lock_exclusive(&lock) {
+                        Ok(())=>break,
+                        Err(error) if error.kind()==std::io::ErrorKind::WouldBlock && std::time::Instant::now()<deadline=>std::thread::sleep(std::time::Duration::from_millis(1)),
+                        Err(error)=>panic!("publish after File lease release: {error}"),
+                    }
+                }
             }
             self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
@@ -1862,5 +1883,923 @@ mod tests {
                 0
             );
         }
+    }
+    struct UploadClock(std::sync::atomic::AtomicI64);
+    impl crate::file_content::FileContentClock for UploadClock {
+        fn now_ms(&self) -> AgentResult<i64> {
+            Ok(self.0.load(std::sync::atomic::Ordering::Relaxed))
+        }
+    }
+    fn upload_input(
+        binding: &WorkspaceBinding,
+        input: &GuiFileVersionPrepare,
+        bytes: &[u8],
+    ) -> (
+        crate::agent::access::RequestContext,
+        crate::file_content::FileContentBegin,
+    ) {
+        use sha2::{Digest, Sha256};
+        let (mut request, patch) = patch_request(binding, input);
+        request.request_id = "upload-begin".into();
+        (
+            request,
+            crate::file_content::FileContentBegin {
+                object: patch.object,
+                expected_version_number: 1,
+                expected_content_hash: patch.expected_content_hash,
+                length: bytes.len() as u64,
+                content_hash: format!("sha256:{:x}", Sha256::digest(bytes)),
+            },
+        )
+    }
+    fn upload_update(
+        input: &crate::file_content::FileContentBegin,
+        ticket: &crate::file_content::FileContentTicket,
+    ) -> crate::file_content::FileContentUpdate {
+        crate::file_content::FileContentUpdate {
+            object: input.object.clone(),
+            expected_version_number: input.expected_version_number,
+            expected_content_hash: input.expected_content_hash.clone(),
+            staged_content_id: ticket.staged_content_id.clone(),
+        }
+    }
+    #[test]
+    fn file_upload_binary_chunks_seal_commit_same_file_and_replay_after_expiry() {
+        let old = b"PK\x03\x04original docx bytes\x00\xff";
+        let new = b"PK\x03\x04new docx bytes\x00\xfe";
+        let (_root, store, binding, input) = fixture_bytes("report.docx", old);
+        let (mut request, begin) = upload_input(&binding, &input, new);
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        assert_eq!(service.begin(&request, &begin).unwrap(), ticket);
+        assert_eq!(ticket.expires_at_ms, 601000);
+        request.request_id = "chunk-1".into();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, &new[..8])
+                .unwrap()
+                .received_length,
+            8
+        );
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, &new[..8])
+                .unwrap()
+                .received_length,
+            8
+        );
+        request.request_id = "chunk-2".into();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 8, &new[8..])
+                .unwrap()
+                .received_length,
+            new.len() as u64
+        );
+        assert!(
+            !service
+                .status(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        request.request_id = "seal".into();
+        assert!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        assert!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+        request.request_id = "upload-commit".into();
+        let update = upload_update(&begin, &ticket);
+        let result = service.update(&request, &update).unwrap();
+        assert_eq!(result.receipt.document_id, input.document_id);
+        assert_eq!(result.receipt.version_number, 2);
+        assert_eq!(fs::read(result.version_path.unwrap()).unwrap(), new);
+        let versions = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap();
+        let original = versions.iter().find(|v| v.version_number == 1).unwrap();
+        assert_eq!(fs::read(&original.managed_path).unwrap(), old);
+        assert!(versions
+            .iter()
+            .all(|v| Path::new(&v.managed_path).extension().unwrap() == "docx"));
+        clock.0.store(601000, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            service.update(&request, &update).unwrap().receipt,
+            result.receipt
+        );
+        request.request_id = "other-commit".into();
+        assert!(service.update(&request, &update).is_err());
+        assert_eq!(version_count(&store, input.document_id), 2);
+    }
+    #[test]
+    fn file_upload_rejects_overflow_chunk_order_incomplete_hash_and_payload_conflicts() {
+        let (_root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"abcdef");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let mut oversized = begin.clone();
+        oversized.length = crate::file_content::MAX_CONTENT + 1;
+        assert_eq!(
+            service.begin(&request, &oversized).unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        let ticket = service.begin(&request, &begin).unwrap();
+        assert_eq!(
+            service.begin(&request, &oversized).unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        request.request_id = "chunk".into();
+        assert_eq!(
+            service
+                .append(
+                    &request,
+                    &ticket.staged_content_id,
+                    0,
+                    &vec![b'x'; crate::file_content::MAX_CHUNK + 1]
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::BudgetExceeded
+        );
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 2, b"ab")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, u64::MAX, b"ab")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, b"")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"abc")
+            .unwrap();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, b"xyz")
+                .unwrap_err()
+                .code,
+            ErrorCode::IdempotencyConflict
+        );
+        request.request_id = "seal-incomplete".into();
+        assert_eq!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceNotReady
+        );
+        request.request_id = "rest".into();
+        service
+            .append(&request, &ticket.staged_content_id, 3, b"deg")
+            .unwrap();
+        request.request_id = "seal-bad-hash".into();
+        assert_eq!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceChanged
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+    }
+    #[test]
+    fn file_upload_expiry_and_caller_scope_fences_never_mutate_file() {
+        let (_root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"new bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        let mut other = request.clone();
+        other.caller = crate::agent::access::Caller::Connection {
+            grant_id: "other-owner".into(),
+        };
+        assert_eq!(
+            service
+                .append(&other, &ticket.staged_content_id, 0, b"new bytes")
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let mut changed_scope = request.clone();
+        changed_scope
+            .scope_grant
+            .project_ids
+            .push(input.project_id + 1);
+        assert_eq!(
+            service
+                .append(&changed_scope, &ticket.staged_content_id, 0, b"new bytes")
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        clock.0.store(601000, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, b"new bytes")
+                .unwrap_err()
+                .code,
+            ErrorCode::StagedContentExpired
+        );
+        assert_eq!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::StagedContentExpired
+        );
+        request.request_id = "expired-commit".into();
+        assert_eq!(
+            service
+                .update(&request, &upload_update(&begin, &ticket))
+                .unwrap_err()
+                .code,
+            ErrorCode::StagedContentExpired
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+        assert_eq!(
+            fs::read(&input.managed_path).unwrap(),
+            b"registered bytes\r\n"
+        );
+    }
+    #[test]
+    fn file_upload_no_change_consumes_stage_once_and_unregistered_or_external_baselines_are_rejected(
+    ) {
+        let (_root, store, binding, input) = fixture();
+        let bytes = b"registered bytes\r\n";
+        let (mut request, begin) = upload_input(&binding, &input, bytes);
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, bytes)
+            .unwrap();
+        request.request_id = "seal".into();
+        service.finish(&request, &ticket.staged_content_id).unwrap();
+        let before = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .committed_change_watermark()
+            .unwrap();
+        request.request_id = "no-change-commit".into();
+        let update = upload_update(&begin, &ticket);
+        let receipt = service.update(&request, &update).unwrap().receipt;
+        assert!(receipt.no_change);
+        assert_eq!(receipt.version_number, 1);
+        assert_eq!(service.update(&request, &update).unwrap().receipt, receipt);
+        request.request_id = "reuse-content".into();
+        assert_eq!(
+            service.update(&request, &update).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        assert_eq!(
+            store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .committed_change_watermark()
+                .unwrap(),
+            before
+        );
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 0);
+        request.request_id = "changed-baseline".into();
+        fs::write(&input.managed_path, b"external edited").unwrap();
+        assert_eq!(
+            service.begin(&request, &begin).unwrap_err().code,
+            ErrorCode::FileChangedUnregistered
+        );
+        rusqlite::Connection::open(&store.0.lock().unwrap().paths.db_path)
+            .unwrap()
+            .execute("DELETE FROM source_file_version_hashes", [])
+            .unwrap();
+        assert_eq!(
+            service.begin(&request, &begin).unwrap_err().code,
+            ErrorCode::FileChangedUnregistered
+        );
+    }
+
+    #[test]
+    fn file_upload_empty_content_quota_expiry_and_foreign_files_are_preserved() {
+        let (root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "empty-seal".into();
+        assert!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        request.request_id = "empty-commit".into();
+        let result = service
+            .update(&request, &upload_update(&begin, &ticket))
+            .unwrap();
+        assert_eq!(fs::read(result.version_path.unwrap()).unwrap(), b"");
+        let mut next = begin.clone();
+        next.expected_version_number = 2;
+        next.expected_content_hash = begin.content_hash.clone();
+        let mut tickets = Vec::new();
+        for n in 0..4 {
+            request.request_id = format!("begin-{n}");
+            tickets.push(service.begin(&request, &next).unwrap());
+        }
+        request.request_id = "over-quota".into();
+        assert_eq!(
+            service.begin(&request, &next).unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        let dir = root
+            .path()
+            .join(".project-mind/file-content-stage")
+            .join(&tickets[0].staged_content_id);
+        fs::write(dir.join("foreign-user-file"), b"must remain").unwrap();
+        clock.0.store(601000, std::sync::atomic::Ordering::Relaxed);
+        let replacement = service.begin(&request, &next).unwrap();
+        assert_eq!(replacement.expires_at_ms, 1201000);
+        assert_eq!(
+            fs::read(dir.join("foreign-user-file")).unwrap(),
+            b"must remain"
+        );
+        assert_eq!(version_count(&store, input.document_id), 2);
+    }
+    #[test]
+    fn file_upload_rechecks_expiry_after_file_preparation_and_can_retry_same_commit() {
+        struct ExpiresDuringPreparation(std::sync::atomic::AtomicUsize);
+        impl crate::file_content::FileContentClock for ExpiresDuringPreparation {
+            fn now_ms(&self) -> AgentResult<i64> {
+                Ok(
+                    if self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                        1000
+                    } else {
+                        601000
+                    },
+                )
+            }
+        }
+        let (_root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"updated bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .unwrap();
+        request.request_id = "seal".into();
+        service.finish(&request, &ticket.staged_content_id).unwrap();
+        request.request_id = "commit".into();
+        let update = upload_update(&begin, &ticket);
+        let expires = ExpiresDuringPreparation(std::sync::atomic::AtomicUsize::new(0));
+        assert_eq!(
+            crate::file_content::FileContentService::new(store.as_ref(), &expires)
+                .update(&request, &update)
+                .unwrap_err()
+                .code,
+            ErrorCode::StagedContentExpired
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+        assert_eq!(
+            fs::read(&input.managed_path).unwrap(),
+            b"registered bytes\r\n"
+        );
+        assert_eq!(
+            service
+                .update(&request, &update)
+                .unwrap()
+                .receipt
+                .version_number,
+            2
+        );
+    }
+    #[test]
+    fn file_upload_scope_exclusion_archive_and_generation_changes_are_checked_each_call() {
+        let (_root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"updated bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        let mut stale = request.clone();
+        stale.binding.generation = "old-generation".into();
+        assert_eq!(
+            service
+                .append(&stale, &ticket.staged_content_id, 0, b"updated bytes")
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        let dbpath = store.0.lock().unwrap().paths.db_path.clone();
+        let connection = rusqlite::Connection::open(dbpath).unwrap();
+        connection
+            .execute(
+                "UPDATE projects SET is_archived=1 WHERE id=?1",
+                [input.project_id],
+            )
+            .unwrap();
+        assert!(service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .is_err());
+        connection
+            .execute(
+                "UPDATE projects SET is_archived=0 WHERE id=?1",
+                [input.project_id],
+            )
+            .unwrap();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .unwrap();
+        request.request_id = "seal".into();
+        service.finish(&request, &ticket.staged_content_id).unwrap();
+        connection.execute("INSERT OR REPLACE INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)",[begin.object.key().unwrap()]).unwrap();
+        request.request_id = "commit".into();
+        assert_eq!(
+            service
+                .update(&request, &upload_update(&begin, &ticket))
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn file_upload_same_bytes_replaced_by_foreign_inode_are_rejected_and_never_cleaned() {
+        let (root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"updated bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .unwrap();
+        let dir = root
+            .path()
+            .join(".project-mind/file-content-stage")
+            .join(&ticket.staged_content_id);
+        let blob = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|e| e == "bin"))
+            .unwrap();
+        let foreign = dir.join("foreign-temp");
+        fs::write(&foreign, b"updated bytes").unwrap();
+        fs::rename(&foreign, &blob).unwrap();
+        request.request_id = "seal".into();
+        assert_eq!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceChanged
+        );
+        assert!(
+            crate::file_content::recover_expired(root.path(), &binding.workspace_id, 601000)
+                .is_err()
+        );
+        assert_eq!(fs::read(&blob).unwrap(), b"updated bytes");
+        // Foreign data occupies one bounded slot, but does not prevent other
+        // expired owned uploads from being reclaimed or a new upload starting.
+        request.request_id = "another-begin".into();
+        let another = service.begin(&request, &begin).unwrap();
+        clock.0.store(601000, std::sync::atomic::Ordering::Relaxed);
+        request.request_id = "fresh-begin".into();
+        service.begin(&request, &begin).unwrap();
+        assert!(!root
+            .path()
+            .join(".project-mind/file-content-stage")
+            .join(&another.staged_content_id)
+            .exists());
+        assert_eq!(fs::read(&blob).unwrap(), b"updated bytes");
+        assert_eq!(version_count(&store, input.document_id), 1);
+    }
+    #[test]
+    fn file_upload_concurrent_commit_retries_return_one_receipt_and_one_version() {
+        let (_root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"updated bytes");
+        let clock = Arc::new(UploadClock(std::sync::atomic::AtomicI64::new(1000)));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), clock.as_ref());
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .unwrap();
+        request.request_id = "seal".into();
+        service.finish(&request, &ticket.staged_content_id).unwrap();
+        request.request_id = "commit".into();
+        let update = upload_update(&begin, &ticket);
+        let barrier = Arc::new(std::sync::Barrier::new(5));
+        let mut workers = Vec::new();
+        for _ in 0..4 {
+            let store = store.clone();
+            let clock = clock.clone();
+            let request = request.clone();
+            let update = update.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                crate::file_content::FileContentService::new(store.as_ref(), clock.as_ref())
+                    .update(&request, &update)
+            }));
+        }
+        barrier.wait();
+        let receipts: Vec<_> = workers
+            .into_iter()
+            .map(|w| w.join().unwrap().unwrap().receipt)
+            .collect();
+        assert!(receipts.iter().all(|r| r == &receipts[0]));
+        assert_eq!(version_count(&store, input.document_id), 2);
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+    #[test]
+    #[ignore = "child process fixture invoked by File upload recovery parent"]
+    fn file_upload_crash_process_fixture() {
+        let Some(root) = std::env::var_os("MIND_FILE_UPLOAD_CRASH_FIXTURE") else {
+            return;
+        };
+        let root = Path::new(&root);
+        let (metadata, paths) = crate::workspace::load_metadata(root).unwrap();
+        let db = crate::workspace_initialization::open_workspace_database(
+            &paths.db_path,
+            root,
+            None,
+            &metadata.workspace_id,
+        )
+        .unwrap()
+        .db;
+        let begin: crate::file_content::FileContentBegin =
+            serde_json::from_slice(&fs::read(root.join("upload.fixture.json")).unwrap()).unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: metadata.workspace_id,
+            generation: "child-open".into(),
+        };
+        let request = crate::agent::access::RequestContext {
+            binding: binding.clone(),
+            caller: crate::agent::access::Caller::Gui,
+            request_id: "upload-begin".into(),
+            scope_grant: crate::agent::access::ScopeGrant {
+                workspace_id: binding.workspace_id.clone(),
+                workspace_content: false,
+                project_ids: vec![match begin.object.scope {
+                    crate::agent::models::Scope::Project { project_id } => project_id,
+                    _ => panic!(),
+                }],
+                operations: vec!["file.update".into()],
+            },
+        };
+        let store = Store(
+            Mutex::new(State {
+                binding,
+                db,
+                paths,
+                fence: Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new()),
+            }),
+            std::sync::atomic::AtomicUsize::new(0),
+        );
+        complete_upload_fixture(&store, request, &begin);
+    }
+    fn complete_upload_fixture(
+        store: &Store,
+        mut request: crate::agent::access::RequestContext,
+        begin: &crate::file_content::FileContentBegin,
+    ) -> crate::db::file_versions::CommittedVersion {
+        let service = crate::file_content::FileContentService::new(
+            store,
+            &crate::file_content::SystemFileContentClock,
+        );
+        let ticket = service.begin(&request, begin).unwrap();
+        request.request_id = "upload-commit".into();
+        let update = upload_update(begin, &ticket);
+        if let Ok(receipt) = service.update(&request, &update) {
+            return receipt.receipt;
+        }
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"updated bytes")
+            .unwrap();
+        request.request_id = "seal".into();
+        service.finish(&request, &ticket.staged_content_id).unwrap();
+        request.request_id = "upload-commit".into();
+        service.update(&request, &update).unwrap().receipt
+    }
+    #[cfg(unix)]
+    #[test]
+    fn file_upload_recovers_eight_upload_and_six_version_actual_process_kills() {
+        use std::os::unix::process::ExitStatusExt;
+        for (hook, limit) in [
+            ("MIND_FILE_CONTENT_CRASH_STAGE", 8),
+            ("MIND_FILE_VERSION_CRASH_STAGE", 6),
+        ] {
+            for stage in 0..limit {
+                let (root, store, binding, input) = fixture();
+                let (mut request, begin) = upload_input(&binding, &input, b"updated bytes");
+                let before = store
+                    .0
+                    .lock()
+                    .unwrap()
+                    .db
+                    .committed_change_watermark()
+                    .unwrap();
+                fs::write(
+                    root.path().join("upload.fixture.json"),
+                    serde_json::to_vec(&begin).unwrap(),
+                )
+                .unwrap();
+                drop(store);
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "file_version_service::tests::file_upload_crash_process_fixture",
+                        "--ignored",
+                    ])
+                    .env("MIND_FILE_UPLOAD_CRASH_FIXTURE", root.path())
+                    .env(hook, stage.to_string())
+                    .output()
+                    .unwrap();
+                assert_eq!(
+                    output.status.signal(),
+                    Some(9),
+                    "{hook} {stage}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let (metadata, paths) = crate::workspace::load_metadata(root.path()).unwrap();
+                let db = crate::workspace_initialization::open_workspace_database(
+                    &paths.db_path,
+                    root.path(),
+                    None,
+                    &metadata.workspace_id,
+                )
+                .unwrap()
+                .db;
+                let binding = WorkspaceBinding {
+                    generation: "recovered-open".into(),
+                    ..binding
+                };
+                request.binding = binding.clone();
+                let store = Store(
+                    Mutex::new(State {
+                        binding,
+                        db,
+                        paths,
+                        fence: Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new()),
+                    }),
+                    std::sync::atomic::AtomicUsize::new(0),
+                );
+                let committed = hook == "MIND_FILE_CONTENT_CRASH_STAGE" && stage == 7
+                    || hook == "MIND_FILE_VERSION_CRASH_STAGE" && stage == 5;
+                assert_eq!(
+                    version_count(&store, input.document_id),
+                    if committed { 2 } else { 1 }
+                );
+                request.request_id = "upload-begin".into();
+                let receipt = complete_upload_fixture(&store, request.clone(), &begin);
+                assert_eq!(receipt.version_number, 2);
+                assert_eq!(complete_upload_fixture(&store, request, &begin), receipt);
+                assert_eq!(version_count(&store, input.document_id), 2);
+                assert_eq!(
+                    store
+                        .0
+                        .lock()
+                        .unwrap()
+                        .db
+                        .committed_change_watermark()
+                        .unwrap(),
+                    before + 1
+                );
+                let versions = store
+                    .0
+                    .lock()
+                    .unwrap()
+                    .db
+                    .document_list_versions(crate::models::DocumentListVersionsInput {
+                        document_id: input.document_id,
+                    })
+                    .unwrap();
+                assert_eq!(
+                    fs::read(
+                        &versions
+                            .iter()
+                            .find(|v| v.version_number == 1)
+                            .unwrap()
+                            .managed_path
+                    )
+                    .unwrap(),
+                    b"registered bytes\r\n"
+                );
+                assert_eq!(
+                    fs::read(
+                        &versions
+                            .iter()
+                            .find(|v| v.version_number == 2)
+                            .unwrap()
+                            .managed_path
+                    )
+                    .unwrap(),
+                    b"updated bytes"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn file_upload_accepts_one_mib_chunks_and_enforces_manifest_chunk_budget() {
+        let (_root, store, binding, input) = fixture();
+        let bytes = vec![0xff; crate::file_content::MAX_CHUNK];
+        let (mut request, begin) = upload_input(&binding, &input, &bytes);
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, &bytes)
+                .unwrap()
+                .received_length,
+            crate::file_content::MAX_CHUNK as u64
+        );
+        request.request_id = "seal".into();
+        assert!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        let mut max = begin.clone();
+        max.length = crate::file_content::MAX_CONTENT;
+        request.request_id = "max-begin".into();
+        let ticket = service.begin(&request, &max).unwrap();
+        request.request_id = "tiny-chunk".into();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 0, b"x")
+                .unwrap_err()
+                .code,
+            ErrorCode::BudgetExceeded
+        );
+        let data = vec![b'x'; 101];
+        let (_, small) = upload_input(&binding, &input, &data);
+        request.request_id = "small-begin".into();
+        let ticket = service.begin(&request, &small).unwrap();
+        for offset in 0..99 {
+            request.request_id = format!("small-{offset}");
+            service
+                .append(&request, &ticket.staged_content_id, offset, b"x")
+                .unwrap();
+        }
+        request.request_id = "last-tiny".into();
+        assert_eq!(
+            service
+                .append(&request, &ticket.staged_content_id, 99, b"x")
+                .unwrap_err()
+                .code,
+            ErrorCode::BudgetExceeded
+        );
+        request.request_id = "last-two".into();
+        service
+            .append(&request, &ticket.staged_content_id, 99, b"xx")
+            .unwrap();
+        request.request_id = "small-seal".into();
+        assert!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap()
+                .ready
+        );
+        assert_eq!(version_count(&store, input.document_id), 1);
+    }
+    #[test]
+    fn file_upload_begin_payload_conflicts_and_path_parameters_are_rejected() {
+        let (_root, store, binding, input) = fixture();
+        let (request, begin) = upload_input(&binding, &input, b"new bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        service.begin(&request, &begin).unwrap();
+        let mut altered = begin.clone();
+        altered.length += 1;
+        assert_eq!(
+            service.begin(&request, &altered).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        let mut value = serde_json::to_value(&begin).unwrap();
+        value["sourcePath"] = serde_json::json!("/host/private-file");
+        assert!(serde_json::from_value::<crate::file_content::FileContentBegin>(value).is_err());
+        let update = crate::file_content::FileContentUpdate {
+            object: begin.object,
+            expected_version_number: 1,
+            expected_content_hash: begin.expected_content_hash,
+            staged_content_id: "../escape".into(),
+        };
+        assert_eq!(
+            service.update(&request, &update).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+    }
+    #[test]
+    fn file_upload_shared_workspace_reopen_expires_owned_bytes_and_keeps_user_file() {
+        let (root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"new bytes");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "chunk".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"new bytes")
+            .unwrap();
+        let dir = root
+            .path()
+            .join(".project-mind/file-content-stage")
+            .join(&ticket.staged_content_id);
+        fs::write(dir.join("user-data"), b"preserve").unwrap();
+        let paths = store.0.lock().unwrap().paths.clone();
+        let mut opened = crate::workspace_initialization::open_workspace_database(
+            &paths.db_path,
+            root.path(),
+            None,
+            &binding.workspace_id,
+        )
+        .unwrap();
+        assert_eq!(
+            opened
+                .db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: input.document_id
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(fs::read(dir.join("user-data")).unwrap(), b"preserve");
+        assert!(!fs::read_dir(&dir).unwrap().any(|e| e
+            .unwrap()
+            .path()
+            .extension()
+            .is_some_and(|e| e == "bin")));
+        assert_eq!(
+            fs::read(&input.managed_path).unwrap(),
+            b"registered bytes\r\n"
+        );
+    }
+    #[test]
+    fn file_upload_wrong_declared_hash_expires_without_blocking_later_uploads() {
+        let (root, store, binding, input) = fixture();
+        let (mut request, begin) = upload_input(&binding, &input, b"abcdef");
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(store.as_ref(), &clock);
+        let ticket = service.begin(&request, &begin).unwrap();
+        request.request_id = "bad-bytes".into();
+        service
+            .append(&request, &ticket.staged_content_id, 0, b"abcdeg")
+            .unwrap();
+        request.request_id = "bad-seal".into();
+        assert_eq!(
+            service
+                .finish(&request, &ticket.staged_content_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceChanged
+        );
+        clock.0.store(601000, std::sync::atomic::Ordering::Relaxed);
+        request.request_id = "fresh-begin".into();
+        let next = service.begin(&request, &begin).unwrap();
+        assert_ne!(next.staged_content_id, ticket.staged_content_id);
+        assert!(!root
+            .path()
+            .join(".project-mind/file-content-stage")
+            .join(&ticket.staged_content_id)
+            .exists());
+        assert_eq!(version_count(&store, input.document_id), 1);
     }
 }

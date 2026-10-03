@@ -83,12 +83,30 @@ enum CommitPayload {
         expected_content_hash: String,
         patch_hash: String,
     },
+    RegisteredStage {
+        object: ObjectRef,
+        expected_version_number: u32,
+        expected_content_hash: String,
+        staged_content_id: String,
+    },
     NativeCas {
         intent: GuiFileVersionIntent,
         register_current_bytes: bool,
     },
 }
-fn registered_payload(update: &FileVersionUpdate, patch_hash: Option<&str>) -> CommitPayload {
+fn registered_payload(
+    update: &FileVersionUpdate,
+    patch_hash: Option<&str>,
+    stage_id: Option<&str>,
+) -> CommitPayload {
+    if let Some(stage_id) = stage_id {
+        return CommitPayload::RegisteredStage {
+            object: update.object.clone(),
+            expected_version_number: update.expected_version_number,
+            expected_content_hash: update.expected_content_hash.clone(),
+            staged_content_id: stage_id.into(),
+        };
+    }
     match patch_hash {
         Some(patch_hash) => CommitPayload::RegisteredText {
             object: update.object.clone(),
@@ -127,7 +145,7 @@ pub(crate) struct FileIdentity {
     file: u64,
 }
 #[cfg(unix)]
-pub(super) fn identity(file: &File) -> Result<FileIdentity> {
+pub(crate) fn identity(file: &File) -> Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
     let metadata = file.metadata()?;
     Ok(FileIdentity {
@@ -136,7 +154,7 @@ pub(super) fn identity(file: &File) -> Result<FileIdentity> {
     })
 }
 #[cfg(windows)]
-pub(super) fn identity(file: &File) -> Result<FileIdentity> {
+pub(crate) fn identity(file: &File) -> Result<FileIdentity> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
@@ -155,7 +173,7 @@ pub(super) fn identity(file: &File) -> Result<FileIdentity> {
     Ok(id)
 }
 #[cfg(not(any(unix, windows)))]
-pub(super) fn identity(_file: &File) -> Result<FileIdentity> {
+pub(crate) fn identity(_file: &File) -> Result<FileIdentity> {
     bail!("File identity is unsupported")
 }
 pub(crate) fn path_identity(path: &Path) -> Result<FileIdentity> {
@@ -242,10 +260,10 @@ pub(crate) struct CommittedVersion {
     pub content_hash: String,
     pub no_change: bool,
 }
-pub(super) fn token() -> String {
+pub(crate) fn token() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
-pub(super) fn regular(path: &Path) -> Result<()> {
+pub(crate) fn regular(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         bail!("File Version requires a regular file");
@@ -345,22 +363,22 @@ fn snapshot_bounded(
     ))
 }
 #[cfg(unix)]
-pub(super) fn sync_directory(path: &Path) -> Result<()> {
+pub(crate) fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
     Ok(())
 }
 // Windows durable moves use MOVEFILE_WRITE_THROUGH; directory handles do not
 // support FlushFileBuffers portably. Real package crash acceptance is pending.
 #[cfg(windows)]
-pub(super) fn sync_directory(_path: &Path) -> Result<()> {
+pub(crate) fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(not(any(unix, windows)))]
-pub(super) fn sync_directory(_path: &Path) -> Result<()> {
+pub(crate) fn sync_directory(_path: &Path) -> Result<()> {
     bail!("File journal durability is unsupported")
 }
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     rustix::fs::renameat_with(
         rustix::fs::CWD,
         from,
@@ -378,7 +396,7 @@ pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(windows)]
-pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
     let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -389,7 +407,7 @@ pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-pub(super) fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
+pub(crate) fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
     bail!("Exclusive File moves are unsupported")
 }
 pub(crate) fn relative(root: &Path, path: &Path) -> Result<String> {
@@ -418,7 +436,7 @@ pub(crate) fn relative(root: &Path, path: &Path) -> Result<String> {
         .map(str::to_owned)
         .ok_or_else(|| anyhow!("Invalid managed File path encoding"))
 }
-pub(super) fn create_owned_directories(root: &Path, path: &Path) -> Result<()> {
+pub(crate) fn create_owned_directories(root: &Path, path: &Path) -> Result<()> {
     let relative_path = relative(root, path)?;
     let mut parent = root.to_path_buf();
     for component in Path::new(&relative_path).components() {
@@ -573,6 +591,13 @@ impl Database {
                     && i64::from(*expected_version_number) == journal.expected_version
                     && expected_content_hash == &journal.original_captured_hash
                     && valid_hash(patch_hash) => { () }
+            CommitPayload::RegisteredStage { object, expected_version_number, expected_content_hash, staged_content_id }
+                if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
+                    && object.kind == ObjectKind::File && object.scope == (Scope::Project { project_id: journal.project_id })
+                    && object.id == journal.document_id.to_string()
+                    && i64::from(*expected_version_number) == journal.expected_version
+                    && expected_content_hash == &journal.original_captured_hash
+                    && crate::file_content::valid_stage_id(staged_content_id) => { () }
             CommitPayload::NativeCas { intent, .. }
                 if journal.caller_id == "gui"
                     && intent.document_id == journal.document_id
@@ -865,6 +890,7 @@ impl Database {
                 Some((request_id, intent, register_current_bytes)),
                 Some(fence),
                 None,
+                None,
             )
         })()
         .map_err(agent_failure)
@@ -875,7 +901,7 @@ impl Database {
         input: DocumentAddVersionInput,
     ) -> Result<DocumentRecord> {
         let id = input.document_id;
-        self.file_version_commit(input, None, None, None, None)?;
+        self.file_version_commit(input, None, None, None, None, None)?;
         self.document_record(id)
     }
 
@@ -940,7 +966,7 @@ impl Database {
             &request.caller.key(),
             &request.request_id,
             "file.version.commit",
-            &registered_payload(update, Some(patch_hash)),
+            &registered_payload(update, Some(patch_hash), None),
         )
     }
     pub(crate) fn file_version_patch_registered_bound(
@@ -988,6 +1014,87 @@ impl Database {
             None,
             Some(fence),
             Some((patch_hash, bytes)),
+            None,
+        )
+        .map_err(agent_failure)
+    }
+    pub(crate) fn file_version_staged_replay(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &crate::file_content::FileContentUpdate,
+    ) -> AgentResult<Option<CommittedVersion>> {
+        let target = self.file_version_registered_target(request, binding, &input.object)?;
+        let _project = self
+            .file_project_lock(target.project_id, false)
+            .map_err(agent_failure)?;
+        let _file = self.file_version_lock(target.id).map_err(agent_failure)?;
+        self.file_version_registered_target(request, binding, &input.object)?;
+        let update = FileVersionUpdate {
+            object: input.object.clone(),
+            expected_version_number: input.expected_version_number,
+            expected_content_hash: input.expected_content_hash.clone(),
+            new_content_hash: input.expected_content_hash.clone(),
+        };
+        self.agent_operation_replay(
+            &request.caller.key(),
+            &request.request_id,
+            "file.version.commit",
+            &registered_payload(&update, None, Some(&input.staged_content_id)),
+        )
+    }
+    pub(crate) fn file_version_staged_commit_bound(
+        &mut self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        update: &FileVersionUpdate,
+        stage_id: &str,
+        source: &Path,
+        fence: &crate::workspace_commit_fence::WorkspaceCommitFence,
+        precommit: &dyn Fn() -> AgentResult<()>,
+    ) -> AgentResult<CommittedVersion> {
+        self.file_version_registered_target(request, binding, &update.object)?;
+        if update.expected_version_number == 0
+            || !valid_hash(&update.expected_content_hash)
+            || !valid_hash(&update.new_content_hash)
+            || !crate::file_content::valid_stage_id(stage_id)
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid staged File update",
+            ));
+        }
+        let relative = relative(&self.workspace_root, source).map_err(agent_failure)?;
+        let parent = Path::new(".project-mind")
+            .join("file-content-stage")
+            .join(stage_id);
+        if Path::new(&relative).parent() != Some(parent.as_path())
+            || !crate::file_content::valid_blob_name(
+                source
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default(),
+            )
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "File update requires owned staged bytes",
+            ));
+        }
+        self.file_version_commit(
+            DocumentAddVersionInput {
+                document_id: update
+                    .object
+                    .id
+                    .parse()
+                    .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File ID"))?,
+                source_path: Some(source.to_string_lossy().into()),
+            },
+            Some((request, update)),
+            None,
+            Some(fence),
+            None,
+            Some((stage_id, precommit)),
         )
         .map_err(agent_failure)
     }
@@ -1073,6 +1180,7 @@ impl Database {
                 None,
                 None,
                 None,
+                None,
             )
         })();
         result.map_err(|error| match error.downcast::<CommitFailure>() {
@@ -1088,7 +1196,9 @@ impl Database {
         gui: Option<(&str, &GuiFileVersionIntent, bool)>,
         fence: Option<&crate::workspace_commit_fence::WorkspaceCommitFence>,
         patch: Option<(&str, &[u8])>,
+        stage: Option<(&str, &dyn Fn() -> AgentResult<()>)>,
     ) -> Result<CommittedVersion> {
+        let stage_id = stage.map(|(id, _)| id);
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
             "SELECT project_id FROM documents WHERE id=?1",
@@ -1107,7 +1217,7 @@ impl Database {
                     &request.caller.key(),
                     &request.request_id,
                     "file.version.commit",
-                    &registered_payload(update, patch.map(|(hash, _)| hash)),
+                    &registered_payload(update, patch.map(|(hash, _)| hash), stage_id),
                 )
                 .map_err(CommitFailure)?
             {
@@ -1196,7 +1306,7 @@ impl Database {
         if no_change {
             let (caller_id, request_id, expected_hash, payload) = match (registered, gui) {
                 (Some((request, update)), _) => (request.caller.key(), request.request_id.as_str(), &update.new_content_hash,
-                    registered_payload(update, patch.map(|(hash, _)| hash))),
+                    registered_payload(update, patch.map(|(hash, _)| hash), stage_id)),
                 (_, Some((request_id, intent, register_current_bytes))) => ("gui".into(), request_id, &intent.new_content_hash,
                     CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
                 _ => unreachable!("noChange requires a registered intent"),
@@ -1204,6 +1314,9 @@ impl Database {
             let source = input.source_path.as_deref().map(PathBuf::from).unwrap_or_else(|| original.clone());
             if checksum(&source)? != *expected_hash {
                 return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed before no-change commit"));
+            }
+            if let Some((_, validate)) = stage {
+                validate().map_err(CommitFailure)?;
             }
             let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
             let synchronous: i64 = self.conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
@@ -1324,7 +1437,7 @@ impl Database {
                     document_id: current.id,
                     new_hash: new_hash.clone(),
                 }, |(_, intent, register_current_bytes)| CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
-                |(_, update)| registered_payload(update, patch.map(|(hash, _)| hash)),
+                |(_, update)| registered_payload(update, patch.map(|(hash, _)| hash), stage_id),
             );
             let journal = Journal {
                 schema_version: 1,
@@ -1380,6 +1493,9 @@ impl Database {
         self.conn
             .pragma_update(None, "synchronous", synchronous.max(2))?;
         let result = (|| -> Result<CommittedVersion> {
+            if let Some((_, validate)) = stage {
+                validate().map_err(CommitFailure)?;
+            }
             let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
             if checksum(&original)? != journal.original_captured_hash {
                 return Err(conflict(

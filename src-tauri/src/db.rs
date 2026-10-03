@@ -18,6 +18,7 @@ mod file_imports;
 mod file_metadata;
 mod file_deletions;
 mod file_relocations;
+pub(crate) mod file_content;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
