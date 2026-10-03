@@ -47,3 +47,15 @@ knowledge.search 支持标题/别名/关键词，trigram 与 1–2 字 literal L
 存储内部限制：每次最多 20 个节点变更，批次文本最多 48000 字符；每节点正文合计最多 8000，最多 20 章节/来源，aliases/keywords 各最多 20。读取所需不可省略的引用元数据不能装入请求预算时明确 BudgetExceeded，不静默删证据。sourceCoverage 仍为可信维护输入，初始 manifest 未证明完整时 needs_rebuild 保持 true，不将节点存在或 pending 为零当作完整理解。
 
 验证：节点存储 7 个真实 SQLite 用例通过；知识服务 3 passed、registry 3 passed、受影响 Overview 31 passed / 1 ignored、L0 6 passed；收口 Rust 全目标 495 passed / 23 ignored。前端 API 12 passed，TypeScript 类型检查通过；不重跑未变化的 worker staging、前端全量或平台验收。主 agent Standards / Spec 自查完成。#101 仍有实际原文回退、完整 inventory、纠正管理及真实维护消费等门槛，保持 OPEN。
+
+## P5d：有界真实存量目录（2026-10-03）
+
+关联 #101 的初始化输入与 A54/A60。复用原 source queue backfill 的六类 catalogue SQL，抽成共享 metadata 查询；索引仍排除不可索引对象，Overview inventory 则保留排除对象的实际状态。子任务继续属于 Todo，managed_note_image 不登记为独立 File，QuickNote 不变为 Record。没有虚构会话来源、File 历史 hash 或模型覆盖率。
+
+每批 1–200 个实际对象，cursor、pending 登记、稳定回执和 metadata outbox 同事务提交。零历史日志的旧数据库也先分配一条真实 inventory metadata 日志水位，不伪造业务变更序号；缺少事件登记的对象标为 inventory:unprocessed，这不是 SourceRef semantic hash。已有 pending 的更新、排除和 tombstone 优先，目录只 INSERT OR IGNORE，不覆盖晚到状态。
+
+遍历跨重开恢复；同 request 重放原结果，不推进下一页。首次准备后的永久 pending trigger 接住已过游标前新建的对象与删除，日志裁剪不清空该集合，因此完成当前六类目录遍历后可把 needs_rebuild 清零。directoryComplete 只证明目录与后续变更捕获闭环，不证明正文已读、知识覆盖完整或任务 ready；pending 通常仍非零，context 仍按实际知识状态返回。此过程不读 File 字节、不跑 worker、不建索引 job、不调用模型，也不创建正文副本。
+
+共享服务通过当前 Workspace generation 与 knowledge.write 授权，释放锁后发通知；尚无生产助手初始化/定时调度调用，后续由 #102 真实 Host 接入。按用户确认，本阶段仅推进云端实现，真实 Provider 与 macOS/Windows 实包验收继续保留未完成。
+
+验证范围预先限定为新增 inventory 与共享目录受影响的 source_queue：inventory 8 passed；source_queue 10 passed / 1 ignored，再显式运行这 1 个固定 Node 真实进程集成用例，1 passed。复用 P5c 未受影响的 Rust/前端/构建结果，不因纯 metadata 查询与新内部服务重复全量验证。主 agent Standards / Spec 自查完成；没有把目录完成当成模型维护、完整正文覆盖或 Issue 交付。

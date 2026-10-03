@@ -178,6 +178,29 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
             db.agent_overview_pending_page(scope, target_seq, after_key, limit)
         })
     }
+    pub(crate) fn inventory_advance(
+        &self,
+        request: &RequestContext,
+        scope: &Scope,
+        limit: u16,
+    ) -> AgentResult<crate::agent::overview_inventory::OverviewInventoryProgress> {
+        let (result, changes) = self.store.with_current(|binding, db| {
+            authorize(db, request, binding, scope, "knowledge.write")?;
+            crate::committed_changes::capture_committed(binding, db, &request.request_id, || {
+                db.agent_overview_inventory_advance(
+                    &request.caller.key(),
+                    &request.request_id,
+                    &binding.workspace_id,
+                    scope,
+                    limit,
+                )
+            })
+        })?;
+        if let Some(changes) = changes {
+            self.store.publish_committed(changes);
+        }
+        result
+    }
     pub(crate) async fn publish(
         &self,
         request: &RequestContext,
@@ -1307,5 +1330,57 @@ mod tests {
         assert_eq!(node.revision, 1);
         assert_eq!(node.source_refs[0].excerpt, evidence[0].reference().excerpt);
         assert_eq!(store.notifications.load(Ordering::SeqCst), 1);
+    }
+    #[test]
+    fn overview_inventory_service_binds_scope_and_never_marks_content_processed() {
+        let (_root, store, request, source) = setup();
+        let service = OverviewService::new(&store);
+        let scope = &source.source.object.scope;
+        let mut denied = request.clone();
+        denied.scope_grant.operations = vec!["context.read".into()];
+        assert_eq!(
+            service
+                .inventory_advance(&denied, scope, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let mut stale = request.clone();
+        stale.binding.generation = "old".into();
+        assert_eq!(
+            service
+                .inventory_advance(&stale, scope, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        let first = service.inventory_advance(&request, scope, 1).unwrap();
+        assert_eq!(first.advanced, 1);
+        assert!(!first.directory_complete);
+        let replay = service.inventory_advance(&request, scope, 1).unwrap();
+        assert_eq!(replay.scanned, first.scanned);
+        assert_eq!(store.notifications.load(Ordering::SeqCst), 1);
+        let mut progress = first;
+        for batch in 0..10 {
+            if progress.directory_complete {
+                break;
+            }
+            let mut next = request.clone();
+            next.request_id = format!("inventory-{batch}");
+            progress = service.inventory_advance(&next, scope, 1).unwrap();
+        }
+        assert!(progress.directory_complete);
+        assert!(!progress.needs_rebuild);
+        assert!(progress.pending_count >= 3);
+        assert!(store
+            .db
+            .lock()
+            .unwrap()
+            .agent_overview_head(scope)
+            .unwrap()
+            .is_none());
+        let pending = service.pending(&request, scope, None, None, 200).unwrap();
+        assert_eq!(pending.pending_count, progress.pending_count);
+        assert!(!pending.needs_rebuild);
     }
 }

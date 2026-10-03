@@ -65,3 +65,12 @@ INSERT INTO agent_overview_pending(scope_key,object_key,first_seq,last_seq,opera
  WHERE r.scope_key LIKE 'project:%' AND NOT EXISTS(SELECT 1 FROM agent_overview_pending_bootstrap)
  ON CONFLICT(scope_key,object_key) DO NOTHING;
 INSERT OR IGNORE INTO agent_overview_pending_bootstrap(id) VALUES(1);
+
+-- Inventory is a one-time metadata directory pass. A complete cursor only
+-- unlocks needs_rebuild; source pending remains until a grounded publish settles it.
+CREATE TABLE IF NOT EXISTS agent_overview_inventory_cursors (
+ workspace_id TEXT NOT NULL, scope_key TEXT NOT NULL, kind TEXT NOT NULL,
+ object_id INTEGER NOT NULL CHECK(object_id>=0), start_seq INTEGER NOT NULL CHECK(start_seq>0),
+ scanned INTEGER NOT NULL CHECK(scanned>=0), complete INTEGER NOT NULL CHECK(complete IN(0,1)),
+ PRIMARY KEY(workspace_id,scope_key)
+);
