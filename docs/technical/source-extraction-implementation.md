@@ -250,3 +250,20 @@ Host 仍只捕获当前 Workspace binding 与生命周期屏障，使用同一�
 P1 不含历史版本 GUI 比较/恢复交互、正式 run/connection 接入或产品恢复诊断；这些继续归 P6 及所属 Issue。公开 File 和 source capabilities、普通 worker 分发、正式 Schema 发布均未在此开放。#100/#114 保持 OPEN，阶段提交不进入发布合并流程。
 
 验证：恢复专项 9 passed/1 ignored，受影响 patch 11 passed、GUI 服务 8 passed、上传并发 1 passed，旧 GUI 回执通知断言通过；最后集中执行 Rust 全目标，库 451 passed/23 默认忽略，其他目标通过，包含恢复六阶段实际进程父用例。未改前端 DTO/命令/事件格式、依赖或资源，复用 86b7859 阶段前端 141 文件/966 tests 与构建证据，未重跑。主 agent Standards/Spec 自查及 diff 检查完成；未执行应用窗口、真实 Provider 或真实平台故障验收。
+
+### P2：原生来源闭环核对（2026-10-03）
+
+以 P1 提交 8768915 为基线，执行 agent 整理入口/测试映射，主 agent 核对真实调用链。未发现需要新增的 P2 原生写入口，不重复实现已有服务。下表是实现证据，不表示 A07/A17/A53/A54/A72 的产品端到端验收已全部完成。
+
+| 来源 | 现有写入与原子日志入口 | 代表性验证 |
+| --- | --- | --- |
+| Project | db/native_changes.rs 的 project_update、project_set_archive；db.rs 的删除前身份记录 | native_project_rename_commits_both_identities_and_restores_directory_on_outbox_failure |
+| Record | record_document_commands/service → db/record_documents.rs；删除预先记录 Record/Transcript 身份 | record_head_outbox_failure_rolls_back_body_version_and_receipt |
+| QuickNote | db/native_changes.rs 独立 QuickNote target；Record transfer 同事务清空来源 | native_quick_note_is_not_a_record_and_redundant_markdown_is_no_change |
+| Todo/子项 | db/native_changes.rs 包装各写入口，以父 Todo 的完整语义修订记日志 | native_todo_subtasks_tags_and_deletion_feed_shared_queue |
+| File | db/file_imports、file_metadata、file_deletions、file_relocations、file_versions 的既有 journal/原子操作 | file_delete_outbox_failure_rolls_back_jobs_and_success_tombstone_survives_log_prune |
+| Transcript | db.rs 的 voice_transcript_append_final 事务与 native_changes::append_transcript_final；voice_recovery 同事务补转写 | native_final_uses_voice_id_and_duplicate_delivery_never_relogs |
+
+共用消费由 db/source_index_queue.rs 的持久水位、合并入队、lease 和 backfill，经 SourceService::index_claimed 的六类分派进入现有索引；db/source_registry.sql 的同事务触发器保存 tombstone、取消删除任务并沿 derived_from 失效，source_dependency_acknowledge 要求真实消费者发布事务及水位。source_queue_cursor_and_work_roll_back_together_and_expired_logs_require_backfill、source_registry_storage_failure_rolls_back_business_and_outbox、source_registry_invalidates_transitive_dependencies_without_rewriting_evidence 等测试覆盖闭环。旧 Record helper 不作为生产旁路：lib.rs 的旧写入命令已统一 reject_legacy_record_write。
+
+复用 P1 刚通过的 Rust 全目标结果及 86b7859 的 source 显式进程 112 passed、Record 100 passed；这些 source/registry/队列实现与固定 worker 资源未变化，不另跑相同检查。P2 收口为证据核对，无代码重写。大 Transcript 读取进入 P3；正式助手调度和真实知识消费者仍分别由 P4/P5 接入，#100 继续 OPEN。
