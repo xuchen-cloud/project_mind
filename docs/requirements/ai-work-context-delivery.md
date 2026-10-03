@@ -1,6 +1,6 @@
 # AI 工作上下文：交付计划与验收
 
-更新：2026-10-01。状态：已进入实施。产品行为见[主规格](ai-work-context-spec.md)，实现规则见[工程契约](ai-work-context-engineering-spec.md)。本文件保存工作包定义与验收标准；负责人、进度和关闭状态只在[父Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97)及子Issue维护。
+更新：2026-10-03。状态：已进入实施。产品行为见[主规格](ai-work-context-spec.md)，实现规则见[工程契约](ai-work-context-engineering-spec.md)。本文件保存工作包定义与验收标准；负责人、进度和关闭状态只在[父Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97)及子Issue维护。
 
 ## D1 交付批次与顺序
 
@@ -41,6 +41,27 @@ M0若验证失败，暂停运行时及下游，保留可独立推进的领域/�
 | [AI-17 #114](https://github.com/xuchen-cloud/project_mind/issues/114) | File修改、File Version复用与故障恢复 | 02、07 | 3–5日 |
 | [AI-18 #115](https://github.com/xuchen-cloud/project_mind/issues/115) | HTML交互稿创建、源码续改与隔离版本预览 | 06、17 | 4–7日 |
 | [AI-19 #116](https://github.com/xuchen-cloud/project_mind/issues/116) | 默认自主执行、Todo修订与跨成果撤销恢复 | 07、16、17 | 4–6日 |
+
+## D2a 执行拆分与收口边界
+
+2026-10-03 明确执行规则：D2 的 AI 编号、依赖和 D3 验收不变。下表是实现顺序与提交边界，不是新的 Issue 状态表；进度仍以 GitHub Issues 为准，代码与验证证据见[实施记录](../technical/source-extraction-implementation.md)。每次领取下一包前核对现有代码，只实现实际缺口，不重复实现已经提交的 outbox、队列、registry 或 File 内核。
+
+| 执行包 / 对应 Issue | 交付行为与依赖 | 收口验收与最小验证 | 非目标 / 后续接缝 |
+| --- | --- | --- | --- |
+| P1 File 恢复内核收口 / #114 | 将已登记历史字节通过现有 Version 内核恢复成新版本；复用当前未提交实现 | A34/A36：历史原件不动、CAS 冲突不写入、noChange 不加版本；同请求并发只提交一次且不重复通知。先跑恢复及受影响的 GUI/patch/upload 用例，收口跑 Rust 全目标与必要实际进程恢复测试 | 不新增恢复 UI、连接模块或通用文件框架；不因本包完成关闭 #114 |
+| P2 来源事件与消费闭环 / #100 | 核对六类原生写入口→原子日志→队列→registry/依赖失效，补真实遗漏；沿用现有队列与开发态 runner | A07/A17/A53/A54/A72：变更可追踪、删除/排除取消与失效、旧引用不改指向、重开可续、QuickNote 隔离。使用真实 SQLite/共享服务的相关 source 测试；只有事件契约变化才补前端消费测试 | 不重复造 scheduler/registry；不在此生成 Overview 或会话摘要 |
+| P3 大 Transcript 的有界读取 / #100 | 为超过整份快照预算的原始 final segments 提供可续分段读取，接现有提取流程 | 有界读取、跨页无漏重、真实时间定位、修订变化拒绝旧游标；partial 不冒充完整。跑 Transcript/分页与实际提取集成测试 | 不修改原始转写，不另建 Record 版本，不顺带重构所有来源 |
+| P4 助手启用与项目激活接入 / #100、#102、#103 | 真实助手开关/项目激活→已有队列；呈现累计预算、进度、取消及前台优先 | A01/A12/A59/A60：初始化可续、切换隔离、取消可结算、预算与 partial 可见；跑调度集成与所改 UI 测试，界面验收提前告知 | 依赖真实运行时与助手入口；缺入口时先推进其所属包，不用开发开关冒充正式交付；普通 worker 分发受 #98 门槛约束 |
+| P5 知识消费者接入 / #101 | 按 AI-04 实现知识存储、渐进读取和依赖失效消费；复用 #100 接缝 | 以 A51～55/A66～72 的相关场景逐项收口；先存储/确定性读取，再接增量维护，各自提交并验证 | 不将索引 registry 当知识产品已完成；模型维护与真实 Host 通过 #102 接入 |
+| P6 成果与 File 产品接入 / #104、#114 | #104 提供真实 stage/commit/run 后，复用已提交 File patch/upload/Version 服务；接恢复交互和恢复诊断 | A32～36：真实调用身份/撤销权限、稳定收据、同 File 新版本、实际历史比较/恢复入口；分别验证共享服务、适配器和所改 UI | 不虚构 run/connection；外部连接注册与撤销交 #106；原生 File 其他长锁仅在所接路径确有影响时拆分 |
+
+执行顺序：先完成 P1 并提交，然后 P2、P3；P4 的前置模块未就绪时推进可独立的 P5 基础，再按 D1 接 #102/#103 与 P4，#104 就绪后接 P6。P2 若核对发现全部已有证据，记录映射后直接进入 P3，不为产生提交重复改写代码。
+
+后续继续遵守 D1：#115 HTML → #116 自主执行/撤销 → #105 会话知识 → #106 CLI/MCP → #107 M1 集成验收；各包开始前再按真实代码拆成有独立验收的提交，不提前设计全部内部接口。#108～112 按原依赖进入 M2～M4。#98、#113 的未完成验收单列，不能用其他包的测试替代。
+
+正式会话消息/摘要来源等待 #102/#105 提供真实注册接缝；外部连接等待 #106。source.search/read 和 File 公开 capability 的启用、普通 worker 分发及正式 Schema 迁移各自必须有真实实现与验收，内部阶段完成不自动开放。真实 Provider、Windows 实包、物理磁盘满与系统掉电等缺少执行条件的验收明确记录为未完成，不反复运行本地单测冒充补齐。
+
+每包只保留一个正在实现的交付目标。收口记录：需求/验收映射、实际改动、有效验证证据、剩余接缝、Standards/Spec 自查与提交 SHA。新增问题仅在阻塞本包正确性或既定验收时纳入，否则归入对应后续包。提交数和测试数不作为整体完成比例；按 D3 验收项汇报通过、部分覆盖与阻塞。
 
 ## D3 验收矩阵
 
@@ -175,3 +196,5 @@ M0若验证失败，暂停运行时及下游，保留可独立推进的领域/�
 静默验证：`npm run build`、`npm run test:unit`、`npm run check:portable-paths`、`npm run check:ui-standards`、`npm run check:bundle-boundaries`、`cargo test --manifest-path src-tauri/Cargo.toml`；新增host测试和打包检查纳入对应任务。源码改动前检查tauri dev，手工UI验收提前告知并集中执行，使用 `npm run dev:tauri:manual`。
 
 按仓库publish-flow执行完整验证和主agent Standards/Spec自查；未经用户明确许可不启动review子agent。实现后只关闭对应子Issue，M2～M4未完成时父Issue保持开放。
+
+以上命令是按影响范围选用的验证集合，不要求每次编辑全部执行。开发中先跑针对性测试，工作包收口集中验证；已通过且相关输入未变化的结果可复用。文档改动只检查文档，Rust 局部改动不自动触发前端全量；跨端契约、共享构建或依赖变化再扩大范围。重复或扩大验证须有新改动、失败或未解决风险作为理由。Issue 发布前完整核对适用验收与证据，仍执行原发布门禁。
