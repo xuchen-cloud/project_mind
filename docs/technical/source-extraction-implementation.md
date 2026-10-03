@@ -175,4 +175,14 @@ GUI 按真实回执显示已登记版本或 noChange，打开回执对应的 Ver
 
 主 agent Standards / Spec 自查修复 noChange 的路径占用/版本上限边界，并检查未知历史不补 hash、无条件 GUI 旁路移除、回执/日志事务、生成绑定和释放锁后通知。Rust 全目标库 394 passed、20 默认忽略；新增 GUI 内核 7 个父用例及 binding 用例覆盖 SQL/outbox 回滚、Archive、候选源变化、未知历史、旧版本/实际字节 CAS、原回执重放、双连接和 6 次 Linux SIGKILL 恢复。source 显式实际进程专项 110 passed，Record 100 passed；前端相关 4 文件 65 passed，完整 141 文件 964 passed/1 个已有 Project 驻留用例 15s 超时。构建、路径、UI standards、bundle 检查通过，主脚本 189 KiB/250 KiB；前端完整门槛仍未通过，不能进入发布流程。
 
-本阶段只补 GUI CAS/receipt/显式登记接入，预检 hash 与 File 准备仍持有旧 GUI DB Mutex，短锁外层尚未完成；上传/run 绑定、精确 UTF-8 patch、历史恢复交互、恢复诊断与真实平台故障验收仍待后续工作包。未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包。#100/#114 保持 OPEN，无阶段发布 PR、main 合并或 Issue 关闭；source.search/read 与 File capability 仍 implemented:false，普通 source worker 未分发，内部惰性表不称为已发布 Schema 29。
+本阶段只补 GUI CAS/receipt/显式登记接入，预检 hash 与 File 准备仍持有旧 GUI DB Mutex，短锁外层尚未完成；上传与 run 绑定、精确 UTF-8 patch、历史恢复交互、恢复诊断与真实平台故障验收仍待后续工作包。未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包。#100/#114 保持 OPEN，无阶段发布 PR、main 合并或 Issue 关闭；source.search/read 与 File capability 仍 implemented:false，普通 source worker 未分发，内部惰性表不称为已发布 Schema 29。
+
+### GUI File 预检释放存储锁（2026-10-03 后续阶段）
+
+FileVersionService 将 GUI 预检分为权威 metadata 快照、存储锁外流式 SHA-256、返回前复核三个阶段。AppState 只在读取快照时持有当前 Workspace 与数据库 Mutex；托管路径检查、文件身份核验与原件及候选文件的 hash 均在锁外执行。预检不取得 Project 或 File 文件锁，避免持有文件锁时重新进入数据库造成锁顺序反转。Tauri 预检通过后台任务执行，任务排队期间切换工作区也必须核对最初捕获的 binding。
+
+两次快照核对真实 File ID、Project、head 路径、版本、Archive 与登记 hash；物理快照核对文件 stamp 和系统身份，拒绝哈希后的编辑、同字节外来替换、托管父目录换绑为符号链接。原生改名返回 RevisionConflict，原生删除明确返回 NotFound；同路径新 generation 返回 WorkspaceChanged。未知历史的预检不补登记 hash、不创建版本、不修改业务资料。旧的直接数据库预检 helper 仅用于内核测试，生产 GUI 使用共享服务。
+
+主 agent Standards 与 Spec 自查及 8 个真实 SQLite 与文件系统用例通过，覆盖哈希暂停时 Project 归档仍可完成、重开、原生改名与删除、原件变化、候选变化、同字节外来物理文件、未知旧版本与父目录换绑；删除错误分类和父目录换绑均先复现失败再修复。Rust 全目标库 402 passed、20 默认忽略；source 显式实际进程专项 110 passed，Record 100 passed。前端全量在不并行编译的条件下 141 文件、965 tests 全部通过，未修改驻留逻辑或放宽原 15s 超时；单独驻留用例约 9.5s，通过结果说明先前超时不能作为已定位产品缺陷。构建、路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB；修正文档“上传与 run”的措辞，避免把斜线分词误识别为机器绝对路径。
+
+本阶段仅完成预检的短锁与后台执行。File 提交内核的复制、hash、journal 与恢复仍沿旧 GUI 存储锁，整个 VersionCommitService 的锁拆分尚未交付；上传、精确 UTF-8 patch、历史恢复交互、产品恢复诊断及真实平台故障验收仍待后续工作包。公开 source.search/read 与 File capabilities 保持 implemented:false，普通 source worker 未启用分发，内部惰性表不是已发布 Schema 29。未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包；#100 与 #114 仍 OPEN，无阶段发布 PR、main 合并或 Issue 关闭。

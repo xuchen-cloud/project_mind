@@ -36,7 +36,7 @@ pub(crate) struct FileVersionUpdate {
 }
 /// Trusted local GUI intent. Physical bytes are frozen by hash at preflight;
 /// unknown/externally changed bytes require an explicit registration decision.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GuiFileVersionPrepare {
     pub document_id: i64,
@@ -44,6 +44,14 @@ pub(crate) struct GuiFileVersionPrepare {
     pub managed_path: String,
     pub expected_version_number: u32,
     pub source_path: Option<String>,
+}
+/// Authoritative metadata only; capturing this snapshot does not read bytes or
+/// acquire filesystem leases. The service rechecks it after hashing outside DB.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GuiFileVersionMetadata {
+    pub input: GuiFileVersionPrepare,
+    pub workspace_root: PathBuf,
+    pub registered_content_hash: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -94,7 +102,7 @@ pub(super) fn valid_hash(hash: &str) -> bool {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct FileIdentity {
+pub(crate) struct FileIdentity {
     device: u64,
     file: u64,
 }
@@ -130,7 +138,7 @@ pub(super) fn identity(file: &File) -> Result<FileIdentity> {
 pub(super) fn identity(_file: &File) -> Result<FileIdentity> {
     bail!("File identity is unsupported")
 }
-pub(super) fn path_identity(path: &Path) -> Result<FileIdentity> {
+pub(crate) fn path_identity(path: &Path) -> Result<FileIdentity> {
     regular(path)?;
     identity(
         &crate::source_file_snapshot::open_regular(path).map_err(|error| anyhow!(error.message))?,
@@ -224,7 +232,7 @@ pub(super) fn regular(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn checksum(path: &Path) -> Result<String> {
+pub(crate) fn checksum(path: &Path) -> Result<String> {
     regular(path)?;
     let mut input =
         crate::source_file_snapshot::open_regular(path).map_err(|error| anyhow!(error.message))?;
@@ -364,7 +372,7 @@ pub(super) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
 pub(super) fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
     bail!("Exclusive File moves are unsupported")
 }
-pub(super) fn relative(root: &Path, path: &Path) -> Result<String> {
+pub(crate) fn relative(root: &Path, path: &Path) -> Result<String> {
     let relative = path.strip_prefix(root)?;
     if relative.as_os_str().is_empty()
         || relative
@@ -719,16 +727,19 @@ impl Database {
             params![receipt.document_id, receipt.version_number], |row| row.get(0)).optional()?;
         Ok(stored.map(|path| self.decode_path_ref_to_string(&path)))
     }
-    pub(crate) fn file_version_prepare_gui(
+    pub(crate) fn file_version_gui_metadata(
         &self,
         input: &GuiFileVersionPrepare,
-    ) -> AgentResult<GuiFileVersionIntent> {
+    ) -> AgentResult<GuiFileVersionMetadata> {
         (|| -> Result<_> {
             if input.document_id <= 0 || input.project_id <= 0 || input.expected_version_number == 0 {
                 return Err(conflict(ErrorCode::InvalidArgument, "Invalid File Version target"));
             }
-            let (_project, _file) = self.file_native_write_locks(input.document_id)?;
-            let current = self.document_record(input.document_id)?;
+            let current = self.document_record(input.document_id).map_err(|error| {
+                if matches!(error.downcast_ref::<rusqlite::Error>(), Some(rusqlite::Error::QueryReturnedNoRows)) {
+                    conflict(ErrorCode::NotFound, "File no longer exists")
+                } else { error }
+            })?;
             if current.project_id != input.project_id || current.managed_path != input.managed_path
                 || current.current_version_number != i64::from(input.expected_version_number)
                 || current.storage_mode == "managed_note_image" {
@@ -737,21 +748,34 @@ impl Database {
             if self.project_record(current.project_id)?.is_archived {
                 return Err(conflict(ErrorCode::ScopeDenied, "Archived Project is outside the active write scope"));
             }
-            relative(&self.workspace_root, Path::new(&current.managed_path))?;
             crate::source_search_index::SourceIndex::prepare(&self.conn).map_err(CommitFailure)?;
             let known = self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2", params![current.id, current.current_version_number], |row| row.get(0)).optional()?;
-            let expected_content_hash = checksum(Path::new(&current.managed_path))?;
-            let new_content_hash = match &input.source_path {
-                Some(path) => checksum(Path::new(path))?,
-                None => expected_content_hash.clone(),
-            };
-            Ok(GuiFileVersionIntent {
-                document_id: current.id, project_id: current.project_id,
-                managed_path: current.managed_path, expected_version_number: input.expected_version_number,
-                expected_content_hash, registered_content_hash: known, new_content_hash,
-                source_path: input.source_path.clone(),
+            Ok(GuiFileVersionMetadata {
+                input: input.clone(),
+                workspace_root: self.workspace_root.clone(),
+                registered_content_hash: known,
             })
         })().map_err(agent_failure)
+    }
+    /// Kernel fixtures need frozen intents without a desktop host. Production
+    /// preflight goes through FileVersionService, which releases host locks.
+    #[cfg(test)]
+    pub(crate) fn file_version_prepare_gui(
+        &self,
+        input: &GuiFileVersionPrepare,
+    ) -> AgentResult<GuiFileVersionIntent> {
+        let metadata = self.file_version_gui_metadata(input)?;
+        relative(&metadata.workspace_root, Path::new(&input.managed_path)).map_err(agent_failure)?;
+        let expected_content_hash = checksum(Path::new(&input.managed_path)).map_err(agent_failure)?;
+        let new_content_hash = input.source_path.as_deref()
+            .map(|path| checksum(Path::new(path)).map_err(agent_failure))
+            .transpose()?.unwrap_or_else(|| expected_content_hash.clone());
+        Ok(GuiFileVersionIntent {
+            document_id: input.document_id, project_id: input.project_id,
+            managed_path: input.managed_path.clone(), expected_version_number: input.expected_version_number,
+            expected_content_hash, registered_content_hash: metadata.registered_content_hash,
+            new_content_hash, source_path: input.source_path.clone(),
+        })
     }
     pub(crate) fn file_version_commit_gui(
         &mut self,

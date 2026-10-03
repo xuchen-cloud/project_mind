@@ -6,10 +6,11 @@ use crate::{
     },
     committed_changes::CommittedChangePublisher,
     db::file_versions::{CommittedVersion, GuiFileVersionIntent, GuiFileVersionPrepare},
+    file_version_service::{FileVersionService, FilesystemFileReader},
     AppState,
 };
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,29 +42,37 @@ fn validate_binding(expected: &WorkspaceBinding, current: &WorkspaceBinding) -> 
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn document_version_prepare(
+pub(crate) async fn document_version_prepare(
     state: State<'_, AppState>,
     input: GuiFileVersionPrepare,
     request_id: String,
-) -> ApiResponse<PreparedFileVersion> {
-    let result = (|| {
+) -> Result<ApiResponse<PreparedFileVersion>, String> {
+    let result = async {
         if request_id.is_empty() || request_id.len() > 128 {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Invalid File preflight identity",
             ));
         }
-        let current = crate::lock_mutex(&state.current_workspace);
-        let runtime = current.as_ref().ok_or_else(|| {
+        let runtime = state.current_workspace().map_err(|_| {
             AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
         })?;
-        let db = crate::lock_mutex(&runtime.db);
-        Ok(PreparedFileVersion {
-            binding: runtime.agent_binding.clone(),
-            intent: db.file_version_prepare_gui(&input)?,
+        let binding = runtime.agent_binding.clone();
+        let app_handle = state.app_handle.clone();
+        // Hashing must neither block the command thread nor retain the DB or
+        // Workspace selection guard. The service resolves the frozen binding
+        // again inside this task, including switches while the task was queued.
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app_handle.state::<AppState>();
+            let intent = FileVersionService::new(&*state, &FilesystemFileReader)
+                .prepare_gui(&binding, &input)?;
+            Ok(PreparedFileVersion { binding, intent })
         })
-    })();
-    ApiResponse::from_result(request_id, result)
+        .await
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "File preflight task failed"))?
+    }
+    .await;
+    Ok(ApiResponse::from_result(request_id, result))
 }
 #[tauri::command]
 pub(crate) fn document_add_version(

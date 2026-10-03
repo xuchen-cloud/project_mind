@@ -17,6 +17,7 @@ mod utility_process;
 mod record_document_service;
 mod record_document_commands;
 mod file_document_commands;
+mod file_version_service;
 mod record_editor_coordination;
 mod record_export;
 mod secret_crypto;
