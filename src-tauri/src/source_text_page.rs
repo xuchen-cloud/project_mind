@@ -22,9 +22,9 @@ pub(crate) struct TextSpan {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ReadCursor {
     object_key: String,
-    revision: String,
+    pub(crate) revision: String,
     selection_hash: String,
-    offset: usize,
+    pub(crate) offset: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     file_version: Option<u32>,
 }
@@ -103,6 +103,18 @@ pub(crate) fn paginate(
     cursor: Option<ReadCursor>,
     extraction: Option<FileExtractionStatus>,
 ) -> AgentResult<SourceReadPage> {
+    paginate_window(input, source, text, spans, cursor, extraction, 0, false)
+}
+pub(crate) fn paginate_window(
+    input: &SourceReadInput,
+    source: SourceRef,
+    text: &str,
+    spans: &[TextSpan],
+    cursor: Option<ReadCursor>,
+    extraction: Option<FileExtractionStatus>,
+    base_offset: usize,
+    has_more: bool,
+) -> AgentResult<SourceReadPage> {
     let budget = input.budget_chars.unwrap_or(4000).min(12000);
     if budget == 0 {
         return Err(invalid("Source read budget must be positive"));
@@ -130,7 +142,10 @@ pub(crate) fn paginate(
                 "Source changed; restart reading its current reference",
             ));
         }
-        cursor.offset
+        cursor
+            .offset
+            .checked_sub(base_offset)
+            .ok_or_else(|| invalid("Source cursor is outside the selected text"))?
     } else {
         0
     };
@@ -165,7 +180,7 @@ pub(crate) fn paginate(
                 })
             })
             .collect();
-        let next_cursor = if end < text.len() {
+        let next_cursor = if end < text.len() || has_more {
             Some(
                 URL_SAFE_NO_PAD.encode(
                     serde_json::to_vec(&ReadCursor {
@@ -173,7 +188,7 @@ pub(crate) fn paginate(
                         revision: source.revision.clone(),
                         file_version: source.file_version,
                         selection_hash: selection_hash.clone(),
-                        offset: end,
+                        offset: base_offset + end,
                     })
                     .map_err(|_| invalid("Invalid source cursor"))?,
                 ),

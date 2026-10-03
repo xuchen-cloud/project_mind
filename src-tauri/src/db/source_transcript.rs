@@ -14,12 +14,63 @@ fn io_error(_: rusqlite::Error) -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Cannot read original Transcript")
 }
 impl Database {
+    // Metadata-only semantic fingerprint: never allocate the full Transcript.
     pub(crate) fn source_transcript_snapshot(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
         input: &SourceReadTarget,
     ) -> AgentResult<NativeSourceSnapshot> {
+        self.source_transcript_prefix(request, binding, input, 0, 0)
+            .map(|(snapshot, _)| snapshot)
+    }
+    pub(crate) fn source_transcript_prefix(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &SourceReadTarget,
+        max_chars: usize,
+        max_segments: usize,
+    ) -> AgentResult<(NativeSourceSnapshot, bool)> {
+        self.source_transcript_scan(request, binding, input, max_chars, max_segments, None)
+            .map(|(snapshot, complete, _, _)| (snapshot, complete))
+    }
+    pub(crate) fn source_transcript_window(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &crate::source_service::SourceReadInput,
+        offset: usize,
+    ) -> AgentResult<(
+        NativeSourceSnapshot,
+        String,
+        Vec<crate::source_text_page::TextSpan>,
+        bool,
+    )> {
+        let (snapshot, complete, text, spans) = self.source_transcript_scan(
+            request,
+            binding,
+            &input.source,
+            0,
+            0,
+            Some((input, offset)),
+        )?;
+        Ok((snapshot, text, spans, !complete))
+    }
+    fn source_transcript_scan(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &SourceReadTarget,
+        max_chars: usize,
+        max_segments: usize,
+        window: Option<(&crate::source_service::SourceReadInput, usize)>,
+    ) -> AgentResult<(
+        NativeSourceSnapshot,
+        bool,
+        String,
+        Vec<crate::source_text_page::TextSpan>,
+    )> {
         let object = self.source_read_object(request, binding, &input.object)?;
         if object.kind != ObjectKind::Transcript
             || input.record_version.is_some()
@@ -31,43 +82,42 @@ impl Database {
             ));
         }
         let title: String = self.conn.query_row("SELECT COALESCE(n.title,w.title,'Voice') FROM voice_records v LEFT JOIN notes n ON n.id=v.project_note_id LEFT JOIN workspace_notes w ON w.id=v.workspace_note_id WHERE v.id=?1", [&object.id], |row| row.get(0)).map_err(io_error)?;
-        // Check aggregate size before allocating rows. This internal snapshot is
-        // bounded; oversize raw transcripts require a future segmented reader,
-        // rather than silently returning a truncated 'complete' source.
-        let (chars, count): (i64,i64) = self.conn.query_row("SELECT COALESCE(SUM(length(t.text)),0),COUNT(*) FROM voice_transcript_segments t JOIN recording_sessions r ON r.id=t.session_id WHERE r.voice_record_id=?1", [&object.id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(io_error)?;
-        if chars > 2 * 1024 * 1024 || count > 10000 {
-            return Err(AgentError::new(
-                ErrorCode::BudgetExceeded,
-                "Transcript exceeds the internal source snapshot budget",
-            ));
-        }
+        let title = format!("{title} · Transcript");
+        let mut digest = Sha256::new();
+        digest.update(b"{\"segments\":[");
         let mut statement = self.conn.prepare("SELECT t.id,t.start_ms,t.end_ms,t.text,t.language,t.created_at FROM voice_transcript_segments t JOIN recording_sessions r ON r.id=t.session_id WHERE r.voice_record_id=?1 ORDER BY t.start_ms,t.id").map_err(io_error)?;
-        let segments = statement
-            .query_map([&object.id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            })
-            .map_err(io_error)?;
+        let mut rows = statement.query([&object.id]).map_err(io_error)?;
         let mut paragraphs = vec![];
         let mut locators = vec![];
-        let mut semantic = vec![];
         let mut updated_at = String::new();
         let mut total_chars = 0usize;
-        for segment in segments {
-            let (id, start, end, text, language, created_at) = segment.map_err(io_error)?;
-            total_chars += text.chars().count();
-            if total_chars > 2 * 1024 * 1024 || paragraphs.len() >= 10000 {
-                return Err(AgentError::new(
-                    ErrorCode::BudgetExceeded,
-                    "Transcript exceeds the internal source snapshot budget",
-                ));
+        let mut complete = true;
+        let mut first = true;
+        let mut window_text = String::new();
+        let mut window_spans = vec![];
+        let mut selected_bytes = 0usize;
+        let mut selected_chars = 0usize;
+        let mut selected_nonempty = false;
+        let mut selected_any = false;
+        let mut window_more = false;
+        let mut invalid_offset = false;
+        while let Some(row) = rows.next().map_err(io_error)? {
+            // The final-segment writer enforces 16 KiB. Check the borrowed
+            // value before copying text from a corrupt or legacy oversized row.
+            if let rusqlite::types::ValueRef::Text(bytes) = row.get_ref(3).map_err(io_error)? {
+                if bytes.len() > 16384 {
+                    return Err(AgentError::new(
+                        ErrorCode::BudgetExceeded,
+                        "Persisted Transcript segment exceeds its byte budget",
+                    ));
+                }
             }
+            let id: String = row.get(0).map_err(io_error)?;
+            let start: i64 = row.get(1).map_err(io_error)?;
+            let end: i64 = row.get(2).map_err(io_error)?;
+            let text: String = row.get(3).map_err(io_error)?;
+            let language: Option<String> = row.get(4).map_err(io_error)?;
+            let created_at: String = row.get(5).map_err(io_error)?;
             let start = u64::try_from(start)
                 .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid Transcript time"))?;
             let end = u64::try_from(end)
@@ -78,19 +128,84 @@ impl Database {
                     "Invalid Transcript time range",
                 ));
             }
-            semantic.push(serde_json::json!({"id":id,"startMs":start,"endMs":end,"text":text,"language":language}));
-            paragraphs.push(text);
-            locators.push(SourceLocator::Time {
-                start_ms: start,
-                end_ms: end,
-            });
+            if !first {
+                digest.update(b",");
+            }
+            first = false;
+            digest.update(serde_json::json!({"id":id,"startMs":start,"endMs":end,"text":text,"language":language}).to_string().as_bytes());
+            if let Some((read, offset)) = window {
+                let selected = match read.selection.as_ref().and_then(|s| s.locator.as_ref()) {
+                    Some(SourceLocator::Time { start_ms, end_ms }) => {
+                        end > *start_ms && start < *end_ms
+                    }
+                    _ => true,
+                };
+                if selected {
+                    selected_any = true;
+                    let separator = if selected_nonempty { "\n\n" } else { "" };
+                    for (part, evidence) in [(separator, false), (text.as_str(), true)] {
+                        let part_end = selected_bytes + part.len();
+                        if offset < part_end && selected_chars < 12000 {
+                            let local = offset.saturating_sub(selected_bytes);
+                            if !part.is_char_boundary(local) {
+                                invalid_offset = true;
+                                selected_bytes = part_end;
+                                continue;
+                            }
+                            let remaining = 12000 - selected_chars;
+                            let tail = &part[local..];
+                            let bytes = tail
+                                .char_indices()
+                                .nth(remaining)
+                                .map(|(byte, _)| byte)
+                                .unwrap_or(tail.len());
+                            let span_start = selected_chars;
+                            window_text.push_str(&tail[..bytes]);
+                            selected_chars += tail[..bytes].chars().count();
+                            if evidence && selected_chars > span_start {
+                                window_spans.push(crate::source_text_page::TextSpan {
+                                    start: span_start,
+                                    end: selected_chars,
+                                    block_id: None,
+                                    locator: SourceLocator::Time {
+                                        start_ms: start,
+                                        end_ms: end,
+                                    },
+                                });
+                            }
+                            if local + bytes < part.len() {
+                                window_more = true;
+                            }
+                        } else if offset < part_end {
+                            window_more = true;
+                        }
+                        selected_bytes = part_end;
+                    }
+                    selected_nonempty = selected_nonempty || !text.is_empty();
+                }
+            }
+            let chars = text.chars().count();
+            if complete && total_chars < max_chars && paragraphs.len() < max_segments {
+                let allowed = chars.min(max_chars - total_chars);
+                total_chars += allowed;
+                paragraphs.push(text.chars().take(allowed).collect());
+                locators.push(SourceLocator::Time {
+                    start_ms: start,
+                    end_ms: end,
+                });
+                complete = allowed == chars;
+            } else {
+                complete = false;
+            }
             updated_at = updated_at.max(created_at);
         }
-        let title = format!("{title} · Transcript");
-        let revision = format!(
-            "sha256:{:x}",
-            Sha256::digest(serde_json::json!({"title":title,"segments":semantic}).to_string())
+        digest.update(b"],\"title\":");
+        digest.update(
+            serde_json::to_vec(&title)
+                .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot hash Transcript"))?,
         );
+        digest.update(b"}");
+        let revision = format!("sha256:{:x}", digest.finalize());
         if input
             .revision
             .as_ref()
@@ -101,14 +216,42 @@ impl Database {
                 "Original Transcript changed",
             ));
         }
-        Ok(NativeSourceSnapshot {
-            object,
-            revision,
-            title,
-            paragraphs,
-            locators,
-            updated_at,
-        })
+        if let Some((read, _)) = window {
+            if crate::source_text_page::decode_cursor(read)?
+                .is_some_and(|cursor| cursor.revision != revision)
+            {
+                return Err(AgentError::new(
+                    ErrorCode::SourceChanged,
+                    "Original Transcript changed",
+                ));
+            }
+        }
+        if let Some((read, offset)) = window {
+            if invalid_offset
+                || offset > selected_bytes
+                || (read.cursor.is_some() && offset == selected_bytes)
+                || (read.selection.is_some() && !selected_any)
+            {
+                return Err(AgentError::new(
+                    ErrorCode::InvalidArgument,
+                    "Source cursor or range is outside the selected text",
+                ));
+            }
+            complete = !window_more;
+        }
+        Ok((
+            NativeSourceSnapshot {
+                object,
+                revision,
+                title,
+                paragraphs,
+                locators,
+                updated_at,
+            },
+            complete,
+            window_text,
+            window_spans,
+        ))
     }
     pub(super) fn source_prune_transcript_cache(
         &self,
@@ -575,28 +718,209 @@ mod tests {
             ErrorCode::SourceChanged
         );
     }
+    #[tokio::test]
+    async fn source_transcript_over_ten_thousand_segments_are_readable_and_partial_index_searchable(
+    ) {
+        let (_root, store, request, mut input, session, _) = setup(false);
+        store.db.lock().unwrap().conn.execute("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<10001) INSERT INTO voice_transcript_segments(id,session_id,start_ms,end_ms,text,created_at) SELECT 'budget-'||i,?1,i,i+1,'检索字','2026-10-01T00:00:00Z' FROM n", [&session]).unwrap();
+        let service = SourceService::new(&store);
+        let first = service.read(&request, &input).unwrap();
+        assert!(!first.complete);
+        input.view = SourceReadView::Range;
+        input.selection = Some(SourceSelection {
+            block_id: None,
+            locator: Some(SourceLocator::Time {
+                start_ms: 10000,
+                end_ms: 10002,
+            }),
+        });
+        assert_eq!(
+            service.read(&request, &input).unwrap().text,
+            "检索字\n\n检索字"
+        );
+        service
+            .index_native(&request, &input.source, SourceIndexBudget::default())
+            .unwrap();
+        let query = SourceSearchInput {
+            scope: Scope::Workspace,
+            query: "检索字".into(),
+            kinds: vec![ObjectKind::Transcript],
+            selected: vec![],
+            include_history: false,
+            limit: None,
+            budget_chars: None,
+        };
+        let found = service.search(&request, &query).await.unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert!(!found.items[0].coverage.complete);
+    }
     #[test]
-    fn source_transcript_oversize_snapshot_is_rejected_without_fake_complete_coverage() {
-        let (_root, store, request, input, session, _) = setup(false);
-        store.db.lock().unwrap().conn.execute("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<10001) INSERT INTO voice_transcript_segments(id,session_id,start_ms,end_ms,text,created_at) SELECT 'budget-'||i,?1,i,i+1,'字','2026-10-01T00:00:00Z' FROM n", [&session]).unwrap();
+    fn source_transcript_over_two_mebi_chars_reads_tail_without_loading_all_text() {
+        let (_root, store, request, mut input, session, _) = setup(false);
+        let text = "🙂字".repeat(2048);
+        let db = store.db.lock().unwrap();
+        db.conn.execute("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<513) INSERT INTO voice_transcript_segments(id,session_id,start_ms,end_ms,text,created_at) SELECT 'large-'||i,?1,i*10000,i*10000+1000,?2,'2026-10-01T00:00:00Z' FROM n", rusqlite::params![session, text]).unwrap();
+        drop(db);
+        let service = SourceService::new(&store);
+        assert!(service
+            .read(&request, &input)
+            .unwrap()
+            .next_cursor
+            .is_some());
+        input.view = SourceReadView::Range;
+        input.selection = Some(SourceSelection {
+            block_id: None,
+            locator: Some(SourceLocator::Time {
+                start_ms: 5130000,
+                end_ms: 5131000,
+            }),
+        });
+        input.budget_chars = Some(12000);
+        let page = service.read(&request, &input).unwrap();
+        assert_eq!(page.text, text);
+        assert!(page.range_complete);
+        service
+            .index_native(&request, &input.source, SourceIndexBudget::default())
+            .unwrap();
+        let (snapshot, complete) = store
+            .db
+            .lock()
+            .unwrap()
+            .source_transcript_prefix(
+                &request,
+                &store.binding,
+                &input.source,
+                2 * 1024 * 1024,
+                10000,
+            )
+            .unwrap();
+        assert!(!complete);
+        assert_eq!(
+            snapshot
+                .paragraphs
+                .iter()
+                .map(|p| p.chars().count())
+                .sum::<usize>(),
+            2 * 1024 * 1024
+        );
+    }
+    #[test]
+    fn source_transcript_range_pages_stitch_unicode_separators_and_keep_original_times() {
+        let (_root, store, request, mut input, session, _) = setup(false);
+        let db = store.db.lock().unwrap();
+        db.voice_transcript_append_final(
+            &session,
+            "range-a",
+            1000,
+            9000,
+            &"🙂中文\"\\".repeat(500),
+            None,
+        )
+        .unwrap();
+        db.voice_transcript_append_final(
+            &session,
+            "range-b",
+            8000,
+            10000,
+            &"第二原段🙂".repeat(600),
+            None,
+        )
+        .unwrap();
+        // Empty legacy finals keep the established double-newline semantics.
+        db.conn.execute("INSERT INTO voice_transcript_segments(id,session_id,start_ms,end_ms,text,created_at) VALUES ('empty',?1,9500,9600,'','2026-10-01')", [&session]).unwrap();
+        let expected = format!(
+            "{}\n\n{}\n\n",
+            "🙂中文\"\\".repeat(500),
+            "第二原段🙂".repeat(600)
+        );
+        drop(db);
+        input.view = SourceReadView::Range;
+        input.selection = Some(SourceSelection {
+            block_id: None,
+            locator: Some(SourceLocator::Time {
+                start_ms: 2000,
+                end_ms: 9800,
+            }),
+        });
+        input.budget_chars = Some(1400);
+        let service = SourceService::new(&store);
+        let mut collected = String::new();
+        loop {
+            let page = service.read(&request, &input).unwrap();
+            assert!(serde_json::to_string(&page).unwrap().chars().count() <= 1400);
+            assert!(!page.complete);
+            for span in &page.spans {
+                assert!(span.end <= page.text.chars().count());
+                assert!(matches!(
+                    span.locator,
+                    SourceLocator::Time {
+                        start_ms: 1000,
+                        end_ms: 9000
+                    } | SourceLocator::Time {
+                        start_ms: 8000,
+                        end_ms: 10000
+                    }
+                ));
+            }
+            collected.push_str(&page.text);
+            if page.next_cursor.is_none() {
+                assert!(page.range_complete);
+                break;
+            }
+            input.cursor = page.next_cursor;
+        }
+        assert_eq!(collected, expected);
+    }
+    #[test]
+    fn source_transcript_stream_hash_matches_original_json_and_old_cursor_rejects_mutation() {
+        use sha2::{Digest, Sha256};
+        let (_root, store, request, mut input, session, _) = setup(false);
+        let expected = format!("sha256:{:x}", Sha256::digest(serde_json::json!({"title":"会议原话 · Transcript","segments":[{"id":format!("{session}:first"),"startMs":100,"endMs":500,"text":"真实原话🙂","language":"zh"}]}).to_string()));
         let service = SourceService::new(&store);
         assert_eq!(
-            service.read(&request, &input).unwrap_err().code,
-            ErrorCode::BudgetExceeded
+            service.read(&request, &input).unwrap().source_ref.revision,
+            expected
         );
+        store
+            .db
+            .lock()
+            .unwrap()
+            .voice_transcript_append_final(
+                &session,
+                "long",
+                1000,
+                9000,
+                &"🙂中文字".repeat(1000),
+                None,
+            )
+            .unwrap();
+        input.budget_chars = Some(1400);
+        input.cursor = service.read(&request, &input).unwrap().next_cursor;
+        store
+            .db
+            .lock()
+            .unwrap()
+            .conn
+            .execute(
+                "UPDATE voice_transcript_segments SET text='修订原话' WHERE provider_key='first'",
+                [],
+            )
+            .unwrap();
         assert_eq!(
-            service
-                .index_native(&request, &input.source, SourceIndexBudget::default())
+            service.read(&request, &input).unwrap_err().code,
+            ErrorCode::SourceChanged
+        );
+    }
+    #[test]
+    fn source_transcript_abnormal_persisted_segment_rejected_before_owned_allocation() {
+        let (_root, store, request, input, _, _) = setup(false);
+        store.db.lock().unwrap().conn.execute("UPDATE voice_transcript_segments SET text=replace(hex(zeroblob(20000)), '00', '字') WHERE provider_key='first'", []).unwrap();
+        assert_eq!(
+            SourceService::new(&store)
+                .read(&request, &input)
                 .unwrap_err()
                 .code,
             ErrorCode::BudgetExceeded
-        );
-        assert_eq!(
-            service
-                .cache_capacity(&request, &Scope::Workspace)
-                .unwrap()
-                .snapshots,
-            0
         );
     }
     #[test]

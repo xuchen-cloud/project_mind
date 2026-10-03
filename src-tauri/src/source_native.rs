@@ -232,6 +232,22 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 "Choose a Project, Todo or Transcript native source",
             ));
         }
+        if source.object.kind == crate::agent::models::ObjectKind::Transcript {
+            let (snapshot, complete) = self.store.with_current(|binding, db| {
+                db.source_transcript_prefix(
+                    request,
+                    binding,
+                    source,
+                    budget.max_chars.min(2 * 1024 * 1024),
+                    budget.max_chunks.min(10000),
+                )
+            })?;
+            let mut cached = index_snapshot(snapshot, budget)?;
+            cached.coverage.complete &= complete;
+            return self.store.with_current(|binding, db| {
+                db.source_index_native(request, binding, source, &cached)
+            });
+        }
         let snapshot = self
             .store
             .with_current(|binding, db| db.source_native_snapshot(request, binding, source))?;
@@ -254,6 +270,34 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             return Err(invalid(
                 "Choose a Project, Todo or Transcript native source",
             ));
+        }
+        if input.source.object.kind == crate::agent::models::ObjectKind::Transcript {
+            let cursor = crate::source_text_page::decode_cursor(input)?;
+            let offset = cursor.as_ref().map(|cursor| cursor.offset).unwrap_or(0);
+            let (snapshot, text, spans, more) = self.store.with_current(|binding, db| {
+                db.source_transcript_window(request, binding, input, offset)
+            })?;
+            let page = crate::source_text_page::paginate_window(
+                input,
+                SourceRef {
+                    object: snapshot.object,
+                    revision: snapshot.revision.clone(),
+                    title: snapshot.title,
+                    file_version: None,
+                    record_version: None,
+                    block_id: None,
+                    locator: None,
+                    excerpt: String::new(),
+                },
+                &text,
+                &spans,
+                cursor,
+                None,
+                offset,
+                more,
+            )?;
+            self.verify_native(request, &input.source, &snapshot.revision)?;
+            return Ok(page);
         }
         let snapshot = self.store.with_current(|binding, db| {
             db.source_native_snapshot(request, binding, &input.source)

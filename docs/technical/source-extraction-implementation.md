@@ -267,3 +267,15 @@ P1 不含历史版本 GUI 比较/恢复交互、正式 run/connection 接入或�
 共用消费由 db/source_index_queue.rs 的持久水位、合并入队、lease 和 backfill，经 SourceService::index_claimed 的六类分派进入现有索引；db/source_registry.sql 的同事务触发器保存 tombstone、取消删除任务并沿 derived_from 失效，source_dependency_acknowledge 要求真实消费者发布事务及水位。source_queue_cursor_and_work_roll_back_together_and_expired_logs_require_backfill、source_registry_storage_failure_rolls_back_business_and_outbox、source_registry_invalidates_transitive_dependencies_without_rewriting_evidence 等测试覆盖闭环。旧 Record helper 不作为生产旁路：lib.rs 的旧写入命令已统一 reject_legacy_record_write。
 
 复用 P1 刚通过的 Rust 全目标结果及 86b7859 的 source 显式进程 112 passed、Record 100 passed；这些 source/registry/队列实现与固定 worker 资源未变化，不另跑相同检查。P2 收口为证据核对，无代码重写。大 Transcript 读取进入 P3；正式助手调度和真实知识消费者仍分别由 P4/P5 接入，#100 继续 OPEN。
+
+### P3：大 Transcript 有界窗口读取（2026-10-03）
+
+原始 final segments 的读取不再因整份转写超过 2 Mi Unicode 字符或 10000 段而直接拒绝。数据库逐段扫描，以流式 SHA-256 保持与原先规范 JSON 相同的语义修订；Rust 不再持有全部段或整份正文。每条持久段在复制为 String 前按既有业务写入的 16384-byte 上限核验，异常时间仍拒绝作为证据。
+
+Transcript 读取只保留最多 12000 Unicode 字符的候选窗口，复用共享分页器的完整序列化预算、SourceRef 和 spans；游标仍绑定对象、修订、选择范围及全局 UTF-8 字节位置。时间范围保留真实相交段及时间包络，跨页精确保留 Unicode、段落分隔与原始文本。最后一页才标读取完成；数据缩短等来源变化优先报 SourceChanged，不能把旧游标当作当前位置。返回前继续核对真实归属、权限、Archive、排除、Workspace generation 与最新修订。
+
+索引仍遵守既有 2 Mi 字符/10000 chunks 上限，允许末段在字符预算内截断；超出索引覆盖范围明确 partial，未覆盖尾部可以按原文窗口/时间范围继续读取。索引和搜索的 freshness 使用只保留 metadata 的语义 fingerprint，不重新装载整份转写。Record/File/QuickNote 的分页输出契约未变，没有扩大发布 capability 或新增正文/版本存储。
+
+性能边界：内存有界不等于查询成本恒定。当前每次读取仍流式核算整份 Transcript 的语义 hash，返回前再次核对；时间随总段数/字节数增长，SQLite 排序资源沿用现有数据库机制。本包不新增预计算 hash 表或缓存框架，不把这一阶段称为常数时间随机读取。
+
+验证：Transcript 12 项通过，包含真实数据库的大转写、Unicode/分隔符/时间 overlap、兼容旧 hash、旧游标修订、预算内部分段、partial 搜索与最终 freshness。集中 Rust 全目标库 455 passed/23 默认忽略；仅补默认忽略的 source 实际固定 worker 集成 8 passed，未重复跑整套 source。前端/资源/依赖未改，复用已有有效前端和构建证据。主 agent Standards/Spec 检查完成，修复了段内预算前缀、来源变化错误优先级及窗口满后重复字符计数；未增加与本包无关的 SQLite 内部排序防御。未启动窗口或真实 Provider；公开能力、平台验收与 #100/#114 的开放状态保持原门槛。
