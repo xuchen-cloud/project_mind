@@ -1211,7 +1211,9 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
             host.fence(),
             &|| stage.manifest.alive(self.now()?),
         );
-        let result = result.map(|receipt| {
+        let committed = result.as_ref().is_ok_and(|outcome| outcome.committed);
+        let result = result.map(|outcome| {
+            let receipt = outcome.receipt;
             crash_point(7);
             let version_path = db.file_version_committed_path(&receipt).ok().flatten();
             stage.manifest.retired = true;
@@ -1223,9 +1225,7 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
                 version_path,
             }
         });
-        let changes = if result
-            .as_ref()
-            .is_ok_and(|result| !result.receipt.no_change)
+        let changes = if committed && result.is_ok()
         {
             db.committed_changes_since(host.binding(), &request.request_id, before)
                 .unwrap_or_else(|e| {

@@ -208,6 +208,81 @@ impl BoundFileCommitStore for crate::AppState {
     }
 }
 impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, R> {
+    pub(crate) fn restore_version(
+        &self,
+        request: &crate::agent::access::RequestContext,
+        input: &crate::file_version_restore::FileVersionRestore,
+    ) -> AgentResult<FileVersionCommitResult> {
+        input.validate()?;
+        let host = self.store.gui_commit_host(&request.binding)?;
+        let mut db = host.database()?;
+        if let Some(receipt) = db.file_version_restore_replay(request, host.binding(), input)? {
+            let _permit = host.fence().enter()?;
+            let version_path = db.file_version_committed_path(&receipt).ok().flatten();
+            return Ok(FileVersionCommitResult {
+                receipt,
+                version_path,
+            });
+        }
+        let before = db.committed_change_watermark()?;
+        let mut committed = false;
+        let result = (|| {
+            let source = db.file_version_restore_source(request, host.binding(), input)?;
+            let historical = self.reader.capture(&source.managed_path)?;
+            if historical.hash != source.content_hash {
+                return Err(AgentError::new(
+                    ErrorCode::SourceChanged,
+                    "Historical File bytes do not match their registered version",
+                ));
+            }
+            let outcome = db.file_version_restore_commit_bound(
+                request,
+                host.binding(),
+                input,
+                &source,
+                host.fence(),
+                &|| historical.verify(),
+            )?;
+            committed = outcome.committed;
+            let receipt = outcome.receipt;
+            let version_path = db.file_version_committed_path(&receipt).ok().flatten();
+            Ok(FileVersionCommitResult {
+                receipt,
+                version_path,
+            })
+        })();
+        let result = match result {
+            Err(error) => match db.file_version_restore_replay(request, host.binding(), input)? {
+                Some(receipt) => {
+                    let _permit = host.fence().enter()?;
+                    let version_path = db.file_version_committed_path(&receipt).ok().flatten();
+                    Ok(FileVersionCommitResult {
+                        receipt,
+                        version_path,
+                    })
+                }
+                None => Err(error),
+            },
+            success => success,
+        };
+        let changes = if committed && result.is_ok() {
+            db.committed_changes_since(host.binding(), &request.request_id, before)
+                .unwrap_or_else(|error| {
+                    eprintln!(
+                        "File restore notification capture pending: {}",
+                        error.message
+                    );
+                    None
+                })
+        } else {
+            None
+        };
+        drop(db);
+        if let Some(changes) = changes {
+            self.store.publish_committed(changes);
+        }
+        result
+    }
     pub(crate) fn patch_text(
         &self,
         request: &crate::agent::access::RequestContext,
@@ -247,6 +322,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
             });
         }
         let before = db.committed_change_watermark()?;
+        let mut committed = false;
         let result = (|| {
             let target =
                 db.file_version_registered_target(request, &host.binding, &patch.object)?;
@@ -317,7 +393,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
                 ));
             }
             update.new_content_hash = format!("sha256:{:x}", Sha256::digest(&bytes));
-            let receipt = db.file_version_patch_registered_bound(
+            let outcome = db.file_version_patch_registered_bound(
                 request,
                 &host.binding,
                 &update,
@@ -325,6 +401,8 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
                 &bytes,
                 &host.fence,
             )?;
+            committed = outcome.committed;
+            let receipt = outcome.receipt;
             // A later head is not this operation's result. Preserve the actual
             // receipt if path lookup fails after durable SQL commit.
             let version_path = db.file_version_committed_path(&receipt).ok().flatten();
@@ -366,9 +444,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
             }
             success => success,
         };
-        let changes = if result
-            .as_ref()
-            .is_ok_and(|result| !result.receipt.no_change)
+        let changes = if committed && result.is_ok()
         {
             db.committed_changes_since(&host.binding, &request.request_id, before)
                 .unwrap_or_else(|error| {
@@ -410,14 +486,19 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
             register_current_bytes,
             &host.fence,
         );
-        let changes = match db.committed_changes_since(&host.binding, request_id, before) {
-            Ok(changes) => changes,
-            Err(error) => {
-                eprintln!("File notification capture failed: {}", error.message);
-                None
+        let changes = if result.as_ref().is_ok_and(|outcome| outcome.committed) {
+            match db.committed_changes_since(&host.binding, request_id, before) {
+                Ok(changes) => changes,
+                Err(error) => {
+                    eprintln!("File notification capture failed: {}", error.message);
+                    None
+                }
             }
+        } else {
+            None
         };
-        let result = result.map(|receipt| {
+        let result = result.map(|outcome| {
+            let receipt = outcome.receipt;
             let version_path = db
                 .file_version_committed_path(&receipt)
                 .unwrap_or_else(|error| {
@@ -936,6 +1017,7 @@ mod tests {
             .commit_gui(&binding, "service-save", &intent, false)
             .unwrap();
         assert_eq!(replay.receipt, committed.receipt);
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 2);
         assert_eq!(
             fs::read(replay.version_path.unwrap()).unwrap(),
             b"new version bytes"
@@ -1646,6 +1728,15 @@ mod tests {
     fn file_patch_service_concurrent_same_request_returns_one_version() {
         let (_root, store, binding, input) = fixture();
         let (request, patch) = patch_request(&binding, &input);
+        struct SynchronizedReader(Arc<std::sync::Barrier>);
+        impl FileBytesReader for SynchronizedReader {
+            fn capture(&self, path: &Path) -> AgentResult<FileHashSnapshot> {
+                let snapshot = FilesystemFileReader.capture(path)?;
+                self.0.wait();
+                Ok(snapshot)
+            }
+        }
+        let snapshots = Arc::new(std::sync::Barrier::new(2));
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let mut workers = Vec::new();
         for _ in 0..2 {
@@ -1653,9 +1744,10 @@ mod tests {
             let barrier = barrier.clone();
             let request = request.clone();
             let patch = patch.clone();
+            let snapshots = snapshots.clone();
             workers.push(std::thread::spawn(move || {
                 barrier.wait();
-                FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                FileVersionService::new(store.as_ref(), &SynchronizedReader(snapshots))
                     .patch_text(&request, &patch)
             }));
         }
@@ -1663,6 +1755,7 @@ mod tests {
             assert_eq!(worker.join().unwrap().unwrap().receipt.version_number, 2);
         }
         assert_eq!(version_count(&store, input.document_id), 2);
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -2801,5 +2894,763 @@ mod tests {
             .join(&ticket.staged_content_id)
             .exists());
         assert_eq!(version_count(&store, input.document_id), 1);
+    }
+    fn file_restore_case(
+        name: &str,
+        original: &[u8],
+        new: &[u8],
+    ) -> (
+        tempfile::TempDir,
+        Arc<Store>,
+        WorkspaceBinding,
+        GuiFileVersionPrepare,
+        crate::agent::access::RequestContext,
+        crate::file_version_restore::FileVersionRestore,
+    ) {
+        let (root, store, binding, input) = fixture_bytes(name, original);
+        let (mut request, patch) = patch_request(&binding, &input);
+        request.request_id = "restore-v1".into();
+        request.scope_grant.operations = vec!["file.restore".into()];
+        let selected = root.path().join(name);
+        fs::write(&selected, new).unwrap();
+        let gui = GuiFileVersionPrepare {
+            source_path: Some(selected.to_string_lossy().into()),
+            ..input.clone()
+        };
+        let service = FileVersionService::new(store.as_ref(), &FilesystemFileReader);
+        let intent = service.prepare_gui(&binding, &gui).unwrap();
+        let receipt = service
+            .commit_gui(&binding, "make-v2", &intent, false)
+            .unwrap()
+            .receipt;
+        let versions = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap();
+
+        let restore = crate::file_version_restore::FileVersionRestore {
+            object: patch.object,
+            version_id: versions
+                .iter()
+                .find(|v| v.version_number == 1)
+                .unwrap()
+                .id
+                .to_string(),
+            expected_version_number: 2,
+            expected_content_hash: receipt.content_hash,
+        };
+        (root, store, binding, input, request, restore)
+    }
+    #[test]
+    fn file_restore_binary_history_becomes_new_version_and_preserves_original_paths() {
+        let old = b"PK\x03\x04historical bytes\x00\xff";
+        let new = b"PK\x03\x04latest bytes\x00\xfe";
+        let (_root, store, _binding, input, request, restore) =
+            file_restore_case("report.docx", old, new);
+        let service = FileVersionService::new(store.as_ref(), &FilesystemFileReader);
+        let before = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap();
+        let historical = before
+            .iter()
+            .find(|v| v.version_number == 1)
+            .unwrap()
+            .managed_path
+            .clone();
+        let result = service.restore_version(&request, &restore).unwrap();
+        assert_eq!(result.receipt.version_number, 3);
+        assert!(!result.receipt.no_change);
+        assert_eq!(fs::read(result.version_path.unwrap()).unwrap(), old);
+        assert_eq!(fs::read(&historical).unwrap(), old);
+        let after = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap();
+        assert_eq!(
+            after
+                .iter()
+                .find(|v| v.version_number == 1)
+                .unwrap()
+                .managed_path,
+            historical
+        );
+        assert_eq!(
+            fs::read(
+                &after
+                    .iter()
+                    .find(|v| v.version_number == 2)
+                    .unwrap()
+                    .managed_path
+            )
+            .unwrap(),
+            new
+        );
+        assert!(after.iter().all(|v| v.document_id == input.document_id
+            && Path::new(&v.managed_path).extension().unwrap() == "docx"));
+        assert_eq!(
+            service.restore_version(&request, &restore).unwrap().receipt,
+            result.receipt
+        );
+        assert_eq!(version_count(&store, input.document_id), 3);
+    }
+    #[test]
+    fn file_restore_requires_separate_permission_and_same_bytes_return_no_change() {
+        let (_root, store, binding, input) = fixture();
+        let (mut request, patch) = patch_request(&binding, &input);
+        request.request_id = "restore-current".into();
+        let version = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap()
+            .remove(0);
+        let restore = crate::file_version_restore::FileVersionRestore {
+            object: patch.object,
+            version_id: version.id.to_string(),
+            expected_version_number: 1,
+            expected_content_hash: patch.expected_content_hash,
+        };
+        let service = FileVersionService::new(store.as_ref(), &FilesystemFileReader);
+        assert_eq!(
+            service
+                .restore_version(&request, &restore)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        request.scope_grant.operations = vec!["file.restore".into()];
+        let before = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .committed_change_watermark()
+            .unwrap();
+        let result = service.restore_version(&request, &restore).unwrap();
+        assert!(result.receipt.no_change);
+        assert_eq!(result.receipt.version_number, 1);
+        assert_eq!(
+            service.restore_version(&request, &restore).unwrap().receipt,
+            result.receipt
+        );
+        assert_eq!(
+            store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .committed_change_watermark()
+                .unwrap(),
+            before
+        );
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let altered = crate::file_version_restore::FileVersionRestore {
+            version_id: "999999".into(),
+            ..restore
+        };
+        assert_eq!(
+            service
+                .restore_version(&request, &altered)
+                .unwrap_err()
+                .code,
+            ErrorCode::IdempotencyConflict
+        );
+    }
+    #[test]
+    fn file_restore_rejects_unknown_or_changed_historical_bytes_without_new_versions() {
+        for remove_registration in [false, true] {
+            let (_root, store, _binding, input, request, restore) =
+                file_restore_case("input.txt", b"original", b"new");
+            let versions = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: input.document_id,
+                })
+                .unwrap();
+            let old = versions.iter().find(|v| v.version_number == 1).unwrap();
+            if remove_registration {
+                rusqlite::Connection::open(&store.0.lock().unwrap().paths.db_path)
+                    .unwrap()
+                    .execute(
+                        "DELETE FROM source_file_version_hashes WHERE document_version_id=?1",
+                        [old.id],
+                    )
+                    .unwrap();
+            } else {
+                fs::write(&old.managed_path, b"unknown external historical edit").unwrap();
+            }
+            let before = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .committed_change_watermark()
+                .unwrap();
+            let error = FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                .restore_version(&request, &restore)
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                if remove_registration {
+                    ErrorCode::FileChangedUnregistered
+                } else {
+                    ErrorCode::SourceChanged
+                }
+            );
+            assert_eq!(version_count(&store, input.document_id), 2);
+            assert_eq!(
+                store
+                    .0
+                    .lock()
+                    .unwrap()
+                    .db
+                    .committed_change_watermark()
+                    .unwrap(),
+                before
+            );
+            assert_eq!(
+                fs::read(
+                    &versions
+                        .iter()
+                        .find(|v| v.version_number == 2)
+                        .unwrap()
+                        .managed_path
+                )
+                .unwrap(),
+                b"new"
+            );
+        }
+    }
+
+    #[test]
+    fn file_restore_replays_original_receipt_after_later_version_and_rejects_new_payload() {
+        let (root, store, binding, input, mut request, restore) =
+            file_restore_case("report.txt", b"v1", b"v2");
+        let service = FileVersionService::new(store.as_ref(), &FilesystemFileReader);
+        let restored = service.restore_version(&request, &restore).unwrap().receipt;
+        let versions = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap();
+        let current = versions.iter().find(|v| v.version_number == 3).unwrap();
+        let selected = root.path().join("new.txt");
+        fs::write(&selected, b"v4").unwrap();
+        let gui = GuiFileVersionPrepare {
+            expected_version_number: 4 - 1,
+            managed_path: current.managed_path.clone(),
+            source_path: Some(selected.to_string_lossy().into()),
+            ..input.clone()
+        };
+        let intent = service.prepare_gui(&binding, &gui).unwrap();
+        service
+            .commit_gui(&binding, "make-v4", &intent, false)
+            .unwrap();
+        let replay = service.restore_version(&request, &restore).unwrap();
+        assert_eq!(replay.receipt, restored);
+        assert_eq!(fs::read(replay.version_path.unwrap()).unwrap(), b"v1");
+        let altered = crate::file_version_restore::FileVersionRestore {
+            version_id: versions
+                .iter()
+                .find(|v| v.version_number == 2)
+                .unwrap()
+                .id
+                .to_string(),
+            ..restore.clone()
+        };
+        assert_eq!(
+            service
+                .restore_version(&request, &altered)
+                .unwrap_err()
+                .code,
+            ErrorCode::IdempotencyConflict
+        );
+        request.request_id = "new-stale-restore".into();
+        assert_eq!(
+            service
+                .restore_version(&request, &restore)
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(version_count(&store, input.document_id), 4);
+    }
+    #[test]
+    fn file_restore_concurrent_same_request_creates_one_version_and_notification() {
+        let (_root, store, _binding, input, request, restore) =
+            file_restore_case("input.txt", b"v1", b"v2");
+        struct SynchronizedReader(Arc<std::sync::Barrier>);
+        impl FileBytesReader for SynchronizedReader {
+            fn capture(&self, path: &Path) -> AgentResult<FileHashSnapshot> {
+                let snapshot = FilesystemFileReader.capture(path)?;
+                self.0.wait();
+                Ok(snapshot)
+            }
+        }
+        let snapshots = Arc::new(std::sync::Barrier::new(3));
+        let notifications = store.1.load(std::sync::atomic::Ordering::Relaxed);
+        let barrier = Arc::new(std::sync::Barrier::new(4));
+        let mut workers = Vec::new();
+        for _ in 0..3 {
+            let store = store.clone();
+            let request = request.clone();
+            let restore = restore.clone();
+            let barrier = barrier.clone();
+            let snapshots = snapshots.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                FileVersionService::new(store.as_ref(), &SynchronizedReader(snapshots))
+                    .restore_version(&request, &restore)
+            }));
+        }
+        barrier.wait();
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().unwrap().receipt)
+            .collect();
+        assert!(results.iter().all(|receipt| receipt == &results[0]));
+        assert_eq!(version_count(&store, input.document_id), 3);
+        assert_eq!(
+            store.1.load(std::sync::atomic::Ordering::Relaxed),
+            notifications + 1
+        );
+    }
+    #[test]
+    fn file_restore_rechecks_scope_archive_exclusion_and_binding_after_snapshot() {
+        struct ChangingReader<'a> {
+            store: &'a Store,
+            object: crate::agent::models::ObjectRef,
+            action: u8,
+        }
+        impl FileBytesReader for ChangingReader<'_> {
+            fn capture(&self, path: &Path) -> AgentResult<FileHashSnapshot> {
+                let snapshot = FilesystemFileReader.capture(path)?;
+                let state = self.store.0.lock().unwrap();
+                let connection = rusqlite::Connection::open(&state.paths.db_path).unwrap();
+                match self.action {
+                    0 => {
+                        connection.execute("INSERT OR REPLACE INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)",[self.object.key().unwrap()]).unwrap();
+                    }
+                    1 => {
+                        let crate::agent::models::Scope::Project { project_id } = self.object.scope
+                        else {
+                            panic!()
+                        };
+                        connection
+                            .execute(
+                                "UPDATE projects SET is_archived=1 WHERE id=?1",
+                                [project_id],
+                            )
+                            .unwrap();
+                    }
+                    2 => {
+                        state.fence.invalidate();
+                    }
+                    _ => {
+                        fs::write(path, b"changed original history").unwrap();
+                    }
+                }
+                Ok(snapshot)
+            }
+        }
+        for action in 0..4 {
+            let (_root, store, _binding, input, request, restore) =
+                file_restore_case("input.txt", b"v1", b"v2");
+            let before = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .committed_change_watermark()
+                .unwrap();
+            let reader = ChangingReader {
+                store: store.as_ref(),
+                object: restore.object.clone(),
+                action,
+            };
+            let error = FileVersionService::new(store.as_ref(), &reader)
+                .restore_version(&request, &restore)
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                match action {
+                    0 | 1 => ErrorCode::ScopeDenied,
+                    2 => ErrorCode::WorkspaceChanged,
+                    _ => ErrorCode::SourceChanged,
+                }
+            );
+            assert_eq!(version_count(&store, input.document_id), 2);
+            assert_eq!(
+                store
+                    .0
+                    .lock()
+                    .unwrap()
+                    .db
+                    .committed_change_watermark()
+                    .unwrap(),
+                before
+            );
+        }
+    }
+    #[test]
+    fn file_restore_transaction_rejects_late_exclusion_or_lost_history_registration() {
+        for exclude in [false, true] {
+            let (root, store, binding, input, request, restore) =
+                file_restore_case("input.txt", b"v1", b"v2");
+            let host = store.gui_commit_host(&binding).unwrap();
+            let mut db = host.database().unwrap();
+            let source = db
+                .file_version_restore_source(&request, &binding, &restore)
+                .unwrap();
+            let before = db.committed_change_watermark().unwrap();
+            let callback = || {
+                let connection =
+                    rusqlite::Connection::open(&store.0.lock().unwrap().paths.db_path).unwrap();
+                if exclude {
+                    connection.execute("INSERT OR REPLACE INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)",[restore.object.key().unwrap()]).unwrap();
+                } else {
+                    connection
+                        .execute(
+                            "DELETE FROM source_file_version_hashes WHERE document_version_id=?1",
+                            [source.version_id],
+                        )
+                        .unwrap();
+                }
+                Ok(())
+            };
+            let error = db
+                .file_version_restore_commit_bound(
+                    &request,
+                    &binding,
+                    &restore,
+                    &source,
+                    host.fence(),
+                    &callback,
+                )
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                if exclude {
+                    ErrorCode::ScopeDenied
+                } else {
+                    ErrorCode::SourceChanged
+                }
+            );
+            assert_eq!(version_count(&store, input.document_id), 2);
+            assert_eq!(db.committed_change_watermark().unwrap(), before);
+            let versions = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: input.document_id,
+                })
+                .unwrap();
+            assert_eq!(
+                fs::read(
+                    &versions
+                        .iter()
+                        .find(|v| v.version_number == 1)
+                        .unwrap()
+                        .managed_path
+                )
+                .unwrap(),
+                b"v1"
+            );
+            assert_eq!(
+                fs::read(
+                    &versions
+                        .iter()
+                        .find(|v| v.version_number == 2)
+                        .unwrap()
+                        .managed_path
+                )
+                .unwrap(),
+                b"v2"
+            );
+            assert_eq!(
+                fs::read_dir(root.path().join(".project-mind/file-version-journal"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+    }
+    #[test]
+    fn file_restore_resolves_real_version_owner_and_refuses_remote_paths() {
+        let (root, store, binding, input, mut request, restore) =
+            file_restore_case("input.txt", b"v1", b"v2");
+        let selected = root.path().join("another.txt");
+        fs::write(&selected, b"another File").unwrap();
+        let foreign = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_import(DocumentImportInput {
+                project_id: input.project_id,
+                source_path: selected.to_string_lossy().into(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        let version = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: foreign.id,
+            })
+            .unwrap()
+            .remove(0);
+        request.request_id = "foreign-version".into();
+        let foreign_input = crate::file_version_restore::FileVersionRestore {
+            version_id: version.id.to_string(),
+            ..restore.clone()
+        };
+        assert_eq!(
+            FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                .restore_version(&request, &foreign_input)
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        let mut altered = request.clone();
+        altered.binding.generation = "stale".into();
+        assert_eq!(
+            FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                .restore_version(&altered, &restore)
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        let mut value = serde_json::to_value(&restore).unwrap();
+        value["sourcePath"] = serde_json::json!("/host/private");
+        assert!(
+            serde_json::from_value::<crate::file_version_restore::FileVersionRestore>(value)
+                .is_err()
+        );
+        for invalid in ["0", "01", "+1", "1e3", "../history", "9223372036854775808"] {
+            let input = crate::file_version_restore::FileVersionRestore {
+                version_id: invalid.into(),
+                ..restore.clone()
+            };
+            assert_eq!(
+                FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                    .restore_version(&request, &input)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        assert_eq!(version_count(&store, input.document_id), 2);
+        assert_eq!(binding, store.0.lock().unwrap().binding);
+    }
+    #[test]
+    #[ignore = "child process fixture invoked by File restore recovery parent"]
+    fn file_restore_crash_process_fixture() {
+        let Some(root) = std::env::var_os("MIND_FILE_RESTORE_CRASH_FIXTURE") else {
+            return;
+        };
+        let root = Path::new(&root);
+        let (metadata, paths) = crate::workspace::load_metadata(root).unwrap();
+        let db = crate::workspace_initialization::open_workspace_database(
+            &paths.db_path,
+            root,
+            None,
+            &metadata.workspace_id,
+        )
+        .unwrap()
+        .db;
+        let restore: crate::file_version_restore::FileVersionRestore =
+            serde_json::from_slice(&fs::read(root.join("restore.fixture.json")).unwrap()).unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: metadata.workspace_id,
+            generation: "child-open".into(),
+        };
+        let request = crate::agent::access::RequestContext {
+            binding: binding.clone(),
+            caller: crate::agent::access::Caller::Gui,
+            request_id: "restore-v1".into(),
+            scope_grant: crate::agent::access::ScopeGrant {
+                workspace_id: binding.workspace_id.clone(),
+                workspace_content: false,
+                project_ids: vec![match restore.object.scope {
+                    crate::agent::models::Scope::Project { project_id } => project_id,
+                    _ => panic!(),
+                }],
+                operations: vec!["file.restore".into()],
+            },
+        };
+        let store = Store(
+            Mutex::new(State {
+                binding,
+                db,
+                paths,
+                fence: Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new()),
+            }),
+            std::sync::atomic::AtomicUsize::new(0),
+        );
+        FileVersionService::new(&store, &FilesystemFileReader)
+            .restore_version(&request, &restore)
+            .unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn file_restore_recovers_six_actual_process_kills_without_moving_original_history() {
+        use std::os::unix::process::ExitStatusExt;
+        for stage in 0..6 {
+            let (root, store, binding, input, mut request, restore) =
+                file_restore_case("input.txt", b"v1", b"v2");
+            let before = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .committed_change_watermark()
+                .unwrap();
+            let original = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: input.document_id,
+                })
+                .unwrap()
+                .into_iter()
+                .find(|v| v.version_number == 1)
+                .unwrap()
+                .managed_path;
+            fs::write(
+                root.path().join("restore.fixture.json"),
+                serde_json::to_vec(&restore).unwrap(),
+            )
+            .unwrap();
+            drop(store);
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "file_version_service::tests::file_restore_crash_process_fixture",
+                    "--ignored",
+                ])
+                .env("MIND_FILE_RESTORE_CRASH_FIXTURE", root.path())
+                .env("MIND_FILE_VERSION_CRASH_STAGE", stage.to_string())
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.signal(),
+                Some(9),
+                "stage {stage}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let (metadata, paths) = crate::workspace::load_metadata(root.path()).unwrap();
+            let db = crate::workspace_initialization::open_workspace_database(
+                &paths.db_path,
+                root.path(),
+                None,
+                &metadata.workspace_id,
+            )
+            .unwrap()
+            .db;
+            let binding = WorkspaceBinding {
+                generation: "recovered-open".into(),
+                ..binding
+            };
+            request.binding = binding.clone();
+            let store = Store(
+                Mutex::new(State {
+                    binding,
+                    db,
+                    paths,
+                    fence: Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new()),
+                }),
+                std::sync::atomic::AtomicUsize::new(0),
+            );
+            assert_eq!(
+                version_count(&store, input.document_id),
+                if stage == 5 { 3 } else { 2 }
+            );
+            assert_eq!(fs::read(&original).unwrap(), b"v1");
+            let service = FileVersionService::new(&store, &FilesystemFileReader);
+            let receipt = service.restore_version(&request, &restore).unwrap().receipt;
+            assert_eq!(receipt.version_number, 3);
+            assert_eq!(
+                service.restore_version(&request, &restore).unwrap().receipt,
+                receipt
+            );
+            assert_eq!(version_count(&store, input.document_id), 3);
+            assert_eq!(
+                store
+                    .0
+                    .lock()
+                    .unwrap()
+                    .db
+                    .committed_change_watermark()
+                    .unwrap(),
+                before + 1
+            );
+            assert_eq!(fs::read(&original).unwrap(), b"v1");
+            let versions = store
+                .0
+                .lock()
+                .unwrap()
+                .db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: input.document_id,
+                })
+                .unwrap();
+            assert_eq!(
+                fs::read(
+                    &versions
+                        .iter()
+                        .find(|v| v.version_number == 2)
+                        .unwrap()
+                        .managed_path
+                )
+                .unwrap(),
+                b"v2"
+            );
+            assert_eq!(
+                fs::read(
+                    &versions
+                        .iter()
+                        .find(|v| v.version_number == 3)
+                        .unwrap()
+                        .managed_path
+                )
+                .unwrap(),
+                b"v1"
+            );
+        }
     }
 }

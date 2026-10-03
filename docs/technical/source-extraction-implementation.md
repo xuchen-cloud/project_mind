@@ -238,3 +238,15 @@ Host 仍只捕获当前 Workspace binding 与生命周期屏障，使用同一�
 主 agent Standards / Spec 自查补上了错误 hash 上传的过期回收、单份外来上传与其他恢复隔离，以及并发通知验证探针的真实锁归属：另一 writer 可以在本操作释放 File lease 后立即取得自己的锁，测试用有界等待允许其结算，本操作若保留自身 lease 则仍超时失败。最终 Rust 全目标及 source/Record 实际进程专项均通过，没有剩余的本阶段审查发现。
 
 后续仍需历史恢复服务与交互、真实 run/connection 注册和撤销、GUI/CLI/MCP/Pi adapters、恢复诊断，以及其他原生 File 写入口的长 GUI 存储锁拆分。#100 完整自动桌面调度与知识消费者尚未完成。公开 source.search/read 与 File capabilities 继续 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100/#114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue；未启动应用窗口、真实 Provider 请求或 review 子 agent，Windows 实包、物理磁盘满与系统掉电仍未验收。
+
+### P1：历史 File Version 恢复与通知归属（2026-10-03）
+
+内部 FileVersionService::restore_version 接收真实 File ObjectRef、十进制字符串历史 Version ID、当前期望版本及登记 hash；由服务端按实际归属解析历史路径，单独要求 file.restore。未知旧版本不补登记，历史实际字节必须符合已登记 SHA-256。恢复复用现有 Version 内核、CAS、journal、回执与 outbox，在同一 File 上新增版本，不移动原历史字节、不倒退版本号；相同内容返回 noChange。独立连接及当前 Workspace 提交屏障继续隔离准备 I/O 与 GUI 存储锁，提交事务复核历史登记和来源排除。
+
+成功回执按完整恢复意图绑定：后续又有新版本时仍回放原操作的版本；同 requestId 更换历史 Version 拒绝。恢复准备期间授权、Archive、排除、Workspace generation 或历史字节变化均不能提交。六个既有 journal 阶段实际 SIGKILL 后，通过共享初始化恢复旧版或完整新版，重试只新增一次且原历史路径仍可读。
+
+确定性三调用并发测试复现了“只新增一个版本、却重复发送通知”的真实缺陷。共用 Version 内核现在返回仅限本次调用的 committed 标记，稳定回执和持久化格式不变；GUI、patch、upload、restore 只在本次真实内容变更成功后捕获并发送通知，回放、noChange 和失败不借另一连接的日志发通知。patch 同样使用快照 barrier 验证并发通知只发送一次，GUI 增加旧回执回放通知计数断言。
+
+P1 不含历史版本 GUI 比较/恢复交互、正式 run/connection 接入或产品恢复诊断；这些继续归 P6 及所属 Issue。公开 File 和 source capabilities、普通 worker 分发、正式 Schema 发布均未在此开放。#100/#114 保持 OPEN，阶段提交不进入发布合并流程。
+
+验证：恢复专项 9 passed/1 ignored，受影响 patch 11 passed、GUI 服务 8 passed、上传并发 1 passed，旧 GUI 回执通知断言通过；最后集中执行 Rust 全目标，库 451 passed/23 默认忽略，其他目标通过，包含恢复六阶段实际进程父用例。未改前端 DTO/命令/事件格式、依赖或资源，复用 86b7859 阶段前端 141 文件/966 tests 与构建证据，未重跑。主 agent Standards/Spec 自查及 diff 检查完成；未执行应用窗口、真实 Provider 或真实平台故障验收。
