@@ -22,7 +22,7 @@ export type AgentErrorCode =
   | "RUN_BUSY" | "RUNTIME_UNAVAILABLE" | "RUNTIME_INCOMPATIBLE" | "INVALID_RUN_TRANSITION"
   | "BUDGET_EXCEEDED" | "IDEMPOTENCY_CONFLICT" | "IO_FAILED" | "CANCELLED"
   | "PROFILE_UNAVAILABLE" | "SECRETS_LOCKED" | "TOOL_CALL_UNSUPPORTED" | "RATE_LIMITED"
-  | "OUTPUT_COMMIT_FAILED" | "INVALID_PATCH" | "EDITOR_REVIEW_PENDING" | "EDITOR_BUSY";
+  | "OUTPUT_COMMIT_FAILED" | "INVALID_PATCH" | "AMBIGUOUS_MATCH" | "EDITOR_REVIEW_PENDING" | "EDITOR_BUSY";
 export interface AgentError { code: AgentErrorCode; message: string; retryable: boolean; details?: unknown }
 export type AgentResponse<T> =
   | { apiVersion: 1; requestId: string; ok: true; data: T }

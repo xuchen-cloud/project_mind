@@ -18,6 +18,7 @@ mod record_document_service;
 mod record_document_commands;
 mod file_document_commands;
 mod file_version_service;
+mod file_text_patch;
 mod workspace_commit_fence;
 mod record_editor_coordination;
 mod record_export;

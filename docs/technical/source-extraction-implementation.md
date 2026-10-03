@@ -202,3 +202,19 @@ Workspace 生命周期屏障独立于选择锁、GUI 数据库锁和文件锁。
 Rust 全目标库 410 passed、20 默认忽略，包含既有 File 实际进程崩溃恢复父用例；source 显式实际进程 110 passed，Record 100 passed。前端代码未改，复用本次独立全量 141 文件、965 tests 全通过及构建验证；路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB。主 agent Standards 与 Spec 检查无未处理发现。没有启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包；物理磁盘满、系统掉电及真实平台包验收仍未完成。
 
 本阶段完成 GUI File 版本预检与提交服务的长存储锁拆分，不等于 #114 已交付。其他原生 File 导入、改名、删除和重新定位仍有旧 GUI 存储锁，后续需沿各自 journal 继续服务化；registered 内部写入口还需通过真实适配器接入同样的生命周期与 scope 校验。精确 UTF-8 patch、分块上传的长度及 hash 校验、10min 过期与真实 connection 或 run 绑定、历史恢复交互、产品恢复诊断及依赖成果模块尚未交付。#100 自动桌面调度与知识消费者也未完成。公开 source.search/read 与 File capabilities 仍 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100 与 #114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue。
+
+### File 精确 UTF-8 patch 与版本服务（2026-10-03 后续阶段）
+
+内部 FileVersionService::patch_text 已接入现有 Version kernel，支持已登记的 UTF-8 md、txt、html、htm 原始字节。所有 edits 在同一个 base 快照中定位，occurrence 从 1 开始计数，包含重叠候选；多处且未指定 occurrence 返回 AMBIGUOUS_MATCH。选定范围重叠、空 oldText、缺失目标、无效 occurrence、同时提供 edits 与 appendText 或非 UTF-8 均拒绝。HTML 不经过提取或消毒，不隐式改变编码、BOM、CRLF 或 LF。当前内部预算为最多 100 个 edit、1 MiB 序列化 patch、100 MiB 基线及结果；既有 source 提取的 10 MiB 文本与 50 MiB PDF 限额没有扩大。
+
+Host 仍只捕获当前 Workspace binding 与生命周期屏障，使用同一个正式 Schema 28 数据库的独立连接。RequestContext 由可信适配器构造，按真实 File 归属验证 file.update、Project Archive 和来源排除；不从 patch 参数授予权限。原始字节读取与转换不占用 GUI 存储锁，准备后再次核对版本、路径和登记 hash；取得 Project 与 File 锁后校验实际磁盘 hash，提交事务中再次检查排除策略。未知旧版本不补登记，外部改动不覆盖，旧历史与其登记 hash 保留。
+
+候选字节直接写入现有 journal 的私有 staging，复用 documents、document_versions、登记 hash、回执与 outbox；不另建上传、正文或版本存储。journal 只记录完整 patch 的 SHA-256 摘要，不保存 patch 文本。相同 requestId 换成不同 patch 即使输出相同也报 IdempotencyConflict；原请求在后续新版本之后仍回放自己的真实回执和历史路径。noChange 只保存稳定回执，不加版本、journal 或日志。提交后释放连接及文件锁再发布提示；失败与 noChange 不借同时发生的其他操作发出本次通知。
+
+主 agent Standards / Spec 自查复现并修复三处边界：重复删除同一范围应先报重叠，不误报长度预算；另一连接已提交同一请求后，快照 metadata 变化仍能回放原回执；旧文件已归档而 SQL 尚未提交时，回执查找等待真实 File writer 结算，避免把瞬间路径缺失当作请求失败。准备期间来源排除走同一个 SQL 原子边界，拒绝提交并恢复自己的原件及候选；旧 Workspace 屏障失效也拒绝准备提交与回执回放。
+
+18 个 patch 专项用例通过，覆盖原始 HTML/BOM/CRLF、Unicode 与重叠候选、同基线多次编辑、预算、真实归属与 grant、Archive/排除/generation、未知或外部字节、旧版本/hash、noChange、相同请求并发、晚到回放和 outbox 回滚。新增父用例在 journal 六个阶段执行真实 Linux SIGKILL，经共享初始化恢复后重试只产生一个新版本和日志，旧字节完整可读。Rust 全目标库 428 passed、21 默认忽略；source 显式实际进程专项 112 passed，Record 100 passed。
+
+前端默认 4 worker 全量重现既有 Project 驻留用例的 15s 超时，其他 964 个通过；该驻留用例单独约 10.7s 通过，1 worker 完整运行 141 文件、965 tests 全通过。没有修改驻留逻辑或放宽超时，不将降低测试并发称为已修复产品性能缺陷。构建、路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB。主 agent 未发现本次改动范围内未处理的 Standards / Spec 问题；未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包，真实磁盘满与系统掉电仍未验收。
+
+本阶段完成内部精确 patch 服务与既有版本内核接入，尚无 GUI、CLI、MCP 或 Pi patch adapter；原 registered 无生命周期 helper 仅保留为测试 fixture，生产 patch 强制使用当前 Host 屏障。分块上传与 10min 过期、真实 connection 或 run 绑定、历史恢复交互、恢复诊断及 #104 成果接缝仍待后续工作包；其他原生 File 导入、改名、删除和重新定位的旧 GUI 存储锁拆分也未完成。#100 的完整自动桌面调度与知识消费者继续保留门槛。公开 source.search/read 与 File capabilities 仍 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100/#114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue。

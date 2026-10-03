@@ -77,10 +77,29 @@ fn agent_failure(error: anyhow::Error) -> AgentError {
 enum CommitPayload {
     Native { document_id: i64, new_hash: String },
     Registered { update: FileVersionUpdate },
+    RegisteredText {
+        object: ObjectRef,
+        expected_version_number: u32,
+        expected_content_hash: String,
+        patch_hash: String,
+    },
     NativeCas {
         intent: GuiFileVersionIntent,
         register_current_bytes: bool,
     },
+}
+fn registered_payload(update: &FileVersionUpdate, patch_hash: Option<&str>) -> CommitPayload {
+    match patch_hash {
+        Some(patch_hash) => CommitPayload::RegisteredText {
+            object: update.object.clone(),
+            expected_version_number: update.expected_version_number,
+            expected_content_hash: update.expected_content_hash.clone(),
+            patch_hash: patch_hash.into(),
+        },
+        None => CommitPayload::Registered {
+            update: update.clone(),
+        },
+    }
 }
 #[derive(Debug)]
 struct CommitFailure(AgentError);
@@ -93,7 +112,7 @@ impl std::error::Error for CommitFailure {}
 fn conflict(code: ErrorCode, message: &str) -> anyhow::Error {
     CommitFailure(AgentError::new(code, message)).into()
 }
-pub(super) fn valid_hash(hash: &str) -> bool {
+pub(crate) fn valid_hash(hash: &str) -> bool {
     hash.strip_prefix("sha256:").is_some_and(|value| {
         value.len() == 64
             && value
@@ -546,6 +565,14 @@ impl Database {
             {
                 ()
             }
+            CommitPayload::RegisteredText { object, expected_version_number, expected_content_hash, patch_hash }
+                if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
+                    && object.kind == ObjectKind::File
+                    && object.scope == (Scope::Project { project_id: journal.project_id })
+                    && object.id == journal.document_id.to_string()
+                    && i64::from(*expected_version_number) == journal.expected_version
+                    && expected_content_hash == &journal.original_captured_hash
+                    && valid_hash(patch_hash) => { () }
             CommitPayload::NativeCas { intent, .. }
                 if journal.caller_id == "gui"
                     && intent.document_id == journal.document_id
@@ -837,6 +864,7 @@ impl Database {
                 None,
                 Some((request_id, intent, register_current_bytes)),
                 Some(fence),
+                None,
             )
         })()
         .map_err(agent_failure)
@@ -847,10 +875,123 @@ impl Database {
         input: DocumentAddVersionInput,
     ) -> Result<DocumentRecord> {
         let id = input.document_id;
-        self.file_version_commit(input, None, None, None)?;
+        self.file_version_commit(input, None, None, None, None)?;
         self.document_record(id)
     }
 
+    pub(crate) fn file_version_registered_target(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<DocumentRecord> {
+        object.key()?;
+        if object.kind != ObjectKind::File {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Expected a File target",
+            ));
+        }
+        if self.native_workspace_id.as_deref() != Some(binding.workspace_id.as_str()) {
+            return Err(AgentError::new(
+                ErrorCode::WorkspaceChanged,
+                "File Workspace binding changed",
+            ));
+        }
+        let actual = self
+            .agent_resolve_object(object, &binding.workspace_id)?
+            .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
+        request.authorize_object(binding, object, &actual, "file.update")?;
+        self.source_live_scope(&actual.scope)?;
+        self.source_prepare()?;
+        let excluded: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
+            [actual.key()?], |row| row.get(0)).map_err(io_error)?;
+        if excluded {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "File is excluded from AI access",
+            ));
+        }
+        self.document_record(
+            actual
+                .id
+                .parse()
+                .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File ID"))?,
+        )
+        .map_err(agent_failure)
+    }
+    pub(crate) fn file_version_patch_replay(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        update: &FileVersionUpdate,
+        patch_hash: &str,
+    ) -> AgentResult<Option<CommittedVersion>> {
+        let target = self.file_version_registered_target(request, binding, &update.object)?;
+        // An old path may be temporarily absent between archive and SQL. Wait
+        // for any writer to settle before deciding whether its receipt exists.
+        let _project = self
+            .file_project_lock(target.project_id, false)
+            .map_err(agent_failure)?;
+        let _file = self.file_version_lock(target.id).map_err(agent_failure)?;
+        self.file_version_registered_target(request, binding, &update.object)?;
+        self.agent_operation_replay(
+            &request.caller.key(),
+            &request.request_id,
+            "file.version.commit",
+            &registered_payload(update, Some(patch_hash)),
+        )
+    }
+    pub(crate) fn file_version_patch_registered_bound(
+        &mut self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        update: &FileVersionUpdate,
+        patch_hash: &str,
+        bytes: &[u8],
+        fence: &crate::workspace_commit_fence::WorkspaceCommitFence,
+    ) -> AgentResult<CommittedVersion> {
+        self.file_version_registered_target(request, binding, &update.object)?;
+        if update.expected_version_number == 0
+            || !valid_hash(&update.expected_content_hash)
+            || !valid_hash(&update.new_content_hash)
+            || !valid_hash(patch_hash)
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid File patch baseline",
+            ));
+        }
+        if bytes.len() > crate::file_text_patch::MAX_FILE_BYTES {
+            return Err(AgentError::new(
+                ErrorCode::BudgetExceeded,
+                "File patch exceeds 100 MiB",
+            ));
+        }
+        if format!("sha256:{:x}", Sha256::digest(bytes)) != update.new_content_hash {
+            return Err(AgentError::new(
+                ErrorCode::InvalidPatch,
+                "File patch result hash mismatch",
+            ));
+        }
+        self.file_version_commit(
+            DocumentAddVersionInput {
+                document_id: update
+                    .object
+                    .id
+                    .parse()
+                    .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File ID"))?,
+                source_path: None,
+            },
+            Some((request, update)),
+            None,
+            Some(fence),
+            Some((patch_hash, bytes)),
+        )
+        .map_err(agent_failure)
+    }
+    #[cfg(test)]
     pub(crate) fn file_version_update_registered(
         &mut self,
         request: &RequestContext,
@@ -931,6 +1072,7 @@ impl Database {
                 Some((request, update)),
                 None,
                 None,
+                None,
             )
         })();
         result.map_err(|error| match error.downcast::<CommitFailure>() {
@@ -945,6 +1087,7 @@ impl Database {
         registered: Option<(&RequestContext, &FileVersionUpdate)>,
         gui: Option<(&str, &GuiFileVersionIntent, bool)>,
         fence: Option<&crate::workspace_commit_fence::WorkspaceCommitFence>,
+        patch: Option<(&str, &[u8])>,
     ) -> Result<CommittedVersion> {
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
@@ -955,6 +1098,8 @@ impl Database {
         let _project_lock = self.file_project_lock(project_id, false)?;
         let _lock = self.file_version_lock(input.document_id)?;
         if let Some((request, update)) = registered {
+            let binding = &request.binding;
+            self.file_version_registered_target(request, binding, &update.object).map_err(CommitFailure)?;
             // Another connection may have committed this exact request while
             // we waited for the File lock. Replay before checking the old CAS.
             if let Some(receipt) = self
@@ -962,9 +1107,7 @@ impl Database {
                     &request.caller.key(),
                     &request.request_id,
                     "file.version.commit",
-                    &CommitPayload::Registered {
-                        update: update.clone(),
-                    },
+                    &registered_payload(update, patch.map(|(hash, _)| hash)),
                 )
                 .map_err(CommitFailure)?
             {
@@ -1053,7 +1196,7 @@ impl Database {
         if no_change {
             let (caller_id, request_id, expected_hash, payload) = match (registered, gui) {
                 (Some((request, update)), _) => (request.caller.key(), request.request_id.as_str(), &update.new_content_hash,
-                    CommitPayload::Registered { update: update.clone() }),
+                    registered_payload(update, patch.map(|(hash, _)| hash))),
                 (_, Some((request_id, intent, register_current_bytes))) => ("gui".into(), request_id, &intent.new_content_hash,
                     CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
                 _ => unreachable!("noChange requires a registered intent"),
@@ -1066,6 +1209,10 @@ impl Database {
             let synchronous: i64 = self.conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
             self.conn.pragma_update(None, "synchronous", synchronous.max(2))?;
             let result = self.agent_atomic_operation(&caller_id, request_id, "file.version.commit", &payload, |tx| {
+                if let Some((_, update)) = registered {
+                    let excluded: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)", [update.object.key()?], |row| row.get(0)).map_err(io_error)?;
+                    if excluded { return Err(AgentError::new(ErrorCode::ScopeDenied, "File is excluded from AI access")); }
+                }
                 let unchanged: bool = tx.query_row(
                     "SELECT current_version_number=?2 AND project_id=?3 AND managed_path=?4 FROM documents WHERE id=?1",
                     params![current.id, current.current_version_number, current.project_id, self.encode_path_ref(&original)], |row| row.get(0)).map_err(io_error)?;
@@ -1139,11 +1286,16 @@ impl Database {
         let prepared = (|| -> Result<Journal> {
             let (old_hash, original_identity, _) =
                 snapshot(&original, &directory.join("original.bin"))?;
-            let (new_hash, _, new_identity) = snapshot_bounded(
-                &source,
-                &directory.join("new.bin"),
-                registered.map(|_| 100 * 1024 * 1024),
-            )?;
+            let (new_hash, new_identity) = if let Some((_, bytes)) = patch {
+                let mut output = OpenOptions::new().write(true).create_new(true).open(directory.join("new.bin"))?;
+                output.write_all(bytes)?;
+                output.sync_all()?;
+                (format!("sha256:{:x}", Sha256::digest(bytes)), identity(&output)?)
+            } else {
+                let (hash, _, identity) = snapshot_bounded(&source, &directory.join("new.bin"),
+                    registered.map(|_| 100 * 1024 * 1024))?;
+                (hash, identity)
+            };
             if let Some((_, update)) = registered {
                 if old_hash != update.expected_content_hash {
                     return Err(conflict(
@@ -1172,9 +1324,7 @@ impl Database {
                     document_id: current.id,
                     new_hash: new_hash.clone(),
                 }, |(_, intent, register_current_bytes)| CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
-                |(_, update)| CommitPayload::Registered {
-                    update: update.clone(),
-                },
+                |(_, update)| registered_payload(update, patch.map(|(hash, _)| hash)),
             );
             let journal = Journal {
                 schema_version: 1,
@@ -1277,6 +1427,10 @@ impl Database {
                     ).map_err(io_error)?;
                     if head != journal.expected_version {
                         return Err(AgentError::new(ErrorCode::RevisionConflict, "File Version changed before commit"));
+                    }
+                    if let Some((_, update)) = registered {
+                        let excluded: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)", [update.object.key()?], |row| row.get(0)).map_err(io_error)?;
+                        if excluded { return Err(AgentError::new(ErrorCode::ScopeDenied, "File is excluded from AI access")); }
                     }
                     let unchanged: bool = tx.query_row(
                         "SELECT project_id=?2 AND managed_path=?3 AND history_dir_path=?4 AND base_name=?5 FROM documents WHERE id=?1",

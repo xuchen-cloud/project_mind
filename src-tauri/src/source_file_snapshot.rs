@@ -161,6 +161,17 @@ pub(crate) fn open_regular(_path: &Path) -> AgentResult<File> {
     ))
 }
 fn capture_sync(plan: &FileReadPlan) -> AgentResult<FileByteSnapshot> {
+    capture_sync_bounded(plan, plan.format.byte_limit())
+}
+pub(crate) fn capture_file_update(plan: &FileReadPlan) -> AgentResult<FileByteSnapshot> {
+    capture_sync_bounded(plan, crate::file_text_patch::MAX_FILE_BYTES).map_err(|mut error| {
+        if error.code == ErrorCode::SourceChanged {
+            error.code = ErrorCode::FileChangedUnregistered;
+        }
+        error
+    })
+}
+fn capture_sync_bounded(plan: &FileReadPlan, limit: usize) -> AgentResult<FileByteSnapshot> {
     plan.object.key()?;
     if plan.object.kind != ObjectKind::File
         || !matches!(plan.object.scope, Scope::Project { .. })
@@ -183,7 +194,6 @@ fn capture_sync(plan: &FileReadPlan) -> AgentResult<FileByteSnapshot> {
             "Invalid server-resolved File snapshot plan",
         ));
     }
-    let limit = plan.format.byte_limit();
     let path_stamp = regular(&fs::symlink_metadata(&plan.path).map_err(io_error)?)?;
     if path_stamp.len > limit as u64 {
         return Err(AgentError::new(

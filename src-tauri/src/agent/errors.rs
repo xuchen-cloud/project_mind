@@ -26,6 +26,7 @@ pub enum ErrorCode {
     RateLimited,
     OutputCommitFailed,
     InvalidPatch,
+    AmbiguousMatch,
     EditorReviewPending,
     EditorBusy,
 }
