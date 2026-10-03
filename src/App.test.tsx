@@ -1492,7 +1492,7 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
   });
 
-  it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
+  async function renderResidentProjectFixture(startWithRecord = false) {
     const timestamp = "2026-08-23T00:00:00.000Z";
     const projects = Array.from({ length: 12 }, (_, index) => {
       const id = index + 1;
@@ -1575,7 +1575,7 @@ describe("WorkspaceLayout", () => {
           ],
         },
       ],
-      { initialEntries: ["/projects/1?view=record"] },
+      { initialEntries: [startWithRecord ? "/projects/7/records/70" : "/projects/1?view=record"] },
     );
     render(
       <QueryClientProvider client={queryClient}>
@@ -1583,9 +1583,15 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(document.querySelector('[data-project-resident-id="1"]')).not.toBeNull());
-    const projectA = document.querySelector('[data-project-resident-id="1"]');
+    const initialProjectId = startWithRecord ? 7 : 1;
+    await waitFor(() => expect(document.querySelector(`[data-project-resident-id="${initialProjectId}"]`)).not.toBeNull());
+    const projectA = document.querySelector(`[data-project-resident-id="${initialProjectId}"]`);
 
+    return { router, coordinator, projectA };
+  }
+
+  it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
+    const { router, projectA } = await renderResidentProjectFixture();
     for (const projectId of [2, 3, 4, 5]) {
       await act(() => router.navigate(`/projects/${projectId}`));
       await waitFor(() =>
@@ -1617,7 +1623,14 @@ describe("WorkspaceLayout", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "关闭 Project 3" }));
     await waitFor(() => expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull());
 
-    for (const projectId of [7, 8, 9, 10, 11, 12]) {
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+    expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it("bounds Project and Record Focus residency across six record routes without refetching", async () => {
+    const { router, coordinator } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    for (const projectId of [8, 9, 10, 11, 12]) {
       const recordId = projectId * 10;
       await act(async () => {
         await router.navigate(`/projects/${projectId}/records/${recordId}`);
