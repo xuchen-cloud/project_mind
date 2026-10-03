@@ -38,6 +38,10 @@
 
 每包开始前写清关联 Issue、依赖、交付行为、非目标、验收和验证范围。AI Enhancement 按 `docs/requirements/ai-work-context-delivery.md` 的执行拆分推进；已有实现先复用，只补差距。内部服务、真实接入和产品验收分别判断，阶段提交不能当作 Issue 完成交付。遇到缺少真实业务模块或平台的阻塞，记录具体解锁条件并继续可独立工作，不虚构接缝，也不无限打磨底层等待。
 
+### Implementation agents
+
+范围、输入输出和验收条件清晰明确的实现、测试或文档任务，交给 `gpt-6.1-sol` 模型的子 agent 执行，无需逐次询问。主 agent 负责需求澄清、架构与复杂问题决策、任务拆分、结果整合及最终检查；委派时明确文件范围、依赖和必要验证，避免多个 agent 同时修改相同文件或重复运行全量验证。简单到委派成本高于直接执行的改动由主 agent 完成。此授权适用于执行任务，review 子 agent 仍遵循下一条规则。
+
 ### Review agents
 
 启动子 agent review 前必须获得用户明确同意；未获同意时由主 agent 自行检查，不自动启动 Standards / Spec 子 agent。
