@@ -258,6 +258,15 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         input: &SourceReadInput,
         utility: &W,
     ) -> AgentResult<SourceReadPage> {
+        self.read_file_verified(request, input, utility).await.map(|(page, _, _)| page)
+    }
+
+    pub(crate) async fn read_file_verified<W: SourceUtility>(
+        &self,
+        request: &RequestContext,
+        input: &SourceReadInput,
+        utility: &W,
+    ) -> AgentResult<(SourceReadPage, crate::source_file_snapshot::FileReadPlan, crate::source_file_snapshot::FileVerification)> {
         let budget = input.budget_chars.unwrap_or(4000).min(12000);
         if budget == 0
             || input.source.object.kind != ObjectKind::File
@@ -328,6 +337,6 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         )?;
         self.verify_file_extraction(request, &input.source, &extraction)
             .await?;
-        Ok(page)
+        Ok((page, extraction.plan.clone(), extraction.snapshot.verification()))
     }
 }

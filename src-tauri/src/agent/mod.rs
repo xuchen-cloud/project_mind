@@ -4,6 +4,7 @@ pub mod capabilities;
 pub mod changes;
 pub(crate) mod commands;
 pub mod context;
+pub(crate) mod overview;
 pub mod errors;
 pub mod instructions;
 pub mod maintenance;

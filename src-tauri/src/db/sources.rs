@@ -113,7 +113,7 @@ impl Database {
             Ok((policy,Some(change)))
         })
     }
-    pub(super) fn source_read_object(
+    pub(crate) fn source_read_object(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,

@@ -1,0 +1,602 @@
+//! Private, lazily prepared Overview storage. Formal schema version is unchanged.
+use super::{
+    agent_operations::{io_error, OperationChange},
+    Database,
+};
+use crate::agent::{
+    context::{AiOverview, OverviewItem},
+    errors::{AgentError, AgentResult, ErrorCode},
+    models::Scope,
+    overview::*,
+};
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde::{de::DeserializeOwned, Serialize};
+
+fn encode(value: &impl Serialize) -> AgentResult<String> {
+    serde_json::to_string(value).map_err(|_| invalid("Invalid Overview payload"))
+}
+fn decode<T: DeserializeOwned>(text: &str) -> AgentResult<T> {
+    serde_json::from_str(text)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid stored Overview"))
+}
+impl Database {
+    pub(crate) fn agent_overviews_prepare(&self) -> anyhow::Result<()> {
+        self.conn
+            .execute_batch("SAVEPOINT agent_overviews_prepare")?;
+        match self.conn.execute_batch(include_str!("agent_overviews.sql")) {
+            Ok(()) => {
+                self.conn.execute_batch("RELEASE agent_overviews_prepare")?;
+                Ok(())
+            }
+            Err(error) => {
+                self.conn.execute_batch(
+                    "ROLLBACK TO agent_overviews_prepare; RELEASE agent_overviews_prepare",
+                )?;
+                Err(error.into())
+            }
+        }
+    }
+    fn overview_scope(&self, scope: &Scope) -> AgentResult<()> {
+        scope.validate()?;
+        if matches!(scope, Scope::Workspace) {
+            return Err(AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Workspace Overview awaits M2",
+            ));
+        }
+        self.source_live_scope(scope)?;
+        self.agent_overviews_prepare()
+            .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare Overview storage"))
+    }
+    pub(crate) fn agent_overview_head(&self, scope: &Scope) -> AgentResult<Option<AiOverview>> {
+        self.overview_scope(scope)?;
+        let text:Option<String>=self.conn.query_row("SELECT v.snapshot_json FROM agent_overviews h JOIN agent_overview_versions v ON v.scope_key=h.scope_key AND v.revision=h.current_revision WHERE h.scope_key=?1",[scope.key()],|r|r.get(0)).optional().map_err(io_error)?;
+        text.map(|s| decode(&s)).transpose()
+    }
+    pub(crate) fn agent_overview_version(
+        &self,
+        scope: &Scope,
+        revision: u64,
+    ) -> AgentResult<Option<AiOverview>> {
+        self.overview_scope(scope)?;
+        if revision == 0 || revision > i64::MAX as u64 {
+            return Err(invalid("Invalid Overview revision"));
+        }
+        let text:Option<String>=self.conn.query_row("SELECT snapshot_json FROM agent_overview_versions WHERE scope_key=?1 AND revision=?2",params![scope.key(),revision as i64],|r|r.get(0)).optional().map_err(io_error)?;
+        text.map(|s| decode(&s)).transpose()
+    }
+    pub(crate) fn agent_overview_version_baselines(
+        &self,
+        scope: &Scope,
+        revision: u64,
+    ) -> AgentResult<(u64, u64)> {
+        self.overview_scope(scope)?;
+        if revision == 0 || revision > i64::MAX as u64 {
+            return Err(invalid("Invalid Overview revision"));
+        }
+        self.conn.query_row("SELECT policy_revision,correction_revision FROM agent_overview_versions WHERE scope_key=?1 AND revision=?2",params![scope.key(),revision as i64],|r|Ok((r.get::<_,i64>(0)? as u64,r.get::<_,i64>(1)? as u64))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Overview version not found"))
+    }
+    pub(crate) fn agent_overview_versions(
+        &self,
+        scope: &Scope,
+        after_revision: u64,
+        limit: u16,
+    ) -> AgentResult<Vec<u64>> {
+        self.overview_scope(scope)?;
+        if !(1..=100).contains(&limit) || after_revision > i64::MAX as u64 {
+            return Err(invalid("Invalid Overview version page"));
+        }
+        let mut stmt=self.conn.prepare("SELECT revision FROM agent_overview_versions WHERE scope_key=?1 AND revision>?2 ORDER BY revision LIMIT ?3").map_err(io_error)?;
+        let result = stmt
+            .query_map(params![scope.key(), after_revision as i64, limit], |r| {
+                Ok(r.get::<_, i64>(0)? as u64)
+            })
+            .map_err(io_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(io_error);
+        result
+    }
+    pub(crate) fn agent_overview_stale_items(
+        &self,
+        workspace_id: &str,
+        scope: &Scope,
+    ) -> AgentResult<Vec<String>> {
+        let Some(head) = self.agent_overview_head(scope)? else {
+            return Ok(vec![]);
+        };
+        let mut result = vec![];
+        for item in head.items {
+            let owner = format!("{}/{}/overview/{}", workspace_id, scope.key(), item.id);
+            let dirty:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM source_dependency_invalidations WHERE owner_key=?1)",[owner],|r|r.get(0)).map_err(io_error)?;
+            if dirty {
+                result.push(item.id);
+            }
+        }
+        Ok(result)
+    }
+    pub(crate) fn agent_overview_replay(
+        &self,
+        caller: &str,
+        request: &str,
+        input: &OverviewPublishInput,
+    ) -> AgentResult<Option<AiOverview>> {
+        self.overview_scope(&input.scope)?;
+        self.agent_operation_replay(caller, request, "overview.publish", input)
+    }
+    pub(crate) fn agent_overview_publish(
+        &self,
+        caller: &str,
+        request: &str,
+        workspace_id: &str,
+        input: &OverviewPublishInput,
+        verify: impl FnOnce(&Database, &[OverviewItem]) -> AgentResult<()>,
+    ) -> AgentResult<AiOverview> {
+        input.validate()?;
+        self.overview_scope(&input.scope)?;
+        self.agent_atomic_operation(caller,request,"overview.publish",input,|tx| {
+            self.source_live_scope(&input.scope)?;
+            let batch:Option<(String,String)>=tx.query_row("SELECT payload_json,snapshot_json FROM agent_overview_versions WHERE scope_key=?1 AND target_seq=?2 AND policy_revision=?3 AND correction_revision=?4",params![input.scope.key(),input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(io_error)?;
+            if let Some((payload,snapshot))=batch {
+                if serde_json::from_str::<serde_json::Value>(&payload).ok()!=Some(serde_json::to_value(input).map_err(|_|invalid("Invalid payload"))?) { return Err(AgentError::new(ErrorCode::IdempotencyConflict,"Overview batch already belongs to another payload")); }
+                return Ok((decode(&snapshot)?,None));
+            }
+            let head=self.agent_overview_head(&input.scope)?;
+            if head.as_ref().map_or(0,|v|v.revision)!=input.expected_revision { return Err(AgentError::new(ErrorCode::RevisionConflict,"Overview head changed")); }
+            if head.as_ref().is_some_and(|h|input.target_seq<h.as_of_seq) || input.target_seq>self.committed_change_watermark()? as u64 { return Err(invalid("Invalid Overview target watermark")); }
+            let policy:i64=tx.query_row("SELECT revision FROM agent_scope_settings WHERE scope_key=?1",[input.scope.key()],|r|r.get(0)).optional().map_err(io_error)?.unwrap_or(0);
+            let corrections=self.agent_overview_corrections(&input.scope)?;
+            if policy as u64!=input.policy_revision || corrections.revision!=input.correction_revision { return Err(AgentError::new(ErrorCode::RevisionConflict,"Overview policy or corrections changed")); }
+            let mut items=head.map_or_else(Vec::new,|h|h.items);
+            items.retain(|item|!input.remove_item_ids.contains(&item.id));
+            for item in &input.upsert_items { if let Some(existing)=items.iter_mut().find(|v|v.id==item.id) { *existing=item.clone(); } else { items.push(item.clone()); } }
+            validate_snapshot(&items)?;
+            for item in &input.upsert_items { if item.source_refs.iter().any(|s|s.object.workspace_id!=workspace_id) { return Err(AgentError::new(ErrorCode::ScopeDenied,"Overview evidence belongs to another Workspace")); } }
+            verify(self,&input.upsert_items)?;
+            let now=Utc::now().to_rfc3339();
+            let result=AiOverview { scope:input.scope.clone(),revision:input.expected_revision+1,schema_version:1,items,as_of_seq:input.target_seq,source_manifest_hash:input.source_manifest_hash.clone(),built_at:now.clone(),coverage:input.coverage.clone(),pending_count:input.coverage.pending,model_profile_id:input.model_profile_id.clone() };
+            tx.execute("INSERT INTO agent_overview_versions(scope_key,revision,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![input.scope.key(),result.revision as i64,encode(&result)?,encode(input)?,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
+            tx.execute("INSERT INTO agent_overviews(scope_key,current_revision,as_of_seq,policy_revision,correction_revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(scope_key) DO UPDATE SET current_revision=excluded.current_revision,as_of_seq=excluded.as_of_seq,policy_revision=excluded.policy_revision,correction_revision=excluded.correction_revision,updated_at=excluded.updated_at",params![input.scope.key(),result.revision as i64,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
+            // Only mutated owners are replaced/acknowledged. Retained stale items keep dirtiness.
+            for id in input.remove_item_ids.iter().chain(input.upsert_items.iter().map(|i|&i.id)) {
+                let owner=format!("{}/{}/overview/{}",workspace_id,input.scope.key(),id);
+                tx.execute("DELETE FROM content_reference_edges WHERE source_object_key=?1 AND relation='derived_from'",[&owner]).map_err(io_error)?;
+                tx.execute("DELETE FROM agent_overview_dependencies WHERE scope_key=?1 AND item_id=?2",params![input.scope.key(),id]).map_err(io_error)?;
+                tx.execute("DELETE FROM source_dependency_invalidations WHERE owner_key=?1 AND seq<=?2",params![owner,input.target_seq as i64]).map_err(io_error)?;
+            }
+            for item in &input.upsert_items {
+                let owner=format!("{}/{}/overview/{}",workspace_id,input.scope.key(),item.id);
+                for (ordinal,source) in item.source_refs.iter().enumerate() {
+                    let key=source.object.key()?; let locator=encode(&source.locator)?;
+                    tx.execute("INSERT INTO agent_overview_dependencies VALUES (?1,?2,?3,?4,?5,?6)",params![input.scope.key(),item.id,ordinal as i64,key,source.revision,encode(source)?]).map_err(io_error)?;
+                    tx.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES (?1,?2,'derived_from',?3,?4)",params![owner,key,locator,source.revision]).map_err(io_error)?;
+                }
+                for parent in &item.dependency_item_ids { tx.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES (?1,?2,'derived_from','{}',?3)",params![owner,format!("{}/{}/overview/{}",workspace_id,input.scope.key(),parent),result.revision.to_string()]).map_err(io_error)?; }
+            }
+            // Evidence is immutable and owned by a specific published version, including retained items.
+            for item in &result.items { for (ordinal,source) in item.source_refs.iter().enumerate() {
+                let owner=format!("{}/{}/overview/{}/{}",workspace_id,input.scope.key(),result.revision,item.id);
+                tx.execute("INSERT INTO agent_evidence(id,owner_kind,owner_id,source_ref_json,excerpt) VALUES (?1,'overview',?2,?3,?4)",params![format!("{owner}/{ordinal}"),owner,encode(source)?,source.excerpt]).map_err(io_error)?;
+            } }
+            Ok((result,Some(OperationChange {object_key:format!("overview/{}",input.scope.key()),scope:input.scope.clone(),revision:(input.expected_revision+1).to_string()})))
+        })
+    }
+    pub(crate) fn agent_overview_corrections(
+        &self,
+        scope: &Scope,
+    ) -> AgentResult<OverviewCorrections> {
+        self.overview_scope(scope)?;
+        let revision: i64 = self
+            .conn
+            .query_row(
+                "SELECT revision FROM agent_overview_correction_heads WHERE scope_key=?1",
+                [scope.key()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(io_error)?
+            .unwrap_or(0);
+        let mut stmt=self.conn.prepare("SELECT correction_json FROM agent_overview_corrections WHERE scope_key=?1 ORDER BY id").map_err(io_error)?;
+        let texts = stmt
+            .query_map([scope.key()], |r| r.get::<_, String>(0))
+            .map_err(io_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(io_error)?;
+        Ok(OverviewCorrections {
+            scope: scope.clone(),
+            revision: revision as u64,
+            items: texts
+                .iter()
+                .map(|s| decode(s))
+                .collect::<AgentResult<_>>()?,
+        })
+    }
+    pub(crate) fn agent_overview_correction_upsert(
+        &self,
+        caller: &str,
+        request: &str,
+        input: &OverviewCorrectionUpsert,
+    ) -> AgentResult<OverviewCorrections> {
+        validate_id(&input.id)?;
+        if let Some(id) = &input.item_id {
+            validate_id(id)?;
+        }
+        if input.text.chars().count() > 2000 || input.expected_revision >= i64::MAX as u64 {
+            return Err(invalid("Correction exceeds bounds"));
+        }
+        self.overview_scope(&input.scope)?;
+        self.agent_atomic_operation(caller, request, "overview.correction.upsert", input, |_| {
+            self.overview_save_correction(
+                &input.scope,
+                &input.id,
+                input.expected_revision,
+                Some((&input.text, input.item_id.clone())),
+            )
+        })
+    }
+    pub(crate) fn agent_overview_correction_delete(
+        &self,
+        caller: &str,
+        request: &str,
+        input: &OverviewCorrectionDelete,
+    ) -> AgentResult<OverviewCorrections> {
+        validate_id(&input.id)?;
+        if input.expected_revision >= i64::MAX as u64 {
+            return Err(invalid("Invalid correction revision"));
+        }
+        self.overview_scope(&input.scope)?;
+        self.agent_atomic_operation(caller, request, "overview.correction.delete", input, |_| {
+            self.overview_save_correction(&input.scope, &input.id, input.expected_revision, None)
+        })
+    }
+    fn overview_save_correction(
+        &self,
+        scope: &Scope,
+        id: &str,
+        expected: u64,
+        update: Option<(&str, Option<String>)>,
+    ) -> AgentResult<(OverviewCorrections, Option<OperationChange>)> {
+        self.source_live_scope(scope)?;
+        let current = self.agent_overview_corrections(scope)?;
+        if current.revision != expected {
+            return Err(AgentError::new(
+                ErrorCode::RevisionConflict,
+                "Overview corrections changed",
+            ));
+        }
+        let existing = current.items.iter().find(|i| i.id == id);
+        if update.is_none() && existing.map_or(true, |i| i.deleted) {
+            return Err(AgentError::new(ErrorCode::NotFound, "Correction not found"));
+        }
+        if existing.is_none() && current.items.len() >= 100 {
+            return Err(AgentError::new(
+                ErrorCode::BudgetExceeded,
+                "Correction count exceeds bounds",
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        let item = OverviewCorrection {
+            id: id.into(),
+            scope: scope.clone(),
+            item_id: update.as_ref().map_or_else(
+                || existing.and_then(|i| i.item_id.clone()),
+                |(_, id)| id.clone(),
+            ),
+            text: update.as_ref().map_or_else(
+                || existing.map_or_else(String::new, |i| i.text.clone()),
+                |(text, _)| (*text).into(),
+            ),
+            revision: expected + 1,
+            deleted: update.is_none(),
+            created_at: existing.map_or_else(|| now.clone(), |i| i.created_at.clone()),
+            updated_at: now,
+        };
+        let json = encode(&item)?;
+        self.conn.execute("INSERT INTO agent_overview_correction_heads VALUES (?1,?2) ON CONFLICT(scope_key) DO UPDATE SET revision=excluded.revision",params![scope.key(),item.revision as i64]).map_err(io_error)?;
+        self.conn.execute("INSERT INTO agent_overview_corrections VALUES (?1,?2,?3) ON CONFLICT(scope_key,id) DO UPDATE SET correction_json=excluded.correction_json",params![scope.key(),id,json]).map_err(io_error)?;
+        self.conn
+            .execute(
+                "INSERT INTO agent_overview_correction_versions VALUES (?1,?2,?3,?4)",
+                params![scope.key(), item.revision as i64, id, json],
+            )
+            .map_err(io_error)?;
+        Ok((
+            self.agent_overview_corrections(scope)?,
+            Some(OperationChange {
+                object_key: format!("overview_correction/{}", scope.key()),
+                scope: scope.clone(),
+                revision: item.revision.to_string(),
+            }),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        agent::{
+            context::{EpistemicStatus, OverviewSection, SourceCoverage, ValidState},
+            models::{ObjectKind, ObjectRef, SourceRef},
+        },
+        models::ProjectCreateInput,
+    };
+    fn setup() -> (tempfile::TempDir, Database, Scope) {
+        let root = tempfile::tempdir().unwrap();
+        let mut db =
+            Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
+        let project = db
+            .project_create(ProjectCreateInput {
+                name: "Overview".into(),
+                summary: Some("user buffer".into()),
+                status: None,
+            })
+            .unwrap();
+        db.source_registry_prepare().unwrap();
+        (
+            root,
+            db,
+            Scope::Project {
+                project_id: project.id,
+            },
+        )
+    }
+    fn item(id: &str) -> OverviewItem {
+        OverviewItem {
+            id: id.into(),
+            section: OverviewSection::Profile,
+            text: id.into(),
+            epistemic_status: EpistemicStatus::Inferred,
+            source_refs: vec![],
+            dependency_item_ids: vec![],
+            valid_state: ValidState::Current,
+            updated_at: "original time".into(),
+        }
+    }
+    fn input(db: &Database, scope: &Scope) -> OverviewPublishInput {
+        OverviewPublishInput {
+            scope: scope.clone(),
+            expected_revision: 0,
+            target_seq: db.committed_change_watermark().unwrap() as u64,
+            policy_revision: 0,
+            correction_revision: 0,
+            upsert_items: vec![item("a")],
+            remove_item_ids: vec![],
+            coverage: SourceCoverage {
+                processed: 0,
+                partial: 1,
+                excluded: 0,
+                unsupported: 0,
+                pending: 1,
+            },
+            source_manifest_hash: "manifest".into(),
+            model_profile_id: "profile".into(),
+        }
+    }
+    fn publish(db: &Database, request: &str, p: &OverviewPublishInput) -> AgentResult<AiOverview> {
+        db.agent_overview_publish("gui", request, "w", p, |_, _| Ok(()))
+    }
+    #[test]
+    fn overview_reopen_preserves_snapshot_and_user_buffer() {
+        let (root, db, scope) = setup();
+        let p = input(&db, &scope);
+        let before: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT summary FROM projects WHERE id=?1",
+                [match scope {
+                    Scope::Project { project_id } => project_id,
+                    _ => 0,
+                }],
+                |r| r.get(0),
+            )
+            .unwrap();
+        publish(&db, "one", &p).unwrap();
+        drop(db);
+        let db = Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
+        assert_eq!(
+            db.agent_overview_head(&scope).unwrap().unwrap().items[0].text,
+            "a"
+        );
+        let after: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT summary FROM projects WHERE id=?1",
+                [match scope {
+                    Scope::Project { project_id } => project_id,
+                    _ => 0,
+                }],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(
+            db.conn
+                .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            28
+        );
+    }
+    #[test]
+    fn overview_cas_and_callback_failure_are_atomic() {
+        let (_root, db, scope) = setup();
+        let p = input(&db, &scope);
+        assert!(db
+            .agent_overview_publish("gui", "failed", "w", &p, |_, _| Err(invalid("injected")))
+            .is_err());
+        assert!(db.agent_overview_head(&scope).unwrap().is_none());
+        publish(&db, "one", &p).unwrap();
+        let mut stale = p.clone();
+        stale.target_seq += 1;
+        assert_eq!(
+            publish(&db, "stale", &stale).unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(db.agent_overview_versions(&scope, 0, 100).unwrap(), vec![1]);
+    }
+    #[test]
+    fn overview_receipt_insert_failure_rolls_back_published_rows() {
+        let (_root, db, scope) = setup();
+        let p = input(&db, &scope);
+        db.overview_scope(&scope).unwrap();
+        db.conn.execute_batch("CREATE TEMP TRIGGER fail_overview_receipt BEFORE INSERT ON agent_operation_receipts BEGIN SELECT RAISE(ABORT,'injected receipt failure'); END").unwrap();
+        assert_eq!(
+            publish(&db, "failed", &p).unwrap_err().code,
+            ErrorCode::IoFailed
+        );
+        assert!(db.agent_overview_head(&scope).unwrap().is_none());
+        assert!(db
+            .agent_overview_versions(&scope, 0, 100)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM agent_overview_dependencies",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+    #[test]
+    fn overview_receipt_and_batch_replay_are_stable() {
+        let (_root, db, scope) = setup();
+        let p = input(&db, &scope);
+        publish(&db, "one", &p).unwrap();
+        let replay = db
+            .agent_overview_publish("gui", "one", "w", &p, |_, _| {
+                panic!("must not verify replay")
+            })
+            .unwrap();
+        assert_eq!(replay.revision, 1);
+        assert_eq!(
+            db.agent_overview_publish("gui", "two", "w", &p, |_, _| panic!(
+                "must not verify batch"
+            ))
+            .unwrap()
+            .revision,
+            1
+        );
+        let mut different = p;
+        different.upsert_items[0].text = "different".into();
+        assert_eq!(
+            publish(&db, "one", &different).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        assert_eq!(
+            publish(&db, "three", &different).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+    }
+    #[test]
+    fn overview_mutations_preserve_unselected_items() {
+        let (_root, db, scope) = setup();
+        let mut p = input(&db, &scope);
+        p.upsert_items.push(item("b"));
+        publish(&db, "one", &p).unwrap();
+        p.expected_revision = 1;
+        p.target_seq = db.committed_change_watermark().unwrap() as u64;
+        p.upsert_items = vec![item("b")];
+        p.upsert_items[0].text = "new".into();
+        let head = publish(&db, "two", &p).unwrap();
+        assert_eq!(head.items[0].updated_at, "original time");
+        assert_eq!(head.items[0].text, "a");
+        assert_eq!(
+            db.agent_overview_version(&scope, 1).unwrap().unwrap().items[1].text,
+            "b"
+        );
+    }
+    #[test]
+    fn overview_budget_dependencies_and_confirmation_are_rejected() {
+        let (_root, db, scope) = setup();
+        let mut p = input(&db, &scope);
+        p.upsert_items[0].text = "界".repeat(8001);
+        assert_eq!(
+            publish(&db, "budget", &p).unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        p.upsert_items[0] = item("a");
+        p.upsert_items[0].dependency_item_ids = vec!["missing".into()];
+        assert!(publish(&db, "dangling", &p).is_err());
+        p.upsert_items[0] = item("a");
+        p.upsert_items[0].epistemic_status = EpistemicStatus::UserConfirmed;
+        assert!(publish(&db, "confirmed", &p).is_err());
+        p.upsert_items = vec![item("claim"), item("unsupported")];
+        p.upsert_items[0].epistemic_status = EpistemicStatus::Recorded;
+        p.upsert_items[0].dependency_item_ids = vec!["unsupported".into()];
+        assert!(publish(&db, "unsupported-chain", &p).is_err());
+        assert!(db.agent_overview_head(&scope).unwrap().is_none());
+    }
+    #[test]
+    fn overview_corrections_have_independent_cas_and_tombstones() {
+        let (_root, db, scope) = setup();
+        let p = input(&db, &scope);
+        let correction = OverviewCorrectionUpsert {
+            scope: scope.clone(),
+            id: "fix".into(),
+            item_id: Some("future".into()),
+            text: "用户原文".into(),
+            expected_revision: 0,
+        };
+        let saved = db
+            .agent_overview_correction_upsert("gui", "fix", &correction)
+            .unwrap();
+        assert_eq!(saved.revision, 1);
+        assert_eq!(
+            db.agent_overview_correction_upsert("gui", "fix", &correction)
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(
+            publish(&db, "old", &p).unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        let deleted = db
+            .agent_overview_correction_delete(
+                "gui",
+                "delete",
+                &OverviewCorrectionDelete {
+                    scope: scope.clone(),
+                    id: "fix".into(),
+                    expected_revision: 1,
+                },
+            )
+            .unwrap();
+        assert_eq!(deleted.revision, 2);
+        assert!(deleted.items[0].deleted);
+        assert_eq!(deleted.items[0].text, "用户原文");
+    }
+    #[test]
+    fn overview_real_source_event_invalidates_derived_item() {
+        let (_root, db, scope) = setup();
+        let mut p = input(&db, &scope);
+        let source = ObjectRef {
+            workspace_id: "w".into(),
+            scope: scope.clone(),
+            kind: ObjectKind::Project,
+            id: match scope {
+                Scope::Project { project_id } => project_id.to_string(),
+                _ => unreachable!(),
+            },
+        };
+        p.upsert_items[0].source_refs = vec![SourceRef {
+            object: source.clone(),
+            revision: "sha256:source".into(),
+            file_version: None,
+            record_version: None,
+            block_id: None,
+            locator: None,
+            title: "project".into(),
+            excerpt: "".into(),
+        }];
+        publish(&db, "one", &p).unwrap();
+        db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'project.update','changed','now')",params![source.key().unwrap(),scope.key()]).unwrap();
+        assert_eq!(
+            db.agent_overview_stale_items("w", &scope).unwrap(),
+            vec!["a"]
+        );
+    }
+}
