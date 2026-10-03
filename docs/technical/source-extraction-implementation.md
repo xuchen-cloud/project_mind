@@ -186,3 +186,19 @@ FileVersionService 将 GUI 预检分为权威 metadata 快照、存储锁外流�
 主 agent Standards 与 Spec 自查及 8 个真实 SQLite 与文件系统用例通过，覆盖哈希暂停时 Project 归档仍可完成、重开、原生改名与删除、原件变化、候选变化、同字节外来物理文件、未知旧版本与父目录换绑；删除错误分类和父目录换绑均先复现失败再修复。Rust 全目标库 402 passed、20 默认忽略；source 显式实际进程专项 110 passed，Record 100 passed。前端全量在不并行编译的条件下 141 文件、965 tests 全部通过，未修改驻留逻辑或放宽原 15s 超时；单独驻留用例约 9.5s，通过结果说明先前超时不能作为已定位产品缺陷。构建、路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB；修正文档“上传与 run”的措辞，避免把斜线分词误识别为机器绝对路径。
 
 本阶段仅完成预检的短锁与后台执行。File 提交内核的复制、hash、journal 与恢复仍沿旧 GUI 存储锁，整个 VersionCommitService 的锁拆分尚未交付；上传、精确 UTF-8 patch、历史恢复交互、产品恢复诊断及真实平台故障验收仍待后续工作包。公开 source.search/read 与 File capabilities 保持 implemented:false，普通 source worker 未启用分发，内部惰性表不是已发布 Schema 29。未启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包；#100 与 #114 仍 OPEN，无阶段发布 PR、main 合并或 Issue 关闭。
+
+### GUI File 版本提交服务与工作区屏障（2026-10-03 后续阶段）
+
+GUI 添加版本通过同一 FileVersionService 在后台执行。当前 Host 只在捕获 binding、数据库路径与提交屏障时短暂持有 Workspace 选择锁；随后使用同一个已初始化 Workspace SQLite 文件的独立连接执行既有 Version kernel。文件复制、hash、journal、恢复及等待 Project 与 File 文件锁不持有 GUI 的 runtime.db 或当前 Workspace Mutex，也不在取得文件锁后重新获取这些锁。继续复用 documents、document_versions、登记 hash、稳定回执与原子 outbox，不建立第二个 Host、正文存储或版本表。
+
+独立连接只允许打开存在的普通数据库文件，不使用 CREATE，不跟随符号链接，并要求当前正式 Schema 28；不重复执行 Workspace 启动、迁移、备份或 Voice 资产清理。缺库、空库或旧 Schema 返回失败，不能为 File 操作重建空数据库。原 Workspace 打开与密码重开仍走统一初始化入口，内部惰性 source 表不改正式 Schema 版本。
+
+Workspace 生命周期屏障独立于选择锁、GUI 数据库锁和文件锁。关闭与切换使旧屏障失效；准备阶段的旧操作在原件归档之前被拒绝，并清理自己拥有的 journal。已进入提交区的操作先结算，关闭等待真实结果；noChange 与回执重放同样检查屏障。关闭会话状态保存失败时，不丢弃 runtime，也不使屏障失效。提交后完成回执对应路径补读，释放连接及所有文件锁后发布提示事件；补读与通知失败不能改写成功回执。
+
+真实双连接测试覆盖新增版本与旧字节、后续版本后的稳定回放、noChange、同路径重开、缺库及旧 Schema、准备取消，以及 GUI Project 归档持有存储锁等待文件锁时的完成顺序。准备暂停时 GUI 的真实连接仍可创建 Todo；旧准备取消后归档能完成，没有“File 持文件锁等 GUI 存储锁、Project 持 GUI 存储锁等文件锁”的死锁。通知测试重新读取 GUI 存储并核验 File 文件锁已经释放。
+
+主 agent 双轴审查还复现并修复晚到 requestId 冲突的恢复漏洞：File 准备期间，真实 Context Instruction 操作先占用同一调用方与请求；File 原子事务拒绝写入后，恢复不能把另一操作的回执当成自己的成功或恢复障碍。现在保留另一操作与回执，在核对原 metadata、路径、hash 和物理身份后仅恢复本 journal 拥有的原件及候选字节。回归先复现原件留在归档路径的失败，再验证原件回到旧路径、File 没有新版本、另一操作仍存在、journal 完成清理。
+
+Rust 全目标库 410 passed、20 默认忽略，包含既有 File 实际进程崩溃恢复父用例；source 显式实际进程 110 passed，Record 100 passed。前端代码未改，复用本次独立全量 141 文件、965 tests 全通过及构建验证；路径、UI standards 与 bundle 检查通过，主脚本 189 KiB，预算 250 KiB。主 agent Standards 与 Spec 检查无未处理发现。没有启动应用窗口、真实 Provider、review 子 agent 或 Windows 实包；物理磁盘满、系统掉电及真实平台包验收仍未完成。
+
+本阶段完成 GUI File 版本预检与提交服务的长存储锁拆分，不等于 #114 已交付。其他原生 File 导入、改名、删除和重新定位仍有旧 GUI 存储锁，后续需沿各自 journal 继续服务化；registered 内部写入口还需通过真实适配器接入同样的生命周期与 scope 校验。精确 UTF-8 patch、分块上传的长度及 hash 校验、10min 过期与真实 connection 或 run 绑定、历史恢复交互、产品恢复诊断及依赖成果模块尚未交付。#100 自动桌面调度与知识消费者也未完成。公开 source.search/read 与 File capabilities 仍 implemented:false，普通 source worker 不启用分发，内部惰性表不称为已发布 Schema 29。#100 与 #114 保持 OPEN，不创建阶段发布 PR、合并 main 或关闭 Issue。

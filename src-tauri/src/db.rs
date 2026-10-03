@@ -331,6 +331,33 @@ impl Database {
         Ok(db)
     }
 
+    /// A current Host may open another connection to its already initialized
+    /// database for long File IO. Never create a missing database, run Host
+    /// startup/migrations, or retry unrelated Voice cleanup in this path.
+    pub(crate) fn open_runtime_connection(
+        db_path: &Path,
+        workspace_root: &Path,
+        secret_password: Option<String>,
+    ) -> Result<Self> {
+        crate::db::file_versions::relative(workspace_root, db_path)?;
+        crate::db::file_versions::regular(db_path)?;
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW;
+        let conn = Connection::open_with_flags(db_path, flags)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        let db = Self {
+            conn,
+            workspace_root: workspace_root.to_path_buf(),
+            secret_password,
+            native_workspace_id: None,
+        };
+        if db.schema_version()? != CURRENT_SCHEMA_VERSION {
+            anyhow::bail!("Workspace Host database schema is not current");
+        }
+        Ok(db)
+    }
+
     pub fn migrate(&mut self) -> Result<()> {
         let initial_schema_version = self.schema_version()?;
         let is_fresh_workspace = initial_schema_version == 0 && !self.table_exists("projects")?;

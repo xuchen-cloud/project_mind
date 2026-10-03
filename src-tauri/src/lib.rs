@@ -18,6 +18,7 @@ mod record_document_service;
 mod record_document_commands;
 mod file_document_commands;
 mod file_version_service;
+mod workspace_commit_fence;
 mod record_editor_coordination;
 mod record_export;
 mod secret_crypto;
@@ -138,6 +139,7 @@ pub(crate) struct WorkspaceRuntime {
     pub(crate) paths: WorkspacePaths,
     secret_state: Arc<Mutex<Option<String>>>,
     pub(crate) db: Mutex<Database>,
+    file_commit_fence: Arc<workspace_commit_fence::WorkspaceCommitFence>,
     ai_jobs: AiJobManager,
     voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
@@ -181,6 +183,7 @@ impl WorkspaceRuntime {
             paths,
             secret_state,
             db: Mutex::new(db),
+            file_commit_fence: Arc::new(workspace_commit_fence::WorkspaceCommitFence::new()),
             ai_jobs,
             voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
@@ -269,6 +272,7 @@ impl AppState {
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
         let mut current = lock_mutex(&self.current_workspace);
         if let Some(previous) = current.as_ref() {
+            previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
         *current = runtime;
@@ -311,11 +315,10 @@ impl AppState {
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
         self.seal_current_record_checkpoints()?;
-        let previous = lock_mutex(&self.current_workspace).clone();
-        close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
-        if let Some(previous) = previous {
+        close_workspace_runtime(&self.local_session_path, &self.current_workspace, |previous| {
+            previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
-        }
+        })?;
         self.status_snapshot()
     }
 
@@ -359,11 +362,15 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn close_workspace_runtime<T>(
     local_session_path: &Path,
     current_workspace: &Mutex<Option<T>>,
+    on_close: impl FnOnce(&T),
 ) -> Result<()> {
     let mut session = load_local_session(local_session_path)?;
     session.clear_current_workspace();
     save_local_session(local_session_path, &session)?;
     let mut current = lock_mutex(current_workspace);
+    if let Some(previous) = current.as_ref() {
+        on_close(previous);
+    }
     *current = None;
     Ok(())
 }
@@ -1513,13 +1520,33 @@ mod workspace_lifecycle_tests {
         let mut session = LocalSessionState::default();
         session.record_recent_workspace(Path::new("active-workspace"));
         save_local_session(&session_path, &session).unwrap();
-        let current_runtime = Mutex::new(Some("active-runtime"));
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        let current_runtime = Mutex::new(Some(fence.clone()));
 
-        close_workspace_runtime(&session_path, &current_runtime).unwrap();
+        close_workspace_runtime(&session_path, &current_runtime, |fence| fence.invalidate()).unwrap();
 
         assert!(current_runtime.lock().unwrap().is_none());
+        assert_eq!(
+            fence.enter().unwrap_err().code,
+            crate::agent::errors::ErrorCode::WorkspaceChanged,
+        );
         let session = load_local_session(&session_path).unwrap();
         assert_eq!(session.last_opened_workspace_root, None);
         assert_eq!(session.recent_workspace_roots.len(), 1);
+    }
+    #[test]
+    fn failed_workspace_close_keeps_runtime_and_commit_fence_active() {
+        let temp = tempfile::tempdir().unwrap();
+        let blocker = temp.path().join("not-a-directory");
+        std::fs::write(&blocker, b"keep").unwrap();
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        let current_runtime = Mutex::new(Some(fence.clone()));
+        assert!(close_workspace_runtime(
+            &blocker.join("workspace-session.json"),
+            &current_runtime,
+            |fence| fence.invalidate(),
+        ).is_err());
+        assert!(current_runtime.lock().unwrap().is_some());
+        assert!(fence.enter().is_ok());
     }
 }

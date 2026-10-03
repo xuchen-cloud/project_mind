@@ -1,5 +1,6 @@
 //! File Version commit/recovery kernel. Native GUI delegates here; registered
-//! CAS/receipts include GUI preflight. Upload adapters and short-lock service are pending.
+//! CAS/receipts include GUI preflight; the GUI service uses an existing Host
+//! connection and Workspace commit fence. Upload/registered adapters are pending.
 //! Uses existing documents/document_versions and preserves unknown old hashes.
 use super::{
     agent_operations::{io_error, OperationChange},
@@ -572,14 +573,20 @@ impl Database {
     }
     fn file_journal_recover(&self, directory: &Path, journal: &Journal) -> Result<()> {
         let (original, archive, next) = self.file_journal_paths(journal)?;
-        let committed: Option<CommittedVersion> = self
-            .agent_operation_replay(
-                &journal.caller_id,
-                &journal.request_id,
-                "file.version.commit",
-                &journal.payload,
-            )
-            .map_err(|error| anyhow!(error.message))?;
+        let committed: Option<CommittedVersion> = match self.agent_operation_replay(
+            &journal.caller_id,
+            &journal.request_id,
+            "file.version.commit",
+            &journal.payload,
+        ) {
+            Ok(receipt) => receipt,
+            // A different operation may win this caller/request while File
+            // preparation runs outside storage. Its receipt proves *our* SQL
+            // transaction did not commit. Preserve it and restore only the
+            // journal-owned bytes, with the metadata/identity checks below.
+            Err(error) if error.code == ErrorCode::IdempotencyConflict => None,
+            Err(error) => return Err(anyhow!(error.message)),
+        };
         if let Some(committed) = committed {
             if committed.document_id != journal.document_id
                 || committed.content_hash != journal.new_hash
@@ -777,12 +784,26 @@ impl Database {
             new_content_hash, source_path: input.source_path.clone(),
         })
     }
+    #[cfg(test)]
     pub(crate) fn file_version_commit_gui(
         &mut self,
         binding: &WorkspaceBinding,
         request_id: &str,
         intent: &GuiFileVersionIntent,
         register_current_bytes: bool,
+    ) -> AgentResult<CommittedVersion> {
+        self.file_version_commit_gui_bound(
+            binding, request_id, intent, register_current_bytes,
+            &crate::workspace_commit_fence::WorkspaceCommitFence::new(),
+        )
+    }
+    pub(crate) fn file_version_commit_gui_bound(
+        &mut self,
+        binding: &WorkspaceBinding,
+        request_id: &str,
+        intent: &GuiFileVersionIntent,
+        register_current_bytes: bool,
+        fence: &crate::workspace_commit_fence::WorkspaceCommitFence,
     ) -> AgentResult<CommittedVersion> {
         (|| -> Result<_> {
             if self.native_workspace_id.as_deref() != Some(binding.workspace_id.as_str()) {
@@ -815,6 +836,7 @@ impl Database {
                 },
                 None,
                 Some((request_id, intent, register_current_bytes)),
+                Some(fence),
             )
         })()
         .map_err(agent_failure)
@@ -825,7 +847,7 @@ impl Database {
         input: DocumentAddVersionInput,
     ) -> Result<DocumentRecord> {
         let id = input.document_id;
-        self.file_version_commit(input, None, None)?;
+        self.file_version_commit(input, None, None, None)?;
         self.document_record(id)
     }
 
@@ -908,6 +930,7 @@ impl Database {
                 },
                 Some((request, update)),
                 None,
+                None,
             )
         })();
         result.map_err(|error| match error.downcast::<CommitFailure>() {
@@ -921,6 +944,7 @@ impl Database {
         input: DocumentAddVersionInput,
         registered: Option<(&RequestContext, &FileVersionUpdate)>,
         gui: Option<(&str, &GuiFileVersionIntent, bool)>,
+        fence: Option<&crate::workspace_commit_fence::WorkspaceCommitFence>,
     ) -> Result<CommittedVersion> {
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
@@ -944,12 +968,14 @@ impl Database {
                 )
                 .map_err(CommitFailure)?
             {
+                let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
                 return Ok(receipt);
             }
         }
         if let Some((request_id, intent, register_current_bytes)) = gui {
             if let Some(receipt) = self.agent_operation_replay("gui", request_id, "file.version.commit",
                 &CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }).map_err(CommitFailure)? {
+                let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
                 return Ok(receipt);
             }
         }
@@ -1036,6 +1062,7 @@ impl Database {
             if checksum(&source)? != *expected_hash {
                 return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed before no-change commit"));
             }
+            let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
             let synchronous: i64 = self.conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
             self.conn.pragma_update(None, "synchronous", synchronous.max(2))?;
             let result = self.agent_atomic_operation(&caller_id, request_id, "file.version.commit", &payload, |tx| {
@@ -1203,6 +1230,7 @@ impl Database {
         self.conn
             .pragma_update(None, "synchronous", synchronous.max(2))?;
         let result = (|| -> Result<CommittedVersion> {
+            let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
             if checksum(&original)? != journal.original_captured_hash {
                 return Err(conflict(
                     ErrorCode::FileChangedUnregistered,
