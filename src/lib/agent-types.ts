@@ -129,6 +129,77 @@ export interface AiOverview {
   pendingCount: number;
   modelProfileId: string;
 }
+export type KnowledgeStorageKind = "topic" | "decision" | "source_summary";
+export type KnowledgeReadKind = KnowledgeStorageKind | "overview_item";
+export type KnowledgeNodeId = `node:${string}` | `overview:${string}`;
+export type KnowledgeView = "outline" | "summary" | "content";
+/** Omitted view defaults to summary; omitted sectionIds defaults to []. */
+export interface KnowledgeGetInput {
+  scope: AgentScope;
+  nodeId: KnowledgeNodeId;
+  version?: number | null;
+  view?: KnowledgeView;
+  sectionIds?: string[];
+  cursor?: string | null;
+  budgetChars?: number | null;
+}
+export interface KnowledgeReadSection {
+  id: string;
+  title: string;
+  text: string | null;
+  textOffset: number;
+  complete: boolean;
+}
+export interface KnowledgeRelatedCard {
+  nodeId: KnowledgeNodeId;
+  revision: number;
+  kind: KnowledgeReadKind;
+  title: string;
+  oneLine: string;
+  relation: "related" | "supports" | "contradicts";
+  reason: string;
+}
+export interface KnowledgeGetPage {
+  scope: AgentScope;
+  nodeId: KnowledgeNodeId;
+  kind: KnowledgeReadKind;
+  revision: number;
+  title: string;
+  view: KnowledgeView;
+  summary: string | null;
+  summaryOffset: number;
+  sections: KnowledgeReadSection[];
+  sourceRefs: AgentSourceRef[];
+  related: KnowledgeRelatedCard[];
+  coverage: AgentSourceCoverage;
+  stale: boolean;
+  epistemicStatus: AiOverviewItem["epistemicStatus"];
+  validState: AiOverviewItem["validState"];
+  nextCursor: string | null;
+}
+export interface KnowledgeSearchInput {
+  scope: AgentScope;
+  query: string;
+  kinds?: KnowledgeStorageKind[];
+  cursor?: string | null;
+  limit?: number | null;
+  budgetChars?: number | null;
+}
+export interface KnowledgeSearchCard {
+  nodeId: KnowledgeNodeId;
+  title: string;
+  snippet: string;
+  kind: KnowledgeReadKind;
+  revision: number;
+  stale: boolean;
+  epistemicStatus: AiOverviewItem["epistemicStatus"];
+}
+export interface KnowledgeSearchPage {
+  scope: AgentScope;
+  items: KnowledgeSearchCard[];
+  nextCursor: string | null;
+  sourceFallbackRequired: boolean;
+}
 export type AiProjectOverview = AiOverview & { scope: { kind: "project"; projectId: number } };
 export type AiWorkspaceOverview = AiOverview & { scope: { kind: "workspace" } };
 export type AgentRunState = "preparing" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";

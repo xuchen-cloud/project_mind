@@ -210,6 +210,11 @@ impl Database {
     ) -> AgentResult<AiOverview> {
         input.validate()?;
         self.overview_scope(&input.scope)?;
+        if !input.knowledge_upserts.is_empty() || !input.knowledge_removes.is_empty() {
+            self.agent_knowledge_prepare().map_err(|_| {
+                AgentError::new(ErrorCode::IoFailed, "Cannot prepare knowledge publication")
+            })?;
+        }
         self.agent_atomic_operation(caller,request,"overview.publish",input,|tx| {
             self.source_live_scope(&input.scope)?;
             let batch:Option<(String,String)>=tx.query_row("SELECT payload_json,snapshot_json FROM agent_overview_versions WHERE scope_key=?1 AND target_seq=?2 AND policy_revision=?3 AND correction_revision=?4",params![input.scope.key(),input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(io_error)?;
@@ -229,6 +234,7 @@ impl Database {
             validate_snapshot(&items)?;
             for item in &input.upsert_items { if item.source_refs.iter().any(|s|s.object.workspace_id!=workspace_id) { return Err(AgentError::new(ErrorCode::ScopeDenied,"Overview evidence belongs to another Workspace")); } }
             verify(self,&input.upsert_items)?;
+            if !input.knowledge_upserts.is_empty() || !input.knowledge_removes.is_empty() {self.agent_knowledge_publish_in_transaction(workspace_id,&input.scope,input.expected_revision+1,input.target_seq,&input.knowledge_upserts,&input.knowledge_removes)?;}
             for key in &input.settled_object_keys {
                 if !key.starts_with(&format!("{}/{}/",workspace_id,input.scope.key())) {return Err(AgentError::new(ErrorCode::ScopeDenied,"Settled source belongs to another Workspace"));}
                 tx.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2 AND last_seq<=?3",params![input.scope.key(),key,input.target_seq as i64]).map_err(io_error)?;
@@ -445,6 +451,8 @@ mod tests {
             upsert_items: vec![item("a")],
             remove_item_ids: vec![],
             settled_object_keys: vec![],
+            knowledge_upserts: vec![],
+            knowledge_removes: vec![],
             coverage: SourceCoverage {
                 processed: 0,
                 partial: 1,

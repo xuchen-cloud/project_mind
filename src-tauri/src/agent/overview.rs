@@ -19,6 +19,10 @@ pub struct OverviewPublishInput {
     pub remove_item_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settled_object_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub knowledge_upserts: Vec<super::knowledge::KnowledgeNodeWrite>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub knowledge_removes: Vec<String>,
     pub coverage: SourceCoverage,
     pub source_manifest_hash: String,
     pub model_profile_id: String,
@@ -134,6 +138,11 @@ pub(crate) fn validate_id(id: &str) -> AgentResult<()> {
 impl OverviewPublishInput {
     pub(crate) fn validate(&self) -> AgentResult<()> {
         self.scope.validate()?;
+        super::knowledge::validate_knowledge_batch(
+            &self.scope,
+            &self.knowledge_upserts,
+            &self.knowledge_removes,
+        )?;
         if [
             self.expected_revision,
             self.target_seq,

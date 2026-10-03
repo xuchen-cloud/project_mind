@@ -4,8 +4,8 @@ use crate::{
     agent::{
         access::RequestContext,
         context::{
-            ContextEntry, ContextGetInput, KnowledgeStatus, OverviewSection, ScopeIdentity,
-            ValidState,
+            ContextEntry, ContextGetInput, KnowledgeCard, KnowledgeStatus, OverviewSection,
+            ScopeIdentity, ValidState,
         },
         errors::{AgentError, AgentResult, ErrorCode},
         models::{Scope, WorkspaceBinding},
@@ -107,12 +107,72 @@ impl Database {
         let profile = snapshot.items.iter().find(|item| {
             matches!(item.section, OverviewSection::Profile) && !hidden.contains(&item.id)
         });
+        let query = input.query.as_deref().unwrap_or("");
+        let mut cards = Vec::new();
+        // A bounded candidate page; authorization precedes every visible title.
+        let candidates = self.agent_knowledge_candidates(&input.scope, query, &[], None, 50)?;
+        let candidate_ids: Vec<_> = candidates.iter().map(|node| node.node_id.clone()).collect();
+        let node_stale =
+            self.agent_knowledge_stale_ids(&binding.workspace_id, &input.scope, &candidate_ids)?;
+        let mut extra_nodes = false;
+        for node in candidates {
+            let mut visible = true;
+            for reference in &node.source_refs {
+                match self.source_read_object(&source_request, binding, &reference.object) {
+                    Ok(_) => (),
+                    Err(error) if hidden_source(&error) => {
+                        visible = false;
+                        break;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            if !visible {
+                continue;
+            }
+            if cards.len() == 8 {
+                extra_nodes = true;
+                break;
+            }
+            cards.push(KnowledgeCard {
+                node_id: format!("node:{}", node.node_id),
+                title: node.title,
+                one_line: node.one_line.chars().take(240).collect(),
+            });
+        }
+        let query_lower = query.to_lowercase();
+        for item in snapshot
+            .items
+            .iter()
+            .filter(|item| !hidden.contains(&item.id))
+        {
+            if !query.is_empty() && !item.text.to_lowercase().contains(&query_lower) {
+                continue;
+            }
+            if cards.len() == 8 {
+                extra_nodes = true;
+                break;
+            }
+            let title = match item.section {
+                OverviewSection::Profile => "项目定位",
+                OverviewSection::Progress => "项目进展",
+                OverviewSection::KnowledgeMap => "知识入口",
+                OverviewSection::Actions => "行动",
+                OverviewSection::OpenQuestions => "待解问题",
+            };
+            cards.push(KnowledgeCard {
+                node_id: format!("overview:{}", item.id),
+                title: title.into(),
+                one_line: item.text.chars().take(240).collect(),
+            });
+        }
         let mut coverage = snapshot.coverage.clone();
         coverage.pending = pending.pending_count;
         let is_stale = baseline_changed
             || pending.pending_count > 0
             || !stale.is_empty()
-            || !hidden.is_empty();
+            || !hidden.is_empty()
+            || !node_stale.is_empty();
         let entry = ContextEntry {
             identity,
             status: if is_stale {
@@ -123,12 +183,17 @@ impl Database {
             overview_updated_at: Some(snapshot.built_at),
             positioning: profile.map(|item| item.text.clone()),
             coverage: Some(coverage),
-            nodes: vec![],
+            nodes: cards,
             // Even when the profile fits, the complete Overview is a separate
             // selective read; an incomplete manifest never advertises readiness.
             has_more: pending.needs_rebuild
+                || extra_nodes
                 || snapshot.items.len() > usize::from(profile.is_some()),
-            available_reads: vec!["context.overview.get".into()],
+            available_reads: vec![
+                "context.overview.get".into(),
+                "knowledge.get".into(),
+                "knowledge.search".into(),
+            ],
         };
         entry.bounded(input.budget_chars)
     }
@@ -275,6 +340,8 @@ mod tests {
             upsert_items: vec![basis, profile],
             remove_item_ids: vec![],
             settled_object_keys: vec![],
+            knowledge_upserts: vec![],
+            knowledge_removes: vec![],
             coverage: SourceCoverage {
                 processed: 1,
                 partial: 0,
@@ -320,8 +387,14 @@ mod tests {
             .is_some_and(|text| !text.is_empty() && text.chars().count() <= 300));
         assert!(serialized_chars(&entry).unwrap() <= 550);
         assert!(entry.has_more);
-        assert!(entry.nodes.is_empty());
-        assert_eq!(entry.available_reads, vec!["context.overview.get"]);
+        assert!(entry
+            .nodes
+            .iter()
+            .all(|card| card.node_id.starts_with("overview:")));
+        assert_eq!(
+            entry.available_reads,
+            vec!["context.overview.get", "knowledge.get", "knowledge.search"]
+        );
         assert!(!matches!(entry.status, KnowledgeStatus::Ready));
         let mut denied_scope = f.request.clone();
         denied_scope.scope_grant.project_ids.clear();

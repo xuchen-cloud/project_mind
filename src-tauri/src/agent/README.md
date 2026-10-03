@@ -15,7 +15,7 @@ agentApi.contextGet(binding, question)
 
 `agent_status_get` 返回当前 Workspace UUID/本次打开 generation、能力清单和 runtime/bridge 可用性。`agent_context_get` 读取独立身份及有界 Overview 快照，并核对来源归属、排除和失效元数据；不调用项目整页、原文提取或 File 字节读取。Workspace 入口也只返回身份，不聚合项目。每个新 WorkspaceRuntime 生成独立 generation，关闭或重新打开后旧 binding 失效。
 
-Project 有已发布 Overview 时，L0 返回首个可见 profile 的 ≤300 字符定位；未建立时保留 not_built，覆盖未证明完整时不标 ready。`agentApi.overviewGet` → `agent_overview_get` → `OverviewService.get` 提供目录及显式选择后的有界读取，默认不返回正文。L0 仅推荐此已接通方法，不虚构知识节点。它没有模型费用，也不修改用户资料。调用方应在用户提出问题后请求 L0，不能在空会话 mount 时预加载正文。
+Project 有已发布 Overview 时，L0 返回首个可见 profile 的 ≤300 字符定位；未建立时保留 not_built，覆盖未证明完整时不标 ready。`agentApi.overviewGet` → `agent_overview_get` → `OverviewService.get` 提供目录及显式选择后的有界读取，默认不返回正文。L0 返回最多 8 个实际 node:/overview: 导航 ID，推荐已接通的 Overview 与 knowledge.get/search；没有节点时不虚构。它没有模型费用，也不修改用户资料。调用方应在用户提出问题后请求 L0，不能在空会话 mount 时预加载正文。
 
 ## 模块和接入顺序
 
@@ -44,7 +44,7 @@ Project 有已发布 Overview 时，L0 返回首个可见 profile 的 ≤300 字
 - 外部对象参数先由存储解析真实归属，再通过 `authorize_object` 验证，不能只相信参数中提供的 Project ID。Workspace 内容权限不隐式授权所有项目；项目列表须显式给出。
 - `RuntimeAdapter` 只描述运行接口，`RunState.transition` 只检查状态转移。AI-05 必须在最终消息和工具结果持久化、SDK settled 后才能提交 completed；还需持久化和取消结算。当前没有活动 run 或后台计时器。
 - `OutputIntent` / `RecordPatch` 是未开放的写入契约。节点白名单、Record 版本、File staging/恢复、幂等收据和事务 outbox 完成前不得注册为可执行工具。File 更新复用既有 File Version；HTML 保存源码，隔离预览由 AI-18 接入。
-- `capabilities.implemented` 描述共享服务状态，不代表 CLI/MCP transport 可用。`context.get`、`context.overview.get`、配置/说明读写和 `changes.list` 当前通过 GUI 命令调用。CLI 没有读取 Workspace 文件、开启第二个数据库或建立网络监听；`mind mcp serve` 在 stderr 明确报不可用并退出 3，stdout 保持空。
+- `capabilities.implemented` 描述共享服务状态，不代表 CLI/MCP transport 可用。`context.get`、`context.overview.get`、`knowledge.get/search`、配置/说明读写和 `changes.list` 当前通过 GUI 命令调用。CLI 没有读取 Workspace 文件、开启第二个数据库或建立网络监听；`mind mcp serve` 在 stderr 明确报不可用并退出 3，stdout 保持空。
 - Agent Host 不进入 Vite 依赖图。运行时是否开放由 AI-01 的捆绑 Node、真实模型、SessionStore codec 和安装包验证共同决定，不把本机开发 Node 当成发布方案。
 - 尚未接入助手面板或首页入口，因此产品不会显示无法完成任务的聊天框，也不会新增“继续工作”卡片。
 
@@ -73,3 +73,5 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin mind -- capabilities --json
 `../source_service.rs` 与 `../db/sources.rs` 为已初始化 Record 提供有界正文/块/段落读取、固定修订游标、真实归属与最新策略复核；`../source_search_index.rs` 是可重建的 FTS5 trigram 缓存。当前 head 替换旧缓存，不逐次保留 autosave 正文；显式保留版本另带 Record Version。来源服务核对正文及 metadata 修订，返回前再次核对 Workspace binding，缓存不授予访问权限或成为独立事实源。
 
 这些内部方法尚未注册为工具，source.search/read 的 implemented 仍为 false。File 登记 hash、旧 Record 基线、其他来源、typed reference、GUI 业务事件和持久后台队列仍在 AI-03 内继续实现。排除策略须走 GUI 共享服务的 settings.write/CAS/幂等事务；缓存 payload 统计不能替代数据库实际文件大小。详情见 [来源实施记录](../../../docs/technical/source-extraction-implementation.md)。
+
+知识的确定性发布、来源检查和有界读取见[Overview/知识实施记录](../../../docs/technical/ai-overview-implementation.md)。knowledge.search 未命中时只返回 sourceFallbackRequired；真实原文回退仍受 source 工具开放门槛约束。

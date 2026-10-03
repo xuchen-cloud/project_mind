@@ -112,6 +112,36 @@ pub(crate) async fn agent_overview_get(
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 
+fn gui_knowledge_request(binding: &WorkspaceBinding, request_id: &str, scope: &Scope) -> RequestContext {
+    RequestContext {
+        binding: binding.clone(), request_id: request_id.into(), caller: Caller::Gui,
+        scope_grant: ScopeGrant {
+            workspace_id: binding.workspace_id.clone(),
+            workspace_content: matches!(scope, Scope::Workspace),
+            project_ids: match scope { Scope::Project { project_id } => vec![*project_id], _ => vec![] },
+            operations: vec!["context.read".into()],
+        },
+    }
+}
+#[tauri::command]
+pub(crate) async fn agent_knowledge_get(
+    state: State<'_, AppState>,
+    input: AgentCommandInput<crate::knowledge_service::KnowledgeGetInput>,
+) -> Result<ApiResponse<crate::knowledge_service::KnowledgeGetPage>, String> {
+    let request = gui_knowledge_request(&input.binding, &input.request_id, &input.data.scope);
+    let result = crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).get(&request, &input.data).await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+#[tauri::command]
+pub(crate) fn agent_knowledge_search(
+    state: State<'_, AppState>,
+    input: AgentCommandInput<crate::knowledge_service::KnowledgeSearchInput>,
+) -> ApiResponse<crate::knowledge_service::KnowledgeSearchPage> {
+    let request = gui_knowledge_request(&input.binding, &input.request_id, &input.data.scope);
+    let result = crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).search(&request, &input.data);
+    ApiResponse::from_result(input.request_id, result)
+}
+
 #[tauri::command]
 pub(crate) fn agent_business_changes_list(
     state: State<'_, AppState>,

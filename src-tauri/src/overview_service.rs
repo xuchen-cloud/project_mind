@@ -203,7 +203,17 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         if let Some(receipt) = replay {
             return Ok(receipt.into());
         }
-        for reference in input.upsert_items.iter().flat_map(|item| &item.source_refs) {
+        for reference in input
+            .upsert_items
+            .iter()
+            .flat_map(|item| &item.source_refs)
+            .chain(
+                input
+                    .knowledge_upserts
+                    .iter()
+                    .flat_map(|node| &node.source_refs),
+            )
+        {
             let captured = evidence
                 .iter()
                 .find(|captured| captured.matches(reference))
@@ -221,7 +231,12 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                     &binding.workspace_id,
                     input,
                     |db, items| {
-                        for reference in items.iter().flat_map(|item| &item.source_refs) {
+                        for reference in items.iter().flat_map(|item| &item.source_refs).chain(
+                            input
+                                .knowledge_upserts
+                                .iter()
+                                .flat_map(|node| &node.source_refs),
+                        ) {
                             evidence
                                 .iter()
                                 .find(|captured| captured.matches(reference))
@@ -682,6 +697,14 @@ fn project(
             next_cursor,
         ))
     };
+    // Finishing the selection removes its cursor. Test that endpoint first:
+    // a short complete item may fit when even one character plus a cursor cannot.
+    let (full, next) = make(chars.len() - offset)?;
+    page.items = vec![full];
+    page.next_cursor = next;
+    if serialized_chars(&page)? <= budget {
+        return Ok(page);
+    }
     let (mut low, mut high) = (0, chars.len() - offset);
     while low < high {
         let middle = (low + high + 1) / 2;
@@ -884,6 +907,8 @@ mod tests {
             }],
             remove_item_ids: vec![],
             settled_object_keys: vec![],
+            knowledge_upserts: vec![],
+            knowledge_removes: vec![],
             coverage: SourceCoverage {
                 processed: 1,
                 partial: 0,
@@ -1228,5 +1253,59 @@ mod tests {
         assert_eq!(directory.pending_count, 0);
         assert!(directory.needs_rebuild);
         assert_eq!(directory.coverage.unwrap().pending, 0);
+    }
+    #[tokio::test]
+    async fn overview_publication_verifies_knowledge_evidence_in_the_same_transaction() {
+        use crate::agent::knowledge::{KnowledgeBodySection, KnowledgeKind, KnowledgeNodeWrite};
+        let (_root, store, request, source) = setup();
+        let (mut input, evidence) = candidate(&store, &request, &source).await;
+        input.knowledge_upserts.push(KnowledgeNodeWrite {
+            node_id: "decision-one".into(),
+            expected_revision: 0,
+            kind: KnowledgeKind::Decision,
+            title: "实际待办决定".into(),
+            one_line: "有真实依据的知识入口".into(),
+            summary: "从实际已提交待办提炼".into(),
+            body_sections: vec![KnowledgeBodySection {
+                id: "reason".into(),
+                title: "依据".into(),
+                text: "保留真实来源和版本".into(),
+            }],
+            aliases: vec!["决策".into()],
+            keywords: vec!["依据".into()],
+            source_refs: vec![evidence[0].reference().clone()],
+            epistemic_status: EpistemicStatus::Recorded,
+            coverage: input.coverage.clone(),
+            related: vec![],
+        });
+        let service = OverviewService::new(&store);
+        input.knowledge_upserts[0].source_refs[0].excerpt = "伪造节点依据".into();
+        assert_eq!(
+            service
+                .publish(&request, &input, &evidence)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(store
+            .db
+            .lock()
+            .unwrap()
+            .agent_overview_head(&input.scope)
+            .unwrap()
+            .is_none());
+        input.knowledge_upserts[0].source_refs[0] = evidence[0].reference().clone();
+        service.publish(&request, &input, &evidence).await.unwrap();
+        let node = store
+            .db
+            .lock()
+            .unwrap()
+            .agent_knowledge_get(&input.scope, "decision-one", None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(node.revision, 1);
+        assert_eq!(node.source_refs[0].excerpt, evidence[0].reference().excerpt);
+        assert_eq!(store.notifications.load(Ordering::SeqCst), 1);
     }
 }

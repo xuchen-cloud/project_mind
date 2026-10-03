@@ -15,6 +15,8 @@ mod source_text_page;
 mod source_native;
 mod overview_evidence;
 mod overview_service;
+mod knowledge_service;
+mod knowledge_registry;
 mod utility_process;
 mod record_document_service;
 mod record_document_commands;
@@ -1360,6 +1362,8 @@ pub fn run() {
             agent::commands::agent_status_get,
             agent::commands::agent_context_get,
             agent::commands::agent_overview_get,
+            agent::commands::agent_knowledge_get,
+            agent::commands::agent_knowledge_search,
             agent::commands::agent_settings_get,
             agent::commands::agent_settings_update,
             agent::commands::agent_instructions_list,

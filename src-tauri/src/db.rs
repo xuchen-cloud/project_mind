@@ -1,6 +1,7 @@
 pub(crate) mod agent;
 mod agent_operations;
 mod agent_overviews;
+mod agent_knowledge;
 mod agent_instructions;
 mod record_documents;
 mod record_references;

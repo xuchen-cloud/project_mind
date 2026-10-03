@@ -3,12 +3,60 @@ import { agentApi, AgentApiError } from "./agentApi";
 import { desktopApi } from "./desktopApi";
 import { agentQueryKeys } from "../lib/agent-query-keys";
 import { queryKeys } from "../lib/queryKeys";
-import type { OverviewReadInput, OverviewReadPage } from "../lib/agent-types";
+import type { OverviewReadInput, OverviewReadPage, KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage } from "../lib/agent-types";
 
 vi.mock("./desktopApi", () => ({ desktopApi: { command: vi.fn() } }));
 beforeEach(() => vi.clearAllMocks());
 const binding = { workspaceId: "w1", generation: "open-1" };
 const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上次的决定" };
+
+const knowledgeSummary: KnowledgeGetPage = {
+  scope: context.scope, nodeId: "node:decision-1", kind: "decision", revision: 3,
+  title: "决策", view: "summary", summary: "有界摘要", summaryOffset: 4,
+  sections: [], sourceRefs: [], related: [],
+  coverage: { processed: 1, partial: 0, excluded: 0, unsupported: 0, pending: 0 },
+  stale: false, epistemicStatus: "recorded", validState: "current", nextCursor: "next-summary",
+};
+
+it("returns bounded Knowledge summaries without loading content or related sources", async () => {
+  vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r1", ok: true, data: knowledgeSummary });
+  expect(await agentApi.knowledgeGet(binding, { scope: context.scope, nodeId: "node:decision-1" }, "r1")).toBe(knowledgeSummary);
+  expect(desktopApi.command).toHaveBeenCalledTimes(1);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_knowledge_get", {
+    input: { binding, requestId: "r1", data: { scope: context.scope, nodeId: "node:decision-1" } },
+  });
+});
+
+it("forwards Knowledge view, section selection, version, cursor and budget unchanged", async () => {
+  const data: KnowledgeGetInput = { scope: context.scope, nodeId: "overview:item-1", view: "content",
+    sectionIds: ["section-1"], version: 3, cursor: "read-cursor", budgetChars: 600 };
+  const page: KnowledgeGetPage = { ...knowledgeSummary, nodeId: "overview:item-1", kind: "overview_item", view: "content",
+    summary: null, summaryOffset: 0, sections: [{ id: "section-1", title: "内容", text: "片段", textOffset: 2, complete: false }] };
+  vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r1", ok: true, data: page });
+  expect(await agentApi.knowledgeGet(binding, data, "r1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_knowledge_get", { input: { binding, requestId: "r1", data } });
+});
+
+it("preserves Knowledge search fallback signals without calling source APIs", async () => {
+  const data: KnowledgeSearchInput = { scope: context.scope, query: "未覆盖主题", kinds: ["topic", "decision", "source_summary"],
+    cursor: "search-cursor", limit: 5, budgetChars: 800 };
+  const page: KnowledgeSearchPage = { scope: context.scope, items: [], nextCursor: null, sourceFallbackRequired: true };
+  vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r1", ok: true, data: page });
+  expect(await agentApi.knowledgeSearch(binding, data, "r1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenCalledTimes(1);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_knowledge_search", { input: { binding, requestId: "r1", data } });
+});
+
+it("preserves nullable Knowledge inputs and structured errors for both read commands", async () => {
+  const read: KnowledgeGetInput = { scope: context.scope, nodeId: "node:decision-1", version: null, cursor: null, budgetChars: null };
+  const search: KnowledgeSearchInput = { scope: context.scope, query: "决策", cursor: null, limit: null, budgetChars: null };
+  const error = { code: "SOURCE_CHANGED", message: "Knowledge changed", retryable: true, details: { revision: 4 } };
+  vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r1", ok: false, error });
+  await expect(agentApi.knowledgeGet(binding, read, "r1")).rejects.toMatchObject({ name: "AgentApiError", ...error });
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_knowledge_get", { input: { binding, requestId: "r1", data: read } });
+  await expect(agentApi.knowledgeSearch(binding, search, "r1")).rejects.toMatchObject({ name: "AgentApiError", ...error });
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_knowledge_search", { input: { binding, requestId: "r1", data: search } });
+});
 
 const overviewDirectory: OverviewReadPage = {
   scope: context.scope, revision: 3, sections: [{ section: "progress", count: 1 }], items: [],

@@ -4,6 +4,7 @@ import type {
   AgentStatus, AgentWorkspaceBinding, AgentScope, AgentScopeSettings, AgentSettingsUpdate,
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
   SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage,
+  KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage,
 } from "../lib/agent-types";
 
 export class AgentApiError extends Error {
@@ -43,6 +44,12 @@ export const agentApi = {
   },
   overviewGet(binding: AgentWorkspaceBinding, data: OverviewReadInput, requestId = crypto.randomUUID()): Promise<OverviewReadPage> {
     return callAgentCommand("agent_overview_get", requestId, { input: { binding, requestId, data } });
+  },
+  knowledgeGet(binding: AgentWorkspaceBinding, data: KnowledgeGetInput, requestId = crypto.randomUUID()): Promise<KnowledgeGetPage> {
+    return callAgentCommand("agent_knowledge_get", requestId, { input: { binding, requestId, data } });
+  },
+  knowledgeSearch(binding: AgentWorkspaceBinding, data: KnowledgeSearchInput, requestId = crypto.randomUUID()): Promise<KnowledgeSearchPage> {
+    return callAgentCommand("agent_knowledge_search", requestId, { input: { binding, requestId, data } });
   },
   settingsGet(binding: AgentWorkspaceBinding, scope: AgentScope, requestId = crypto.randomUUID()): Promise<AgentScopeSettings> {
     return callAgentCommand("agent_settings_get", requestId, { input: { binding, requestId, data: scope } });

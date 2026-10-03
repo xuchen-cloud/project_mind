@@ -157,8 +157,13 @@ impl ContextEntry {
                 self.has_more = true;
             }
         }
+        if self.nodes.len() > 8 {
+            self.nodes.truncate(8);
+            self.has_more = true;
+        }
         while serialized_chars(&self)? > budget {
             self.has_more = true;
+            if self.nodes.pop().is_some() { continue; }
             if self.positioning.as_mut().is_some_and(|text| text.pop().is_some()) { continue; }
             self.positioning = None;
             if self.identity.name.pop().is_some() { continue; }

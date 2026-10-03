@@ -31,3 +31,19 @@
 新增 GUI agent_overview_get 和 typed agentApi.overviewGet，复用共享 service 的真实授权和选择性读取；context.overview.get 的 implemented=true 仅说明这个已实现读取服务与 GUI 适配器，不代表 CLI/MCP/Pi transport、模型维护或助手 UI 已开放。目录与分页都返回 pendingCount/needsRebuild，当前状态不伪装 ready。source/File capability、runtimeAvailable 与普通 worker 分发门槛保持原状态。
 
 验证：Overview 专项 27 passed / 1 ignored，L0 专项 5 passed，Rust 全目标 481 passed / 23 ignored；前端 API 8 passed，TypeScript 类型检查通过。复用 P5a 的固定 source worker 8 passed 和未受影响的前端全量/构建结果。主 agent 完成 Standards / Spec 自查；P5c 知识节点、真实完整 inventory、模型调度与用户界面仍待接入，#101 保持 OPEN。
+
+## P5c：知识节点、统一读取与检索（2026-10-03）
+
+关联 #101 / A51–55、A66–72 的确定性知识层。topic、decision、source_summary 保存在独立 SQLite 版本中；current pointer 和 FTS5 trigram 仅为派生指针/索引。节点 upsert/remove 与 Overview 的版本、CAS、稳定收据、pending 确认在同一个事务内发布；失败整体回滚，未选中节点不重写。节点不能自授 user_confirmed，recorded 必须有本次真实 source 读取捕获的依据；单源摘要只允许一个实际来源对象。related/supports/contradicts 保留目标节点版本与一句原因，仅作导航，不能代替原始依据。
+
+统一只读 registry 使用 node:<真实节点 ID>、overview:<真实条目 ID>。Overview 条目直接读原 Overview 版本，不复制正文或创建新 authority。正式会话节点尚无注册接缝，未造假 ID。GUI knowledge.get/search 与 typed API 已连接共享服务；L0 最多 8 张可解析卡片，响应预算不足时少返回并标 hasMore。
+
+knowledge.get 默认 summary，总响应默认 1200 Unicode 字符；content 默认 4000、硬限 8000，含来源、状态、导航与游标。outline 只读目录，content 可选 section，按 Unicode 分页；related 最多 5 张卡片、不递归正文。返回实际 epistemicStatus、validState、coverage 与版本；当前和历史版都核对来源访问。来源排除/删除隐藏整个节点与相关导航的标题、摘要和原因；来源变化及更新的用户纠正/策略使旧节点 stale。File 字节核验在锁外，返回前重新核对绑定、head 和来源；没有为读取重复提取 File。
+
+knowledge.search 支持标题/别名/关键词，trigram 与 1–2 字 literal LIKE 回退，fixture 包含中文及别名。默认 8 张、最多 50 张，snippet≤240，整个响应≤3000；单次最多扫描 200 个节点候选，再检索既有最多 100 条 Overview。所有标题先过来源授权，扫描预算耗尽也保留游标，不能因一页无可见结果而声称全库无资料。两个 authority 的结果在同一数据库锁内组合；游标绑定查询、scope 和 Overview revision。无匹配时返回 sourceFallbackRequired=true；实际 source.search 适配器仍未开放，本包不自动越过其发布门槛，因此“真实原文回退已接通”仍未验收。
+
+修复了本包实际触发的分页问题：最后一页移除游标后，序列化大小不再单调。Overview/knowledge pager 先尝试完整剩余正文，再对 partial 页二分预算，避免短完整内容能装下却被游标误判超限。不放宽字符预算，也不在返回后截断正文而丢失游标对应关系。
+
+存储内部限制：每次最多 20 个节点变更，批次文本最多 48000 字符；每节点正文合计最多 8000，最多 20 章节/来源，aliases/keywords 各最多 20。读取所需不可省略的引用元数据不能装入请求预算时明确 BudgetExceeded，不静默删证据。sourceCoverage 仍为可信维护输入，初始 manifest 未证明完整时 needs_rebuild 保持 true，不将节点存在或 pending 为零当作完整理解。
+
+验证：节点存储 7 个真实 SQLite 用例通过；知识服务 3 passed、registry 3 passed、受影响 Overview 31 passed / 1 ignored、L0 6 passed；收口 Rust 全目标 495 passed / 23 ignored。前端 API 12 passed，TypeScript 类型检查通过；不重跑未变化的 worker staging、前端全量或平台验收。主 agent Standards / Spec 自查完成。#101 仍有实际原文回退、完整 inventory、纠正管理及真实维护消费等门槛，保持 OPEN。

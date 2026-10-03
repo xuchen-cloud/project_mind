@@ -5,6 +5,7 @@ pub mod changes;
 pub(crate) mod commands;
 pub mod context;
 pub(crate) mod overview;
+pub(crate) mod knowledge;
 pub mod errors;
 pub mod instructions;
 pub mod maintenance;
