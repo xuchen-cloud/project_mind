@@ -17,9 +17,69 @@ pub struct OverviewPublishInput {
     pub correction_revision: u64,
     pub upsert_items: Vec<OverviewItem>,
     pub remove_item_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settled_object_keys: Vec<String>,
     pub coverage: SourceCoverage,
     pub source_manifest_hash: String,
     pub model_profile_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewPendingStatus {
+    pub pending_count: u64,
+    pub needs_rebuild: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewPendingItem {
+    pub object_key: String,
+    pub first_seq: u64,
+    pub last_seq: u64,
+    pub operation: String,
+    pub latest_revision: String,
+    pub deleted: bool,
+    pub excluded: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewPendingPage {
+    pub scope: Scope,
+    pub target_seq: u64,
+    pub items: Vec<OverviewPendingItem>,
+    pub pending_count: u64,
+    pub needs_rebuild: bool,
+    pub next_cursor: Option<String>,
+}
+
+pub(crate) fn validate_pending_key(key: &str, scope: &Scope) -> AgentResult<()> {
+    let parts: Vec<_> = key.split('/').collect();
+    if parts.len() != 4 || parts[1] != scope.key() {
+        return Err(invalid("Pending object is outside this scope"));
+    }
+    let kind: super::models::ObjectKind =
+        serde_json::from_value(serde_json::Value::String(parts[2].into()))
+            .map_err(|_| invalid("Invalid pending object kind"))?;
+    let object = super::models::ObjectRef {
+        workspace_id: parts[0].into(),
+        scope: scope.clone(),
+        kind,
+        id: parts[3].into(),
+    };
+    if object.key()? != key {
+        return Err(invalid("Invalid pending object key"));
+    }
+    if !matches!(
+        kind,
+        super::models::ObjectKind::SessionMessage | super::models::ObjectKind::SessionSummary
+    ) && parts[3]
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == parts[3])
+        .is_none()
+    {
+        return Err(invalid("Invalid numeric pending object ID"));
+    }
+    Ok(())
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,12 +147,20 @@ impl OverviewPublishInput {
         }
         if self.upsert_items.len() > 100
             || self.remove_item_ids.len() > 100
+            || self.settled_object_keys.len() > 200
             || self.source_manifest_hash.len() > 128
             || self.source_manifest_hash.is_empty()
             || self.model_profile_id.is_empty()
             || self.model_profile_id.len() > 128
         {
             return Err(invalid("Overview metadata exceeds bounds"));
+        }
+        let mut settled = HashSet::new();
+        for key in &self.settled_object_keys {
+            validate_pending_key(key, &self.scope)?;
+            if !settled.insert(key) {
+                return Err(invalid("Duplicate settled object key"));
+            }
         }
         let mut ids = HashSet::new();
         for item in &self.upsert_items {

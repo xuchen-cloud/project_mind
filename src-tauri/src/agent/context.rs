@@ -141,17 +141,30 @@ impl ContextEntry {
             has_more: truncated,
             available_reads: vec![],
         };
-        // Account for the serialized data, including escaped text and metadata.
-        while serialized_chars(&entry)? > budget {
-            if entry.identity.name.pop().is_none() {
-                return Err(AgentError::new(
-                    ErrorCode::InvalidArgument,
-                    "budgetChars cannot fit entry metadata",
-                ));
-            }
-            entry.has_more = true;
-        }
+        entry = entry.bounded(Some(budget))?;
         Ok(entry)
+    }
+    /// Enforce L0's total serialized budget, including escaped Unicode metadata.
+    pub(crate) fn bounded(mut self, budget_chars: Option<usize>) -> AgentResult<Self> {
+        let budget = budget_chars.unwrap_or(CONTEXT_DEFAULT_CHARS).min(CONTEXT_MAX_CHARS);
+        if self.identity.name.chars().count() > 300 {
+            self.identity.name = self.identity.name.chars().take(300).collect();
+            self.has_more = true;
+        }
+        if let Some(text) = &mut self.positioning {
+            if text.chars().count() > 300 {
+                *text = text.chars().take(300).collect();
+                self.has_more = true;
+            }
+        }
+        while serialized_chars(&self)? > budget {
+            self.has_more = true;
+            if self.positioning.as_mut().is_some_and(|text| text.pop().is_some()) { continue; }
+            self.positioning = None;
+            if self.identity.name.pop().is_some() { continue; }
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "budgetChars cannot fit entry metadata"));
+        }
+        Ok(self)
     }
 }
 

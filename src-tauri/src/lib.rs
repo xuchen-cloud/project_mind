@@ -1359,6 +1359,7 @@ pub fn run() {
             record_document_commands::record_version_capacity,
             agent::commands::agent_status_get,
             agent::commands::agent_context_get,
+            agent::commands::agent_overview_get,
             agent::commands::agent_settings_get,
             agent::commands::agent_settings_update,
             agent::commands::agent_instructions_list,

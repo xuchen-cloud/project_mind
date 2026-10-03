@@ -8,11 +8,23 @@ use crate::agent::{
 };
 use rusqlite::OptionalExtension;
 
+#[path = "overview_context.rs"]
+mod overview_context;
+
 pub(crate) struct WorkspaceContextRepository<'a> {
     pub db: &'a Database,
     pub workspace_name: &'a str,
 }
 impl ContextRepository for WorkspaceContextRepository<'_> {
+    fn context_entry(
+        &self,
+        request: &crate::agent::access::RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+        input: &crate::agent::context::ContextGetInput,
+        identity: ScopeIdentity,
+    ) -> AgentResult<crate::agent::context::ContextEntry> {
+        self.db.agent_overview_context_entry(request, binding, input, identity)
+    }
     fn scope_identity(&self, scope: &Scope) -> AgentResult<Option<ScopeIdentity>> {
         match scope {
             Scope::Workspace => Ok(Some(ScopeIdentity {

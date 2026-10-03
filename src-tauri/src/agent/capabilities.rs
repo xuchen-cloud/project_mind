@@ -45,7 +45,7 @@ pub fn capabilities() -> Vec<Capability> {
             "AI-02",
         ),
         ("changes.list", "changes.read", true, true, "AI-02"),
-        ("context.overview.get", "context.read", true, false, "AI-04"),
+        ("context.overview.get", "context.read", true, true, "AI-04"),
         (
             "context.overview.refresh",
             "context.refresh",

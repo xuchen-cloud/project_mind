@@ -22,6 +22,8 @@ fn decode<T: DeserializeOwned>(text: &str) -> AgentResult<T> {
 }
 impl Database {
     pub(crate) fn agent_overviews_prepare(&self) -> anyhow::Result<()> {
+        self.source_prepare()
+            .map_err(|error| anyhow::anyhow!("{}", error.message))?;
         self.conn
             .execute_batch("SAVEPOINT agent_overviews_prepare")?;
         match self.conn.execute_batch(include_str!("agent_overviews.sql")) {
@@ -47,7 +49,81 @@ impl Database {
         }
         self.source_live_scope(scope)?;
         self.agent_overviews_prepare()
-            .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare Overview storage"))
+            .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare Overview storage"))?;
+        self.conn.execute("INSERT INTO agent_overview_pending_state(scope_key,needs_rebuild) VALUES(?1,1) ON CONFLICT(scope_key) DO NOTHING",[scope.key()]).map_err(io_error)?;
+        Ok(())
+    }
+    pub(crate) fn agent_overview_pending_status(
+        &self,
+        scope: &Scope,
+    ) -> AgentResult<OverviewPendingStatus> {
+        self.overview_scope(scope)?;
+        self.overview_pending_status_read(scope)
+    }
+    fn overview_pending_status_read(&self, scope: &Scope) -> AgentResult<OverviewPendingStatus> {
+        self.conn.query_row("SELECT (SELECT count(*) FROM agent_overview_pending WHERE scope_key=?1), needs_rebuild FROM agent_overview_pending_state WHERE scope_key=?1",[scope.key()],|r|Ok(OverviewPendingStatus{pending_count:r.get::<_,i64>(0)? as u64,needs_rebuild:r.get(1)?})).map_err(io_error)
+    }
+    pub(crate) fn agent_overview_pending_page(
+        &self,
+        scope: &Scope,
+        target_seq: u64,
+        after_key: Option<&str>,
+        limit: u16,
+    ) -> AgentResult<OverviewPendingPage> {
+        self.overview_scope(scope)?;
+        if !(1..=200).contains(&limit) || target_seq > i64::MAX as u64 {
+            return Err(invalid("Invalid Overview pending page"));
+        }
+        if let Some(key) = after_key {
+            validate_pending_key(key, scope)?;
+        }
+        // One read snapshot keeps items, count and captured watermark consistent.
+        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
+        if target_seq > self.committed_change_watermark()? as u64 {
+            return Err(invalid("Invalid Overview pending watermark"));
+        }
+        let mut stmt=tx.prepare("SELECT object_key,first_seq,last_seq,operation,latest_revision,deleted,excluded FROM agent_overview_pending WHERE scope_key=?1 AND last_seq<=?2 AND object_key>?3 ORDER BY object_key LIMIT ?4").map_err(io_error)?;
+        let mut items = stmt
+            .query_map(
+                params![
+                    scope.key(),
+                    target_seq as i64,
+                    after_key.unwrap_or(""),
+                    limit as i64 + 1
+                ],
+                |r| {
+                    Ok(OverviewPendingItem {
+                        object_key: r.get(0)?,
+                        first_seq: r.get::<_, i64>(1)? as u64,
+                        last_seq: r.get::<_, i64>(2)? as u64,
+                        operation: r.get(3)?,
+                        latest_revision: r.get(4)?,
+                        deleted: r.get(5)?,
+                        excluded: r.get(6)?,
+                    })
+                },
+            )
+            .map_err(io_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(io_error)?;
+        let has_more = items.len() > limit as usize;
+        items.truncate(limit as usize);
+        let next_cursor = if has_more {
+            items.last().map(|i| i.object_key.clone())
+        } else {
+            None
+        };
+        let status = self.overview_pending_status_read(scope)?;
+        drop(stmt);
+        tx.commit().map_err(io_error)?;
+        Ok(OverviewPendingPage {
+            scope: scope.clone(),
+            target_seq,
+            items,
+            pending_count: status.pending_count,
+            needs_rebuild: status.needs_rebuild,
+            next_cursor,
+        })
     }
     pub(crate) fn agent_overview_head(&self, scope: &Scope) -> AgentResult<Option<AiOverview>> {
         self.overview_scope(scope)?;
@@ -153,8 +229,14 @@ impl Database {
             validate_snapshot(&items)?;
             for item in &input.upsert_items { if item.source_refs.iter().any(|s|s.object.workspace_id!=workspace_id) { return Err(AgentError::new(ErrorCode::ScopeDenied,"Overview evidence belongs to another Workspace")); } }
             verify(self,&input.upsert_items)?;
+            for key in &input.settled_object_keys {
+                if !key.starts_with(&format!("{}/{}/",workspace_id,input.scope.key())) {return Err(AgentError::new(ErrorCode::ScopeDenied,"Settled source belongs to another Workspace"));}
+                tx.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2 AND last_seq<=?3",params![input.scope.key(),key,input.target_seq as i64]).map_err(io_error)?;
+            }
+            let pending=self.overview_pending_status_read(&input.scope)?;
+            let mut coverage=input.coverage.clone();coverage.pending=pending.pending_count;
             let now=Utc::now().to_rfc3339();
-            let result=AiOverview { scope:input.scope.clone(),revision:input.expected_revision+1,schema_version:1,items,as_of_seq:input.target_seq,source_manifest_hash:input.source_manifest_hash.clone(),built_at:now.clone(),coverage:input.coverage.clone(),pending_count:input.coverage.pending,model_profile_id:input.model_profile_id.clone() };
+            let result=AiOverview { scope:input.scope.clone(),revision:input.expected_revision+1,schema_version:1,items,as_of_seq:input.target_seq,source_manifest_hash:input.source_manifest_hash.clone(),built_at:now.clone(),coverage,pending_count:pending.pending_count,model_profile_id:input.model_profile_id.clone() };
             tx.execute("INSERT INTO agent_overview_versions(scope_key,revision,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![input.scope.key(),result.revision as i64,encode(&result)?,encode(input)?,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
             tx.execute("INSERT INTO agent_overviews(scope_key,current_revision,as_of_seq,policy_revision,correction_revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(scope_key) DO UPDATE SET current_revision=excluded.current_revision,as_of_seq=excluded.as_of_seq,policy_revision=excluded.policy_revision,correction_revision=excluded.correction_revision,updated_at=excluded.updated_at",params![input.scope.key(),result.revision as i64,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
             // Only mutated owners are replaced/acknowledged. Retained stale items keep dirtiness.
@@ -362,6 +444,7 @@ mod tests {
             correction_revision: 0,
             upsert_items: vec![item("a")],
             remove_item_ids: vec![],
+            settled_object_keys: vec![],
             coverage: SourceCoverage {
                 processed: 0,
                 partial: 1,
@@ -598,5 +681,206 @@ mod tests {
             db.agent_overview_stale_items("w", &scope).unwrap(),
             vec!["a"]
         );
+    }
+    fn source_event(
+        db: &Database,
+        scope: &Scope,
+        id: &str,
+        operation: &str,
+        revision: &str,
+    ) -> (String, u64) {
+        let key = format!("w/{}/record/{}", scope.key(), id);
+        db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,?3,?4,'now')",params![key,scope.key(),operation,revision]).unwrap();
+        (key, db.committed_change_watermark().unwrap() as u64)
+    }
+    #[test]
+    fn overview_pending_coalesces_and_survives_reopen_log_pruning() {
+        let (root, db, scope) = setup();
+        db.agent_overviews_prepare().unwrap();
+        let (key, first) = source_event(&db, &scope, "101", "record.update", "first");
+        source_event(&db, &scope, "101", "record.update", "second");
+        let (_, last) = source_event(&db, &scope, "101", "record.delete", "deleted");
+        db.conn.execute("DELETE FROM agent_change_log", []).unwrap();
+        drop(db);
+        let db = Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
+        let page = db
+            .agent_overview_pending_page(&scope, last, None, 100)
+            .unwrap();
+        assert_eq!(page.pending_count, 1);
+        assert!(page.needs_rebuild);
+        assert_eq!(page.items[0].object_key, key);
+        assert_eq!(page.items[0].first_seq, first);
+        assert_eq!(page.items[0].last_seq, last);
+        assert!(page.items[0].deleted);
+        assert_eq!(page.items[0].latest_revision, "deleted");
+    }
+    #[test]
+    fn overview_pending_bootstrap_preserves_registry_tombstones_without_claiming_complete_inventory(
+    ) {
+        let (_root, db, scope) = setup();
+        let (key, _) = source_event(&db, &scope, "102", "record.delete", "deleted");
+        db.conn.execute("DELETE FROM agent_change_log", []).unwrap();
+        db.agent_overviews_prepare().unwrap();
+        let page = db
+            .agent_overview_pending_page(
+                &scope,
+                db.committed_change_watermark().unwrap() as u64,
+                None,
+                100,
+            )
+            .unwrap();
+        assert!(page.needs_rebuild);
+        assert_eq!(page.items[0].object_key, key);
+        assert!(page.items[0].deleted);
+        assert_eq!(page.items[0].operation, "bootstrap.deleted");
+    }
+    #[test]
+    fn overview_pending_exclusion_uses_actual_policy_state() {
+        let (_root, db, scope) = setup();
+        db.agent_overviews_prepare().unwrap();
+        let (key, _) = source_event(&db, &scope, "103", "record.update", "content");
+        db.conn
+            .execute(
+                "INSERT INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)",
+                [&key],
+            )
+            .unwrap();
+        let (_, seq) = source_event(&db, &scope, "103", "source.policy.update", "sha256:policy");
+        let page = db
+            .agent_overview_pending_page(&scope, seq, None, 100)
+            .unwrap();
+        assert!(page.items[0].excluded);
+        assert!(!page.items[0].deleted);
+        db.conn
+            .execute(
+                "UPDATE source_access_policies SET excluded=0,revision=2 WHERE object_key=?1",
+                [key],
+            )
+            .unwrap();
+        let (_, seq) = source_event(
+            &db,
+            &scope,
+            "103",
+            "source.policy.update",
+            "sha256:unexcluded",
+        );
+        assert!(
+            !db.agent_overview_pending_page(&scope, seq, None, 100)
+                .unwrap()
+                .items[0]
+                .excluded
+        );
+    }
+    #[test]
+    fn overview_pending_page_is_bounded_and_keeps_later_changes() {
+        let (_root, db, scope) = setup();
+        db.agent_overviews_prepare().unwrap();
+        source_event(&db, &scope, "104", "record.update", "a");
+        source_event(&db, &scope, "105", "record.update", "b");
+        let (_, captured) = source_event(&db, &scope, "106", "record.update", "c");
+        let first = db
+            .agent_overview_pending_page(&scope, captured, None, 1)
+            .unwrap();
+        assert_eq!(first.items.len(), 1);
+        assert!(first.next_cursor.is_some());
+        let second = db
+            .agent_overview_pending_page(&scope, captured, first.next_cursor.as_deref(), 1)
+            .unwrap();
+        assert_eq!(
+            second.items[0].object_key,
+            "w/".to_owned() + &scope.key() + "/record/105"
+        );
+        source_event(&db, &scope, "105", "record.update", "later");
+        let bounded = db
+            .agent_overview_pending_page(&scope, captured, None, 100)
+            .unwrap();
+        assert_eq!(bounded.items.len(), 2);
+        assert_eq!(bounded.pending_count, 3);
+        assert_eq!(
+            db.agent_overview_pending_page(&scope, captured, None, 201)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+    }
+    #[test]
+    fn overview_pending_publish_ack_is_explicit_atomic_and_does_not_loop() {
+        let (root, db, scope) = setup();
+        db.agent_overviews_prepare().unwrap();
+        let (settled, _) = source_event(&db, &scope, "107", "record.update", "a");
+        source_event(&db, &scope, "108", "record.update", "b");
+        let mut p = input(&db, &scope);
+        p.settled_object_keys = vec![settled];
+        p.coverage.pending = 999;
+        db.conn.execute_batch("CREATE TEMP TRIGGER fail_pending_receipt BEFORE INSERT ON agent_operation_receipts BEGIN SELECT RAISE(ABORT,'fail pending ack commit'); END").unwrap();
+        assert!(publish(&db, "failed-pending", &p).is_err());
+        assert_eq!(
+            db.agent_overview_pending_status(&scope)
+                .unwrap()
+                .pending_count,
+            2
+        );
+        assert!(db.agent_overview_head(&scope).unwrap().is_none());
+        db.conn
+            .execute_batch("DROP TRIGGER fail_pending_receipt")
+            .unwrap();
+        let snapshot = publish(&db, "acked", &p).unwrap();
+        assert_eq!(snapshot.pending_count, 1);
+        assert_eq!(snapshot.coverage.pending, 1);
+        assert_eq!(
+            db.agent_overview_pending_status(&scope)
+                .unwrap()
+                .pending_count,
+            1
+        );
+        assert!(
+            db.agent_overview_pending_status(&scope)
+                .unwrap()
+                .needs_rebuild
+        );
+        drop(db);
+        let db = Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
+        assert_eq!(
+            db.agent_overview_pending_status(&scope)
+                .unwrap()
+                .pending_count,
+            1
+        );
+        let replay = db
+            .agent_overview_publish("gui", "acked", "w", &p, |_, _| {
+                panic!("receipt must skip verification")
+            })
+            .unwrap();
+        assert_eq!(replay.pending_count, 1);
+    }
+    #[test]
+    fn overview_pending_event_after_capture_is_not_acknowledged_by_old_publish() {
+        let (_root, db, scope) = setup();
+        db.agent_overviews_prepare().unwrap();
+        let (key, _) = source_event(&db, &scope, "109", "record.update", "captured");
+        let mut p = input(&db, &scope);
+        p.settled_object_keys = vec![key];
+        let result = db
+            .agent_overview_publish("gui", "later", "w", &p, |db, _| {
+                source_event(db, &scope, "109", "record.update", "concurrent-later");
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(result.pending_count, 1);
+        assert_eq!(result.coverage.pending, 1);
+        let page = db
+            .agent_overview_pending_page(&scope, p.target_seq, None, 100)
+            .unwrap();
+        assert!(page.items.is_empty());
+        assert_eq!(page.pending_count, 1);
+        let page = db
+            .agent_overview_pending_page(
+                &scope,
+                db.committed_change_watermark().unwrap() as u64,
+                None,
+                100,
+            )
+            .unwrap();
+        assert_eq!(page.items[0].latest_revision, "concurrent-later");
     }
 }

@@ -82,6 +82,37 @@ export interface AiOverviewItem {
   validState: "current" | "stale" | "disputed" | "unsupported";
   updatedAt: string;
 }
+/** Omitted selections default to empty arrays, yielding a body-free directory. */
+export interface OverviewReadInput {
+  scope: AgentScope;
+  version?: number | null;
+  sections?: AiOverviewItem["section"][];
+  itemIds?: string[];
+  cursor?: string | null;
+  budgetChars?: number | null;
+}
+export interface OverviewDirectoryEntry {
+  section: AiOverviewItem["section"];
+  count: number;
+}
+export interface OverviewReadItem {
+  item: AiOverviewItem;
+  textOffset: number;
+  complete: boolean;
+}
+export interface OverviewReadPage {
+  scope: AgentScope;
+  revision: number | null;
+  sections: OverviewDirectoryEntry[];
+  items: OverviewReadItem[];
+  stale: boolean;
+  pendingCount: number;
+  needsRebuild: boolean;
+  coverage: AgentSourceCoverage | null;
+  asOfSeq: number;
+  correctionRevision: number;
+  nextCursor: string | null;
+}
 /** Separate from ProjectRecord.quickNote* and the ProjectOverviewPage component. */
 export interface AgentSourceCoverage {
   processed: number; partial: number; excluded: number; unsupported: number; pending: number;

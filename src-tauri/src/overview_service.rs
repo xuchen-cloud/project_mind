@@ -60,6 +60,8 @@ pub(crate) struct OverviewReadPage {
     pub stale: bool,
     pub coverage: Option<SourceCoverage>,
     pub as_of_seq: u64,
+    pub pending_count: u64,
+    pub needs_rebuild: bool,
     pub correction_revision: u64,
     pub next_cursor: Option<String>,
 }
@@ -152,6 +154,30 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
+    /// A maintenance caller fixes targetSeq on its first page. This metadata
+    /// ledger survives log pruning; reading it never acknowledges a change.
+    pub(crate) fn pending(
+        &self,
+        request: &RequestContext,
+        scope: &Scope,
+        target_seq: Option<u64>,
+        after_key: Option<&str>,
+        limit: u16,
+    ) -> AgentResult<crate::agent::overview::OverviewPendingPage> {
+        self.store.with_current(|binding, db| {
+            authorize(db, request, binding, scope, "knowledge.write")?;
+            if after_key.is_some() && target_seq.is_none() {
+                return Err(invalid(
+                    "A pending continuation requires its original targetSeq",
+                ));
+            }
+            let target_seq = match target_seq {
+                Some(seq) => seq,
+                None => db.committed_change_watermark()? as u64,
+            };
+            db.agent_overview_pending_page(scope, target_seq, after_key, limit)
+        })
+    }
     pub(crate) async fn publish(
         &self,
         request: &RequestContext,
@@ -161,6 +187,17 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         input.validate()?;
         let replay = self.store.with_current(|binding, db| {
             authorize(db, request, binding, &input.scope, "knowledge.write")?;
+            let prefix = format!("{}/{}/", binding.workspace_id, input.scope.key());
+            if input
+                .settled_object_keys
+                .iter()
+                .any(|key| !key.starts_with(&prefix))
+            {
+                return Err(AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Pending object is outside this Workspace",
+                ));
+            }
             db.agent_overview_replay(&request.caller.key(), &request.request_id, input)
         })?;
         if let Some(receipt) = replay {
@@ -303,9 +340,12 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
             if cursor.is_some() {
                 return Err(changed());
             }
-            let correction_revision = self.store.with_current(|binding, db| {
+            let (correction_revision, pending) = self.store.with_current(|binding, db| {
                 authorize(db, request, binding, &input.scope, "context.read")?;
-                Ok(db.agent_overview_corrections(&input.scope)?.revision)
+                Ok((
+                    db.agent_overview_corrections(&input.scope)?.revision,
+                    db.agent_overview_pending_status(&input.scope)?,
+                ))
             })?;
             let page = OverviewReadPage {
                 scope: input.scope.clone(),
@@ -315,6 +355,8 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                 stale: false,
                 coverage: None,
                 as_of_seq: 0,
+                pending_count: pending.pending_count,
+                needs_rebuild: pending.needs_rebuild,
                 correction_revision,
                 next_cursor: None,
             };
@@ -496,15 +538,20 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                     item.valid_state = ValidState::Stale;
                 }
             }
+            let pending = db.agent_overview_pending_status(&input.scope)?;
+            let mut snapshot = snapshot.clone();
+            snapshot.pending_count = pending.pending_count;
+            snapshot.coverage.pending = pending.pending_count;
             let mut page = project(
                 input,
                 &snapshot,
                 visible,
                 corrections.revision,
+                pending.needs_rebuild,
                 cursor,
                 budget,
             )?;
-            page.stale |= policy_changed;
+            page.stale |= policy_changed || pending.pending_count > 0;
             ensure_budget(&page, budget)?;
             Ok(page)
         })
@@ -524,6 +571,7 @@ fn project(
     snapshot: &AiOverview,
     visible: Vec<OverviewItem>,
     correction_revision: u64,
+    needs_rebuild: bool,
     cursor: Option<Cursor>,
     budget: usize,
 ) -> AgentResult<OverviewReadPage> {
@@ -539,6 +587,8 @@ fn project(
             .any(|item| matches!(item.valid_state, ValidState::Stale)),
         coverage: Some(snapshot.coverage.clone()),
         as_of_seq: snapshot.as_of_seq,
+        pending_count: snapshot.pending_count,
+        needs_rebuild,
         correction_revision,
         next_cursor: None,
     };
@@ -833,6 +883,7 @@ mod tests {
                 updated_at: "2026-10-03T00:00:00Z".into(),
             }],
             remove_item_ids: vec![],
+            settled_object_keys: vec![],
             coverage: SourceCoverage {
                 processed: 1,
                 partial: 0,
@@ -1118,5 +1169,64 @@ mod tests {
                 .code,
             ErrorCode::SourceChanged | ErrorCode::FileChangedUnregistered
         ));
+    }
+    #[tokio::test]
+    async fn overview_service_pending_is_bound_and_only_publication_consumes_it() {
+        let (_root, store, request, source) = setup();
+        let service = OverviewService::new(&store);
+        let scope = &source.source.object.scope;
+        let before = service.pending(&request, scope, None, None, 200).unwrap();
+        assert!(before.needs_rebuild);
+        assert!(before.pending_count > 0);
+        let again = service
+            .pending(&request, scope, Some(before.target_seq), None, 200)
+            .unwrap();
+        assert_eq!(again.pending_count, before.pending_count);
+        assert_eq!(
+            service
+                .pending(&request, scope, None, Some("continuation"), 200)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        let (mut input, evidence) = candidate(&store, &request, &source).await;
+        input.settled_object_keys = before
+            .items
+            .iter()
+            .map(|item| item.object_key.clone())
+            .collect();
+        let mut wrong = input.clone();
+        wrong.settled_object_keys = vec![format!("other/{}/todo/1", scope.key())];
+        assert_eq!(
+            service
+                .publish(&request, &wrong, &evidence)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let mut old = request.clone();
+        old.binding.generation = "old-generation".into();
+        assert_eq!(
+            service
+                .pending(&old, scope, None, None, 200)
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkspaceChanged
+        );
+        service.publish(&request, &input, &evidence).await.unwrap();
+        let after = service.pending(&request, scope, None, None, 200).unwrap();
+        assert_eq!(after.pending_count, 0);
+        assert!(
+            after.needs_rebuild,
+            "acknowledged events do not prove initial inventory completeness"
+        );
+        let directory = service
+            .get(&request, &selection(scope, false))
+            .await
+            .unwrap();
+        assert_eq!(directory.pending_count, 0);
+        assert!(directory.needs_rebuild);
+        assert_eq!(directory.coverage.unwrap().pending, 0);
     }
 }

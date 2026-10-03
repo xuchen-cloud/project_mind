@@ -3,7 +3,7 @@ import type {
   AgentContextEntry, AgentContextInput, AgentError, AgentResponse,
   AgentStatus, AgentWorkspaceBinding, AgentScope, AgentScopeSettings, AgentSettingsUpdate,
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
-  SourceMaintenanceProgress,
+  SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage,
 } from "../lib/agent-types";
 
 export class AgentApiError extends Error {
@@ -40,6 +40,9 @@ export const agentApi = {
   // Call after a user question, never as an eager empty-conversation preload.
   contextGet(binding: AgentWorkspaceBinding, context: AgentContextInput, requestId = crypto.randomUUID()): Promise<AgentContextEntry> {
     return callAgentCommand("agent_context_get", requestId, { input: { binding, requestId, context } });
+  },
+  overviewGet(binding: AgentWorkspaceBinding, data: OverviewReadInput, requestId = crypto.randomUUID()): Promise<OverviewReadPage> {
+    return callAgentCommand("agent_overview_get", requestId, { input: { binding, requestId, data } });
   },
   settingsGet(binding: AgentWorkspaceBinding, scope: AgentScope, requestId = crypto.randomUUID()): Promise<AgentScopeSettings> {
     return callAgentCommand("agent_settings_get", requestId, { input: { binding, requestId, data: scope } });

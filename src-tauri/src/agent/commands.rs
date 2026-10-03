@@ -86,6 +86,32 @@ pub(crate) fn agent_context_get(
     ApiResponse::from_result(input.request_id, result)
 }
 
+/// The local GUI can select a Project, but cannot supply a caller or grant.
+#[tauri::command]
+pub(crate) async fn agent_overview_get(
+    state: State<'_, AppState>,
+    input: AgentCommandInput<crate::overview_service::OverviewReadInput>,
+) -> Result<ApiResponse<crate::overview_service::OverviewReadPage>, String> {
+    let request = RequestContext {
+        binding: input.binding.clone(),
+        request_id: input.request_id.clone(),
+        caller: Caller::Gui,
+        scope_grant: ScopeGrant {
+            workspace_id: input.binding.workspace_id.clone(),
+            workspace_content: matches!(input.data.scope, Scope::Workspace),
+            project_ids: match input.data.scope {
+                Scope::Project { project_id } => vec![project_id],
+                _ => vec![],
+            },
+            operations: vec!["context.read".into()],
+        },
+    };
+    let result = crate::overview_service::OverviewService::new(state.inner())
+        .get(&request, &input.data)
+        .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+
 #[tauri::command]
 pub(crate) fn agent_business_changes_list(
     state: State<'_, AppState>,

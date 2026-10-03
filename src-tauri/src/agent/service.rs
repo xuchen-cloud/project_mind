@@ -38,8 +38,7 @@ impl<'a, R: ContextRepository> AgentDomainService<'a, R> {
             .repository
             .scope_identity(&input.scope)?
             .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Scope not found"))?;
-        // AI-04 replaces this with an authorized, selectively read knowledge projection.
-        ContextEntry::not_built(identity, input.budget_chars)
+        self.repository.context_entry(request, self.binding, &input, identity)
     }
 }
 

@@ -19,3 +19,15 @@
 没有注册新的 GUI/CLI/MCP/Pi adapter、模型 worker 或公开 capability；runtimeAvailable、source 与 File 发布门槛保持原状态。未发真实 Provider 请求、启动窗口或执行平台实包验收。
 
 验证：Rust 全目标 470 passed、23 ignored；固定资源真实 source worker 显式专项 8 passed。随后对 context.read 授权、recorded 依赖链和纠正失效的小范围修改分别执行共享服务 6 passed、Overview 16 passed（1 ignored）及纠正专项 1 passed。复用未受影响的前端 141 文件 / 966 tests 与构建结果，不重复全量运行。主 agent 完成 Standards / Spec 自查；本包不满足整个 #101 的增量维护、知识节点和产品接入验收。
+
+## P5b：持久 pending 与真实最小入口（2026-10-03）
+
+关联 #101，复用 P5a / #100 来源 registry；本包不调用模型、不启动后台调度。pending 在首次 Overview/context 读取准备后以 SQLite trigger 跟业务 outbox 同事务合并，随后跨重开持续捕获。首次准备前的历史仅从真实 registry 引入最新对象与 tombstone，无法证明存量完整，因此持久 needs_rebuild 保持 true；没有清除该标志的伪完成入口。保持现有惰性表准备，不因此把普通打开改成全量索引初始化。
+
+同对象保留 firstSeq、最新 lastSeq/operation/revision 与真实删除/排除状态；Overview 自己的 metadata 日志不循环入队。pending 不随变更日志裁剪，读取固定 targetSeq、按对象键分页（1–200），计数包含 target 后事件。发布显式 settledObjectKeys，只在同一个版本/回执/outbox 事务内确认 lastSeq≤targetSeq 的对应对象；失败保留旧版和 pending，晚到事件不被删除。实际剩余数量覆盖 snapshot 的 pendingCount/coverage.pending。消费事件不等于已读完该对象，也不等于项目覆盖完整。
+
+已有 GUI context.get 接入真实 Overview L0：身份独立于 QuickNote；只显示可见 Profile 的最多 300 字符定位、更新时间、覆盖与失效状态。来源授权/归属/排除和依赖隐藏都使用真实元数据，不提取原文或读 File 字节；没有节点时不虚构节点。完整响应默认 2000、硬限 3000 个序列化 Unicode 字符。Workspace、归档 Project、无 Overview 保留有限身份入口。
+
+新增 GUI agent_overview_get 和 typed agentApi.overviewGet，复用共享 service 的真实授权和选择性读取；context.overview.get 的 implemented=true 仅说明这个已实现读取服务与 GUI 适配器，不代表 CLI/MCP/Pi transport、模型维护或助手 UI 已开放。目录与分页都返回 pendingCount/needsRebuild，当前状态不伪装 ready。source/File capability、runtimeAvailable 与普通 worker 分发门槛保持原状态。
+
+验证：Overview 专项 27 passed / 1 ignored，L0 专项 5 passed，Rust 全目标 481 passed / 23 ignored；前端 API 8 passed，TypeScript 类型检查通过。复用 P5a 的固定 source worker 8 passed 和未受影响的前端全量/构建结果。主 agent 完成 Standards / Spec 自查；P5c 知识节点、真实完整 inventory、模型调度与用户界面仍待接入，#101 保持 OPEN。
