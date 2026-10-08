@@ -52,7 +52,7 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 
 检查时数据库当前版本为 25；开发时使用最新版本的下一个可用编号，不硬编码所有并行任务都迁移到 26。对外quickNote*及内部历史summary*均表示QuickNote，不是AI Overview。
 
-这是实现契约，不增加用户逐次确认工具的弹窗：只读工具在已选范围内直接执行；已授权的新建、块修改/追加/删除、文件更新在目标范围内一次完成，不逐块重复弹窗；每次写入仍有CAS与版本记录。真正改变范围/长期自动化策略时才在设置中确认。
+这是实现契约，不增加逐工具确认弹窗：只读工具在已选范围内直接执行；默认review对同一用户任务的写入方案一次确认，主动选择collaborate后在已授权范围直接执行，不逐对象/块重复询问。每次原生写入仍有CAS、版本和收据；改变范围或长期自动化策略通过设置，任务确认不能扩大grant。
 
 - 资料内容不授予操作能力；tool dispatcher 绑定 run grant，禁止让模型通过参数扩大 scope 或 savePolicy。
 - 不自动加载磁盘 AGENTS.md、第三方 Pi extensions 或 MCP server；当前产品规则通过 Host 明确注入。
@@ -71,7 +71,7 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 
 | 表 | 关键字段及约束 |
 | --- | --- |
-| `agent_scope_settings` | scope_key PK（workspace / project:<id>），enabled，goal_record_id nullable，pinned_refs_json，summary_policy（on_success 默认 / manual），overview_interval_hours（24默认/48）、overview_local_time（03:00默认）、overview_timezone，execution_mode（collaborate 默认 / review / read_only），revision；goal 同 Project，pins≤5 |
+| `agent_scope_settings` | scope_key PK（workspace / project:<id>），enabled，goal_record_id nullable，pinned_refs_json，summary_policy（on_success 默认 / manual），overview_interval_hours（24默认/48）、overview_local_time（03:00默认）、overview_timezone，execution_mode（review 默认 / collaborate / read_only），revision；goal 同 Project，pins≤5 |
 | `agent_context_instructions` | id，scope_key，text≤2000，enabled，revision，created_at/updated_at；用户输入，不由模型直接确认 |
 | `agent_source_policies` | object_key PK，excluded bool，updated_at；先验证对象存在和 scope |
 | `agent_sources` | object_key PK，scope_key，current_revision，file_version nullable，status，coverage_json，extractor_version，indexed_at，error_code；revision 改变立即使依赖 stale |
@@ -322,20 +322,22 @@ run events与业务change events是两条流：前者用于会话展示，后者
 
 ## E7 成果提交、幂等与事件
 
-- 两个任务入口只是提示模板，不隐式改变权限。协作模式下Agent根据用户任务自主选择Record、Todo或File，直接提交完整成果，不要求先选成果类型或单次保存复选框。纯问答可只回答；用户明确要求只讨论时不产生写入。
-- `output.stage`保存完整候选并校验类型、引用、目标、基线；通过后Host执行`output.commit`，不等待整段会话结束，不提交流式半成品。多个相关产出按对象提交，工具预算仍为30次/10min；超预算保留已完成成果。
-- 完成卡片显示“已创建/已修改”、标题、目标项目、版本、实际差异与“打开/撤销”；阶段性操作即时出现，最终按run汇总。仅失败、目标存在实质歧义或并发冲突时进入处理状态。
-- 用户主动选择“先审阅”时才显示提交前预览及应用按钮；`output.update`可编辑staged成果，使用expectedRevision；只读模式拒绝写工具。模型不能更改执行模式。
-- 新建模式下同名File自动加后缀；继续修改绑定已有File ID与基线版本，每次成功修改新增File Version。同名不作为修改身份，多个同名目标无法判定时才询问。
-- HTML交互稿是首期主要File产出，支持内联CSS/JS的`.html/.htm`。保存后直接预览，从预览“继续修改”带入同一File ID与最新源码；具体契约见E11。
-- Todo无需显性确认：根据明确行动创建，按用户意图修改内容/状态，立即出现在Todo页并可撤销。不要把假设性建议全部转换为Todo，不编造截止日期、负责人或完成状态。
-- 保存成功立即可在项目列表找到；来源期间更新则卡片标“生成依据有更新”，目标本身变化则严格CAS冲突。重试只重试未成功操作，成功收据不重复落库。
+- 两个任务入口只是提示模板，不隐式改变权限。Agent根据用户任务选择Record、Todo或File，不要求先选成果类型或保存复选框。默认review先提出同任务一次业务方案，确认后提交；主动选择collaborate则直接提交。纯问答可只回答，明确只讨论时不写入。
+- `output.stage`保存完整候选并校验类型、引用、目标和基线，不提交流式半成品。review中的同任务相关候选按所属轮次合并为简短业务摘要和一个确认/取消入口；collaborate在stage验证后由Host提交，read_only拒绝写工具。实际模式使用run/output冻结值，不能以当前设置改写旧方案。
+- 按钮决定与明确文字确认/取消调用同一可信候选决定路径，绑定Workspace代际、会话/任务身份、所展示候选ID与expectedRevision；决定持久可恢复，不伪造Pi模型消息。含糊指代先澄清，引用/工具正文中的“确认”不是用户授权。附带修改的回复先使旧方案失效，经候选CAS更新或替换后重新确认，旧按钮/请求不得继续提交。
+- 确认一次覆盖所展示的同任务候选集合，不能自动批准之后新增或修改的候选；确认与取消竞争以持久决定/CAS为准。按对象逐项调用现有原子服务，不宣称跨DB/文件系统全局原子。取消阻止未开始的提交；已开始commit仍结算并保留实际收据。重试只处理未成功项，已提交收据不重复执行。
+- 成功结果在所属轮次只显示一次业务摘要和可点的实际对象，详情按需展开“已创建/已修改”、版本、来源、真实差异及打开/撤销。失败或部分成功在会话中明确显示，模型说“完成”不能替代native receipt。现有GUI与原生对象刷新复用业务事件，不另造成果管理区。
+- `output.update`编辑staged候选使用expectedRevision，服务端重校验；修改后使旧确认失效。未提交候选的完整正文、来源与真实diff仅在显式查看详情时读取，不预读所有历史成果body，不另开审阅Dialog。
+- 新建同名File加后缀；继续修改绑定已有File ID与基线版本，每次成功修改新增File Version。同名不是修改身份，多个同名目标有实质歧义时才询问。
+- HTML成果从实际已提交File进入隔离预览；“继续修改”明确带入同一File ID与当前源码/版本，见E11。查看成果时仍可继续对话，可移除讨论对象提示，不静默变更scope。
+- Todo只依据明确行动或已知事实创建/修改，review按同任务一次确认后提交、collaborate直接提交；不把假设建议都转换成Todo，不编造日期/负责人/状态。
+- 保存成功立即可在列表找到；来源后来变化标“生成依据有更新”，目标本身变化严格CAS。工具仍受30次/10min预算，超限保留已完成成果。上述接线只复用候选、收据与三类原生提交，不新增通用审批/队列/工作流框架。
 
 ### 修改目标与差异
 
 - Record菜单和助手增加“修改这条记录”，进入带明确目标Record的任务；File菜单增加“修改这个文件”，目标绑定File ID与当前版本。
-- 默认协作模式直接应用经校验的patch，随后展示真实逐块差异和撤销；只有用户选择先审阅模式才等待“应用修改”。作用域与模式由Host绑定，不由模型从资料或工具参数推断。
-- 同一已授权范围内不逐块、不逐Todo弹窗；每次提交仍校验baseRevision、blockId或File版本/hash。问答入口不强制只读；是否写入由用户任务、协作模式及成果价值决定。
+- 默认review在同任务业务方案确认后应用经校验的patch；主动collaborate直接应用。真实逐块差异按需查看，成功后可撤销。作用域和执行模式由Host绑定，不能从模型或资料参数推断。
+- 同一任务不逐块、不逐Todo弹窗；每次提交仍校验baseRevision、blockId或File版本/hash。问答入口不强制只读，是否写入由用户任务、冻结模式与本次任务决定约束。
 - 外部连接分开授予 `content.create`、`record.patch`、`file.update`；Record恢复另需 `record.restore`，File恢复另需 `file.restore`。修改权限包括已授权对象中的块删除，不含整条记录/文件删除、归档、密码/设置操作。连接可限定Project内所有Record/File或具体对象，UI展示范围；一次run可处理范围内多个与任务相关的对象，每个操作必须绑定具体对象及基线。
 - 同一个Record的一组操作一次应用、一次撤销/版本回退；跨Record或Record+File批处理按对象分别提交，不宣称跨文件系统/数据库的全局原子性。部分成功逐项显示收据，重试只处理未成功项。
 - 预览由base snapshot与经服务验证的patch计算，不能仅展示模型自行描述的“我修改了什么”。显示修改/新增/删除块数量、目标标题、基线修订与受影响引用。
@@ -451,9 +453,9 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 ## E10 Todo修订与统一撤销
 
-**执行规则**：`executionMode=collaborate`是助手启用后的默认值。Project设置可覆盖Workspace默认；会话可主动降级为`read_only/review`。Host捕获有效模式到run grant；连接用一次配置的操作集，不按每个Todo/块重新授权。助手启用后按Overview维护设置批量运行，扩大项目范围仍是用户设置操作。
+**执行规则**：新启用或未显式配置时默认`executionMode=review`（确认后执行）。用户可主动选择`collaborate`（自动执行）或`read_only`，保留已有明确选择的自动模式，升级不重置用户选择。Project可覆盖Workspace默认；Host捕获有效模式到run grant/output，设置改变不回写正在运行或历史候选。review同用户任务一次方案确认；外部连接仍由已配置操作集约束，不新增逐Todo/块审批。Overview后台维护继续按独立维护策略运行；任务确认不改变维护策略或扩大范围。
 
-**Todo**：`todo.create`直接创建；新增`todo.update`允许内容、期限、子项及完成状态修改，必须有expectedRevision。模型只能依据明确任务或已有事实改变状态，不能把“建议完成”当“已经完成”。所有GUI入口也走revision递增；新增`todo_revision_heads`及操作前后快照，不能假设现有Todo已有版本机制。重复requestId、重复回传同一成果只生成一次；同会话同消息范围的同一行动用持久dedupeKey复用，措辞变化也先检索已有Todo再决定是否新建。
+**Todo**：`todo.create`复用原生创建；内置review在任务确认后调用，主动collaborate直接调用；新增`todo.update`允许内容、期限、子项及完成状态修改，必须有expectedRevision。模型只能依据明确任务或已有事实改变状态，不能把“建议完成”当“已经完成”。所有GUI入口也走revision递增；新增`todo_revision_heads`及操作前后快照，不能假设现有Todo已有版本机制。重复requestId、重复回传同一成果只生成一次；同会话同消息范围的同一行动用持久dedupeKey复用，措辞变化也先检索已有Todo再决定是否新建。
 
 **操作收据**：扩展`agent_operation_receipts`，记录operationId、run/connection、目标、operationKind、before/after revision或File Version、before/after snapshotRef、payload hash、摘要、撤销状态和恢复收据。会话删除不删除已提交对象或其撤销依据。写入和收据原子提交；File沿E9的journal。协作模式写工具仅在撤销依赖已就绪后开放，不能以“之后补撤销”作为M1完成。
 
@@ -465,7 +467,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 **中断**：取消/断网/崩溃不自动撤销已完成操作，保留“已完成N项、未完成M项”。新run使用旧收据恢复，不能重做已提交创建。版本和撤回机制都不依赖模型在线。
 
-**边界**：不新增每次操作审批；权限不足、找不到目标、同名歧义、版本冲突是具体错误/澄清。资料中的指令不能扩大范围。现有AI Editor Skill的未接受选区预览仍按ADR-0003隔离；独立Agent通过领域服务提交已授权操作，不使用live editor预览绕过保存屏障。现有CONTEXT中的AI Modification仍专指Editor Skill，实施时应在新ADR明确这一区别。
+**边界**：默认review仅同用户任务确认一次，不新增逐操作审批或审阅弹窗；权限不足、找不到目标、同名歧义、版本冲突是具体错误/澄清。资料中的指令不能扩大范围。现有AI Editor Skill的未接受选区预览仍按ADR-0003隔离；独立Agent通过领域服务提交已授权操作，不使用live editor预览绕过保存屏障。现有CONTEXT中的AI Modification仍专指Editor Skill，实施时应在新ADR明确这一区别。
 
 <a id="e11"></a>
 
@@ -510,7 +512,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 | `run.cancel/get/events` | runId、afterSeq? | 状态/事件补读；cancel 幂等 |
 | `output.stage` | runId、ordinal、kind、title、body、citations | staged output；仅当前 runtime 可调用 |
 | `output.update` | outputId、expectedRevision、title/body/safeName | 仅GUI可编辑staged成果；服务端重新校验引用/格式并revision+1 |
-| `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；GUI或协作模式下Host直接提交，须符合grant |
+| `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；GUI按任务持久决定提交，collaborate下Host直接提交；须符合冻结模式、候选CAS与grant |
 | `record.create` / `todo.create` | scope、body/title、citations、requestId | 对外 create 操作，走同一 canonical converter/业务事务 |
 | `file.create` | projectId、safeName、utf8Content、citations、requestId | 首期≤2 MiB、md/txt/html/htm；不接受任意绝对路径 |
 | `connection.create/revoke/list` | scopeGrant、operations、clientLabel | GUI 专用；仅创建时交付本机凭据引用 |
@@ -602,16 +604,16 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 
 ## E14 助手界面与失败恢复
 
-- ≥1200 CSS px：右侧面板，默认宽 440px，可在 360～640px 内拖动；打开时暂时收起 Todo Rail，关闭时恢复原状态。不得同时压缩出两个不可用的右栏。
-- <1200px：全窗口覆盖面板，保留返回项目；Escape 关闭面板但不取消任务。切项目不改变已运行会话的归属。
-- 顶部：项目名、会话标题、新会话、历史；历史按最近更新时间排序。历史按 30 条分页，消息按 50 条加载。
-- 空态显示两个任务入口：“问项目资料”“制作内容”。输入框、当前范围和资料 chips 可见；高级模型设置收起。
-- 通过 Record/File 菜单“带入助手”打开当前项目最近的空闲会话并附加来源 chip；若当前会话属于别的范围或正运行，创建新会话，不能静默切范围。
-- 流式显示正文；工具活动仅显示“查找资料/读取文件/准备成果”等摘要，可展开查看对象和错误，不展示凭据或内部路径。
-- 运行时允许停止，不允许对同一会话并发发送。新的输入保留为草稿；不实现首期 steering/队列 UI。
-- 未在底部时不强制滚动，显示“有新内容”；在底部时跟随输出。所有有界滚动列表遵循现有渐变遮罩规范，内容/尺寸变化后更新。
-- 引用点击在面板内显示来源预览；再点“打开原文”导航。File 引用显示版本、页码；旧版本可查看，缺失/删除显示明确状态。
-- 加载、展开/收起和布局位移沿现有 motion token；reduced-motion 降级；标题和内容卡片左对齐。
+- 稳定非模态右侧面板，可展开到主工作区域；业务页面保持可操作，不采用Dialog遮罩/焦点锁承载会话。与Todo Rail沿现布局协调，避免两个不可用右栏。窄屏单栏保留返回业务入口；按736/1200/1540集中验收，不另定义固定像素布局。
+- 同一会话在面板收起/展开和布局切换时保留draft与scroll，关闭面板不取消run；切项目不改变活动会话归属。Workspace代际、会话与run匹配仍过滤旧事件/响应。
+- 顶部仅项目/会话标题、历史、新会话和更多。历史按最近更新时间30条分页并按需展开，消息按50条加载；模型/probe、知识维护与技术设置移入设置或更多菜单，不常驻主消息轴。空态两个入口与输入框可见，零完整知识预读。
+- 用户消息浅底；助手正文通过正常Markdown排版。以稳定消息ID和用户任务轮次组织正文、折叠工具过程、方案与收据摘要；历史分页无重复控件，不把所有run的操作放到聊天尾部，不造另一份模型消息历史。
+- 工具仅显示“查找资料/读取文件/准备方案”等业务摘要，详细JSON/来源按需展开且不含凭据/内部路径；错误在折叠态仍可见。方案确认/取消和实际结果位于所属轮次，结果只展示一次实际业务摘要与对象链接，按E7绑定冻结模式和候选决定。
+- Record/File菜单“带入助手”使用同scope空闲会话及可移除来源/目标提示；当前会话scope不同或运行时新建同scope会话，不能静默切范围。成果打开实际Record/Todo/File页面；查看/编辑旁可继续对话，继续修改绑定实际对象与当前基线。R08才接隔离HTML，不以GUI收口提前执行HTML。
+- 运行可继续写草稿，不允许同会话并发发送。首版显式停止当前run、等待已开始操作settled后发送草稿，不隐式入队、自动续发或实现steering框架。
+- 未在底部时不强制滚动，提示新内容；在底部时跟随正文和异步方案/结果高度变化。用户展开工具/历史与切换布局仍保留阅读位置；有界列表沿现渐变遮罩，内容/尺寸变化后更新。
+- 引用按需预览，再打开实际原文；File显示固定版本/页码，旧版可查看、变化/缺失/删除明确标识。未展开来源不预读全部正文。
+- 加载、折叠和布局位移复用motion token，reduced-motion降级；标题与卡片左对齐，不新增设计系统。
 
 助手“项目知识”菜单按需显示Overview更新时间、coverage、来源/纠正/排除与刷新入口；不在Project首页增加知识卡片。空态和设置均不默认把完整Overview发给模型。
 
@@ -621,7 +623,7 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 | 模型不支持工具 | 明确指出当前 Profile，保留问题草稿；可选择其他 Profile |
 | 文件尚未处理/格式不支持 | 引用面板显示状态；回答中不暗示读过正文 |
 | 网络错误/模型限流 | 保留已收到的片段，标“未完成”；重试创建新 run，不重放写操作 |
-| 用户停止 | 保留片段和已完成保存收据；不显示“已完成任务” |
+| 用户停止 | 结算已开始提交，保留片段和真实收据，区分已完成/未完成/已取消；不显示“已完成任务”，草稿由用户结算后发送 |
 | Sidecar 崩溃/应用意外退出 | 下次启动将活动 run 标 interrupted；用户选择继续，默认不自动重试 |
 | Workspace 切换/关闭 | 先停止任务并等待工具写入结算，再执行现有保存屏障；不能把旧事件写进新 Workspace |
 | Project Archive | 已有会话可只读查看；恢复项目后可继续，普通检索不加入归档对象 |
@@ -679,3 +681,9 @@ RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume�
 - [Pi会话格式](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/session-format.md)：恢复与路径codec验证依据。
 - [Claude Code非交互接口](https://code.claude.com/docs/en/headless)：AI-13结构化输出与恢复参考，不预先承诺任意版本兼容。
 - [MCP stdio规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)：外部协议边界。
+
+GUI参考（2026-10-08按官方源码核对，行为借鉴范围见E14与[交付R04d～g](ai-work-context-delivery.md#r04-gui)）：
+
+- [OpenCode session-permission-dock](https://github.com/anomalyco/opencode/blob/dev/packages/app/src/pages/session/composer/session-permission-dock.tsx)：借鉴会话内明确决定与低干扰提示，不照搬逐工具权限或“始终允许”策略。
+- [DeepSeek Harness ui-chat](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-chat/README.md)、[TurnProcessNodeView](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-chat/src/client/chat/TurnProcessNodeView.tsx)、[ApprovalPanel](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-approval/src/client/ApprovalPanel.tsx)：借鉴真实Session分组、过程折叠、滚动恢复和原位决定；不引入其queue、approval waterfall或请求组装机制。
+- [Hermes Web ChatPage](https://github.com/NousResearch/hermes-agent/blob/main/web/src/pages/ChatPage.tsx)：Web页主要承载xterm终端，结构化事件另有侧栏；只参考会话/过程组织，不把终端外壳当作Mind聊天GUI，不引入PTY/shell能力。
