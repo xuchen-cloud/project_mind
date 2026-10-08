@@ -459,7 +459,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 **操作收据**：扩展`agent_operation_receipts`，记录operationId、run/connection、目标、operationKind、before/after revision或File Version、before/after snapshotRef、payload hash、摘要、撤销状态和恢复收据。会话删除不删除已提交对象或其撤销依据。写入和收据原子提交；File沿E9的journal。协作模式写工具仅在撤销依赖已就绪后开放，不能以“之后补撤销”作为M1完成。
 
-**修改撤销**：Record/File恢复该操作前版本并创建新版本；Todo恢复操作前字段/子项快照并增加revision。撤销前要求当前revision/hash仍等于该操作after值；若已有后续人工或其他Agent修改，返回UNDO_CONFLICT、显示差异，不能用旧快照覆盖后来的工作。重复撤销返回原收据，不再生成版本。Agent遇冲突可以重读、提出新的有边界修改，不能自动强制回滚。
+**修改撤销**：Record/File恢复该操作前版本并创建新版本；Todo恢复操作前字段/子项快照并增加revision。撤销前要求当前revision/hash仍等于该操作after值；若已有后续人工或其他Agent修改，返回UNDO_CONFLICT、显示差异，不能用旧快照覆盖后来的工作。重复撤销返回原收据，不再生成版本。Agent遇冲突可以重读、提出新的有边界修改，不能自动强制回滚。Record/File复用原生已有版本恢复，修改前后版本和历史均保留；同一任务（run）内同一对象多次修改只定位任务前版本/快照并恢复一次，不逐操作反向执行或新增通用撤销框架/版本库。
 
 **新增撤销**：新增对象需要可恢复撤回，不调用现有永久删除。增加`agent_object_withdrawals(object_key PK,creation_operation_id,withdrawn_at,restore_operation_id,revision)`；撤回保留对象内容、File字节及版本，从正常列表、Todo统计、上下文和搜索移除，直接引用显示“已撤回”并保留恢复入口。所有GUI/API查询采用共同可见性过滤；历史仍可查看。恢复后重建索引/发出事件，不重新分配对象ID。不自动清理撤回对象。对象被后续修改，或有本次撤销范围外的新入链时，返回冲突并保留，不能静默隐藏其他工作正在使用的对象。
 

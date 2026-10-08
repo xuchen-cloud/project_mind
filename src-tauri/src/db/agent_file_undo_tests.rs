@@ -179,6 +179,9 @@ fn fixture() -> Fixture {
     }
 }
 fn modify(f: &Fixture) -> OperationEntry {
+    modify_text(f, "Before", "Agent after")
+}
+fn modify_text(f: &Fixture, old_text: &str, new_text: &str) -> OperationEntry {
     let db = open_db(f);
     let current = db.document_record(file_id(&f.object).unwrap()).unwrap();
     let (hash, _) = registered_version(
@@ -193,8 +196,8 @@ fn modify(f: &Fixture) -> OperationEntry {
         expected_version_number: current.current_version_number as u32,
         expected_content_hash: hash,
         edits: Some(vec![TextEdit {
-            old_text: "Before".into(),
-            new_text: "Agent after".into(),
+            old_text: old_text.into(),
+            new_text: new_text.into(),
             occurrence: None,
         }]),
         append_text: None,
@@ -203,7 +206,7 @@ fn modify(f: &Fixture) -> OperationEntry {
     request.caller = Caller::BuiltinRun {
         run_id: f.run.clone(),
     };
-    request.request_id = "stage-modify".into();
+    request.request_id = format!("stage-modify-{}", current.current_version_number);
     let output = db
         .agent_output_stage_record(
             &request,
@@ -253,6 +256,341 @@ fn undo_input(entry: &OperationEntry) -> OperationUndoInput {
 fn withdraw(f: &Fixture) -> RecordWithdrawalInput {
     RecordWithdrawalInput {
         creation_operation_id: f.creation.clone(),
+    }
+}
+
+fn batch(f: &Fixture, entries: &[&OperationEntry]) -> OperationUndoBatchInput {
+    OperationUndoBatchInput {
+        run_id: f.run.clone(),
+        operation_ids: entries.iter().map(|e| e.operation_id.clone()).collect(),
+    }
+}
+fn version_bytes(db: &Database, version: &str) -> Vec<u8> {
+    fs::read(
+        db.document_version_record(version.parse().unwrap())
+            .unwrap()
+            .managed_path,
+    )
+    .unwrap()
+}
+
+#[test]
+fn file_group_undo_restores_once_and_all_originals_replay_the_same_receipt() {
+    let mut f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    f.request
+        .scope_grant
+        .operations
+        .retain(|op| op != "file.restore" && op != "file.update" && op != "source.read");
+    let input = batch(&f, &[&last, &first]);
+    let db = open_db(&f);
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    let result = crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input).unwrap();
+    let db = open_db(&f);
+    assert_eq!(
+        (result.before_version_number, result.after_version_number),
+        (3, 4)
+    );
+    assert_eq!(count(&db, "document_versions"), 4);
+    assert_eq!(
+        fs::read(
+            db.document_record(file_id(&f.object).unwrap())
+                .unwrap()
+                .managed_path
+        )
+        .unwrap(),
+        b"Before bytes\r\n"
+    );
+    assert_eq!(
+        version_bytes(&db, first.before_snapshot_ref.as_deref().unwrap()),
+        b"Before bytes\r\n"
+    );
+    assert_eq!(
+        version_bytes(&db, first.after_snapshot_ref.as_deref().unwrap()),
+        b"Agent after bytes\r\n"
+    );
+    assert_eq!(
+        version_bytes(&db, last.after_snapshot_ref.as_deref().unwrap()),
+        b"Second result bytes\r\n"
+    );
+    let context: String = db
+        .conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&result.operation_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let context: Value = decode(&context).unwrap();
+    assert_eq!(context["recovery"], "file.chain_undo");
+    assert_eq!(
+        context["originalOperationIds"],
+        json!([first.operation_id, last.operation_id])
+    );
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark + 1);
+    for original in [&first, &last] {
+        let saved = db
+            .agent_operation_get(&f.request, &f.request.binding, &original.operation_id)
+            .unwrap();
+        assert_eq!(saved.undo_state, "undone");
+        assert_eq!(
+            saved.undo_operation_id.as_deref(),
+            Some(result.operation_id.as_str())
+        );
+        assert_eq!(saved.before_revision, original.before_revision);
+        assert_eq!(saved.after_revision, original.after_revision);
+        assert_eq!(saved.before_snapshot_ref, original.before_snapshot_ref);
+        assert_eq!(saved.after_snapshot_ref, original.after_snapshot_ref);
+    }
+    let after_watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    let replay = crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input).unwrap();
+    assert_eq!(replay.operation_id, result.operation_id);
+    for original in [&first, &last] {
+        let single =
+            crate::agent::file_undo::undo_file(&f.store, &f.request, &undo_input(original))
+                .unwrap();
+        assert_eq!(single.operation_id, result.operation_id);
+        assert_eq!(single.original_operation_id, original.operation_id);
+        assert_eq!(single.after_version_number, 4);
+    }
+    let db = open_db(&f);
+    assert_eq!(count(&db, "document_versions"), 4);
+    assert_eq!(db.committed_change_watermark().unwrap(), after_watermark);
+}
+
+#[test]
+fn file_group_undo_net_zero_settles_without_another_version_or_change() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Before");
+    let db = open_db(&f);
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    let input = batch(&f, &[&first, &last]);
+    let result = crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input).unwrap();
+    let db = open_db(&f);
+    assert_eq!(
+        (result.before_version_number, result.after_version_number),
+        (3, 3)
+    );
+    assert_eq!(result.before_version_id, result.after_version_id);
+    assert_eq!(count(&db, "document_versions"), 3);
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    let receipt: CommittedVersion = previous(&db.conn, &result.operation_id).unwrap();
+    assert!(receipt.no_change);
+    for original in [&first, &last] {
+        let saved = db
+            .agent_operation_get(&f.request, &f.request.binding, &original.operation_id)
+            .unwrap();
+        assert_eq!(saved.undo_state, "undone");
+        assert_eq!(
+            saved.undo_operation_id.as_deref(),
+            Some(result.operation_id.as_str())
+        );
+    }
+    drop(db);
+    assert_eq!(
+        crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input)
+            .unwrap()
+            .operation_id,
+        result.operation_id
+    );
+    assert_eq!(
+        crate::agent::file_undo::undo_file(&f.store, &f.request, &undo_input(&first))
+            .unwrap()
+            .operation_id,
+        result.operation_id
+    );
+}
+
+#[test]
+fn file_group_undo_rejects_external_later_version_metadata_and_omitted_operations() {
+    for reason in ["external", "later-version", "metadata", "omitted"] {
+        let f = fixture();
+        let first = modify(&f);
+        let second = modify_text(&f, "Agent after", "Second result");
+        let last = if reason == "omitted" {
+            modify_text(&f, "Second result", "Third result")
+        } else {
+            second.clone()
+        };
+        let mut db = open_db(&f);
+        let current = db.document_record(file_id(&f.object).unwrap()).unwrap();
+        match reason {
+            "external" => fs::write(&current.managed_path, b"External user content").unwrap(),
+            "later-version" => {
+                let source = f.store.paths.root_path.join("manual-version.txt");
+                fs::write(&source, b"Later manual version").unwrap();
+                db.document_add_version(DocumentAddVersionInput {
+                    document_id: current.id,
+                    source_path: Some(source.to_string_lossy().into()),
+                })
+                .unwrap();
+            }
+            "metadata" => {
+                db.document_update_meta(DocumentUpdateMetaInput {
+                    document_id: current.id,
+                    base_name: None,
+                    is_starred: Some(true),
+                    tag_ids: None,
+                })
+                .unwrap();
+            }
+            _ => {}
+        }
+        let current = db.document_record(current.id).unwrap();
+        let bytes = fs::read(&current.managed_path).unwrap();
+        let versions = count(&db, "document_versions");
+        let watermark = db.committed_change_watermark().unwrap();
+        let input = batch(&f, &[&first, &last]);
+        drop(db);
+        let error =
+            crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input).unwrap_err();
+        assert_eq!(
+            error.code,
+            if reason == "external" {
+                ErrorCode::FileChangedUnregistered
+            } else {
+                ErrorCode::UndoConflict
+            }
+        );
+        let db = open_db(&f);
+        assert_eq!(count(&db, "document_versions"), versions);
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        assert_eq!(fs::read(&current.managed_path).unwrap(), bytes);
+        for original in [&first, &second, &last] {
+            assert_eq!(
+                db.agent_operation_get(&f.request, &f.request.binding, &original.operation_id)
+                    .unwrap()
+                    .undo_state,
+                "available"
+            );
+        }
+    }
+}
+
+#[test]
+fn file_group_undo_receipt_hook_failure_rolls_back_the_entire_native_restore() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let db = open_db(&f);
+    let current = db.document_record(file_id(&f.object).unwrap()).unwrap();
+    let bytes = fs::read(&current.managed_path).unwrap();
+    let watermark = db.committed_change_watermark().unwrap();
+    let receipts = count(&db, "agent_operation_receipts");
+    // Fail after the first original has already been updated in this same tx.
+    db.conn.execute_batch(&format!("CREATE TRIGGER reject_second_chain_undo BEFORE UPDATE OF undo_state ON agent_operation_receipts WHEN OLD.operation_id='{}' AND NEW.undo_state='undone' BEGIN SELECT RAISE(ABORT,'second receipt unavailable'); END;",last.operation_id)).unwrap();
+    drop(db);
+    assert_eq!(
+        crate::agent::file_undo::undo_file_group(
+            &f.store,
+            &f.request,
+            &batch(&f, &[&first, &last])
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::IoFailed
+    );
+    let db = open_db(&f);
+    assert_eq!(count(&db, "document_versions"), 3);
+    assert_eq!(count(&db, "agent_operation_receipts"), receipts);
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    assert_eq!(fs::read(&current.managed_path).unwrap(), bytes);
+    for original in [&first, &last] {
+        let saved = db
+            .agent_operation_get(&f.request, &f.request.binding, &original.operation_id)
+            .unwrap();
+        assert_eq!(saved.undo_state, "available");
+        assert_eq!(saved.undo_operation_id, None);
+    }
+    assert_eq!(
+        version_bytes(&db, first.before_snapshot_ref.as_deref().unwrap()),
+        b"Before bytes\r\n"
+    );
+    assert_eq!(
+        version_bytes(&db, first.after_snapshot_ref.as_deref().unwrap()),
+        b"Agent after bytes\r\n"
+    );
+}
+
+#[test]
+fn file_group_undo_replay_keeps_a_later_manual_version_intact() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let input = batch(&f, &[&first, &last]);
+    let undo = crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input).unwrap();
+    let mut db = open_db(&f);
+    let source = f.store.paths.root_path.join("after-undo-manual.txt");
+    fs::write(&source, b"Later user version").unwrap();
+    let current = db
+        .document_add_version(DocumentAddVersionInput {
+            document_id: file_id(&f.object).unwrap(),
+            source_path: Some(source.to_string_lossy().into()),
+        })
+        .unwrap();
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    assert_eq!(
+        crate::agent::file_undo::undo_file_group(&f.store, &f.request, &input)
+            .unwrap()
+            .operation_id,
+        undo.operation_id
+    );
+    assert_eq!(
+        crate::agent::file_undo::undo_file(&f.store, &f.request, &undo_input(&first))
+            .unwrap()
+            .operation_id,
+        undo.operation_id
+    );
+    let db = open_db(&f);
+    assert_eq!(count(&db, "document_versions"), 5);
+    assert_eq!(
+        db.document_record(current.id)
+            .unwrap()
+            .current_version_number,
+        5
+    );
+    assert_eq!(
+        fs::read(current.managed_path).unwrap(),
+        b"Later user version"
+    );
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+}
+
+#[test]
+fn file_group_undo_requires_each_original_receipt_authority() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let db = open_db(&f);
+    db.conn.execute("UPDATE agent_operation_receipts SET output_context_json=json_set(output_context_json,'$.originalGrant.operations',json('[]')) WHERE operation_id=?1", [&first.operation_id]).unwrap();
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    assert_eq!(
+        crate::agent::file_undo::undo_file_group(
+            &f.store,
+            &f.request,
+            &batch(&f, &[&first, &last])
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::ScopeDenied
+    );
+    let db = open_db(&f);
+    assert_eq!(count(&db, "document_versions"), 3);
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    for original in [&first, &last] {
+        assert_eq!(
+            db.agent_operation_get(&f.request, &f.request.binding, &original.operation_id)
+                .unwrap()
+                .undo_state,
+            "available"
+        );
     }
 }
 

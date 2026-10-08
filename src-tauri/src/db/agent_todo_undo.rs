@@ -12,6 +12,7 @@ use crate::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        operation_batches::{OperationBatchUndoState, OperationUndoBatchInput, OperationUndoGroup},
         operations::{OperationEntry, OperationUndoInput, TodoUndoResult},
     },
     models::TodoScope,
@@ -170,6 +171,61 @@ fn previous<T: DeserializeOwned>(conn: &Connection, id: &str, operation: &str) -
     decode(&result)
 }
 
+/// Invalid IDs, foreign runs and scope are checked by the shared planner before
+/// interpreting any receipt state. This executor intentionally excludes creation.
+fn todo_undo_group_plan(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    input: &OperationUndoBatchInput,
+) -> AgentResult<OperationUndoGroup> {
+    let mut planned = super::agent_operation_batches::plan(conn, request, binding, input)?;
+    if planned.groups.len() != 1 || !planned.excluded_no_change.is_empty() {
+        return Err(conflict());
+    }
+    let group = planned.groups.remove(0);
+    if group.object.kind != ObjectKind::Todo
+        || group
+            .operations
+            .iter()
+            .any(|entry| entry.kind != "todo.update")
+    {
+        return Err(conflict());
+    }
+    Ok(group)
+}
+
+/// Durable success is read before live-head/structural checks: subsequent native
+/// work cannot invalidate an already committed undo result. Mixed states conflict.
+fn todo_undo_group_previous(
+    conn: &Connection,
+    group: &OperationUndoGroup,
+) -> AgentResult<Option<TodoUndoResult>> {
+    if group.undo_state == OperationBatchUndoState::Undone {
+        let id = group
+            .first()
+            .undo_operation_id
+            .as_deref()
+            .ok_or_else(conflict)?;
+        if group
+            .operations
+            .iter()
+            .any(|entry| entry.undo_operation_id.as_deref() != Some(id))
+        {
+            return Err(conflict());
+        }
+        let result: TodoUndoResult = previous(conn, id, "todo.undo")?;
+        if result.object != group.object {
+            return Err(conflict());
+        }
+        Ok(Some(result))
+    } else if group.undo_state != OperationBatchUndoState::Available {
+        Err(conflict())
+    } else {
+        Ok(None)
+    }
+}
+
 fn require_no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()> {
     let id = todo_id(object)?;
     let key = object.key()?;
@@ -268,38 +324,150 @@ impl Database {
         if let Some(id) = &entry.undo_operation_id {
             return previous(&self.conn, id, "todo.undo");
         }
-        self.agent_atomic_operation(&request.caller.key(), &request.request_id, "todo.undo", input, |tx| {
-            let entry = authorize_entry(tx, request, binding, &input.operation_id, "operation.undo")?;
-            if let Some(id) = &entry.undo_operation_id { return Ok((previous(tx, id, "todo.undo")?, None)); }
-            if entry.undo_state != "available" || entry.kind != "todo.update" || entry.after_revision != Some(input.expected_head_revision) { return Err(conflict()); }
-            let (head, after) = baseline(tx, &entry)?;
-            let id = todo_id(&entry.object)?;
-            require_todo_visible(tx, id)?;
-            let before_ref = entry.before_snapshot_ref.as_deref().ok_or_else(conflict)?;
-            let before = retained(tx, before_ref, id, entry.before_revision.ok_or_else(conflict)?)?;
-            if snapshot_scope(&before)? != entry.object.scope || before.scope != after.scope || before.project_id != after.project_id { return Err(conflict()); }
-            self.authorize_todo_restore_references(request, binding, &before, &after)?;
-            // Preserve IDs and all native child evidence. A child ID now owned by
-            // another Todo cannot be taken back during recovery.
-            for child in &before.children {
-                let owner: Option<i64> = tx.query_row("SELECT todo_id FROM todo_progresses WHERE id=?1", [child.id], |row| row.get(0)).optional().map_err(io_error)?;
-                if owner.is_some_and(|owner| owner != id) { return Err(conflict()); }
+        self.agent_atomic_operation(
+            &request.caller.key(),
+            &request.request_id,
+            "todo.undo",
+            input,
+            |tx| {
+                let entry =
+                    authorize_entry(tx, request, binding, &input.operation_id, "operation.undo")?;
+                if let Some(id) = &entry.undo_operation_id {
+                    return Ok((previous(tx, id, "todo.undo")?, None));
+                }
+                if entry.undo_state != "available"
+                    || entry.kind != "todo.update"
+                    || entry.after_revision != Some(input.expected_head_revision)
+                {
+                    return Err(conflict());
+                }
+                self.apply_todo_undo_restore(tx, request, binding, std::slice::from_ref(&entry))
+            },
+        )
+    }
+
+    /// One native restore for a complete modification chain on one actual Todo.
+    /// Planning is repeated after acquiring the atomic writer reservation.
+    pub(crate) fn agent_todo_undo_group(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &OperationUndoBatchInput,
+    ) -> AgentResult<TodoUndoResult> {
+        self.operation_binding(binding)?;
+        let group = todo_undo_group_plan(&self.conn, request, binding, input)?;
+        if let Some(result) = todo_undo_group_previous(&self.conn, &group)? {
+            return Ok(result);
+        }
+        self.agent_atomic_operation(
+            &request.caller.key(),
+            &request.request_id,
+            "todo.undo",
+            input,
+            |tx| {
+                let group = todo_undo_group_plan(tx, request, binding, input)?;
+                if let Some(result) = todo_undo_group_previous(tx, &group)? {
+                    return Ok((result, None));
+                }
+                if group.undo_state != OperationBatchUndoState::Available
+                    || !group.conflicts.is_empty()
+                {
+                    return Err(conflict());
+                }
+                self.apply_todo_undo_restore(tx, request, binding, &group.operations)
+            },
+        )
+    }
+
+    /// Shared by single and group undo: restore native fields/children once,
+    /// create one canonical revision, then atomically link every original receipt.
+    fn apply_todo_undo_restore(
+        &self,
+        tx: &Transaction<'_>,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        entries: &[OperationEntry],
+    ) -> AgentResult<(TodoUndoResult, Option<OperationChange>)> {
+        let first = entries.first().ok_or_else(conflict)?;
+        let tail = entries.last().ok_or_else(conflict)?;
+        let (head, after) = baseline(tx, tail)?;
+        let id = todo_id(&first.object)?;
+        require_todo_visible(tx, id)?;
+        let before_ref = first.before_snapshot_ref.as_deref().ok_or_else(conflict)?;
+        let before = retained(
+            tx,
+            before_ref,
+            id,
+            first.before_revision.ok_or_else(conflict)?,
+        )?;
+        if snapshot_scope(&before)? != first.object.scope
+            || before.scope != after.scope
+            || before.project_id != after.project_id
+        {
+            return Err(conflict());
+        }
+        self.authorize_todo_restore_references(request, binding, &before, &after)?;
+        // Preserve IDs and all native child evidence. A child ID now owned by
+        // another Todo cannot be taken back during recovery.
+        for child in &before.children {
+            let owner: Option<i64> = tx
+                .query_row(
+                    "SELECT todo_id FROM todo_progresses WHERE id=?1",
+                    [child.id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(io_error)?;
+            if owner.is_some_and(|owner| owner != id) {
+                return Err(conflict());
             }
-            self.validated_todo_tag_ids(before.project_id, &before.tag_ids).map_err(|_| conflict())?;
-            let at = Utc::now().to_rfc3339();
-            tx.execute("UPDATE todos SET content=?1,status=?2,priority=?3,due_date=?4,updated_at=?5 WHERE id=?6", params![before.content, before.status, before.priority, before.due_date, at, id]).map_err(io_error)?;
-            tx.execute("DELETE FROM todo_tag_links WHERE todo_id=?1", [id]).map_err(io_error)?;
-            for tag in &before.tag_ids { tx.execute("INSERT INTO todo_tag_links(todo_id,tag_id,created_at) VALUES (?1,?2,?3)", params![id, tag, at]).map_err(io_error)?; }
-            tx.execute("DELETE FROM todo_progresses WHERE todo_id=?1", [id]).map_err(io_error)?;
-            for child in &before.children { tx.execute("INSERT INTO todo_progresses(id,todo_id,content,status,progress_date,due_date,completed_at,order_index,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![child.id,id,child.content,child.status,child.progress_date,child.due_date,child.completed_at,child.order_index,child.created_at]).map_err(io_error)?; }
-            let operation_id = random_id();
-            let saved = todo_revisions::commit(tx, id, head.revision, Some(&operation_id))?;
-            self.touch_todo_owners(&self.todo_record_unchecked(id).map_err(|_| conflict())?).map_err(|_| conflict())?;
-            let result = TodoUndoResult { operation_id: operation_id.clone(), original_operation_id: entry.operation_id.clone(), object: entry.object.clone(), before_revision: head.revision, after_revision: saved.revision, before_snapshot_ref: head.snapshot_ref, after_snapshot_ref: saved.snapshot_ref, body_hash: saved.body_hash.clone() };
+        }
+        self.validated_todo_tag_ids(before.project_id, &before.tag_ids)
+            .map_err(|_| conflict())?;
+        let at = Utc::now().to_rfc3339();
+        tx.execute("UPDATE todos SET content=?1,status=?2,priority=?3,due_date=?4,updated_at=?5 WHERE id=?6", params![before.content, before.status, before.priority, before.due_date, at, id]).map_err(io_error)?;
+        tx.execute("DELETE FROM todo_tag_links WHERE todo_id=?1", [id])
+            .map_err(io_error)?;
+        for tag in &before.tag_ids {
+            tx.execute(
+                "INSERT INTO todo_tag_links(todo_id,tag_id,created_at) VALUES (?1,?2,?3)",
+                params![id, tag, at],
+            )
+            .map_err(io_error)?;
+        }
+        tx.execute("DELETE FROM todo_progresses WHERE todo_id=?1", [id])
+            .map_err(io_error)?;
+        for child in &before.children {
+            tx.execute("INSERT INTO todo_progresses(id,todo_id,content,status,progress_date,due_date,completed_at,order_index,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", params![child.id,id,child.content,child.status,child.progress_date,child.due_date,child.completed_at,child.order_index,child.created_at]).map_err(io_error)?;
+        }
+        let operation_id = random_id();
+        let saved = todo_revisions::commit(tx, id, head.revision, Some(&operation_id))?;
+        self.touch_todo_owners(&self.todo_record_unchecked(id).map_err(|_| conflict())?)
+            .map_err(|_| conflict())?;
+        let result = TodoUndoResult {
+            operation_id: operation_id.clone(),
+            original_operation_id: first.operation_id.clone(),
+            object: first.object.clone(),
+            before_revision: head.revision,
+            after_revision: saved.revision,
+            before_snapshot_ref: head.snapshot_ref,
+            after_snapshot_ref: saved.snapshot_ref,
+            body_hash: saved.body_hash.clone(),
+        };
+        for entry in entries {
             let changed = tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL", params![operation_id, entry.operation_id]).map_err(io_error)?;
-            if changed != 1 { return Err(conflict()); }
-            Ok((result, Some(OperationChange { object_key: entry.object.key()?, scope: entry.object.scope, revision: saved.body_hash })))
-        })
+            if changed != 1 {
+                return Err(conflict());
+            }
+        }
+        Ok((
+            result,
+            Some(OperationChange {
+                object_key: first.object.key()?,
+                scope: first.object.scope.clone(),
+                revision: saved.body_hash,
+            }),
+        ))
     }
 
     pub(crate) fn agent_todo_creation_withdraw(

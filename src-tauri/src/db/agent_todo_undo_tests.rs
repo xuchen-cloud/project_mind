@@ -3,6 +3,8 @@ use crate::{
     agent::{
         access::{Caller, ScopeGrant},
         conversation::RunPreparation,
+        output_runtime::StageRecordInput,
+        outputs::{OutputIntent, TodoMutation},
     },
     models::{
         FileTagOptionUpsertInput, InternalReferenceResolveInput, ProjectArchiveInput,
@@ -632,4 +634,352 @@ fn todo_undo_revalidates_restored_child_reference_availability_and_current_scope
             "available"
         );
     }
+}
+
+/// Exercise the actual stage/native output path, including its frozen Run grant
+/// and receipt hook, rather than assembling a group from fake revision evidence.
+fn native_update(
+    f: &Fixture,
+    request_id: &str,
+    changes: Vec<TodoMutation>,
+) -> super::super::agent_todo_outputs::TodoCommittedResult {
+    let mut model = f.request.clone();
+    model.caller = Caller::BuiltinRun {
+        run_id: f.run_id.clone(),
+    };
+    model.request_id = request_id.into();
+    model.scope_grant.operations.extend(
+        [
+            "output.stage",
+            "output.read",
+            "output.update",
+            "output.commit",
+            "todo.update",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    let grant = &model.scope_grant;
+    f.db.conn.execute("UPDATE agent_runs SET grant_json=?1 WHERE id=?2", params![json!({"workspaceId":grant.workspace_id,"workspaceContent":grant.workspace_content,"projectIds":grant.project_ids,"operations":grant.operations}).to_string(), f.run_id]).unwrap();
+    let head = todo_revisions::head(&f.db.conn, todo_id(&f.object).unwrap()).unwrap();
+    let output =
+        f.db.agent_output_stage_record(
+            &model,
+            &model.binding,
+            &StageRecordInput {
+                sources: vec![],
+                intent: OutputIntent::TodoUpdate {
+                    target: f.object.clone(),
+                    expected_revision: head.revision,
+                    changes,
+                },
+            },
+        )
+        .unwrap();
+    f.db.agent_todo_output_commit(
+        &model,
+        &model.binding,
+        &output.staged.id,
+        output.staged.revision,
+    )
+    .unwrap()
+}
+fn group_input(f: &Fixture, ids: &[&str]) -> OperationUndoBatchInput {
+    OperationUndoBatchInput {
+        run_id: f.run_id.clone(),
+        operation_ids: ids.iter().map(|id| (*id).into()).collect(),
+    }
+}
+fn native_update_pair(
+    f: &Fixture,
+) -> (
+    super::super::agent_todo_outputs::TodoCommittedResult,
+    super::super::agent_todo_outputs::TodoCommittedResult,
+) {
+    let child = todo_revisions::snapshot(&f.db.conn, todo_id(&f.object).unwrap())
+        .unwrap()
+        .children
+        .remove(0);
+    let first = native_update(
+        f,
+        "first-native-update",
+        vec![
+            TodoMutation::Content {
+                content: "First native change".into(),
+            },
+            TodoMutation::Priority {
+                priority: "urgent_important".into(),
+            },
+            TodoMutation::ChildUpdate {
+                child_id: child.id,
+                content: "First child change".into(),
+                progress_date: child.progress_date,
+                due_date: None,
+                status: "unfinished".into(),
+            },
+        ],
+    );
+    let tail = native_update(
+        f,
+        "tail-native-update",
+        vec![
+            TodoMutation::Content {
+                content: "Tail native change".into(),
+            },
+            TodoMutation::Tags { tag_ids: vec![] },
+            TodoMutation::ChildDelete { child_id: child.id },
+            TodoMutation::ChildCreate {
+                content: "New tail child".into(),
+                progress_date: "2026-10-08".into(),
+                due_date: None,
+            },
+        ],
+    );
+    (first, tail)
+}
+
+#[test]
+fn todo_group_undo_restores_first_baseline_once_and_replays_each_original_after_later_work() {
+    for project in [false, true] {
+        let mut f = fixture(project);
+        let id = todo_id(&f.object).unwrap();
+        let before = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+        let (first, tail) = native_update_pair(&f);
+        let input = group_input(&f, &[&tail.operation_id, &first.operation_id]);
+        let old_entries = [first.operation_id.as_str(), tail.operation_id.as_str()].map(|id| {
+            f.db.agent_operation_get(&f.request, &f.request.binding, id)
+                .unwrap()
+        });
+        let outbox = count(&f.db, "agent_change_log");
+        let snapshots = count(&f.db, "todo_revision_snapshots");
+        let result =
+            f.db.agent_todo_undo_group(&f.request, &f.request.binding, &input)
+                .unwrap();
+        assert_eq!(result.original_operation_id, first.operation_id);
+        assert_eq!(result.before_revision, tail.after_revision);
+        assert_eq!(result.before_snapshot_ref, tail.after_snapshot_ref);
+        assert_eq!(result.after_revision, tail.after_revision + 1);
+        assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), before);
+        assert_eq!(
+            todo_revisions::retained_snapshot(&f.db.conn, &result.after_snapshot_ref).unwrap(),
+            before
+        );
+        assert_eq!(count(&f.db, "agent_change_log"), outbox + 1);
+        assert_eq!(count(&f.db, "todo_revision_snapshots"), snapshots + 1);
+        for old in &old_entries {
+            let saved =
+                f.db.agent_operation_get(&f.request, &f.request.binding, &old.operation_id)
+                    .unwrap();
+            assert_eq!(saved.undo_state, "undone");
+            assert_eq!(
+                saved.undo_operation_id.as_deref(),
+                Some(result.operation_id.as_str())
+            );
+            assert_eq!(saved.before_revision, old.before_revision);
+            assert_eq!(saved.after_revision, old.after_revision);
+            assert_eq!(saved.before_snapshot_ref, old.before_snapshot_ref);
+            assert_eq!(saved.after_snapshot_ref, old.after_snapshot_ref);
+            f.request.request_id = format!("single-repeat-{}", old.operation_id);
+            let repeated =
+                f.db.agent_todo_undo(
+                    &f.request,
+                    &f.request.binding,
+                    &OperationUndoInput {
+                        operation_id: old.operation_id.clone(),
+                        expected_head_revision: old.after_revision.unwrap(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(encode(&repeated).unwrap(), encode(&result).unwrap());
+        }
+        f.db.todo_update_content(TodoUpdateContentInput {
+            expected_revision: result.after_revision,
+            todo_id: id,
+            content: "Later user work".into(),
+            due_date: before.due_date,
+            tag_ids: before.tag_ids,
+        })
+        .unwrap();
+        let current = todo_revisions::head(&f.db.conn, id).unwrap();
+        let outbox_after_later_work = count(&f.db, "agent_change_log");
+        f.request.request_id = "group-repeat-after-later-work".into();
+        let repeated =
+            f.db.agent_todo_undo_group(&f.request, &f.request.binding, &input)
+                .unwrap();
+        assert_eq!(encode(&repeated).unwrap(), encode(&result).unwrap());
+        assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), current);
+        assert_eq!(count(&f.db, "agent_change_log"), outbox_after_later_work);
+    }
+}
+
+#[test]
+fn todo_group_undo_rejects_later_native_or_untracked_child_changes_and_keeps_receipts_available() {
+    for manual in [false, true] {
+        let f = fixture(false);
+        let id = todo_id(&f.object).unwrap();
+        let (first, tail) = native_update_pair(&f);
+        if manual {
+            let snapshot = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+            f.db.todo_update_content(TodoUpdateContentInput {
+                expected_revision: tail.after_revision,
+                todo_id: id,
+                content: snapshot.content,
+                due_date: snapshot.due_date,
+                tag_ids: snapshot.tag_ids,
+            })
+            .unwrap();
+        } else {
+            f.db.conn
+                .execute(
+                    "UPDATE todo_progresses SET content='Later untracked child' WHERE todo_id=?1",
+                    [id],
+                )
+                .unwrap();
+        }
+        let current = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+        let head = todo_revisions::head(&f.db.conn, id).unwrap();
+        let outbox = count(&f.db, "agent_change_log");
+        assert_eq!(
+            f.db.agent_todo_undo_group(
+                &f.request,
+                &f.request.binding,
+                &group_input(&f, &[&first.operation_id, &tail.operation_id])
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::UndoConflict
+        );
+        assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), current);
+        assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), head);
+        assert_eq!(count(&f.db, "agent_change_log"), outbox);
+        for operation in [&first.operation_id, &tail.operation_id] {
+            assert_eq!(
+                f.db.agent_operation_get(&f.request, &f.request.binding, operation)
+                    .unwrap()
+                    .undo_state,
+                "available"
+            );
+        }
+    }
+}
+
+#[test]
+fn todo_group_undo_rejects_foreign_run_scope_missing_middle_creation_and_mixed_states() {
+    for reason in ["run", "scope", "middle", "creation", "mixed"] {
+        let f = fixture(false);
+        if reason == "creation" {
+            creation(&f);
+        }
+        let (first, tail) = native_update_pair(&f);
+        let mut input = group_input(&f, &[&first.operation_id, &tail.operation_id]);
+        let mut request = f.request.clone();
+        match reason {
+            "run" => input.run_id = "b".repeat(32),
+            "scope" => request.scope_grant.workspace_content = false,
+            "middle" => {
+                let third = native_update(
+                    &f,
+                    "third-native-update",
+                    vec![TodoMutation::Content {
+                        content: "Third change".into(),
+                    }],
+                );
+                input.operation_ids = vec![first.operation_id.clone(), third.operation_id];
+            }
+            "creation" => input.operation_ids.insert(0, f.operation_id.clone()),
+            _ => {
+                f.db.conn.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2", params!["d".repeat(32), first.operation_id]).unwrap();
+            }
+        }
+        let id = todo_id(&f.object).unwrap();
+        let current = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+        let head = todo_revisions::head(&f.db.conn, id).unwrap();
+        let outbox = count(&f.db, "agent_change_log");
+        let error =
+            f.db.agent_todo_undo_group(&request, &request.binding, &input)
+                .unwrap_err();
+        assert_eq!(
+            error.code,
+            if matches!(reason, "run" | "scope") {
+                ErrorCode::ScopeDenied
+            } else {
+                ErrorCode::UndoConflict
+            }
+        );
+        assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), current);
+        assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), head);
+        assert_eq!(count(&f.db, "agent_change_log"), outbox);
+    }
+}
+
+#[test]
+fn todo_group_undo_receipt_failures_roll_back_restoration_and_every_original_marker() {
+    for failure in ["final_receipt", "second_original"] {
+        let f = fixture(true);
+        let (first, tail) = native_update_pair(&f);
+        if failure == "final_receipt" {
+            f.db.conn.execute_batch("CREATE TRIGGER reject_group_undo_receipt BEFORE UPDATE OF operation_id ON agent_operation_receipts WHEN NEW.operation='todo.undo' BEGIN SELECT RAISE(ABORT,'reject receipt'); END;").unwrap();
+        } else {
+            f.db.conn.execute_batch(&format!("CREATE TRIGGER reject_group_second_original BEFORE UPDATE OF undo_state ON agent_operation_receipts WHEN NEW.operation_id='{}' AND NEW.undo_state='undone' BEGIN SELECT RAISE(ABORT,'reject original'); END;", tail.operation_id)).unwrap();
+        }
+        let id = todo_id(&f.object).unwrap();
+        let current = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+        let head = todo_revisions::head(&f.db.conn, id).unwrap();
+        let outbox = count(&f.db, "agent_change_log");
+        let snapshots = count(&f.db, "todo_revision_snapshots");
+        assert_eq!(
+            f.db.agent_todo_undo_group(
+                &f.request,
+                &f.request.binding,
+                &group_input(&f, &[&first.operation_id, &tail.operation_id])
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::IoFailed
+        );
+        assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), current);
+        assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), head);
+        assert_eq!(count(&f.db, "agent_change_log"), outbox);
+        assert_eq!(count(&f.db, "todo_revision_snapshots"), snapshots);
+        for operation in [&first.operation_id, &tail.operation_id] {
+            let entry =
+                f.db.agent_operation_get(&f.request, &f.request.binding, operation)
+                    .unwrap();
+            assert_eq!(entry.undo_state, "available");
+            assert!(entry.undo_operation_id.is_none());
+        }
+    }
+}
+
+#[test]
+fn todo_group_undo_net_zero_changes_follow_native_revision_strategy() {
+    let f = fixture(false);
+    let id = todo_id(&f.object).unwrap();
+    let before = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+    let first = native_update(
+        &f,
+        "net-zero-first",
+        vec![TodoMutation::Content {
+            content: "Temporary change".into(),
+        }],
+    );
+    let tail = native_update(
+        &f,
+        "net-zero-tail",
+        vec![TodoMutation::Content {
+            content: before.content.clone(),
+        }],
+    );
+    assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), before);
+    let result =
+        f.db.agent_todo_undo_group(
+            &f.request,
+            &f.request.binding,
+            &group_input(&f, &[&first.operation_id, &tail.operation_id]),
+        )
+        .unwrap();
+    assert_eq!(result.before_revision, tail.after_revision);
+    assert_eq!(result.after_revision, tail.after_revision + 1);
+    assert_eq!(result.body_hash, tail.body_hash);
+    assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), before);
 }

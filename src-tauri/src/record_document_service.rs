@@ -889,6 +889,58 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 .map(OperationUndoResult::ModifiedRecord)
         })
     }
+    /// Restore the first baseline of one continuously modified Record chain.
+    /// Conversion, editor acknowledgement and native commit use the same path
+    /// as single-operation undo; every original receipt is settled atomically.
+    pub(crate) async fn undo_operation_group(
+        &self,
+        request: &RequestContext,
+        input: &crate::agent::operation_batches::OperationUndoBatchInput,
+    ) -> AgentResult<crate::agent::operations::RecordUndoResult> {
+        let (previous, group) = self.with_current(request, |binding, db| {
+            let group = db.agent_record_undo_group_prepare(request, binding, input)?;
+            let previous = db.agent_record_undo_group_previous(&group)?;
+            Ok((previous, group))
+        })?;
+        if let Some(previous) = previous {
+            return Ok(previous);
+        }
+        let target = RecordTarget {
+            scope: group.object.scope.clone(),
+            record_id: group.object.id.parse().map_err(|_| {
+                AgentError::new(ErrorCode::UndoConflict, "Invalid Record receipt target")
+            })?,
+        };
+        let version = self
+            .regenerated_version(
+                request,
+                &target,
+                group
+                    .first()
+                    .before_snapshot_ref
+                    .as_deref()
+                    .ok_or_else(|| {
+                        AgentError::new(ErrorCode::UndoConflict, "Historic baseline is unavailable")
+                    })?,
+                "operation.undo",
+            )
+            .await?;
+        self.flush_editors(request, &target, "operation.undo")
+            .await?;
+        let _submission = self
+            .store
+            .submission_lock(&request.binding, &target)
+            .await?;
+        self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_references(
+                request,
+                db,
+                &version.projection.document,
+                "operation.undo",
+            )?;
+            db.agent_record_undo_group_commit(request, &request.binding, input, &version.projection)
+        })
+    }
     pub(crate) async fn version_preview(
         &self,
         request: &RequestContext,

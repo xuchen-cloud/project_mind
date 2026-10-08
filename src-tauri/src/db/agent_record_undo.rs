@@ -5,6 +5,7 @@ use crate::{
         access::{Caller, RequestContext},
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, WorkspaceBinding},
+        operation_batches::{OperationBatchConflictReason, OperationBatchUndoState, OperationUndoBatchInput, OperationUndoGroup},
         operations::*,
     },
     record_documents::{
@@ -120,6 +121,86 @@ pub(super) fn authorize(
             "Only the owning Run or local interface can access this operation",
         )),
     }
+}
+fn record_undo_group(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    input: &OperationUndoBatchInput,
+) -> AgentResult<OperationUndoGroup> {
+    let mut planned = super::agent_operation_batches::plan(conn, request, binding, input)?;
+    if planned.groups.len() != 1 || !planned.excluded_no_change.is_empty() {
+        return Err(invalid(
+            "Record group undo requires exactly one modified Record chain",
+        ));
+    }
+    let group = planned.groups.remove(0);
+    if group.object.kind != ObjectKind::Record
+        || group
+            .operations
+            .iter()
+            .any(|entry| entry.kind != "record.patch")
+    {
+        return Err(AgentError::new(
+            ErrorCode::ToolCallUnsupported,
+            "Record group undo supports modifications only",
+        ));
+    }
+    match group.undo_state {
+        OperationBatchUndoState::Available => {
+            if let Some(conflict) = group.conflicts.first() {
+                return Err(conflict.error.clone());
+            }
+        }
+        OperationBatchUndoState::Undone => {
+            let id = group
+                .first()
+                .undo_operation_id
+                .as_ref()
+                .ok_or_else(conflict)?;
+            if group
+                .operations
+                .iter()
+                .any(|entry| entry.undo_operation_id.as_ref() != Some(id))
+            {
+                return Err(conflict());
+            }
+            // Successful undo remains replayable after subsequent native work.
+            if let Some(conflict) = group.conflicts.iter().find(|conflict| {
+                conflict.reason != OperationBatchConflictReason::MissingLaterOperation
+            }) {
+                return Err(conflict.error.clone());
+            }
+        }
+        _ => return Err(conflict()),
+    }
+    Ok(group)
+}
+fn record_group_previous(
+    conn: &Connection,
+    group: &OperationUndoGroup,
+) -> AgentResult<Option<RecordUndoResult>> {
+    if group.undo_state != OperationBatchUndoState::Undone {
+        return Ok(None);
+    }
+    let id = group
+        .first()
+        .undo_operation_id
+        .as_deref()
+        .ok_or_else(conflict)?;
+    let raw: String = conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.undo' AND state='committed'", [id], |row| row.get(0)).map_err(io_error)?;
+    let result: RecordUndoResult = decode(&raw)?;
+    let (original, _) = read_entry(conn, &result.original_operation_id)?;
+    if result.operation_id != id
+        || result.object != group.object
+        || original.object != group.object
+        || original.run_id != group.first().run_id
+        || original.undo_state != "undone"
+        || original.undo_operation_id.as_deref() != Some(id)
+    {
+        return Err(conflict());
+    }
+    Ok(Some(result))
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -419,6 +500,82 @@ impl Database {
             let result=RecordUndoResult{operation_id,original_operation_id:input.operation_id.clone(),object:entry.object,head:saved.head,before_version:saved.before_version,after_version};Ok((result,change))
         })
     }
+    pub(crate) fn agent_record_undo_group_prepare(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &OperationUndoBatchInput,
+    ) -> AgentResult<OperationUndoGroup> {
+        self.operation_binding(binding)?;
+        record_undo_group(&self.conn, request, binding, input)
+    }
+    pub(crate) fn agent_record_undo_group_previous(
+        &self,
+        group: &OperationUndoGroup,
+    ) -> AgentResult<Option<RecordUndoResult>> {
+        record_group_previous(&self.conn, group)
+    }
+    pub(crate) fn agent_record_undo_group_commit(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &OperationUndoBatchInput,
+        projection: &RecordDocumentProjection,
+    ) -> AgentResult<RecordUndoResult> {
+        let group = self.agent_record_undo_group_prepare(request, binding, input)?;
+        if let Some(previous) = self.agent_record_undo_group_previous(&group)? {
+            return Ok(previous);
+        }
+        let target = RecordTarget {
+            scope: group.object.scope.clone(),
+            record_id: group.object.id.parse().map_err(|_| conflict())?,
+        };
+        let compatibility = self.record_compatibility_html(&target, projection)?;
+        self.agent_atomic_operation(&request.caller.key(), &request.request_id, "record.undo", input, |tx| {
+            let group = record_undo_group(tx, request, binding, input)?;
+            if let Some(previous) = record_group_previous(tx, &group)? { return Ok((previous, None)); }
+            let first = group.first();
+            let tail = group.last();
+            let expected = tail.after_revision.ok_or_else(conflict)?;
+            let raw: String = tx.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1", [&tail.operation_id], |row| row.get(0)).map_err(io_error)?;
+            let context: Value = decode(&raw)?;
+            let current = super::record_documents::head_unchecked(tx, &target)?.ok_or_else(conflict)?;
+            let metadata = super::record_documents::metadata(tx, &target)?;
+            if current.head_revision != expected || current.edit_session_id.is_some()
+                || context["afterBodyHash"].as_str() != Some(current.projection.body_hash.as_str())
+                || context["afterMetadata"] != serde_json::to_value(metadata).map_err(|_| conflict())? { return Err(conflict()); }
+            let before = first.before_snapshot_ref.as_deref().ok_or_else(conflict)?;
+            let historic = self.record_version_get(&target, before)?;
+            if historic.head_revision != first.before_revision.ok_or_else(conflict)? || historic.projection.body_hash != projection.body_hash { return Err(conflict()); }
+            // Record checkpoints can have distinct IDs for an identical revision.
+            let mut previous_hash = None;
+            for entry in &group.operations {
+                let before = self.record_version_get(&target, entry.before_snapshot_ref.as_deref().ok_or_else(conflict)?)?;
+                let after = self.record_version_get(&target, entry.after_snapshot_ref.as_deref().ok_or_else(conflict)?)?;
+                if Some(before.head_revision) != entry.before_revision || Some(after.head_revision) != entry.after_revision
+                    || previous_hash.as_ref().is_some_and(|hash| hash != &before.projection.body_hash) { return Err(conflict()); }
+                previous_hash = Some(after.projection.body_hash);
+            }
+            if previous_hash.as_deref() != Some(current.projection.body_hash.as_str()) { return Err(conflict()); }
+            let operation_id = random_id();
+            let (saved, change) = Self::record_commit_transaction(tx, &operation_id, &RecordDocumentCommit {
+                target: target.clone(), base_revision: expected, projection: projection.clone(), origin: RecordVersionOrigin::Restore,
+                actor: json!({"kind":"operation_undo","caller":request.caller.key(),"operationIds":input.operation_ids}), edit_session_id: None,
+            }, &compatibility, Some(before), &binding.workspace_id)?;
+            let after_version = if let Some(after) = saved.after_version { after } else {
+                let retained = self.record_version_get(&target, &saved.before_version)?;
+                if retained.head_revision != saved.head.head_revision || retained.projection.body_hash != saved.head.body_hash { return Err(conflict()); }
+                saved.before_version.clone()
+            };
+            // The ordinary record.undo receipt hook marks the first original.
+            // Mark the remaining originals inside this same native transaction.
+            for entry in group.operations.iter().skip(1) {
+                let changed = tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL", params![operation_id, entry.operation_id]).map_err(io_error)?;
+                if changed != 1 { return Err(conflict()); }
+            }
+            Ok((RecordUndoResult { operation_id, original_operation_id: first.operation_id.clone(), object: group.object, head: saved.head, before_version: saved.before_version, after_version }, change))
+        })
+    }
 }
 /// Called by agent_atomic_operation after its ordinary receipt INSERT. The
 /// restore and both ledger changes therefore share the native transaction.
@@ -449,9 +606,13 @@ pub(crate) fn agent_record_undo_receipt_committed(
     if changed != 1 {
         return Err(conflict());
     }
-    tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?2),target_ref_json=?3,before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),after_revision=?4,before_snapshot_ref=?5,after_snapshot_ref=?6 WHERE caller_id=?7 AND request_id=?8 AND operation='record.undo'",params![result.operation_id,result.original_operation_id,encode(&result.object)?,result.head.head_revision as i64,result.before_version,result.after_version,caller,request_id]).map_err(io_error)?;
+    tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?2),target_ref_json=?3,before_revision=(SELECT MAX(after_revision) FROM agent_operation_receipts WHERE undo_operation_id=?1),after_revision=?4,before_snapshot_ref=?5,after_snapshot_ref=?6 WHERE caller_id=?7 AND request_id=?8 AND operation='record.undo'",params![result.operation_id,result.original_operation_id,encode(&result.object)?,result.head.head_revision as i64,result.before_version,result.after_version,caller,request_id]).map_err(io_error)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "agent_record_undo_group_tests.rs"]
+mod group_tests;
 
 #[cfg(test)]
 mod tests {
@@ -466,18 +627,18 @@ mod tests {
         },
         record_documents::{body_hash, RecordCreate, RecordMetadataUpdate, RecordPatchMetadata},
     };
-    struct Fixture {
+    pub(super) struct Fixture {
         _root: tempfile::TempDir,
-        db: Database,
-        request: RequestContext,
-        binding: WorkspaceBinding,
-        input: OperationUndoInput,
-        target: RecordTarget,
-        before: RecordDocumentProjection,
+        pub(super) db: Database,
+        pub(super) request: RequestContext,
+        pub(super) binding: WorkspaceBinding,
+        pub(super) input: OperationUndoInput,
+        pub(super) target: RecordTarget,
+        pub(super) before: RecordDocumentProjection,
         session: String,
-        run: String,
+        pub(super) run: String,
     }
-    fn projection(extra: bool) -> RecordDocumentProjection {
+    pub(super) fn projection(extra: bool) -> RecordDocumentProjection {
         let mut content = vec![
             json!({"type":"paragraph","attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"content":[{"type":"text","text":"Before 保留"}]}),
         ];
@@ -507,7 +668,7 @@ mod tests {
             code_language: None,
         }
     }
-    fn fixture() -> Fixture {
+    pub(super) fn fixture() -> Fixture {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("undo.sqlite"), root.path(), None).unwrap();
         db.bind_native_workspace("undo-workspace").unwrap();
@@ -639,7 +800,7 @@ mod tests {
             run,
         }
     }
-    fn versions(f: &Fixture) -> i64 {
+    pub(super) fn versions(f: &Fixture) -> i64 {
         f.db.conn
             .query_row(
                 "SELECT COUNT(*) FROM record_versions WHERE record_key=?1",

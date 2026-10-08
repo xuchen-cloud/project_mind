@@ -13,6 +13,7 @@ pub(crate) mod knowledge;
 pub mod maintenance;
 pub mod models;
 pub(crate) mod operations;
+pub(crate) mod operation_batches;
 pub(crate) mod output_commands;
 pub(crate) mod output_runtime;
 pub(crate) mod output_review;

@@ -11,6 +11,7 @@ use crate::{
         access::{RequestContext, ScopeGrant},
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        operation_batches::{OperationBatchUndoState, OperationUndoBatchInput},
         operations::{FileUndoResult, OperationEntry, OperationUndoInput},
     },
     file_version_restore::FileVersionRestore,
@@ -28,6 +29,7 @@ CREATE VIEW agent_visible_files AS SELECT d.* FROM documents d WHERE NOT EXISTS 
 );
 "#;
 pub(crate) const FILE_UNDO_REQUEST_PREFIX: &str = "fileundo:";
+pub(crate) const FILE_CHAIN_UNDO_REQUEST_PREFIX: &str = "filechainundo:";
 fn conflict() -> AgentError {
     AgentError::new(
         ErrorCode::UndoConflict,
@@ -235,7 +237,247 @@ fn previous<T: DeserializeOwned>(conn: &Connection, id: &str) -> AgentResult<T> 
     decode(&raw)
 }
 
+fn chain_ids(request_id: &str) -> AgentResult<Option<(&str, &str)>> {
+    let Some(suffix) = request_id.strip_prefix(FILE_CHAIN_UNDO_REQUEST_PREFIX) else {
+        return Ok(None);
+    };
+    let (first, last) = suffix.split_once(':').ok_or_else(conflict)?;
+    let valid = |id: &str| {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    if !valid(first) || !valid(last) {
+        return Err(conflict());
+    }
+    Ok(Some((first, last)))
+}
+
+/// Rebuild the original chain from its actual receipt insertion sequence.
+/// This remains available to native journal settlement without another ledger.
+fn chain(conn: &Connection, first_id: &str, last_id: &str) -> AgentResult<Vec<OperationEntry>> {
+    let (first, _) = read_entry(conn, first_id)?;
+    let (last, _) = read_entry(conn, last_id)?;
+    file_id(&first.object)?;
+    if first.object != last.object || first.run_id.is_none() || first.run_id != last.run_id {
+        return Err(conflict());
+    }
+    let sequence = |id: &str| {
+        conn.query_row(
+            "SELECT rowid FROM agent_operation_receipts WHERE operation_id=?1",
+            [id],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(io_error)
+    };
+    let first_row = sequence(first_id)?;
+    let last_row = sequence(last_id)?;
+    if last_row < first_row {
+        return Err(conflict());
+    }
+    let object = serde_json::to_value(&first.object).map_err(|_| conflict())?;
+    let mut stmt = conn.prepare("SELECT operation_id,request_id,output_context_json FROM agent_operation_receipts WHERE state='committed' AND operation_id IS NOT NULL AND rowid BETWEEN ?1 AND ?2 AND json_extract(target_ref_json,'$.workspaceId')=?3 AND json_extract(target_ref_json,'$.kind')='file' AND json_extract(target_ref_json,'$.id')=?4 AND json_extract(target_ref_json,'$.scope.kind')='project' AND json_extract(target_ref_json,'$.scope.projectId')=?5 ORDER BY rowid").map_err(io_error)?;
+    let rows = stmt
+        .query_map(
+            params![
+                first_row,
+                last_row,
+                first.object.workspace_id,
+                first.object.id,
+                object["scope"]["projectId"].as_i64()
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(io_error)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(io_error)?;
+    let mut operations: Vec<OperationEntry> = Vec::new();
+    for (id, request_id, raw_context) in rows {
+        let context: Value = decode(&raw_context)?;
+        if context["recovery"].is_string()
+            || request_id.starts_with(FILE_UNDO_REQUEST_PREFIX)
+            || request_id.starts_with(FILE_CHAIN_UNDO_REQUEST_PREFIX)
+        {
+            return Err(conflict());
+        }
+        let (entry, _) = read_entry(conn, &id)?;
+        if entry.kind != "file.version.commit"
+            || entry.object != first.object
+            || entry.run_id != first.run_id
+        {
+            return Err(conflict());
+        }
+        if entry.before_revision == entry.after_revision && entry.undo_state == "unavailable" {
+            continue;
+        }
+        if !matches!(entry.undo_state.as_str(), "available" | "undone")
+            || entry.before_revision.and_then(|v| v.checked_add(1)) != entry.after_revision
+        {
+            return Err(conflict());
+        }
+        let before = entry.before_snapshot_ref.as_deref().ok_or_else(conflict)?;
+        let after = entry.after_snapshot_ref.as_deref().ok_or_else(conflict)?;
+        registered_version(
+            conn,
+            &entry.object,
+            before,
+            entry.before_revision.ok_or_else(conflict)?,
+        )?;
+        let (hash, _) = registered_version(
+            conn,
+            &entry.object,
+            after,
+            entry.after_revision.ok_or_else(conflict)?,
+        )?;
+        let result: CommittedVersion = previous(conn, &id)?;
+        if result.no_change
+            || result.document_id != file_id(&entry.object)?
+            || u64::try_from(result.version_number).ok() != entry.after_revision
+            || result.content_hash != hash
+            || context["afterBodyHash"].as_str() != Some(hash.as_str())
+        {
+            return Err(conflict());
+        }
+        if let Some(previous) = operations.last() {
+            if previous.after_revision != entry.before_revision
+                || previous.after_snapshot_ref != entry.before_snapshot_ref
+            {
+                return Err(conflict());
+            }
+        }
+        operations.push(entry);
+    }
+    if operations.first().map(|e| e.operation_id.as_str()) != Some(first_id)
+        || operations.last().map(|e| e.operation_id.as_str()) != Some(last_id)
+    {
+        return Err(conflict());
+    }
+    Ok(operations)
+}
+
+fn authorize_chain(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    operations: &[OperationEntry],
+) -> AgentResult<()> {
+    for original in operations {
+        let (_, caller) = read_entry(conn, &original.operation_id)?;
+        authorize(request, binding, original, &caller, "operation.undo")?;
+        original_authority(conn, request, binding, original)?;
+    }
+    let first = operations.first().ok_or_else(conflict)?;
+    let undone = first.undo_operation_id.as_deref();
+    if undone.is_some() != (first.undo_state == "undone")
+        || operations
+            .iter()
+            .any(|e| e.undo_operation_id.as_deref() != undone || e.undo_state != first.undo_state)
+    {
+        return Err(conflict());
+    }
+    if undone.is_none() {
+        let last = operations.last().ok_or_else(conflict)?;
+        baseline(conn, last)?;
+        let raw: String = conn
+            .query_row(
+                "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+                [&last.operation_id],
+                |r| r.get(0),
+            )
+            .map_err(io_error)?;
+        let context: Value = decode(&raw)?;
+        if context["afterMetadata"] != agent_file_creation_metadata(conn, file_id(&last.object)?)? {
+            return Err(conflict());
+        }
+    }
+    Ok(())
+}
+
 impl Database {
+    pub(crate) fn agent_file_undo_group_prepare(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &OperationUndoBatchInput,
+    ) -> AgentResult<(Vec<OperationEntry>, Option<FileUndoResult>)> {
+        let plan = self.agent_operation_undo_batch_plan(request, binding, input)?;
+        if plan.groups.len() != 1 {
+            return Err(conflict());
+        }
+        let group = &plan.groups[0];
+        if group.object.kind != ObjectKind::File
+            || group.creation().is_some()
+            || !matches!(
+                group.undo_state,
+                OperationBatchUndoState::Available | OperationBatchUndoState::Undone
+            )
+        {
+            return Err(conflict());
+        }
+        let operations = chain(
+            &self.conn,
+            &group.first().operation_id,
+            &group.last().operation_id,
+        )?;
+        if operations
+            .iter()
+            .map(|e| &e.operation_id)
+            .ne(group.operations.iter().map(|e| &e.operation_id))
+        {
+            return Err(conflict());
+        }
+        authorize_chain(&self.conn, request, binding, &operations)?;
+        let first = operations.first().ok_or_else(conflict)?;
+        self.file_version_recovery_target(request, binding, &first.object)?;
+        if let Some(undo) = &first.undo_operation_id {
+            return Ok((
+                operations.clone(),
+                Some(self.agent_file_undo_result(first, undo)?),
+            ));
+        }
+        if let Some(conflict) = group.conflicts.first() {
+            return Err(conflict.error.clone());
+        }
+        let last = operations.last().ok_or_else(conflict)?;
+        let target = self.file_version_recovery_target(request, binding, &last.object)?;
+        let hash = baseline(&self.conn, last)?;
+        if file_versions::checksum(Path::new(&target.managed_path)).map_err(|_| conflict())? != hash
+        {
+            return Err(AgentError::new(
+                ErrorCode::FileChangedUnregistered,
+                "File bytes changed outside the registered version chain",
+            ));
+        }
+        Ok((operations, None))
+    }
+    pub(crate) fn agent_file_undo_group_restore_input(
+        &self,
+        first: &OperationEntry,
+        last: &OperationEntry,
+    ) -> AgentResult<FileVersionRestore> {
+        let hash = baseline(&self.conn, last)?;
+        let version_id = first.before_snapshot_ref.clone().ok_or_else(conflict)?;
+        registered_version(
+            &self.conn,
+            &first.object,
+            &version_id,
+            first.before_revision.ok_or_else(conflict)?,
+        )?;
+        Ok(FileVersionRestore {
+            object: first.object.clone(),
+            version_id,
+            expected_version_number: u32::try_from(last.after_revision.ok_or_else(conflict)?)
+                .map_err(|_| conflict())?,
+            expected_content_hash: hash,
+        })
+    }
     pub(crate) fn agent_file_undo_prepare(
         &self,
         request: &RequestContext,
@@ -303,9 +545,26 @@ impl Database {
     ) -> AgentResult<FileUndoResult> {
         let (saved, _) = read_entry(&self.conn, undo_id)?;
         let receipt: CommittedVersion = previous(&self.conn, undo_id)?;
+        let context: String = self
+            .conn
+            .query_row(
+                "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+                [undo_id],
+                |r| r.get(0),
+            )
+            .map_err(io_error)?;
+        let context: Value = decode(&context)?;
+        let group_member = context["recovery"] == "file.chain_undo"
+            && context["originalOperationIds"]
+                .as_array()
+                .is_some_and(|ids| {
+                    ids.iter()
+                        .any(|id| id.as_str() == Some(original.operation_id.as_str()))
+                });
         if saved.object != original.object
-            || saved.before_revision != original.after_revision
-            || receipt.no_change
+            || !group_member
+                && (saved.before_revision != original.after_revision || receipt.no_change)
+            || u64::try_from(receipt.version_number).ok() != saved.after_revision
         {
             return Err(conflict());
         }
@@ -412,6 +671,14 @@ pub(crate) fn file_undo_authorize_target(
     binding: &WorkspaceBinding,
     object: &ObjectRef,
 ) -> AgentResult<bool> {
+    if let Some((first, last)) = chain_ids(&request.request_id)? {
+        let operations = chain(conn, first, last)?;
+        if operations.first().ok_or_else(conflict)?.object != *object {
+            return Err(conflict());
+        }
+        authorize_chain(conn, request, binding, &operations)?;
+        return Ok(true);
+    }
     let Some(id) = request.request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
         return Ok(false);
     };
@@ -432,6 +699,25 @@ pub(crate) fn file_undo_validate_restore(
     binding: &WorkspaceBinding,
     input: &FileVersionRestore,
 ) -> AgentResult<()> {
+    if let Some((first_id, last_id)) = chain_ids(&request.request_id)? {
+        file_undo_authorize_target(conn, request, binding, &input.object)?;
+        let operations = chain(conn, first_id, last_id)?;
+        let first = operations.first().ok_or_else(conflict)?;
+        let last = operations.last().ok_or_else(conflict)?;
+        let (hash, _) = registered_version(
+            conn,
+            &last.object,
+            last.after_snapshot_ref.as_deref().ok_or_else(conflict)?,
+            last.after_revision.ok_or_else(conflict)?,
+        )?;
+        if first.before_snapshot_ref.as_deref() != Some(input.version_id.as_str())
+            || last.after_revision != Some(u64::from(input.expected_version_number))
+            || hash != input.expected_content_hash
+        {
+            return Err(conflict());
+        }
+        return Ok(());
+    }
     let Some(id) = request.request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
         return Ok(());
     };
@@ -464,6 +750,68 @@ pub(crate) fn agent_file_recovery_receipt_committed(
     result_json: &str,
 ) -> AgentResult<()> {
     if operation == "file.version.commit" {
+        if let Some((first_id, last_id)) = chain_ids(request_id)? {
+            let operations = chain(tx, first_id, last_id)?;
+            let first = operations.first().ok_or_else(conflict)?;
+            let last = operations.last().ok_or_else(conflict)?;
+            if operations
+                .iter()
+                .any(|e| e.undo_state != "available" || e.undo_operation_id.is_some())
+            {
+                return Err(conflict());
+            }
+            let result: CommittedVersion = decode(result_json)?;
+            let before_revision = first.before_revision.ok_or_else(conflict)?;
+            let before_ref = first.before_snapshot_ref.as_deref().ok_or_else(conflict)?;
+            let (before_hash, _) =
+                registered_version(tx, &first.object, before_ref, before_revision)?;
+            let tail_revision = last.after_revision.ok_or_else(conflict)?;
+            let tail_ref = last.after_snapshot_ref.as_deref().ok_or_else(conflict)?;
+            let (tail_hash, _) = registered_version(tx, &last.object, tail_ref, tail_revision)?;
+            let expected_revision = if result.no_change {
+                tail_revision
+            } else {
+                tail_revision.checked_add(1).ok_or_else(conflict)?
+            };
+            if result.document_id != file_id(&first.object)?
+                || u64::try_from(result.version_number).ok() != Some(expected_revision)
+                || result.content_hash != before_hash
+                || result.no_change != (before_hash == tail_hash)
+            {
+                return Err(conflict());
+            }
+            let after_id: i64 = tx
+                .query_row(
+                    "SELECT id FROM document_versions WHERE document_id=?1 AND version_number=?2",
+                    params![result.document_id, result.version_number],
+                    |r| r.get(0),
+                )
+                .map_err(io_error)?;
+            let (registered_hash, _) =
+                registered_version(tx, &first.object, &after_id.to_string(), expected_revision)?;
+            if registered_hash != result.content_hash {
+                return Err(conflict());
+            }
+            // The ordinary native receipt hook has allocated this committed
+            // operation identity in the same transaction, including no-change.
+            let undo_id: String = tx.query_row("SELECT operation_id FROM agent_operation_receipts WHERE caller_id=?1 AND request_id=?2 AND operation=?3 AND state='committed' AND result_json=?4", params![caller,request_id,operation,result_json], |r| r.get(0)).map_err(io_error)?;
+            for original in &operations {
+                let changed = tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL", params![undo_id,original.operation_id]).map_err(io_error)?;
+                if changed != 1 {
+                    return Err(conflict());
+                }
+            }
+            let ids: Vec<&str> = operations.iter().map(|e| e.operation_id.as_str()).collect();
+            let context = json!({"recovery":"file.chain_undo","originalOperationIds":ids,"afterBodyHash":result.content_hash,"noChange":result.no_change});
+            let changed = tx.execute("UPDATE agent_operation_receipts SET run_id=?1,target_ref_json=?2,before_revision=?3,after_revision=?4,before_snapshot_ref=?5,after_snapshot_ref=?6,output_context_json=?7,undo_state='unavailable' WHERE operation_id=?8 AND caller_id=?9 AND request_id=?10 AND operation=?11", params![first.run_id,encode(&first.object)?,tail_revision as i64,result.version_number,tail_ref,after_id.to_string(),encode(&context)?,undo_id,caller,request_id,operation]).map_err(io_error)?;
+            if changed != 1 {
+                return Err(AgentError::new(
+                    ErrorCode::IoFailed,
+                    "File group undo receipt could not be finalized",
+                ));
+            }
+            return Ok(());
+        }
         let Some(original_id) = request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
             return Ok(());
         };
