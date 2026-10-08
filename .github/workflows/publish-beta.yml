@@ -26,20 +26,31 @@ jobs:
             target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc --bundles nsis
     runs-on: ${{ matrix.platform }}
+    env:
+      # Keep runtime preparation aligned with the installer target, including
+      # macOS cross-builds whose architecture differs from the runner.
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/agent-host/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - run: npm ci
-      - uses: tauri-apps/tauri-action@v1
+      - name: Install frontend and build dependencies
+        run: npm ci
+      # Tauri's beforeBuildCommand runs build:desktop: pinned target Node,
+      # isolated host lockfile install, then Record + Source + Pi resources.
+      - name: Build complete desktop resources and installers
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

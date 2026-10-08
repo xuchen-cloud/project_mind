@@ -26,7 +26,7 @@ bash scripts/cloud/setup.sh > ../project-mind-setup.log 2>&1
 
 同会话复用已停止的容器使用 `docker start project-mind-dev`；新会话 proxy/CA 变化时重新创建容器，保留环境目录中的缓存。通过 `docker exec project-mind-dev` 使用容器内工具链；若在宿主执行下面的 npm 命令，先将环境目录中已验证的 `node-v24.21.0-linux-x64/bin` 放到 PATH 前面。
 
-资源 build/stage 必须串行完成后再开始测试。测试期间不要同时重新 staging 或改写 hash 清单。普通 `build:desktop` 仍只准备 Record worker；source worker 由开发脚本显式准备。
+资源 build/stage 必须串行完成后再开始测试。测试期间不要同时重新 staging 或改写 hash 清单。`scripts/cloud/setup.sh` 仍显式准备 Linux 开发用的 Record、Source worker；普通 `build:desktop` 按明确目标串行准备固定 Node、Record、Source 和 Pi 资源，不能以 Linux 开发环境代替产品目标。
 
 首次 Rust 冷编译和前端全量建议串行运行，避免页面驻留测试在 CPU 竞争下超时；不因此放宽用例超时或断言。
 
@@ -71,4 +71,4 @@ Rust 专项显式包含真实进程测试，不能用默认 ignored 数量冒充
 后续业务阶段已接入 Project/QuickNote/Todo/子项/Transcript 与 Record/Project 删除的事务 outbox、提交后通知、删除 registry 和依赖失效水位；显式开发开关下接入自动索引循环与持久预算、前台优先、取消和 metadata 进度接缝，详见 [source 实施记录](source-extraction-implementation.md)。普通产品调度/进度 UI、真实知识 owner 的注册与消费仍待接通；File 写入需结合 #114 的版本/CAS/journal 约束。本次没有执行 UI、真实 Provider、macOS/Windows 实包验收，没有发布 PR、合并或关闭 Issue。
 
 
-开发调度验证须同时设置 `PROJECT_MIND_SOURCE_INDEXING_DEV=1` 与 `VITE_MIND_SOURCE_INDEXING_DEV=1`，并使用 `npm run dev:tauri:manual`；这一步会打开窗口，执行前先告知用户。release 构建不接受此开关，普通 `build:desktop` 不分发 source worker。该入口不开放来源工具，也不发送模型请求。
+开发调度验证须同时设置 `PROJECT_MIND_SOURCE_INDEXING_DEV=1` 与 `VITE_MIND_SOURCE_INDEXING_DEV=1`，并使用 `npm run dev:tauri:manual`；这一步会打开窗口，执行前先告知用户。release 构建不接受此开关；普通 `build:desktop` 已分发 Source worker，但资源分发本身不开放来源工具，也不发送模型请求。
