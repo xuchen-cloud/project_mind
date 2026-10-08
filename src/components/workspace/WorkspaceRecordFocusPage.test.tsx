@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -23,6 +23,7 @@ import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-documen
 const recordMocks = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
   saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
+  sourceReveal: vi.fn((_blockId: string) => true),
 }));
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const original = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -159,8 +160,12 @@ vi.mock("../rich-editor", () => ({
   RichEditor: ({
     html,
     controllerRef,
+    sourceBlockNavigation,
+    onSourceBlockResult,
   }: {
     html?: string;
+    sourceBlockNavigation?: { blockId: string; key: string } | null;
+    onSourceBlockResult?: (located: boolean) => void;
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
@@ -174,6 +179,9 @@ vi.mock("../rich-editor", () => ({
     const [value] = useState(toPlainText(html ?? ""));
     const valueRef = useRef(value);
     valueRef.current = value;
+    useEffect(() => {
+      if (sourceBlockNavigation) onSourceBlockResult?.(recordMocks.sourceReveal(sourceBlockNavigation.blockId));
+    }, [sourceBlockNavigation?.key, onSourceBlockResult]);
 
     useEffect(() => {
       if (!controllerRef) return;
@@ -230,10 +238,10 @@ function LocationDisplay() {
   return <div data-testid="location-display">{location.pathname}</div>;
 }
 
-function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }), initialEntry = "/workspace/records/7") {
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/workspace/records/7"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/workspace/records/:noteId" element={ui} />
         </Routes>
@@ -291,6 +299,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
   beforeEach(() => {
     recordMocks.queryClient = null;
     recordMocks.bodySave.mockReset();
+    recordMocks.sourceReveal.mockReset().mockReturnValue(true);
     recordMocks.editorGet.mockReset();
     const findRecord = async (target: RecordTarget) => {
       if (target.scope.kind === "project") {
@@ -351,6 +360,31 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       ] };
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("source navigation shows a missing block status without writing the record", async () => {
+    recordMocks.sourceReveal.mockReturnValue(false);
+    const id = "a".repeat(32);
+    const view = renderPage(<WorkspaceRecordFocusPage />, undefined, `/workspace/records/7?sourceBlock=${id}&sourceRevision=1`);
+    expect(await screen.findByText("引用段落已删除或变更，无法定位来源。")).toBeInTheDocument();
+    expect(recordMocks.sourceReveal).toHaveBeenCalledWith(id);
+    expect(recordMocks.bodySave).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("source navigation follows a second query on the same workspace record", async () => {
+    const first = "a".repeat(32); const second = "b".repeat(32);
+    function SourceHarness() {
+      const navigate = useNavigate();
+      return <><button onClick={() => navigate(`/workspace/records/7?sourceBlock=${second}&sourceRevision=1`)}>打开第二个来源块</button>
+        <WorkspaceRecordFocusPage /></>;
+    }
+    const view = renderPage(<SourceHarness />, undefined, `/workspace/records/7?sourceBlock=${first}&sourceRevision=1`);
+    await waitFor(() => expect(recordMocks.sourceReveal).toHaveBeenCalledWith(first));
+    fireEvent.click(screen.getByText("打开第二个来源块"));
+    await waitFor(() => expect(recordMocks.sourceReveal).toHaveBeenLastCalledWith(second));
+    expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveValue("正文 A");
+    view.unmount();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {

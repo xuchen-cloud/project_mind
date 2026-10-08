@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
 import { applyRecordIncomingDocument } from "./recordIncomingDocument";
+import { revealSourceBlock, type SourceBlockNavigation } from "../../lib/source-navigation";
 import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } from "./extensions/StableRecordBlocks";
 import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
@@ -382,6 +383,8 @@ interface RichEditorProps {
   onSnapshot?: (value: RichEditorValue) => void;
   onDirtyChange?: (dirty: boolean) => void;
   controllerRef?: MutableRefObject<RichEditorController | null>;
+  sourceBlockNavigation?: SourceBlockNavigation | null;
+  onSourceBlockResult?: (located: boolean) => void;
   onSave?: (value: RichEditorValue) => Promise<unknown> | unknown;
   /** Capture ordinary committed edits before the AI action and its result after
    * acceptance, so a Record can persist both sides as separate boundaries. */
@@ -427,6 +430,7 @@ export interface RichEditorController {
   acknowledgeCommittedContent: (value: RichEditorValue) => void;
   applyIncomingContent: (html: string) => boolean;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
+  revealBlock: (blockId: string) => boolean;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
   save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
   replaceCommittedContent: (html: string) => void;
@@ -457,6 +461,8 @@ export function RichEditor({
   onSnapshot,
   onDirtyChange,
   controllerRef,
+  sourceBlockNavigation,
+  onSourceBlockResult,
   onSave,
   onBeforeAiCommit,
   onAiCommit,
@@ -2467,6 +2473,7 @@ export function RichEditor({
 
         editor.commands.focus(position ?? "end", { scrollIntoView: false });
       },
+      revealBlock: (blockId) => !!editor && revealSourceBlock(editor, blockId),
       appendMarkdown: (markdown) => editor && !readOnly && insertMarkdownAtPosition(editor, editor.state.doc.content.size, markdown)
         ? getCurrentValue()
         : null,
@@ -2499,6 +2506,11 @@ export function RichEditor({
       controllerRef.current = null;
     };
   }, [captureCommittedValue, clearChangePublishTimer, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
+
+  useEffect(() => {
+    if (!editor || !sourceBlockNavigation) return;
+    onSourceBlockResult?.(revealSourceBlock(editor, sourceBlockNavigation.blockId));
+  }, [editor, sourceBlockNavigation?.blockId, sourceBlockNavigation?.key, onSourceBlockResult]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);

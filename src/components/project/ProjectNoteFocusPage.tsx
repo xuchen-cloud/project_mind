@@ -17,6 +17,7 @@ import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
+import { useRecordSourceNavigation } from "../../hooks/useRecordSourceNavigation";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
@@ -176,6 +177,7 @@ export function ProjectNoteFocusPage({
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `project-record:${project?.rootPath ?? `project-${projectId}`}:${recordId}`,
+    { restore: !searchParams.has("sourceBlock") && !searchParams.has("sourceTimeMs") },
   );
   const setFocusScrollRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -227,6 +229,8 @@ export function ProjectNoteFocusPage({
   const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
   const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
+  const sourceNavigation = useRecordSourceNavigation(searchParams, visible, editingReady,
+    canonical.state?.head.headRevision ?? null);
   useLayoutEffect(() => {
     if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
     const pending = projectId !== null && recordId !== null
@@ -513,6 +517,7 @@ export function ProjectNoteFocusPage({
         >
           <div className="grid gap-4">
             {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
+            {sourceNavigation.message ? <p role="status" className="text-sm text-text-soft">{sourceNavigation.message}</p> : null}
             {canonical.incomingConflict && canonical.binding ? <RecordConflictActions visible={visible} key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
               target={{ scope: { kind: "project", projectId }, recordId }} incoming={canonical.incomingConflict}
               workspaceRoot={workspaceSaveCoordinator?.workspaceKey ?? queryClient.getQueryData<{ currentWorkspace?: { rootPath: string } }>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? ""}
@@ -607,6 +612,8 @@ export function ProjectNoteFocusPage({
               <VoiceRecordPanel
                 target={{ scope: "project", projectId, recordId }}
                 visible={visible}
+                sourceTimeMs={sourceNavigation.error ? null : sourceNavigation.timeMs}
+                sourceNavigationKey={sourceNavigation.key}
                 onTitleUpdated={(nextTitle) => {
                   setTitle(nextTitle);
                   titleValueRef.current = nextTitle;
@@ -625,6 +632,8 @@ export function ProjectNoteFocusPage({
               contentIdentity={`project-record:${projectId}:${recordId}`}
               recordKey={canonical.recordKey}
               recordClipboard={recordClipboard}
+              sourceBlockNavigation={sourceNavigation.navigation}
+              onSourceBlockResult={sourceNavigation.onSourceBlockResult}
               html={content.html}
               aiSettings={aiSettings}
               defaultCodeLanguage={codeLanguage}
@@ -634,7 +643,7 @@ export function ProjectNoteFocusPage({
               }}
               variant="page"
               showToolbar={false}
-              autoFocus={visible && !hasSavedPosition}
+              autoFocus={visible && !hasSavedPosition && !sourceNavigation.requested}
               readOnly={!visible || !editingReady}
               placeholder="写记录，正文里的 #标签 会自动同步。"
               assetHandlers={assetHandlers}

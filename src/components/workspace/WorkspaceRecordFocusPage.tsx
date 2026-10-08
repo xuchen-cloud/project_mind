@@ -19,6 +19,7 @@ import { useContactMentionNavigation } from "../../hooks/useContactMentionNaviga
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
+import { useRecordSourceNavigation } from "../../hooks/useRecordSourceNavigation";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import {
@@ -98,6 +99,7 @@ export function WorkspaceRecordFocusPage({
   );
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `workspace-record:${recordId}`,
+    { restore: !searchParams.has("sourceBlock") && !searchParams.has("sourceTimeMs") },
   );
   const { pushToast } = useFeedbackStore();
   const { openSettings } = useUiStore();
@@ -196,6 +198,8 @@ export function WorkspaceRecordFocusPage({
   const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
   const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
+  const sourceNavigation = useRecordSourceNavigation(searchParams, visible, editingReady,
+    canonical.state?.head.headRevision ?? null);
   useLayoutEffect(() => {
     if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
     const pending = recordId !== null ? saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)) : null;
@@ -471,6 +475,7 @@ export function WorkspaceRecordFocusPage({
           <div className="home-content home-note-content">
             <div className="grid gap-4">
               {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
+            {sourceNavigation.message ? <p role="status" className="text-sm text-text-soft">{sourceNavigation.message}</p> : null}
             {canonical.incomingConflict && canonical.binding ? <RecordConflictActions visible={visible} key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
               target={{ scope: { kind: "workspace" }, recordId }} incoming={canonical.incomingConflict} workspaceRoot={saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? ""}
               availableTags={availableTags} assetHandlers={workspaceAssetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
@@ -559,6 +564,8 @@ export function WorkspaceRecordFocusPage({
                 <VoiceRecordPanel
                   target={{ scope: "workspace", recordId }}
                   visible={visible}
+                  sourceTimeMs={sourceNavigation.error ? null : sourceNavigation.timeMs}
+                  sourceNavigationKey={sourceNavigation.key}
                   onTitleUpdated={(nextTitle) => {
                     setTitle(nextTitle);
                     titleValueRef.current = nextTitle;
@@ -576,6 +583,8 @@ export function WorkspaceRecordFocusPage({
                 contentIdentity={`workspace-record:${recordId}`}
                 recordKey={canonical.recordKey}
                 recordClipboard={recordClipboard}
+                sourceBlockNavigation={sourceNavigation.navigation}
+                onSourceBlockResult={sourceNavigation.onSourceBlockResult}
                 html={content.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}
@@ -585,7 +594,7 @@ export function WorkspaceRecordFocusPage({
                 }}
                 variant="page"
                 showToolbar={false}
-                autoFocus={visible && !hasSavedPosition}
+                autoFocus={visible && !hasSavedPosition && !sourceNavigation.requested}
                 readOnly={!visible || !editingReady}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"

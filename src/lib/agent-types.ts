@@ -1,7 +1,7 @@
 /** Wire contracts mirrored from src-tauri/src/agent. AI-09 adds schema generation. */
 export type AgentScope = { kind: "workspace" } | { kind: "project"; projectId: number };
 export interface AgentWorkspaceBinding { workspaceId: string; generation: string }
-/** Internal development extraction progress; job completion is not coverage. */
+/** Scoped source extraction progress; job completion is not coverage. */
 export interface SourceMaintenanceProgress {
   scope: AgentScope;
   batchId: string;
@@ -22,7 +22,8 @@ export type AgentErrorCode =
   | "RUN_BUSY" | "RUNTIME_UNAVAILABLE" | "RUNTIME_INCOMPATIBLE" | "INVALID_RUN_TRANSITION"
   | "BUDGET_EXCEEDED" | "IDEMPOTENCY_CONFLICT" | "IO_FAILED" | "CANCELLED"
   | "PROFILE_UNAVAILABLE" | "SECRETS_LOCKED" | "TOOL_CALL_UNSUPPORTED" | "RATE_LIMITED"
-  | "OUTPUT_COMMIT_FAILED" | "INVALID_PATCH" | "AMBIGUOUS_MATCH" | "EDITOR_REVIEW_PENDING" | "EDITOR_BUSY";
+  | "OUTPUT_COMMIT_FAILED" | "INVALID_PATCH" | "AMBIGUOUS_MATCH" | "EDITOR_REVIEW_PENDING" | "EDITOR_BUSY"
+  | "UNDO_CONFLICT" | "OBJECT_WITHDRAWN";
 export interface AgentError { code: AgentErrorCode; message: string; retryable: boolean; details?: unknown }
 export type AgentResponse<T> =
   | { apiVersion: 1; requestId: string; ok: true; data: T }
@@ -71,6 +72,24 @@ export interface AgentSourceRef {
     | null;
   title: string;
   excerpt: string;
+}
+/** Trusted source resolution; Transcript IDs are resolved to their owning Record. */
+export interface AgentSourceNavigation {
+  object: AgentObjectRef;
+  status: "current" | "changed" | "historical" | "not_found" | "not_ready";
+  recordTarget: { scope: AgentScope; recordId: number } | null;
+  currentRevision: string | null;
+  revisionMatches: boolean | null;
+  recordVersion: number | null;
+  recordVersionId: string | null;
+  /** Numeric revision of the selected head or historical snapshot. */
+  headRevision: number | null;
+  blockId: string | null;
+  blockStatus: "not_requested" | "available" | "missing";
+  voiceRecordId: number | null;
+  startMs: number | null;
+  endMs: number | null;
+  timeStatus: "not_requested" | "available" | "missing";
 }
 export interface AiOverviewItem {
   id: string;
@@ -203,6 +222,82 @@ export interface KnowledgeSearchPage {
 export type AiProjectOverview = AiOverview & { scope: { kind: "project"; projectId: number } };
 export type AiWorkspaceOverview = AiOverview & { scope: { kind: "workspace" } };
 export type AgentRunState = "preparing" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
+/** Rust serde_json::Value fields retain their source-specific JSON shape. */
+export type AgentJsonValue = null | boolean | number | string | AgentJsonValue[] | { [key: string]: AgentJsonValue };
+export type AgentSessionState = "active" | "archived" | "read_only";
+export interface AgentSessionMetadata {
+  id: string;
+  scope: AgentScope;
+  title: string;
+  runtimeId: string;
+  profileOverrideId: number | null;
+  state: AgentSessionState;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AgentSessionCursor { updatedAt: string; id: string }
+export interface AgentSessionPage { sessions: AgentSessionMetadata[]; nextCursor: AgentSessionCursor | null }
+export interface AgentSessionCheckpoint {
+  schemaVersion: number;
+  checksum: string;
+  bytes: number;
+  leafId: string | null;
+  offset: number;
+  entryCount: number;
+  messageCount: number;
+}
+export type AgentMessageRole = "user" | "assistant" | "tool";
+export interface AgentConversationMessage {
+  id: string;
+  sessionId: string;
+  runId: string | null;
+  runtimeEntryId: string;
+  role: AgentMessageRole;
+  content: AgentJsonValue;
+  ordinal: number;
+  createdAt: string;
+  parentId?: string;
+  stopReason?: string;
+  usage?: AgentJsonValue;
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+}
+export interface AgentSessionSnapshot {
+  session: AgentSessionMetadata;
+  checkpoint: AgentSessionCheckpoint | null;
+  messages: AgentConversationMessage[];
+  nextOrdinal: number | null;
+  latestRun: AgentStoredRun | null;
+}
+export interface AgentStoredRun {
+  id: string;
+  sessionId: string;
+  clientRequestId: string;
+  state: AgentRunState;
+  contextManifest: AgentJsonValue;
+  startedAt: string;
+  finishedAt: string | null;
+  usage: AgentJsonValue;
+  errorCode: string | null;
+}
+export interface AgentSessionCreateInput {
+  scope: AgentScope;
+  title: string;
+  /** Omission selects the bundled Pi runtime. */
+  runtimeId?: "builtin-pi";
+  profileOverrideId?: number | null;
+}
+export interface AgentSessionsListInput { scope: AgentScope; cursor?: AgentSessionCursor | null; limit?: number }
+export interface AgentSessionGetInput { sessionId: string; afterOrdinal?: number | null; limit?: number }
+export interface AgentSessionArchiveInput { sessionId: string; archived: boolean }
+export interface AgentSessionDeleteInput { sessionId: string }
+export interface AgentRunStartInput { sessionId: string; clientRequestId: string; prompt: string }
+export interface AgentRunCancelInput { runId: string }
+export interface AgentRunGetInput { runId: string }
+export interface AgentRunEventsListInput { runId: string; afterSeq?: number; limit?: number }
+export interface AgentProfileProbeInput { profileOverrideId?: number | null }
+export interface AgentProfileProbeResult { verified: boolean }
 export type AgentRunEventKind =
   | { type: "run.started" | "run.completed" | "run.cancelled" }
   | { type: "text.delta"; data: { text: string } }
@@ -212,6 +307,12 @@ export type AgentRunEventKind =
   | { type: "run.failed"; data: { error: AgentError } };
 export interface AgentRunEvent {
   binding: AgentWorkspaceBinding; sessionId: string; runId: string; seq: number; event: AgentRunEventKind;
+}
+export interface AgentRunEventPage {
+  events: AgentRunEvent[];
+  nextSeq: number | null;
+  /** Reconcile persisted messages when events before this sequence were evicted. */
+  firstAvailableSeq: number | null;
 }
 
 export interface AgentScopeSettings {

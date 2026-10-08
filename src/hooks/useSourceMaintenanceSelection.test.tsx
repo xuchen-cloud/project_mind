@@ -9,21 +9,22 @@ vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGe
 const binding = { workspaceId: "w1", generation: "g1" };
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.stubEnv("VITE_MIND_SOURCE_INDEXING_DEV", "1");
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(agentApi.sourceMaintenance).mockResolvedValue(null);
 });
 afterEach(() => { vi.unstubAllEnvs(); delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; });
 
-it("requires the explicit development gate", () => {
-  vi.stubEnv("VITE_MIND_SOURCE_INDEXING_DEV", "");
+it("does not select a scope outside the desktop app", () => {
+  delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   renderHook(() => useSourceMaintenanceSelection("/workspace/a", 7));
   expect(recordDocumentApi.bindingGet).not.toHaveBeenCalled();
   expect(agentApi.sourceMaintenance).not.toHaveBeenCalled();
 });
 
-it("selects only the active route and refreshes the binding on focus", async () => {
+it("selects the active route in production and refreshes the binding on focus", async () => {
+  vi.stubEnv("DEV", false);
+  vi.stubEnv("VITE_MIND_SOURCE_INDEXING_DEV", "");
   const { rerender, unmount } = renderHook(({ projectId }) => useSourceMaintenanceSelection("/workspace/a", projectId), { initialProps: { projectId: 7 as number | null } });
   await waitFor(() => expect(agentApi.sourceMaintenance).toHaveBeenCalledWith(binding, { kind: "project", projectId: 7 }, "activate"));
   rerender({ projectId: 9 });

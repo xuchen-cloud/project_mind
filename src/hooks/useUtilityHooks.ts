@@ -92,7 +92,7 @@ export function useFocusTarget(
   }, [enabled, focusId, refocusOnEnable, ...deps]);
 }
 
-export function useScrollPositionRestoration(key: string) {
+export function useScrollPositionRestoration(key: string, { restore: restoreSavedPosition = true }: { restore?: boolean } = {}) {
   const elementRef = useRef<HTMLElement | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasSavedPosition = scrollPositions.has(key);
@@ -104,7 +104,7 @@ export function useScrollPositionRestoration(key: string) {
     elementRef.current = element;
     if (!element) return;
 
-    const savedPosition = scrollPositions.get(key) ?? 0;
+    const savedPosition = restoreSavedPosition ? scrollPositions.get(key) ?? 0 : 0;
     let restoreTarget: number | null = savedPosition > 0 ? savedPosition : null;
     if (restoreTarget === null) {
       element.scrollTop = 0;
@@ -197,7 +197,7 @@ export function useScrollPositionRestoration(key: string) {
       for (const timer of restoreTimers) window.clearTimeout(timer);
       if (elementRef.current === element) elementRef.current = null;
     };
-  }, [key]);
+  }, [key, restoreSavedPosition]);
 
   return { scrollRef, hasSavedPosition };
 }

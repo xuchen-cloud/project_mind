@@ -14,6 +14,34 @@ import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
 
+it("reveals source blocks by stable identity without writing or dirtying the editor", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const onChange = vi.fn();
+  const firstId = "a".repeat(32); const secondId = "b".repeat(32);
+  const html = `<p data-block-id="${firstId}">same</p><p data-block-id="${secondId}">same</p>`;
+  const { container, rerender } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7"
+    controllerRef={controllerRef} onChange={onChange} defaultHtml={html} />);
+  await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current).not.toBeNull());
+  const first = container.querySelector<HTMLElement>(`[data-block-id="${firstId}"]`)!;
+  const second = container.querySelector<HTMLElement>(`[data-block-id="${secondId}"]`)!;
+  Object.defineProperty(first, "scrollIntoView", { configurable: true, value: vi.fn() });
+  Object.defineProperty(second, "scrollIntoView", { configurable: true, value: vi.fn() });
+  const documentBefore = controllerRef.current!.getDocumentJson();
+  onChange.mockClear();
+  expect(controllerRef.current!.revealBlock(secondId)).toBe(true);
+  expect(second.scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(first.scrollIntoView).not.toHaveBeenCalled();
+  expect(controllerRef.current!.revealBlock("c".repeat(32))).toBe(false);
+  const onResult = vi.fn();
+  rerender(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7" controllerRef={controllerRef}
+    onChange={onChange} defaultHtml={html} sourceBlockNavigation={{ blockId: firstId, key: "new-query" }} onSourceBlockResult={onResult} />);
+  await waitFor(() => expect(first.scrollIntoView).toHaveBeenCalledTimes(1));
+  expect(onResult).toHaveBeenLastCalledWith(true);
+  expect(controllerRef.current!.getDocumentJson()).toEqual(documentBefore);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
 it("keeps canonical block anchors when the Record editor commits ordinary text changes", async () => {
   const controllerRef = { current: null as RichEditorController | null };
   const user = userEvent.setup();

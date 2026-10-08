@@ -1,3 +1,4 @@
+import { AgentLauncher } from "../agent/AgentLauncher";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { Save,Trash2 } from "lucide-react";
@@ -548,6 +549,9 @@ export function ProjectOverviewPage({
           <HomeCover identityKey={`project:${activeProject.rootPath}`} defaultIcon="Compass" canEditIcon
             title={<input ref={projectNameInputRef} aria-label="项目名称" disabled={publishingQuickNote} value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => void saveProjectName()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}
           />
+          <AgentLauncher scope={{ kind: "project", projectId: activeProject.id }}
+            workspaceRoot={queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath}
+            visible={visible} />
           <HomeQuickNote
             pageTitle={nameDraft}
             pageIcon={<ProjectHomeIcon rootPath={activeProject.rootPath} size={20} />}

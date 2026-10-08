@@ -24,6 +24,7 @@ vi.mock("../../todo", () => ({
 
 const richEditorMocks = vi.hoisted(() => ({
   focus: vi.fn(),
+  sourceReveal: vi.fn((_blockId: string) => true),
 }));
 
 const noteImageAssetMocks = vi.hoisted(() => ({
@@ -132,6 +133,8 @@ vi.mock("../rich-editor", () => ({
     showToolbar,
     autoFocus,
     readOnly,
+    sourceBlockNavigation,
+    onSourceBlockResult,
   }: {
     html?: string;
     onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown>;
@@ -139,6 +142,8 @@ vi.mock("../rich-editor", () => ({
     showToolbar?: boolean;
     autoFocus?: boolean;
     readOnly?: boolean;
+    sourceBlockNavigation?: { blockId: string; key: string } | null;
+    onSourceBlockResult?: (located: boolean) => void;
     controllerRef?: {
       current: {
         getValue: () => { html: string; text: string; markdown: string };
@@ -152,6 +157,9 @@ vi.mock("../rich-editor", () => ({
     const [value, setValue] = useState(toPlainText(html ?? ""));
     const valueRef = useRef(value);
     valueRef.current = value;
+    useEffect(() => {
+      if (sourceBlockNavigation) onSourceBlockResult?.(richEditorMocks.sourceReveal(sourceBlockNavigation.blockId));
+    }, [sourceBlockNavigation?.key, onSourceBlockResult]);
 
     useEffect(() => {
       if (!controllerRef) {
@@ -212,7 +220,7 @@ const baseNote: NoteRecord = {
 
 let currentNote: NoteRecord;
 
-function render(ui: ReactElement, providedQueryClient?: QueryClient) {
+function render(ui: ReactElement, providedQueryClient?: QueryClient, initialEntry = "/projects/1/records/7") {
   const queryClient = providedQueryClient ?? new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -222,7 +230,7 @@ function render(ui: ReactElement, providedQueryClient?: QueryClient) {
 
   const view = baseRender(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/projects/1/records/7"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/projects/:projectId/records/:noteId" element={ui} />
         </Routes>
@@ -350,6 +358,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     currentNote = { ...baseNote, tags: [] };
     recordExportMocks.sources.length = 0;
     richEditorMocks.focus.mockReset();
+    richEditorMocks.sourceReveal.mockReset().mockReturnValue(true);
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     apiMocks.projectsList.mockReset();
     apiMocks.projectPageGet.mockReset();
@@ -392,6 +401,35 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       currentNote = record;
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("source navigation waits for canonical data and reports old revisions without revealing a block", async () => {
+    const id = "a".repeat(32);
+    const view = render(<ProjectNoteFocusPage />, undefined, `/projects/1/records/7?sourceBlock=${id}&sourceRevision=0`);
+    expect(await screen.findByText("引用版本已变化，无法在当前正文中准确定位来源。")).toBeInTheDocument();
+    expect(richEditorMocks.sourceReveal).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveAttribute("data-auto-focus", "false");
+    expect(recordMocks.bodySave).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("source navigation reuses a resident record and reveals a second query anchor only when visible", async () => {
+    const first = "a".repeat(32); const second = "b".repeat(32);
+    function SourceHarness() {
+      const navigate = useNavigate(); const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(current => !current)}>切换来源页面可见性</button>
+        <button onClick={() => navigate(`/projects/1/records/7?sourceBlock=${second}&sourceRevision=1`)}>打开第二个来源块</button>
+        <ProjectNoteFocusPage visible={visible} /></>;
+    }
+    const view = render(<SourceHarness />, undefined, `/projects/1/records/7?sourceBlock=${first}&sourceRevision=1`);
+    await waitFor(() => expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith(first));
+    fireEvent.click(screen.getByText("切换来源页面可见性"));
+    fireEvent.click(screen.getByText("打开第二个来源块"));
+    expect(richEditorMocks.sourceReveal).not.toHaveBeenCalledWith(second);
+    fireEvent.click(screen.getByText("切换来源页面可见性"));
+    await waitFor(() => expect(richEditorMocks.sourceReveal).toHaveBeenLastCalledWith(second));
+    expect(await screen.findByText("已定位引用段落。")).toBeInTheDocument();
+    view.unmount();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {
