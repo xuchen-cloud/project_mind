@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentOperationEntry, AgentRuntimeOutput } from "../../lib/agent-types";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { AgentOutputCard, type AgentOutputCardProps } from "./AgentOutputCard";
 const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), resolve: vi.fn(), compare: vi.fn(), preview: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
@@ -19,7 +20,7 @@ const updatedTodo: AgentRuntimeOutput = { ...output, intent: { intent: "todo_upd
 function props(overrides: Partial<AgentOutputCardProps> = {}): AgentOutputCardProps {
   return { binding, output, operation: null, onCommit: vi.fn(async () => {}), onDismiss: vi.fn(async () => {}), onUndo: vi.fn(async () => {}), onRestore: vi.fn(async () => {}), ...overrides };
 }
-beforeEach(() => { vi.clearAllMocks(); mocks.statusGet.mockResolvedValue({ binding }); mocks.resolve.mockImplementation(async ({ kind, id }: { kind: string; id: number }) => ({ kind, id, label: kind === "todo" ? "实际待办" : "实际记录", scope: "project", projectId: 1, route: kind === "todo" ? `/projects/1?focus=todo-${id}` : `/projects/1/records/${id}` })); });
+beforeEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); useAgentPanelStore.getState().clearWorkspace(); mocks.statusGet.mockResolvedValue({ binding }); mocks.resolve.mockImplementation(async ({ kind, id }: { kind: string; id: number }) => ({ kind, id, label: kind === "todo" ? "实际待办" : "实际记录", scope: "project", projectId: 1, route: kind === "todo" ? `/projects/1?focus=todo-${id}` : `/projects/1/records/${id}` })); });
 
 it.each([output, patchOutput, todoOutput, updatedTodo])("confirms %j directly in the message once, then shows inline completion without a dialog or preview", async candidate => {
   let settle!: () => void;
@@ -177,4 +178,119 @@ it("rejects File navigation when the actual owning project differs", async () =>
   fireEvent.click(screen.getByRole("button", { name: "阶段计划.html" }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("所属对象或范围已变化"));
   expect(mocks.navigate).not.toHaveBeenCalled();
+});
+
+it("keeps grouped details free of per-item approval and permits only current approved failed retries", async () => {
+  const input = props({ presentation: "details", reviewCurrent: true });
+  const view = render(<AgentOutputCard {...input} />);
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+  const failed: AgentRuntimeOutput = { ...output, state: "failed", reviewDecision: { requestId: "decision", decision: "confirm", decidedAt: "now" } };
+  view.rerender(<AgentOutputCard {...input} output={failed} />);
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(input.onCommit).toHaveBeenCalledOnce());
+  view.rerender(<AgentOutputCard {...input} output={failed} groupBusy />);
+  expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+  view.rerender(<AgentOutputCard {...input} output={failed} reviewCurrent={false} />);
+  expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+  view.rerender(<AgentOutputCard {...input} output={{ ...failed, dismissed: true, revision: 2 }} />);
+  expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+});
+
+it("shows one trusted saved-object link and keeps native recovery in separate folded details", async () => {
+  const saved = { ...output, state: "committed" as const, object };
+  const input = props({ output: saved, operation });
+  const view = render(<><AgentOutputCard {...input} presentation="link" /><details><summary>成果详情</summary><AgentOutputCard {...input} presentation="details" /></details></>);
+  const link = await screen.findByRole("button", { name: "实际记录" });
+  expect(screen.getAllByRole("button", { name: "实际记录" })).toHaveLength(1);
+  expect(mocks.resolve).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "撤回创建", hidden: true }).closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(link);
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/projects/1/records/7"));
+  const withdrawn = { ...operation, undoState: "undone" as const, recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } };
+  view.rerender(<><AgentOutputCard {...input} operation={withdrawn} presentation="link" /><details><summary>成果详情</summary><AgentOutputCard {...input} operation={withdrawn} presentation="details" /></details></>);
+  expect(screen.queryByRole("button", { name: "实际记录" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "恢复记录", hidden: true })).toBeInTheDocument();
+});
+
+it.each([
+  [output, object, "note", "实际记录"],
+  [todoOutput, todoObject, "todo", "实际待办"],
+  [fileOutputs[0], fileObject, "document", "阶段计划.html"],
+] as const)("continues discussion of the verified saved %j in the explicitly bound panel scope", async (candidate, target, kind, label) => {
+  if (kind === "document") fileResolve();
+  useAgentPanelStore.getState().openPanel("/actual/workspace", object.scope);
+  render(<AgentOutputCard {...props({ output: { ...candidate, state: "committed", object: target }, presentation: "details" })} />);
+  expect(mocks.resolve).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
+  await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).toEqual({ binding, object: target, label }));
+  expect(mocks.resolve).toHaveBeenCalledWith({ kind, id: Number(target.id) });
+  expect(mocks.navigate).toHaveBeenCalledOnce();
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(object.scope);
+});
+
+it.each([null, { kind: "project" as const, projectId: 2 }])("reports an unavailable discussion target without rebinding a missing or different panel scope", async scope => {
+  if (scope) useAgentPanelStore.getState().openPanel("/actual/workspace", scope);
+  render(<AgentOutputCard {...props({ output: { ...output, state: "committed", object }, presentation: "details" })} />);
+  fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("所属范围打开助手"));
+  expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+  expect(useAgentPanelStore.getState().binding?.scope ?? null).toEqual(scope);
+});
+
+it("refuses discussion after a Workspace generation change or creation withdrawal", async () => {
+  useAgentPanelStore.getState().openPanel("/actual/workspace", object.scope);
+  mocks.statusGet.mockResolvedValue({ binding: { ...binding, generation: "new" } });
+  const input = props({ output: { ...output, state: "committed", object }, presentation: "details" });
+  const view = render(<AgentOutputCard {...input} />);
+  fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("工作区已切换"));
+  expect(mocks.resolve).not.toHaveBeenCalled(); expect(mocks.navigate).not.toHaveBeenCalled();
+  expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+  view.rerender(<AgentOutputCard {...input} operation={{ ...operation, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } }} />);
+  expect(screen.queryByRole("button", { name: "继续讨论" })).not.toBeInTheDocument();
+});
+
+it("reads the validated actual diff only on request and discards it when the candidate revision changes", async () => {
+  mocks.preview.mockResolvedValue({ outputId: output.id, revision: 1, baseRevision: 1, difference: { added: [], modified: ["actual-one", "actual-two"], moved: [], deleted: ["deleted"] } });
+  const input = props({ output: patchOutput, presentation: "details" });
+  const view = render(<AgentOutputCard {...input} />);
+  expect(mocks.preview).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "查看实际差异", hidden: true }));
+  await screen.findByText("基于 v1 的实际差异：新增 0 块，修改 2 块，移动 0 块，删除 1 块。");
+  expect(mocks.preview).toHaveBeenCalledWith(binding, { outputId: output.id, expectedRevision: 1 });
+  expect(input.onCommit).not.toHaveBeenCalled();
+  view.rerender(<AgentOutputCard {...input} output={{ ...patchOutput, revision: 2 }} />);
+  expect(screen.queryByText(/基于 v1 的实际差异/)).not.toBeInTheDocument();
+});
+
+it.each([
+  { width: 1200, expanded: true, openAfter: true, expandedAfter: false },
+  { width: 900, expanded: false, openAfter: false, expandedAfter: false },
+  { width: 1200, expanded: false, openAfter: true, expandedAfter: false },
+])("reveals a verified object page without losing the bound discussion target at $width px", async ({ width, expanded, openAfter, expandedAfter }) => {
+  vi.stubGlobal("innerWidth", width);
+  const store = useAgentPanelStore.getState();
+  store.openPanel("/actual/workspace", object.scope);
+  if (expanded) store.toggleExpanded();
+  store.setDiscussionTarget(binding, object, "实际记录");
+  render(<AgentOutputCard {...props({ output: { ...output, state: "committed", object }, presentation: "link" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "实际记录" }));
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/projects/1/records/7"));
+  expect(useAgentPanelStore.getState().open).toBe(openAfter);
+  expect(useAgentPanelStore.getState().expanded).toBe(expandedAfter);
+  expect(useAgentPanelStore.getState().discussionTarget).toEqual({ binding, object, label: "实际记录" });
+  expect(useAgentPanelStore.getState().binding).toEqual({ workspaceRoot: "/actual/workspace", scope: object.scope });
+});
+
+it("keeps narrow expanded chat open when explicitly continuing discussion", async () => {
+  vi.stubGlobal("innerWidth", 800);
+  const store = useAgentPanelStore.getState();
+  store.openPanel("/actual/workspace", object.scope); store.toggleExpanded();
+  render(<AgentOutputCard {...props({ output: { ...output, state: "committed", object }, presentation: "details" })} />);
+  fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
+  await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).not.toBeNull());
+  expect(useAgentPanelStore.getState().open).toBe(true);
+  expect(useAgentPanelStore.getState().expanded).toBe(true);
 });

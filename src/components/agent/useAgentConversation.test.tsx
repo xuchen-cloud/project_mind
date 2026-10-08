@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentConversationMessage, AgentRunEvent, AgentScopeSettings, AgentSessionMetadata, AgentStoredRun } from "../../lib/agent-types";
+import type { AgentConversationMessage, AgentObjectRef, AgentRunEvent, AgentScopeSettings, AgentSessionMetadata, AgentStoredRun } from "../../lib/agent-types";
 const api = vi.hoisted(() => ({
   statusGet: vi.fn(), settingsGet: vi.fn(), settingsUpdate: vi.fn(), sessionsList: vi.fn(),
   sessionCreate: vi.fn(), sessionGet: vi.fn(), runStart: vi.fn(), runCancel: vi.fn(),
@@ -13,6 +13,7 @@ vi.mock("../../services/agentApi", async importOriginal => ({
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: api.bindingGet } }));
 import { AgentApiError } from "../../services/agentApi";
 import { useAgentConversation } from "./useAgentConversation";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 const binding = { workspaceId: "workspace", generation: "generation" };
 const scope = { kind: "project", projectId: 1 } as const;
 const session: AgentSessionMetadata = { id: "a".repeat(32), scope, title: "已有会话", runtimeId: "builtin-pi", profileOverrideId: null, state: "active", createdAt: "now", updatedAt: "now" };
@@ -35,7 +36,7 @@ async function ready() {
   return view;
 }
 beforeEach(() => {
-  vi.clearAllMocks(); localStorage.clear(); stop = vi.fn();
+  vi.clearAllMocks(); localStorage.clear(); stop = vi.fn(); useAgentPanelStore.getState().clearWorkspace();
   api.statusGet.mockResolvedValue({ binding, runtimeAvailable: true, bridgeAvailable: false, capabilities: [] });
   api.bindingGet.mockResolvedValue(binding);
   api.settingsGet.mockResolvedValue(settings);
@@ -51,6 +52,34 @@ beforeEach(() => {
 });
 
 describe("assistant conversation lifecycle", () => {
+  it("passes an explicitly selected object separately without rewriting the question", async () => {
+    const view = await ready();
+    const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope, kind: "todo", id: "42" };
+    await act(async () => { expect(await view.result.current.send("把截止时间改到周五", object)).toBe(true); });
+    expect(api.runStart).toHaveBeenCalledWith(binding, {
+      sessionId: session.id, clientRequestId: expect.any(String), prompt: "把截止时间改到周五", discussionTarget: object,
+    });
+    expect(api.contextGet).not.toHaveBeenCalled();
+  });
+  it("omits the target for ordinary questions and clears it on a new session", async () => {
+    useAgentPanelStore.getState().openPanel("/workspace", scope);
+    const view = await ready();
+    useAgentPanelStore.getState().setDiscussionTarget(binding, { workspaceId: binding.workspaceId, scope, kind: "record", id: "3" }, "记录");
+    await act(async () => { await view.result.current.selectSession(""); });
+    expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+    await act(async () => { await view.result.current.send("普通问题"); });
+    expect(api.runStart.mock.calls[0][1]).not.toHaveProperty("discussionTarget");
+  });
+  it("clears a selection when the same Workspace reopens with a new generation", async () => {
+    useAgentPanelStore.getState().openPanel("/workspace", scope);
+    const view = await ready();
+    useAgentPanelStore.getState().setDiscussionTarget(binding, { workspaceId: binding.workspaceId, scope, kind: "file", id: "5" }, "文件");
+    const next = { ...binding, generation: "new" };
+    api.bindingGet.mockResolvedValue(next); api.statusGet.mockResolvedValue({ binding: next, runtimeAvailable: true });
+    await act(async () => { await view.result.current.refresh(); });
+    await waitFor(() => expect(view.result.current.binding).toEqual(next));
+    expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+  });
   it("loads only metadata until a question or history selection", async () => {
     const view = await ready();
     expect(api.contextGet).not.toHaveBeenCalled(); expect(api.sessionGet).not.toHaveBeenCalled();

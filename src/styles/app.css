@@ -5255,3 +5255,13 @@ input:is([type="search"],[placeholder*="搜索"],[aria-label*="搜索"]):is(:foc
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
+
+/* The assistant shares the content row; expansion retains the mounted page. */
+.workspace-content-shell { display:flex; min-width:0; min-height:0; flex:1; overflow:hidden; }
+.workspace-content-main { min-width:0; min-height:0; flex:1 1 0%; overflow:hidden; transition:flex-basis var(--duration-standard) var(--ease-soft),flex-grow var(--duration-standard) var(--ease-soft); }
+.workspace-content-shell--expanded .workspace-content-main { flex:0 1 0%; visibility:hidden; }
+.workspace-content-shell--expanded .agent-workspace-panel { flex:1 1 100%; border-left:0; }
+@media (max-width:900px) {
+  .workspace-content-shell--agent .workspace-content-main { flex:0 1 0%; visibility:hidden; }
+}
+@media (prefers-reduced-motion:reduce) { .workspace-content-main { transition:none; } }

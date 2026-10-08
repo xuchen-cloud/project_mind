@@ -1,3 +1,4 @@
+import type { AgentOutputReviewDecision } from "./agent-review-types";
 import type { TodoPriority, TodoStatus } from "./types";
 import type { RecordCommittedHead } from "./record-document-types";
 import type { RecordVersionDifference } from "./record-version-compare";
@@ -282,7 +283,7 @@ export interface AgentRuntimeOutput {
   intent: AgentOutputIntent; sources: AgentSourceRef[];
   state: "staged" | "committing" | "committed" | "failed";
   object: AgentObjectRef | null; mode: "collaborate" | "review" | "read_only";
-  errorCode: AgentError["code"] | null; sourceChanged: boolean[]; dismissed: boolean; fileReceipt?: AgentFileCommittedVersion;
+  errorCode: AgentError["code"] | null; sourceChanged: boolean[]; dismissed: boolean; fileReceipt?: AgentFileCommittedVersion; reviewDecision?: AgentOutputReviewDecision;
 }
 export interface AgentOutputPage { outputs: AgentRuntimeOutput[]; nextCursor: string | null }
 export interface AgentOutputListInput { runId: string; cursor?: string | null; limit?: number }
@@ -393,7 +394,7 @@ export interface AgentSessionsListInput { scope: AgentScope; cursor?: AgentSessi
 export interface AgentSessionGetInput { sessionId: string; afterOrdinal?: number | null; limit?: number }
 export interface AgentSessionArchiveInput { sessionId: string; archived: boolean }
 export interface AgentSessionDeleteInput { sessionId: string }
-export interface AgentRunStartInput { sessionId: string; clientRequestId: string; prompt: string }
+export interface AgentRunStartInput { sessionId: string; clientRequestId: string; prompt: string; discussionTarget?: AgentObjectRef | null }
 export interface AgentRunCancelInput { runId: string }
 export interface AgentRunGetInput { runId: string }
 export interface AgentRunEventsListInput { runId: string; afterSeq?: number; limit?: number }

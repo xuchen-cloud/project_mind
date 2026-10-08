@@ -1,17 +1,33 @@
+import { Fragment, useEffect } from "react";
+import type { AgentReviewHandle } from "../../hooks/useAgentReviewPlan";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentConversationMessage, AgentScopeSettings, AgentSessionMetadata, AgentStoredRun } from "../../lib/agent-types";
 import type { AiSettingsSnapshot } from "../../lib/types";
-const mocked = vi.hoisted(() => ({ useConversation: vi.fn(), aiSettingsGet: vi.fn(), openSettings: vi.fn(), knowledge: vi.fn() }));
-vi.mock("./useAgentConversation", () => ({ useAgentConversation: mocked.useConversation }));
+const mocked = vi.hoisted(() => ({ useConversation: vi.fn(), aiSettingsGet: vi.fn(), openSettings: vi.fn(), knowledge: vi.fn(), review: null as AgentReviewHandle | null }));
+vi.mock("./useAgentConversation", async importOriginal => ({ ...await importOriginal<typeof import("./useAgentConversation")>(), useAgentConversation: mocked.useConversation }));
+vi.mock("./AgentPiMessages", () => ({ AgentPiMessages: (props: import("./AgentPiMessages").AgentPiMessagesProps) => {
+  const { messages, liveText, isStreaming, streamRunId = null, renderAfterRun, renderBeforeStream } = props;
+  const streams = isStreaming || !!liveText;
+  const last = new Map(messages.map((message, index) => [message.runId, index]));
+  const stream = () => <>{renderBeforeStream?.()}{liveText ? <article><p>{liveText}</p></article> : null}</>;
+  return <div data-testid="pi-messages">{messages.map((message, index) => <Fragment key={message.id}>
+    <article><p>{typeof message.content === "string" ? message.content : JSON.stringify(message.content)}</p></article>
+    {last.get(message.runId) === index ? <>{streams && message.runId === streamRunId ? stream() : null}{renderAfterRun?.(message.runId)}</> : null}
+  </Fragment>)}{streams && !last.has(streamRunId) ? <>{stream()}{renderAfterRun?.(streamRunId)}</> : null}</div>;
+} }));
 vi.mock("./AgentKnowledgePanel", () => ({ AgentKnowledgePanel: (props: unknown) => { mocked.knowledge(props); return <div>知识目录</div>; } }));
 vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: () => <div>来源卡片</div> }));
-vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ runId, active }: { runId: string; active?: boolean }) => <div data-testid={`operations-${runId}`} data-active={active || undefined}>操作 {runId}<button>确认执行</button></div> }));
+vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ runId, active, current, onReviewChange }: { runId: string; active?: boolean; current?: boolean; onReviewChange?: (handle: AgentReviewHandle | null) => void }) => {
+  useEffect(() => { onReviewChange?.(current && !active ? mocked.review : null); return () => onReviewChange?.(null); }, [current, active, onReviewChange, mocked.review]);
+  return <div data-testid={`operations-${runId}`} data-active={active || undefined}>操作 {runId}<button>确认执行</button></div>;
+} }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocked.aiSettingsGet } }));
 vi.mock("../../state/ui-store", () => ({ useUiStore: (selector: (state: { openSettings: typeof mocked.openSettings }) => unknown) => selector({ openSettings: mocked.openSettings }) }));
 import { AgentPanel } from "./AgentPanel";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import type { useAgentConversation } from "./useAgentConversation";
 const scope = { kind: "project", projectId: 1 } as const;
 const binding = { workspaceId: "workspace", generation: "generation" };
@@ -33,11 +49,11 @@ function message(id: string, runId: string, role: AgentConversationMessage["role
 }
 async function loaded() {
   const view = renderPanel();
-  await waitFor(() => expect(screen.getByRole("textbox", { name: "问题" })).toBeEnabled());
+  await waitFor(() => expect(screen.getByText("model")).toBeInTheDocument());
   return view;
 }
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); mocked.review = null; useAgentPanelStore.getState().clearWorkspace();
   state = {
     binding, settings, sessions: [session], sessionCursor: null, session: null, messages: [], nextOrdinal: null,
     run: null, liveText: "", pendingPrompt: "", toolActivity: "", error: null, loading: false,
@@ -53,21 +69,24 @@ describe("Project assistant panel", () => {
   it("requires an explicit model probe and reads knowledge only after choosing its tab", async () => {
     await loaded();
     expect(state.probe).not.toHaveBeenCalled(); expect(mocked.knowledge).not.toHaveBeenCalled();
+    expect(screen.queryByText("验证会请求一次模型")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
     expect(screen.getByText("验证会请求一次模型")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "验证工具能力" }));
     expect(state.probe).toHaveBeenCalledOnce();
-    await userEvent.click(screen.getByRole("tab", { name: "知识" }));
+    await userEvent.click(screen.getByRole("button", { name: "知识", exact: true }));
     expect(mocked.knowledge).toHaveBeenCalledWith({ binding, scope });
     expect(screen.getByText("知识目录")).toBeInTheDocument();
   });
   it("persists the selected scope enable setting and opens the existing model settings", async () => {
     await loaded();
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
     await userEvent.click(screen.getByRole("checkbox", { name: "启用本项目助手" }));
     expect(state.setEnabled).toHaveBeenCalledWith(false);
     fireEvent.change(screen.getByRole("combobox", { name: "执行模式" }), { target: { value: "review" } });
     expect(state.setMode).toHaveBeenCalledWith("review");
     await userEvent.click(screen.getByRole("button", { name: "模型设置" }));
-    expect(mocked.openSettings).toHaveBeenCalledWith("ai-models"); expect(closed).toHaveBeenCalledOnce();
+    expect(mocked.openSettings).toHaveBeenCalledWith("ai-models"); expect(closed).not.toHaveBeenCalled();
   });
   it("sends with Enter and retains the question when startup is rejected", async () => {
     await loaded();
@@ -82,13 +101,29 @@ describe("Project assistant panel", () => {
   });
   it("offers stop for an active run and prevents history switching while running", async () => {
     state.busy = true; state.run = run; state.liveText = "流式回答";
-    renderPanel();
+    await loaded();
     expect(screen.getByText("流式回答")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "历史会话" })).toBeDisabled();
+    expect(screen.queryByRole("combobox", { name: "历史会话" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "历史", exact: true }));
+    expect(screen.getByRole("button", { name: session.title })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
     expect(screen.getByRole("combobox", { name: "执行模式" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "知识" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "知识", exact: true })).toBeDisabled();
+    const draft = screen.getByRole("textbox", { name: "问题" });
+    expect(draft).toBeEnabled();
+    await userEvent.type(draft, "下一条草稿{Enter}");
+    expect(draft).toHaveValue("下一条草稿");
+    expect(state.send).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "停止" }));
     expect(state.cancel).toHaveBeenCalledOnce();
+    state.busy = false; state.run = { ...run, state: "cancelled" };
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
+    expect(state.send).not.toHaveBeenCalled();
+    expect(draft).toHaveValue("下一条草稿");
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(state.send).toHaveBeenCalledWith("下一条草稿");
   });
   it("loads historical messages only on request and keeps archived sessions readable", async () => {
     state.session = { ...session, state: "archived" }; state.nextOrdinal = 49;
@@ -132,7 +167,7 @@ it("places each run's controls once after its last assistant or tool message in 
   expect(screen.getAllByTestId("operations-first")).toHaveLength(1);
   expect(screen.getAllByTestId("operations-second")).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "本次运行成果" })).not.toBeInTheDocument();
-  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   fireEvent.click(first.querySelector("button")!);
   expect(screen.queryByRole("dialog", { name: "确认保存成果" })).not.toBeInTheDocument();
 });
@@ -185,16 +220,29 @@ it("follows asynchronously growing operation content only while the reader is at
     const viewport = screen.getByRole("region", { name: "助手消息" });
     const content = viewport.firstElementChild!;
     let height = 300;
+    let viewportHeight = 100;
     let position = 200;
     Object.defineProperties(viewport, {
-      clientHeight: { configurable: true, value: 100 },
+      clientHeight: { configurable: true, get: () => viewportHeight },
       scrollHeight: { configurable: true, get: () => height },
-      scrollTop: { configurable: true, get: () => position, set: value => { position = Math.max(0, Math.min(value, height - 100)); } },
+      scrollTop: { configurable: true, get: () => position, set: value => { position = Math.max(0, Math.min(value, height - viewportHeight)); } },
     });
     const grew = () => act(() => observers.filter(observer => observer.targets.has(content)).forEach(observer => observer.emit()));
     fireEvent.scroll(viewport, { target: { scrollTop: 200 } });
     height = 500; grew();
     expect(viewport.scrollTop).toBe(400);
+    // Pi's next Markdown leaf grows before the preceding programmatic scroll
+    // event arrives. Its new bottom gap must not count as the user scrolling up.
+    height = 650;
+    fireEvent.scroll(viewport);
+    grew();
+    expect(viewport.scrollTop).toBe(550);
+    // A review hint outside the viewport reduces its height independently.
+    viewportHeight = 66;
+    act(() => observers.filter(observer => observer.targets.has(viewport)).forEach(observer => observer.emit()));
+    expect(viewport.scrollTop).toBe(584);
+    viewportHeight = 100;
+    act(() => observers.filter(observer => observer.targets.has(viewport)).forEach(observer => observer.emit()));
     fireEvent.scroll(viewport, { target: { scrollTop: 75 } });
     height = 700; grew();
     expect(viewport.scrollTop).toBe(75);
@@ -204,4 +252,156 @@ it("follows asynchronously growing operation content only while the reader is at
     view.unmount();
     expect(observers.every(observer => observer.disconnect.mock.calls.length > 0)).toBe(true);
   } finally { view.unmount(); vi.unstubAllGlobals(); }
+});
+
+it("retains draft and message viewport when closed or expanded, with a review fallback", async () => {
+  state.settings = null;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const toggle = vi.fn();
+  const panel = (open: boolean, expanded = false) => <QueryClientProvider client={client}><AgentPanel
+    open={open} expanded={expanded} onToggleExpanded={toggle} onClose={closed} scope={scope} workspaceRoot="/workspace" scopeName="资料项目" /></QueryClientProvider>;
+  const view = render(panel(true));
+  expect(screen.getByRole("combobox", { name: "执行模式" })).toHaveValue("review");
+  expect(screen.getByText("资料项目")).toBeInTheDocument();
+  const field = screen.getByRole("textbox", { name: "问题" });
+  const viewport = screen.getByRole("region", { name: "助手消息" });
+  await userEvent.type(field, "保留的草稿");
+  Object.defineProperties(viewport, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 100 } });
+  fireEvent.scroll(viewport, { target: { scrollTop: 120 } });
+  await userEvent.click(screen.getByRole("button", { name: "展开助手" }));
+  expect(toggle).toHaveBeenCalledOnce();
+  view.rerender(panel(true, true));
+  expect(screen.getByRole("textbox", { name: "问题" })).toBe(field);
+  expect(viewport.scrollTop).toBe(120);
+  view.rerender(panel(false, true));
+  expect(screen.queryByRole("textbox", { name: "问题" })).not.toBeInTheDocument();
+  view.rerender(panel(true, true));
+  expect(screen.getByRole("textbox", { name: "问题" })).toHaveValue("保留的草稿");
+  expect(screen.getByRole("region", { name: "助手消息" })).toBe(viewport);
+  expect(viewport.scrollTop).toBe(120);
+});
+
+function reviewFixture(overrides: Partial<AgentReviewHandle> = {}) {
+  state.run = { ...run, state: "completed" };
+  state.messages = [message("review-answer", run.id, "assistant", "方案已准备好")];
+  const handle: AgentReviewHandle = { runId: run.id, summary: "创建记录 1 项", pending: [{ outputId: "output", expectedRevision: 1 }],
+    busy: false, confirmed: false, decide: vi.fn(async decision => ({ decision, outputs: [], failures: [] })),
+    stop: vi.fn(async () => null), ...overrides };
+  mocked.review = handle;
+  return handle;
+}
+it.each([["确认", "confirm"], ["确认执行。", "confirm"], ["同意执行！", "confirm"], ["执行吧", "confirm"], ["取消", "cancel"], ["取消执行。", "cancel"], ["不用了！", "cancel"]] as const)("routes the exact decision %s through the same current review handle", async (text, decision) => {
+  const review = reviewFixture();
+  await loaded();
+  await waitFor(() => expect(screen.getByText(/输入“确认”执行当前方案/)).toBeInTheDocument());
+  const field = screen.getByRole("textbox", { name: "问题" });
+  await userEvent.type(field, ` ${text} `);
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(review.decide).toHaveBeenCalledWith(decision, ` ${text} `);
+  expect(state.send).not.toHaveBeenCalled();
+  await waitFor(() => expect(field).toHaveValue(""));
+});
+it("sends added requirements as a new run without treating embedded confirmation words as approval", async () => {
+  const review = reviewFixture();
+  await loaded();
+  const field = screen.getByRole("textbox", { name: "问题" });
+  await userEvent.type(field, "确认之前先调整期限，取消第二项并补充期限");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(review.decide).not.toHaveBeenCalled();
+  expect(state.send).toHaveBeenCalledWith("确认之前先调整期限，取消第二项并补充期限");
+});
+it("keeps a rejected decision draft and surfaces the typed failure", async () => {
+  const review = reviewFixture({ decide: vi.fn(async () => { throw { code: "REVISION_CONFLICT" }; }) });
+  await loaded();
+  const field = screen.getByRole("textbox", { name: "问题" });
+  await userEvent.type(field, "确认");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("内容或助手设置已变化");
+  expect(field).toHaveValue("确认");
+  expect(review.decide).toHaveBeenCalledOnce();
+  expect(state.send).not.toHaveBeenCalled();
+});
+it("keeps review saves busy until the real stop settles and never queues its draft", async () => {
+  let settled!: () => void;
+  const stopped = new Promise<null>(resolve => { settled = () => resolve(null); });
+  const review = reviewFixture({ busy: true, stop: vi.fn(() => stopped) });
+  const view = await loaded();
+  const field = screen.getByRole("textbox", { name: "问题" });
+  await userEvent.type(field, "停止后补充{Enter}");
+  expect(state.send).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "停止" }));
+  expect(review.stop).toHaveBeenCalledOnce();
+  expect(state.cancel).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+  await act(async () => { settled(); await stopped; });
+  mocked.review = { ...review, busy: false };
+  // The controller's authoritative settled handle is the only unlock signal.
+  await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeEnabled());
+  expect(state.send).not.toHaveBeenCalled();
+  expect(field).toHaveValue("停止后补充");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(state.send).toHaveBeenCalledWith("停止后补充");
+  view.unmount();
+});
+
+it("shows and sends a matching discussion object separately, and allows removing it without changing the draft", async () => {
+  const object = { workspaceId: binding.workspaceId, scope, kind: "record" as const, id: "42" };
+  useAgentPanelStore.getState().openPanel("/workspace", scope);
+  expect(useAgentPanelStore.getState().setDiscussionTarget(binding, object, "项目记录")).toBe(true);
+  await loaded();
+  expect(screen.getByText("讨论：项目记录")).toBeInTheDocument();
+  const field = screen.getByRole("textbox", { name: "问题" });
+  await userEvent.type(field, "补充期限");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(state.send).toHaveBeenCalledWith("补充期限", object);
+  await waitFor(() => expect(field).toHaveValue(""));
+  await userEvent.type(field, "保留这个草稿");
+  await userEvent.click(screen.getByRole("button", { name: "移除讨论对象" }));
+  expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+  expect(field).toHaveValue("保留这个草稿");
+});
+it("does not display or send a discussion target from another binding generation or scope", async () => {
+  useAgentPanelStore.getState().openPanel("/workspace", scope);
+  const object = { workspaceId: binding.workspaceId, scope, kind: "todo" as const, id: "42" };
+  useAgentPanelStore.getState().setDiscussionTarget({ ...binding, generation: "old-generation" }, object, "旧对象");
+  await loaded();
+  expect(screen.queryByRole("button", { name: "移除讨论对象" })).not.toBeInTheDocument();
+  await userEvent.type(screen.getByRole("textbox", { name: "问题" }), "普通问题");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(state.send).toHaveBeenCalledWith("普通问题");
+  // A cross-scope entry cannot silently switch the explicitly opened session.
+  expect(useAgentPanelStore.getState().setDiscussionTarget(binding, { ...object, scope: { kind: "project", projectId: 2 } }, "另一个项目")).toBe(false);
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope);
+});
+
+it("shows an unpersisted question before the Pi stream once, then uses only its durable user entry", () => {
+  state.run = run; state.busy = true; state.pendingPrompt = "当前问题"; state.liveText = "当前回答";
+  state.messages = [message("old-answer", "old-run", "assistant", "此前回答")];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const panel = () => <QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>;
+  const view = render(panel());
+  const pending = screen.getByRole("article", { name: "正在提交的问题" });
+  expect(screen.getByText("此前回答").compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(pending.compareDocumentPosition(screen.getByText("当前回答")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByText("当前问题")).toHaveLength(1);
+  state.messages = [...state.messages, message("saved-user", run.id, "user", "当前问题")];
+  view.rerender(panel());
+  expect(screen.queryByRole("article", { name: "正在提交的问题" })).not.toBeInTheDocument();
+  expect(screen.getAllByText("当前问题")).toHaveLength(1);
+  expect(screen.getAllByText("当前回答")).toHaveLength(1);
+  expect(screen.getAllByTestId(`operations-${run.id}`)).toHaveLength(1);
+});
+it("accepts a displayed native review decision without requesting an unavailable model", async () => {
+  const review = reviewFixture();
+  mocked.aiSettingsGet.mockResolvedValue({ ...modelSnapshot, profiles: [], bindings: [] });
+  state.runtimeAvailable = false;
+  renderPanel();
+  await waitFor(() => expect(screen.getByText(/输入“确认”执行当前方案/)).toBeInTheDocument());
+  await userEvent.type(screen.getByRole("textbox", { name: "问题" }), "确认");
+  expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(review.decide).toHaveBeenCalledWith("confirm", "确认");
+  expect(state.send).not.toHaveBeenCalled();
 });

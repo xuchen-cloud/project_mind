@@ -413,3 +413,13 @@ it("retains exact File patch/restore candidates and native undo versions through
   expect(await agentApi.operationUndo(binding, { operationId: "file-save", expectedHeadRevision: 4 }, "file-undo")).toBe(undo);
   expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_undo", { input: { binding, requestId: "file-undo", data: { operationId: "file-save", expectedHeadRevision: 4 } } });
 });
+
+
+it("persists an exact grouped review decision with text through the shared bound native command", async () => {
+  const data = { runId: output.runId, outputs: [{ outputId: output.id, expectedRevision: output.revision }], decision: "cancel" as const, text: "取消这个方案" };
+  const result = { runId: output.runId, decision: "cancel" as const, outputs: [{ ...output, revision: output.revision + 1, dismissed: true, reviewDecision: { requestId: "review-1", decision: "cancel" as const, text: data.text, decidedAt: "native-now" } }] };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "review-1", ok: true, data: result });
+  expect(await agentApi.outputReview(binding, data, "review-1")).toBe(result);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_output_review", { input: { binding, requestId: "review-1", data } });
+  expect(desktopApi.command).toHaveBeenCalledOnce();
+});

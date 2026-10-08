@@ -1,3 +1,5 @@
+import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
+import { useAgentPanelStore } from "./state/agent-panel-store";
 import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
 import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
@@ -297,6 +299,13 @@ export function WorkspaceLayout({
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  const agentPanelBinding = useAgentPanelStore(state => state.binding);
+  const agentPanelOpen = useAgentPanelStore(state => state.open);
+  const agentPanelExpanded = useAgentPanelStore(state => state.expanded);
+  const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath;
+  useEffect(() => {
+    if (!currentWorkspace && agentPanelBinding) useAgentPanelStore.getState().clearWorkspace();
+  }, [currentWorkspace, agentPanelBinding]);
   const businessChangeError = useWorkspaceBusinessChanges(currentWorkspace?.rootPath);
   useSourceMaintenanceSelection(currentWorkspace?.rootPath, activeProjectId);
   useEffect(() => {
@@ -1547,14 +1556,15 @@ export function WorkspaceLayout({
           />
         ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <main className="min-h-0 flex-1 overflow-hidden">
+        <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
+          <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
             {cachedWorkspaceResidentShell}
             {cachedProjectResidentShells}
             {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
               ? null
               : mainContent}
           </main>
+          <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} />
         </div>
       </div>
       <CreateWorkspaceDialog

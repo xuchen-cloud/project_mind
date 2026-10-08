@@ -604,6 +604,8 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 
 ## E14 助手界面与失败恢复
 
+- GUI固定vendor官方Pi Web UI 0.75.3的MessageList、Messages与StreamingMessageContainer少量展示源码，保留来源/版本标记与MIT许可证；使用Lit 3.3.1，经React薄适配接收现有会话DTO和流式事件。此选型只覆盖展示层，运行时仍固定pi-coding-agent 0.99.1；不导入legacy browser Agent、IndexedDB会话/凭据storage或provider，也不把SDK移入Vite主bundle。
+- Project Mind提供安全Markdown leaf、中文工具折叠renderer与scoped样式token，复用现有对象resolver、来源与操作控件；不以旧UI中的任意HTML、工具执行或文件访问替代Mind边界。vendor限上述展示所需源码，不导入整套旧AgentInterface/ChatPanel/Artifacts运行环境；组件适配验证、Tauri/原生链路和真实模型验收分别判断。
 - 稳定非模态右侧面板，可展开到主工作区域；业务页面保持可操作，不采用Dialog遮罩/焦点锁承载会话。与Todo Rail沿现布局协调，避免两个不可用右栏。窄屏单栏保留返回业务入口；按736/1200/1540集中验收，不另定义固定像素布局。
 - 同一会话在面板收起/展开和布局切换时保留draft与scroll，关闭面板不取消run；切项目不改变活动会话归属。Workspace代际、会话与run匹配仍过滤旧事件/响应。
 - 顶部仅项目/会话标题、历史、新会话和更多。历史按最近更新时间30条分页并按需展开，消息按50条加载；模型/probe、知识维护与技术设置移入设置或更多菜单，不常驻主消息轴。空态两个入口与输入框可见，零完整知识预读。
@@ -684,6 +686,7 @@ RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume�
 
 GUI参考（2026-10-08按官方源码核对，行为借鉴范围见E14与[交付R04d～g](ai-work-context-delivery.md#r04-gui)）：
 
+- [Pi Web UI包](https://www.npmjs.com/package/@earendil-works/pi-web-ui)与[移除Web UI workspace的官方提交](https://github.com/earendil-works/pi/commit/b141e1fa2460868686ffd19c5d4ced743eee6c24)：固定0.75.3展示源码/MIT的复用依据，与0.99.1运行时的版本边界；不代表同版完整GUI可直接接入。
 - [OpenCode session-permission-dock](https://github.com/anomalyco/opencode/blob/dev/packages/app/src/pages/session/composer/session-permission-dock.tsx)：借鉴会话内明确决定与低干扰提示，不照搬逐工具权限或“始终允许”策略。
 - [DeepSeek Harness ui-chat](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-chat/README.md)、[TurnProcessNodeView](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-chat/src/client/chat/TurnProcessNodeView.tsx)、[ApprovalPanel](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-approval/src/client/ApprovalPanel.tsx)：借鉴真实Session分组、过程折叠、滚动恢复和原位决定；不引入其queue、approval waterfall或请求组装机制。
 - [Hermes Web ChatPage](https://github.com/NousResearch/hermes-agent/blob/main/web/src/pages/ChatPage.tsx)：Web页主要承载xterm终端，结构化事件另有侧栏；只参考会话/过程组织，不把终端外壳当作Mind聊天GUI，不引入PTY/shell能力。

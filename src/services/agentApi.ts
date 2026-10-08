@@ -1,3 +1,4 @@
+import type { AgentOutputReviewInput, AgentOutputReviewResult } from "../lib/agent-review-types";
 import { desktopApi } from "./desktopApi";
 import type {
   AgentContextEntry, AgentContextInput, AgentError, AgentResponse,
@@ -82,6 +83,9 @@ export const agentApi = {
   },
   sourceResolve(binding: AgentWorkspaceBinding, data: AgentSourceRef, requestId: string = crypto.randomUUID()): Promise<AgentSourceNavigation> {
     return callAgentCommand("agent_source_resolve", requestId, { input: { binding, requestId, data } });
+  },
+  outputReview(binding: AgentWorkspaceBinding, data: AgentOutputReviewInput, requestId: string = crypto.randomUUID()): Promise<AgentOutputReviewResult> {
+    return callAgentCommand("agent_output_review", requestId, { input: { binding, requestId, data } });
   },
   outputList(binding: AgentWorkspaceBinding, data: AgentOutputListInput, requestId: string = crypto.randomUUID()): Promise<AgentOutputPage> {
     return callAgentCommand("agent_output_list", requestId, { input: { binding, requestId, data } });

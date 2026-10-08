@@ -4,6 +4,7 @@ import type { AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-type
 import type { InternalReferenceKind } from "../../lib/types";
 import { projectPath, workspacePath } from "../../lib/formatters";
 import { getErrorMessage } from "../../lib/errors";
+import { revealAgentObjectPage } from "../../lib/agent-panel-navigation";
 import { withdrawnReference, type WithdrawnReference } from "../../lib/withdrawn-reference";
 import { agentApi } from "../../services/agentApi";
 import { desktopApi } from "../../services/desktopApi";
@@ -37,6 +38,10 @@ export function AgentSourceCard(props: AgentSourceCardProps) {
 
 function SourceCardBody({ source, binding }: AgentSourceCardProps) {
   const navigate = useNavigate();
+  function openPage(route: string) {
+    navigate(route);
+    revealAgentObjectPage();
+  }
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -72,7 +77,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
         return true;
       };
       if (opensScope) {
-        if (await stillCurrent()) navigate(source.object.scope.kind === "project" ? projectPath(source.object.scope.projectId) : workspacePath());
+        if (await stillCurrent()) openPage(source.object.scope.kind === "project" ? projectPath(source.object.scope.projectId) : workspacePath());
         return;
       }
       let id = Number(source.object.id);
@@ -127,7 +132,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
             destination.searchParams.set("sourceTimeMs", String(navigation.startMs));
           }
         }
-        navigate(`${destination.pathname}${destination.search}${destination.hash}`);
+        openPage(`${destination.pathname}${destination.search}${destination.hash}`);
       }
     } catch (failure) {
       if (active.current) {

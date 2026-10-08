@@ -174,13 +174,15 @@ P1 File 恢复、P2 原生来源核对、P3 大 Transcript、P5a～d 的阶段�
 
 依赖：R04真实会话与现有页面布局。
 
-实现前置：优先以独立验证确认官方Pi Web UI组件复用，或可维护的Pi GUI薄适配是否可行，再确定实现方式。记录固定组件/SDK版本和实际React挂载、Tauri环境、现有Host事件及Pi会话投影的兼容证据；已有界面设计不变，不以组件存在推定兼容或已完成选型。当前官方[`@earendil-works/pi-web-ui`](https://www.npmjs.com/package/@earendil-works/pi-web-ui)最后发布版本为0.75.3，仓库固定`pi-coding-agent`为0.99.1；官方于2026-05-20的[提交b141e1f](https://github.com/earendil-works/pi/commit/b141e1fa2460868686ffd19c5d4ced743eee6c24)移除Web UI workspace，当前没有同版Web UI。legacy的MessageList、AgentInterface、MessageEditor、StreamingMessageContainer、ChatPanel与Artifacts是待验证复用对象，不是已确定接入方案。
+实现选型：复用官方Pi Web UI 0.75.3的MessageList、Messages与StreamingMessageContainer展示源码，固定vendor范围、来源与MIT许可证，以Lit 3.3.1和React薄适配接入现有消息DTO与流式事件；不重新自制同等消息展示组件。Markdown leaf、中文工具折叠renderer与局部样式token由Project Mind适配，延续已确认的界面设计。模型调用、会话、权限和凭据仍由现有Rust Host/Pi链路负责，不导入旧浏览器Agent、storage或provider。运行时保持`pi-coding-agent` 0.99.1，不为旧UI降级。
+
+选型依据与版本边界：官方[`@earendil-works/pi-web-ui`](https://www.npmjs.com/package/@earendil-works/pi-web-ui)最后发布版本为0.75.3；官方于2026-05-20的[提交b141e1f](https://github.com/earendil-works/pi/commit/b141e1fa2460868686ffd19c5d4ced743eee6c24)移除Web UI workspace，当前没有与0.99.1同版的Web UI。采用固定展示源码的薄适配，不将旧AgentInterface、ChatPanel或Artifacts整套运行环境带入应用；组件版本不能替代现有SDK运行契约。
 
 交付：稳定非模态右侧面板，可展开到主工作区域，窄屏单栏，业务页面仍可操作。同会话在收起/展开与布局切换间保留草稿和阅读位置；顶部仅项目/会话标题、可折叠历史、新会话和更多菜单。模型配置/probe与知识维护移入设置或更多菜单。运行可写草稿，首版显式停止并等待结算后再发送；关闭面板不隐式停止。
 
 非目标：不另起浏览器Agent或IndexedDB会话/凭据库，不因旧Web UI降级当前Pi；不翻新设置系统，不新增模态聊天Dialog、发送队列、自动续发、steering或通用布局/状态框架。
 
-验收与验证：A19/A73；736/1200/1540集中视觉核验可操作、业务页不被遮罩、窄屏单栏、无技术面板常驻；定向交互测试草稿/阅读位置保留、停止后发送、运行归属不随页面改变，复用生命周期验证。
+验收与验证：A19/A73；核对固定vendor来源/版本/MIT和实际React挂载、Tauri、消息DTO与流式事件接入；展示原型不替代原生提交、真实模型或安装验收。736/1200/1540集中视觉核验可操作、业务页不被遮罩、窄屏单栏、无技术面板常驻；定向交互测试草稿/阅读位置保留、停止后发送、运行归属不随页面改变，复用生命周期验证。
 
 #### R04e 同轮消息分组、Markdown与过程折叠 / #103
 

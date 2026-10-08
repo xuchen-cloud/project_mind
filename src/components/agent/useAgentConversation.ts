@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  AgentConversationMessage, AgentRunEvent, AgentScope, AgentScopeSettings,
+  AgentConversationMessage, AgentObjectRef, AgentRunEvent, AgentScope, AgentScopeSettings,
   AgentSessionCursor, AgentSessionMetadata, AgentStoredRun, AgentWorkspaceBinding,
 } from "../../lib/agent-types";
 import { getErrorMessage } from "../../lib/errors";
 import { AgentApiError, agentApi } from "../../services/agentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
+import { sameAgentScope, useAgentPanelStore } from "../../state/agent-panel-store";
 
 export const CONVERSATION_PAGE_SIZE = 50;
 const activeStates = new Set(["preparing", "running", "cancelling"]);
@@ -196,6 +197,8 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
 
   useEffect(() => {
     const token = ++epoch.current;
+    const target = useAgentPanelStore.getState().discussionTarget;
+    if (target && !sameAgentScope(target.object.scope, scope)) useAgentPanelStore.getState().clearDiscussionTarget();
     let unlisten: (() => void) | undefined;
     bindingRef.current = null; sessionRef.current = null; runRef.current = null;
     startingRef.current = false; lastSeq.current = 0; buffered.current = [];
@@ -210,6 +213,8 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       if (epoch.current !== token) return;
       if (!bound) throw new Error("请先打开工作区。");
       if (!status.binding || !sameBinding(status.binding, bound)) throw new Error("工作区已切换，请重新打开助手。");
+      const selectedTarget = useAgentPanelStore.getState().discussionTarget;
+      if (selectedTarget && !sameBinding(selectedTarget.binding, bound)) useAgentPanelStore.getState().clearDiscussionTarget();
       bindingRef.current = bound; setBinding(bound); setRuntimeAvailable(status.runtimeAvailable);
       subscribed.current = agentApi.onRunEvent(receiveEvent).then(stop => {
         if (epoch.current !== token) stop(); else unlisten = stop;
@@ -272,6 +277,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
   };
   const selectSession = async (id: string) => {
     if (!binding || startingRef.current || isAgentRunActive(runRef.current)) return;
+    useAgentPanelStore.getState().clearDiscussionTarget();
     const selected = sessions.find(item => item.id === id) ?? null;
     readVersion.current++; sessionRef.current = selected; runRef.current = null; lastSeq.current = 0;
     if (selected) localStorage.setItem(preferenceKey(binding), selected.id);
@@ -280,7 +286,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     setPendingPrompt(""); setLiveText(""); setError(null); checksum.current = null;
     if (selected) await loadMessages(binding, selected.id);
   };
-  const send = async (prompt: string): Promise<boolean> => {
+  const send = async (prompt: string, target?: AgentObjectRef | null): Promise<boolean> => {
     if (!binding || !settings?.enabled || startingRef.current || isAgentRunActive(runRef.current) || !prompt.trim()) return false;
     const token = epoch.current; const bound = binding;
     startingRef.current = true; setStarting(true); setError(null); setPendingPrompt(prompt.trim());
@@ -294,7 +300,8 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
         localStorage.setItem(preferenceKey(bound), selected.id);
       }
       await subscribed.current;
-      const started = await agentApi.runStart(bound, { sessionId: selected.id, clientRequestId: crypto.randomUUID(), prompt: prompt.trim() });
+      const started = await agentApi.runStart(bound, { sessionId: selected.id, clientRequestId: crypto.randomUUID(), prompt: prompt.trim(),
+        ...(target !== undefined ? { discussionTarget: target } : {}) });
       if (!valid(token, bound) || sessionRef.current?.id !== selected.id) return false;
       runRef.current = started; setRun(started);
       const early = buffered.current; buffered.current = []; startingRef.current = false;

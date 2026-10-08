@@ -3,9 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentRuntimeOutput } from "../../lib/agent-types";
 import { AgentRunOutputs } from "./AgentRunOutputs";
-const api = vi.hoisted(() => ({ outputList: vi.fn(), operationList: vi.fn(), outputCommit: vi.fn(), outputDismiss: vi.fn(), outputGet: vi.fn(), operationUndo: vi.fn(), operationGet: vi.fn(), operationRestoreCreated: vi.fn() }));
+const api = vi.hoisted(() => ({ outputReview: vi.fn(), outputList: vi.fn(), operationList: vi.fn(), outputCommit: vi.fn(), outputDismiss: vi.fn(), outputGet: vi.fn(), operationUndo: vi.fn(), operationGet: vi.fn(), operationRestoreCreated: vi.fn() }));
 vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: api }));
-vi.mock("./AgentOutputCard", () => ({ AgentOutputCard: ({ output, operation, onCommit, onDismiss, onUndo, onRestore }: { output: AgentRuntimeOutput; operation: unknown; onCommit: () => Promise<void>; onDismiss: () => Promise<void>; onUndo: () => Promise<void>; onRestore: () => Promise<void> }) => <article>
+vi.mock("./AgentOutputCard", () => ({ AgentOutputCard: ({ output, operation, presentation, onCommit, onDismiss, onUndo, onRestore }: { output: AgentRuntimeOutput; operation: unknown; presentation?: string; onCommit: () => Promise<void>; onDismiss: () => Promise<void>; onUndo: () => Promise<void>; onRestore: () => Promise<void> }) => presentation === "link" ? <span>对象 {output.id}</span> : <article>
   <span>{output.id} · {output.dismissed ? "dismissed" : output.state}</span><button onClick={() => { void onCommit().catch(() => {}); void onCommit().catch(() => {}); }}>保存 {output.id}</button>
   {!output.dismissed ? <button onClick={() => { void onDismiss().catch(() => {}); void onDismiss().catch(() => {}); }}>取消 {output.id}</button> : null}
   {operation ? <><button onClick={() => void onUndo()}>撤销 {output.id}</button><button onClick={() => void onRestore()}>恢复 {output.id}</button></> : null}</article> }));
@@ -17,19 +17,22 @@ function view() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current /></QueryClientProvider>);
 }
-beforeEach(() => { vi.clearAllMocks(); api.outputList.mockResolvedValue({ outputs: [output], nextCursor: null }); api.operationList.mockResolvedValue({ operations: [], nextCursor: null }); });
+beforeEach(() => { vi.resetAllMocks(); api.outputList.mockResolvedValue({ outputs: [output], nextCursor: null }); api.operationList.mockResolvedValue({ operations: [], nextCursor: null }); });
 
-it("loads a bounded inline output page automatically and reads more only on request", async () => {
-  api.outputList.mockResolvedValueOnce({ outputs: [output], nextCursor: "next" }).mockResolvedValueOnce({ outputs: [{ ...output, id: "next" }], nextCursor: null });
+it("reads every bounded candidate page before offering one whole-run confirmation", async () => {
+  let lastPage!: (value: unknown) => void;
+  api.outputList.mockResolvedValueOnce({ outputs: [output], nextCursor: "next" }).mockImplementationOnce(() => new Promise(resolve => { lastPage = resolve; }));
   view(); expect(api.outputList).toHaveBeenCalledOnce(); expect(api.operationList).toHaveBeenCalledOnce();
-
-  await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  expect(api.outputList).toHaveBeenCalledWith(binding, { runId: "run", cursor: null, limit: 20 });
+  await waitFor(() => expect(api.outputList).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  expect(api.outputList).toHaveBeenCalledWith(binding, { runId: "run", cursor: null, limit: 50 });
   expect(api.operationList).toHaveBeenCalledWith(binding, { runId: "run", limit: 50 });
   expect(api.outputCommit).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  await act(async () => lastPage({ outputs: [{ ...output, id: "next", ordinal: 1 }], nextCursor: null }));
   await waitFor(() => expect(screen.getByText("next · staged")).toBeInTheDocument());
-  expect(api.outputList).toHaveBeenLastCalledWith(binding, { runId: "run", cursor: "next", limit: 20 });
+  expect(api.outputList).toHaveBeenLastCalledWith(binding, { runId: "run", cursor: "next", limit: 50 });
+  expect(screen.getAllByRole("button", { name: "确认执行" })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "更多操作" })).not.toBeInTheDocument();
 });
 
 it("prevents duplicate UI commit and never rewrites a committed output", async () => {
@@ -37,13 +40,13 @@ it("prevents duplicate UI commit and never rewrites a committed output", async (
   api.outputCommit.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
   view();
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   expect(api.outputCommit).toHaveBeenCalledOnce();
   expect(api.outputCommit).toHaveBeenCalledWith(binding, { outputId: "out", expectedRevision: 1 }, expect.any(String));
   await act(async () => complete({ output: { ...output, state: "committed", object }, receipt: {}, operation }));
   await waitFor(() => expect(screen.getByText("out · committed")).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  expect(screen.getByRole("button", { name: "撤销 out", hidden: true })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   expect(api.outputCommit).toHaveBeenCalledOnce();
 });
 
@@ -53,10 +56,10 @@ it("reconciles a failed commit before retry and reuses the same UI request ident
   api.outputGet.mockResolvedValue({ ...output, state: "failed", errorCode: "OUTPUT_COMMIT_FAILED" });
   view();
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   await waitFor(() => expect(screen.getByText("out · failed")).toBeInTheDocument());
   expect(api.outputGet).toHaveBeenCalledWith(binding, { outputId: "out" });
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   await waitFor(() => expect(screen.getByText("out · committed")).toBeInTheDocument());
   expect(api.outputCommit).toHaveBeenCalledTimes(2);
   expect(api.outputCommit.mock.calls[0][2]).toBe(api.outputCommit.mock.calls[1][2]);
@@ -66,15 +69,20 @@ it("refreshes actual receipt recovery after undo and restores using its withdraw
   api.outputList.mockResolvedValue({ outputs: [{ ...output, state: "committed", object }], nextCursor: null });
   api.operationList.mockResolvedValue({ operations: [operation], nextCursor: null });
   api.operationUndo.mockResolvedValue({ withdrawn: true, revision: 2 });
-  api.operationGet.mockResolvedValue({ ...operation, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } });
+  api.operationGet.mockResolvedValueOnce({ ...operation, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } })
+    .mockResolvedValue({ ...operation, undoState: "undone", recovery: { withdrawn: false, withdrawalRevision: 3, restoreAvailable: false } });
   api.operationRestoreCreated.mockResolvedValue({ withdrawn: false, revision: 3 });
   view();
-  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "撤销 out" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out", hidden: true })).toBeInTheDocument());
+  expect(screen.getByRole("status")).toHaveTextContent("已保存 1 项");
+  fireEvent.click(screen.getByRole("button", { name: "撤销 out", hidden: true }));
   await waitFor(() => expect(api.operationGet).toHaveBeenCalledWith(binding, { operationId: "op" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已撤回 1 项"));
+  expect(screen.getByRole("status")).not.toHaveTextContent("已保存");
   expect(api.operationUndo).toHaveBeenCalledWith(binding, { operationId: "op", expectedHeadRevision: 1 }, expect.any(String));
-  fireEvent.click(screen.getByRole("button", { name: "恢复 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "恢复 out", hidden: true }));
   await waitFor(() => expect(api.operationRestoreCreated).toHaveBeenCalledWith(binding, { creationOperationId: "op", expectedWithdrawalRevision: 2 }, expect.any(String)));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已恢复 1 项"));
 });
 
 it("discards an old workspace output response when the inline binding switches", async () => {
@@ -89,7 +97,7 @@ it("discards an old workspace output response when the inline binding switches",
   expect(screen.queryByText("old · staged")).not.toBeInTheDocument();
 
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  expect(api.outputList).toHaveBeenLastCalledWith({ ...binding, generation: "new" }, { runId: "run", cursor: null, limit: 20 });
+  expect(api.outputList).toHaveBeenLastCalledWith({ ...binding, generation: "new" }, { runId: "run", cursor: null, limit: 50 });
 });
 
 it("does not let an older list response downgrade a committed output", async () => {
@@ -102,7 +110,7 @@ it("does not let an older list response downgrade a committed output", async () 
   const rendered = render(wrap(false));
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
   rendered.rerender(wrap(true));
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   await waitFor(() => expect(screen.getByText("out · committed")).toBeInTheDocument());
   await act(async () => outdated({ outputs: [output], nextCursor: null }));
   expect(screen.getByText("out · committed")).toBeInTheDocument();
@@ -137,16 +145,16 @@ it("updates a Todo card from the actual commit receipt and invalidates the nativ
   render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current /></QueryClientProvider>);
 
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   await waitFor(() => expect(screen.getByText("out · committed")).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "撤销 out", hidden: true })).toBeInTheDocument();
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["todo-views"] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["todos"] });
   api.operationUndo.mockResolvedValue({ withdrawn: true, revision: 2 });
   api.operationGet.mockResolvedValue({ ...todoReceipt, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } });
-  fireEvent.click(screen.getByRole("button", { name: "撤销 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "撤销 out", hidden: true }));
   await waitFor(() => expect(api.operationGet).toHaveBeenCalledWith(binding, { operationId: "op" }));
-  fireEvent.click(screen.getByRole("button", { name: "恢复 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "恢复 out", hidden: true }));
   await waitFor(() => expect(api.operationRestoreCreated).toHaveBeenCalledWith(binding, { creationOperationId: "op", expectedWithdrawalRevision: 2 }, expect.any(String)));
 });
 
@@ -159,8 +167,8 @@ it("matches a Todo update receipt and uses its real numeric after-revision for u
   api.operationUndo.mockResolvedValue({ operationId: "undo", originalOperationId: "op", object: todoObject, beforeRevision: 4, afterRevision: 5, beforeSnapshotRef: "before", afterSnapshotRef: "after", bodyHash: "sha256:restored" });
   api.operationGet.mockResolvedValue({ ...todoReceipt, undoState: "undone" });
   view();
-  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "撤销 out" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out", hidden: true })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "撤销 out", hidden: true }));
   await waitFor(() => expect(api.operationUndo).toHaveBeenCalledWith(binding, { operationId: "op", expectedHeadRevision: 4 }, expect.any(String)));
   expect(api.outputCommit).not.toHaveBeenCalled();
 });
@@ -179,7 +187,7 @@ it("persists cancellation through CAS, suppresses duplicate dismissal, and reads
   api.outputDismiss.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
   const rendered = view();
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "取消 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "取消 out", hidden: true }));
   expect(api.outputDismiss).toHaveBeenCalledOnce();
   expect(api.outputDismiss).toHaveBeenCalledWith(binding, { outputId: "out", expectedRevision: 1 }, expect.any(String));
   expect(api.outputCommit).not.toHaveBeenCalled();
@@ -190,9 +198,9 @@ it("persists cancellation through CAS, suppresses duplicate dismissal, and reads
   api.outputList.mockResolvedValue({ outputs: [dismissed], nextCursor: null });
   rendered.unmount(); view();
   await waitFor(() => expect(screen.getByText("out · dismissed")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
   expect(api.outputCommit).not.toHaveBeenCalled();
-  expect(screen.queryByRole("button", { name: "取消 out" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "取消 out", hidden: true })).not.toBeInTheDocument();
 });
 
 it("applies the actual File commit receipt, version cache invalidation and receipt-based undo", async () => {
@@ -204,10 +212,163 @@ it("applies the actual File commit receipt, version cache invalidation and recei
   const client = new QueryClient(); const invalidate = vi.spyOn(client, "invalidateQueries");
   render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" /></QueryClientProvider>);
   await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "保存 out", hidden: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out", hidden: true })).toBeInTheDocument());
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["documentVersions", 41] });
   api.operationGet.mockResolvedValue({ ...receipt, undoState: "undone" });
-  fireEvent.click(screen.getByRole("button", { name: "撤销 out" }));
+  fireEvent.click(screen.getByRole("button", { name: "撤销 out", hidden: true }));
   await waitFor(() => expect(api.operationUndo).toHaveBeenCalledWith(binding, { operationId: "op", expectedHeadRevision: 3 }, expect.any(String)));
+});
+
+function reviewedFixture(values: AgentRuntimeOutput[]) {
+  let actual = values;
+  api.outputList.mockImplementation(async (_binding, input) => { expect(input.limit).toBeLessThanOrEqual(50); return { outputs: actual, nextCursor: null }; });
+  api.outputGet.mockImplementation(async (_binding, input) => actual.find(value => value.id === input.outputId));
+  api.outputReview.mockImplementation(async (_binding, input, requestId) => {
+    const selected = new Set<string>(input.outputs.map((value: { outputId: string }) => value.outputId));
+    actual = actual.map(value => selected.has(value.id) ? { ...value,
+      reviewDecision: { requestId, decision: input.decision, text: input.text, decidedAt: "2026-10-08T00:00:00Z" },
+      ...(input.decision === "cancel" ? { dismissed: true, revision: value.revision + 1 } : {}),
+    } : value);
+    return { runId: input.runId, decision: input.decision, outputs: actual.filter(value => selected.has(value.id)) };
+  });
+  return {
+    read: () => actual,
+    fail(id: string) { actual = actual.map(value => value.id === id ? { ...value, state: "failed", errorCode: "OUTPUT_COMMIT_FAILED" } : value); },
+    save(id: string) {
+      const candidate = actual.find(value => value.id === id)!;
+      const committed: AgentRuntimeOutput = { ...candidate, state: "committed", errorCode: null, object: { ...object, id: id === "out" ? "7" : "8" } };
+      actual = actual.map(value => value.id === id ? committed : value);
+      return { output: committed, receipt: {}, operation: null };
+    },
+  };
+}
+const second: AgentRuntimeOutput = { ...output, id: "second", ordinal: 1, intent: { ...output.intent, title: "后续记录" } as AgentRuntimeOutput["intent"] };
+
+it("confirms the complete plan once and saves serially in actual ordinal order", async () => {
+  const fixture = reviewedFixture([second, output]);
+  let settle!: () => void;
+  api.outputCommit.mockImplementation(async (_binding, input) => {
+    if (input.outputId === "out") await new Promise<void>(resolve => { settle = resolve; });
+    return fixture.save(input.outputId);
+  });
+  view();
+  const confirm = await screen.findByRole("button", { name: "确认执行" });
+  expect(screen.getByText(/创建记录 2 项/)).toHaveTextContent("候选记录、后续记录");
+  fireEvent.click(confirm); fireEvent.click(confirm);
+  await waitFor(() => expect(api.outputCommit).toHaveBeenCalledTimes(1));
+  expect(api.outputReview).toHaveBeenCalledOnce();
+  expect(api.outputReview).toHaveBeenCalledWith(binding, { runId: "run", outputs: [{ outputId: "out", expectedRevision: 1 }, { outputId: "second", expectedRevision: 1 }], decision: "confirm" }, expect.any(String));
+  expect(api.outputCommit.mock.calls[0][1].outputId).toBe("out");
+  await act(async () => settle());
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已保存 2 项"));
+  expect(api.outputCommit.mock.calls[1][1].outputId).toBe("second");
+  expect(screen.getAllByText("对象 out")).toHaveLength(1);
+  expect(screen.getAllByText("对象 second")).toHaveLength(1);
+  expect(screen.getByText("查看成果详情（2）").closest("details")).not.toHaveAttribute("open");
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+});
+
+it("reports partial saves and retries the persisted approved candidate without another decision", async () => {
+  const fixture = reviewedFixture([output, second]);
+  let first = true;
+  api.outputCommit.mockImplementation(async (_binding, input) => {
+    if (input.outputId === "out" && first) { first = false; fixture.fail("out"); throw { code: "OUTPUT_COMMIT_FAILED" }; }
+    return fixture.save(input.outputId);
+  });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已保存 1 项，1 项未保存"));
+  expect(api.outputCommit).toHaveBeenCalledTimes(2);
+  fireEvent.click(await screen.findByRole("button", { name: "重试未保存项" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已保存 2 项"));
+  expect(api.outputReview).toHaveBeenCalledOnce();
+  expect(api.outputCommit).toHaveBeenCalledTimes(3);
+  expect(api.outputCommit.mock.calls[2][1].outputId).toBe("out");
+  expect(api.outputCommit.mock.calls[2][2]).toBe(api.outputCommit.mock.calls[0][2]);
+});
+
+it("exposes the same stable handle for typed cancellation and retains no old confirmation after reopening", async () => {
+  const fixture = reviewedFixture([output, second]);
+  const onReviewChange = vi.fn();
+  const client = new QueryClient();
+  const wrapper = <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current onReviewChange={onReviewChange} /></QueryClientProvider>;
+  const rendered = render(wrapper);
+  await screen.findByRole("button", { name: "确认执行" });
+  const handle = onReviewChange.mock.calls.at(-1)![0];
+  rendered.rerender(wrapper);
+  expect(onReviewChange.mock.calls.at(-1)![0]).toBe(handle);
+  await act(async () => { await handle.decide("cancel", "取消"); });
+  expect(api.outputReview.mock.calls[0][1].text).toBe("取消");
+  expect(screen.getByRole("status")).toHaveTextContent("已取消 2 项");
+  expect(screen.getByText("已取消：取消")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  expect(onReviewChange.mock.calls.at(-1)![0]).toBeNull();
+  expect(api.outputCommit).not.toHaveBeenCalled();
+  rendered.unmount(); render(wrapper);
+  await screen.findByText("已取消：取消");
+  expect(fixture.read().every(value => value.dismissed && value.revision === 2)).toBe(true);
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+});
+
+it("waits for the current save before stopping and cancels only the actual remaining proposal", async () => {
+  const fixture = reviewedFixture([output, second]);
+  let settle!: () => void;
+  api.outputCommit.mockImplementation(async (_binding, input) => {
+    await new Promise<void>(resolve => { settle = resolve; });
+    return fixture.save(input.outputId);
+  });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(api.outputCommit).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "停止剩余项" }));
+  expect(api.outputReview).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "正在停止…" })).toBeDisabled();
+  await act(async () => settle());
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已保存 1 项，已取消 1 项"));
+  expect(api.outputCommit).toHaveBeenCalledOnce();
+  expect(api.outputReview.mock.calls[1][1]).toEqual({ runId: "run", outputs: [{ outputId: "second", expectedRevision: 1 }], decision: "cancel" });
+  expect(screen.getByText("对象 out")).toBeInTheDocument();
+  expect(screen.queryByText("对象 second")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+});
+
+it("offers no approval handle for an active or historical run", async () => {
+  const onReviewChange = vi.fn();
+  const client = new QueryClient();
+  const wrap = (current: boolean, active: boolean) => <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current={current} active={active} onReviewChange={onReviewChange} /></QueryClientProvider>;
+  const rendered = render(wrap(true, true));
+  await screen.findByText("out · staged");
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  expect(onReviewChange.mock.calls.at(-1)![0]).toBeNull();
+  rendered.rerender(wrap(false, false));
+  await waitFor(() => expect(api.outputList).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  expect(onReviewChange.mock.calls.at(-1)![0]).toBeNull();
+  expect(api.outputReview).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("reads a deeper original receipt before claiming a saved result after reopening (current=%s)", async current => {
+  api.outputList.mockResolvedValue({ outputs: [{ ...output, state: "committed", object }], nextCursor: null });
+  api.operationList.mockResolvedValueOnce({ operations: [{ ...operation, operationId: "earlier", requestId: "output:earlier:1" }], nextCursor: "original-next" })
+    .mockResolvedValueOnce({ operations: [{ ...operation, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } }], nextCursor: "more-history" });
+  const client = new QueryClient();
+  render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current={current} /></QueryClientProvider>);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已撤回 1 项"));
+  expect(screen.getByRole("status")).not.toHaveTextContent("已保存");
+  expect(api.operationList).toHaveBeenCalledTimes(2);
+  expect(api.operationList).toHaveBeenLastCalledWith(binding, { runId: "run", cursor: "original-next", limit: 50 });
+  expect(screen.getByRole("button", { name: "更多操作记录" })).toBeInTheDocument();
+  expect(api.outputCommit).not.toHaveBeenCalled();
+});
+
+it("does not exhaust operation history looking for a receipt for an unchanged File", async () => {
+  const fileObject = { ...object, kind: "file" as const, id: "41" };
+  const file: AgentRuntimeOutput = { ...output, state: "committed", object: fileObject,
+    intent: { intent: "file_patch", patch: { object: fileObject, expectedVersionNumber: 2, expectedContentHash: "sha256:same", appendText: "", edits: null } },
+    fileReceipt: { documentId: 41, versionNumber: 2, contentHash: "sha256:same", noChange: true } };
+  api.outputList.mockResolvedValue({ outputs: [file], nextCursor: null });
+  api.operationList.mockResolvedValue({ operations: [], nextCursor: "unrelated-history" });
+  view();
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("内容相同 1 项"));
+  expect(api.operationList).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "更多操作记录" })).toBeInTheDocument();
 });
