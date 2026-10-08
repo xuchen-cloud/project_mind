@@ -36,6 +36,8 @@ pub(crate) struct RuntimeOutput {
     #[serde(default)]
     pub dismissed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_decision: Option<super::output_review::OutputReviewDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_receipt: Option<FileOutputReceipt>,
     pub error_code: Option<super::errors::ErrorCode>,
     /// Ordered with sources. A legal retained citation may already differ from

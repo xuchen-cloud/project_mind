@@ -1407,6 +1407,7 @@ pub fn run() {
             agent::output_commands::agent_output_preview,
             agent::output_commands::agent_output_update,
             agent::output_commands::agent_output_dismiss,
+            agent::output_review::agent_output_review,
             file_read_commands::file_source_read,
             file_read_commands::file_versions_list,
             file_read_commands::file_versions_get,

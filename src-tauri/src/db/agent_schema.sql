@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS agent_scope_settings (
   summary_policy TEXT NOT NULL DEFAULT 'on_success' CHECK(summary_policy IN ('on_success','manual')),
   overview_interval_hours INTEGER NOT NULL DEFAULT 24 CHECK(overview_interval_hours IN (24,48)),
   overview_local_time TEXT NOT NULL DEFAULT '03:00', overview_timezone TEXT NOT NULL DEFAULT 'UTC',
-  execution_mode TEXT NOT NULL DEFAULT 'collaborate' CHECK(execution_mode IN ('collaborate','review','read_only')),
+  execution_mode TEXT NOT NULL DEFAULT 'review' CHECK(execution_mode IN ('collaborate','review','read_only')),
   revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0)
 );
 CREATE TABLE IF NOT EXISTS agent_context_instructions (

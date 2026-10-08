@@ -1,9 +1,9 @@
 //! Trusted local GUI entry points. Credentials never appear in command responses.
 use super::{
-    access::Caller,
+    access::{Caller, RequestContext},
     conversation::{RunPreparation, RunSettlement, StoredRun},
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
-    models::WorkspaceBinding,
+    models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
     runtime::{RunEventKind, RunState},
     settings::SettingsRepository,
 };
@@ -26,6 +26,7 @@ pub(crate) struct StartInput {
     session_id: String,
     client_request_id: String,
     prompt: String,
+    discussion_target: Option<ObjectRef>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -42,6 +43,39 @@ pub(crate) struct ProbeInput {
 pub(crate) struct ProbeResult {
     verified: bool,
 }
+
+/// A selected object is context identity, never a revision or a read bypass.
+pub(crate) fn validate_discussion_target(
+    db: &crate::db::Database,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    session_scope: &Scope,
+    target: Option<&ObjectRef>,
+) -> AgentResult<Option<ObjectRef>> {
+    let Some(target) = target else {
+        return Ok(None);
+    };
+    if !matches!(
+        target.kind,
+        ObjectKind::Record | ObjectKind::Todo | ObjectKind::File
+    ) {
+        return Err(AgentError::new(
+            ErrorCode::InvalidArgument,
+            "Discussion targets must be Records, Todos or Files",
+        ));
+    }
+    if target.workspace_id != binding.workspace_id || target.scope != *session_scope {
+        return Err(AgentError::new(
+            ErrorCode::ScopeDenied,
+            "Discussion target must belong to this conversation scope",
+        ));
+    }
+    db.source_read_object(request, binding, target).map(Some)
+}
+
+#[cfg(test)]
+#[path = "run_discussion_tests.rs"]
+mod discussion_tests;
 
 fn bound_runtime(
     state: &AppState,
@@ -108,6 +142,13 @@ pub(crate) fn agent_run_start(
                 "The selected session runtime is not installed",
             ));
         }
+        let discussion_target = validate_discussion_target(
+            &db,
+            &request,
+            &runtime.agent_binding,
+            &session.scope,
+            input.data.discussion_target.as_ref(),
+        )?;
         if lock_mutex(&runtime.agent_runs)
             .keys()
             .any(|id| id.starts_with("probe-"))
@@ -137,8 +178,8 @@ pub(crate) fn agent_run_start(
                     "content.create",
                     "record.patch",
                     "todo.update",
-                "file.update",
-                "file.restore",
+                    "file.update",
+                    "file.restore",
                 ]
                 .map(str::to_owned),
             );
@@ -168,7 +209,7 @@ pub(crate) fn agent_run_start(
                 context_manifest: json!({"prompt": input.data.prompt, "scope": session.scope,
                     "profileFingerprint": resolved.fingerprint, "settingsRevision": settings.revision,
                     "goalRecordId": settings.goal_record_id, "pinnedRefs": settings.pinned_refs,
-                    "mode": settings.execution_mode}),
+                    "mode": settings.execution_mode, "discussionTarget": discussion_target}),
             })?;
         if !prepared.created {
             return Ok(prepared.run);

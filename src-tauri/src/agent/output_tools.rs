@@ -46,7 +46,7 @@ fn card(output: &RuntimeOutput) -> Value {
         OutputIntent::FilePatch { patch } => format!("File {}", patch.object.id),
         OutputIntent::FileRestore { restore } => format!("File {}", restore.object.id),
     };
-    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"dismissed":output.dismissed,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code,"fileReceipt":output.file_receipt})
+    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"dismissed":output.dismissed,"reviewDecision":output.review_decision,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code,"fileReceipt":output.file_receipt})
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -110,6 +110,8 @@ struct Payload {
     error_code: Option<ErrorCode>,
     #[serde(default)]
     dismissed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    review_decision: Option<crate::agent::output_review::OutputReviewDecision>,
 }
 pub(super) fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOutput> {
     id_check(id)?;
@@ -138,6 +140,7 @@ pub(super) fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOut
         mode: decode(&encode(&row.7)?)?,
         error_code: payload.error_code,
         dismissed: payload.dismissed,
+        review_decision: payload.review_decision,
         file_receipt,
     })
 }
@@ -290,6 +293,78 @@ fn active(run: &OutputRun) -> AgentResult<()> {
         return Err(AgentError::new(
             ErrorCode::InvalidRunTransition,
             "Run cannot stage or prepare a new output",
+        ));
+    }
+    Ok(())
+}
+/// Narrow historical metadata access; no cross-Run mutation authority is granted.
+pub(super) fn authorize_session_run_read(
+    db: &Database,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    target_run: &str,
+    scope: &Scope,
+    permission: &str,
+) -> AgentResult<()> {
+    request.authorize(binding, scope, permission)?;
+    if db
+        .native_workspace_id
+        .as_ref()
+        .is_some_and(|id| id != &binding.workspace_id)
+    {
+        return Err(AgentError::new(
+            ErrorCode::WorkspaceChanged,
+            "Historical metadata Workspace changed",
+        ));
+    }
+    let Caller::BuiltinRun { run_id } = &request.caller else {
+        return Err(denied());
+    };
+    let session: Option<String> = db.conn.query_row(
+        "SELECT r.session_id FROM agent_runs r JOIN agent_sessions s ON s.id=r.session_id WHERE r.id=?1 AND s.state='active' AND r.state IN ('preparing','running','cancelling') AND r.rowid=(SELECT MAX(n.rowid) FROM agent_runs n WHERE n.session_id=r.session_id)",
+        [run_id],|row|row.get(0)).optional().map_err(io_error)?;
+    let session = session.ok_or_else(denied)?;
+    let same: bool = db
+        .conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM agent_runs WHERE id=?1 AND session_id=?2)",
+            params![target_run, session],
+            |row| row.get(0),
+        )
+        .map_err(io_error)?;
+    if !same {
+        return Err(denied());
+    }
+    let current = read_run(&db.conn, run_id)?;
+    request.authorize(binding, &current.scope, permission)?;
+    frozen(request, &current).authorize(binding, &current.scope, permission)?;
+    frozen(request, &current).authorize(binding, scope, permission)
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DecisionStatusSummary {
+    pub outputs: Vec<DecisionStatusItem>,
+    pub has_more: bool,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DecisionStatusItem {
+    pub id: String,
+    pub run_id: String,
+    pub revision: u64,
+    pub state: OutputState,
+    pub dismissed: bool,
+    pub decision: crate::agent::output_review::ReviewDecision,
+}
+fn review_editable(output: &RuntimeOutput) -> AgentResult<()> {
+    if !output.dismissed
+        && output.review_decision.as_ref().is_some_and(|decision| {
+            decision.decision == crate::agent::output_review::ReviewDecision::Confirm
+        })
+    {
+        return Err(AgentError::new(
+            ErrorCode::OutputCommitFailed,
+            "Cancel the confirmed plan before editing its candidates",
         ));
     }
     Ok(())
@@ -542,6 +617,7 @@ impl Database {
             source_changed: changed,
             error_code: None,
             dismissed: false,
+            review_decision: None,
         })
     }
     pub(crate) fn agent_output_stage_record(
@@ -577,8 +653,61 @@ impl Database {
         id: &str,
     ) -> AgentResult<RuntimeOutput> {
         let output = read_output(&self.conn, id)?;
-        self.output_authorize(request, binding, &output.staged.run_id, "output.read")?;
+        if matches!(&request.caller, Caller::BuiltinRun { run_id } if run_id != &output.staged.run_id)
+        {
+            let (scope, _, _, _, _) = intent_scope(&output.staged.intent)?;
+            authorize_session_run_read(
+                self,
+                request,
+                binding,
+                &output.staged.run_id,
+                &scope,
+                "output.read",
+            )?;
+        } else {
+            self.output_authorize(request, binding, &output.staged.run_id, "output.read")?;
+        }
         Ok(output)
+    }
+    /// Host context contains GUI decision/status metadata, never candidate or user text.
+    pub(crate) fn agent_output_decision_summary(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+    ) -> AgentResult<DecisionStatusSummary> {
+        let Caller::BuiltinRun { run_id } = &request.caller else {
+            return Err(denied());
+        };
+        let current = read_run(&self.conn, run_id)?;
+        authorize_session_run_read(
+            self,
+            request,
+            binding,
+            run_id,
+            &current.scope,
+            "output.read",
+        )?;
+        let mut stmt=self.conn.prepare("SELECT o.id FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id WHERE r.session_id=(SELECT session_id FROM agent_runs WHERE id=?1) AND json_extract(o.payload_json,'$.reviewDecision.decision') IN ('confirm','cancel') ORDER BY json_extract(o.payload_json,'$.reviewDecision.decidedAt') DESC,o.rowid DESC LIMIT 21").map_err(io_error)?;
+        let ids = stmt
+            .query_map([run_id], |row| row.get::<_, String>(0))
+            .map_err(io_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(io_error)?;
+        let has_more = ids.len() > 20;
+        let mut outputs = Vec::new();
+        for id in ids.into_iter().take(20) {
+            let output = self.agent_output_get(request, binding, &id)?;
+            let decision = output.review_decision.ok_or_else(damaged)?;
+            outputs.push(DecisionStatusItem {
+                id: output.staged.id,
+                run_id: output.staged.run_id,
+                revision: output.staged.revision,
+                state: output.state,
+                dismissed: output.dismissed,
+                decision: decision.decision,
+            });
+        }
+        Ok(DecisionStatusSummary { outputs, has_more })
     }
     pub(crate) fn agent_output_list(
         &self,
@@ -729,6 +858,7 @@ impl Database {
         {
             return Ok(previous);
         }
+        review_editable(&previous)?;
         if previous.state != OutputState::Staged
             && !(previous.state == OutputState::Failed && previous.dismissed)
         {
@@ -770,6 +900,7 @@ impl Database {
         }
         self.agent_atomic_operation(&request.caller.key(),&request.request_id,"output.update",input,|tx| {
             let previous=read_output(tx,&input.output_id)?;
+            review_editable(&previous)?;
             if previous.state != OutputState::Staged && !(previous.state == OutputState::Failed && previous.dismissed) {return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Only uncommitted candidates can be edited"));}
             if previous.staged.revision!=input.expected_revision {return Err(conflict());}
             let (_,_,old_kind,old_target,_)=intent_scope(&previous.staged.intent)?;
@@ -865,7 +996,8 @@ impl Database {
             intent: output.staged.intent.clone(),
             sources: output.staged.sources.clone(),
         };
-        let payload = self.output_validate_candidate(request, binding, &run, &input)?;
+        let mut payload = self.output_validate_candidate(request, binding, &run, &input)?;
+        payload.review_decision = output.review_decision.clone();
         let changed=tx.execute("UPDATE agent_outputs SET state='committing',payload_json=?1 WHERE id=?2 AND revision=?3 AND state IN ('staged','committing','failed')",params![encode(&payload)?,id,expected_revision as i64]).map_err(io_error)?;
         if changed != 1 {
             return Err(conflict());

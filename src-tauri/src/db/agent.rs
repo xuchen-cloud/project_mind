@@ -23,7 +23,8 @@ impl ContextRepository for WorkspaceContextRepository<'_> {
         input: &crate::agent::context::ContextGetInput,
         identity: ScopeIdentity,
     ) -> AgentResult<crate::agent::context::ContextEntry> {
-        self.db.agent_overview_context_entry(request, binding, input, identity)
+        self.db
+            .agent_overview_context_entry(request, binding, input, identity)
     }
     fn scope_identity(&self, scope: &Scope) -> AgentResult<Option<ScopeIdentity>> {
         match scope {
@@ -175,6 +176,189 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 
     use super::*;
     use crate::agent::settings::{AgentScopeSettings, SettingsRepository};
+
+    #[test]
+    fn agent_settings_unconfigured_scopes_and_new_sql_rows_default_to_review() {
+        use crate::agent::models::ExecutionMode;
+
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        for scope in [Scope::Workspace, Scope::Project { project_id: 1 }] {
+            let settings = db.agent_settings_get(&scope).unwrap();
+            assert_eq!(settings.execution_mode, ExecutionMode::Review);
+            assert_eq!(settings.revision, 0);
+            assert!(!settings.enabled);
+        }
+        assert_eq!(
+            db.conn
+                .query_row("SELECT count(*) FROM agent_scope_settings", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+        db.conn
+            .execute(
+                "INSERT INTO agent_scope_settings(scope_key) VALUES ('workspace')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            db.agent_settings_get(&Scope::Workspace)
+                .unwrap()
+                .execution_mode,
+            ExecutionMode::Review
+        );
+    }
+
+    #[test]
+    fn agent_settings_preserves_legacy_collaborate_and_inserts_explicit_review() {
+        use crate::agent::{models::ExecutionMode, settings::SettingsUpdate};
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("test.sqlite");
+        // Simulate the original table definition and an explicitly retained
+        // user setting. Opening the Workspace must not rebuild this table.
+        let legacy_schema = include_str!("agent_schema.sql")
+            .split("CREATE TABLE IF NOT EXISTS agent_context_instructions")
+            .next()
+            .unwrap()
+            .replace("DEFAULT 'review'", "DEFAULT 'collaborate'");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(&legacy_schema).unwrap();
+        conn.execute(
+            "INSERT INTO agent_scope_settings(scope_key,enabled) VALUES ('workspace',1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let db = Database::open(&path, root.path(), None).unwrap();
+        let existing = db.agent_settings_get(&Scope::Workspace).unwrap();
+        assert_eq!(existing.execution_mode, ExecutionMode::Collaborate);
+        assert!(existing.enabled);
+        assert_eq!(existing.revision, 1);
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT dflt_value FROM pragma_table_info('agent_scope_settings') WHERE name='execution_mode'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "'collaborate'"
+        );
+        let scope = Scope::Project { project_id: 1 };
+        let settings = db.agent_settings_get(&scope).unwrap();
+        assert_eq!(settings.execution_mode, ExecutionMode::Review);
+        let saved = db
+            .agent_settings_update(
+                "gui",
+                "new-review-settings",
+                &SettingsUpdate {
+                    settings,
+                    expected_revision: 0,
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.execution_mode, ExecutionMode::Review);
+        drop(db);
+
+        let db = Database::open(&path, root.path(), None).unwrap();
+        assert_eq!(db.agent_settings_get(&Scope::Workspace).unwrap(), existing);
+        assert_eq!(db.agent_settings_get(&scope).unwrap(), saved);
+    }
+
+    #[test]
+    fn agent_settings_updates_do_not_change_the_prepared_run_mode() {
+        use crate::agent::{
+            access::{Caller, RequestContext, ScopeGrant},
+            conversation::RunPreparation,
+            models::{ExecutionMode, WorkspaceBinding},
+            settings::SettingsUpdate,
+        };
+
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: "w".into(),
+            generation: "g".into(),
+        };
+        let request = RequestContext {
+            binding: binding.clone(),
+            caller: Caller::Gui,
+            request_id: "prepare-review".into(),
+            scope_grant: ScopeGrant {
+                workspace_id: "w".into(),
+                workspace_content: true,
+                project_ids: vec![],
+                operations: ["session.read", "session.write", "run.start"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        };
+        let mut settings = AgentScopeSettings::defaults(Scope::Workspace);
+        settings.enabled = true;
+        let captured = db
+            .agent_settings_update(
+                "gui",
+                "enable-review",
+                &SettingsUpdate {
+                    settings,
+                    expected_revision: 0,
+                },
+            )
+            .unwrap();
+        let session = db
+            .agent_session_create(
+                &request,
+                &binding,
+                &Scope::Workspace,
+                "Conversation",
+                "builtin-pi",
+                None,
+            )
+            .unwrap();
+        let preparation = RunPreparation {
+            run_id: "a".repeat(32),
+            context_manifest: serde_json::json!({
+                "scope": Scope::Workspace,
+                "mode": captured.execution_mode,
+                "settingsRevision": captured.revision,
+            }),
+        };
+        let prepared = db
+            .agent_run_prepare(&request, &binding, &session.id, "review-run", &preparation)
+            .unwrap();
+        assert!(prepared.created);
+        let mut changed = captured.clone();
+        changed.execution_mode = ExecutionMode::Collaborate;
+        let current = db
+            .agent_settings_update(
+                "gui",
+                "switch-collaborate",
+                &SettingsUpdate {
+                    settings: changed,
+                    expected_revision: captured.revision,
+                },
+            )
+            .unwrap();
+        assert_eq!(current.execution_mode, ExecutionMode::Collaborate);
+        let frozen = db
+            .agent_run_get(&request, &binding, &prepared.run.id)
+            .unwrap();
+        assert_eq!(frozen.context_manifest["mode"], "review");
+        assert_eq!(
+            frozen.context_manifest["settingsRevision"],
+            serde_json::json!(captured.revision)
+        );
+        let retry = db
+            .agent_run_prepare(&request, &binding, &session.id, "review-run", &preparation)
+            .unwrap();
+        assert!(!retry.created);
+        assert_eq!(retry.run.context_manifest, preparation.context_manifest);
+    }
 
     #[test]
     fn agent_settings_retry_is_exactly_once_and_stale_updates_are_rejected() {
@@ -535,7 +719,10 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert!(!db.table_exists("agent_context_instructions").unwrap());
         db.conn.execute_batch("DROP TABLE agent_jobs;").unwrap();
         db.migrate().unwrap();
-        assert_eq!(db.schema_version().unwrap(), super::super::CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            db.schema_version().unwrap(),
+            super::super::CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[test]

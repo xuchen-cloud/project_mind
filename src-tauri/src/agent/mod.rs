@@ -15,6 +15,7 @@ pub mod models;
 pub(crate) mod operations;
 pub(crate) mod output_commands;
 pub(crate) mod output_runtime;
+pub(crate) mod output_review;
 pub(crate) mod output_service;
 pub(crate) mod output_tools;
 pub mod outputs;

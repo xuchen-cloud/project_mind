@@ -204,7 +204,29 @@ impl Database {
     ) -> AgentResult<OperationEntry> {
         self.operation_binding(binding)?;
         let (entry, caller) = read_entry(&self.conn, id)?;
-        authorize(request, binding, &entry, &caller, permission)?;
+        if entry.object.workspace_id != binding.workspace_id {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Operation belongs to another Workspace",
+            ));
+        }
+        if permission == "operation.read"
+            && matches!(&request.caller, Caller::BuiltinRun { run_id } if entry.run_id.as_deref()!=Some(run_id.as_str()))
+        {
+            let run = entry.run_id.as_deref().ok_or_else(|| {
+                AgentError::new(ErrorCode::ScopeDenied, "Operation has no owning Run")
+            })?;
+            super::agent_outputs::authorize_session_run_read(
+                self,
+                request,
+                binding,
+                run,
+                &entry.object.scope,
+                permission,
+            )?;
+        } else {
+            authorize(request, binding, &entry, &caller, permission)?;
+        }
         Ok(entry)
     }
     pub(crate) fn agent_operation_list(
@@ -224,9 +246,31 @@ impl Database {
                 "Workspace binding is no longer current",
             ));
         }
-        if matches!(request.caller, Caller::Connection { .. })
-            || matches!(&request.caller,Caller::BuiltinRun{run_id} if run_id!=&input.run_id)
-        {
+        if let Caller::BuiltinRun { run_id } = &request.caller {
+            if run_id != &input.run_id {
+                let scope = self
+                    .agent_output_run_scope(&input.run_id)
+                    .map_err(|error| {
+                        if error.code == ErrorCode::NotFound {
+                            AgentError::new(
+                                ErrorCode::ScopeDenied,
+                                "Operation Run is outside this caller",
+                            )
+                        } else {
+                            error
+                        }
+                    })?;
+                super::agent_outputs::authorize_session_run_read(
+                    self,
+                    request,
+                    binding,
+                    &input.run_id,
+                    &scope,
+                    "operation.read",
+                )?;
+            }
+        }
+        if matches!(request.caller, Caller::Connection { .. }) {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
                 "Operation Run is outside this caller",

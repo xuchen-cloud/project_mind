@@ -37,7 +37,7 @@ impl AgentScopeSettings {
             overview_interval_hours: 24,
             overview_local_time: "03:00".into(),
             overview_timezone: "UTC".into(),
-            execution_mode: ExecutionMode::Collaborate,
+            execution_mode: ExecutionMode::Review,
             revision: 0,
         }
     }
