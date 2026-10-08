@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(entry.object, object);
         assert!(entry.event_revision.starts_with("sha256:"));
         assert!(entry.deleted_at.is_none());
-        db.todo_delete(TodoDeleteInput { todo_id: todo.id })
+        db.todo_delete(TodoDeleteInput { expected_revision: db.todo_record(todo.id).unwrap().revision, todo_id: todo.id })
             .unwrap();
         let deleted = db
             .source_registry_entry(&request, &binding, &object)
@@ -300,7 +300,7 @@ mod tests {
         ] {
             db.conn.execute("INSERT INTO content_reference_edges(source_object_key,target_object_key,relation,target_revision) VALUES (?1,?2,'derived_from',?3)", rusqlite::params![owner,target,old_revision]).unwrap();
         }
-        db.todo_update_status(TodoUpdateStatusInput {
+        db.todo_update_status(TodoUpdateStatusInput { expected_revision: db.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             status: "finished".into(),
         })
@@ -338,7 +338,7 @@ mod tests {
         let before = db.committed_change_watermark().unwrap();
         db.conn.execute_batch("CREATE TRIGGER fail_registry_outbox BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
         assert!(db
-            .todo_delete(TodoDeleteInput { todo_id: todo.id })
+            .todo_delete(TodoDeleteInput { expected_revision: db.todo_record(todo.id).unwrap().revision, todo_id: todo.id })
             .is_err());
         assert_eq!(
             db.conn
@@ -359,7 +359,7 @@ mod tests {
         db.conn
             .execute_batch("DROP TRIGGER fail_registry_outbox")
             .unwrap();
-        db.todo_delete(TodoDeleteInput { todo_id: todo.id })
+        db.todo_delete(TodoDeleteInput { expected_revision: db.todo_record(todo.id).unwrap().revision, todo_id: todo.id })
             .unwrap();
         assert_eq!(db.conn.query_row("SELECT count(*) FROM source_dependency_invalidations WHERE reason='source_deleted' AND changed_object_key=?1", [object.key().unwrap()], |r| r.get::<_,i64>(0)).unwrap(), 2);
         assert_eq!(
@@ -438,7 +438,7 @@ mod tests {
         db.conn.execute_batch("CREATE TRIGGER fail_registry BEFORE INSERT ON source_registry BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
         let (result, event) =
             crate::committed_changes::capture_native_committed(&binding, &mut db, "failed", |db| {
-                db.todo_update_status(TodoUpdateStatusInput {
+                db.todo_update_status(TodoUpdateStatusInput { expected_revision: db.todo_record(todo.id).unwrap().revision,
                     todo_id: todo.id,
                     status: "finished".into(),
                 })

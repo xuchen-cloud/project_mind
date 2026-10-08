@@ -41,6 +41,7 @@ export type TodoPriority =
 export interface TodoProgressRecord {
   id: number;
   todoId: number;
+  todoRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -52,6 +53,7 @@ export interface TodoProgressRecord {
 
 export interface TodoRecord {
   id: number;
+  revision: number;
   scope: TodoScope;
   projectId: number | null;
   projectName?: string | null;
@@ -521,6 +523,7 @@ export type TodoCreateInput =
 
 export interface TodoUpdateContentInput {
   todoId: number;
+  expectedRevision: number;
   content: string;
   dueDate?: string | null;
   tagIds?: number[];
@@ -528,6 +531,7 @@ export interface TodoUpdateContentInput {
 
 export interface TodoUpdateTagsInput {
   todoId: number;
+  expectedRevision: number;
   tagIds?: number[];
 }
 
@@ -543,16 +547,19 @@ export type TodoTagUpdateHandler = (
 
 export interface TodoUpdateStatusInput {
   todoId: number;
+  expectedRevision: number;
   status: TodoStatus;
 }
 
 export interface TodoUpdatePriorityInput {
   todoId: number;
+  expectedRevision: number;
   priority: TodoPriority;
 }
 
 export interface TodoAddProgressInput {
   todoId: number;
+  expectedRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -560,6 +567,7 @@ export interface TodoAddProgressInput {
 
 export interface TodoUpdateProgressInput {
   progressId: number;
+  expectedRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -568,10 +576,12 @@ export interface TodoUpdateProgressInput {
 
 export interface TodoDeleteProgressInput {
   progressId: number;
+  expectedRevision: number;
 }
 
 export interface TodoDeleteInput {
   todoId: number;
+  expectedRevision: number;
 }
 
 export interface DocumentImportInput {

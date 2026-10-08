@@ -57,6 +57,7 @@ const project: ProjectListItem = {
 };
 
 const workspaceTodo: TodoRecord = {
+  revision: 1,
   id: 1,
   scope: "workspace",
   projectId: null,

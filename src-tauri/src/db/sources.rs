@@ -149,6 +149,14 @@ impl Database {
                 },
             )?;
         }
+        if resolved.kind == ObjectKind::Todo {
+            super::agent_todo_undo::require_todo_visible(
+                &self.conn,
+                resolved.id.parse().map_err(|_| {
+                    AgentError::new(ErrorCode::InvalidArgument, "Invalid Todo identity")
+                })?,
+            )?;
+        }
         self.source_prepare()?;
         let excluded: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",

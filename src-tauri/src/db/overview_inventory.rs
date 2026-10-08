@@ -368,7 +368,7 @@ mod tests {
                 tag_ids: vec![],
             })
             .unwrap();
-        db.todo_add_progress(TodoAddProgressInput {
+        db.todo_add_progress(TodoAddProgressInput { expected_revision: db.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             content: "subtask".into(),
             progress_date: "2026-10-03".into(),

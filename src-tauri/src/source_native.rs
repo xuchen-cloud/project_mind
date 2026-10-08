@@ -763,7 +763,7 @@ mod tests {
             .db
             .lock()
             .unwrap()
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: todo.revision,
                 todo_id: todo.id,
                 content: "补齐子任务验证".into(),
                 progress_date: "2026-10-01".into(),
@@ -793,7 +793,7 @@ mod tests {
             .db
             .lock()
             .unwrap()
-            .todo_update_progress(TodoUpdateProgressInput {
+            .todo_update_progress(TodoUpdateProgressInput { expected_revision: subtask.todo_revision,
                 progress_id: subtask.id,
                 content: "验证已补齐".into(),
                 progress_date: "2026-10-01".into(),
@@ -957,7 +957,7 @@ mod tests {
             .db
             .lock()
             .unwrap()
-            .todo_delete(TodoDeleteInput { todo_id: todo.id })
+            .todo_delete(TodoDeleteInput { expected_revision: todo.revision, todo_id: todo.id })
             .unwrap();
         assert_eq!(
             service.read(&request, &input).unwrap_err().code,

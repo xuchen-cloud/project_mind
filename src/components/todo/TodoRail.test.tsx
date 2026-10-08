@@ -24,6 +24,7 @@ function render(ui: ReactElement) {
 }
 
 const todoWithHistory: TodoRecord = {
+  revision: 1,
   id: 1,
   scope: "project",
   projectId: 1,
@@ -36,6 +37,7 @@ const todoWithHistory: TodoRecord = {
     {
       id: 101,
       todoId: 1,
+      todoRevision: 1,
       content: "已同步法务",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T10:00:00.000Z",
@@ -46,6 +48,7 @@ const todoWithHistory: TodoRecord = {
     {
       id: 102,
       todoId: 1,
+      todoRevision: 1,
       content: "等待财务确认",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T09:00:00.000Z",
@@ -65,6 +68,7 @@ const anotherTodoWithHistory: TodoRecord = {
     {
       id: 103,
       todoId: 3,
+      todoRevision: 1,
       content: "已和税务对齐方案",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T11:00:00.000Z",
@@ -75,6 +79,7 @@ const anotherTodoWithHistory: TodoRecord = {
     {
       id: 105,
       todoId: 3,
+      todoRevision: 1,
       content: "已收集财务问题",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T10:00:00.000Z",
@@ -103,6 +108,7 @@ const finishedTodo: TodoRecord = {
     {
       id: 104,
       todoId: 2,
+      todoRevision: 1,
       content: "已发出最终版本",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T12:00:00.000Z",

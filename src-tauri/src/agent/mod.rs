@@ -15,6 +15,7 @@ pub mod models;
 pub(crate) mod operations;
 pub(crate) mod output_commands;
 pub(crate) mod output_runtime;
+pub(crate) mod output_service;
 pub(crate) mod output_tools;
 pub mod outputs;
 pub(crate) mod overview;
@@ -32,6 +33,8 @@ pub mod sessions;
 pub mod settings;
 pub(crate) mod source_navigation;
 pub(crate) mod tools;
+pub(crate) mod todo_outputs;
+pub(crate) mod todo_tools;
 
 #[cfg(test)]
 mod tests;

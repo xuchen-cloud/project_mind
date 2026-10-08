@@ -7,6 +7,9 @@ mod agent_outputs;
 mod agent_output_schema;
 pub(crate) mod agent_record_withdrawals;
 mod agent_record_undo;
+pub(crate) mod todo_revisions;
+pub(crate) mod agent_todo_undo;
+pub(crate) mod agent_todo_outputs;
 mod agent_overviews;
 mod overview_inventory;
 mod source_catalogue;
@@ -112,7 +115,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = agent_output_schema::AGENT_OUTPUT_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = todo_revisions::TODO_REVISION_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -824,6 +827,7 @@ impl Database {
         self.ensure_record_document_schema()?;
         self.ensure_agent_runtime_schema()?;
         self.ensure_agent_output_schema()?;
+        self.ensure_todo_revision_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -2002,7 +2006,7 @@ impl Database {
                 [WORKSPACE_NOTE_KIND_STANDARD],
                 |row| row.get(0),
             )?,
-            todo_count: count("todos")?,
+            todo_count: count("agent_visible_todos")?,
             file_count: self.conn.query_row(
                 "SELECT COUNT(*) FROM documents WHERE storage_mode != ?1",
                 [MANAGED_NOTE_IMAGE_STORAGE_MODE],
@@ -2200,7 +2204,7 @@ impl Database {
             SELECT
               p.id, p.name, p.kind, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
               p.quick_note_code_language, p.is_archived, p.created_at, p.updated_at,
-              (SELECT COUNT(*) FROM todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
+              (SELECT COUNT(*) FROM agent_visible_todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
             ORDER BY p.created_at DESC, p.id DESC
@@ -2621,20 +2625,6 @@ impl Database {
 
         let tag_id = self.upsert_file_tag_by_label(input.project_id, &label, &color_key, &now)?;
         self.file_tag_record(tag_id)
-    }
-
-    pub fn file_tag_option_delete(
-        &mut self,
-        input: FileTagOptionDeleteInput,
-    ) -> Result<FileTagSettingsSnapshot> {
-        self.scoped_file_tag_record(input.project_id, input.tag_id)?;
-        self.conn.execute(
-            "DELETE FROM file_tag_options WHERE id = ?1",
-            params![input.tag_id],
-        )?;
-        self.file_tag_settings_get(FileTagSettingsGetInput {
-            project_id: input.project_id,
-        })
     }
 
     pub fn contact_list(&self) -> Result<Vec<ContactRecord>> {
@@ -3231,7 +3221,7 @@ impl Database {
         Ok(current)
     }
 
-    fn todo_create_native(&self, input: TodoCreateInput) -> Result<TodoRecord> {
+    pub(super) fn todo_create_native(&self, input: TodoCreateInput) -> Result<TodoRecord> {
         let scope = input.scope;
         self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
         let scope_value = match scope {
@@ -3263,12 +3253,13 @@ impl Database {
         )?;
         let id = self.conn.last_insert_rowid();
         self.write_todo_tags(id, &tag_ids, &timestamp)?;
+        todo_revisions::initialize(&self.conn, id, None).map_err(todo_revision_error)?;
         let record = self.todo_record(id)?;
         self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
-    fn todo_update_content_native(&self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_content_native(&self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(
             current.scope,
@@ -3288,7 +3279,7 @@ impl Database {
         Ok(record)
     }
 
-    fn todo_update_tags_native(&self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_tags_native(&self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
         let timestamp = now_iso();
         let current = self.todo_record(input.todo_id)?;
         self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
@@ -3300,7 +3291,7 @@ impl Database {
         self.todo_record(input.todo_id)
     }
 
-    fn todo_update_status_native(&self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_status_native(&self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.status, now_iso(), input.todo_id],
@@ -3310,7 +3301,7 @@ impl Database {
         Ok(record)
     }
 
-    fn todo_update_priority_native(&self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_priority_native(&self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET priority = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.priority, now_iso(), input.todo_id],
@@ -3320,7 +3311,7 @@ impl Database {
         Ok(record)
     }
 
-    fn todo_add_progress_native(&self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
+    pub(super) fn todo_add_progress_native(&self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(todo.scope, todo.project_id, &input.content, None)?;
@@ -3348,7 +3339,7 @@ impl Database {
         self.todo_progress_record(progress_id)
     }
 
-    fn todo_update_progress_native(
+    pub(super) fn todo_update_progress_native(
         &self,
         input: TodoUpdateProgressInput,
     ) -> Result<TodoProgressRecord> {
@@ -3438,7 +3429,7 @@ impl Database {
         Ok(())
     }
 
-    fn todo_delete_progress_native(
+    pub(super) fn todo_delete_progress_native(
         &self,
         input: TodoDeleteProgressInput,
     ) -> Result<TodoProgressRecord> {
@@ -3457,7 +3448,7 @@ impl Database {
         Ok(current)
     }
 
-    fn todo_delete_native(&self, input: TodoDeleteInput) -> Result<TodoRecord> {
+    pub(super) fn todo_delete_native(&self, input: TodoDeleteInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.conn
             .execute("DELETE FROM todos WHERE id = ?1", [input.todo_id])?;
@@ -3468,7 +3459,7 @@ impl Database {
     pub fn todo_list_open(&mut self, input: ProjectIdInput) -> Result<Vec<TodoRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT id FROM todos
+            SELECT id FROM agent_visible_todos
             WHERE project_id = ?1 AND status = 'unfinished'
             ORDER BY created_at DESC, id DESC
             "#,
@@ -3483,7 +3474,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT t.id
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE t.scope = 'workspace'
                OR (t.scope = 'project' AND p.is_archived = 0)
@@ -4921,7 +4912,7 @@ impl Database {
               ), '') AS tag_match_text,
               COALESCE(p.name, 'Workspace'),
               t.updated_at
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE (
               t.content LIKE ?1
@@ -5199,7 +5190,7 @@ impl Database {
               COALESCE(NULLIF(TRIM(t.content), ''), '') AS content_match_text,
               COALESCE(p.name, 'Workspace') AS scope_name,
               t.updated_at
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE t.status = 'unfinished'
               AND (
@@ -5333,6 +5324,9 @@ impl Database {
         &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        if input.kind.trim() == "todo" && self.conn.query_row("SELECT EXISTS(SELECT 1 FROM todos WHERE id=?1)", [input.id], |row| row.get::<_,bool>(0))? {
+            agent_todo_undo::require_todo_visible(&self.conn, input.id).map_err(todo_revision_error)?;
+        }
         if input.kind.trim()=="note" {
             if let Some(project_id)=self.conn.query_row("SELECT project_id FROM notes WHERE id=?1",[input.id],|row|row.get(0)).optional()? {
                 agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget{scope:crate::agent::models::Scope::Project{project_id},record_id:input.id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
@@ -5386,7 +5380,7 @@ impl Database {
                       t.scope,
                       t.project_id,
                       COALESCE(NULLIF(TRIM(t.content), ''), 'Todo')
-                    FROM todos t
+                    FROM agent_visible_todos t
                     WHERE t.id = ?1
                     "#,
                     [input.id],
@@ -5563,7 +5557,14 @@ impl Database {
         Ok(note)
     }
 
-    fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+    pub(super) fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+        let todo_id:i64 = self.conn.query_row("SELECT todo_id FROM todo_progresses WHERE id=?1", [progress_id], |row| row.get(0))?;
+        agent_todo_undo::require_todo_visible(&self.conn, todo_id).map_err(todo_revision_error)?;
+        self.todo_progress_record_unchecked(progress_id)
+    }
+    pub(super) fn todo_progress_record_unchecked(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+        let todo_id:i64 = self.conn.query_row("SELECT todo_id FROM todo_progresses WHERE id=?1", [progress_id], |row| row.get(0))?;
+        let revision = todo_revisions::head(&self.conn, todo_id).map_err(todo_revision_error)?.revision;
         self.conn
             .query_row(
                 r#"
@@ -5573,6 +5574,7 @@ impl Database {
                 [progress_id],
                 |row| {
                     Ok(TodoProgressRecord {
+                        todo_revision: revision,
                         id: row.get(0)?,
                         todo_id: row.get(1)?,
                         content: row.get(2)?,
@@ -5588,7 +5590,12 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn todo_record(&self, todo_id: i64) -> Result<TodoRecord> {
+    pub(super) fn todo_record(&self, todo_id: i64) -> Result<TodoRecord> {
+        agent_todo_undo::require_todo_visible(&self.conn, todo_id).map_err(todo_revision_error)?;
+        self.todo_record_unchecked(todo_id)
+    }
+    pub(super) fn todo_record_unchecked(&self, todo_id: i64) -> Result<TodoRecord> {
+        let revision = todo_revisions::head(&self.conn, todo_id).map_err(todo_revision_error)?.revision;
         let base = self.conn.query_row(
             r#"
             SELECT
@@ -5618,9 +5625,10 @@ impl Database {
             "project" => TodoScope::Project,
             value => return Err(anyhow!("Unsupported todo scope: {value}")),
         };
-        let progresses = self.fetch_todo_progresses(todo_id)?;
+        let progresses = self.fetch_todo_progresses_unchecked(todo_id)?;
         let tags = self.fetch_todo_tags(todo_id)?;
         Ok(TodoRecord {
+            revision,
             id: base.0,
             scope,
             project_id: base.2,
@@ -5908,7 +5916,7 @@ impl Database {
         ids.into_iter().map(|id| self.note_record(id)).collect()
     }
 
-    fn fetch_todo_progresses(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
+    fn fetch_todo_progresses_unchecked(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY CASE status WHEN 'unfinished' THEN 0 ELSE 1 END ASC, order_index ASC, progress_date DESC, created_at DESC",
         )?;
@@ -5916,7 +5924,7 @@ impl Database {
             .query_map([todo_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter()
-            .map(|id| self.todo_progress_record(id))
+            .map(|id| self.todo_progress_record_unchecked(id))
             .collect()
     }
 
@@ -6390,9 +6398,9 @@ impl Database {
 
     fn fetch_project_todos(&self, project_id: i64, finished: bool) -> Result<Vec<TodoRecord>> {
         let query = if finished {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'finished' ORDER BY created_at DESC, id DESC"
+            "SELECT id FROM agent_visible_todos WHERE project_id = ?1 AND status = 'finished' ORDER BY created_at DESC, id DESC"
         } else {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY created_at DESC, id DESC"
+            "SELECT id FROM agent_visible_todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY created_at DESC, id DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -8036,6 +8044,10 @@ fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
     references
 }
 
+fn todo_revision_error(error: crate::agent::errors::AgentError) -> anyhow::Error {
+    anyhow!(serde_json::to_string(&error).expect("AgentError is JSON serializable"))
+}
+
 fn todo_scope_from_sql(value: String, column_index: usize) -> rusqlite::Result<TodoScope> {
     match value.as_str() {
         "workspace" => Ok(TodoScope::Workspace),
@@ -9001,7 +9013,7 @@ mod tests {
                 priority: "not_urgent_important".to_string(), due_date: None, tag_ids: vec![],
             }).unwrap();
             for status in ["unfinished", "finished", "unfinished"] {
-                db.todo_update_status(TodoUpdateStatusInput { todo_id: todo.id, status: status.to_string() }).unwrap();
+                db.todo_update_status(TodoUpdateStatusInput { expected_revision: db.todo_record(todo.id).unwrap().revision, todo_id: todo.id, status: status.to_string() }).unwrap();
                 for search_scope in ["workspace", "project"] {
                     for query in ["", "推荐状态", "todo:推荐状态"] {
                         let hits = db.internal_reference_search(InternalReferenceSearchInput {
@@ -9087,8 +9099,13 @@ mod tests {
 
     /// A historical fixture must remove newly published storage before it
     /// declares an old version; production migrations retain strict CREATE.
-    fn remove_schema30_fixture(database: &Database) {
+    fn remove_later_agent_schema_fixture(database: &Database) {
         database.conn.execute_batch(r#"
+DROP VIEW agent_visible_todos;
+DROP TABLE todo_revision_heads;
+DROP TABLE todo_revision_snapshots;
+DROP INDEX agent_todo_output_dedupe;
+ALTER TABLE agent_outputs DROP COLUMN dedupe_key;
 DROP VIEW agent_visible_notes;
 DROP VIEW agent_visible_workspace_notes;
 DROP TABLE agent_object_withdrawals;
@@ -9600,7 +9617,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let (harness, database) = setup_database();
         enable_legacy_domain_fixture_schema(&database);
         let db_path = harness.root.join("app.sqlite3");
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database
             .conn
             .execute_batch(
@@ -9664,7 +9681,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 params![stale_html, project.id],
             )
             .unwrap();
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -9728,7 +9745,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 params![stale_html, note.id],
             )
             .unwrap();
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -10268,7 +10285,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(created.tags[0].id, workspace_tag.id);
 
         let updated = database
-            .todo_update_content(TodoUpdateContentInput {
+            .todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 content: "完成跨项目复盘模板".to_string(),
                 due_date: Some("2026-08-05".to_string()),
@@ -10279,7 +10296,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(updated.due_date.as_deref(), Some("2026-08-05"));
 
         let prioritized = database
-            .todo_update_priority(TodoUpdatePriorityInput {
+            .todo_update_priority(TodoUpdatePriorityInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 priority: "urgent_important".to_string(),
             })
@@ -10287,7 +10304,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(prioritized.priority, "urgent_important");
 
         let subtask = database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 content: "整理访谈材料".to_string(),
                 progress_date: "2026-07-30".to_string(),
@@ -10295,7 +10312,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             })
             .unwrap();
         database
-            .todo_update_progress(TodoUpdateProgressInput {
+            .todo_update_progress(TodoUpdateProgressInput { expected_revision: database.todo_progress_record(subtask.id).unwrap().todo_revision,
                 progress_id: subtask.id,
                 content: subtask.content,
                 progress_date: subtask.progress_date,
@@ -10305,7 +10322,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap();
 
         let finished = database
-            .todo_update_status(TodoUpdateStatusInput {
+            .todo_update_status(TodoUpdateStatusInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 status: "finished".to_string(),
             })
@@ -10318,7 +10335,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(page.finished_todos[0].id, created.id);
 
         database
-            .todo_delete(TodoDeleteInput {
+            .todo_delete(TodoDeleteInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
             })
             .unwrap();
@@ -10374,7 +10391,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             })
             .unwrap();
 
-        let update_result = database.todo_update_content(TodoUpdateContentInput {
+        let update_result = database.todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             content: "不应保存的修改".to_string(),
             due_date: Some("2026-08-10".to_string()),
@@ -10451,7 +10468,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_ne!(todo.created_at.get(..10), todo.due_date.as_deref());
 
         let progress = database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "确认附件".to_string(),
                 progress_date: "2026-07-14".to_string(),
@@ -11021,7 +11038,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .contains("Workspace Todo 不能新增指向已归档 Project 的引用"));
 
         let preserved = database
-            .todo_update_content(TodoUpdateContentInput {
+            .todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(workspace_with_reference.id).unwrap().revision,
                 todo_id: workspace_with_reference.id,
                 content: format!("{} 继续跟进", other_project_reference),
                 due_date: None,
@@ -11271,7 +11288,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             })
             .unwrap();
         database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(project_todo.id).unwrap().revision,
                 todo_id: project_todo.id,
                 content: "Current 独有 Subtask".to_string(),
                 progress_date: "2026-07-30".to_string(),
@@ -12528,7 +12545,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             )
             .unwrap();
         let legacy_conclusion_id = database.conn.last_insert_rowid();
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -12684,7 +12701,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             )
             .unwrap();
         let legacy_activity_id = database.conn.last_insert_rowid();
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -12741,7 +12758,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 params![project.id, "2025-03-04T05:06:07.000Z"],
             )
             .unwrap();
-        remove_schema30_fixture(&database);
+        remove_later_agent_schema_fixture(&database);
         database
             .conn
             .execute_batch(
@@ -13476,3 +13493,7 @@ fn nullable_trimmed(value: Option<&str>) -> Option<String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
 }
+
+#[cfg(test)]
+#[path = "db/todo_gui_revision_tests.rs"]
+mod todo_gui_revision_tests;

@@ -6,13 +6,13 @@ use super::{
     operations::{OperationGetInput, OperationListInput, OperationUndoInput},
     output_commands::{OutputCommitInput, OutputGetInput},
     output_runtime::{OutputUpdateInput, RuntimeOutput, StageRecordInput},
+    output_service,
     outputs::OutputIntent,
-    record_outputs::{RecordOutputResult, RecordOutputService},
+    record_outputs::RecordOutputResult,
 };
 use crate::{
-    committed_changes::capture_committed,
     db::agent_record_withdrawals::RecordRestoreInput,
-    record_document_service::{BoundRecordStore, DocumentUtility, RecordDocumentService},
+    record_document_service::{BoundRecordStore, DocumentUtility},
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,9 +37,11 @@ fn card(output: &RuntimeOutput) -> Value {
     let title = match &output.staged.intent {
         OutputIntent::RecordCreate { title, .. } => title.clone(),
         OutputIntent::RecordPatch { patch } => format!("Record {}", patch.record.id),
+        OutputIntent::TodoCreate { content, .. } => content.chars().take(120).collect(),
+        OutputIntent::TodoUpdate { target, .. } => format!("Todo {}", target.id),
         _ => String::new(),
     };
-    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code})
+    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"dismissed":output.dismissed,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code})
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -89,13 +91,15 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
         ));
     }
     match method {
+        "todo.get" => {
+            let input: super::todo_tools::TodoGetInput = decode(arguments)?;
+            store.with_current(|binding, db| {
+                encode(db.agent_todo_get(request, binding, &input.target)?)
+            })
+        }
         "output.stage" => {
             let input: StageRecordInput = decode(arguments)?;
-            saved(
-                RecordOutputService::new(store, utility)
-                    .stage_and_execute(request, &input)
-                    .await?,
-            )
+            saved(output_service::stage(store, utility, request, &input).await?)
         }
         "output.get" => {
             let input: OutputGetInput = decode(arguments)?;
@@ -118,17 +122,20 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
         }
         "output.update" => {
             let input: OutputUpdateInput = decode(arguments)?;
-            let output = RecordOutputService::new(store, utility)
-                .update_record(request, &input)
-                .await?;
+            let output = output_service::update(store, utility, request, &input).await?;
             Ok(card(&output))
         }
         "output.commit" => {
             let input: OutputCommitInput = decode(arguments)?;
             saved(
-                RecordOutputService::new(store, utility)
-                    .commit_record(request, &input.output_id, input.expected_revision)
-                    .await?,
+                output_service::commit(
+                    store,
+                    utility,
+                    request,
+                    &input.output_id,
+                    input.expected_revision,
+                )
+                .await?,
             )
         }
         "operation.get" => {
@@ -145,23 +152,11 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
         }
         "operation.undo" => {
             let input: OperationUndoInput = decode(arguments)?;
-            encode(
-                RecordDocumentService::new(store, utility)
-                    .undo_operation(request, &input)
-                    .await?,
-            )
+            encode(output_service::undo(store, utility, request, &input).await?)
         }
         "operation.restore_created" => {
             let input: RecordRestoreInput = decode(arguments)?;
-            let (result, changes) = store.with_current(|binding, db| {
-                capture_committed(binding, db, &request.request_id, || {
-                    db.agent_record_creation_restore(request, binding, &input)
-                })
-            })?;
-            if let Some(changes) = changes {
-                store.publish_committed(changes);
-            }
-            encode(result?)
+            encode(output_service::restore(store, request, &input)?)
         }
         _ => Err(AgentError::new(
             ErrorCode::ToolCallUnsupported,
@@ -301,6 +296,7 @@ mod tests {
                     "output.commit",
                     "source.read",
                     "content.create",
+                    "todo.update",
                     "record.patch",
                     "record.read",
                     "record.write",
@@ -552,7 +548,111 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(committed["state"], "committed");
-        assert_eq!(dispatch_output(&store,&utility,&builtin,"output.stage",json!({"intent":{"intent":"todo_create","scope":{"kind":"workspace"},"content":"Todo"},"sources":[]})).await.unwrap_err().code,ErrorCode::ToolCallUnsupported);
+        assert_eq!(dispatch_output(&store,&utility,&builtin,"output.stage",json!({"intent":{"intent":"todo_create","scope":{"kind":"workspace"},"content":"Todo"},"sources":[]})).await.unwrap_err().code,ErrorCode::InvalidArgument);
+    }
+    #[tokio::test]
+    async fn output_tools_todo_dispatch_create_dedupe_withdraw_restore_update_and_undo() {
+        let (_dir, store, utility, mut builtin, _gui) = fixture(ExecutionMode::Collaborate);
+        let input = json!({"intent":{"intent":"todo_create","scope":{"kind":"workspace"},"dedupeKey":"check-release","content":"核对发布清单","priority":"not_urgent_important","dueDate":null,"tagIds":[],"children":[]},"sources":[]});
+        let created = dispatch_output(&store, &utility, &builtin, "output.stage", input.clone())
+            .await
+            .unwrap();
+        assert_eq!(created["state"], "committed");
+        assert_eq!(created["object"]["kind"], "todo");
+        assert_eq!(created["undoAvailable"], true);
+        builtin.request_id = "same-action-new-call".into();
+        let replay = dispatch_output(&store, &utility, &builtin, "output.stage", input)
+            .await
+            .unwrap();
+        assert_eq!(replay["outputId"], created["outputId"]);
+        assert_eq!(replay["operationId"], created["operationId"]);
+        let operation = dispatch_output(
+            &store,
+            &utility,
+            &builtin,
+            "operation.get",
+            json!({"operationId":created["operationId"]}),
+        )
+        .await
+        .unwrap();
+        builtin.request_id = "withdraw-todo".into();
+        let withdrawn = dispatch_output(&store, &utility, &builtin, "operation.undo", json!({"operationId":created["operationId"],"expectedHeadRevision":operation["afterRevision"]})).await.unwrap();
+        assert_eq!(withdrawn["withdrawn"], true);
+        assert_eq!(
+            dispatch_output(
+                &store,
+                &utility,
+                &builtin,
+                "todo.get",
+                json!({"target":created["object"]})
+            )
+            .await
+            .unwrap_err()
+            .code,
+            ErrorCode::ObjectWithdrawn
+        );
+        builtin.request_id = "restore-todo".into();
+        let restored = dispatch_output(&store, &utility, &builtin, "operation.restore_created", json!({"creationOperationId":created["operationId"],"expectedWithdrawalRevision":withdrawn["revision"]})).await.unwrap();
+        assert_eq!(restored["object"], created["object"]);
+        let before = dispatch_output(
+            &store,
+            &utility,
+            &builtin,
+            "todo.get",
+            json!({"target":created["object"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(before["snapshot"]["dueDate"], Value::Null);
+        builtin.request_id = "update-todo".into();
+        let changed = dispatch_output(&store, &utility, &builtin, "output.stage", json!({"intent":{"intent":"todo_update","target":created["object"],"expectedRevision":before["revision"],"changes":[{"change":"content","content":"核对并执行发布清单"},{"change":"status","status":"finished"},{"change":"child_create","content":"已核对安装步骤","progressDate":"2026-10-08","dueDate":null}]},"sources":[]})).await.unwrap();
+        let update_op = dispatch_output(
+            &store,
+            &utility,
+            &builtin,
+            "operation.get",
+            json!({"operationId":changed["operationId"]}),
+        )
+        .await
+        .unwrap();
+        let after = dispatch_output(
+            &store,
+            &utility,
+            &builtin,
+            "todo.get",
+            json!({"target":created["object"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(after["snapshot"]["status"], "finished");
+        assert_eq!(after["snapshot"]["children"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            after["revision"].as_u64().unwrap(),
+            before["revision"].as_u64().unwrap() + 1
+        );
+        builtin.request_id = "undo-todo-update".into();
+        let undone = dispatch_output(&store, &utility, &builtin, "operation.undo", json!({"operationId":changed["operationId"],"expectedHeadRevision":update_op["afterRevision"]})).await.unwrap();
+        assert_eq!(undone["object"], created["object"]);
+        let final_todo = dispatch_output(
+            &store,
+            &utility,
+            &builtin,
+            "todo.get",
+            json!({"target":created["object"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(final_todo["snapshot"], before["snapshot"]);
+        assert_eq!(
+            final_todo["revision"].as_u64().unwrap(),
+            after["revision"].as_u64().unwrap() + 1
+        );
+        assert_eq!(utility.calls.load(Ordering::Relaxed), 0);
+        let published = store.published.lock().unwrap();
+        assert!(published.iter().any(|event| event
+            .changed_refs
+            .iter()
+            .any(|object| object.kind == super::super::models::ObjectKind::Todo)));
     }
     #[tokio::test]
     async fn output_tools_preserves_converter_error_code_without_success_ack() {

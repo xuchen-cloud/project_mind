@@ -63,10 +63,24 @@ pub(crate) struct RecordUndoResult {
     pub after_version: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TodoUndoResult {
+    pub operation_id: String,
+    pub original_operation_id: String,
+    pub object: ObjectRef,
+    pub before_revision: u64,
+    pub after_revision: u64,
+    pub before_snapshot_ref: String,
+    pub after_snapshot_ref: String,
+    pub body_hash: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum OperationUndoResult {
     ModifiedRecord(RecordUndoResult),
     CreatedRecord(crate::db::agent_record_withdrawals::RecordWithdrawalResult),
+    ModifiedTodo(TodoUndoResult),
+    CreatedTodo(crate::db::agent_record_withdrawals::RecordWithdrawalResult),
 }
 
 fn operation_limit() -> u16 {

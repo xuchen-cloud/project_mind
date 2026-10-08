@@ -61,6 +61,7 @@ pub struct NoteRecord {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoProgressRecord {
+    pub todo_revision: u64,
     pub id: i64,
     pub todo_id: i64,
     pub content: String,
@@ -82,6 +83,7 @@ pub enum TodoScope {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoRecord {
+    pub revision: u64,
     pub id: i64,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
@@ -751,6 +753,7 @@ pub struct TodoCreateInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateContentInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub content: String,
     pub due_date: Option<String>,
@@ -761,6 +764,7 @@ pub struct TodoUpdateContentInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateTagsInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
@@ -769,6 +773,7 @@ pub struct TodoUpdateTagsInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateStatusInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub status: String,
 }
@@ -776,6 +781,7 @@ pub struct TodoUpdateStatusInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdatePriorityInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub priority: String,
 }
@@ -783,6 +789,7 @@ pub struct TodoUpdatePriorityInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoAddProgressInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
@@ -792,6 +799,7 @@ pub struct TodoAddProgressInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateProgressInput {
+    pub expected_revision: u64,
     pub progress_id: i64,
     pub content: String,
     pub progress_date: String,
@@ -802,12 +810,14 @@ pub struct TodoUpdateProgressInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoDeleteProgressInput {
+    pub expected_revision: u64,
     pub progress_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoDeleteInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
 }
 

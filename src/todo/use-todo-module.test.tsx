@@ -1,13 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { projectMindApi } from "../services/projectMindApi";
 import { queryKeys } from "../lib/queryKeys";
 import { useTodoModule } from "./use-todo-module";
 import type { ProjectListItem, TodoRecord } from "../lib/types";
+import { useFeedbackStore } from "../state/feedback-store";
 
 const todo: TodoRecord = {
+  revision: 1,
   id: 1, scope: "workspace", projectId: null, content: "不能凭空消失的待办",
   status: "unfinished", priority: "not_urgent_important", dueDate: null,
   tags: [], progresses: [], createdAt: "2026-09-27", updatedAt: "2026-09-27",
@@ -82,4 +84,24 @@ it("retains project tasks and project metadata across GC, including while a page
   expect(projectView.result.current.view.unfinishedTodos.map((item) => item.id)).toEqual([1]);
   expect(workspace.result.current.view.projects.map((item) => item.id)).toEqual([7]);
   workspace.unmount(); projectView.unmount(); client.clear();
+});
+
+it("shows a readable GUI conflict after refreshing the actual Todo head and never retries the write", async () => {
+  const current = { ...todo, revision: 8, content: "Agent 已保存的新内容" };
+  vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([]);
+  const load = vi.spyOn(projectMindApi, "workspacePageGet").mockResolvedValueOnce({ quickNote: null, records: [], unfinishedTodos: [todo], finishedTodos: [] })
+    .mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [current], finishedTodos: [] });
+  const conflict = JSON.stringify({ code: "REVISION_CONFLICT", message: "Todo head changed" });
+  const update = vi.spyOn(projectMindApi, "todoUpdateContent").mockRejectedValueOnce(conflict);
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const hook = renderHook(() => useTodoModule({ kind: "workspace" }), { wrapper });
+  await waitFor(() => expect(hook.result.current.ready).toBe(true));
+  await act(async () => { await expect(hook.result.current.change({ type: "update-content", todoId: 1, content: "过期输入" })).rejects.toBe(conflict); });
+  expect(update).toHaveBeenCalledOnce(); expect(load).toHaveBeenCalledTimes(2);
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: todo.revision }));
+  expect(hook.result.current.view.unfinishedTodos[0]).toMatchObject(current);
+  const toasts = useFeedbackStore.getState().toasts;
+  expect(toasts[toasts.length - 1].detail).toBe("Todo 已变化，已刷新最新数据。请核对后重新操作。");
+  hook.unmount(); client.clear();
 });

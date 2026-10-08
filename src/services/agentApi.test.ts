@@ -7,7 +7,7 @@ import type { OverviewReadInput, OverviewReadPage, KnowledgeGetInput, KnowledgeG
   AgentSessionMetadata, AgentSessionSnapshot, AgentStoredRun, AgentRunEvent, AgentRunEventPage,
   AgentSourceRef, AgentSourceNavigation,
   AgentRuntimeOutput, AgentOperationEntry, AgentRecordOutputResult, AgentRecordUndoResult, AgentRecordWithdrawalResult,
-  AgentRecordOutputPreview,
+  AgentRecordOutputPreview, AgentOutputResult, AgentTodoUndoResult,
 } from "../lib/agent-types";
 
 vi.mock("./desktopApi", () => ({ desktopApi: { command: vi.fn(), listenEvent: vi.fn() } }));
@@ -17,7 +17,7 @@ const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上
 
 const output: AgentRuntimeOutput = { id: "a".repeat(32), runId: "b".repeat(32), ordinal: 1, revision: 2,
   intent: { intent: "record_create", scope: context.scope, title: "阶段依据", markdown: "有来源支持的候选正文" }, sources: [],
-  state: "staged", object: null, mode: "review", errorCode: null, sourceChanged: [] };
+  state: "staged", object: null, mode: "review", errorCode: null, sourceChanged: [], dismissed: false };
 const receiptObject = { workspaceId: binding.workspaceId, scope: context.scope, kind: "record" as const, id: "42" };
 const operation: AgentOperationEntry = { operationId: "c".repeat(32), runId: output.runId, requestId: "native-commit", kind: "record.create",
   object: receiptObject, beforeRevision: null, afterRevision: 1, beforeSnapshotRef: null, afterSnapshotRef: "snapshot-1",
@@ -354,4 +354,44 @@ it("saves user scope settings with a revision and forwards conflict details", as
   vi.mocked(desktopApi.command).mockResolvedValue({ apiVersion: 1, requestId: "r2", ok: false,
     error: { code: "REVISION_CONFLICT", message: "Changed", retryable: false, details: { current: saved } } });
   await expect(agentApi.settingsUpdate(binding, { settings, expectedRevision: 0 }, "r2")).rejects.toMatchObject({ code: "REVISION_CONFLICT", details: { current: saved } });
+});
+
+
+it("uses the shared output and receipt APIs for typed Todo candidates and numeric revisions", async () => {
+  const object = { ...receiptObject, kind: "todo" as const, id: "18" };
+  const todo: AgentRuntimeOutput = { ...output, intent: { intent: "todo_create", scope: context.scope, dedupeKey: "evidence-todo",
+    content: "核对原始证据", priority: "urgent_important", dueDate: null, tagIds: [3],
+    children: [{ content: "核对子项", progressDate: "2026-10-08", dueDate: "2026-10-12" }] }, mode: "collaborate" };
+  const saved: AgentOutputResult = { output: { ...todo, state: "committed", object }, receipt: { revision: 1 },
+    operation: { ...operation, object, kind: "todo.create" } };
+  const revisionInput = { outputId: todo.id, expectedRevision: todo.revision };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "save-todo", ok: true, data: saved });
+  expect(await agentApi.outputCommit(binding, revisionInput, "save-todo")).toBe(saved);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_commit", { input: { binding, requestId: "save-todo", data: revisionInput } });
+  const candidate = { intent: { intent: "todo_update" as const, target: object, expectedRevision: 1,
+    changes: [{ change: "deadline" as const, dueDate: "2026-10-15" }, { change: "child_update" as const,
+      childId: 2, content: "核对完成", progressDate: "2026-10-09", dueDate: null, status: "finished" as const }] }, sources: [] };
+  const edit = { outputId: todo.id, expectedRevision: 2, candidate };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "edit-todo", ok: true, data: { ...todo, intent: candidate.intent, revision: 3 } });
+  expect((await agentApi.outputUpdate(binding, edit, "edit-todo")).intent).toBe(candidate.intent);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_update", { input: { binding, requestId: "edit-todo", data: edit } });
+  const undo: AgentTodoUndoResult = { operationId: "undo-todo", originalOperationId: operation.operationId, object,
+    beforeRevision: 2, afterRevision: 3, beforeSnapshotRef: "a".repeat(32), afterSnapshotRef: "b".repeat(32), bodyHash: "sha256:" + "c".repeat(64) };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "undo-todo", ok: true, data: undo });
+  expect(await agentApi.operationUndo(binding, { operationId: operation.operationId, expectedHeadRevision: 2 }, "undo-todo")).toBe(undo);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_undo", { input: { binding, requestId: "undo-todo", data: { operationId: operation.operationId, expectedHeadRevision: 2 } } });
+  expect(vi.mocked(desktopApi.command).mock.calls.map(([name]) => name)).toEqual(["agent_output_commit", "agent_output_update", "agent_operation_undo"]);
+});
+
+
+it("dismisses the exact output revision durably without committing business content", async () => {
+  const dismissed: AgentRuntimeOutput = { ...output, revision: output.revision + 1, dismissed: true };
+  const data = { outputId: output.id, expectedRevision: output.revision };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "dismiss-output", ok: true, data: dismissed });
+  expect(await agentApi.outputDismiss(binding, data, "dismiss-output")).toBe(dismissed);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_dismiss", { input: { binding, requestId: "dismiss-output", data } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "dismiss-stale", ok: false,
+    error: { code: "REVISION_CONFLICT", message: "Output revision changed", retryable: true } });
+  await expect(agentApi.outputDismiss(binding, data, "dismiss-stale")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  expect(vi.mocked(desktopApi.command).mock.calls.map(([name]) => name)).toEqual(["agent_output_dismiss", "agent_output_dismiss"]);
 });

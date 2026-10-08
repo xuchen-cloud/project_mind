@@ -420,7 +420,7 @@ mod tests {
     fn l0_deleted_source_hides_dependent_positioning() {
         let f = fixture();
         publish(&f);
-        f.db.todo_delete(TodoDeleteInput { todo_id: f.todo_id })
+        f.db.todo_delete(TodoDeleteInput { expected_revision: f.db.todo_record(f.todo_id).unwrap().revision, todo_id: f.todo_id })
             .unwrap();
         let entry = get(&f, &f.request, f.input.clone());
         assert!(entry.positioning.is_none());
@@ -436,7 +436,7 @@ mod tests {
             .agent_overview_stale_items("w", &f.input.scope)
             .unwrap()
             .is_empty());
-        f.db.todo_update_content(TodoUpdateContentInput {
+        f.db.todo_update_content(TodoUpdateContentInput { expected_revision: f.db.todo_record(f.todo_id).unwrap().revision,
             todo_id: f.todo_id,
             content: "变更后的依据".into(),
             due_date: None,

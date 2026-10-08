@@ -10,7 +10,7 @@ import type {
   AgentRunStartInput, AgentRunCancelInput, AgentRunGetInput, AgentRunEventsListInput,
   AgentStoredRun, AgentRunEvent, AgentRunEventPage, AgentProfileProbeInput, AgentProfileProbeResult,
   AgentSourceRef, AgentSourceNavigation,
-  AgentOutputListInput, AgentOutputGetInput, AgentOutputUpdateInput, AgentOutputCommitInput, AgentOutputPage, AgentRuntimeOutput, AgentRecordOutputResult,
+  AgentOutputListInput, AgentOutputGetInput, AgentOutputUpdateInput, AgentOutputCommitInput, AgentOutputPage, AgentRuntimeOutput, AgentOutputResult,
   AgentOutputPreviewInput, AgentRecordOutputPreview,
   AgentOperationListInput, AgentOperationGetInput, AgentOperationUndoInput, AgentOperationRestoreCreatedInput,
   AgentOperationPage, AgentOperationEntry, AgentOperationUndoResult, AgentRecordWithdrawalResult,
@@ -92,8 +92,11 @@ export const agentApi = {
   outputUpdate(binding: AgentWorkspaceBinding, data: AgentOutputUpdateInput, requestId: string = crypto.randomUUID()): Promise<AgentRuntimeOutput> {
     return callAgentCommand("agent_output_update", requestId, { input: { binding, requestId, data } });
   },
-  outputCommit(binding: AgentWorkspaceBinding, data: AgentOutputCommitInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordOutputResult> {
+  outputCommit(binding: AgentWorkspaceBinding, data: AgentOutputCommitInput, requestId: string = crypto.randomUUID()): Promise<AgentOutputResult> {
     return callAgentCommand("agent_output_commit", requestId, { input: { binding, requestId, data } });
+  },
+  outputDismiss(binding: AgentWorkspaceBinding, data: AgentOutputCommitInput, requestId: string = crypto.randomUUID()): Promise<AgentRuntimeOutput> {
+    return callAgentCommand("agent_output_dismiss", requestId, { input: { binding, requestId, data } });
   },
   outputPreview(binding: AgentWorkspaceBinding, data: AgentOutputPreviewInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordOutputPreview> {
     return callAgentCommand("agent_output_preview", requestId, { input: { binding, requestId, data } });

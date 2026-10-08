@@ -961,11 +961,11 @@ mod tests {
         }
     }
     fn edit(store: &Store, input: &SourceReadInput) {
-        store
-            .db
-            .lock()
-            .unwrap()
-            .todo_update_content(TodoUpdateContentInput {
+        let db = store.db.lock().unwrap();
+        let todo_id = input.source.object.id.parse().unwrap();
+        let expected_revision = db.todo_record(todo_id).unwrap().revision;
+        db.todo_update_content(TodoUpdateContentInput {
+                expected_revision,
                 todo_id: input.source.object.id.parse().unwrap(),
                 content: "后来变更的来源".into(),
                 due_date: None,

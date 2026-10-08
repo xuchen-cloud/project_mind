@@ -15,7 +15,9 @@ const descriptor = { name: 'mind_source_read', method: 'source.read', descriptio
 
 test('production rejects unregistered discovery, duplicate tools and unbounded schemas', async () => {
   assert.deepEqual(validateToolDescriptors([descriptor]), [descriptor]);
-  for (const method of ['bash', 'shell.exec', 'file.read', 'file.create', 'record.create']) {
+  const todoGet = { ...descriptor, name: 'mind_todo_get', method: 'todo.get' };
+  assert.deepEqual(validateToolDescriptors([todoGet]), [todoGet]);
+  for (const method of ['bash', 'shell.exec', 'file.read', 'file.create', 'record.create', 'todo.create', 'todo.update']) {
     assert.throws(() => validateToolDescriptors([{ ...descriptor, method }]), { code: 'INVALID_ARGUMENT' });
   }
   assert.throws(() => validateToolDescriptors([descriptor, descriptor]));

@@ -21,20 +21,35 @@ pub(super) fn todo_revision(todo: &crate::models::TodoRecord) -> String {
         "order":subtask.order_index, "date":subtask.progress_date, "completedAt":subtask.completed_at
     })).collect();
     format!("sha256:{:x}", Sha256::digest(serde_json::json!({
-        "content":todo.content,"status":todo.status,"priority":todo.priority,"dueDate":todo.due_date,
+        "revision":todo.revision,"content":todo.content,"status":todo.status,"priority":todo.priority,"dueDate":todo.due_date,
         "tagIds":tag_ids, "subtasks":subtasks
     }).to_string()))
 }
 
 pub(super) fn project_revision(name: &str, status: &str, archived: bool) -> String {
-    format!("sha256:{:x}", Sha256::digest(
-        serde_json::json!({"name":name,"status":status,"archived":archived}).to_string()))
+    format!(
+        "sha256:{:x}",
+        Sha256::digest(
+            serde_json::json!({"name":name,"status":status,"archived":archived}).to_string()
+        )
+    )
 }
 
-pub(super) fn quick_note_revision(html: &str, code_language: &Option<String>, title: &str, tag_ids: &[i64]) -> String {
-    format!("sha256:{:x}", Sha256::digest(serde_json::json!({
-        "html":html,"codeLanguage":code_language,"title":title,"tagIds":tag_ids
-    }).to_string()))
+pub(super) fn quick_note_revision(
+    html: &str,
+    code_language: &Option<String>,
+    title: &str,
+    tag_ids: &[i64],
+) -> String {
+    format!(
+        "sha256:{:x}",
+        Sha256::digest(
+            serde_json::json!({
+                "html":html,"codeLanguage":code_language,"title":title,"tagIds":tag_ids
+            })
+            .to_string()
+        )
+    )
 }
 impl Database {
     pub(crate) fn source_quick_note_snapshot(
@@ -69,7 +84,10 @@ impl Database {
 
     /// Storage-only semantic projection for native outbox capture. Public reads
     /// resolve ownership, grants, archive state and exclusions before this call.
-    pub(super) fn source_quick_note_current(&self, object: crate::agent::models::ObjectRef) -> AgentResult<NativeQuickNoteSnapshot> {
+    pub(super) fn source_quick_note_current(
+        &self,
+        object: crate::agent::models::ObjectRef,
+    ) -> AgentResult<NativeQuickNoteSnapshot> {
         let (title, html, markdown, code_language, updated_at): (String,String,String,Option<String>,String) = match object.scope {
             crate::agent::models::Scope::Project {..} => self.conn.query_row(
                 "SELECT name,summary_html,summary_markdown,quick_note_code_language,updated_at FROM projects WHERE id=?1",
@@ -135,7 +153,7 @@ impl Database {
         self.conn.execute(
             "DELETE FROM source_index_snapshots AS s WHERE s.workspace_id=?1 AND s.scope_key=?2
              AND json_extract(s.object_json,'$.kind')='todo'
-             AND (s.version!=0 OR NOT EXISTS(SELECT 1 FROM todos t
+             AND (s.version!=0 OR NOT EXISTS(SELECT 1 FROM agent_visible_todos t
                  WHERE CAST(t.id AS TEXT)=json_extract(s.object_json,'$.id')
                  AND ((?3 IS NULL AND t.scope='workspace' AND t.project_id IS NULL)
                      OR (t.scope='project' AND t.project_id=?3)))
@@ -202,6 +220,13 @@ impl Database {
             ));
         }
         if object.kind == ObjectKind::Todo {
+            super::agent_todo_undo::require_todo_visible(
+                &self.conn,
+                object
+                    .id
+                    .parse()
+                    .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid Todo ID"))?,
+            )?;
             let todo = self
                 .todo_record(
                     object.id.parse().map_err(|_| {

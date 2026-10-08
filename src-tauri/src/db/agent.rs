@@ -148,8 +148,13 @@ fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> rusqlite::Result<T
 
 #[cfg(test)]
 mod tests {
-    // Remove schema30 additions before this fixture simulates an older file.
-    const REMOVE_SCHEMA30: &str = r#"
+    // Remove schema31/30 additions before this fixture simulates an older file.
+    const REMOVE_LATER_AGENT_SCHEMA: &str = r#"
+DROP VIEW agent_visible_todos;
+DROP TABLE todo_revision_heads;
+DROP TABLE todo_revision_snapshots;
+DROP INDEX agent_todo_output_dedupe;
+ALTER TABLE agent_outputs DROP COLUMN dedupe_key;
 DROP VIEW agent_visible_notes;
 DROP VIEW agent_visible_workspace_notes;
 DROP TABLE agent_object_withdrawals;
@@ -481,7 +486,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let path = root.path().join("workspace.sqlite3");
         let db = Database::open(&path, root.path(), None).unwrap();
         db.conn.execute("INSERT INTO projects (name, root_path, summary, summary_markdown, created_at, updated_at) VALUES ('Plan', 'workspace:plan', 'buffer', 'Keep this draft', 'now', 'now')", []).unwrap();
-        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
+        db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.conn.pragma_update(None, "user_version", 25).unwrap();
         drop(db);
         let mut db = Database::open(&path, root.path(), None).unwrap();
@@ -522,7 +527,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     fn agent_migration_failure_rolls_back_tables_and_schema_version() {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
-        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
+        db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.conn.execute_batch("DROP TABLE agent_context_instructions; DROP TABLE agent_jobs; CREATE TABLE agent_jobs(id TEXT); PRAGMA user_version=25;").unwrap();
         assert!(db.migrate().is_err());
         assert_eq!(db.schema_version().unwrap(), 25);

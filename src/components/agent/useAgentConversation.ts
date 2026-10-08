@@ -35,7 +35,7 @@ export function agentFailureMessage(error: unknown): string {
     INVALID_PATCH: "候选修改未通过记录校验，请重新生成成果。",
     AMBIGUOUS_MATCH: "无法确定候选修改对应的记录块，请重新生成成果。",
     OUTPUT_COMMIT_FAILED: "成果保存失败，请刷新状态后重试。",
-    OBJECT_WITHDRAWN: "记录已撤回，可从成果卡片恢复。",
+    OBJECT_WITHDRAWN: "内容已撤回，可在会话中恢复。",
     RATE_LIMITED: "模型服务请求过于频繁，请稍后重试。",
     CANCELLED: "运行已停止。",
   };

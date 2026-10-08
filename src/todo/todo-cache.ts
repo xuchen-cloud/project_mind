@@ -12,13 +12,14 @@ import type {
 
 type TodoListData = ProjectPageData | WorkspacePageData;
 
-export interface TodoQuerySnapshot {
-  projectPage?: ProjectPageData;
-  workspacePage?: WorkspacePageData;
-  workspaceOwnedTodos?: TodoRecord[];
-  projectOwnedTodos?: TodoRecord[];
-  workspaceRailTodos?: TodoRecord[];
-  projects?: ProjectListItem[];
+function cachedTodoHeads(queryClient: QueryClient) {
+  const heads = new Map<number, TodoRecord>();
+  for (const [, collection] of queryClient.getQueriesData<TodoRecord[]>({ queryKey: queryKeys.todoCollections.all })) {
+    for (const todo of collection ?? []) {
+      if ((heads.get(todo.id)?.revision ?? -1) <= todo.revision) heads.set(todo.id, todo);
+    }
+  }
+  return heads;
 }
 
 function withoutTodo(todos: TodoRecord[] | undefined, todoId: number) {
@@ -33,6 +34,7 @@ function mergeTodoByStatus<T extends TodoListData>(current: T | undefined, todo:
   const previousTodo =
     unfinishedTodos.find((item) => item.id === todo.id) ??
     finishedTodos.find((item) => item.id === todo.id);
+  if (previousTodo && previousTodo.revision > todo.revision) return current;
   const baseUnfinishedTodos = withoutTodo(current.unfinishedTodos, todo.id);
   const baseFinishedTodos = withoutTodo(current.finishedTodos, todo.id);
   const nextTodo = previousTodo ? { ...previousTodo, ...todo } : todo;
@@ -73,6 +75,7 @@ function removeTodoFromListData<T extends TodoListData>(current: T | undefined, 
 function upsertTodoInCollection(current: TodoRecord[] | undefined, todo: TodoRecord) {
   if (!current) return current;
   const existing = current.find((item) => item.id === todo.id);
+  if (existing && existing.revision > todo.revision) return current;
   const nextTodo = existing ? { ...existing, ...todo } : todo;
   return [nextTodo, ...current.filter((item) => item.id !== todo.id)];
 }
@@ -97,10 +100,16 @@ export function cacheWorkspaceTodoCollections(
   queryClient: QueryClient,
   workspacePage: WorkspacePageData,
 ) {
+  const existing = cachedTodoHeads(queryClient);
   const workspaceRailTodos = [
     ...workspacePage.unfinishedTodos,
     ...workspacePage.finishedTodos,
-  ];
+  ].map(todo => (existing.get(todo.id)?.revision ?? -1) > todo.revision ? existing.get(todo.id)! : todo);
+  queryClient.setQueryData<WorkspacePageData>(queryKeys.workspacePage, {
+    ...workspacePage,
+    unfinishedTodos: workspaceRailTodos.filter(todo => todo.status === "unfinished"),
+    finishedTodos: workspaceRailTodos.filter(todo => todo.status === "finished"),
+  });
   queryClient.setQueryData(
     queryKeys.todoCollections.workspaceOwned,
     workspaceRailTodos.filter((todo) => todo.scope === "workspace"),
@@ -121,10 +130,17 @@ export function cacheProjectTodoCollection(
   queryClient: QueryClient,
   projectPage: ProjectPageData,
 ) {
-  queryClient.setQueryData(queryKeys.todoCollections.projectOwned(projectPage.project.id), [
+  const existing = cachedTodoHeads(queryClient);
+  const todos = [
     ...projectPage.unfinishedTodos,
     ...projectPage.finishedTodos,
-  ]);
+  ].map(todo => (existing.get(todo.id)?.revision ?? -1) > todo.revision ? existing.get(todo.id)! : todo);
+  queryClient.setQueryData(queryKeys.todoCollections.projectOwned(projectPage.project.id), todos);
+  queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(projectPage.project.id), {
+    ...projectPage,
+    unfinishedTodos: todos.filter(todo => todo.status === "unfinished"),
+    finishedTodos: todos.filter(todo => todo.status === "finished"),
+  });
 }
 
 export async function fetchWorkspacePageWithTodoCollections(queryClient: QueryClient) {
@@ -146,6 +162,7 @@ export function optimisticTodoFromInput(input: TodoCreateInput): TodoRecord {
   const now = new Date().toISOString();
   return {
     id: -Date.now(),
+    revision: 0,
     scope: input.scope,
     projectId: input.projectId ?? null,
     content: input.content,
@@ -176,46 +193,6 @@ export function createTodoQueryCache(queryClient: QueryClient) {
         queryClient.cancelQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
         queryClient.cancelQueries({ queryKey: queryKeys.projects.all }),
       ]),
-    snapshot: (projectId?: number | null): TodoQuerySnapshot => ({
-      projectPage:
-        projectId == null
-          ? undefined
-          : queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId)),
-      workspacePage: queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage),
-      workspaceOwnedTodos: queryClient.getQueryData<TodoRecord[]>(
-        queryKeys.todoCollections.workspaceOwned,
-      ),
-      projectOwnedTodos:
-        projectId == null
-          ? undefined
-          : queryClient.getQueryData<TodoRecord[]>(
-              queryKeys.todoCollections.projectOwned(projectId),
-            ),
-      workspaceRailTodos: queryClient.getQueryData<TodoRecord[]>(
-        queryKeys.todoCollections.workspaceRail,
-      ),
-      projects: queryClient.getQueryData<ProjectListItem[]>(queryKeys.projects.all),
-    }),
-    restore: (projectId?: number | null, snapshot?: TodoQuerySnapshot) => {
-      if (!snapshot) return;
-      if (projectId != null) {
-        queryClient.setQueryData(queryKeys.projectPage(projectId), snapshot.projectPage);
-        queryClient.setQueryData(
-          queryKeys.todoCollections.projectOwned(projectId),
-          snapshot.projectOwnedTodos,
-        );
-      }
-      queryClient.setQueryData(queryKeys.workspacePage, snapshot.workspacePage);
-      queryClient.setQueryData(
-        queryKeys.todoCollections.workspaceOwned,
-        snapshot.workspaceOwnedTodos,
-      );
-      queryClient.setQueryData(
-        queryKeys.todoCollections.workspaceRail,
-        snapshot.workspaceRailTodos,
-      );
-      queryClient.setQueryData(queryKeys.projects.all, snapshot.projects);
-    },
     upsert: (todo: TodoRecord) => {
       if (todo.scope === "workspace") {
         queryClient.setQueryData<TodoRecord[] | undefined>(
@@ -246,6 +223,7 @@ export function createTodoQueryCache(queryClient: QueryClient) {
       );
     },
     remove: (todo: TodoRecord) => {
+      if ((cachedTodoHeads(queryClient).get(todo.id)?.revision ?? -1) > todo.revision) return;
       if (todo.scope === "workspace") {
         queryClient.setQueryData<TodoRecord[] | undefined>(
           queryKeys.todoCollections.workspaceOwned,
@@ -278,6 +256,14 @@ export function createTodoQueryCache(queryClient: QueryClient) {
             : project,
         ),
       );
+    },
+    syncProjectOpenCount: (projectId: number | null | undefined) => {
+      if (projectId == null) return;
+      const todos = queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.projectOwned(projectId));
+      if (!todos) return;
+      const openTodoCount = todos.filter(todo => todo.status === "unfinished").length;
+      queryClient.setQueryData<ProjectListItem[] | undefined>(queryKeys.projects.all, projects =>
+        projects?.map(project => project.id === projectId ? { ...project, openTodoCount } : project));
     },
   };
 }

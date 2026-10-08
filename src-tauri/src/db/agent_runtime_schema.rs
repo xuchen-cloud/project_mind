@@ -37,8 +37,13 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    // Remove schema30 additions before this fixture simulates an older file.
-    const REMOVE_SCHEMA30: &str = r#"
+    // Remove schema31/30 additions before this fixture simulates an older file.
+    const REMOVE_LATER_AGENT_SCHEMA: &str = r#"
+DROP VIEW agent_visible_todos;
+DROP TABLE todo_revision_heads;
+DROP TABLE todo_revision_snapshots;
+DROP INDEX agent_todo_output_dedupe;
+ALTER TABLE agent_outputs DROP COLUMN dedupe_key;
 DROP VIEW agent_visible_notes;
 DROP VIEW agent_visible_workspace_notes;
 DROP TABLE agent_object_withdrawals;
@@ -172,7 +177,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         db.conn
             .execute("DROP TABLE agent_profile_verifications", [])
             .unwrap();
-        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
+        db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.set_schema_version(28).unwrap();
         drop(db);
         let reopened = open(root.path());
@@ -233,7 +238,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     fn agent_runtime_schema_failed_upgrade_rolls_back_new_tables_and_version() {
         let root = tempfile::tempdir().unwrap();
         let db = open(root.path());
-        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
+        db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.set_schema_version(28).unwrap();
         db.conn
             .execute("DROP TABLE agent_profile_verifications", [])

@@ -9,12 +9,12 @@ use super::{
         OperationUndoResult,
     },
     output_runtime::{OutputPage, OutputUpdateInput, RuntimeOutput},
+    output_service,
     record_outputs::{RecordOutputPreview, RecordOutputResult, RecordOutputService},
 };
 use crate::{
-    committed_changes::{capture_committed, CommittedChangePublisher},
     db::agent_record_withdrawals::{RecordRestoreInput, RecordWithdrawalResult},
-    record_document_service::{AppDocumentUtility, BoundRecordStore, RecordDocumentService},
+    record_document_service::{AppDocumentUtility, BoundRecordStore},
     AppState,
 };
 use serde::Deserialize;
@@ -159,6 +159,24 @@ pub(crate) fn agent_output_get(
     ApiResponse::from_result(input.request_id, result)
 }
 #[tauri::command]
+pub(crate) fn agent_output_dismiss(
+    state: State<'_, AppState>,
+    input: OutputCommandInput<OutputCommitInput>,
+) -> ApiResponse<RuntimeOutput> {
+    let result = (|| {
+        let request = output_request(&state, &input, &input.data.output_id, &["output.update"])?;
+        state.with_current(|binding, db| {
+            db.agent_output_dismiss(
+                &request,
+                binding,
+                &input.data.output_id,
+                input.data.expected_revision,
+            )
+        })
+    })();
+    ApiResponse::from_result(input.request_id, result)
+}
+#[tauri::command]
 pub(crate) async fn agent_output_preview(
     state: State<'_, AppState>,
     input: OutputCommandInput<OutputCommitInput>,
@@ -197,12 +215,11 @@ pub(crate) async fn agent_output_update(
                 "source.read",
                 "content.create",
                 "record.patch",
+                "todo.update",
             ],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
-        RecordOutputService::new(&*state, &utility)
-            .update_record(&request, &input.data)
-            .await
+        output_service::update(&*state, &utility, &request, &input.data).await
     }
     .await;
     Ok(ApiResponse::from_result(input.request_id, result))
@@ -223,6 +240,7 @@ pub(crate) async fn agent_output_commit(
                 "source.read",
                 "content.create",
                 "record.patch",
+                "todo.update",
                 "record.read",
                 "record.write",
                 "record.metadata.write",
@@ -230,13 +248,14 @@ pub(crate) async fn agent_output_commit(
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         // The native service coordinates editors and publishes CommittedChanges after commit.
-        RecordOutputService::new(&*state, &utility)
-            .commit_record(
-                &request,
-                &input.data.output_id,
-                input.data.expected_revision,
-            )
-            .await
+        output_service::commit(
+            &*state,
+            &utility,
+            &request,
+            &input.data.output_id,
+            input.data.expected_revision,
+        )
+        .await
     }
     .await;
     Ok(ApiResponse::from_result(input.request_id, result))
@@ -287,9 +306,7 @@ pub(crate) async fn agent_operation_undo(
             &["operation.read", "operation.undo"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
-        RecordDocumentService::new(&*state, &utility)
-            .undo_operation(&request, &input.data)
-            .await
+        output_service::undo(&*state, &utility, &request, &input.data).await
     }
     .await;
     Ok(ApiResponse::from_result(input.request_id, result))
@@ -299,23 +316,13 @@ pub(crate) fn agent_operation_restore_created(
     state: State<'_, AppState>,
     input: OutputCommandInput<RecordRestoreInput>,
 ) -> ApiResponse<RecordWithdrawalResult> {
-    let result = (|| {
-        let (result, changes) = state.with_current(|binding, db| {
-            check_binding(&input, binding)?;
-            let scope = db.agent_operation_scope(binding, &input.data.creation_operation_id)?;
-            let request = request(
-                &input,
-                operation_grant(binding, &[scope], &["operation.restore_created"]),
-            );
-            capture_committed(binding, db, &input.request_id, || {
-                db.agent_record_creation_restore(&request, binding, &input.data)
-            })
-        })?;
-        if let Some(changes) = changes {
-            state.publish_committed(changes);
-        }
-        result
-    })();
+    let result = operation_request(
+        &state,
+        &input,
+        &input.data.creation_operation_id,
+        &["operation.restore_created"],
+    )
+    .and_then(|request| output_service::restore(&*state, &request, &input.data));
     ApiResponse::from_result(input.request_id, result)
 }
 
@@ -342,7 +349,25 @@ mod tests {
     #[test]
     fn recovery_inputs_are_strict_and_list_pages_have_a_bound() {
         let value = json!({"binding":{"workspaceId":"w","generation":"g"},"requestId":"confirm","data":{"outputId":"a".repeat(32),"expectedRevision":2}});
-        assert!(serde_json::from_value::<OutputCommandInput<OutputCommitInput>>(value).is_ok());
+        assert!(
+            serde_json::from_value::<OutputCommandInput<OutputCommitInput>>(value.clone()).is_ok()
+        );
+        // Dismiss uses this same strict CAS envelope; the frontend cannot supply
+        // a caller or expand its frozen output authority.
+        for field in ["caller", "scopeGrant"] {
+            let mut forged = value.clone();
+            forged[field] = json!({});
+            assert!(
+                serde_json::from_value::<OutputCommandInput<OutputCommitInput>>(forged).is_err()
+            );
+        }
+        for field in ["scope", "runId", "dismissed"] {
+            let mut forged = value.clone();
+            forged["data"][field] = json!(true);
+            assert!(
+                serde_json::from_value::<OutputCommandInput<OutputCommitInput>>(forged).is_err()
+            );
+        }
         let mut value = json!({"binding":{"workspaceId":"w","generation":"g"},"requestId":"undo","data":{"operationId":"a".repeat(32),"expectedHeadRevision":3}});
         assert!(
             serde_json::from_value::<OutputCommandInput<OperationUndoInput>>(value.clone()).is_ok()

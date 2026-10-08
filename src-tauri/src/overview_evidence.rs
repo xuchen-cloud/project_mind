@@ -366,7 +366,7 @@ mod tests {
             .db
             .lock()
             .unwrap()
-            .todo_update_content(TodoUpdateContentInput {
+            .todo_update_content(TodoUpdateContentInput { expected_revision: todo.revision,
                 todo_id: todo.id,
                 content: "修改后的实际内容".into(),
                 due_date: None,

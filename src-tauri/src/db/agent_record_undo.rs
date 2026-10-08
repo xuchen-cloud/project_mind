@@ -48,7 +48,7 @@ fn random_id() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationEntry, String)> {
+pub(super) fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationEntry, String)> {
     id_check(id)?;
     let r = conn.query_row("SELECT operation_id,run_id,request_id,operation,target_ref_json,before_revision,after_revision,before_snapshot_ref,after_snapshot_ref,undo_state,undo_operation_id,created_at,caller_id FROM agent_operation_receipts WHERE operation_id=?1 AND state='committed'", [id], |r| Ok((
         r.get::<_,String>(0)?, r.get::<_,Option<String>>(1)?, r.get::<_,String>(2)?, r.get::<_,String>(3)?,
@@ -57,7 +57,7 @@ fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationEntry, Strin
         r.get::<_,Option<String>>(10)?, r.get::<_,String>(11)?, r.get::<_,String>(12)?
     ))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Operation receipt not found"))?;
     let object: ObjectRef = decode(&r.4)?;
-    let recovery = if r.3 == "record.create" {
+    let recovery = if matches!(r.3.as_str(), "record.create" | "todo.create") {
         let state:Option<(bool,i64)> = conn.query_row("SELECT withdrawn_at IS NOT NULL,revision FROM agent_object_withdrawals WHERE object_key=?1 AND creation_operation_id=?2",params![object.key()?,id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(io_error)?;
         Some(OperationRecovery {
             withdrawn: state.as_ref().is_some_and(|s| s.0),
@@ -95,7 +95,7 @@ fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationEntry, Strin
         r.12,
     ))
 }
-fn authorize(
+pub(super) fn authorize(
     request: &RequestContext,
     binding: &WorkspaceBinding,
     entry: &OperationEntry,
@@ -128,7 +128,7 @@ struct Cursor {
 }
 
 impl Database {
-    fn operation_binding(&self, binding: &WorkspaceBinding) -> AgentResult<()> {
+    pub(super) fn operation_binding(&self, binding: &WorkspaceBinding) -> AgentResult<()> {
         if self
             .native_workspace_id
             .as_ref()

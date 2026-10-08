@@ -32,6 +32,9 @@ pub(crate) struct RuntimeOutput {
     pub state: OutputState,
     pub object: Option<ObjectRef>,
     pub mode: ExecutionMode,
+    /// GUI decision stored separately from the native commit state.
+    #[serde(default)]
+    pub dismissed: bool,
     pub error_code: Option<super::errors::ErrorCode>,
     /// Ordered with sources. A legal retained citation may already differ from
     /// its current source; preserving it must not silently replace the evidence.

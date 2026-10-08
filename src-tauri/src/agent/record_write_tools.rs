@@ -1,5 +1,6 @@
 //! Descriptor inventory only. Registering execution/capabilities is a Host decision.
 //! JSON node/mark names and attribute whitelists come from the native editor schema.
+use super::todo_tools::todo_ref_schema;
 use super::tools::{
     array, integer, locator_schema, nullable, object, object_ref_schema, scope_schema, text,
     ReadToolDescription,
@@ -122,6 +123,90 @@ fn source_ref() -> Value {
     )
 }
 
+fn todo_date() -> Value {
+    json!({"type":"string","minLength":10,"maxLength":10,"pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"})
+}
+fn todo_priority() -> Value {
+    enum_string(&[
+        "urgent_important",
+        "urgent_not_important",
+        "not_urgent_important",
+        "not_urgent_not_important",
+    ])
+}
+fn todo_status() -> Value {
+    enum_string(&["unfinished", "finished"])
+}
+fn todo_create() -> Value {
+    let child = object(
+        json!({"content":text(12000),"progressDate":todo_date(),"dueDate":nullable(todo_date())}),
+        &["content", "progressDate", "dueDate"],
+    );
+    let mut dedupe_key = text(128);
+    dedupe_key["minLength"] = json!(1);
+    object(
+        json!({"intent":{"type":"string","maxLength":32,"const":"todo_create"},"scope":scope_schema(),"dedupeKey":dedupe_key,"content":text(12000),"priority":todo_priority(),"dueDate":nullable(todo_date()),"tagIds":array(integer(SAFE_INTEGER),100),"children":array(child,100)}),
+        &[
+            "intent",
+            "scope",
+            "dedupeKey",
+            "content",
+            "priority",
+            "dueDate",
+            "tagIds",
+            "children",
+        ],
+    )
+}
+fn todo_update() -> Value {
+    let change = |kind: &'static str, mut properties: Value, required: &[&str]| {
+        properties["change"] = json!({"type":"string","maxLength":32,"const":kind});
+        let mut fields = vec!["change"];
+        fields.extend_from_slice(required);
+        object(properties, &fields)
+    };
+    let changes = vec![
+        change("content", json!({"content":text(12000)}), &["content"]),
+        change(
+            "deadline",
+            json!({"dueDate":nullable(todo_date())}),
+            &["dueDate"],
+        ),
+        change("status", json!({"status":todo_status()}), &["status"]),
+        change(
+            "priority",
+            json!({"priority":todo_priority()}),
+            &["priority"],
+        ),
+        change(
+            "tags",
+            json!({"tagIds":array(integer(SAFE_INTEGER),100)}),
+            &["tagIds"],
+        ),
+        change(
+            "child_create",
+            json!({"content":text(12000),"progressDate":todo_date(),"dueDate":nullable(todo_date())}),
+            &["content", "progressDate", "dueDate"],
+        ),
+        change(
+            "child_update",
+            json!({"childId":integer(SAFE_INTEGER),"content":text(12000),"progressDate":todo_date(),"dueDate":nullable(todo_date()),"status":todo_status()}),
+            &["childId", "content", "progressDate", "dueDate", "status"],
+        ),
+        change(
+            "child_delete",
+            json!({"childId":integer(SAFE_INTEGER)}),
+            &["childId"],
+        ),
+    ];
+    let mut changes = array(json!({"oneOf":changes}), 50);
+    changes["minItems"] = json!(1);
+    object(
+        json!({"intent":{"type":"string","maxLength":32,"const":"todo_update"},"target":todo_ref_schema(),"expectedRevision":integer(SAFE_INTEGER),"changes":changes}),
+        &["intent", "target", "expectedRevision", "changes"],
+    )
+}
+
 pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
     let mut result = vec![];
     let mut add = |method: &'static str, description: &'static str, parameters| {
@@ -133,6 +218,7 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
         })
     };
     add("record.blocks.get","Read complete committed Record blocks, stable IDs and hashes for safe patch preparation. Pagination stays at one head revision. An oversized block returns child IDs instead of truncated writable content.",object(json!({"record":record(),"revision":nullable(integer(SAFE_INTEGER)),"blockId":nullable(id()),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(12000))}),&["record"]));
+    add("todo.get", "Read the actual current Todo revision, body hash and complete native fields, including child IDs. Use these values before staging a Todo update; reading never initializes or writes a Todo.", object(json!({"target":todo_ref_schema()}), &["target"]));
     let create = object(
         json!({"intent":{"type":"string","maxLength":32,"const":"record_create"},"scope":scope_schema(),"title":text(1000),"markdown":text(65536)}),
         &["intent", "scope", "title", "markdown"],
@@ -142,11 +228,11 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
         &["intent", "patch"],
     );
     let mut stage = object(
-        json!({"intent":{"oneOf":[create,patch]},"sources":array(source_ref(),20)}),
+        json!({"intent":{"oneOf":[create,patch,todo_create(),todo_update()]},"sources":array(source_ref(),20)}),
         &["intent", "sources"],
     );
     stage["$defs"] = node_definitions();
-    add("output.stage","Create a validated Record candidate or apply a bounded native block patch. The current Run and execution mode come from the Host: collaborate commits and returns the real receipt; review stages for later local commit.",stage);
+    add("output.stage","Stage a validated Record or Todo creation/update. Read actual revisions and child/block IDs before updating. Todo creation uses a stable dedupeKey for the same action within this Run. Collaborate commits and returns its real receipt; review stages for local commit. Run and mode come from the Host.",stage);
     add(
         "output.get",
         "Read one candidate or committed output authorized to the current Run.",
@@ -160,7 +246,7 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
             &[],
         ),
     );
-    add("output.commit","Commit the expected candidate revision using its native Record transaction. A saved output always returns its committed object and receipt.",object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}),&["outputId","expectedRevision"]));
+    add("output.commit","Commit the expected candidate revision using its native Record or Todo transaction. A saved output always returns its committed object and receipt.",object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}),&["outputId","expectedRevision"]));
     add(
         "operation.get",
         "Read a real committed operation receipt within the current scope and caller authority.",
@@ -175,10 +261,90 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn todo_stage_schemas_match_native_intents_and_require_nullable_dates() {
+        use crate::agent::outputs::OutputIntent;
+        let create_schema = todo_create();
+        let create = json!({"intent":"todo_create","scope":{"kind":"workspace"},"dedupeKey":"send-report","content":"Send report","priority":"not_urgent_important","dueDate":null,"tagIds":[],"children":[{"content":"Review report","progressDate":"2026-10-08","dueDate":null}]});
+        let parsed: OutputIntent = serde_json::from_value(create.clone()).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), create);
+        assert_eq!(create_schema["properties"]["dedupeKey"]["minLength"], 1);
+        for field in ["dueDate", "dedupeKey"] {
+            assert!(create_schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field)));
+            let mut missing = create.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<OutputIntent>(missing).is_err());
+        }
+        let mut missing_child_date = create.clone();
+        missing_child_date["children"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("dueDate");
+        assert!(serde_json::from_value::<OutputIntent>(missing_child_date).is_err());
+        let child = &create_schema["properties"]["children"]["items"];
+        assert!(child["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("dueDate")));
+
+        let target =
+            json!({"workspaceId":"workspace","scope":{"kind":"workspace"},"kind":"todo","id":"1"});
+        let mutations = vec![
+            json!({"change":"content","content":"Send final report"}),
+            json!({"change":"deadline","dueDate":null}),
+            json!({"change":"status","status":"finished"}),
+            json!({"change":"priority","priority":"urgent_important"}),
+            json!({"change":"tags","tagIds":[1]}),
+            json!({"change":"child_create","content":"Send draft","progressDate":"2026-10-08","dueDate":null}),
+            json!({"change":"child_update","childId":2,"content":"Review draft","progressDate":"2026-10-08","dueDate":null,"status":"unfinished"}),
+            json!({"change":"child_delete","childId":3}),
+        ];
+        let schema = todo_update();
+        let variants = schema["properties"]["changes"]["items"]["oneOf"]
+            .as_array()
+            .unwrap();
+        assert_eq!(variants.len(), mutations.len());
+        assert_eq!(schema["properties"]["changes"]["minItems"], 1);
+        assert_eq!(schema["properties"]["changes"]["maxItems"], 50);
+        for mutation in mutations {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["change"]["const"] == mutation["change"])
+                .unwrap();
+            assert_eq!(
+                variant["properties"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .collect::<Vec<_>>(),
+                mutation.as_object().unwrap().keys().collect::<Vec<_>>()
+            );
+            let update = json!({"intent":"todo_update","target":target,"expectedRevision":2,"changes":[mutation]});
+            let parsed: OutputIntent = serde_json::from_value(update.clone()).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), update);
+            if mutation.get("dueDate").is_some() {
+                assert!(variant["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("dueDate")));
+                let mut missing = update;
+                missing["changes"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("dueDate");
+                assert!(serde_json::from_value::<OutputIntent>(missing).is_err());
+            }
+        }
+    }
+
     #[test]
     fn record_write_schemas_reuse_editor_whitelists_and_bound_recursive_inputs() {
         let descriptions = record_write_tool_descriptions();
-        assert_eq!(descriptions.len(), 9);
+        assert_eq!(descriptions.len(), 10);
         let stage = &descriptions
             .iter()
             .find(|tool| tool.method == "output.stage")

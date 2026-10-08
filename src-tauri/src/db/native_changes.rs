@@ -250,7 +250,10 @@ impl Database {
         apply: impl FnOnce() -> Result<(T, Vec<NativeTarget>)>,
     ) -> Result<T> {
         let workspace_id = self.native_workspace_id.as_deref();
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let mut previous = Vec::new();
         if let Some(id) = workspace_id {
             for target in &before {
@@ -336,6 +339,53 @@ impl Database {
         Ok(result)
     }
 
+    pub fn file_tag_option_delete(
+        &mut self,
+        input: FileTagOptionDeleteInput,
+    ) -> Result<FileTagSettingsSnapshot> {
+        // Resolve all actual FK-cascade targets after reserving the writer. A
+        // withdrawn Todo still needs a fresh raw head and recovery snapshot.
+        self.native_source_write_many("todo.tags.delete", vec![], || {
+            self.scoped_file_tag_record(input.project_id, input.tag_id)?;
+            let mut statement = self
+                .conn
+                .prepare("SELECT todo_id FROM todo_tag_links WHERE tag_id=?1 ORDER BY todo_id")?;
+            let ids = statement
+                .query_map([input.tag_id], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            drop(statement);
+            let mut affected = Vec::new();
+            let mut visible_targets = Vec::new();
+            for id in ids {
+                let todo = self.todo_record_unchecked(id)?;
+                let visible: bool = self.conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM agent_visible_todos WHERE id=?1)",
+                    [id],
+                    |row| row.get(0),
+                )?;
+                if visible {
+                    visible_targets.push(NativeTarget::todo(&todo));
+                }
+                affected.push(todo);
+            }
+            self.conn
+                .execute("DELETE FROM file_tag_options WHERE id=?1", [input.tag_id])?;
+            for todo in affected {
+                self.conn.execute(
+                    "UPDATE todos SET updated_at=?1 WHERE id=?2",
+                    rusqlite::params![super::now_iso(), todo.id],
+                )?;
+                super::todo_revisions::commit(&self.conn, todo.id, todo.revision, None)
+                    .map_err(super::todo_revision_error)?;
+                self.touch_todo_owners(&todo)?;
+            }
+            let result = FileTagSettingsSnapshot {
+                tags: self.fetch_file_tag_records(input.project_id)?,
+            };
+            Ok((result, visible_targets))
+        })
+    }
+
     pub fn todo_create(&self, input: TodoCreateInput) -> Result<TodoRecord> {
         self.native_source_write("todo.create", None, || {
             let result = self.todo_create_native(input)?;
@@ -345,43 +395,85 @@ impl Database {
     }
 
     pub fn todo_update_content(&self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.update", Some(target.clone()), || {
-            Ok((self.todo_update_content_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            self.todo_update_content_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_record(todo_id)?, target))
         })
     }
     pub fn todo_update_tags(&self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.tags.update", Some(target.clone()), || {
-            Ok((self.todo_update_tags_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            self.todo_update_tags_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_record(todo_id)?, target))
         })
     }
     pub fn todo_update_status(&self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.status.update", Some(target.clone()), || {
-            Ok((self.todo_update_status_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            self.todo_update_status_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_record(todo_id)?, target))
         })
     }
     pub fn todo_update_priority(&self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.priority.update", Some(target.clone()), || {
-            Ok((self.todo_update_priority_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            self.todo_update_priority_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_record(todo_id)?, target))
         })
     }
     pub fn todo_add_progress(&self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.subtask.create", Some(target.clone()), || {
-            Ok((self.todo_add_progress_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            let result = self.todo_add_progress_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_progress_record(result.id)?, target))
         })
     }
     pub fn todo_update_progress(
         &self,
         input: TodoUpdateProgressInput,
     ) -> Result<TodoProgressRecord> {
-        let todo_id = self.todo_progress_record(input.progress_id)?.todo_id;
+        let progress_id = input.progress_id;
+        let todo_id = self.todo_progress_record(progress_id)?.todo_id;
+        let expected = input.expected_revision;
         let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.subtask.update", Some(target.clone()), || {
-            Ok((self.todo_update_progress_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            self.todo_update_progress_native(input)?;
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            Ok((self.todo_progress_record(progress_id)?, target))
         })
     }
     pub fn todo_delete_progress(
@@ -389,14 +481,28 @@ impl Database {
         input: TodoDeleteProgressInput,
     ) -> Result<TodoProgressRecord> {
         let todo_id = self.todo_progress_record(input.progress_id)?.todo_id;
+        let expected = input.expected_revision;
         let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.subtask.delete", Some(target.clone()), || {
-            Ok((self.todo_delete_progress_native(input)?, target))
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            let mut result = self.todo_delete_progress_native(input)?;
+            let head = super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
+            result.todo_revision = head.revision;
+            Ok((result, target))
         })
     }
     pub fn todo_delete(&self, input: TodoDeleteInput) -> Result<TodoRecord> {
-        let target = NativeTarget::todo(&self.todo_record(input.todo_id)?);
+        let todo_id = input.todo_id;
+        let expected = input.expected_revision;
+        let target = NativeTarget::todo(&self.todo_record(todo_id)?);
         self.native_source_write("todo.delete", Some(target.clone()), || {
+            super::todo_revisions::require_expected_revision(&self.conn, todo_id, expected)
+                .map_err(super::todo_revision_error)?;
+            // Retain the final complete native snapshot before cascading the head.
+            super::todo_revisions::commit(&self.conn, todo_id, expected, None)
+                .map_err(super::todo_revision_error)?;
             Ok((self.todo_delete_native(input)?, target))
         })
     }
@@ -474,6 +580,7 @@ mod tests {
         db.conn.execute_batch("CREATE TRIGGER fail_native_outbox BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
         assert!(db
             .todo_update_content(TodoUpdateContentInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "lost".into(),
                 due_date: None,
@@ -483,7 +590,10 @@ mod tests {
         assert_eq!(db.todo_record(todo.id).unwrap().content, "first");
         assert!(db.todo_create(todo_input()).is_err());
         assert!(db
-            .todo_delete(TodoDeleteInput { todo_id: todo.id })
+            .todo_delete(TodoDeleteInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
+                todo_id: todo.id
+            })
             .is_err());
         assert_eq!(
             db.conn
@@ -569,23 +679,27 @@ mod tests {
             })
             .unwrap();
         db.todo_update_tags(TodoUpdateTagsInput {
+            expected_revision: db.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             tag_ids: vec![tag.id],
         })
         .unwrap();
         assert_latest_matches_source(&db, &req, ObjectKind::Todo, Scope::Workspace, todo.id);
         db.todo_update_status(TodoUpdateStatusInput {
+            expected_revision: db.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             status: "finished".into(),
         })
         .unwrap();
         db.todo_update_priority(TodoUpdatePriorityInput {
+            expected_revision: db.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             priority: "urgent_important".into(),
         })
         .unwrap();
         let subtask = db
             .todo_add_progress(TodoAddProgressInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "child".into(),
                 progress_date: "2026-10-01".into(),
@@ -594,6 +708,7 @@ mod tests {
             .unwrap();
         assert_latest_matches_source(&db, &req, ObjectKind::Todo, Scope::Workspace, todo.id);
         db.todo_update_progress(TodoUpdateProgressInput {
+            expected_revision: db.todo_progress_record(subtask.id).unwrap().todo_revision,
             progress_id: subtask.id,
             content: "done".into(),
             progress_date: "2026-10-01".into(),
@@ -603,6 +718,7 @@ mod tests {
         .unwrap();
         assert_latest_matches_source(&db, &req, ObjectKind::Todo, Scope::Workspace, todo.id);
         db.todo_delete_progress(TodoDeleteProgressInput {
+            expected_revision: db.todo_progress_record(subtask.id).unwrap().todo_revision,
             progress_id: subtask.id,
         })
         .unwrap();
@@ -619,8 +735,11 @@ mod tests {
                 .unwrap(),
             1
         );
-        db.todo_delete(TodoDeleteInput { todo_id: todo.id })
-            .unwrap();
+        db.todo_delete(TodoDeleteInput {
+            expected_revision: db.todo_record(todo.id).unwrap().revision,
+            todo_id: todo.id,
+        })
+        .unwrap();
         db.source_queue_sync(&req, &req.binding, &Scope::Workspace, chrono::Utc::now())
             .unwrap();
         assert_eq!(
@@ -973,6 +1092,7 @@ mod tests {
         let todo = db.todo_create(input).unwrap();
         let subtask = db
             .todo_add_progress(TodoAddProgressInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "child".into(),
                 progress_date: "2026-10-01".into(),
@@ -984,24 +1104,28 @@ mod tests {
         db.conn.execute_batch("CREATE TRIGGER fail_native_outbox BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
         assert!(db
             .todo_update_tags(TodoUpdateTagsInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 tag_ids: vec![]
             })
             .is_err());
         assert!(db
             .todo_update_status(TodoUpdateStatusInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 status: "finished".into()
             })
             .is_err());
         assert!(db
             .todo_update_priority(TodoUpdatePriorityInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 priority: "urgent_important".into()
             })
             .is_err());
         assert!(db
             .todo_add_progress(TodoAddProgressInput {
+                expected_revision: db.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "lost".into(),
                 progress_date: "2026-10-01".into(),
@@ -1010,6 +1134,7 @@ mod tests {
             .is_err());
         assert!(db
             .todo_update_progress(TodoUpdateProgressInput {
+                expected_revision: db.todo_progress_record(subtask.id).unwrap().todo_revision,
                 progress_id: subtask.id,
                 content: "lost".into(),
                 progress_date: "2026-10-01".into(),
@@ -1019,6 +1144,7 @@ mod tests {
             .is_err());
         assert!(db
             .todo_delete_progress(TodoDeleteProgressInput {
+                expected_revision: db.todo_progress_record(subtask.id).unwrap().todo_revision,
                 progress_id: subtask.id
             })
             .is_err());

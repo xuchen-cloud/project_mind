@@ -14,6 +14,7 @@ function render(ui: ReactElement) {
 }
 
 const todo: TodoRecord = {
+  revision: 1,
   id: 7,
   scope: "project",
   projectId: 9,
@@ -66,6 +67,7 @@ describe("TodoListItem", () => {
         {
           id: 31,
           todoId: todo.id,
+          todoRevision: 1,
           content: "等待财务确认",
           progressDate: "2026-04-05",
           createdAt: "2026-04-05T09:00:00.000Z",
@@ -243,6 +245,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "等待财务确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -284,6 +287,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "等待财务确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -321,6 +325,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "等待财务确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -354,6 +359,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "等待财务确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -388,6 +394,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "等待财务确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -414,6 +421,7 @@ describe("TodoListItem", () => {
         {
           id: 31,
           todoId: todo.id,
+          todoRevision: 1,
           content: "等待财务确认",
           progressDate: "2026-04-05",
           dueDate: "2027-03-15",
@@ -438,6 +446,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "已完成确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -530,6 +539,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "已完成确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",
@@ -561,6 +571,7 @@ describe("TodoListItem", () => {
           {
             id: 31,
             todoId: todo.id,
+            todoRevision: 1,
             content: "已完成确认",
             progressDate: "2026-04-05",
             createdAt: "2026-04-05T09:00:00.000Z",

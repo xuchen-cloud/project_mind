@@ -142,6 +142,20 @@ impl Database {
             operation,
             &result_json,
         )?;
+        super::agent_todo_outputs::agent_todo_output_receipt_committed(
+            &tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+        )?;
+        super::agent_todo_undo::agent_todo_recovery_receipt_committed(
+            &tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+        )?;
         if let Some(change) = change {
             tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,?3,?4,?5)", params![change.object_key,change.scope.key(),operation,change.revision,now]).map_err(io_error)?;
         }

@@ -10,11 +10,16 @@ describe("agent message projections", () => {
   it("renders tool objects as inspectable JSON and collects structured tool sources", () => {
     const payload = { result: "工具结果", sources: [source] };
     render(<AgentMessage binding={binding} message={{ ...message, role: "tool", content: [{ type: "text", text: JSON.stringify(payload) }] }} />);
+    expect(screen.getByText("工具调用完成")).toBeVisible();
+    expect(document.querySelector("pre")).not.toBeVisible();
+    expect(screen.getByText("引用来源")).not.toBeVisible();
     fireEvent.click(screen.getByText("查看工具结果"));
+    expect(screen.getByText("引用来源")).not.toBeVisible();
+    fireEvent.click(screen.getByText("参考来源（1）"));
     expect(document.querySelector("pre")?.textContent).toContain('"result":"工具结果"');
     expect(document.body.textContent).not.toContain("[object Object]");
     expect(screen.getByText("引用来源")).toBeInTheDocument();
-    expect(agentMessageSources({ refs: [source, source] })).toEqual([source]);
+    expect(agentMessageSources(JSON.parse(JSON.stringify({ refs: [source, source] })))).toEqual([source]);
   });
   it("keeps generated HTML as text and truncates large display chunks explicitly", () => {
     const content = "<script>evil()</script>" + "字".repeat(13000);
@@ -29,5 +34,10 @@ describe("agent message projections", () => {
     expect(agentContentText({ result: "可读" })).toContain('"result": "可读"');
     expect(agentMessageSources("普通正文")).toEqual([]);
     expect(agentMessageSources([{ type: "text", text: JSON.stringify({ text: JSON.stringify({ sourceRef: source }) }) }])).toEqual([]);
+  });
+  it("does not invent assistant prose for a model message containing only tool calls", () => {
+    const { container } = render(<AgentMessage binding={binding} message={{ ...message, content: [{ type: "toolCall", name: "output.stage", arguments: { content: "候选正文" } }] }} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("候选正文")).not.toBeInTheDocument();
   });
 });

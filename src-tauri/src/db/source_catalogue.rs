@@ -66,7 +66,7 @@ impl Database {
         let mut statement=self.conn.prepare("WITH catalogue(kind,id) AS (
             SELECT 'record',id FROM agent_visible_workspace_notes WHERE ?1 IS NULL AND note_kind='workspace_note'
             UNION ALL SELECT 'quick_note',id FROM workspace_notes WHERE ?1 IS NULL AND note_kind='today_quick_note'
-            UNION ALL SELECT 'todo',id FROM todos WHERE (?1 IS NULL AND scope='workspace' AND project_id IS NULL) OR (scope='project' AND project_id=?1)
+            UNION ALL SELECT 'todo',id FROM agent_visible_todos WHERE (?1 IS NULL AND scope='workspace' AND project_id IS NULL) OR (scope='project' AND project_id=?1)
             UNION ALL SELECT 'project',id FROM projects WHERE id=?1 AND is_archived=0
             UNION ALL SELECT 'quick_note',id FROM projects WHERE id=?1 AND is_archived=0
             UNION ALL SELECT 'record',id FROM agent_visible_notes WHERE project_id=?1

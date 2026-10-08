@@ -11,9 +11,8 @@ export interface AgentRunOutputsProps { binding: AgentWorkspaceBinding; runId: s
 export function AgentRunOutputs(props: AgentRunOutputsProps) {
   return <RunOutputsBody key={`${props.binding.workspaceId}:${props.binding.generation}:${props.runId}`} {...props} />;
 }
-function RunOutputsBody({ binding, runId, active: runActive = false, current = false }: AgentRunOutputsProps) {
+function RunOutputsBody({ binding, runId, active: runActive = false }: AgentRunOutputsProps) {
   const queryClient = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
   const [outputs, setOutputs] = useState<AgentRuntimeOutput[]>([]);
   const [operations, setOperations] = useState<AgentOperationEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -61,12 +60,12 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current = f
       if (mounted.current && refreshPending.current) { refreshPending.current = false; void load(); }
     }
   }
-  useEffect(() => { if (expanded) void load(); }, [expanded, runActive]);
+  useEffect(() => { void load(); }, [runActive]);
   useEffect(() => {
-    if (!expanded || !runActive) return;
+    if (!runActive) return;
     const timer = window.setInterval(() => void load(false, true), 2000);
     return () => window.clearInterval(timer);
-  }, [expanded, runActive]);
+  }, [runActive]);
   async function moreOperations() {
     if (reading.current || !operationCursor) return;
     reading.current = true; setLoading(true); setError(null);
@@ -81,10 +80,14 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current = f
       if (mounted.current && refreshPending.current) { refreshPending.current = false; void load(); }
     }
   }
-  function invalidateRecord(output: AgentRuntimeOutput) {
-    const scope = output.object?.scope ?? (output.intent.intent === "record_create" ? output.intent.scope : output.intent.intent === "record_patch" ? output.intent.patch.record.scope : null);
+  function invalidateObject(output: AgentRuntimeOutput) {
+    const scope = output.object?.scope ?? (output.intent.intent === "record_create" ? output.intent.scope : output.intent.intent === "record_patch" ? output.intent.patch.record.scope : output.intent.intent === "todo_create" ? output.intent.scope : output.intent.intent === "todo_update" ? output.intent.target.scope : null);
     if (!scope || !mounted.current) return;
     void queryClient.invalidateQueries({ queryKey: scope.kind === "project" ? queryKeys.projectPage(scope.projectId) : queryKeys.workspacePage });
+    if (output.intent.intent === "todo_create" || output.intent.intent === "todo_update") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.todoViews.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.all });
+    }
     void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
   }
@@ -97,12 +100,12 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current = f
     finally { changing.current.delete(output.id); readVersion.current++; }
   }
   async function commit(output: AgentRuntimeOutput) {
-    if (output.state === "committed" || output.state === "committing" || output.mode === "read_only") return;
+    if (output.dismissed || output.state === "committed" || output.state === "committing" || output.mode === "read_only") return;
     await mutation(`save:${output.id}:${output.revision}`, output, async requestId => {
       try {
         const result = await agentApi.outputCommit(binding, { outputId: output.id, expectedRevision: output.revision }, requestId);
         if (!mounted.current) return;
-        invalidateRecord(result.output);
+        invalidateObject(result.output);
         setOutputs(previous => previous.map(value => value.id === output.id ? result.output : value));
         if (result.operation) setOperations(previous => mergeOperations(previous, [result.operation!]));
       } catch (failure) {
@@ -114,12 +117,26 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current = f
       }
     });
   }
+  async function dismiss(output: AgentRuntimeOutput) {
+    if (output.dismissed || (output.state !== "staged" && output.state !== "failed")) return;
+    await mutation(`dismiss:${output.id}:${output.revision}`, output, async requestId => {
+      try {
+        const actual = await agentApi.outputDismiss(binding, { outputId: output.id, expectedRevision: output.revision }, requestId);
+        if (mounted.current) setOutputs(previous => previous.map(value => value.id === output.id ? actual : value));
+      } catch (failure) {
+        try { const actual = await agentApi.outputGet(binding, { outputId: output.id });
+          if (mounted.current) setOutputs(previous => previous.map(value => value.id === output.id ? actual : value));
+        } catch { /* Preserve the actionable dismissal failure. */ }
+        throw failure;
+      }
+    });
+  }
   async function undo(output: AgentRuntimeOutput, operation: AgentOperationEntry) {
     if (operation.undoState !== "available" || operation.afterRevision == null) return;
     await mutation(`undo:${operation.operationId}:${operation.afterRevision}`, output, async requestId => {
       await agentApi.operationUndo(binding, { operationId: operation.operationId, expectedHeadRevision: operation.afterRevision! }, requestId);
       if (!mounted.current) return;
-      invalidateRecord(output);
+      invalidateObject(output);
       const actual = await agentApi.operationGet(binding, { operationId: operation.operationId });
       if (mounted.current) setOperations(previous => mergeOperations(previous, [actual]));
     });
@@ -129,25 +146,20 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current = f
     await mutation(`restore:${operation.operationId}:${operation.recovery.withdrawalRevision}`, output, async requestId => {
       await agentApi.operationRestoreCreated(binding, { creationOperationId: operation.operationId, expectedWithdrawalRevision: operation.recovery!.withdrawalRevision! }, requestId);
       if (!mounted.current) return;
-      invalidateRecord(output);
+      invalidateObject(output);
       const actual = await agentApi.operationGet(binding, { operationId: operation.operationId });
       if (mounted.current) setOperations(previous => mergeOperations(previous, [actual]));
     });
   }
-  return <section className="agent-run-outputs" aria-label={current ? "本次运行成果" : "历史运行成果"}>
-    <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{current ? "本次运行成果" : "查看历史运行成果"}{expanded ? " · 收起" : ""}</Button>
-    {expanded ? <>
-      <div className="agent-output__actions"><Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>刷新成果</Button></div>
-      {loading ? <p className="agent-panel__hint" role="status">正在加载成果…</p> : null}
-      {error ? <p className="agent-output__error" role="alert">{error}</p> : null}
-      {!loading && !outputs.length ? <p className="agent-panel__hint">此运行尚无 Record 成果。</p> : null}
-      {outputs.map(output => {
-        const operation = operations.find(entry => entry.requestId === `output:${output.id}:${output.revision}` && (entry.kind === "record.create" || entry.kind === "record.patch")) ?? null;
-        return <AgentOutputCard key={output.id} binding={binding} output={output} operation={operation} runActive={runActive}
-          onCommit={() => commit(output)} onUndo={() => operation ? undo(output, operation) : Promise.resolve()} onRestore={() => operation ? restore(output, operation) : Promise.resolve()} />;
-      })}
-      {cursor ? <Button size="sm" variant="ghost" disabled={loading} onClick={() => void load(true)}>更多成果</Button> : null}
-      {operationCursor ? <Button size="sm" variant="ghost" disabled={loading} onClick={() => void moreOperations()}>更多操作凭据</Button> : null}
-    </> : null}
+  if (!outputs.length && !error) return null;
+  return <section className="agent-run-outputs" aria-label="助手操作">
+    {error ? <p className="agent-output__error" role="alert">{error}</p> : null}
+    {outputs.map(output => {
+      const operation = operations.find(entry => entry.requestId === `output:${output.id}:${output.revision}` && ["record.create", "record.patch", "todo.create", "todo.update"].includes(entry.kind)) ?? null;
+      return <AgentOutputCard key={output.id} binding={binding} output={output} operation={operation} runActive={runActive}
+        onCommit={() => commit(output)} onDismiss={() => dismiss(output)} onUndo={() => operation ? undo(output, operation) : Promise.resolve()} onRestore={() => operation ? restore(output, operation) : Promise.resolve()} />;
+    })}
+    {cursor ? <Button size="sm" variant="ghost" disabled={loading} onClick={() => void load(true)}>更多操作</Button> : null}
+    {operationCursor ? <Button size="sm" variant="ghost" disabled={loading} onClick={() => void moreOperations()}>更多操作记录</Button> : null}
   </section>;
 }

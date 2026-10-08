@@ -77,6 +77,62 @@ pub struct RecordPatch {
     pub operations: Vec<BlockEdit>,
 }
 
+// Nullable dates are explicit in the Agent wire contract: missing fields must
+// never silently clear a deadline. A supplied JSON null remains valid.
+fn required_date<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(value)
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TodoNewChild {
+    pub content: String,
+    pub progress_date: String,
+    #[serde(deserialize_with = "required_date")]
+    pub due_date: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "change",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum TodoMutation {
+    Content {
+        content: String,
+    },
+    Deadline {
+        #[serde(deserialize_with = "required_date")]
+        due_date: Option<String>,
+    },
+    Status {
+        status: String,
+    },
+    Priority {
+        priority: String,
+    },
+    Tags {
+        tag_ids: Vec<i64>,
+    },
+    ChildCreate {
+        content: String,
+        progress_date: String,
+        #[serde(deserialize_with = "required_date")]
+        due_date: Option<String>,
+    },
+    ChildUpdate {
+        child_id: i64,
+        content: String,
+        progress_date: String,
+        #[serde(deserialize_with = "required_date")]
+        due_date: Option<String>,
+        status: String,
+    },
+    ChildDelete {
+        child_id: i64,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
     tag = "intent",
@@ -107,12 +163,17 @@ pub enum OutputIntent {
     TodoCreate {
         scope: Scope,
         content: String,
+        priority: String,
+        #[serde(deserialize_with = "required_date")]
+        due_date: Option<String>,
+        tag_ids: Vec<i64>,
+        children: Vec<TodoNewChild>,
+        dedupe_key: String,
     },
     TodoUpdate {
         target: ObjectRef,
-        expected_revision: String,
-        content: Option<String>,
-        status: Option<String>,
+        expected_revision: u64,
+        changes: Vec<TodoMutation>,
     },
 }
 

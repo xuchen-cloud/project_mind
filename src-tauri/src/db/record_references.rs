@@ -113,7 +113,7 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
             Some(ObjectKind::Record),
         ),
         "todo" => (
-            "SELECT project_id FROM todos WHERE id=?1",
+            "SELECT project_id FROM agent_visible_todos WHERE id=?1",
             Some(ObjectKind::Todo),
         ),
         "document" => (

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RefreshCw, Send, Square } from "lucide-react";
 import type { AgentScope } from "../../lib/agent-types";
 import { bindingForCapability, findAiProfile } from "../../lib/ai";
@@ -40,7 +40,11 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
     if (!viewport || !open || tab !== "conversation") return;
     const changed = () => { stickToBottom.current = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 64; };
     viewport.addEventListener("scroll", changed);
-    return () => viewport.removeEventListener("scroll", changed);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (stickToBottom.current) viewport.scrollTop = viewport.scrollHeight;
+    });
+    if (viewport.firstElementChild) observer?.observe(viewport.firstElementChild);
+    return () => { viewport.removeEventListener("scroll", changed); observer?.disconnect(); };
   }, [open, tab]);
   useLayoutEffect(() => {
     const viewport = scrollRef.current;
@@ -53,10 +57,20 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
     if (await conversation.send(submitted)) setDraft(current => current === submitted ? "" : current);
   };
   const currentUserPersisted = !!conversation.run && conversation.messages.some(message => message.runId === conversation.run?.id && message.role === "user");
-  const historicalRunIds = [...new Set(conversation.messages.map(message => message.runId).filter((id): id is string => !!id && id !== conversation.run?.id))];
+  const outputAnchors = new Map<string, string>();
+  const lastMessages = new Map<string, string>();
+  for (const message of conversation.messages) {
+    if (!message.runId) continue;
+    lastMessages.set(message.runId, message.id);
+    if (message.role === "assistant" || message.role === "tool") outputAnchors.set(message.runId, message.id);
+  }
+  // A failed run may retain a user entry and durable operations without a model reply.
+  for (const [runId, messageId] of lastMessages) if (!outputAnchors.has(runId)) outputAnchors.set(runId, messageId);
+  const currentOutputsAtTail = !!conversation.run && (conversation.busy || !!conversation.liveText || !!conversation.toolActivity
+    || !!conversation.pendingPrompt || !outputAnchors.has(conversation.run.id));
 
   return <Dialog open={open} onClose={onClose} title={scope.kind === "project" ? "项目助手" : "工作区助手"}
-    description="按需读取资料，Record 成果按本次运行的模式保存，可查看来源和撤销凭据。"
+    description="围绕当前工作提问，操作建议、确认和结果会直接出现在会话中。"
     widthClassName="agent-panel-surface" bodyClassName="agent-panel-body" positionClassName="agent-panel-position">
     <div className="agent-panel">
       <div className="agent-panel__settings">
@@ -106,7 +120,11 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
           {conversation.loading ? <p className="agent-panel__empty" role="status">正在加载助手…</p> : null}
           {!conversation.loading && !conversation.messages.length && !conversation.pendingPrompt ? <p className="agent-panel__empty">
             {conversation.settings?.enabled ? "问一个与当前工作有关的问题，助手会按需读取资料。" : "启用助手并配置通用模型后，可以开始提问。"}</p> : null}
-          {conversation.binding ? conversation.messages.map(message => <AgentMessage key={message.id} message={message} binding={conversation.binding!} />) : null}
+          {conversation.binding ? conversation.messages.map(message => <Fragment key={message.id}>
+            <AgentMessage message={message} binding={conversation.binding!} />
+            {message.runId && outputAnchors.get(message.runId) === message.id && !(currentOutputsAtTail && message.runId === conversation.run?.id)
+              ? <AgentRunOutputs binding={conversation.binding!} runId={message.runId} current={message.runId === conversation.run?.id} /> : null}
+          </Fragment>) : null}
           {conversation.nextOrdinal !== null ? <Button size="sm" variant="ghost" disabled={conversation.reading} onClick={() => { stickToBottom.current = false; void conversation.loadMore(); }}>
             {conversation.reading ? "加载中…" : "加载后续消息"}</Button> : null}
           {conversation.pendingPrompt && !currentUserPersisted ? <article className="agent-message agent-message--user"><div className="agent-message__label">你</div><p className="agent-message__text">{conversation.pendingPrompt}</p></article> : null}
@@ -115,8 +133,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
           {conversation.busy && !conversation.liveText && !conversation.toolActivity ? <p className="agent-panel__hint" role="status">{conversation.run?.state === "cancelling" ? "正在停止…" : "正在思考…"}</p> : null}
           {conversation.run?.state === "cancelled" ? <p className="agent-panel__hint" role="status">已停止。已保存的消息仍可继续阅读。</p> : null}
           {conversation.run?.state === "interrupted" ? <p className="agent-panel__hint" role="status">运行已中断，可发送新问题继续。</p> : null}
-          {conversation.binding && conversation.run ? <AgentRunOutputs binding={conversation.binding} runId={conversation.run.id} active={conversation.busy} current /> : null}
-          {conversation.binding ? historicalRunIds.map(runId => <AgentRunOutputs key={runId} binding={conversation.binding!} runId={runId} />) : null}
+          {conversation.binding && conversation.run && currentOutputsAtTail ? <AgentRunOutputs binding={conversation.binding} runId={conversation.run.id} active={conversation.busy} current /> : null}
         </HomeSidebarList>
         {blockedSession ? <p className="agent-panel__hint">{conversation.session?.state === "archived" ? "该会话已归档，请新建会话。" : "会话历史校验未通过，已保留历史并停止继续运行。"}</p> : null}
         <form className="agent-panel__composer" onSubmit={event => { event.preventDefault(); void send(); }}>

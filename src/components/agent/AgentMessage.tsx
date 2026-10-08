@@ -61,18 +61,21 @@ export function agentMessageSources(content: AgentJsonValue): AgentSourceRef[] {
 export function AgentMessage({ message, binding }: { message: AgentConversationMessage; binding: AgentWorkspaceBinding }) {
   const [shown, setShown] = useState(12000);
   const text = agentContentText(message.content);
-  const label = message.role === "user" ? "你" : message.role === "assistant" ? "助手" : "工具结果";
+  const label = message.role === "user" ? "你" : message.role === "assistant" ? "助手" : message.isError ? "工具调用失败" : "工具调用完成";
   const sources = message.role === "tool" ? agentMessageSources(message.content) : [];
+  if (message.role === "assistant" && !text.trim()) return null;
   return <article className={`agent-message agent-message--${message.role}`}>
-    <div className="agent-message__label">{label}{message.isError ? " · 调用失败" : ""}</div>
+    <div className="agent-message__label">{label}</div>
     {message.role === "tool" ? <details>
       <summary>{message.isError ? "查看调用错误" : "查看工具结果"}</summary>
       <pre className="agent-message__text">{text.slice(0, shown)}</pre>
       {shown < text.length ? <Button size="sm" variant="ghost" onClick={() => setShown(count => count + 12000)}>显示更多内容</Button> : null}
+      {sources.length ? <details><summary>参考来源（{sources.length}）</summary>
+        {sources.map(source => <AgentSourceCard key={JSON.stringify([source.object, source.revision, source.locator])} source={source} binding={binding} />)}
+      </details> : null}
     </details> : <>
       <p className="agent-message__text">{text.slice(0, shown)}</p>
       {shown < text.length ? <Button size="sm" variant="ghost" onClick={() => setShown(count => count + 12000)}>显示更多内容</Button> : null}
     </>}
-    {sources.map(source => <AgentSourceCard key={JSON.stringify([source.object, source.revision, source.locator])} source={source} binding={binding} />)}
   </article>;
 }

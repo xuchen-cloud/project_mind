@@ -229,8 +229,12 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
     for method in [
         "record.create",
         "record.patch",
+        "record.version.restore",
         "file.create",
+        "file.update",
+        "file.version.restore",
         "todo.create",
+        "todo.update",
     ] {
         assert!(
             !capabilities()
@@ -242,6 +246,8 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
     }
     for method in [
         "output.stage",
+        "output.update",
+        "output.dismiss",
         "output.commit",
         "operation.undo",
         "operation.restore_created",
@@ -253,9 +259,16 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
         assert!(
             capability.implemented
                 && !capability.read_only
-                && capability.delivery.ends_with(":Record")
+                && capability.delivery.ends_with(":Record/Todo")
         );
     }
+    let todo_get = capabilities()
+        .into_iter()
+        .find(|cap| cap.method == "todo.get")
+        .unwrap();
+    assert!(todo_get.implemented && todo_get.read_only);
+    assert_eq!(todo_get.permission, "source.read");
+    assert_eq!(todo_get.delivery, "AI-19:Todo");
 }
 
 #[test]

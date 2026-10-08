@@ -1,14 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentScopeSettings, AgentSessionMetadata, AgentStoredRun } from "../../lib/agent-types";
+import type { AgentConversationMessage, AgentScopeSettings, AgentSessionMetadata, AgentStoredRun } from "../../lib/agent-types";
 import type { AiSettingsSnapshot } from "../../lib/types";
 const mocked = vi.hoisted(() => ({ useConversation: vi.fn(), aiSettingsGet: vi.fn(), openSettings: vi.fn(), knowledge: vi.fn() }));
 vi.mock("./useAgentConversation", () => ({ useAgentConversation: mocked.useConversation }));
 vi.mock("./AgentKnowledgePanel", () => ({ AgentKnowledgePanel: (props: unknown) => { mocked.knowledge(props); return <div>知识目录</div>; } }));
 vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: () => <div>来源卡片</div> }));
-vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ current }: { current?: boolean }) => <div>{current ? "本次运行成果" : "历史运行成果"}</div> }));
+vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ runId, active }: { runId: string; active?: boolean }) => <div data-testid={`operations-${runId}`} data-active={active || undefined}>操作 {runId}<button>确认执行</button></div> }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocked.aiSettingsGet } }));
 vi.mock("../../state/ui-store", () => ({ useUiStore: (selector: (state: { openSettings: typeof mocked.openSettings }) => unknown) => selector({ openSettings: mocked.openSettings }) }));
 import { AgentPanel } from "./AgentPanel";
@@ -27,6 +27,9 @@ const closed = vi.fn();
 function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>);
+}
+function message(id: string, runId: string, role: AgentConversationMessage["role"], text: string): AgentConversationMessage {
+  return { id, sessionId: session.id, runId, runtimeEntryId: id, ordinal: 0, role, content: text, createdAt: "now" };
 }
 async function loaded() {
   const view = renderPanel();
@@ -105,4 +108,100 @@ describe("Project assistant panel", () => {
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
     expect(screen.getByText("问题超过长度上限，请缩短后发送。")).toBeInTheDocument();
   });
+});
+
+it("places each run's controls once after its last assistant or tool message in conversation order", () => {
+  state.run = { ...run, id: "second", state: "completed" };
+  state.messages = [
+    message("u1", "first", "user", "第一问题"),
+    message("a1", "first", "assistant", "第一回复"),
+    message("t1", "first", "tool", "第一工具结果"),
+    message("u2", "second", "user", "第二问题"),
+    message("t2", "second", "tool", "第二工具结果"),
+    message("a2", "second", "assistant", "第二回复"),
+  ];
+  renderPanel();
+  const first = screen.getByTestId("operations-first");
+  const second = screen.getByTestId("operations-second");
+  const firstTool = screen.getByText("第一工具结果").closest("article")!;
+  const secondQuestion = screen.getByText("第二问题");
+  const secondReply = screen.getByText("第二回复");
+  expect(firstTool.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(first.compareDocumentPosition(secondQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(secondReply.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByTestId("operations-first")).toHaveLength(1);
+  expect(screen.getAllByTestId("operations-second")).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "本次运行成果" })).not.toBeInTheDocument();
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  fireEvent.click(first.querySelector("button")!);
+  expect(screen.queryByRole("dialog", { name: "确认保存成果" })).not.toBeInTheDocument();
+});
+
+it("keeps active operation controls after the live reply or thinking placeholder, without repeating them at a persisted anchor", () => {
+  state.run = { ...run, id: "live" }; state.busy = true;
+  state.messages = [message("tool", "live", "tool", "此前工具结果")];
+  state.liveText = "正在生成的回复";
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const panel = <QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>;
+  const view = render(panel);
+  let operations = screen.getByTestId("operations-live");
+  expect(screen.getByText("正在生成的回复").compareDocumentPosition(operations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(operations).toHaveAttribute("data-active", "true");
+  expect(screen.getAllByTestId("operations-live")).toHaveLength(1);
+  state.liveText = "";
+  view.rerender(<QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>);
+  operations = screen.getByTestId("operations-live");
+  expect(screen.getByText("正在思考…").compareDocumentPosition(operations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByTestId("operations-live")).toHaveLength(1);
+});
+
+it("moves controls to the later message after pagination instead of rendering the same run twice", () => {
+  state.messages = [message("a1", "historical", "assistant", "第一页回复")];
+  state.nextOrdinal = 49;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(<QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>);
+  expect(screen.getAllByTestId("operations-historical")).toHaveLength(1);
+  state.messages = [...state.messages, message("a2", "historical", "assistant", "后续页回复")];
+  state.nextOrdinal = null;
+  view.rerender(<QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>);
+  const operations = screen.getByTestId("operations-historical");
+  expect(screen.getByText("后续页回复").compareDocumentPosition(operations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByTestId("operations-historical")).toHaveLength(1);
+});
+
+it("follows asynchronously growing operation content only while the reader is at the bottom", () => {
+  const observers: ContentObserver[] = [];
+  class ContentObserver implements ResizeObserver {
+    targets = new Set<Element>();
+    constructor(private callback: ResizeObserverCallback) { observers.push(this); }
+    observe(target: Element) { this.targets.add(target); }
+    unobserve(target: Element) { this.targets.delete(target); }
+    disconnect = vi.fn(() => { this.targets.clear(); });
+    emit() { this.callback([], this); }
+  }
+  vi.stubGlobal("ResizeObserver", ContentObserver);
+  const view = renderPanel();
+  try {
+    const viewport = screen.getByRole("region", { name: "助手消息" });
+    const content = viewport.firstElementChild!;
+    let height = 300;
+    let position = 200;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => height },
+      scrollTop: { configurable: true, get: () => position, set: value => { position = Math.max(0, Math.min(value, height - 100)); } },
+    });
+    const grew = () => act(() => observers.filter(observer => observer.targets.has(content)).forEach(observer => observer.emit()));
+    fireEvent.scroll(viewport, { target: { scrollTop: 200 } });
+    height = 500; grew();
+    expect(viewport.scrollTop).toBe(400);
+    fireEvent.scroll(viewport, { target: { scrollTop: 75 } });
+    height = 700; grew();
+    expect(viewport.scrollTop).toBe(75);
+    fireEvent.scroll(viewport, { target: { scrollTop: 600 } });
+    height = 800; grew();
+    expect(viewport.scrollTop).toBe(700);
+    view.unmount();
+    expect(observers.every(observer => observer.disconnect.mock.calls.length > 0)).toBe(true);
+  } finally { view.unmount(); vi.unstubAllGlobals(); }
 });

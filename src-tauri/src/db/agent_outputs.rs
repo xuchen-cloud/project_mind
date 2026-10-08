@@ -1,4 +1,4 @@
-//! Deterministic Record candidates, backed by schema26 staging and the original
+//! Deterministic Record and Todo candidates, backed by schema26 staging and the original
 //! atomic receipt. Native Record transactions alone mark an output committed.
 use super::{
     agent_operations::{io_error, parse_scope_key},
@@ -108,8 +108,10 @@ struct Payload {
     source_changed: Vec<bool>,
     #[serde(default)]
     error_code: Option<ErrorCode>,
+    #[serde(default)]
+    dismissed: bool,
 }
-fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOutput> {
+pub(super) fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOutput> {
     id_check(id)?;
     let row=conn.query_row("SELECT o.run_id,o.ordinal,o.revision,o.payload_json,o.sources_json,o.state,o.object_ref_json,json_extract(r.context_manifest_json,'$.mode') FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id WHERE o.id=?1",[id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,u32>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<String>>(6)?,r.get::<_,String>(7)?))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Output not found"))?;
     let payload: Payload = decode(&row.3)?;
@@ -134,6 +136,7 @@ fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOutput> {
         source_changed: payload.source_changed,
         mode: decode(&encode(&row.7)?)?,
         error_code: payload.error_code,
+        dismissed: payload.dismissed,
     })
 }
 fn intent_scope(
@@ -159,11 +162,78 @@ fn intent_scope(
                 Some(patch.base_revision),
             ))
         }
+        OutputIntent::TodoCreate { scope, .. } => {
+            Ok((scope, "content.create", "create", None, None))
+        }
+        OutputIntent::TodoUpdate {
+            target,
+            expected_revision,
+            ..
+        } => {
+            if target.kind != ObjectKind::Todo
+                || *expected_revision == 0
+                || *expected_revision > i64::MAX as u64
+            {
+                return Err(invalid("Invalid Todo update target or revision"));
+            }
+            target.key()?;
+            Ok((
+                &target.scope,
+                "todo.update",
+                "todo_update",
+                Some(target),
+                Some(*expected_revision),
+            ))
+        }
         _ => Err(AgentError::new(
             ErrorCode::ToolCallUnsupported,
-            "Only Record output staging is available",
+            "Only Record and Todo output staging are available",
         )),
     }
+}
+fn output_kind(intent: &OutputIntent) -> AgentResult<&'static str> {
+    match intent {
+        OutputIntent::RecordCreate { .. } | OutputIntent::RecordPatch { .. } => Ok("record"),
+        OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => Ok("todo"),
+        _ => Err(AgentError::new(
+            ErrorCode::ToolCallUnsupported,
+            "This output kind is unavailable",
+        )),
+    }
+}
+fn dedupe_key(intent: &OutputIntent) -> Option<&str> {
+    match intent {
+        OutputIntent::TodoCreate { dedupe_key, .. } => Some(dedupe_key),
+        _ => None,
+    }
+}
+fn dedupe_output(
+    conn: &Connection,
+    run_id: &str,
+    input: &StageRecordInput,
+) -> AgentResult<Option<RuntimeOutput>> {
+    let Some(key) = dedupe_key(&input.intent) else {
+        return Ok(None);
+    };
+    if key.is_empty() || key.len() > 128 {
+        return Err(invalid("Todo action key must contain 1 to 128 bytes"));
+    }
+    let id: Option<String> = conn.query_row("SELECT id FROM agent_outputs WHERE run_id=?1 AND kind='todo' AND intent='create' AND dedupe_key=?2", params![run_id,key], |r|r.get(0)).optional().map_err(io_error)?;
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    let output = read_output(conn, &id)?;
+    let saved = StageRecordInput {
+        intent: output.staged.intent.clone(),
+        sources: output.staged.sources.clone(),
+    };
+    if encode(&saved)? != encode(input)? {
+        return Err(AgentError::new(
+            ErrorCode::IdempotencyConflict,
+            "Todo action already has a different candidate; read or update the existing output",
+        ));
+    }
+    Ok(Some(output))
 }
 fn active(run: &OutputRun) -> AgentResult<()> {
     if run.state != RunState::Running || run.session_state != "active" {
@@ -284,6 +354,9 @@ impl Database {
                 &previous.staged.id,
             )?));
         }
+        if let Some(output) = dedupe_output(&self.conn, run_id, input)? {
+            return Ok(Some(output));
+        }
         active(&run)?;
         self.output_validate_candidate(request, binding, &run, input)?;
         Ok(None)
@@ -331,7 +404,7 @@ impl Database {
         frozen(request, run).authorize(binding, scope, operation)?;
         self.source_live_scope(scope)?;
         if encode(input)?.len() > 1024 * 1024 || input.sources.len() > 20 {
-            return Err(invalid("Record candidate exceeds staging budget"));
+            return Err(invalid("Output candidate exceeds staging budget"));
         }
         match &input.intent {
             OutputIntent::RecordCreate {
@@ -370,7 +443,16 @@ impl Database {
                 }
                 validate_record_patch(patch, &head)?;
             }
-            _ => unreachable!("intent_scope checked the supported Record kinds"),
+            OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => {
+                self.agent_todo_validate_candidate(
+                    request,
+                    binding,
+                    &run.scope,
+                    &frozen(request, run),
+                    &input.intent,
+                )?;
+            }
+            _ => unreachable!("intent_scope checked the supported output kinds"),
         }
         let mut changed = Vec::with_capacity(input.sources.len());
         for source in &input.sources {
@@ -394,6 +476,7 @@ impl Database {
             intent: input.intent.clone(),
             source_changed: changed,
             error_code: None,
+            dismissed: false,
         })
     }
     pub(crate) fn agent_output_stage_record(
@@ -410,13 +493,15 @@ impl Database {
         // Replay remains a read of the original successful stage, including
         // after a terminal run. An expired run can never allocate a new stage.
         self.agent_atomic_operation(&request.caller.key(),&request.request_id,"output.stage",input,|tx| {
-            let run=read_run(tx,run_id)?;active(&run)?;writable(&run)?;
+            let run=read_run(tx,run_id)?;writable(&run)?;
+            if let Some(output) = dedupe_output(tx,run_id,input)? { return Ok((output,None)); }
+            active(&run)?;
             let payload=self.output_validate_candidate(request,binding,&run,input)?;
             let (_,_,kind,target,base)=intent_scope(&input.intent)?;
             let ordinal:i64=tx.query_row("SELECT COALESCE(MAX(ordinal)+1,0) FROM agent_outputs WHERE run_id=?1",[run_id],|r|r.get(0)).map_err(io_error)?;
             let ordinal=u32::try_from(ordinal).map_err(|_|invalid("Output ordinal exceeds storage budget"))?;
             let id=random_id();
-            tx.execute("INSERT INTO agent_outputs(id,run_id,ordinal,kind,intent,target_ref_json,base_revision,payload_json,sources_json,state) VALUES (?1,?2,?3,'record',?4,?5,?6,?7,?8,'staged')",params![id,run_id,ordinal,kind,target.map(encode).transpose()?,base.map(|v|v as i64),encode(&payload)?,encode(&input.sources)?]).map_err(io_error)?;
+            tx.execute("INSERT INTO agent_outputs(id,run_id,ordinal,kind,intent,target_ref_json,base_revision,payload_json,sources_json,state,dedupe_key) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'staged',?10)",params![id,run_id,ordinal,output_kind(&input.intent)?,kind,target.map(encode).transpose()?,base.map(|v|v as i64),encode(&payload)?,encode(&input.sources)?,dedupe_key(&input.intent)]).map_err(io_error)?;
             Ok((read_output(tx,&id)?,None))
         })
     }
@@ -579,10 +664,12 @@ impl Database {
         {
             return Ok(previous);
         }
-        if previous.state != OutputState::Staged {
+        if previous.state != OutputState::Staged
+            && !(previous.state == OutputState::Failed && previous.dismissed)
+        {
             return Err(AgentError::new(
                 ErrorCode::OutputCommitFailed,
-                "Only a staged candidate can be edited",
+                "Only an uncommitted candidate can be edited",
             ));
         }
         if previous.staged.revision != input.expected_revision {
@@ -590,7 +677,11 @@ impl Database {
         }
         let before = intent_scope(&previous.staged.intent)?;
         let after = intent_scope(&input.candidate.intent)?;
-        if before.2 != after.2 || before.3 != after.3 {
+        if before.2 != after.2
+            || before.3 != after.3
+            || output_kind(&previous.staged.intent)? != output_kind(&input.candidate.intent)?
+            || dedupe_key(&previous.staged.intent) != dedupe_key(&input.candidate.intent)
+        {
             return Err(invalid("Output candidate cannot change kind or target"));
         }
         self.output_validate_candidate(request, binding, &run, &input.candidate)?;
@@ -614,17 +705,65 @@ impl Database {
         }
         self.agent_atomic_operation(&request.caller.key(),&request.request_id,"output.update",input,|tx| {
             let previous=read_output(tx,&input.output_id)?;
-            if !matches!(previous.state,OutputState::Staged) {return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Only staged outputs can be edited"));}
+            if previous.state != OutputState::Staged && !(previous.state == OutputState::Failed && previous.dismissed) {return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Only uncommitted candidates can be edited"));}
             if previous.staged.revision!=input.expected_revision {return Err(conflict());}
             let (_,_,old_kind,old_target,_)=intent_scope(&previous.staged.intent)?;
             let (_,_,kind,target,base)=intent_scope(&input.candidate.intent)?;
-            if old_kind!=kind || old_target!=target {return Err(denied());}
+            if old_kind!=kind || old_target!=target || output_kind(&previous.staged.intent)? != output_kind(&input.candidate.intent)? || dedupe_key(&previous.staged.intent) != dedupe_key(&input.candidate.intent) {return Err(denied());}
             let run=read_run(tx,&previous.staged.run_id)?;writable(&run)?;
             let payload=self.output_validate_candidate(request,binding,&run,&input.candidate)?;
-            let changed=tx.execute("UPDATE agent_outputs SET revision=revision+1,payload_json=?1,sources_json=?2,base_revision=?3 WHERE id=?4 AND revision=?5 AND state='staged'",params![encode(&payload)?,encode(&input.candidate.sources)?,base.map(|v|v as i64),input.output_id,input.expected_revision as i64]).map_err(io_error)?;
+            let changed=tx.execute("UPDATE agent_outputs SET revision=revision+1,payload_json=?1,sources_json=?2,base_revision=?3 WHERE id=?4 AND revision=?5 AND state IN ('staged','failed')",params![encode(&payload)?,encode(&input.candidate.sources)?,base.map(|v|v as i64),input.output_id,input.expected_revision as i64]).map_err(io_error)?;
             if changed!=1 {return Err(conflict());}
             Ok((read_output(tx,&input.output_id)?,None))
         })
+    }
+    /// Dismiss is a durable GUI decision, without a business mutation or a
+    /// change to the native commit state. Its revision invalidates old approvals.
+    pub(crate) fn agent_output_dismiss(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        id: &str,
+        expected_revision: u64,
+    ) -> AgentResult<RuntimeOutput> {
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(denied());
+        }
+        if expected_revision == 0 || expected_revision >= i64::MAX as u64 {
+            return Err(invalid("Invalid output revision"));
+        }
+        let current = read_output(&self.conn, id)?;
+        let run =
+            self.output_authorize(request, binding, &current.staged.run_id, "output.update")?;
+        writable(&run)?;
+        frozen(request, &run).authorize(binding, &run.scope, "output.update")?;
+        if !(run.mode == ExecutionMode::Review
+            || run.mode == ExecutionMode::Collaborate && run.state.is_terminal())
+        {
+            return Err(denied());
+        }
+        let payload = json!({"outputId":id,"expectedRevision":expected_revision});
+        self.agent_atomic_operation::<RuntimeOutput>(
+            &request.caller.key(), &request.request_id, "output.dismiss", &payload, |tx| {
+                let current = read_output(tx, id)?;
+                let run = self.output_authorize(request, binding, &current.staged.run_id, "output.update")?;
+                writable(&run)?;
+                frozen(request, &run).authorize(binding, &run.scope, "output.update")?;
+                if !(run.mode == ExecutionMode::Review
+                    || run.mode == ExecutionMode::Collaborate && run.state.is_terminal())
+                { return Err(denied()); }
+                if current.staged.revision != expected_revision { return Err(conflict()); }
+                if current.dismissed || !matches!(current.state, OutputState::Staged | OutputState::Failed) {
+                    return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Only an uncommitted candidate can be dismissed"));
+                }
+                let changed = tx.execute("UPDATE agent_outputs SET revision=revision+1,payload_json=json_set(payload_json,'$.dismissed',json('true')) WHERE id=?1 AND revision=?2 AND state IN ('staged','failed')",params![id,expected_revision as i64]).map_err(io_error)?;
+                if changed != 1 { return Err(conflict()); }
+                Ok((read_output(tx,id)?,None))
+            },
+        )?;
+        // Original request replays must return the current decision and revision,
+        // including any later explicit edit, rather than their old receipt value.
+        read_output(&self.conn, id)
     }
     pub(crate) fn agent_output_commit_prepare(
         &self,
@@ -645,7 +784,8 @@ impl Database {
             Caller::BuiltinRun { .. } if run.mode == ExecutionMode::Collaborate => active(&run)?,
             _ => return Err(denied()),
         }
-        if matches!(output.state, OutputState::Committed)
+        if output.dismissed
+            || matches!(output.state, OutputState::Committed)
             || matches!(output.state, OutputState::Failed) && !matches!(request.caller, Caller::Gui)
         {
             return Err(AgentError::new(
@@ -676,6 +816,43 @@ impl Database {
             commit_request_id,
             mode: run.mode,
         })
+    }
+    pub(super) fn agent_output_commit_validate(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        id: &str,
+        expected_revision: u64,
+    ) -> AgentResult<RuntimeOutput> {
+        let output = read_output(&self.conn, id)?;
+        let run =
+            self.output_authorize(request, binding, &output.staged.run_id, "output.commit")?;
+        writable(&run)?;
+        match &request.caller {
+            Caller::Gui if run.mode == ExecutionMode::Review => {}
+            Caller::Gui if run.mode == ExecutionMode::Collaborate && run.state.is_terminal() => {}
+            Caller::BuiltinRun { .. } if run.mode == ExecutionMode::Collaborate => active(&run)?,
+            _ => return Err(denied()),
+        }
+        if output.staged.revision != expected_revision {
+            return Err(conflict());
+        }
+        if output.dismissed || output.state != OutputState::Committing {
+            return Err(AgentError::new(
+                ErrorCode::OutputCommitFailed,
+                "Output is not reserved for a native commit",
+            ));
+        }
+        self.output_validate_candidate(
+            request,
+            binding,
+            &run,
+            &StageRecordInput {
+                intent: output.staged.intent.clone(),
+                sources: output.staged.sources.clone(),
+            },
+        )?;
+        Ok(output)
     }
     pub(crate) fn agent_output_mark_failed(
         &self,
@@ -764,7 +941,7 @@ impl Database {
         if !matches!(output.state, OutputState::Committed) {
             return Ok(None);
         }
-        let result:Option<String>=self.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id=?1 AND operation IN ('record.create','record.patch') AND state='committed' AND run_id=?2 AND json_extract(output_context_json,'$.outputId')=?3",params![format!("output:{id}:{expected_revision}"),output.staged.run_id,id],|r|r.get(0)).optional().map_err(io_error)?;
+        let result:Option<String>=self.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id=?1 AND operation IN ('record.create','record.patch','todo.create','todo.update') AND state='committed' AND run_id=?2 AND json_extract(output_context_json,'$.outputId')=?3",params![format!("output:{id}:{expected_revision}"),output.staged.run_id,id],|r|r.get(0)).optional().map_err(io_error)?;
         let result = result.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::OutputCommitFailed,
@@ -773,6 +950,67 @@ impl Database {
         })?;
         Ok(Some(decode(&result)?))
     }
+}
+
+/// Authority for the Todo native callback. The original receipt owns the
+/// operation; this resolves only its actual stage/run and frozen grant.
+pub(super) fn agent_output_todo_binding(
+    tx: &Transaction<'_>,
+    caller: &str,
+    request_id: &str,
+    operation: &str,
+) -> AgentResult<(RuntimeOutput, ScopeGrant)> {
+    let parts: Vec<_> = request_id.split(':').collect();
+    if parts.len() != 3 || parts[0] != "output" {
+        return Err(invalid("Invalid output commit identity"));
+    }
+    id_check(parts[1])?;
+    let revision = parts[2]
+        .parse::<u64>()
+        .ok()
+        .filter(|v| *v > 0 && *v <= i64::MAX as u64 && v.to_string() == parts[2])
+        .ok_or_else(|| invalid("Invalid output commit revision"))?;
+    let output = read_output(tx, parts[1])?;
+    if output.staged.revision != revision {
+        return Err(conflict());
+    }
+    if output.dismissed || output.state != OutputState::Committing {
+        return Err(AgentError::new(
+            ErrorCode::OutputCommitFailed,
+            "Output has not been prepared or already settled",
+        ));
+    }
+    let run = read_run(tx, &output.staged.run_id)?;
+    writable(&run)?;
+    if !(caller == "gui"
+        && (run.mode == ExecutionMode::Review
+            || run.mode == ExecutionMode::Collaborate && run.state.is_terminal())
+        || caller == format!("run:{}", output.staged.run_id)
+            && run.mode == ExecutionMode::Collaborate
+            && matches!(run.state, RunState::Running | RunState::Cancelling))
+    {
+        return Err(denied());
+    }
+    let (scope, permission, intent, _, _) = intent_scope(&output.staged.intent)?;
+    if scope != &run.scope
+        || output_kind(&output.staged.intent)? != "todo"
+        || (operation == "todo.create") != (intent == "create")
+    {
+        return Err(denied());
+    }
+    let binding = WorkspaceBinding {
+        workspace_id: run.grant.workspace_id.clone(),
+        generation: String::new(),
+    };
+    let captured = RequestContext {
+        binding: binding.clone(),
+        scope_grant: run.grant.clone(),
+        caller: Caller::Gui,
+        request_id: request_id.into(),
+    };
+    captured.authorize(&binding, scope, "output.commit")?;
+    captured.authorize(&binding, scope, permission)?;
+    Ok((output, run.grant))
 }
 
 /// Settle abandoned saves in the same writer transaction as terminal run state.
@@ -815,7 +1053,7 @@ pub(crate) fn agent_output_record_committed(
     if output.staged.revision != revision {
         return Err(conflict());
     }
-    if !matches!(output.state, OutputState::Committing) {
+    if output.dismissed || !matches!(output.state, OutputState::Committing) {
         return Err(AgentError::new(
             ErrorCode::OutputCommitFailed,
             "Output has not been prepared or already settled",
@@ -833,7 +1071,10 @@ pub(crate) fn agent_output_record_committed(
         return Err(denied());
     }
     let (scope, permission, intent, target, base) = intent_scope(&output.staged.intent)?;
-    if scope != &run.scope || (operation == "record.create") != (intent == "create") {
+    if scope != &run.scope
+        || output_kind(&output.staged.intent)? != "record"
+        || (operation == "record.create") != (intent == "create")
+    {
         return Err(denied());
     }
     let frozen_context = RequestContext {
@@ -992,6 +1233,184 @@ mod tests {
             gui,
         }
     }
+    #[test]
+    fn output_dismiss_persists_without_business_writes_and_replays_current_revision() {
+        let f = fixture(ExecutionMode::Review);
+        let original =
+            f.db.agent_output_stage_record(&f.builtin, &f.binding, &candidate("Draft"))
+                .unwrap();
+        assert!(!original.dismissed);
+        // Older payloads have no decision field and remain undecided.
+        f.db.conn.execute("UPDATE agent_outputs SET payload_json=json_remove(payload_json,'$.dismissed') WHERE id=?1",[&original.staged.id]).unwrap();
+        assert!(
+            !f.db
+                .agent_output_get(&f.gui, &f.binding, &original.staged.id)
+                .unwrap()
+                .dismissed
+        );
+        let outbox = count(&f.db, "agent_change_log");
+        assert_eq!(
+            f.db.agent_output_dismiss(&f.builtin, &f.binding, &original.staged.id, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        let dismissed =
+            f.db.agent_output_dismiss(&f.gui, &f.binding, &original.staged.id, 1)
+                .unwrap();
+        assert!(dismissed.dismissed);
+        assert_eq!(dismissed.staged.revision, 2);
+        assert_eq!(dismissed.state, OutputState::Staged);
+        assert_eq!(count(&f.db, "workspace_notes"), 0);
+        assert_eq!(count(&f.db, "notes"), 0);
+        assert_eq!(count(&f.db, "agent_change_log"), outbox);
+        let reopened =
+            Database::open(&f._dir.path().join("app.sqlite"), f._dir.path(), None).unwrap();
+        let replay = reopened
+            .agent_output_dismiss(&f.gui, &f.binding, &original.staged.id, 1)
+            .unwrap();
+        assert!(replay.dismissed);
+        assert_eq!(replay.staged.revision, 2);
+        let mut update_request = f.gui.clone();
+        update_request.request_id = "edit-dismissed".into();
+        let updated = reopened
+            .agent_output_update(
+                &update_request,
+                &f.binding,
+                &OutputUpdateInput {
+                    output_id: original.staged.id.clone(),
+                    expected_revision: 2,
+                    candidate: candidate("Revised draft"),
+                },
+            )
+            .unwrap();
+        assert!(!updated.dismissed);
+        assert_eq!(updated.staged.revision, 3);
+        let original_request_replay = reopened
+            .agent_output_dismiss(&f.gui, &f.binding, &original.staged.id, 1)
+            .unwrap();
+        assert!(!original_request_replay.dismissed);
+        assert_eq!(original_request_replay.staged.revision, 3);
+        assert_eq!(count(&reopened, "workspace_notes"), 0);
+        assert_eq!(count(&reopened, "agent_change_log"), outbox);
+        assert_eq!(
+            reopened
+                .agent_output_commit_prepare(&f.gui, &f.binding, &original.staged.id, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            reopened
+                .agent_output_commit_prepare(&f.gui, &f.binding, &original.staged.id, 3)
+                .unwrap()
+                .output
+                .state,
+            OutputState::Committing
+        );
+    }
+    #[test]
+    fn output_dismiss_and_commit_reservation_are_mutually_exclusive() {
+        let f = fixture(ExecutionMode::Review);
+        let first =
+            f.db.agent_output_stage_record(&f.builtin, &f.binding, &candidate("Cancel first"))
+                .unwrap();
+        let cancelled =
+            f.db.agent_output_dismiss(&f.gui, &f.binding, &first.staged.id, 1)
+                .unwrap();
+        for revision in [1, 2] {
+            assert_eq!(
+                f.db.agent_output_commit_prepare(&f.gui, &f.binding, &first.staged.id, revision)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::OutputCommitFailed
+            );
+        }
+        assert!(cancelled.dismissed);
+        let mut stage_request = f.builtin.clone();
+        stage_request.request_id = "stage-confirm-first".into();
+        let second =
+            f.db.agent_output_stage_record(&stage_request, &f.binding, &candidate("Confirm first"))
+                .unwrap();
+        let reserved =
+            f.db.agent_output_commit_prepare(&f.gui, &f.binding, &second.staged.id, 1)
+                .unwrap();
+        let mut dismiss_request = f.gui.clone();
+        dismiss_request.request_id = "cancel-reserved".into();
+        assert_eq!(
+            f.db.agent_output_dismiss(&dismiss_request, &f.binding, &second.staged.id, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::OutputCommitFailed
+        );
+        let p = projection("Body");
+        f.db.record_create(
+            &f.gui.caller.key(),
+            &reserved.commit_request_id,
+            &RecordCreate {
+                scope: Scope::Workspace,
+                title: Some("Confirm first".into()),
+                tag_ids: vec![],
+                document: p.document.clone(),
+                code_language: None,
+            },
+            &p,
+            &f.binding.workspace_id,
+        )
+        .unwrap();
+        let committed =
+            f.db.agent_output_get(&f.gui, &f.binding, &second.staged.id)
+                .unwrap();
+        assert_eq!(committed.state, OutputState::Committed);
+        assert!(!committed.dismissed);
+        assert_eq!(
+            f.db.agent_output_dismiss(&dismiss_request, &f.binding, &second.staged.id, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::OutputCommitFailed
+        );
+        assert_eq!(count(&f.db, "workspace_notes"), 1);
+        // A failed save can also be dismissed and explicitly edited for retry.
+        stage_request.request_id = "stage-failed".into();
+        let failed_candidate = f
+            .db
+            .agent_output_stage_record(&stage_request, &f.binding, &candidate("Retry candidate"))
+            .unwrap();
+        f.db.agent_output_commit_prepare(&f.gui, &f.binding, &failed_candidate.staged.id, 1)
+            .unwrap();
+        f.db.agent_output_mark_failed(
+            &f.gui,
+            &f.binding,
+            &failed_candidate.staged.id,
+            1,
+            ErrorCode::IoFailed,
+        )
+        .unwrap();
+        dismiss_request.request_id = "dismiss-failed".into();
+        let failed =
+            f.db.agent_output_dismiss(&dismiss_request, &f.binding, &failed_candidate.staged.id, 1)
+                .unwrap();
+        assert_eq!(failed.state, OutputState::Failed);
+        assert!(failed.dismissed);
+        dismiss_request.request_id = "edit-failed-dismissed".into();
+        let edited =
+            f.db.agent_output_update(
+                &dismiss_request,
+                &f.binding,
+                &OutputUpdateInput {
+                    output_id: failed_candidate.staged.id.clone(),
+                    expected_revision: 2,
+                    candidate: candidate("Retry reviewed"),
+                },
+            )
+            .unwrap();
+        assert!(!edited.dismissed);
+        assert_eq!(edited.staged.revision, 3);
+        assert!(f
+            .db
+            .agent_output_commit_prepare(&f.gui, &f.binding, &failed_candidate.staged.id, 3)
+            .is_ok());
+    }
     fn candidate(title: &str) -> StageRecordInput {
         StageRecordInput {
             intent: OutputIntent::RecordCreate {
@@ -1135,9 +1554,10 @@ mod tests {
         let mut req = f.builtin.clone();
         req.request_id = "unsupported".into();
         let todo = StageRecordInput {
-            intent: OutputIntent::TodoCreate {
-                scope: Scope::Workspace,
-                content: "Todo".into(),
+            intent: OutputIntent::FileCreate {
+                project_id: 1,
+                safe_name: "file.txt".into(),
+                utf8_content: "File".into(),
             },
             sources: vec![],
         };
