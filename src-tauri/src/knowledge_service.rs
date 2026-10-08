@@ -146,6 +146,7 @@ fn unavailable(error: &AgentError) -> bool {
     matches!(
         error.code,
         ErrorCode::NotFound
+            | ErrorCode::ObjectWithdrawn
             | ErrorCode::ScopeDenied
             | ErrorCode::SourceNotReady
             | ErrorCode::SourceChanged

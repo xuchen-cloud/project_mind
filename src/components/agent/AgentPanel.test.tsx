@@ -8,6 +8,7 @@ const mocked = vi.hoisted(() => ({ useConversation: vi.fn(), aiSettingsGet: vi.f
 vi.mock("./useAgentConversation", () => ({ useAgentConversation: mocked.useConversation }));
 vi.mock("./AgentKnowledgePanel", () => ({ AgentKnowledgePanel: (props: unknown) => { mocked.knowledge(props); return <div>知识目录</div>; } }));
 vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: () => <div>来源卡片</div> }));
+vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ current }: { current?: boolean }) => <div>{current ? "本次运行成果" : "历史运行成果"}</div> }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocked.aiSettingsGet } }));
 vi.mock("../../state/ui-store", () => ({ useUiStore: (selector: (state: { openSettings: typeof mocked.openSettings }) => unknown) => selector({ openSettings: mocked.openSettings }) }));
 import { AgentPanel } from "./AgentPanel";
@@ -38,7 +39,7 @@ beforeEach(() => {
     binding, settings, sessions: [session], sessionCursor: null, session: null, messages: [], nextOrdinal: null,
     run: null, liveText: "", pendingPrompt: "", toolActivity: "", error: null, loading: false,
     starting: false, reading: false, savingSettings: false, probing: false, verified: false, runtimeAvailable: true, busy: false,
-    setEnabled: vi.fn(async () => {}), selectSession: vi.fn(async () => {}), send: vi.fn(async () => true),
+    setEnabled: vi.fn(async () => {}), setMode: vi.fn(async () => {}), selectSession: vi.fn(async () => {}), send: vi.fn(async () => true),
     cancel: vi.fn(async () => {}), refresh: vi.fn(async () => {}), moreSessions: vi.fn(async () => {}),
     probe: vi.fn(async () => {}), loadMore: vi.fn(async () => {}),
   };
@@ -60,6 +61,8 @@ describe("Project assistant panel", () => {
     await loaded();
     await userEvent.click(screen.getByRole("checkbox", { name: "启用本项目助手" }));
     expect(state.setEnabled).toHaveBeenCalledWith(false);
+    fireEvent.change(screen.getByRole("combobox", { name: "执行模式" }), { target: { value: "review" } });
+    expect(state.setMode).toHaveBeenCalledWith("review");
     await userEvent.click(screen.getByRole("button", { name: "模型设置" }));
     expect(mocked.openSettings).toHaveBeenCalledWith("ai-models"); expect(closed).toHaveBeenCalledOnce();
   });
@@ -79,6 +82,7 @@ describe("Project assistant panel", () => {
     renderPanel();
     expect(screen.getByText("流式回答")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "历史会话" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "执行模式" })).toBeDisabled();
     expect(screen.getByRole("tab", { name: "知识" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "停止" }));
     expect(state.cancel).toHaveBeenCalledOnce();

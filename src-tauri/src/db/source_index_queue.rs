@@ -242,7 +242,10 @@ impl Database {
             match self.source_read_object(request, binding, &object) {
                 Ok(_) => (),
                 Err(error)
-                    if matches!(error.code, ErrorCode::NotFound | ErrorCode::ScopeDenied) =>
+                    if matches!(
+                        error.code,
+                        ErrorCode::NotFound | ErrorCode::ScopeDenied | ErrorCode::ObjectWithdrawn
+                    ) =>
                 {
                     tx.execute("UPDATE agent_jobs SET state='cancelled',error=NULL WHERE dedupe_key=?1 AND kind='extract'",[&key]).map_err(io_error)?;
                     continue;
@@ -341,7 +344,10 @@ impl Database {
             match self.source_read_object(request, binding, &payload.object) {
                 Ok(_) => (),
                 Err(error)
-                    if matches!(error.code, ErrorCode::NotFound | ErrorCode::ScopeDenied) =>
+                    if matches!(
+                        error.code,
+                        ErrorCode::NotFound | ErrorCode::ScopeDenied | ErrorCode::ObjectWithdrawn
+                    ) =>
                 {
                     tx.execute("UPDATE agent_jobs SET state='cancelled' WHERE id=?1", [&id])
                         .map_err(io_error)?;

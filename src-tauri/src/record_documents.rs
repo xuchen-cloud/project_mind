@@ -926,6 +926,14 @@ pub(crate) fn document_block_ids(document: &Value) -> Vec<String> {
     block_map(document).into_keys().collect()
 }
 
+/// Complete canonical node hash shared by patch CAS and model block reads.
+pub(crate) fn record_block_hash(node: &Value) -> AgentResult<String> {
+    Ok(format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(node).map_err(|_| invalid("Invalid block"))?)
+    ))
+}
+
 pub(crate) fn validate_record_patch(
     patch: &crate::agent::outputs::RecordPatch,
     head: &RecordDocumentHead,
@@ -998,10 +1006,7 @@ pub(crate) fn validate_record_patch(
                 .get(id)
                 .ok_or_else(|| invalid("Unknown block anchor"))?;
             if let Some(expected) = expected {
-                let hash = format!(
-                    "sha256:{:x}",
-                    Sha256::digest(serde_json::to_vec(node).map_err(|_| invalid("Invalid block"))?)
-                );
+                let hash = record_block_hash(node)?;
                 if &hash != expected {
                     return Err(invalid("Block hash differs from base snapshot"));
                 }

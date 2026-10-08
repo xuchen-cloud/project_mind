@@ -3,6 +3,10 @@ mod agent_profiles;
 mod agent_sessions;
 mod agent_runtime_schema;
 mod agent_operations;
+mod agent_outputs;
+mod agent_output_schema;
+pub(crate) mod agent_record_withdrawals;
+mod agent_record_undo;
 mod agent_overviews;
 mod overview_inventory;
 mod source_catalogue;
@@ -108,7 +112,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = AGENT_RUNTIME_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = agent_output_schema::AGENT_OUTPUT_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -819,6 +823,7 @@ impl Database {
         self.ensure_agent_schema()?;
         self.ensure_record_document_schema()?;
         self.ensure_agent_runtime_schema()?;
+        self.ensure_agent_output_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -1991,9 +1996,9 @@ impl Database {
         Ok(DemoSeedResult {
             workspace_root: workspace_root.to_string_lossy().to_string(),
             project_count: count("projects")?,
-            project_record_count: count("notes")?,
+            project_record_count: count("agent_visible_notes")?,
             workspace_record_count: self.conn.query_row(
-                "SELECT COUNT(*) FROM workspace_notes WHERE note_kind = ?1",
+                "SELECT COUNT(*) FROM agent_visible_workspace_notes WHERE note_kind = ?1",
                 [WORKSPACE_NOTE_KIND_STANDARD],
                 |row| row.get(0),
             )?,
@@ -2929,7 +2934,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
-            FROM workspace_notes
+            FROM agent_visible_workspace_notes
             WHERE note_kind = ?1
             ORDER BY updated_at DESC, id DESC
             "#,
@@ -4683,7 +4688,7 @@ impl Database {
               ), '') AS tag_match_text,
               wn.updated_at,
               COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
-            FROM workspace_notes wn
+            FROM agent_visible_workspace_notes wn
             WHERE EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
               OR wn.title LIKE ?1
               OR wn.content_markdown LIKE ?1
@@ -4837,7 +4842,7 @@ impl Database {
               p.name AS project_name,
               n.updated_at,
               COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
-            FROM notes n
+            FROM agent_visible_notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE (
               (
@@ -5142,7 +5147,7 @@ impl Database {
               COALESCE(NULLIF(TRIM(n.content_markdown), ''), '') AS content_match_text,
               p.name AS project_name,
               n.updated_at
-            FROM notes n
+            FROM agent_visible_notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE p.is_archived = 0
               AND (?1 IS NULL OR n.project_id = ?1)
@@ -5328,6 +5333,11 @@ impl Database {
         &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        if input.kind.trim()=="note" {
+            if let Some(project_id)=self.conn.query_row("SELECT project_id FROM notes WHERE id=?1",[input.id],|row|row.get(0)).optional()? {
+                agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget{scope:crate::agent::models::Scope::Project{project_id},record_id:input.id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
+            }
+        }
         match input.kind.trim() {
             "workspace_record" => self.workspace_record_reference_resolve(input.id),
             "note" => self
@@ -5492,6 +5502,8 @@ impl Database {
     }
 
     fn note_record(&self, note_id: i64) -> Result<NoteRecord> {
+        let project_id=self.conn.query_row("SELECT project_id FROM notes WHERE id=?1",[note_id],|row|row.get(0))?;
+        agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget {scope:crate::agent::models::Scope::Project{project_id},record_id:note_id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
         let tags = self.fetch_note_tags(note_id)?;
         let mut note = self.conn.query_row(
             r#"
@@ -5525,6 +5537,7 @@ impl Database {
     }
 
     fn workspace_note_record(&self, note_id: i64) -> Result<WorkspaceRecord> {
+        agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget {scope:crate::agent::models::Scope::Workspace,record_id:note_id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
         let tags = self.fetch_workspace_note_tags(note_id)?;
         let mut note = self.conn.query_row(
             r#"
@@ -5887,7 +5900,7 @@ impl Database {
 
     fn fetch_project_notes(&self, project_id: i64) -> Result<Vec<NoteRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
+            "SELECT id FROM agent_visible_notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
@@ -9072,6 +9085,28 @@ mod tests {
         format!("{timestamp}-{counter}")
     }
 
+    /// A historical fixture must remove newly published storage before it
+    /// declares an old version; production migrations retain strict CREATE.
+    fn remove_schema30_fixture(database: &Database) {
+        database.conn.execute_batch(r#"
+DROP VIEW agent_visible_notes;
+DROP VIEW agent_visible_workspace_notes;
+DROP TABLE agent_object_withdrawals;
+DROP INDEX idx_agent_receipt_operation_id;
+DROP INDEX idx_agent_receipts_run;
+ALTER TABLE agent_operation_receipts DROP COLUMN operation_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN run_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN target_ref_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN output_context_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_state;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
+"#).unwrap();
+    }
+
     fn setup_database() -> (TestHarness, Database) {
         let unique = next_test_unique();
         let root = std::env::temp_dir().join(format!("project-mind-db-test-{unique}"));
@@ -9565,6 +9600,7 @@ mod tests {
         let (harness, database) = setup_database();
         enable_legacy_domain_fixture_schema(&database);
         let db_path = harness.root.join("app.sqlite3");
+        remove_schema30_fixture(&database);
         database
             .conn
             .execute_batch(
@@ -9628,6 +9664,7 @@ mod tests {
                 params![stale_html, project.id],
             )
             .unwrap();
+        remove_schema30_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -9691,6 +9728,7 @@ mod tests {
                 params![stale_html, note.id],
             )
             .unwrap();
+        remove_schema30_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -12490,6 +12528,7 @@ mod tests {
             )
             .unwrap();
         let legacy_conclusion_id = database.conn.last_insert_rowid();
+        remove_schema30_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -12645,6 +12684,7 @@ mod tests {
             )
             .unwrap();
         let legacy_activity_id = database.conn.last_insert_rowid();
+        remove_schema30_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -12701,6 +12741,7 @@ mod tests {
                 params![project.id, "2025-03-04T05:06:07.000Z"],
             )
             .unwrap();
+        remove_schema30_fixture(&database);
         database
             .conn
             .execute_batch(

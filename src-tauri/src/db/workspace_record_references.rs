@@ -13,6 +13,14 @@ impl Database {
         &self,
         id: i64,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        super::agent_record_withdrawals::require_record_visible(
+            &self.conn,
+            &crate::record_documents::RecordTarget {
+                scope: crate::agent::models::Scope::Workspace,
+                record_id: id,
+            },
+        )
+        .map_err(|error| anyhow::anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
         Ok(self.conn.query_row(
             "SELECT id,CASE WHEN NULLIF(TRIM(title),'') IS NOT NULL AND TRIM(title)!='记录' THEN TRIM(title) ELSE COALESCE(NULLIF(TRIM(content_markdown),''),'记录') END FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",
             [id],
@@ -34,7 +42,7 @@ impl Database {
     pub(super) fn workspace_record_reference_candidates(
         &self,
     ) -> Result<Vec<InternalReferenceSearchCandidate>> {
-        let mut statement=self.conn.prepare("SELECT id,CASE WHEN NULLIF(TRIM(title),'') IS NOT NULL AND TRIM(title)!='记录' THEN TRIM(title) ELSE COALESCE(NULLIF(TRIM(content_markdown),''),'记录') END,CASE WHEN NULLIF(TRIM(title),'') IS NOT NULL AND TRIM(title)!='记录' THEN TRIM(title) ELSE '' END,content_markdown,updated_at FROM workspace_notes WHERE note_kind='workspace_note' ORDER BY updated_at DESC")?;
+        let mut statement=self.conn.prepare("SELECT id,CASE WHEN NULLIF(TRIM(title),'') IS NOT NULL AND TRIM(title)!='记录' THEN TRIM(title) ELSE COALESCE(NULLIF(TRIM(content_markdown),''),'记录') END,CASE WHEN NULLIF(TRIM(title),'') IS NOT NULL AND TRIM(title)!='记录' THEN TRIM(title) ELSE '' END,content_markdown,updated_at FROM agent_visible_workspace_notes WHERE note_kind='workspace_note' ORDER BY updated_at DESC")?;
         let rows = statement.query_map([], |row| {
             Ok(InternalReferenceSearchCandidate {
                 result: InternalReferenceSearchResult {

@@ -456,6 +456,25 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    // Remove schema30 additions before this fixture simulates an older file.
+    const REMOVE_SCHEMA30: &str = r#"
+DROP VIEW agent_visible_notes;
+DROP VIEW agent_visible_workspace_notes;
+DROP TABLE agent_object_withdrawals;
+DROP INDEX idx_agent_receipt_operation_id;
+DROP INDEX idx_agent_receipts_run;
+ALTER TABLE agent_operation_receipts DROP COLUMN operation_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN run_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN target_ref_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN output_context_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_state;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
+"#;
+
     use super::*;
     use crate::{
         agent::{
@@ -1081,6 +1100,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
+        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
         db.set_schema_version(28).unwrap();
         drop(db);
         let reopened =

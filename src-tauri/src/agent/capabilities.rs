@@ -70,7 +70,25 @@ pub fn capabilities() -> Vec<Capability> {
         ("run.start", "run.start", false, true, "AI-05"),
         ("run.cancel", "run.cancel", false, true, "AI-05"),
         ("record.create", "content.create", false, false, "AI-07"),
-        ("record.blocks.get", "source.read", true, false, "AI-16"),
+        ("record.blocks.get", "source.read", true, true, "AI-16"),
+        ("output.stage", "output.stage", false, true, "AI-07:Record"),
+        ("output.get", "output.read", true, true, "AI-07:Record"),
+        ("output.list", "output.read", true, true, "AI-07:Record"),
+        ("output.preview", "output.read", true, true, "AI-07:Record"),
+        (
+            "output.update",
+            "output.update",
+            false,
+            true,
+            "AI-07:Record",
+        ),
+        (
+            "output.commit",
+            "output.commit",
+            false,
+            true,
+            "AI-07:Record",
+        ),
         ("record.patch", "record.patch", false, false, "AI-16"),
         (
             "record.version.restore",
@@ -91,7 +109,34 @@ pub fn capabilities() -> Vec<Capability> {
         ),
         ("todo.create", "content.create", false, false, "AI-07"),
         ("todo.update", "todo.update", false, false, "AI-19"),
-        ("operation.undo", "operation.undo", false, false, "AI-19"),
+        (
+            "operation.get",
+            "operation.read",
+            true,
+            true,
+            "AI-19:Record",
+        ),
+        (
+            "operation.list",
+            "operation.read",
+            true,
+            true,
+            "AI-19:Record",
+        ),
+        (
+            "operation.undo",
+            "operation.undo",
+            false,
+            true,
+            "AI-19:Record",
+        ),
+        (
+            "operation.restore_created",
+            "operation.restore_created",
+            false,
+            true,
+            "AI-19:Record",
+        ),
     ]
     .into_iter()
     .map(

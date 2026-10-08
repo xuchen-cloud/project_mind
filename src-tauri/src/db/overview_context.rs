@@ -18,7 +18,10 @@ use std::collections::HashSet;
 fn hidden_source(error: &AgentError) -> bool {
     matches!(
         error.code,
-        ErrorCode::NotFound | ErrorCode::ScopeDenied | ErrorCode::SourceNotReady
+        ErrorCode::NotFound
+            | ErrorCode::ObjectWithdrawn
+            | ErrorCode::ScopeDenied
+            | ErrorCode::SourceNotReady
     )
 }
 impl Database {

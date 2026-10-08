@@ -118,6 +118,39 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         document: &Value,
         operation: &str,
     ) -> AgentResult<()> {
+        // Built-in write grants remain limited to the run's frozen authority,
+        // including references introduced by conversion or a patch.
+        if let Caller::BuiltinRun { run_id } = &request.caller {
+            if matches!(operation, "content.create" | "record.patch") {
+                return db.agent_output_validate_document(
+                    request,
+                    &request.binding,
+                    run_id,
+                    document,
+                    operation,
+                );
+            }
+        }
+        if matches!(request.caller, Caller::Gui)
+            && matches!(operation, "record.write" | "record.patch")
+            && request.request_id.starts_with("output:")
+        {
+            let output_id = request.request_id.split(':').nth(1).ok_or_else(|| {
+                AgentError::new(ErrorCode::InvalidArgument, "Invalid output commit identity")
+            })?;
+            let output = db.agent_output_get(request, &request.binding, output_id)?;
+            return db.agent_output_validate_document(
+                request,
+                &request.binding,
+                &output.staged.run_id,
+                document,
+                if operation == "record.write" {
+                    "content.create"
+                } else {
+                    operation
+                },
+            );
+        }
         // The trusted Workspace GUI already offers references across Projects.
         // Remote and built-in callers must carry each Project's explicit grant.
         if matches!(request.caller, Caller::Gui) && request.scope_grant.workspace_content {
@@ -153,15 +186,21 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         request: &RequestContext,
         input: &crate::record_documents::RecordCreate,
     ) -> AgentResult<RecordCommittedHead> {
-        if !matches!(request.caller, Caller::Gui) {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "Record creation requires the local editor",
-            ));
-        }
+        let operation = match request.caller {
+            Caller::Gui => "record.write",
+            Caller::BuiltinRun { .. } => "content.create",
+            _ => {
+                return Err(AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Caller cannot create Records",
+                ))
+            }
+        };
         let (previous, portable) = self.with_current(request, |binding, db| {
-            request.authorize(binding, &input.scope, "record.write")?;
-            request.authorize(binding, &input.scope, "record.metadata.write")?;
+            request.authorize(binding, &input.scope, operation)?;
+            if matches!(request.caller, Caller::Gui) {
+                request.authorize(binding, &input.scope, "record.metadata.write")?;
+            }
             let previous = db.agent_operation_replay(
                 &request.caller.key(),
                 &request.request_id,
@@ -196,9 +235,11 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             })?;
         projection.validate()?;
         self.with_current(request, |binding, db| {
-            request.authorize(binding, &input.scope, "record.write")?;
-            request.authorize(binding, &input.scope, "record.metadata.write")?;
-            Self::authorize_references(request, db, &projection.document, "record.write")?;
+            request.authorize(binding, &input.scope, operation)?;
+            if matches!(request.caller, Caller::Gui) {
+                request.authorize(binding, &input.scope, "record.metadata.write")?;
+            }
+            Self::authorize_references(request, db, &projection.document, operation)?;
             db.record_create(
                 &request.caller.key(),
                 &request.request_id,
@@ -746,6 +787,106 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 &version.projection,
                 &request.binding.workspace_id,
             )
+        })
+    }
+    /// Undo only the original committed modification. This follows the normal
+    /// restore conversion / editor coordination / native CAS path, while the
+    /// transaction hook records the original operation as undone atomically.
+    pub(crate) async fn undo_operation(
+        &self,
+        request: &RequestContext,
+        input: &crate::agent::operations::OperationUndoInput,
+    ) -> AgentResult<crate::agent::operations::OperationUndoResult> {
+        use crate::agent::operations::OperationUndoResult;
+        let entry = self.with_current(request, |binding, db| {
+            db.agent_operation_access(request, binding, &input.operation_id, "operation.undo")
+        })?;
+        if entry.after_revision != Some(input.expected_head_revision)
+            || input.expected_head_revision == 0
+        {
+            return Err(AgentError::new(
+                ErrorCode::UndoConflict,
+                "Expected Record head differs from the operation baseline",
+            ));
+        }
+        if entry.kind == "record.create" {
+            let target = RecordTarget {
+                scope: entry.object.scope.clone(),
+                record_id: entry.object.id.parse().map_err(|_| {
+                    AgentError::new(ErrorCode::UndoConflict, "Invalid Record receipt target")
+                })?,
+            };
+            // A committed replay must stay available even after the object was
+            // withdrawn; a first withdrawal must flush visible editor drafts.
+            let _submission = if entry.undo_state == "undone" {
+                None
+            } else {
+                self.flush_editors(request, &target, "operation.undo")
+                    .await?;
+                self.store
+                    .submission_lock(&request.binding, &target)
+                    .await?
+            };
+            return self.with_current(request, |binding, db| {
+                db.agent_record_creation_withdraw(
+                    request,
+                    binding,
+                    &crate::db::agent_record_withdrawals::RecordWithdrawalInput {
+                        creation_operation_id: input.operation_id.clone(),
+                    },
+                )
+                .map(OperationUndoResult::CreatedRecord)
+            });
+        }
+        let entry = self.with_current(request, |binding, db| {
+            let entry = db.agent_record_undo_prepare(request, binding, input)?;
+            let replay = db.agent_operation_replay(
+                &request.caller.key(),
+                &request.request_id,
+                "record.undo",
+                input,
+            )?;
+            let previous = if replay.is_some() {
+                replay
+            } else {
+                db.agent_record_undo_previous(&entry)?
+            };
+            Ok((previous, entry))
+        })?;
+        if let Some(previous) = entry.0 {
+            return Ok(OperationUndoResult::ModifiedRecord(previous));
+        }
+        let target = RecordTarget {
+            scope: entry.1.object.scope.clone(),
+            record_id: entry.1.object.id.parse().map_err(|_| {
+                AgentError::new(ErrorCode::UndoConflict, "Invalid Record receipt target")
+            })?,
+        };
+        let version = self
+            .regenerated_version(
+                request,
+                &target,
+                entry.1.before_snapshot_ref.as_deref().ok_or_else(|| {
+                    AgentError::new(ErrorCode::UndoConflict, "Historic baseline is unavailable")
+                })?,
+                "operation.undo",
+            )
+            .await?;
+        self.flush_editors(request, &target, "operation.undo")
+            .await?;
+        let _submission = self
+            .store
+            .submission_lock(&request.binding, &target)
+            .await?;
+        self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_references(
+                request,
+                db,
+                &version.projection.document,
+                "operation.undo",
+            )?;
+            db.agent_record_undo_commit(request, &request.binding, input, &version.projection)
+                .map(OperationUndoResult::ModifiedRecord)
         })
     }
     pub(crate) async fn version_preview(
@@ -1662,6 +1803,46 @@ mod tests {
         );
         assert_eq!(utility.calls.load(Ordering::Relaxed), 2);
     }
+    fn trusted_builtin_run(
+        store: &Store,
+        request: &mut RequestContext,
+        scope: &crate::agent::models::Scope,
+    ) {
+        request.scope_grant.operations.extend(
+            ["session.read", "session.write", "run.start"]
+                .into_iter()
+                .map(str::to_owned),
+        );
+        assert!(matches!(request.caller, Caller::Gui));
+        let run_id = "a".repeat(32);
+        {
+            let db = store.db.lock().unwrap();
+            let session = db
+                .agent_session_create(
+                    request,
+                    &request.binding,
+                    scope,
+                    "Trusted built-in fixture",
+                    "pi",
+                    None,
+                )
+                .unwrap();
+            db.agent_run_prepare(
+                request,
+                &request.binding,
+                &session.id,
+                "fixture-run-original",
+                &crate::agent::conversation::RunPreparation {
+                    run_id: run_id.clone(),
+                    context_manifest: json!({"scope":scope,"mode":"collaborate"}),
+                },
+            )
+            .unwrap();
+            db.agent_run_start(request, &request.binding, &run_id)
+                .unwrap();
+        }
+        request.caller = Caller::BuiltinRun { run_id };
+    }
     #[tokio::test]
     async fn agent_patch_replays_receipt_without_rerunning_the_utility() {
         use crate::agent::{
@@ -1698,9 +1879,7 @@ mod tests {
             &utility.projection.document,
             &utility.projection.code_language,
         );
-        request.caller = Caller::BuiltinRun {
-            run_id: "patch-run".into(),
-        };
+        trusted_builtin_run(&store, &mut request, &target.scope);
         request.request_id = "patch-1".into();
         let patch = RecordPatch {
             record: ObjectRef {
@@ -2023,9 +2202,7 @@ mod tests {
             service.capacity(&request, &target).unwrap().version_count,
             2
         );
-        request.caller = Caller::BuiltinRun {
-            run_id: "actual-run".into(),
-        };
+        trusted_builtin_run(&store, &mut request, &target.scope);
         request.request_id = "actual-patch".into();
         let patch = RecordPatch {
             record: ObjectRef {
@@ -2178,3 +2355,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "record_undo_service_tests.rs"]
+mod record_undo_service_tests;

@@ -148,6 +148,25 @@ fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> rusqlite::Result<T
 
 #[cfg(test)]
 mod tests {
+    // Remove schema30 additions before this fixture simulates an older file.
+    const REMOVE_SCHEMA30: &str = r#"
+DROP VIEW agent_visible_notes;
+DROP VIEW agent_visible_workspace_notes;
+DROP TABLE agent_object_withdrawals;
+DROP INDEX idx_agent_receipt_operation_id;
+DROP INDEX idx_agent_receipts_run;
+ALTER TABLE agent_operation_receipts DROP COLUMN operation_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN run_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN target_ref_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN output_context_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_state;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
+"#;
+
     use super::*;
     use crate::agent::settings::{AgentScopeSettings, SettingsRepository};
 
@@ -462,6 +481,7 @@ mod tests {
         let path = root.path().join("workspace.sqlite3");
         let db = Database::open(&path, root.path(), None).unwrap();
         db.conn.execute("INSERT INTO projects (name, root_path, summary, summary_markdown, created_at, updated_at) VALUES ('Plan', 'workspace:plan', 'buffer', 'Keep this draft', 'now', 'now')", []).unwrap();
+        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
         db.conn.pragma_update(None, "user_version", 25).unwrap();
         drop(db);
         let mut db = Database::open(&path, root.path(), None).unwrap();
@@ -502,6 +522,7 @@ mod tests {
     fn agent_migration_failure_rolls_back_tables_and_schema_version() {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
         db.conn.execute_batch("DROP TABLE agent_context_instructions; DROP TABLE agent_jobs; CREATE TABLE agent_jobs(id TEXT); PRAGMA user_version=25;").unwrap();
         assert!(db.migrate().is_err());
         assert_eq!(db.schema_version().unwrap(), 25);
@@ -522,7 +543,7 @@ mod tests {
         }
         db.conn.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES ('run-a',?1,'a','running','{}','{}','now')",[&session_a]).unwrap();
         assert!(db.conn.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES ('run-b',?1,'b','preparing','{}','{}','now')",[&session_b]).is_err());
-        db.conn.execute_batch("UPDATE agent_runs SET state='completed' WHERE id='run-a'; INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) SELECT 'message',session_id,id,'pi-entry','assistant','{}','complete',0,'now' FROM agent_runs; INSERT INTO agent_outputs(id,run_id,ordinal,kind,intent,payload_json,sources_json,state) VALUES ('saved-output','run-a',0,'record','create','{}','[]','committed'); INSERT INTO agent_evidence VALUES ('message-evidence','message','message','{}','Original message'),('saved-evidence','output','saved-output','{}','Saved result'); INSERT INTO agent_operation_receipts VALUES ('save','gui','sha256:x','record.create','committed','{}',NULL,'now');").unwrap();
+        db.conn.execute_batch("UPDATE agent_runs SET state='completed' WHERE id='run-a'; INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) SELECT 'message',session_id,id,'pi-entry','assistant','{}','complete',0,'now' FROM agent_runs; INSERT INTO agent_outputs(id,run_id,ordinal,kind,intent,payload_json,sources_json,state) VALUES ('saved-output','run-a',0,'record','create','{}','[]','committed'); INSERT INTO agent_evidence VALUES ('message-evidence','message','message','{}','Original message'),('saved-evidence','output','saved-output','{}','Saved result'); INSERT INTO agent_operation_receipts(request_id,caller_id,payload_hash,operation,state,result_json,error,created_at) VALUES ('save','gui','sha256:x','record.create','committed','{}',NULL,'now');").unwrap();
         db.conn
             .execute("DELETE FROM agent_sessions WHERE id=?1", [&session_a])
             .unwrap();

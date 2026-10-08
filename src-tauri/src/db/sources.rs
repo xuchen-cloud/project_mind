@@ -119,8 +119,36 @@ impl Database {
         binding: &WorkspaceBinding,
         object: &ObjectRef,
     ) -> AgentResult<ObjectRef> {
+        self.source_read_object_inner(request, binding, object, false)
+    }
+    pub(super) fn source_read_historical_record(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<ObjectRef> {
+        self.source_read_object_inner(request, binding, object, true)
+    }
+    fn source_read_object_inner(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        historical: bool,
+    ) -> AgentResult<ObjectRef> {
         let resolved = self.source_resolve_business(request, binding, object, "source.read")?;
         self.source_live_scope(&resolved.scope)?;
+        if resolved.kind == ObjectKind::Record && !historical {
+            super::agent_record_withdrawals::require_record_visible(
+                &self.conn,
+                &RecordTarget {
+                    scope: resolved.scope.clone(),
+                    record_id: resolved.id.parse().map_err(|_| {
+                        AgentError::new(ErrorCode::InvalidArgument, "Invalid Record identity")
+                    })?,
+                },
+            )?;
+        }
         self.source_prepare()?;
         let excluded: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
@@ -171,7 +199,11 @@ impl Database {
         binding: &WorkspaceBinding,
         input: &SourceReadTarget,
     ) -> AgentResult<SourceFingerprint> {
-        let resolved = self.source_read_object(request, binding, &input.object)?;
+        let resolved = if input.record_version.is_some_and(|version| version > 0) {
+            self.source_read_historical_record(request, binding, &input.object)?
+        } else {
+            self.source_read_object(request, binding, &input.object)?
+        };
         if resolved.kind != ObjectKind::Record {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,

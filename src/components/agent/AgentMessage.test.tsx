@@ -10,7 +10,7 @@ describe("agent message projections", () => {
   it("renders tool objects as inspectable JSON and collects structured tool sources", () => {
     const payload = { result: "工具结果", sources: [source] };
     render(<AgentMessage binding={binding} message={{ ...message, role: "tool", content: [{ type: "text", text: JSON.stringify(payload) }] }} />);
-    fireEvent.click(screen.getByText("查看读取结果"));
+    fireEvent.click(screen.getByText("查看工具结果"));
     expect(document.querySelector("pre")?.textContent).toContain('"result":"工具结果"');
     expect(document.body.textContent).not.toContain("[object Object]");
     expect(screen.getByText("引用来源")).toBeInTheDocument();

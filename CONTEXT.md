@@ -44,6 +44,8 @@ _Avoid_：项目状态摘要、Project Record、Project Todo
 已经判断值得保留、可以独立查找和引用的信息单元；它具有相对完整的上下文，可以继续修订，但不再是待处理的临时片段。
 _Avoid_：Note、Activity、Conclusion（对象）、QuickNote
 
+Record 正文以统一 canonical 文档为准，手工编辑与独立助手写入复用同一原生保存服务、不可变版本、块标识与版本 CAS。助手修改前协调目标编辑器 flush Committed Content；未接受的 AI 预览或忙碌编辑器会阻止提交，后续正文或元信息变更不能被旧操作覆盖。
+
 **Project Record**：
 归属于一个 Project 的 Record，用于保存该项目中的事件、材料、观察或判断，其生命周期与所属 Project 一致。
 _Avoid_：Workspace Record、跨项目记录
@@ -176,6 +178,8 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 编辑器中已经由用户确认、允许保存的正文视图，不包含任何仍待确认的 AI Modification 或 AI Answer。
 _Avoid_：实时预览内容、编辑器 DOM 快照
 
+AI Modification 与 AI Answer 的确认要求专指 Editor Skill Job 的选区或图片预览。独立助手按用户启用的作用域、Scope Grant 与 Run 冻结的执行模式提交已授权 Record 操作；协作模式形成候选后直接原生提交，先审阅模式保留候选直到用户确认当前候选版本，只读模式拒绝写入。独立助手不能自动接受或丢弃 Editor Skill 预览，也不能用 live editor 内容绕过保存屏障。详见 [ADR-0010](docs/adr/0010-separate-agent-record-commits-from-editor-skill-previews.md)。
+
 **AI Metadata Fill**：
 用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。整篇 QuickNote 发布成新 Record 时自动触发同一能力；QuickNote 自动保存和追加到已有 Record 不触发。
 _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag 推荐
@@ -203,3 +207,7 @@ _Avoid_：磁盘 AGENTS 自动发现、模型推断、QuickNote
 **Operation Receipt**：
 同一调用方和请求在 Workspace 中的持久成功结果，与数据和变更日志一起提交，供安全重试使用。
 _Avoid_：模型自述完成、临时通知
+
+Record 成果只有原生保存成功后，才在同一事务中绑定实际对象、前后版本基线、来源上下文、Operation Receipt 与成果已提交状态；stage 候选或准备提交不代表已保存。修改撤销把可信前版本恢复为新版本；新增 Record 的撤销只撤回正常可见性，保留对象身份、正文、版本、资产与引用关系，恢复后仍是同一对象。撤销或恢复须核对收据基线与当前撤回版本，后续人工修改或会被撤回影响的新引用返回明确冲突；删除会话不删除成功操作收据。
+
+以上边界已用于 Record 创建、块修改及对应撤销、撤回和恢复。Todo、File 成果与跨 Run 批量撤销仍属于后续规划，不据此认定 M1 全部完成。

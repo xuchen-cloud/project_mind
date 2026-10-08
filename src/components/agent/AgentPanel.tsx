@@ -10,6 +10,7 @@ import { Button, Dialog } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { AgentMessage } from "./AgentMessage";
 import { AgentKnowledgePanel } from "./AgentKnowledgePanel";
+import { AgentRunOutputs } from "./AgentRunOutputs";
 import { useAgentConversation } from "./useAgentConversation";
 import "../home/home.css";
 import "./agent.css";
@@ -52,9 +53,10 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
     if (await conversation.send(submitted)) setDraft(current => current === submitted ? "" : current);
   };
   const currentUserPersisted = !!conversation.run && conversation.messages.some(message => message.runId === conversation.run?.id && message.role === "user");
+  const historicalRunIds = [...new Set(conversation.messages.map(message => message.runId).filter((id): id is string => !!id && id !== conversation.run?.id))];
 
   return <Dialog open={open} onClose={onClose} title={scope.kind === "project" ? "项目助手" : "工作区助手"}
-    description="当前支持问答和资料读取，创建或修改成果尚未接入。"
+    description="按需读取资料，Record 成果按本次运行的模式保存，可查看来源和撤销凭据。"
     widthClassName="agent-panel-surface" bodyClassName="agent-panel-body" positionClassName="agent-panel-position">
     <div className="agent-panel">
       <div className="agent-panel__settings">
@@ -66,6 +68,12 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
           <Button size="sm" variant="ghost" onClick={() => { onClose(); openSettings("ai-models"); }}>模型设置</Button>
         </div>
         <p className="agent-panel__hint">{profile ? `通用模型：${profile.name}${model ? ` · ${model}` : ""}` : "尚未配置通用模型"}</p>
+        <label className="agent-panel__mode">执行模式<select aria-label="执行模式" value={conversation.settings?.executionMode ?? "read_only"}
+          disabled={!conversation.settings || conversation.loading || conversation.savingSettings || conversation.busy}
+          onChange={event => void conversation.setMode(event.target.value as "collaborate" | "review" | "read_only")}>
+          <option value="collaborate">协作 · 自动保存</option><option value="review">确认后保存</option><option value="read_only">只读</option>
+        </select></label>
+        <p className="agent-panel__hint">模式设置用于后续运行；已生成成果保留所属运行的模式。</p>
         <div className="agent-panel__setting-row">
           <Button size="sm" disabled={!conversation.binding || !modelReady || !conversation.runtimeAvailable || conversation.busy || conversation.probing}
             onClick={() => { verificationProfile.current = modelIdentity; void conversation.probe(); }}>{conversation.probing ? "正在验证…" : "验证工具能力"}</Button>
@@ -107,6 +115,8 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot }: {
           {conversation.busy && !conversation.liveText && !conversation.toolActivity ? <p className="agent-panel__hint" role="status">{conversation.run?.state === "cancelling" ? "正在停止…" : "正在思考…"}</p> : null}
           {conversation.run?.state === "cancelled" ? <p className="agent-panel__hint" role="status">已停止。已保存的消息仍可继续阅读。</p> : null}
           {conversation.run?.state === "interrupted" ? <p className="agent-panel__hint" role="status">运行已中断，可发送新问题继续。</p> : null}
+          {conversation.binding && conversation.run ? <AgentRunOutputs binding={conversation.binding} runId={conversation.run.id} active={conversation.busy} current /> : null}
+          {conversation.binding ? historicalRunIds.map(runId => <AgentRunOutputs key={runId} binding={conversation.binding!} runId={runId} />) : null}
         </HomeSidebarList>
         {blockedSession ? <p className="agent-panel__hint">{conversation.session?.state === "archived" ? "该会话已归档，请新建会话。" : "会话历史校验未通过，已保留历史并停止继续运行。"}</p> : null}
         <form className="agent-panel__composer" onSubmit={event => { event.preventDefault(); void send(); }}>

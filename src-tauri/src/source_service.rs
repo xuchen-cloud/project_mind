@@ -315,8 +315,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
-    pub(crate) fn registry_entry(&self, request: &RequestContext, object: &ObjectRef) -> AgentResult<Option<crate::db::source_registry::SourceRegistryEntry>> {
-        self.store.with_current(|binding, db| db.source_registry_entry(request, binding, object))
+    pub(crate) fn registry_entry(
+        &self,
+        request: &RequestContext,
+        object: &ObjectRef,
+    ) -> AgentResult<Option<crate::db::source_registry::SourceRegistryEntry>> {
+        self.store
+            .with_current(|binding, db| db.source_registry_entry(request, binding, object))
     }
     pub(crate) fn backfill_index_queue(
         &self,
@@ -359,12 +364,16 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         let Some(lease) = lease else {
             return Ok(None);
         };
-        self.index_claimed(request, &lease, budget, record_utility, file_utility).await?;
+        self.index_claimed(request, &lease, budget, record_utility, file_utility)
+            .await?;
         Ok(Some(lease.object))
     }
     /// The host retains the lease while awaiting this future, so it can yield
     /// abandoned work without waiting for lease expiry or consuming a retry.
-    pub(crate) async fn index_claimed<R: crate::record_document_service::DocumentUtility, F: SourceUtility>(
+    pub(crate) async fn index_claimed<
+        R: crate::record_document_service::DocumentUtility,
+        F: SourceUtility,
+    >(
         &self,
         request: &RequestContext,
         lease: &crate::db::source_index_queue::SourceIndexLease,
@@ -731,7 +740,10 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                     page.stale_count += 1
                 }
                 Err(error)
-                    if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) =>
+                    if matches!(
+                        error.code,
+                        ErrorCode::ScopeDenied | ErrorCode::NotFound | ErrorCode::ObjectWithdrawn
+                    ) =>
                 {
                     ()
                 }

@@ -121,6 +121,27 @@ impl Database {
         let result_json = serde_json::to_string(&result)
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid operation result"))?;
         tx.execute("INSERT INTO agent_operation_receipts(request_id,caller_id,payload_hash,operation,state,result_json,created_at) VALUES (?1,?2,?3,?4,'committed',?5,?6)", params![request_id,caller_id,hash,operation,result_json,now]).map_err(io_error)?;
+        super::agent_outputs::agent_output_record_committed(
+            &tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+        )?;
+        super::agent_record_withdrawals::agent_record_withdrawal_receipt_committed(
+            &tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+        )?;
+        super::agent_record_undo::agent_record_undo_receipt_committed(
+            &tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+        )?;
         if let Some(change) = change {
             tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,?3,?4,?5)", params![change.object_key,change.scope.key(),operation,change.revision,now]).map_err(io_error)?;
         }

@@ -125,6 +125,7 @@ fn unavailable(error: &AgentError) -> bool {
         error.code,
         ErrorCode::ScopeDenied
             | ErrorCode::NotFound
+            | ErrorCode::ObjectWithdrawn
             | ErrorCode::SourceNotReady
             | ErrorCode::SourceChanged
             | ErrorCode::FileChangedUnregistered

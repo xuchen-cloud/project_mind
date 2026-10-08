@@ -3,9 +3,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentSourceNavigation, AgentSourceRef } from "../../lib/agent-types";
 import { AgentSourceCard } from "./AgentSourceCard";
 
-const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn() }));
+const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn(), restore: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
-vi.mock("../../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, sourceResolve: mocks.sourceResolve } }));
+vi.mock("../../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, sourceResolve: mocks.sourceResolve, operationRestoreCreated: mocks.restore } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve, documentListVersions: mocks.versions } }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.openFile } }));
 const binding = { workspaceId: "w1", generation: "g1" };
@@ -15,6 +15,33 @@ const navigation: AgentSourceNavigation = { object: source.object, status: "curr
   currentRevision: source.revision, revisionMatches: true, recordVersion: null, recordVersionId: null, headRevision: 3,
   blockId: source.blockId, blockStatus: "available", voiceRecordId: null, startMs: null, endMs: null, timeStatus: "not_requested" };
 beforeEach(() => { vi.clearAllMocks(); mocks.statusGet.mockResolvedValue({ binding }); mocks.sourceResolve.mockResolvedValue(navigation); mocks.openFile.mockResolvedValue(undefined); });
+
+it("restores a withdrawn source then resolves its actual destination again", async () => {
+  mocks.sourceResolve.mockRejectedValueOnce(JSON.stringify({ code: "OBJECT_WITHDRAWN", details: { workspaceId: "w1", creationOperationId: "b".repeat(32), withdrawalRevision: 3, restoreAvailable: true } })).mockResolvedValue(navigation);
+  mocks.restore.mockResolvedValue({ restored: true });
+  mocks.resolve.mockResolvedValue({ kind: "note", id: 42, scope: "project", projectId: 7, route: "/projects/7/records/42" });
+  render(<AgentSourceCard source={source} binding={binding} />);
+  fireEvent.click(screen.getByRole("button", { name: "原始决策" }));
+  fireEvent.click(screen.getByRole("button", { name: "打开原文" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("引用记录已撤回");
+  fireEvent.click(screen.getByRole("button", { name: "恢复并打开" }));
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
+  expect(mocks.restore).toHaveBeenCalledWith(binding, { creationOperationId: "b".repeat(32), expectedWithdrawalRevision: 3 });
+  expect(mocks.sourceResolve).toHaveBeenCalledTimes(2);
+});
+
+it("shows recovery failure without opening or restoring in a changed binding", async () => {
+  mocks.sourceResolve.mockRejectedValueOnce(JSON.stringify({ code: "OBJECT_WITHDRAWN", details: { workspaceId: "w1", creationOperationId: "b".repeat(32), withdrawalRevision: 3, restoreAvailable: true } }));
+  render(<AgentSourceCard source={source} binding={binding} />);
+  fireEvent.click(screen.getByRole("button", { name: "原始决策" }));
+  fireEvent.click(screen.getByRole("button", { name: "打开原文" }));
+  await screen.findByRole("button", { name: "恢复并打开" });
+  mocks.statusGet.mockResolvedValue({ binding: { ...binding, generation: "g2" } });
+  fireEvent.click(screen.getByRole("button", { name: "恢复并打开" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("恢复引用失败：工作区已切换"));
+  expect(mocks.restore).not.toHaveBeenCalled();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+});
 
 it("previews evidence before resolving and opens only the verified canonical Record block", async () => {
   mocks.resolve.mockResolvedValue({ kind: "note", id: 42, scope: "project", projectId: 7, route: "/projects/7/records/42" });

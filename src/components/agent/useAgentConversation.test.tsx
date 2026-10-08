@@ -59,6 +59,9 @@ describe("assistant conversation lifecycle", () => {
     await act(async () => { await view.result.current.setEnabled(false); });
     expect(api.settingsUpdate).toHaveBeenCalledWith(binding, { settings: { ...settings, enabled: false }, expectedRevision: 1 });
     expect(view.result.current.settings?.enabled).toBe(false);
+    await act(async () => { await view.result.current.setMode("review"); });
+    expect(api.settingsUpdate).toHaveBeenLastCalledWith(binding, { settings: { ...settings, enabled: false, executionMode: "review", revision: 2 }, expectedRevision: 2 });
+    expect(view.result.current.settings?.executionMode).toBe("review");
     view.unmount(); expect(stop).toHaveBeenCalledOnce();
   });
   it("buffers events emitted before runStart responds and persists the settled projection", async () => {

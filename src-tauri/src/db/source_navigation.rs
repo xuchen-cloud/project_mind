@@ -64,7 +64,13 @@ impl Database {
         // Authorize the current binding before disclosing even an unavailable
         // destination. The source reader then checks actual ownership/policy.
         request.authorize(binding, &source.object.scope, "source.read")?;
-        let object = match self.source_read_object(request, binding, &source.object) {
+        let authorized =
+            if source.object.kind == ObjectKind::Record && source.record_version.is_some() {
+                self.source_read_historical_record(request, binding, &source.object)
+            } else {
+                self.source_read_object(request, binding, &source.object)
+            };
+        let object = match authorized {
             Ok(object) => object,
             Err(error) if error.code == ErrorCode::NotFound => {
                 return Ok(SourceNavigation::unavailable(

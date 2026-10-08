@@ -1417,13 +1417,51 @@ mod tests {
             ErrorCode::SourceNotReady
         );
         source.file_version = None;
-        db.source_queue_sync(&request, &binding, &source.object.scope, chrono::Utc::now())
+        let queue_at = chrono::Utc::now();
+        db.source_queue_sync(&request, &binding, &source.object.scope, queue_at)
             .unwrap();
-        let queued = db
-            .source_queue_claim(&request, &binding, &source.object.scope, chrono::Utc::now())
-            .unwrap()
+        let queued_state: String = db
+            .conn
+            .query_row(
+                "SELECT state FROM agent_jobs WHERE kind='extract' AND dedupe_key=?1",
+                [format!("source-index:{}", source.object.key().unwrap())],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(queued.object, source.object);
+        assert_eq!(queued_state, "queued");
+        // Project creation is also a valid source job. Equal ready times use
+        // random job IDs as a tiebreaker, so consume earlier leases through the
+        // real finish API instead of assuming that this File sorts first.
+        let pending: i64 = db.conn.query_row(
+            "SELECT count(*) FROM agent_jobs WHERE kind='extract' AND state='queued' AND scope_key=?1",
+            [source.object.scope.key()],
+            |row| row.get(0),
+        ).unwrap();
+        let claim_at = queue_at + chrono::Duration::seconds(1);
+        let mut file_lease = None;
+        for _ in 0..pending {
+            let lease = db
+                .source_queue_claim(&request, &binding, &source.object.scope, claim_at)
+                .unwrap()
+                .expect("Registered source jobs must be claimable");
+            if lease.object == source.object {
+                file_lease = Some(lease);
+                break;
+            }
+            assert!(db
+                .source_queue_finish(
+                    &request,
+                    &binding,
+                    &lease,
+                    crate::db::source_index_queue::SourceIndexOutcome::Completed,
+                    claim_at,
+                )
+                .unwrap());
+        }
+        assert_eq!(
+            file_lease.expect("Registered File must be claimed").object,
+            source.object
+        );
         let mut switched = binding.clone();
         switched.generation = "switched".into();
         assert_eq!(

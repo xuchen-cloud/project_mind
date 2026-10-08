@@ -37,6 +37,25 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    // Remove schema30 additions before this fixture simulates an older file.
+    const REMOVE_SCHEMA30: &str = r#"
+DROP VIEW agent_visible_notes;
+DROP VIEW agent_visible_workspace_notes;
+DROP TABLE agent_object_withdrawals;
+DROP INDEX idx_agent_receipt_operation_id;
+DROP INDEX idx_agent_receipts_run;
+ALTER TABLE agent_operation_receipts DROP COLUMN operation_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN run_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN target_ref_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN output_context_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_state;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
+"#;
+
     use super::*;
     use rusqlite::Connection;
 
@@ -49,7 +68,7 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_runtime_schema(db: &Database) {
+    fn assert_runtime_schema(db: &Database, expected_version: i64) {
         for table in [
             "source_index_snapshots",
             "source_index_chunks",
@@ -76,14 +95,14 @@ mod tests {
                 "Missing migrated table: {table}"
             );
         }
-        assert_eq!(db.schema_version().unwrap(), 29);
+        assert_eq!(db.schema_version().unwrap(), expected_version);
     }
 
     #[test]
     fn agent_runtime_schema_fresh_open_has_required_tables_without_lazy_reads() {
         let root = tempfile::tempdir().unwrap();
         let db = open(root.path());
-        assert_runtime_schema(&db);
+        assert_runtime_schema(&db, super::super::CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -113,7 +132,7 @@ mod tests {
         };
         db.set_schema_version(28).unwrap();
         db.ensure_agent_runtime_schema().unwrap();
-        assert_runtime_schema(&db);
+        assert_runtime_schema(&db, AGENT_RUNTIME_SCHEMA_VERSION);
         let pending: (String, i64) = db.conn.query_row(
             "SELECT operation,deleted FROM agent_overview_pending WHERE object_key='ws/project:1/record/7'",
             [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
@@ -153,10 +172,11 @@ mod tests {
         db.conn
             .execute("DROP TABLE agent_profile_verifications", [])
             .unwrap();
+        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
         db.set_schema_version(28).unwrap();
         drop(db);
         let reopened = open(root.path());
-        assert_runtime_schema(&reopened);
+        assert_runtime_schema(&reopened, super::super::CURRENT_SCHEMA_VERSION);
         assert_eq!(
             reopened
                 .conn
@@ -198,7 +218,7 @@ mod tests {
         );
         drop(reopened);
         let repeated = open(root.path());
-        assert_runtime_schema(&repeated);
+        assert_runtime_schema(&repeated, super::super::CURRENT_SCHEMA_VERSION);
         assert_eq!(
             repeated
                 .conn
@@ -213,6 +233,7 @@ mod tests {
     fn agent_runtime_schema_failed_upgrade_rolls_back_new_tables_and_version() {
         let root = tempfile::tempdir().unwrap();
         let db = open(root.path());
+        db.conn.execute_batch(REMOVE_SCHEMA30).unwrap();
         db.set_schema_version(28).unwrap();
         db.conn
             .execute("DROP TABLE agent_profile_verifications", [])

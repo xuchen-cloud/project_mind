@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   openFile: vi.fn(),
   resolveReference: vi.fn(),
   pushToast: vi.fn(),
+  statusGet: vi.fn(),
+  restore: vi.fn(),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -27,12 +29,15 @@ vi.mock("../services/projectMindApi", () => ({
 vi.mock("../state/feedback-store", () => ({
   useFeedbackStore: () => ({ pushToast: mocks.pushToast }),
 }));
+vi.mock("../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, operationRestoreCreated: mocks.restore } }));
 
 import { useInternalReferenceNavigation } from "./useInternalReferenceNavigation";
 
 describe("useInternalReferenceNavigation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g1" } });
+    mocks.restore.mockResolvedValue({ restored: true });
   });
 
   it("opens document references with the system app without navigating", async () => {
@@ -102,5 +107,46 @@ describe("useInternalReferenceNavigation", () => {
     ).resolves.toBe(true);
 
     expect(mocks.navigate).toHaveBeenCalledWith("/?focus=todo-19");
+  });
+
+  const withdrawn = JSON.stringify({ code: "OBJECT_WITHDRAWN", details: { objectKey: "w1/workspace/record/42", creationOperationId: "a".repeat(32), withdrawalRevision: 2, restoreAvailable: true } });
+  it("offers recovery for a withdrawn native reference and resolves again before navigating", async () => {
+    mocks.resolveReference.mockRejectedValueOnce(withdrawn).mockResolvedValue({ kind: "workspace_record", route: "/workspace/records/42" });
+    const { result } = renderHook(() => useInternalReferenceNavigation());
+    await expect(result.current({ refKind: "workspace_record", refId: 42, label: "成果" })).resolves.toBe(false);
+    const toast = mocks.pushToast.mock.calls[0][0];
+    expect(toast.title).toBe("引用记录已撤回");
+    expect(toast.action.label).toBe("恢复并打开");
+    toast.action.onClick();
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/workspace/records/42"));
+    expect(mocks.restore).toHaveBeenCalledWith({ workspaceId: "w1", generation: "g1" }, { creationOperationId: "a".repeat(32), expectedWithdrawalRevision: 2 });
+    expect(mocks.resolveReference).toHaveBeenCalledTimes(2);
+  });
+  it("stops a recovery action after a binding change and reports restore failures", async () => {
+    mocks.resolveReference.mockRejectedValue(withdrawn);
+    const { result } = renderHook(() => useInternalReferenceNavigation());
+    await result.current({ refKind: "workspace_record", refId: 42, label: "成果" });
+    mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g2" } });
+    mocks.pushToast.mock.calls[0][0].action.onClick();
+    await waitFor(() => expect(mocks.pushToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "恢复引用失败" })));
+    expect(mocks.restore).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+  it("keeps the ordinary error message and makes no extra status calls for normal navigation", async () => {
+    mocks.resolveReference.mockRejectedValue(new Error("ordinary failure"));
+    const { result } = renderHook(() => useInternalReferenceNavigation());
+    await result.current({ refKind: "note", refId: 42, label: "成果" });
+    expect(mocks.pushToast).toHaveBeenCalledWith({ tone: "error", title: "打开引用失败", detail: "请稍后重试。" });
+    expect(mocks.statusGet).not.toHaveBeenCalled();
+  });
+  it("reports a native restore failure and does not retry resolution or navigate", async () => {
+    mocks.resolveReference.mockRejectedValue(withdrawn);
+    mocks.restore.mockRejectedValueOnce(new Error("Undo conflict"));
+    const { result } = renderHook(() => useInternalReferenceNavigation());
+    await result.current({ refKind: "workspace_record", refId: 42, label: "成果" });
+    mocks.pushToast.mock.calls[0][0].action.onClick();
+    await waitFor(() => expect(mocks.pushToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "恢复引用失败" })));
+    expect(mocks.resolveReference).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });

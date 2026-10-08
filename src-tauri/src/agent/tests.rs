@@ -213,10 +213,48 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
     assert!(capabilities()
         .iter()
         .filter(|cap| cap.implemented)
-        .all(|cap| cap.read_only || matches!(cap.permission,
-            "settings.write" | "session.write" | "run.start" | "run.cancel")));
-    for method in ["record.create", "record.patch", "file.create", "todo.create", "operation.undo"] {
-        assert!(!capabilities().iter().find(|cap| cap.method == method).unwrap().implemented);
+        .all(|cap| cap.read_only
+            || matches!(
+                cap.permission,
+                "settings.write"
+                    | "session.write"
+                    | "run.start"
+                    | "run.cancel"
+                    | "output.stage"
+                    | "output.update"
+                    | "output.commit"
+                    | "operation.undo"
+                    | "operation.restore_created"
+            )));
+    for method in [
+        "record.create",
+        "record.patch",
+        "file.create",
+        "todo.create",
+    ] {
+        assert!(
+            !capabilities()
+                .iter()
+                .find(|cap| cap.method == method)
+                .unwrap()
+                .implemented
+        );
+    }
+    for method in [
+        "output.stage",
+        "output.commit",
+        "operation.undo",
+        "operation.restore_created",
+    ] {
+        let capability = capabilities()
+            .into_iter()
+            .find(|cap| cap.method == method)
+            .unwrap();
+        assert!(
+            capability.implemented
+                && !capability.read_only
+                && capability.delivery.ends_with(":Record")
+        );
     }
 }
 

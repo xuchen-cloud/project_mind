@@ -1,3 +1,5 @@
+import type { RecordCommittedHead } from "./record-document-types";
+import type { RecordVersionDifference } from "./record-version-compare";
 /** Wire contracts mirrored from src-tauri/src/agent. AI-09 adds schema generation. */
 export type AgentScope = { kind: "workspace" } | { kind: "project"; projectId: number };
 export interface AgentWorkspaceBinding { workspaceId: string; generation: string }
@@ -224,6 +226,67 @@ export type AiWorkspaceOverview = AiOverview & { scope: { kind: "workspace" } };
 export type AgentRunState = "preparing" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
 /** Rust serde_json::Value fields retain their source-specific JSON shape. */
 export type AgentJsonValue = null | boolean | number | string | AgentJsonValue[] | { [key: string]: AgentJsonValue };
+export interface AgentBlockInput {
+  type: string;
+  attrs?: { [key: string]: AgentJsonValue };
+  content?: AgentBlockInput[];
+  text?: string;
+  marks?: Array<{ type: string; attrs?: { [key: string]: AgentJsonValue } }>;
+}
+export type AgentBlockEdit =
+  | { op: "replace"; blockId: string; expectedBlockHash: string; block: AgentBlockInput }
+  | { op: "delete"; blockId: string; expectedBlockHash: string }
+  | { op: "insert_after"; anchorBlockId: string; blocks: AgentBlockInput[] }
+  | { op: "append"; parentBlockId: string | null; position?: "start" | "end"; blocks: AgentBlockInput[] }
+  | { op: "append_inline"; blockId: string; expectedBlockHash: string; text: string };
+export interface AgentRecordPatch { record: AgentObjectRef; baseRevision: number; requestId: string; operations: AgentBlockEdit[] }
+export type AgentRecordOutputIntent =
+  | { intent: "record_create"; scope: AgentScope; title: string; markdown: string }
+  | { intent: "record_patch"; patch: AgentRecordPatch };
+export type AgentOutputIntent = AgentRecordOutputIntent
+  | { intent: "file_create"; projectId: number; safeName: string; utf8Content: string }
+  | { intent: "file_update"; target: AgentObjectRef; expectedVersion: number; expectedHash: string; stagedContentId: string }
+  | { intent: "todo_create"; scope: AgentScope; content: string }
+  | { intent: "todo_update"; target: AgentObjectRef; expectedRevision: string; content: string | null; status: string | null };
+export interface AgentStageRecordInput { intent: AgentRecordOutputIntent; sources: AgentSourceRef[] }
+/** Record candidates stay separate from business content until native commit. */
+export interface AgentRuntimeOutput {
+  id: string; runId: string; ordinal: number; revision: number;
+  intent: AgentOutputIntent; sources: AgentSourceRef[];
+  state: "staged" | "committing" | "committed" | "failed";
+  object: AgentObjectRef | null; mode: "collaborate" | "review" | "read_only";
+  errorCode: AgentError["code"] | null; sourceChanged: boolean[];
+}
+export interface AgentOutputPage { outputs: AgentRuntimeOutput[]; nextCursor: string | null }
+export interface AgentOutputListInput { runId: string; cursor?: string | null; limit?: number }
+export interface AgentOutputGetInput { outputId: string }
+export interface AgentOutputUpdateInput { outputId: string; expectedRevision: number; candidate: AgentStageRecordInput }
+export interface AgentOutputCommitInput { outputId: string; expectedRevision: number }
+export interface AgentOutputPreviewInput { outputId: string; expectedRevision: number }
+/** Read-only comparison against the verified current canonical patch baseline. */
+export interface AgentRecordOutputPreview { outputId: string; revision: number; baseRevision: number; difference: RecordVersionDifference }
+export interface AgentRecordOutputResult { output: AgentRuntimeOutput; receipt: AgentJsonValue; operation: AgentOperationEntry | null }
+export interface AgentOperationEntry {
+  operationId: string; runId: string | null; requestId: string; kind: string; object: AgentObjectRef;
+  beforeRevision: number | null; afterRevision: number | null;
+  beforeSnapshotRef: string | null; afterSnapshotRef: string | null;
+  undoState: "unavailable" | "available" | "undone"; undoOperationId: string | null; createdAt: string;
+  recovery: { withdrawn: boolean; withdrawalRevision: number | null; restoreAvailable: boolean } | null;
+}
+export interface AgentOperationPage { operations: AgentOperationEntry[]; nextCursor: string | null }
+export interface AgentOperationListInput { runId: string; cursor?: string | null; limit?: number }
+export interface AgentOperationGetInput { operationId: string }
+export interface AgentOperationUndoInput { operationId: string; expectedHeadRevision: number }
+export interface AgentOperationRestoreCreatedInput { creationOperationId: string; expectedWithdrawalRevision: number }
+export interface AgentRecordUndoResult {
+  operationId: string; originalOperationId: string; object: AgentObjectRef;
+  head: RecordCommittedHead;
+  beforeVersion: string; afterVersion: string;
+}
+export interface AgentRecordWithdrawalResult {
+  operationId: string; creationOperationId: string; object: AgentObjectRef; withdrawn: boolean; revision: number;
+}
+export type AgentOperationUndoResult = AgentRecordUndoResult | AgentRecordWithdrawalResult;
 export type AgentSessionState = "active" | "archived" | "read_only";
 export interface AgentSessionMetadata {
   id: string;

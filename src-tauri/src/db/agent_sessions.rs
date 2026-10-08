@@ -710,6 +710,17 @@ impl Database {
             ],
         )
         .map_err(io_error)?;
+        super::agent_outputs::agent_output_settle_interrupted(
+            &tx,
+            id,
+            settlement
+                .error_code
+                .unwrap_or(if settlement.state == RunState::Cancelled {
+                    ErrorCode::Cancelled
+                } else {
+                    ErrorCode::RuntimeUnavailable
+                }),
+        )?;
         let result = read_run(&tx, id)?;
         tx.commit().map_err(io_error)?;
         Ok(result)
@@ -943,6 +954,13 @@ impl Database {
         drop(stmt);
         for (_, scope) in &rows {
             self.conversation_authorize(request, current, &parse_scope_key(scope)?, "run.start")?;
+        }
+        for (id, _) in &rows {
+            super::agent_outputs::agent_output_settle_interrupted(
+                &tx,
+                id,
+                ErrorCode::RuntimeUnavailable,
+            )?;
         }
         let count=tx.execute("UPDATE agent_runs SET state='interrupted',finished_at=?1,error_code='RUNTIME_UNAVAILABLE' WHERE state IN ('preparing','running','cancelling')",[Utc::now().to_rfc3339()]).map_err(io_error)?;
         tx.commit().map_err(io_error)?;

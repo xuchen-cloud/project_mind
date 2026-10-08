@@ -10,6 +10,10 @@ import type {
   AgentRunStartInput, AgentRunCancelInput, AgentRunGetInput, AgentRunEventsListInput,
   AgentStoredRun, AgentRunEvent, AgentRunEventPage, AgentProfileProbeInput, AgentProfileProbeResult,
   AgentSourceRef, AgentSourceNavigation,
+  AgentOutputListInput, AgentOutputGetInput, AgentOutputUpdateInput, AgentOutputCommitInput, AgentOutputPage, AgentRuntimeOutput, AgentRecordOutputResult,
+  AgentOutputPreviewInput, AgentRecordOutputPreview,
+  AgentOperationListInput, AgentOperationGetInput, AgentOperationUndoInput, AgentOperationRestoreCreatedInput,
+  AgentOperationPage, AgentOperationEntry, AgentOperationUndoResult, AgentRecordWithdrawalResult,
 } from "../lib/agent-types";
 
 export class AgentApiError extends Error {
@@ -78,6 +82,33 @@ export const agentApi = {
   },
   sourceResolve(binding: AgentWorkspaceBinding, data: AgentSourceRef, requestId: string = crypto.randomUUID()): Promise<AgentSourceNavigation> {
     return callAgentCommand("agent_source_resolve", requestId, { input: { binding, requestId, data } });
+  },
+  outputList(binding: AgentWorkspaceBinding, data: AgentOutputListInput, requestId: string = crypto.randomUUID()): Promise<AgentOutputPage> {
+    return callAgentCommand("agent_output_list", requestId, { input: { binding, requestId, data } });
+  },
+  outputGet(binding: AgentWorkspaceBinding, data: AgentOutputGetInput, requestId: string = crypto.randomUUID()): Promise<AgentRuntimeOutput> {
+    return callAgentCommand("agent_output_get", requestId, { input: { binding, requestId, data } });
+  },
+  outputUpdate(binding: AgentWorkspaceBinding, data: AgentOutputUpdateInput, requestId: string = crypto.randomUUID()): Promise<AgentRuntimeOutput> {
+    return callAgentCommand("agent_output_update", requestId, { input: { binding, requestId, data } });
+  },
+  outputCommit(binding: AgentWorkspaceBinding, data: AgentOutputCommitInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordOutputResult> {
+    return callAgentCommand("agent_output_commit", requestId, { input: { binding, requestId, data } });
+  },
+  outputPreview(binding: AgentWorkspaceBinding, data: AgentOutputPreviewInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordOutputPreview> {
+    return callAgentCommand("agent_output_preview", requestId, { input: { binding, requestId, data } });
+  },
+  operationList(binding: AgentWorkspaceBinding, data: AgentOperationListInput, requestId: string = crypto.randomUUID()): Promise<AgentOperationPage> {
+    return callAgentCommand("agent_operation_list", requestId, { input: { binding, requestId, data } });
+  },
+  operationGet(binding: AgentWorkspaceBinding, data: AgentOperationGetInput, requestId: string = crypto.randomUUID()): Promise<AgentOperationEntry> {
+    return callAgentCommand("agent_operation_get", requestId, { input: { binding, requestId, data } });
+  },
+  operationUndo(binding: AgentWorkspaceBinding, data: AgentOperationUndoInput, requestId: string = crypto.randomUUID()): Promise<AgentOperationUndoResult> {
+    return callAgentCommand("agent_operation_undo", requestId, { input: { binding, requestId, data } });
+  },
+  operationRestoreCreated(binding: AgentWorkspaceBinding, data: AgentOperationRestoreCreatedInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordWithdrawalResult> {
+    return callAgentCommand("agent_operation_restore_created", requestId, { input: { binding, requestId, data } });
   },
   // Read after a user question or explicit knowledge-menu opening.
   contextGet(binding: AgentWorkspaceBinding, context: AgentContextInput, requestId: string = crypto.randomUUID()): Promise<AgentContextEntry> {

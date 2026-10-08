@@ -13,6 +13,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 fn source(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacySource> {
+    let current = source_unchecked(conn, target)?;
+    super::agent_record_withdrawals::require_record_visible(conn, target)?;
+    Ok(current)
+}
+
+fn source_unchecked(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacySource> {
     target.key()?;
     let value = match target.scope {
         Scope::Workspace => conn.query_row("SELECT title,content_html,content_markdown,default_code_language FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'", [target.record_id], |row| Ok((row.get::<_, Option<String>>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?,row.get::<_, Option<String>>(3)?))).optional(),
@@ -56,8 +62,16 @@ fn source(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacyS
     })
 }
 
-fn metadata(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordMetadata> {
-    let current = source(conn, target)?;
+pub(super) fn metadata(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordMetadata> {
+    source(conn, target)?;
+    metadata_unchecked(conn, target)
+}
+
+pub(super) fn metadata_unchecked(
+    conn: &Connection,
+    target: &RecordTarget,
+) -> AgentResult<RecordMetadata> {
+    let current = source_unchecked(conn, target)?;
     let (tags_sql, timestamp_sql) = match target.scope {
         Scope::Workspace => ("SELECT tag_id FROM workspace_note_tag_links WHERE workspace_note_id=?1 ORDER BY tag_id", "SELECT updated_at FROM workspace_notes WHERE id=?1"),
         Scope::Project { .. } => ("SELECT tag_id FROM note_tag_links WHERE note_id=?1 ORDER BY tag_id", "SELECT updated_at FROM notes WHERE id=?1"),
@@ -83,7 +97,10 @@ fn metadata(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordMetad
     })
 }
 
-fn head(conn: &Connection, target: &RecordTarget) -> AgentResult<Option<RecordDocumentHead>> {
+pub(super) fn head_unchecked(
+    conn: &Connection,
+    target: &RecordTarget,
+) -> AgentResult<Option<RecordDocumentHead>> {
     let value = conn.query_row("SELECT head_revision,document_json,body_hash,schema_version,code_language,html,markdown,text,edit_session_id,checkpoint_due_at FROM record_document_heads WHERE record_key=?1", [target.key()?], |row| {
         let document: String = row.get(1)?;
         Ok((row.get::<_, i64>(0)?, document, row.get::<_, String>(2)?, row.get::<_, u32>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, Option<String>>(9)?))
@@ -358,8 +375,8 @@ impl Database {
             let (project, workspace) = match input.scope { Scope::Workspace => (None, Some(target.record_id)), Scope::Project { .. } => (Some(target.record_id), None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)", params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,timestamp]).map_err(io_error)?;
             Self::record_write_projection(tx, &target, projection, &compatibility, workspace_id)?;
-            let initial = head(tx, &target)?.ok_or_else(damaged)?;
-            snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &json!({"kind":"gui"}), request_id, None)?;
+            let initial = head_unchecked(tx, &target)?.ok_or_else(damaged)?;
+            snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &if caller=="gui" {json!({"kind":"gui"})}else{json!({"kind":"agent","caller":caller})}, request_id, None)?;
             Ok((RecordCommittedHead::from(&initial), Some(OperationChange { object_key: target.object_key(workspace_id)?, scope: target.scope, revision: projection.body_hash.clone() })))
         })
     }
@@ -464,7 +481,7 @@ impl Database {
                 if !initial.text.is_empty() || !initial.validate()?.is_empty() { return Err(invalid("New Record baseline must be empty")); }
                 let (project_id, workspace_id) = match input.scope { Scope::Project { .. } => (Some(target.record_id),None), Scope::Workspace => (None,Some(target.record_id)) };
                 tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)",params![target.key()?,project_id,workspace_id,initial.document.to_string(),initial.html,initial.markdown,initial.text,initial.body_hash,initial.schema_version,initial.code_language,timestamp]).map_err(io_error)?;
-                let initial_head = head(tx,&target)?.ok_or_else(damaged)?;
+                let initial_head = head_unchecked(tx,&target)?.ok_or_else(damaged)?;
                 snapshot(tx,&initial_head,&saved_metadata.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
             }
             let commit = RecordDocumentCommit { target: target.clone(), base_revision: input.base_revision.unwrap_or(1), projection: projection.clone(),
@@ -844,7 +861,7 @@ impl Database {
         target: &RecordTarget,
     ) -> AgentResult<Option<RecordDocumentHead>> {
         source(&self.conn, target)?;
-        head(&self.conn, target)
+        head_unchecked(&self.conn, target)
     }
     pub(crate) fn record_patch_prepare(
         &self,
@@ -858,7 +875,7 @@ impl Database {
         {
             return Ok(RecordPatchPreparation::Replay(previous));
         }
-        let current = head(&self.conn, &target)?.ok_or_else(|| {
+        let current = head_unchecked(&self.conn, &target)?.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::SourceNotReady,
                 "Initialize the Record document first",
@@ -883,7 +900,7 @@ impl Database {
         // Receipt identity uses original intent, not randomly allocated worker IDs.
         self.agent_atomic_operation(caller, &patch.request_id, "record.patch", patch, |tx| {
             source(tx, &target)?;
-            let current = head(tx, &target)?.ok_or_else(|| {
+            let current = head_unchecked(tx, &target)?.ok_or_else(|| {
                 AgentError::new(
                     ErrorCode::SourceNotReady,
                     "Initialize the Record document first",
@@ -1070,7 +1087,7 @@ impl Database {
         before: Option<u64>,
         limit: u32,
     ) -> AgentResult<RecordVersionPage> {
-        source(&self.conn, target)?;
+        source_unchecked(&self.conn, target)?;
         if !(1..=100).contains(&limit)
             || before.is_some_and(|cursor| cursor == 0 || cursor > i64::MAX as u64)
         {
@@ -1123,14 +1140,14 @@ impl Database {
         target: &RecordTarget,
         id: &str,
     ) -> AgentResult<RecordVersion> {
-        source(&self.conn, target)?;
+        source_unchecked(&self.conn, target)?;
         version(&self.conn, target, id)
     }
     pub(crate) fn record_version_capacity(
         &self,
         target: &RecordTarget,
     ) -> AgentResult<RecordVersionCapacity> {
-        source(&self.conn, target)?;
+        source_unchecked(&self.conn, target)?;
         let key = target.key()?;
         let (version_count,snapshot_bytes): (i64,i64) = self.conn.query_row("SELECT count(*),COALESCE(sum(length(CAST(document_snapshot AS BLOB))+length(CAST(html AS BLOB))+length(CAST(markdown AS BLOB))+length(CAST(text AS BLOB))),0) FROM record_versions WHERE record_key=?1", [&key], |row|Ok((row.get(0)?,row.get(1)?))).map_err(io_error)?;
         let retained_asset_count: i64 = self.conn.query_row("SELECT count(DISTINCT asset_ref) FROM record_version_assets JOIN record_versions ON record_versions.id=version_id WHERE record_key=?1", [&key], |row|row.get(0)).map_err(io_error)?;
@@ -1159,7 +1176,7 @@ impl Database {
         }
         self.agent_atomic_operation(caller,request_id,"record.document.checkpoint",input,|tx| {
             let current_source = source(tx,&input.target)?;
-            let current = head(tx,&input.target)?.ok_or_else(||AgentError::new(ErrorCode::SourceNotReady,"Initialize the Record document first"))?;
+            let current = head_unchecked(tx,&input.target)?.ok_or_else(||AgentError::new(ErrorCode::SourceNotReady,"Initialize the Record document first"))?;
             if current.head_revision != input.base_revision { return Err(conflict(&current)); }
             let due = current.checkpoint_due_at.as_deref().map(chrono::DateTime::parse_from_rfc3339).transpose().map_err(|_|damaged())?;
             if current.edit_session_id.is_none() || (matches!(input.reason,RecordCheckpointReason::Due) && due.is_none_or(|due|due > Utc::now())) {
@@ -1167,7 +1184,7 @@ impl Database {
             }
             let id = snapshot(tx,&current,&current_source.title,&RecordVersionOrigin::Manual,&json!({"kind":"gui","checkpointReason":input.reason}),request_id,None)?;
             tx.execute("UPDATE record_document_heads SET edit_session_id=NULL,edit_started_at=NULL,checkpoint_due_at=NULL WHERE record_key=?1", [input.target.key()?]).map_err(io_error)?;
-            let updated = head(tx,&input.target)?.ok_or_else(damaged)?;
+            let updated = head_unchecked(tx,&input.target)?.ok_or_else(damaged)?;
             Ok((RecordCheckpointResult{head:(&updated).into(),version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
         })
     }
@@ -1403,7 +1420,7 @@ impl Database {
         visit(self, scope, project_root.as_deref(), &roots, document)
     }
 
-    fn record_compatibility_html(
+    pub(super) fn record_compatibility_html(
         &self,
         target: &RecordTarget,
         projection: &RecordDocumentProjection,
@@ -1484,12 +1501,12 @@ impl Database {
         let compatibility = self.record_compatibility_html(target, projection)?;
         self.agent_atomic_operation(caller,request_id,"record.document.initialize", &(target,expected_source_hash,projection), |tx| {
             let current_source = source(tx,target)?;
-            if let Some(current) = head(tx,target)? { return Ok((RecordCommittedHead::from(&current),None)); }
+            if let Some(current) = head_unchecked(tx,target)? { return Ok((RecordCommittedHead::from(&current),None)); }
             if current_source.source_hash != expected_source_hash { return Err(AgentError::new(ErrorCode::RevisionConflict,"Legacy Record changed before baseline conversion")); }
             let (project,workspace) = match target.scope { Scope::Workspace => (None,Some(target.record_id)),Scope::Project { .. } => (Some(target.record_id),None) };
             tx.execute("INSERT INTO record_document_heads(record_key,project_note_id,workspace_note_id,head_revision,document_json,html,markdown,text,body_hash,schema_version,code_language,updated_at) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11)",params![target.key()?,project,workspace,projection.document.to_string(),projection.html,projection.markdown,projection.text,projection.body_hash,projection.schema_version,projection.code_language,Utc::now().to_rfc3339()]).map_err(io_error)?;
             Self::record_write_projection(tx,target,projection,&compatibility, workspace_id)?;
-            let initial = head(tx,target)?.ok_or_else(|| AgentError::new(ErrorCode::IoFailed,"Cannot read new Record head"))?;
+            let initial = head_unchecked(tx,target)?.ok_or_else(|| AgentError::new(ErrorCode::IoFailed,"Cannot read new Record head"))?;
             snapshot(tx,&initial,&current_source.title,&RecordVersionOrigin::Baseline,&json!({"kind":"gui"}),request_id,None)?;
             Ok((RecordCommittedHead::from(&initial),Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
         })
@@ -1561,7 +1578,7 @@ impl Database {
             Ok((saved, body_change.or(metadata_change)))
         })
     }
-    fn record_commit_transaction(
+    pub(super) fn record_commit_transaction(
         tx: &Transaction<'_>,
         request_id: &str,
         input: &RecordDocumentCommit,
@@ -1571,7 +1588,7 @@ impl Database {
     ) -> AgentResult<(RecordCommitResult, Option<OperationChange>)> {
         let manual = matches!(input.origin, RecordVersionOrigin::Manual);
         let current_source = source(tx, &input.target)?;
-        let current = head(tx, &input.target)?.ok_or_else(|| {
+        let current = head_unchecked(tx, &input.target)?.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::SourceNotReady,
                 "Initialize the Record document first",
@@ -1655,7 +1672,7 @@ impl Database {
         let p = &input.projection;
         tx.execute("UPDATE record_document_heads SET head_revision=?1,document_json=?2,html=?3,markdown=?4,text=?5,body_hash=?6,schema_version=?7,code_language=?8,edit_session_id=?9,edit_started_at=?10,checkpoint_due_at=?11,updated_at=?12 WHERE record_key=?13 AND head_revision=?14",params![revision as i64,p.document.to_string(),p.html,p.markdown,p.text,p.body_hash,p.schema_version,p.code_language,session,started,due,now.to_rfc3339(),input.target.key()?,input.base_revision as i64]).map_err(io_error)?;
         Self::record_write_projection(tx, &input.target, p, compatibility, workspace_id)?;
-        let updated = head(tx, &input.target)?.ok_or_else(|| {
+        let updated = head_unchecked(tx, &input.target)?.ok_or_else(|| {
             AgentError::new(ErrorCode::IoFailed, "Cannot read updated Record head")
         })?;
         let after_version = if manual {
@@ -1861,7 +1878,10 @@ mod tests {
             projection.document["content"][0]["attrs"]["blockId"]
         );
         assert_eq!(version_count(&database), 2);
-        assert_eq!(database.committed_change_watermark().unwrap(), before_transfer + 2);
+        assert_eq!(
+            database.committed_change_watermark().unwrap(),
+            before_transfer + 2
+        );
         let replay = database
             .record_quick_note_transfer(
                 "gui",
@@ -1875,7 +1895,10 @@ mod tests {
             .unwrap();
         assert_eq!(replay.head.head_revision, 2);
         assert_eq!(version_count(&database), 2);
-        assert_eq!(database.committed_change_watermark().unwrap(), before_transfer + 2);
+        assert_eq!(
+            database.committed_change_watermark().unwrap(),
+            before_transfer + 2
+        );
         let stale = database
             .record_quick_note_transfer(
                 "gui",

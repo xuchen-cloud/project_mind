@@ -6,11 +6,12 @@ import { serializeRecordDocument } from "../lib/record-document-format";
 import { canonicalDocumentJson, createRecordDocument, RECORD_DOCUMENT_SCHEMA_VERSION, RecordDocumentError, validateRecordDocument } from "../lib/record-document";
 import { applyRecordPatch, type RecordPatchOperation, type RecordPatchPreview } from "../lib/record-patch";
 import { compareRecordDocuments } from "../lib/record-version-compare";
+import { renderMarkdownToHtml } from "../lib/richTextContent";
 
 interface DocumentWorkerRequest {
   requestId: string;
   method: "record.initialize" | "record.create" | "record.validate" | "record.patch" | "record.compare" | "record.schema";
-  data?: { html?: string; assetBasePath?: string | null; document?: JSONContent; otherDocument?: JSONContent; codeLanguage?: string | null; operations?: RecordPatchOperation[] };
+  data?: { html?: string; markdown?: string; assetBasePath?: string | null; document?: JSONContent; otherDocument?: JSONContent; codeLanguage?: string | null; operations?: RecordPatchOperation[] };
 }
 
 export async function handleRecordDocumentRequest(request: DocumentWorkerRequest) {
@@ -35,7 +36,8 @@ export async function handleRecordDocumentRequest(request: DocumentWorkerRequest
     }
     let document: JSONContent;
     let patch: Omit<RecordPatchPreview, "document"> | undefined;
-    if (request.method === "record.initialize" && typeof data.html === "string") document = parseRecordHtml(data.html, recordDocumentSchema, { assetBasePath: data.assetBasePath });
+    if (request.method === "record.initialize" && typeof data.markdown === "string" && data.html === undefined) document = parseRecordHtml(renderMarkdownToHtml(data.markdown), recordDocumentSchema, { assetBasePath: data.assetBasePath });
+    else if (request.method === "record.initialize" && typeof data.html === "string" && data.markdown === undefined) document = parseRecordHtml(data.html, recordDocumentSchema, { assetBasePath: data.assetBasePath });
     else if (request.method === "record.create" && data.document) document = createRecordDocument(data.document, recordDocumentSchema);
     else if (request.method === "record.validate" && data.document) document = data.document;
     else if (request.method === "record.patch" && data.document && data.operations) {

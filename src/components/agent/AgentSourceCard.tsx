@@ -4,6 +4,7 @@ import type { AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-type
 import type { InternalReferenceKind } from "../../lib/types";
 import { projectPath, workspacePath } from "../../lib/formatters";
 import { getErrorMessage } from "../../lib/errors";
+import { withdrawnReference, type WithdrawnReference } from "../../lib/withdrawn-reference";
 import { agentApi } from "../../services/agentApi";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -41,6 +42,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
   const [status, setStatus] = useState<string | null>(null);
   const [changedRevision, setChangedRevision] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [withdrawn, setWithdrawn] = useState<{ details: WithdrawnReference; binding: AgentWorkspaceBinding } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
@@ -52,14 +54,16 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
   const locator = location(source);
   const note = limitation(source);
 
-  async function open() {
-    if (busy) return;
-    setBusy(true); setError(null);
+  async function open(afterRestore = false) {
+    if (busy && !afterRestore) return;
+    setBusy(true); setError(null); setWithdrawn(null);
+    let openingBinding: AgentWorkspaceBinding | null = null;
     try {
       const current = (await agentApi.statusGet()).binding;
       if (!active.current) return;
       if (!current || current.workspaceId !== source.object.workspaceId
         || (binding && (current.workspaceId !== binding.workspaceId || current.generation !== binding.generation))) throw new Error("工作区已切换，请回到引用所属工作区。");
+      openingBinding = current;
       const stillCurrent = async () => {
         if (!active.current) return false;
         const selected = (await agentApi.statusGet()).binding;
@@ -126,7 +130,31 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
         navigate(`${destination.pathname}${destination.search}${destination.hash}`);
       }
     } catch (failure) {
-      if (active.current) setError(getErrorMessage(failure, "打开来源失败"));
+      if (active.current) {
+        const details = withdrawnReference(failure);
+        if (details) {
+          setError(details.restoreAvailable ? "引用记录已撤回，恢复后可查看原文。" : "引用记录已撤回，暂时无法恢复。");
+          if (details.restoreAvailable && openingBinding?.workspaceId === details.workspaceId) setWithdrawn({ details, binding: openingBinding });
+        } else setError(getErrorMessage(failure, "打开来源失败"));
+      }
+    } finally { if (active.current) setBusy(false); }
+  }
+
+  async function restore() {
+    if (busy || !withdrawn) return;
+    setBusy(true);
+    try {
+      const current = (await agentApi.statusGet()).binding;
+      if (!active.current) return;
+      if (!current || current.workspaceId !== withdrawn.binding.workspaceId || current.generation !== withdrawn.binding.generation) throw new Error("工作区已切换，请回到引用所属工作区。");
+      await agentApi.operationRestoreCreated(current, { creationOperationId: withdrawn.details.creationOperationId!, expectedWithdrawalRevision: withdrawn.details.withdrawalRevision! });
+      const selected = (await agentApi.statusGet()).binding;
+      if (!active.current) return;
+      if (!selected || selected.workspaceId !== current.workspaceId || selected.generation !== current.generation) throw new Error("工作区已切换，记录已恢复，请重新打开来源。");
+      setWithdrawn(null);
+      await open(true);
+    } catch (failure) {
+      if (active.current) setError(`恢复引用失败：${getErrorMessage(failure, "请重新打开引用后重试。")}`);
     } finally { if (active.current) setBusy(false); }
   }
 
@@ -145,6 +173,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
         : <p className="text-body text-text-muted">此引用未提供已读取的正文片段。</p>}
       {note && <p className="mt-2 text-caption text-text-muted">{note}</p>}
       {error && <p role="alert" className="mt-2 text-caption text-danger">{error}</p>}
+      {withdrawn && <Button variant="ghost" size="sm" className="mt-2" disabled={busy} onClick={() => void restore()}>恢复并打开</Button>}
       <Button variant="ghost" size="sm" className="mt-2" disabled={busy || (!refKind && !opensScope && !opensRecord)} onClick={() => void open()}>
         {busy ? "正在打开…" : changedRevision ? "打开当前记录" : opensScope ? "打开所属资料页" : "打开原文"}
       </Button>

@@ -61,12 +61,12 @@ export function agentMessageSources(content: AgentJsonValue): AgentSourceRef[] {
 export function AgentMessage({ message, binding }: { message: AgentConversationMessage; binding: AgentWorkspaceBinding }) {
   const [shown, setShown] = useState(12000);
   const text = agentContentText(message.content);
-  const label = message.role === "user" ? "你" : message.role === "assistant" ? "助手" : "资料读取结果";
+  const label = message.role === "user" ? "你" : message.role === "assistant" ? "助手" : "工具结果";
   const sources = message.role === "tool" ? agentMessageSources(message.content) : [];
   return <article className={`agent-message agent-message--${message.role}`}>
-    <div className="agent-message__label">{label}{message.isError ? " · 读取失败" : ""}</div>
+    <div className="agent-message__label">{label}{message.isError ? " · 调用失败" : ""}</div>
     {message.role === "tool" ? <details>
-      <summary>{message.isError ? "查看读取错误" : "查看读取结果"}</summary>
+      <summary>{message.isError ? "查看调用错误" : "查看工具结果"}</summary>
       <pre className="agent-message__text">{text.slice(0, shown)}</pre>
       {shown < text.length ? <Button size="sm" variant="ghost" onClick={() => setShown(count => count + 12000)}>显示更多内容</Button> : null}
     </details> : <>

@@ -30,6 +30,8 @@ pub enum ErrorCode {
     AmbiguousMatch,
     EditorReviewPending,
     EditorBusy,
+    UndoConflict,
+    ObjectWithdrawn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

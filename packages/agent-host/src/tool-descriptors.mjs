@@ -1,5 +1,8 @@
 // This is a second, small allowlist; Rust still owns grants and argument checks.
 export const READ_METHODS = new Set(['context.get', 'context.overview.get', 'knowledge.search', 'knowledge.get', 'source.search', 'source.read']);
+// Registration is supplied by the trusted Host after its mode/grant checks.
+// Business mutations still execute in Rust and require durable undo receipts.
+const RECORD_METHODS = new Set(['record.blocks.get', 'output.stage', 'output.get', 'output.list', 'output.commit', 'operation.get', 'operation.list', 'operation.undo', 'operation.restore_created']);
 export const PROBE_TOOLS = ['source.read', 'output.stage'].map((method) => ({
   name: `mind_${method.replace('.', '_')}`, method,
   description: `Acceptance fixture for scoped ${method}.`,
@@ -13,16 +16,26 @@ export function validateToolDescriptors(tools, { probe = false } = {}) {
   const names = new Set();
   for (const tool of tools) {
     if (!tool || !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(tool.name ?? '') || names.has(tool.name)
-      || !(READ_METHODS.has(tool.method) || (probe && tool.method === 'output.stage'))
+      || !(READ_METHODS.has(tool.method) || (!probe && RECORD_METHODS.has(tool.method)) || (probe && tool.method === 'output.stage'))
       || typeof tool.description !== 'string' || !tool.description || tool.description.length > 2048) invalid();
     names.add(tool.name);
     if (tool.parameters?.type !== 'object' || tool.parameters.additionalProperties !== false
       || !tool.parameters.properties || Array.isArray(tool.parameters.properties)) invalid();
     let nodes = 0;
+    const definitions = tool.parameters.$defs ?? {};
+    if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)
+      || Object.keys(definitions).some((name) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name))) invalid();
     function schema(value, depth = 0) {
-      if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 8 || ++nodes > 256) invalid();
+      // The canonical editor has 21 node variants; its bounded Record schema
+      // contains 389 schema nodes. Definitions are inspected once, not expanded.
+      if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 8 || ++nodes > 512) invalid();
+      if (value.$ref !== undefined) {
+        const match = typeof value.$ref === 'string' && /^#\/\$defs\/([A-Za-z][A-Za-z0-9_]{0,63})$/.exec(value.$ref);
+        if (!match || !Object.hasOwn(definitions, match[1]) || Object.keys(value).length !== 1) invalid();
+        return;
+      }
       for (const key of ['oneOf', 'anyOf']) if (value[key] !== undefined) {
-        if (!Array.isArray(value[key]) || !value[key].length || value[key].length > 16) invalid();
+        if (!Array.isArray(value[key]) || !value[key].length || value[key].length > 32) invalid();
         for (const variant of value[key]) schema(variant, depth + 1);
         if (value.type === undefined) return;
       }
@@ -34,11 +47,12 @@ export function validateToolDescriptors(tools, { probe = false } = {}) {
       }
       if (value.type === 'string' && (!Number.isInteger(value.maxLength) || value.maxLength < 1 || value.maxLength > 65536)) invalid();
       if (value.type === 'array') {
-        if (!Number.isInteger(value.maxItems) || value.maxItems < 1 || value.maxItems > 100) invalid();
+        if (!Number.isInteger(value.maxItems) || value.maxItems < 0 || value.maxItems > 100) invalid();
         schema(value.items, depth + 1);
       }
     }
     schema(tool.parameters);
+    for (const definition of Object.values(definitions)) schema(definition);
   }
   return structuredClone(tools);
 }

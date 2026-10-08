@@ -124,6 +124,28 @@ pub(crate) fn agent_run_start(
                 "Enable the assistant for this scope first",
             ));
         }
+        request
+            .scope_grant
+            .operations
+            .extend(["output.read", "operation.read"].map(str::to_owned));
+        if settings.execution_mode != super::models::ExecutionMode::ReadOnly {
+            request.scope_grant.operations.extend(
+                [
+                    "output.stage",
+                    "output.update",
+                    "output.commit",
+                    "content.create",
+                    "record.patch",
+                ]
+                .map(str::to_owned),
+            );
+        }
+        if settings.execution_mode == super::models::ExecutionMode::Collaborate {
+            request
+                .scope_grant
+                .operations
+                .extend(["operation.undo", "operation.restore_created"].map(str::to_owned));
+        }
         let resolved = db.agent_resolve_profile(session.profile_override_id)?;
         if !db.agent_profile_verified(&resolved.fingerprint)? {
             return Err(AgentError::new(

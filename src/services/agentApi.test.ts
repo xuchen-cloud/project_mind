@@ -6,12 +6,89 @@ import { queryKeys } from "../lib/queryKeys";
 import type { OverviewReadInput, OverviewReadPage, KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage,
   AgentSessionMetadata, AgentSessionSnapshot, AgentStoredRun, AgentRunEvent, AgentRunEventPage,
   AgentSourceRef, AgentSourceNavigation,
+  AgentRuntimeOutput, AgentOperationEntry, AgentRecordOutputResult, AgentRecordUndoResult, AgentRecordWithdrawalResult,
+  AgentRecordOutputPreview,
 } from "../lib/agent-types";
 
 vi.mock("./desktopApi", () => ({ desktopApi: { command: vi.fn(), listenEvent: vi.fn() } }));
 beforeEach(() => vi.clearAllMocks());
 const binding = { workspaceId: "w1", generation: "open-1" };
 const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上次的决定" };
+
+const output: AgentRuntimeOutput = { id: "a".repeat(32), runId: "b".repeat(32), ordinal: 1, revision: 2,
+  intent: { intent: "record_create", scope: context.scope, title: "阶段依据", markdown: "有来源支持的候选正文" }, sources: [],
+  state: "staged", object: null, mode: "review", errorCode: null, sourceChanged: [] };
+const receiptObject = { workspaceId: binding.workspaceId, scope: context.scope, kind: "record" as const, id: "42" };
+const operation: AgentOperationEntry = { operationId: "c".repeat(32), runId: output.runId, requestId: "native-commit", kind: "record.create",
+  object: receiptObject, beforeRevision: null, afterRevision: 1, beforeSnapshotRef: null, afterSnapshotRef: "snapshot-1",
+  undoState: "available", undoOperationId: null, createdAt: "2026-10-08T09:00:00Z", recovery: { withdrawn: false, withdrawalRevision: null, restoreAvailable: false } };
+
+it("previews a patch against its exact output revision and propagates changed baselines without writing", async () => {
+  const preview: AgentRecordOutputPreview = { outputId: output.id, revision: 2, baseRevision: 3,
+    difference: { added: ["a".repeat(32)], deleted: [], modified: ["b".repeat(32)], moved: [] } };
+  const data = { outputId: output.id, expectedRevision: 2 };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "preview-1", ok: true, data: preview });
+  expect(await agentApi.outputPreview(binding, data, "preview-1")).toBe(preview);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_preview", { input: { binding, requestId: "preview-1", data } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "preview-stale", ok: false,
+    error: { code: "REVISION_CONFLICT", message: "Record head differs from candidate baseline", retryable: true } });
+  await expect(agentApi.outputPreview(binding, data, "preview-stale")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  expect(vi.mocked(desktopApi.command).mock.calls.map(([name]) => name)).toEqual(["agent_output_preview", "agent_output_preview"]);
+});
+
+it("reads bound output pages and individual candidates without changing content or adding authority", async () => {
+  const page = { outputs: [output], nextCursor: "opaque-output-cursor" };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "outputs-1", ok: true, data: page });
+  expect(await agentApi.outputList(binding, { runId: output.runId, limit: 10, cursor: null }, "outputs-1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_list", { input: { binding, requestId: "outputs-1", data: { runId: output.runId, limit: 10, cursor: null } } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "output-1", ok: true, data: output });
+  expect(await agentApi.outputGet(binding, { outputId: output.id }, "output-1")).toBe(output);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_get", { input: { binding, requestId: "output-1", data: { outputId: output.id } } });
+  expect(desktopApi.command).toHaveBeenCalledTimes(2);
+});
+
+it("updates a candidate through CAS and commits its exact revision without frontend grants", async () => {
+  const data = { outputId: output.id, expectedRevision: output.revision, candidate: { intent: { intent: "record_create" as const, scope: context.scope, title: "修订标题", markdown: "修订候选正文" }, sources: [] } };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "edit-output", ok: true, data: { ...output, revision: 3, intent: data.candidate.intent } });
+  expect((await agentApi.outputUpdate(binding, data, "edit-output")).revision).toBe(3);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_update", { input: { binding, requestId: "edit-output", data } });
+  const result: AgentRecordOutputResult = { output: { ...output, revision: 3, state: "committed", object: receiptObject }, receipt: { operationId: operation.operationId, headRevision: 1 }, operation };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "confirm-output", ok: true, data: result });
+  expect(await agentApi.outputCommit(binding, { outputId: output.id, expectedRevision: 3 }, "confirm-output")).toBe(result);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_commit", { input: { binding, requestId: "confirm-output", data: { outputId: output.id, expectedRevision: 3 } } });
+});
+
+it("reads actual operation receipts using bounded run history and receipt identities", async () => {
+  const page = { operations: [operation], nextCursor: "opaque-operation-cursor" };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "receipts-1", ok: true, data: page });
+  expect(await agentApi.operationList(binding, { runId: output.runId, cursor: "previous", limit: 20 }, "receipts-1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_list", { input: { binding, requestId: "receipts-1", data: { runId: output.runId, cursor: "previous", limit: 20 } } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "receipt-1", ok: true, data: operation });
+  expect(await agentApi.operationGet(binding, { operationId: operation.operationId }, "receipt-1")).toBe(operation);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_get", { input: { binding, requestId: "receipt-1", data: { operationId: operation.operationId } } });
+});
+
+it("undoes a modified Record from its receipt baseline and restores a withdrawn creation with revision checking", async () => {
+  const undo: AgentRecordUndoResult = { operationId: "undo-op", originalOperationId: operation.operationId, object: receiptObject,
+    head: { target: { scope: context.scope, recordId: 42 }, headRevision: 3, bodyHash: "sha256:restored" }, beforeVersion: "before", afterVersion: "after" };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "undo", ok: true, data: undo });
+  expect(await agentApi.operationUndo(binding, { operationId: operation.operationId, expectedHeadRevision: 2 }, "undo")).toBe(undo);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_undo", { input: { binding, requestId: "undo", data: { operationId: operation.operationId, expectedHeadRevision: 2 } } });
+  const restore: AgentRecordWithdrawalResult = { operationId: "restore-op", creationOperationId: operation.operationId, object: receiptObject, withdrawn: false, revision: 2 };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "restore", ok: true, data: restore });
+  expect(await agentApi.operationRestoreCreated(binding, { creationOperationId: operation.operationId, expectedWithdrawalRevision: 1 }, "restore")).toBe(restore);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_restore_created", { input: { binding, requestId: "restore", data: { creationOperationId: operation.operationId, expectedWithdrawalRevision: 1 } } });
+});
+
+it("preserves undo conflicts and output CAS errors without replaying a rejected write", async () => {
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "undo-conflict", ok: false,
+    error: { code: "UNDO_CONFLICT", message: "Record changed after the original operation", retryable: false } });
+  await expect(agentApi.operationUndo(binding, { operationId: operation.operationId, expectedHeadRevision: 1 }, "undo-conflict")).rejects.toMatchObject({ code: "UNDO_CONFLICT" });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "commit-conflict", ok: false,
+    error: { code: "REVISION_CONFLICT", message: "Output revision changed", retryable: true } });
+  await expect(agentApi.outputCommit(binding, { outputId: output.id, expectedRevision: 1 }, "commit-conflict")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  expect(desktopApi.command).toHaveBeenCalledTimes(2);
+});
 
 const knowledgeSummary: KnowledgeGetPage = {
   scope: context.scope, nodeId: "node:decision-1", kind: "decision", revision: 3,

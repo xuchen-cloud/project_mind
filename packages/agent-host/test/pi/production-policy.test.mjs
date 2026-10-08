@@ -13,9 +13,9 @@ const frame = (method, data = {}) => ({ protocolVersion: PROTOCOL_VERSION, reque
 const descriptor = { name: 'mind_source_read', method: 'source.read', description: 'Read the granted source',
   parameters: { type: 'object', properties: { locator: { anyOf: [{ type: 'string', maxLength: 128 }, { type: 'null' }] } }, additionalProperties: false } };
 
-test('production rejects shell/write discovery, duplicate tools and unbounded schemas', async () => {
+test('production rejects unregistered discovery, duplicate tools and unbounded schemas', async () => {
   assert.deepEqual(validateToolDescriptors([descriptor]), [descriptor]);
-  for (const method of ['bash', 'shell.exec', 'file.read', 'output.stage', 'record.create']) {
+  for (const method of ['bash', 'shell.exec', 'file.read', 'file.create', 'record.create']) {
     assert.throws(() => validateToolDescriptors([{ ...descriptor, method }]), { code: 'INVALID_ARGUMENT' });
   }
   assert.throws(() => validateToolDescriptors([descriptor, descriptor]));
@@ -30,6 +30,23 @@ test('production rejects shell/write discovery, duplicate tools and unbounded sc
   assert.equal(frames.at(-1).error.code, 'TOOL_CALL_UNSUPPORTED');
   assert.equal(opened, false);
   assert.ok(!JSON.stringify(frames).includes('pipe-only-key'));
+});
+
+test('trusted Record tools allow canonical recursive schemas but never external or missing refs', () => {
+  const tool = { ...descriptor, method: 'output.stage', parameters: {
+    type: 'object', properties: { block: { $ref: '#/$defs/Block' } }, additionalProperties: false,
+    $defs: { Block: { type: 'object', properties: { text: { type: 'string', maxLength: 65536 },
+      content: { type: 'array', maxItems: 100, items: { $ref: '#/$defs/Block' } } }, additionalProperties: false } },
+  } };
+  assert.deepEqual(validateToolDescriptors([tool]), [tool]);
+  for (const ref of ['https://fixture.invalid/schema', '#/$defs/Missing', '#/properties/block']) {
+    const invalid = structuredClone(tool);
+    invalid.parameters.properties.block.$ref = ref;
+    assert.throws(() => validateToolDescriptors([invalid]), { code: 'INVALID_ARGUMENT' });
+  }
+  const unbounded = structuredClone(tool);
+  delete unbounded.parameters.$defs.Block.properties.text.maxLength;
+  assert.throws(() => validateToolDescriptors([unbounded]), { code: 'INVALID_ARGUMENT' });
 });
 
 test('real SDK error preserves history and performs one provider request without retries', { timeout: 10000 }, async () => {

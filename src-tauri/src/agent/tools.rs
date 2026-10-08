@@ -273,28 +273,28 @@ pub(crate) struct ReadToolDescription {
     pub description: &'static str,
     pub parameters: Value,
 }
-fn object(properties: Value, required: &[&str]) -> Value {
+pub(super) fn object(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
-fn nullable(schema: Value) -> Value {
+pub(super) fn nullable(schema: Value) -> Value {
     json!({"anyOf":[schema,{"type":"null"}]})
 }
-fn text(max: usize) -> Value {
+pub(super) fn text(max: usize) -> Value {
     json!({"type":"string","maxLength":max})
 }
-fn integer(max: u64) -> Value {
+pub(super) fn integer(max: u64) -> Value {
     json!({"type":"integer","minimum":1,"maximum":max})
 }
-fn array(items: Value, max: usize) -> Value {
+pub(super) fn array(items: Value, max: usize) -> Value {
     json!({"type":"array","items":items,"maxItems":max})
 }
-fn scope_schema() -> Value {
+pub(super) fn scope_schema() -> Value {
     json!({"oneOf":[object(json!({"kind":{"type":"string","maxLength":9,"const":"workspace"}}), &["kind"]),object(json!({"kind":{"type":"string","maxLength":7,"const":"project"},"projectId":integer(9_007_199_254_740_991)}), &["kind","projectId"])]})
 }
 fn source_kinds() -> Value {
     json!({"type":"string","maxLength":32,"enum":["project","quick_note","record","todo","file","transcript"]})
 }
-fn object_ref_schema() -> Value {
+pub(super) fn object_ref_schema() -> Value {
     let identity =
         json!({"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"});
     object(
@@ -302,7 +302,7 @@ fn object_ref_schema() -> Value {
         &["workspaceId", "scope", "kind", "id"],
     )
 }
-fn locator_schema() -> Value {
+pub(super) fn locator_schema() -> Value {
     let paragraph = object(
         json!({"kind":{"type":"string","maxLength":9,"const":"paragraph"},"start":integer(u32::MAX.into()),"end":integer(u32::MAX.into())}),
         &["kind", "start", "end"],

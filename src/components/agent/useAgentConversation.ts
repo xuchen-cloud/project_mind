@@ -28,7 +28,14 @@ export function agentFailureMessage(error: unknown): string {
     RUNTIME_INCOMPATIBLE: "助手运行资源与应用版本不匹配，请检查应用安装。",
     WORKSPACE_NOT_OPEN: "请先打开工作区。",
     SCOPE_DENIED: "当前操作不在授权范围内，请检查此项目的助手设置。",
-    REVISION_CONFLICT: "助手设置已变化，请刷新后重试。",
+    REVISION_CONFLICT: "内容或助手设置已变化，请刷新后重试。",
+    UNDO_CONFLICT: "记录在保存后已有其他修改，无法撤销；后续内容已保留。请打开记录核对。",
+    EDITOR_REVIEW_PENDING: "该记录还有待确认的编辑，请先处理编辑器中的修改。",
+    EDITOR_BUSY: "该记录正在保存，请等待编辑器完成后重试。",
+    INVALID_PATCH: "候选修改未通过记录校验，请重新生成成果。",
+    AMBIGUOUS_MATCH: "无法确定候选修改对应的记录块，请重新生成成果。",
+    OUTPUT_COMMIT_FAILED: "成果保存失败，请刷新状态后重试。",
+    OBJECT_WITHDRAWN: "记录已撤回，可从成果卡片恢复。",
     RATE_LIMITED: "模型服务请求过于频繁，请稍后重试。",
     CANCELLED: "运行已停止。",
   };
@@ -137,7 +144,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     lastSeq.current = event.seq;
     const kind = event.event;
     if (kind.type === "text.delta") setLiveText(text => text + kind.data.text);
-    if (kind.type === "tool.started") setToolActivity("正在读取资料…");
+    if (kind.type === "tool.started") setToolActivity("正在处理请求…");
     if (kind.type === "tool.completed") setToolActivity("");
     const state = kind.type === "run.started" ? "running"
       : kind.type === "run.completed" ? "completed"
@@ -254,11 +261,11 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     return () => { stopped = true; window.clearInterval(timer); };
   }, [binding, run?.id, run?.state, catchUpEvents, loadMessages, valid]);
 
-  const setEnabled = async (enabled: boolean) => {
+  const updateSettings = async (patch: Partial<Pick<AgentScopeSettings, "enabled" | "executionMode">>) => {
     if (!binding || !settings || savingSettings) return;
     const token = epoch.current; setSavingSettings(true); setError(null);
     try {
-      const saved = await agentApi.settingsUpdate(binding, { settings: { ...settings, enabled }, expectedRevision: settings.revision });
+      const saved = await agentApi.settingsUpdate(binding, { settings: { ...settings, ...patch }, expectedRevision: settings.revision });
       if (valid(token, binding)) setSettings(saved);
     } catch (failure) { if (valid(token, binding)) setError(agentFailureMessage(failure)); }
     finally { if (valid(token, binding)) setSavingSettings(false); }
@@ -358,7 +365,8 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
   return {
     binding, settings, sessions, sessionCursor, session, messages, nextOrdinal, run, liveText,
     pendingPrompt, toolActivity, error, loading, starting, reading, savingSettings, probing, verified,
-    runtimeAvailable, busy: starting || isAgentRunActive(run), setEnabled, selectSession, send, cancel,
+    runtimeAvailable, busy: starting || isAgentRunActive(run), setEnabled: (enabled: boolean) => updateSettings({ enabled }),
+    setMode: (executionMode: AgentScopeSettings["executionMode"]) => updateSettings({ executionMode }), selectSession, send, cancel,
     refresh, moreSessions, probe, loadMore: () => binding && session && nextOrdinal !== null
       ? loadMessages(binding, session.id, nextOrdinal) : Promise.resolve(),
   };
