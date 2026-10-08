@@ -1,6 +1,6 @@
 # AI 工作上下文：产品与开发规格
 
-更新：2026-10-08。状态：实施中，基础与部分内部服务已实现，完整助手工作流尚未交付。代码审查快照与后续顺序见[交付计划D2](ai-work-context-delivery.md#delivery-audit)。
+更新：2026-10-08。本文定义目标产品行为，不代表全部功能已交付。最新实现、待接入与验收状态见[父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97)及子 Issue；历史代码审查快照与执行顺序见[交付计划D2](ai-work-context-delivery.md#delivery-audit)。
 
 本规格定义 Project Mind 的 AI 助手如何理解项目、利用历史知识并直接完成可逆操作。它整合了此前确定的需求；正文按完整产品逻辑组织，不再保留逐轮追加的修订章节。
 
