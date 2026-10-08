@@ -1,10 +1,7 @@
-// AI-01 probe only. The production protocol continues to report unavailable
-// until provider and packaged-runtime acceptance has passed on both platforms.
-import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager }
-  from '@earendil-works/pi-coding-agent';
+// Shared restricted Pi SDK adapter. The probe below only supplies acceptance fixtures.
 import { encodeSession, decodeSession } from './session-codec.mjs';
 
-const TOOL_METHODS = { mind_source_read: 'source.read', mind_output_stage: 'output.stage' };
+import { DEFAULT_SYSTEM_PROMPT, PROBE_TOOLS, validateToolDescriptors } from './tool-descriptors.mjs';
 
 function memoryCredentials(providerId, apiKey) {
   const values = new Map([[providerId, { type: 'api_key', key: apiKey }]]);
@@ -30,7 +27,7 @@ function memoryCredentials(providerId, apiKey) {
   };
 }
 
-function restrictedResources() {
+function restrictedResources(systemPrompt, createExtensionRuntime) {
   // ResourceLoader is a public SDK interface. Construct only our owned loaded
   // extension; do not call DefaultResourceLoader, which resolves local packages
   // even when its noExtensions/noSkills switches are set.
@@ -40,6 +37,13 @@ function restrictedResources() {
     sourceInfo: { path: extensionPath, source: 'inline', scope: 'temporary', origin: 'top-level' },
     handlers: new Map([['before_agent_start', [(event) => {
       event.systemPromptOptions.cwd = 'workspace:.';
+    }]], ['message_end', [(event) => {
+      // Provider diagnostics may echo authorization headers. Preserve the SDK
+      // failed turn and usage, but keep its diagnostic metadata generic.
+      if (event.message.role === 'assistant' && event.message.errorMessage !== undefined) {
+        return { message: { ...event.message, errorMessage: event.message.stopReason === 'aborted'
+          ? 'Provider request cancelled' : 'Provider request failed' } };
+      }
     }]]]),
     tools: new Map(), messageRenderers: new Map(), entryRenderers: new Map(),
     commands: new Map(), flags: new Map(), shortcuts: new Map(),
@@ -51,7 +55,7 @@ function restrictedResources() {
     getPrompts: () => ({ prompts: [], diagnostics: [] }),
     getThemes: () => ({ themes: [], diagnostics: [] }),
     getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => 'You are ProjectMind. Use only the supplied scoped tools. Paths are Workspace-relative references.',
+    getSystemPrompt: () => systemPrompt,
     getSystemPromptSource: () => undefined,
     getAppendSystemPrompt: () => [],
     getAppendSystemPromptSources: () => [],
@@ -60,10 +64,14 @@ function restrictedResources() {
   };
 }
 
-export async function createPiProbe({ workspaceRoot, sessionId, baseUrl, modelId, apiKey,
-  dispatchTool, checkpoint, onEvent = () => {} }) {
+export async function createPiSession({ workspaceRoot, sessionId, baseUrl, modelId, apiKey,
+  dispatchTool, checkpoint, tools: descriptors = [], systemPrompt = DEFAULT_SYSTEM_PROMPT,
+  maxTokens = 4096, contextWindow = 32768, onEvent = () => {} }) {
+  const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager }
+    = await import('@earendil-works/pi-coding-agent');
   const providerId = 'project-mind-compatible';
   const credentials = memoryCredentials(providerId, apiKey);
+  apiKey = undefined;
   let disposableSession;
   try {
     const runtime = await ModelRuntime.create({ credentials, modelsPath: null,
@@ -71,7 +79,7 @@ export async function createPiProbe({ workspaceRoot, sessionId, baseUrl, modelId
     runtime.registerProvider(providerId, {
       baseUrl, api: 'openai-completions', authHeader: true,
       models: [{ id: modelId, name: modelId, reasoning: false, input: ['text'],
-        contextWindow: 32768, maxTokens: 1024,
+        contextWindow, maxTokens,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
     });
     const model = runtime.getModel(providerId, modelId);
@@ -87,29 +95,31 @@ export async function createPiProbe({ workspaceRoot, sessionId, baseUrl, modelId
       else if (typeof checkpoint.leafId === 'string' && manager.getEntry(checkpoint.leafId)) manager.branch(checkpoint.leafId);
       else throw Object.assign(new Error('Session checkpoint leaf is missing'), { code: 'RUNTIME_INCOMPATIBLE' });
     }
-    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false, maxRetries: 0 } });
-    const tools = Object.entries(TOOL_METHODS).map(([name, method]) => ({
-      name, label: method, description: `Call ProjectMind ${method} within the Host grant.`,
-      parameters: { type: 'object', properties: { payload: { type: 'string' } }, required: ['payload'], additionalProperties: false },
+    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, cacheWarming: 'off',
+      retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } } });
+    const tools = descriptors.map(({ name, method, description, parameters }) => ({
+      name, label: method, description, parameters,
       execute: async (toolCallId, params, signal) => {
-        const result = await dispatchTool({ method, toolCallId, payload: params.payload, signal });
+        const result = await dispatchTool({ method, toolCallId, payload: params, signal });
         return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
       },
     }));
     const { session } = await createAgentSession({ cwd: workspaceRoot,
       agentDir: workspaceRoot, modelRuntime: runtime, model,
       thinkingLevel: 'off', sessionManager: manager, settingsManager: settings,
-      resourceLoader: restrictedResources(), noTools: 'builtin', tools: Object.keys(TOOL_METHODS), customTools: tools });
+      resourceLoader: restrictedResources(systemPrompt, createExtensionRuntime), noTools: 'builtin', tools: descriptors.map((tool) => tool.name), customTools: tools });
     disposableSession = session;
     // A restored transcript can declare old tools. Reapply the allowlist explicitly.
-    session.setActiveToolsByName(Object.keys(TOOL_METHODS));
+    session.setActiveToolsByName(descriptors.map((tool) => tool.name));
     const unsubscribe = session.subscribe(onEvent);
+    const snapshot = () => ({ ...encodeSession([manager.getHeader(), ...manager.getEntries()], workspaceRoot), leafId: manager.getLeafId() });
     return {
       activeTools: () => session.getActiveToolNames(),
+      checkpoint: snapshot,
       async prompt(text) {
-        await session.prompt(text);
+        await session.prompt(text, { expandPromptTemplates: false });
         await session.waitForIdle();
-        return { ...encodeSession([manager.getHeader(), ...manager.getEntries()], workspaceRoot), leafId: manager.getLeafId() };
+        return snapshot();
       },
       cancel: () => session.abort(),
       async dispose() {
@@ -126,4 +136,11 @@ export async function createPiProbe({ workspaceRoot, sessionId, baseUrl, modelId
     throw error;
   }
 
+}
+
+// Legacy AI-01 fixture wrapper: production never supplies these defaults.
+export function createPiProbe(options) {
+  const tools = validateToolDescriptors(options.tools ?? PROBE_TOOLS, { probe: true });
+  const dispatchTool = options.dispatchTool;
+  return createPiSession({ ...options, tools, dispatchTool: (call) => dispatchTool({ ...call, payload: call.payload.payload }) });
 }

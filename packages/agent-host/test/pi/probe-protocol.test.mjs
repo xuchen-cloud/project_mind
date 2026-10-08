@@ -51,3 +51,36 @@ test('transport correlates tool replies and waits for checkpoint persistence bef
   await protocol.handle(frame('shutdown'));
   await assert.rejects(bridge({ method: 'source.read', payload: '' }), /cancelled/);
 });
+
+test('tool call limit aborts the SDK and checkpoints instead of starting paid continuation', async () => {
+  const frames = [];
+  let cancelled = 0;
+  let protocol;
+  protocol = createProbeProtocol({ workspaceRoot: '/tmp/workspace',
+    write: (value) => {
+      frames.push(value);
+      if (value.method === 'tool.call') void protocol.handle(frame('tool.result', { sessionId, runId, result: {} }, value.requestId));
+    }, persistCheckpoint: async () => ({ checksum: 'fixture', bytes: 1 }),
+    makeSession: async ({ dispatchTool, onEvent }) => ({
+      activeTools: () => ['mind_source_read'],
+      cancel: async () => { ++cancelled; }, dispose: async () => {},
+      prompt: async () => {
+        for (let index = 0; index < 31; ++index) {
+          try { await dispatchTool({ method: 'source.read', toolCallId: `tool-${index}`, payload: {} }); }
+          catch { break; }
+        }
+        onEvent({ type: 'agent_settled' });
+        return { jsonl: 'fixture', checksum: 'fixture', bytes: 1 };
+      },
+    }),
+  });
+  await protocol.handle(frame('initialize'));
+  await protocol.handle(frame('session.open', { sessionId, profile, apiKey: 'fixture-secret', toolCallingVerified: true }));
+  await protocol.handle(frame('run.start', { sessionId, runId, prompt: 'Reach the tool limit' }));
+  await protocol.idle();
+  assert.equal(frames.filter((value) => value.method === 'tool.call').length, 30);
+  assert.equal(cancelled, 1);
+  assert.equal(frames.at(-1).type, 'run.failed');
+  assert.equal(frames.at(-1).data.code, 'BUDGET_EXCEEDED');
+  assert.ok(frames.at(-1).data.checkpoint);
+});

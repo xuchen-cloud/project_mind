@@ -13,5 +13,10 @@ export function mapCompatibleProfile(profile, { model, toolCallingVerified = fal
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     fail('INVALID_ARGUMENT', 'Profile base URL must be an HTTP endpoint without inline credentials');
   }
-  return { baseUrl: url.toString().replace(/\/+$/, ''), modelId: modelId.trim(), api: 'openai-completions' };
+  const limits = {};
+  for (const key of ['maxTokens', 'contextWindow']) if (profile[key] !== undefined) {
+    if (!Number.isInteger(profile[key]) || profile[key] < 1 || profile[key] > 2000000) fail('INVALID_ARGUMENT', 'Invalid Profile model limit');
+    limits[key] = profile[key];
+  }
+  return { baseUrl: url.toString().replace(/\/+$/, ''), modelId: modelId.trim(), api: 'openai-completions', ...limits };
 }

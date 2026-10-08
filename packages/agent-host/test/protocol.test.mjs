@@ -2,26 +2,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createProtocolSession, parseFrame, PROTOCOL_VERSION } from "../src/protocol.mjs";
+import { parseFrame, PROTOCOL_VERSION } from "../src/protocol.mjs";
+import { createHostProtocol } from '../src/host-protocol.mjs';
 const frame = (method, requestId = "r1") => ({ protocolVersion: PROTOCOL_VERSION, requestId, method });
 
-test("handshake is honest about unavailable Pi and never completes a fake run", () => {
-  const handle = createProtocolSession();
-  assert.equal(handle(frame("run.start")).response.error.code, "RUNTIME_INCOMPATIBLE");
-  const initialized = handle(frame("initialize")).response;
-  assert.equal(initialized.data.runtimeAvailable, false);
-  assert.equal(initialized.data.capabilities.scopeEnforced, false);
-  assert.equal(handle(frame("run.start")).response.error.code, "RUNTIME_UNAVAILABLE");
-  assert.equal(handle(frame("initialize")).response.ok, false);
-  assert.equal(handle(frame("shutdown")).shutdown, true);
+test("production handshake exposes executable read-only runtime and explicit tools", async () => {
+  const frames = [];
+  const protocol = createHostProtocol({ write: (value) => frames.push(value), workspaceRoot: '/tmp/workspace' });
+  await protocol.handle(frame('run.start'));
+  assert.equal(frames.at(-1).error.code, 'RUNTIME_INCOMPATIBLE');
+  await protocol.handle({ ...frame('initialize'), data: { workspaceRoot: '/tmp/workspace', systemPrompt: 'Scoped manifest', tools: [] } });
+  assert.equal(frames.at(-1).data.runtimeAvailable, true);
+  assert.equal(frames.at(-1).data.acceptancePending, true);
+  assert.equal(frames.at(-1).data.capabilities.fileOutput, false);
+  assert.deepEqual(frames.at(-1).data.activeTools, []);
+  await protocol.handle(frame('initialize'));
+  assert.equal(frames.at(-1).ok, false);
+  await protocol.handle(frame('shutdown'));
+  assert.equal(frames.at(-1).data.stopped, true);
 });
 
-test("rejects unknown methods and protocol mismatches", () => {
-  for (const input of ["null", "[]", JSON.stringify({ ...frame("initialize"), method: "shell.exec" })]) {
-    assert.throws(() => parseFrame(input));
-  }
-  const handle = createProtocolSession();
-  assert.equal(handle({ ...frame("initialize"), protocolVersion: "other" }).response.error.code, "RUNTIME_INCOMPATIBLE");
+test("rejects unknown methods and protocol mismatches", async () => {
+  for (const input of ['null', '[]', JSON.stringify({ ...frame('initialize'), method: 'shell.exec' })]) assert.throws(() => parseFrame(input));
+  const frames = [];
+  const protocol = createHostProtocol({ write: (value) => frames.push(value) });
+  await protocol.handle({ ...frame('initialize'), protocolVersion: 'other' });
+  assert.equal(frames.at(-1).error.code, 'RUNTIME_INCOMPATIBLE');
 });
 
 async function exchange(input) {

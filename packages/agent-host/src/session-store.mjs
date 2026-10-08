@@ -3,6 +3,7 @@ import { realpath, lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { decodeSession } from './session-codec.mjs';
+import { projectCheckpoint } from './message-projection.mjs';
 
 const incompatible = () => Object.assign(new Error('Session checkpoint is missing or damaged; history has been preserved'), { code: 'RUNTIME_INCOMPATIBLE' });
 const denied = () => Object.assign(new Error('Session store path is outside its private Workspace directory'), { code: 'SCOPE_DENIED' });
@@ -14,8 +15,13 @@ export async function createSessionStore(workspaceRoot) {
     let current = root;
     for (const segment of ['.project-mind', 'agent', 'sessions', sessionId]) {
       current = path.join(current, segment);
-      if (create) await mkdir(current, { mode: 0o700 }).catch((error) => { if (error.code !== 'EEXIST') throw error; });
-      const stat = await lstat(current);
+      // The packaged Host precreates the fixed private ancestors. Avoid mkdir
+      // on existing ancestors so Node needs write permission only for sessions.
+      const stat = await lstat(current).catch(async (error) => {
+        if (!create || error.code !== 'ENOENT') throw error;
+        await mkdir(current, { mode: 0o700 }).catch((failure) => { if (failure.code !== 'EEXIST') throw failure; });
+        return lstat(current);
+      });
       if (!stat.isDirectory() || stat.isSymbolicLink()) throw denied();
     }
     return current;
@@ -61,6 +67,9 @@ export async function createSessionStore(workspaceRoot) {
       if (metadata.schemaVersion !== 1) throw incompatible();
       const checkpoint = { ...metadata, jsonl: await readPrivate(path.join(dir, 'session.jsonl')) };
       validate(sessionId, checkpoint);
+      checkpoint.offset = checkpoint.bytes;
+      checkpoint.entryCount = decodeSession(checkpoint.jsonl, root, sessionId, checkpoint.checksum).length - 1;
+      checkpoint.messageCount = projectCheckpoint(checkpoint, root, sessionId).length;
       return checkpoint;
     } catch (error) { if (error.code === 'SCOPE_DENIED') throw error; throw incompatible(); }
   }
@@ -76,7 +85,9 @@ export async function createSessionStore(workspaceRoot) {
         const previous = await load(sessionId);
         if (!checkpoint.jsonl.startsWith(previous.jsonl)) throw incompatible();
       }
-      const metadata = { schemaVersion: 1, checksum: checkpoint.checksum, bytes: checkpoint.bytes, leafId: checkpoint.leafId };
+      const metadata = { schemaVersion: 1, checksum: checkpoint.checksum, bytes: checkpoint.bytes, offset: checkpoint.bytes, leafId: checkpoint.leafId,
+        entryCount: decodeSession(checkpoint.jsonl, root, sessionId, checkpoint.checksum).length - 1,
+        messageCount: projectCheckpoint(checkpoint, root, sessionId).length };
       // The complete SDK tree replaces the prior checkpoint atomically. A crash
       // between the two renames is detectable and never reinitializes history.
       await replacePrivate(path.join(dir, 'session.jsonl'), checkpoint.jsonl);
@@ -85,5 +96,9 @@ export async function createSessionStore(workspaceRoot) {
       return metadata;
     },
     load,
+    async exists(sessionId) {
+      try { await directory(sessionId, false); return true; }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    },
   };
 }
