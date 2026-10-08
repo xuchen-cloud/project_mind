@@ -4,6 +4,8 @@ mod agent_sessions;
 mod agent_runtime_schema;
 mod agent_operations;
 mod agent_operation_batches;
+mod agent_creation_batches;
+mod agent_creation_references;
 mod agent_outputs;
 mod agent_output_review;
 mod agent_output_schema;

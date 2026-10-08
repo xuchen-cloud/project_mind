@@ -4,6 +4,7 @@ use super::{
     access::{Caller, RequestContext, ScopeGrant},
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
     models::{Scope, WorkspaceBinding},
+    operation_batches::{OperationUndoBatchInput, OperationUndoBatchResult},
     operations::{
         OperationEntry, OperationGetInput, OperationListInput, OperationPage, OperationUndoInput,
         OperationUndoResult,
@@ -316,6 +317,27 @@ pub(crate) async fn agent_operation_undo(
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]
+pub(crate) async fn agent_operation_undo_batch(
+    state: State<'_, AppState>,
+    input: OutputCommandInput<OperationUndoBatchInput>,
+) -> Result<ApiResponse<OperationUndoBatchResult>, String> {
+    let result = async {
+        let request = state.with_current(|binding, db| {
+            check_binding(&input, binding)?;
+            // The actual Run receipts remain the authority after session deletion.
+            let scopes = db.agent_operation_run_scopes(binding, &input.data.run_id)?;
+            Ok(request(
+                &input,
+                operation_grant(binding, &scopes, &["operation.read", "operation.undo"]),
+            ))
+        })?;
+        let utility = AppDocumentUtility(state.app_handle.clone());
+        output_service::undo_batch(&*state, &utility, &request, &input.data).await
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
+}
+#[tauri::command]
 pub(crate) fn agent_operation_restore_created(
     state: State<'_, AppState>,
     input: OutputCommandInput<RecordRestoreInput>,
@@ -399,5 +421,32 @@ mod tests {
         assert!(!grant.workspace_content);
         assert_eq!(grant.project_ids, vec![7]);
         assert_eq!(grant.operations, vec!["operation.read"]);
+    }
+    #[test]
+    fn batch_undo_envelope_accepts_only_receipt_selection() {
+        let original = json!({"binding":{"workspaceId":"w","generation":"g"},"requestId":"batch","data":{"runId":"a".repeat(32),"operationIds":["b".repeat(32)]}});
+        assert!(
+            serde_json::from_value::<OutputCommandInput<OperationUndoBatchInput>>(original.clone())
+                .is_ok()
+        );
+        for (outer, inner) in [
+            (Some("caller"), None),
+            (Some("scopeGrant"), None),
+            (None, Some("scope")),
+            (None, Some("activeRunId")),
+            (None, Some("expectedHeadRevision")),
+        ] {
+            let mut forged = original.clone();
+            if let Some(field) = outer {
+                forged[field] = json!("gui");
+            }
+            if let Some(field) = inner {
+                forged["data"][field] = json!("forged");
+            }
+            assert!(
+                serde_json::from_value::<OutputCommandInput<OperationUndoBatchInput>>(forged)
+                    .is_err()
+            );
+        }
     }
 }

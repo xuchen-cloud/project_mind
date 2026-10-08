@@ -306,6 +306,7 @@ export interface AgentOperationPage { operations: AgentOperationEntry[]; nextCur
 export interface AgentOperationListInput { runId: string; cursor?: string | null; limit?: number }
 export interface AgentOperationGetInput { operationId: string }
 export interface AgentOperationUndoInput { operationId: string; expectedHeadRevision: number }
+export interface AgentOperationUndoBatchInput { runId: string; operationIds: string[] }
 export interface AgentOperationRestoreCreatedInput { creationOperationId: string; expectedWithdrawalRevision: number }
 export interface AgentRecordUndoResult {
   operationId: string; originalOperationId: string; object: AgentObjectRef;
@@ -326,6 +327,13 @@ export interface AgentFileUndoResult {
   beforeVersionId: string; afterVersionId: string; contentHash: string;
 }
 export type AgentOperationUndoResult = AgentRecordUndoResult | AgentTodoUndoResult | AgentFileUndoResult | AgentRecordWithdrawalResult;
+export interface AgentOperationUndoBatchResult {
+  runId: string;
+  results: Array<{ object: AgentObjectRef; operationIds: string[]; outcome:
+    | { status: "succeeded"; result: AgentOperationUndoResult }
+    | { status: "failed"; error: AgentError } }>;
+  excludedNoChangeIds: string[];
+}
 export type AgentSessionState = "active" | "archived" | "read_only";
 export interface AgentSessionMetadata {
   id: string;

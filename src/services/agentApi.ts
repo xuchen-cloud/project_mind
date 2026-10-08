@@ -13,8 +13,8 @@ import type {
   AgentSourceRef, AgentSourceNavigation,
   AgentOutputListInput, AgentOutputGetInput, AgentOutputUpdateInput, AgentOutputCommitInput, AgentOutputPage, AgentRuntimeOutput, AgentOutputResult,
   AgentOutputPreviewInput, AgentRecordOutputPreview,
-  AgentOperationListInput, AgentOperationGetInput, AgentOperationUndoInput, AgentOperationRestoreCreatedInput,
-  AgentOperationPage, AgentOperationEntry, AgentOperationUndoResult, AgentRecordWithdrawalResult,
+  AgentOperationListInput, AgentOperationGetInput, AgentOperationUndoInput, AgentOperationUndoBatchInput, AgentOperationRestoreCreatedInput,
+  AgentOperationPage, AgentOperationEntry, AgentOperationUndoResult, AgentOperationUndoBatchResult, AgentRecordWithdrawalResult,
 } from "../lib/agent-types";
 
 export class AgentApiError extends Error {
@@ -113,6 +113,9 @@ export const agentApi = {
   },
   operationUndo(binding: AgentWorkspaceBinding, data: AgentOperationUndoInput, requestId: string = crypto.randomUUID()): Promise<AgentOperationUndoResult> {
     return callAgentCommand("agent_operation_undo", requestId, { input: { binding, requestId, data } });
+  },
+  operationUndoBatch(binding: AgentWorkspaceBinding, data: AgentOperationUndoBatchInput, requestId: string = crypto.randomUUID()): Promise<AgentOperationUndoBatchResult> {
+    return callAgentCommand("agent_operation_undo_batch", requestId, { input: { binding, requestId, data } });
   },
   operationRestoreCreated(binding: AgentWorkspaceBinding, data: AgentOperationRestoreCreatedInput, requestId: string = crypto.randomUUID()): Promise<AgentRecordWithdrawalResult> {
     return callAgentCommand("agent_operation_restore_created", requestId, { input: { binding, requestId, data } });

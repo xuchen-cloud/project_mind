@@ -1416,6 +1416,7 @@ pub fn run() {
             agent::output_commands::agent_operation_list,
             agent::output_commands::agent_operation_get,
             agent::output_commands::agent_operation_undo,
+            agent::output_commands::agent_operation_undo_batch,
             agent::output_commands::agent_operation_restore_created,
             agent::source_navigation::agent_source_resolve,
             agent::commands::agent_context_get,

@@ -3,12 +3,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentRuntimeOutput } from "../../lib/agent-types";
 import { AgentRunOutputs } from "./AgentRunOutputs";
-const api = vi.hoisted(() => ({ outputReview: vi.fn(), outputList: vi.fn(), operationList: vi.fn(), outputCommit: vi.fn(), outputDismiss: vi.fn(), outputGet: vi.fn(), operationUndo: vi.fn(), operationGet: vi.fn(), operationRestoreCreated: vi.fn() }));
+const api = vi.hoisted(() => ({ statusGet: vi.fn(), outputReview: vi.fn(), outputList: vi.fn(), operationList: vi.fn(), outputCommit: vi.fn(), outputDismiss: vi.fn(), outputGet: vi.fn(), operationUndo: vi.fn(), operationUndoBatch: vi.fn(), operationGet: vi.fn(), operationRestoreCreated: vi.fn() }));
 vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: api }));
-vi.mock("./AgentOutputCard", () => ({ AgentOutputCard: ({ output, operation, presentation, onCommit, onDismiss, onUndo, onRestore }: { output: AgentRuntimeOutput; operation: unknown; presentation?: string; onCommit: () => Promise<void>; onDismiss: () => Promise<void>; onUndo: () => Promise<void>; onRestore: () => Promise<void> }) => presentation === "link" ? <span>对象 {output.id}</span> : <article>
+vi.mock("./AgentOutputCard", () => ({ AgentOutputCard: ({ output, operation, recoveryOperation, presentation, hideUndo, hideRestore, onCommit, onDismiss, onUndo, onRestore }: { output: AgentRuntimeOutput; operation: unknown; recoveryOperation?: { operationId: string; recovery?: { withdrawn: boolean } }; presentation?: string; hideUndo?: boolean; hideRestore?: boolean; onCommit: () => Promise<void>; onDismiss: () => Promise<void>; onUndo: () => Promise<void>; onRestore: () => Promise<void> }) => presentation === "link" ? recoveryOperation?.recovery?.withdrawn ? null : <span>对象 {output.id}</span> : <article>
   <span>{output.id} · {output.dismissed ? "dismissed" : output.state}</span><button onClick={() => { void onCommit().catch(() => {}); void onCommit().catch(() => {}); }}>保存 {output.id}</button>
   {!output.dismissed ? <button onClick={() => { void onDismiss().catch(() => {}); void onDismiss().catch(() => {}); }}>取消 {output.id}</button> : null}
-  {operation ? <><button onClick={() => void onUndo()}>撤销 {output.id}</button><button onClick={() => void onRestore()}>恢复 {output.id}</button></> : null}</article> }));
+  {operation ? <>{!hideUndo ? <button onClick={() => void onUndo()}>撤销 {output.id}</button> : null}{!hideRestore ? <button onClick={() => void onRestore()}>恢复 {output.id}</button> : null}</> : null}
+  {recoveryOperation ? <span>恢复基线 {output.id}: {recoveryOperation.operationId}</span> : null}</article> }));
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project", projectId: 1 } as const, kind: "record" as const, id: "7" };
 const output: AgentRuntimeOutput = { id: "out", runId: "run", ordinal: 0, revision: 1, intent: { intent: "record_create", scope: object.scope, title: "候选记录", markdown: "正文" }, sources: [], sourceChanged: [], dismissed: false, state: "staged", mode: "review", object: null, errorCode: null };
@@ -17,7 +18,7 @@ function view() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current /></QueryClientProvider>);
 }
-beforeEach(() => { vi.resetAllMocks(); api.outputList.mockResolvedValue({ outputs: [output], nextCursor: null }); api.operationList.mockResolvedValue({ operations: [], nextCursor: null }); });
+beforeEach(() => { vi.resetAllMocks(); api.statusGet.mockResolvedValue({ binding }); api.outputList.mockResolvedValue({ outputs: [output], nextCursor: null }); api.operationList.mockResolvedValue({ operations: [], nextCursor: null }); });
 
 it("reads every bounded candidate page before offering one whole-run confirmation", async () => {
   let lastPage!: (value: unknown) => void;
@@ -357,6 +358,7 @@ it.each([true, false])("reads a deeper original receipt before claiming a saved 
   expect(api.operationList).toHaveBeenCalledTimes(2);
   expect(api.operationList).toHaveBeenLastCalledWith(binding, { runId: "run", cursor: "original-next", limit: 50 });
   expect(screen.getByRole("button", { name: "更多操作记录" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("已显示：");
   expect(api.outputCommit).not.toHaveBeenCalled();
 });
 
@@ -371,4 +373,173 @@ it("does not exhaust operation history looking for a receipt for an unchanged Fi
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("内容相同 1 项"));
   expect(api.operationList).toHaveBeenCalledOnce();
   expect(screen.getByRole("button", { name: "更多操作记录" })).toBeInTheDocument();
+});
+
+const batchReceipt = { ...operation, runId: "run", beforeRevision: null, beforeSnapshotRef: null, afterSnapshotRef: "v1", createdAt: "2026-10-08T00:00:00Z", undoOperationId: null };
+const changedReceipt = { ...batchReceipt, operationId: "update", requestId: "output:later:1", kind: "record.patch", beforeRevision: 1, afterRevision: 2, beforeSnapshotRef: "v1", afterSnapshotRef: "v2", recovery: null };
+const committed = { ...output, state: "committed" as const, object };
+
+it("reads all operation pages before undoing creation and later changes as one object", async () => {
+  const unrelated = Array.from({ length: 49 }, (_, index) => ({ ...batchReceipt, operationId: `other-${index}`, object: { ...object, id: `${index + 20}` }, undoState: "unavailable" as const }));
+  api.outputList.mockResolvedValue({ outputs: [committed, { ...committed, id: "later", ordinal: 1 }], nextCursor: null });
+  api.operationList.mockImplementation(async (_binding, input) => input.cursor === "next" ? { operations: [changedReceipt], nextCursor: null }
+    : { operations: [batchReceipt, ...unrelated], nextCursor: "next" });
+  api.operationUndoBatch.mockResolvedValue({ runId: "run", results: [{ object, operationIds: ["op", "update"], outcome: { status: "succeeded", result: { withdrawn: true } } }], excludedNoChangeIds: [] });
+  view();
+  fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledOnce());
+  expect(api.operationUndoBatch).toHaveBeenCalledWith(binding, { runId: "run", operationIds: ["op", "update"] });
+  expect(api.operationList.mock.calls.some(([, input]) => input.cursor === "next")).toBe(true);
+  expect(screen.getAllByText("对象 later")).toHaveLength(1);
+  expect(screen.queryByText("对象 out")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "撤销 out", hidden: true })).not.toBeInTheDocument();
+});
+
+it("undoes multiple updates of one object with one native batch and its first baseline", async () => {
+  const first = { ...changedReceipt, operationId: "first", beforeRevision: 3, afterRevision: 4, beforeSnapshotRef: "v3", afterSnapshotRef: "v4" };
+  const second = { ...changedReceipt, operationId: "second", beforeRevision: 4, afterRevision: 5, beforeSnapshotRef: "v4", afterSnapshotRef: "v5" };
+  api.outputList.mockResolvedValue({ outputs: [{ ...committed, intent: { intent: "record_patch", patch: { record: object, baseRevision: 3, operations: [] } } }], nextCursor: null });
+  api.operationList.mockResolvedValue({ operations: [first, second], nextCursor: null });
+  api.operationUndoBatch.mockResolvedValue({ runId: "run", results: [{ object, operationIds: ["first", "second"], outcome: { status: "succeeded", result: { operationId: "undo", originalOperationId: "first", object } } }], excludedNoChangeIds: [] });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledWith(binding, { runId: "run", operationIds: ["first", "second"] }));
+  expect(api.operationUndo).not.toHaveBeenCalled();
+  expect(screen.getByText(/修改记录/)).toBeInTheDocument();
+});
+
+it("counts a creation plus update as one withdrawn object and restores its creation receipt from the latest card", async () => {
+  const withdrawnCreation = { ...batchReceipt, undoState: "undone" as const, recovery: { withdrawn: true, withdrawalRevision: 3, restoreAvailable: true } };
+  const undoneUpdate = { ...changedReceipt, undoState: "undone" as const };
+  api.outputList.mockResolvedValue({ outputs: [committed, { ...committed, id: "later", ordinal: 1 }], nextCursor: null });
+  api.operationList.mockResolvedValue({ operations: [withdrawnCreation, undoneUpdate], nextCursor: null });
+  api.operationGet.mockResolvedValue({ ...withdrawnCreation, recovery: { withdrawn: false, withdrawalRevision: 4, restoreAvailable: false } });
+  api.operationRestoreCreated.mockResolvedValue({ withdrawn: false, revision: 4 });
+  view();
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已撤回 1 项"));
+  expect(screen.getByRole("status")).not.toHaveTextContent("已撤销 1 项");
+  expect(screen.queryByText("对象 later")).not.toBeInTheDocument();
+  expect(screen.getByText("恢复基线 later: op")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "恢复 out", hidden: true })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "恢复 later", hidden: true }));
+  await waitFor(() => expect(api.operationRestoreCreated).toHaveBeenCalledWith(binding, { creationOperationId: "op", expectedWithdrawalRevision: 3 }, expect.any(String)));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已恢复 1 项"));
+});
+
+it("keeps successful groups out of partial retry and shows the failed object", async () => {
+  const secondObject = { ...object, id: "8" };
+  const secondReceipt = { ...batchReceipt, operationId: "second-op", object: secondObject, requestId: "output:second:1" };
+  let receipts = [batchReceipt, secondReceipt];
+  api.outputList.mockResolvedValue({ outputs: [committed, { ...committed, id: "second", object: secondObject }], nextCursor: null });
+  api.operationList.mockImplementation(async () => ({ operations: receipts, nextCursor: null }));
+  api.operationUndoBatch.mockImplementationOnce(async () => {
+    receipts = [{ ...batchReceipt, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 2, restoreAvailable: true } }, secondReceipt];
+    return { runId: "run", results: [
+      { object, operationIds: ["op"], outcome: { status: "succeeded", result: { withdrawn: true } } },
+      { object: secondObject, operationIds: ["second-op"], outcome: { status: "failed", error: { code: "UNDO_CONFLICT", message: "conflict", retryable: false } } },
+    ], excludedNoChangeIds: [] };
+  }).mockResolvedValue({ runId: "run", results: [{ object: secondObject, operationIds: ["second-op"], outcome: { status: "succeeded", result: { withdrawn: true } } }], excludedNoChangeIds: [] });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(screen.getByText(/1 项撤销未完成/)).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledTimes(2));
+  expect(api.operationUndoBatch.mock.calls[1][1].operationIds).toEqual(["second-op"]);
+});
+
+it("keeps another object error visible after retrying one failed group", async () => {
+  const secondObject = { ...object, id: "8" };
+  const secondReceipt = { ...batchReceipt, operationId: "second-op", object: secondObject, requestId: "output:second:1" };
+  api.outputList.mockResolvedValue({ outputs: [committed, { ...committed, id: "second", object: secondObject }], nextCursor: null });
+  api.operationList.mockResolvedValue({ operations: [batchReceipt, secondReceipt], nextCursor: null });
+  api.operationUndoBatch.mockResolvedValueOnce({ runId: "run", results: [
+    { object, operationIds: ["op"], outcome: { status: "failed", error: { code: "UNDO_CONFLICT", message: "first", retryable: false } } },
+    { object: secondObject, operationIds: ["second-op"], outcome: { status: "failed", error: { code: "UNDO_CONFLICT", message: "second", retryable: false } } },
+  ], excludedNoChangeIds: [] }).mockResolvedValue({ runId: "run", results: [{ object, operationIds: ["op"], outcome: { status: "succeeded", result: { withdrawn: true } } }], excludedNoChangeIds: [] });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(3));
+  const firstRow = screen.getAllByText(/创建记录“候选记录”/)[0].parentElement!;
+  fireEvent.click(firstRow.querySelector("button")!);
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledTimes(2));
+  expect(api.operationUndoBatch.mock.calls[1][1].operationIds).toEqual(["op"]);
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+});
+
+it("does not send a batch after the workspace binding changes during the full read", async () => {
+  let settle!: (page: unknown) => void;
+  api.outputList.mockResolvedValue({ outputs: [committed], nextCursor: null });
+  api.operationList.mockResolvedValueOnce({ operations: [batchReceipt], nextCursor: null })
+    .mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+  const client = new QueryClient();
+  const wrap = (generation: string) => <QueryClientProvider client={client}><AgentRunOutputs binding={{ ...binding, generation }} runId="run" /></QueryClientProvider>;
+  const rendered = render(wrap("g"));
+  fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  rendered.rerender(wrap("new"));
+  await act(async () => settle({ operations: [batchReceipt], nextCursor: null }));
+  expect(api.operationUndoBatch).not.toHaveBeenCalled();
+});
+
+it("stops old-run operation pagination as soon as a pending page resolves", async () => {
+  let settle!: (page: unknown) => void;
+  api.outputList.mockResolvedValue({ outputs: [committed], nextCursor: null });
+  api.operationList.mockResolvedValueOnce({ operations: [batchReceipt], nextCursor: null })
+    .mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+  const client = new QueryClient();
+  const wrap = (runId: string) => <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId={runId} /></QueryClientProvider>;
+  const rendered = render(wrap("run"));
+  fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  rendered.rerender(wrap("other"));
+  await act(async () => settle({ operations: [batchReceipt], nextCursor: "next" }));
+  expect(api.operationList.mock.calls.filter(([, input]) => input.runId === "run")).toHaveLength(2);
+  expect(api.operationUndoBatch).not.toHaveBeenCalled();
+});
+
+it("does not apply a late batch result to a different run", async () => {
+  let settle!: (result: unknown) => void;
+  api.outputList.mockResolvedValue({ outputs: [committed], nextCursor: null });
+  api.operationList.mockResolvedValue({ operations: [batchReceipt], nextCursor: null });
+  api.operationUndoBatch.mockImplementation(() => new Promise(resolve => { settle = resolve; }));
+  const client = new QueryClient(); const invalidate = vi.spyOn(client, "invalidateQueries");
+  const wrap = (runId: string) => <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId={runId} /></QueryClientProvider>;
+  const rendered = render(wrap("run"));
+  fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledOnce());
+  rendered.rerender(wrap("another-run"));
+  await act(async () => settle({ runId: "run", results: [{ object, operationIds: ["op"], outcome: { status: "succeeded", result: { withdrawn: true } } }], excludedNoChangeIds: [] }));
+  expect(invalidate).not.toHaveBeenCalled();
+  expect(screen.queryByText(/本次更改：/)).not.toBeInTheDocument();
+});
+
+it("blocks a direct confirmed review handle from committing while batch undo is pending", async () => {
+  let settle!: (result: unknown) => void;
+  const pending = { ...output, id: "pending", ordinal: 1 };
+  const approved = { ...pending, reviewDecision: { requestId: "approved", decision: "confirm" as const, decidedAt: "2026-10-08T00:00:00Z" } };
+  api.outputList.mockResolvedValueOnce({ outputs: [committed, pending], nextCursor: null })
+    .mockResolvedValue({ outputs: [committed, approved], nextCursor: null });
+  api.outputReview.mockResolvedValue({ runId: "run", decision: "confirm", outputs: [approved] });
+  api.operationList.mockResolvedValue({ operations: [batchReceipt], nextCursor: null });
+  api.operationUndoBatch.mockImplementation(() => new Promise(resolve => { settle = resolve; }));
+  const onReviewChange = vi.fn();
+  const client = new QueryClient(); const invalidate = vi.spyOn(client, "invalidateQueries");
+  render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current onReviewChange={onReviewChange} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(api.operationUndoBatch).toHaveBeenCalledOnce());
+  const handle = onReviewChange.mock.calls.map(call => call[0]).find(value => value?.pending.some((item: { outputId: string }) => item.outputId === "pending"));
+  expect(handle).toBeTruthy();
+  await act(async () => { await handle.decide("confirm"); });
+  expect(api.outputCommit).not.toHaveBeenCalled();
+  expect(api.outputReview).toHaveBeenCalledOnce();
+  expect(screen.getByText("已确认。")).toBeInTheDocument();
+  await act(async () => settle({ runId: "run", results: [{ object, operationIds: ["op"], outcome: { status: "succeeded", result: { withdrawn: true } } }], excludedNoChangeIds: [] }));
+  await waitFor(() => expect(invalidate).toHaveBeenCalled());
+});
+
+it("fails explicitly when more than 256 selected receipt IDs would be sent", async () => {
+  const receipts = Array.from({ length: 257 }, (_, index) => ({ ...batchReceipt, operationId: `op-${index}`, object: { ...object, id: `${index}` } }));
+  api.outputList.mockResolvedValue({ outputs: [committed], nextCursor: null });
+  api.operationList.mockImplementation(async (_binding, input) => {
+    const offset = input.cursor ? Number(input.cursor) : 0;
+    return { operations: receipts.slice(offset, offset + 50), nextCursor: offset + 50 < receipts.length ? String(offset + 50) : null };
+  });
+  view(); fireEvent.click(await screen.findByRole("button", { name: "撤销本次更改" }));
+  await waitFor(() => expect(screen.getByText(/超过 256 条操作记录/)).toBeInTheDocument());
+  expect(api.operationUndoBatch).not.toHaveBeenCalled();
 });

@@ -274,6 +274,272 @@ fn version_bytes(db: &Database, version: &str) -> Vec<u8> {
     .unwrap()
 }
 
+fn withdraw_creation_group(f: &Fixture, ids: &[&str]) -> AgentResult<RecordWithdrawalResult> {
+    let db = open_db(f);
+    let input = OperationUndoBatchInput {
+        run_id: f.run.clone(),
+        operation_ids: ids.iter().map(|id| (*id).to_owned()).collect(),
+    };
+    let plan = db.agent_operation_undo_batch_plan(&f.request, &f.request.binding, &input)?;
+    assert_eq!(plan.groups.len(), 1);
+    let tx = Transaction::new_unchecked(&db.conn, rusqlite::TransactionBehavior::Immediate)
+        .map_err(io_error)?;
+    let group = &plan.groups[0];
+    let result = creation_group_apply(&db, &tx, &f.request, &f.request.binding, group)?;
+    tx.commit().map_err(io_error)?;
+    Ok(result)
+}
+
+#[test]
+fn creation_group_withdraw_restore_keeps_latest_bytes_and_all_versions() {
+    let mut f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let ids = [
+        &f.creation[..],
+        &first.operation_id[..],
+        &last.operation_id[..],
+    ];
+    let db = open_db(&f);
+    let id = file_id(&f.object).unwrap();
+    let head = db.document_record(id).unwrap();
+    let path = head.managed_path.clone();
+    let metadata = agent_file_creation_metadata(&db.conn, id).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    let hash = file_versions::checksum(Path::new(&path)).unwrap();
+    let history: Vec<Vec<u8>> = [
+        db.agent_operation_get(&f.request, &f.request.binding, &f.creation)
+            .unwrap()
+            .after_snapshot_ref
+            .unwrap(),
+        first.after_snapshot_ref.clone().unwrap(),
+        last.after_snapshot_ref.clone().unwrap(),
+    ]
+    .iter()
+    .map(|version| version_bytes(&db, version))
+    .collect();
+    let versions = count(&db, "document_versions");
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    let hidden = withdraw_creation_group(&f, &ids).unwrap();
+    assert!(hidden.withdrawn);
+    let db = open_db(&f);
+    assert_eq!(count(&db, "agent_visible_files"), 0);
+    assert_eq!(count(&db, "documents"), 1);
+    assert_eq!(count(&db, "document_versions"), versions);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(file_versions::checksum(Path::new(&path)).unwrap(), hash);
+    for (version, expected) in [
+        db.agent_operation_get(&f.request, &f.request.binding, &f.creation)
+            .unwrap()
+            .after_snapshot_ref
+            .unwrap(),
+        first.after_snapshot_ref.clone().unwrap(),
+        last.after_snapshot_ref.clone().unwrap(),
+    ]
+    .iter()
+    .zip(history.iter())
+    {
+        assert_eq!(version_bytes(&db, version), *expected);
+    }
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark + 1);
+    for operation_id in ids {
+        let saved = db
+            .agent_operation_get(&f.request, &f.request.binding, operation_id)
+            .unwrap();
+        assert_eq!(saved.undo_state, "undone");
+        assert_eq!(
+            saved.undo_operation_id.as_deref(),
+            Some(hidden.operation_id.as_str())
+        );
+    }
+    let watermark = db.committed_change_watermark().unwrap();
+    drop(db);
+    assert_eq!(
+        withdraw_creation_group(&f, &ids).unwrap().operation_id,
+        hidden.operation_id
+    );
+    assert_eq!(open_db(&f).committed_change_watermark().unwrap(), watermark);
+    f.request.request_id = "creation-group-restore".into();
+    let db = open_db(&f);
+    let restored = db
+        .agent_file_creation_restore(
+            &f.request,
+            &f.request.binding,
+            &RecordRestoreInput {
+                creation_operation_id: f.creation.clone(),
+                expected_withdrawal_revision: hidden.revision,
+            },
+        )
+        .unwrap();
+    assert!(!restored.withdrawn);
+    assert_eq!(count(&db, "agent_visible_files"), 1);
+    assert_eq!(count(&db, "document_versions"), versions);
+    assert_eq!(
+        agent_file_creation_metadata(&db.conn, id).unwrap(),
+        metadata
+    );
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    for (version, expected) in [
+        db.agent_operation_get(&f.request, &f.request.binding, &f.creation)
+            .unwrap()
+            .after_snapshot_ref
+            .unwrap(),
+        first.after_snapshot_ref.clone().unwrap(),
+        last.after_snapshot_ref.clone().unwrap(),
+    ]
+    .iter()
+    .zip(history.iter())
+    {
+        assert_eq!(version_bytes(&db, version), *expected);
+    }
+    assert_eq!(
+        db.document_record(id).unwrap().current_version_number,
+        head.current_version_number
+    );
+    drop(db);
+    f.request.request_id = "creation-group-restore-repeat".into();
+    let db = open_db(&f);
+    assert_eq!(
+        db.agent_file_creation_restore(
+            &f.request,
+            &f.request.binding,
+            &RecordRestoreInput {
+                creation_operation_id: f.creation.clone(),
+                expected_withdrawal_revision: hidden.revision
+            }
+        )
+        .unwrap()
+        .operation_id,
+        restored.operation_id
+    );
+}
+
+#[test]
+fn creation_group_rejects_manual_metadata_bytes_and_version_without_partial_withdrawal() {
+    for reason in ["metadata", "bytes", "version"] {
+        let f = fixture();
+        let first = modify(&f);
+        let last = modify_text(&f, "Agent after", "Second result");
+        let ids = [
+            &f.creation[..],
+            &first.operation_id[..],
+            &last.operation_id[..],
+        ];
+        let mut db = open_db(&f);
+        let id = file_id(&f.object).unwrap();
+        let current = db.document_record(id).unwrap();
+        match reason {
+            "metadata" => {
+                db.document_update_meta(DocumentUpdateMetaInput {
+                    document_id: id,
+                    base_name: None,
+                    is_starred: Some(true),
+                    tag_ids: None,
+                })
+                .unwrap();
+            }
+            "bytes" => fs::write(&current.managed_path, b"Manual bytes").unwrap(),
+            _ => {
+                db.document_add_version(DocumentAddVersionInput {
+                    document_id: id,
+                    source_path: None,
+                })
+                .unwrap();
+            }
+        }
+        let watermark = db.committed_change_watermark().unwrap();
+        let versions = count(&db, "document_versions");
+        drop(db);
+        assert_eq!(
+            withdraw_creation_group(&f, &ids).unwrap_err().code,
+            if reason == "bytes" {
+                ErrorCode::FileChangedUnregistered
+            } else {
+                ErrorCode::UndoConflict
+            }
+        );
+        let db = open_db(&f);
+        assert_eq!(count(&db, "agent_object_withdrawals"), 0);
+        assert_eq!(count(&db, "document_versions"), versions);
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        for operation_id in ids {
+            assert_eq!(
+                db.agent_operation_get(&f.request, &f.request.binding, operation_id)
+                    .unwrap()
+                    .undo_state,
+                "available"
+            );
+        }
+    }
+}
+
+#[test]
+fn creation_group_respects_planner_conflict_for_omitted_native_version() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let ids = [&f.creation[..], &last.operation_id[..]];
+    let db = open_db(&f);
+    let watermark = db.committed_change_watermark().unwrap();
+    let plan = db
+        .agent_operation_undo_batch_plan(
+            &f.request,
+            &f.request.binding,
+            &OperationUndoBatchInput {
+                run_id: f.run.clone(),
+                operation_ids: ids.iter().map(|id| (*id).to_owned()).collect(),
+            },
+        )
+        .unwrap();
+    assert!(!plan.groups[0].conflicts.is_empty());
+    drop(db);
+    assert_eq!(
+        withdraw_creation_group(&f, &ids).unwrap_err().code,
+        ErrorCode::UndoConflict
+    );
+    let db = open_db(&f);
+    assert_eq!(count(&db, "agent_object_withdrawals"), 0);
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    assert_eq!(
+        db.agent_operation_get(&f.request, &f.request.binding, &first.operation_id)
+            .unwrap()
+            .undo_state,
+        "available"
+    );
+}
+
+#[test]
+fn creation_group_receipt_failure_rolls_back_visibility_and_every_original() {
+    let f = fixture();
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let ids = [
+        &f.creation[..],
+        &first.operation_id[..],
+        &last.operation_id[..],
+    ];
+    let db = open_db(&f);
+    let watermark = db.committed_change_watermark().unwrap();
+    db.conn.execute_batch(&format!("CREATE TRIGGER reject_creation_group_tail BEFORE UPDATE OF undo_state ON agent_operation_receipts WHEN OLD.operation_id='{}' AND NEW.undo_state='undone' BEGIN SELECT RAISE(ABORT,'tail unavailable'); END;",last.operation_id)).unwrap();
+    drop(db);
+    assert_eq!(
+        withdraw_creation_group(&f, &ids).unwrap_err().code,
+        ErrorCode::IoFailed
+    );
+    let db = open_db(&f);
+    assert_eq!(count(&db, "agent_object_withdrawals"), 0);
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    for operation_id in ids {
+        assert_eq!(
+            db.agent_operation_get(&f.request, &f.request.binding, operation_id)
+                .unwrap()
+                .undo_state,
+            "available"
+        );
+    }
+}
+
 #[test]
 fn file_group_undo_restores_once_and_all_originals_replay_the_same_receipt() {
     let mut f = fixture();

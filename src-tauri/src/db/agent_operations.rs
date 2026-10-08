@@ -113,60 +113,103 @@ impl Database {
         // owns the writer reservation, even with SQLite's busy timeout.
         let tx = Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
             .map_err(io_error)?;
-        if let Some(previous) = replay(&tx, caller_id, request_id, operation, &hash)? {
-            return Ok(previous);
+        let (result, applied) = self.agent_atomic_operation_with_hash(
+            &tx, caller_id, request_id, operation, &hash, apply,
+        )?;
+        if applied {
+            tx.commit().map_err(io_error)?;
         }
-        let (result, change) = apply(&tx)?;
+        Ok(result)
+    }
+
+    /// Uses the caller's native writer transaction. Mutation, receipt, hooks and
+    /// change notifications settle together when the caller commits; errors must
+    /// abort that transaction. This helper never commits or opens a transaction.
+    pub(super) fn agent_atomic_operation_in_transaction<T: Serialize + DeserializeOwned>(
+        &self,
+        tx: &Transaction<'_>,
+        caller_id: &str,
+        request_id: &str,
+        operation: &str,
+        payload: &impl Serialize,
+        apply: impl FnOnce(&Transaction<'_>) -> AgentResult<(T, Option<OperationChange>)>,
+    ) -> AgentResult<T> {
+        let hash = operation_hash(caller_id, request_id, payload)?;
+        self.agent_atomic_operation_with_hash(tx, caller_id, request_id, operation, &hash, apply)
+            .map(|(result, _)| result)
+    }
+
+    fn agent_atomic_operation_with_hash<T: Serialize + DeserializeOwned>(
+        &self,
+        tx: &Transaction<'_>,
+        caller_id: &str,
+        request_id: &str,
+        operation: &str,
+        hash: &str,
+        apply: impl FnOnce(&Transaction<'_>) -> AgentResult<(T, Option<OperationChange>)>,
+    ) -> AgentResult<(T, bool)> {
+        if let Some(previous) = replay(tx, caller_id, request_id, operation, hash)? {
+            return Ok((previous, false));
+        }
+        let (result, change) = apply(tx)?;
         let now = Utc::now().to_rfc3339();
         let result_json = serde_json::to_string(&result)
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid operation result"))?;
         tx.execute("INSERT INTO agent_operation_receipts(request_id,caller_id,payload_hash,operation,state,result_json,created_at) VALUES (?1,?2,?3,?4,'committed',?5,?6)", params![request_id,caller_id,hash,operation,result_json,now]).map_err(io_error)?;
         super::agent_outputs::agent_output_record_committed(
-            &tx,
+            tx,
             caller_id,
             request_id,
             operation,
             &result_json,
         )?;
         super::agent_record_withdrawals::agent_record_withdrawal_receipt_committed(
-            &tx,
+            tx,
             caller_id,
             request_id,
             operation,
             &result_json,
         )?;
         super::agent_record_undo::agent_record_undo_receipt_committed(
-            &tx,
+            tx,
             caller_id,
             request_id,
             operation,
             &result_json,
         )?;
         super::agent_todo_outputs::agent_todo_output_receipt_committed(
-            &tx,
+            tx,
             caller_id,
             request_id,
             operation,
             &result_json,
         )?;
         super::agent_todo_undo::agent_todo_recovery_receipt_committed(
-            &tx,
+            tx,
             caller_id,
             request_id,
             operation,
             &result_json,
         )?;
         super::agent_file_outputs::agent_file_output_receipt_committed(
-            &tx, caller_id, request_id, operation, &result_json, self.native_workspace_id.as_deref(),
+            tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
+            self.native_workspace_id.as_deref(),
         )?;
         super::agent_file_undo::agent_file_recovery_receipt_committed(
-            &tx, caller_id, request_id, operation, &result_json,
+            tx,
+            caller_id,
+            request_id,
+            operation,
+            &result_json,
         )?;
         if let Some(change) = change {
             tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,?3,?4,?5)", params![change.object_key,change.scope.key(),operation,change.revision,now]).map_err(io_error)?;
         }
-        tx.commit().map_err(io_error)?;
-        Ok(result)
+        Ok((result, true))
     }
 
     pub(crate) fn agent_resolve_object(
@@ -305,7 +348,169 @@ impl crate::agent::changes::ChangeRepository for super::agent::WorkspaceContextR
 
 #[cfg(test)]
 mod tests {
-    use super::{io_error, Database};
+    use super::{io_error, Database, OperationChange};
+    use crate::agent::{errors::ErrorCode, models::Scope};
+    #[test]
+    fn atomic_operation_in_transaction_settles_with_outer_commit_and_replays() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("app.sqlite");
+        let db = Database::open(&path, root.path(), None).unwrap();
+        let observer = Database::open(&path, root.path(), None).unwrap();
+        let tx = rusqlite::Transaction::new_unchecked(
+            &db.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )
+        .unwrap();
+        assert!(db.agent_atomic_operation_in_transaction(
+            &tx, "gui", "outer-commit", "test.outer", &"intent", |tx| {
+                tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('outer','true','now')", []).map_err(io_error)?;
+                Ok((true, Some(OperationChange {
+                    object_key: "test-object".into(), scope: Scope::Workspace, revision: "1".into(),
+                })))
+            },
+        ).unwrap());
+        assert_eq!(
+            observer
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM agent_operation_receipts WHERE request_id='outer-commit'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert!(db
+            .agent_atomic_operation_in_transaction::<bool>(
+                &tx,
+                "gui",
+                "outer-commit",
+                "test.outer",
+                &"intent",
+                |_| panic!("replay must not apply"),
+            )
+            .unwrap());
+        assert_eq!(
+            db.agent_atomic_operation_in_transaction::<bool>(
+                &tx,
+                "gui",
+                "outer-commit",
+                "test.outer",
+                &"changed",
+                |_| panic!("conflict must not apply"),
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::IdempotencyConflict
+        );
+        tx.commit().unwrap();
+        assert_eq!(
+            observer
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM agent_operation_receipts WHERE request_id='outer-commit'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            observer
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM agent_change_log WHERE operation='test.outer'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert!(db
+            .agent_atomic_operation::<bool>(
+                "gui",
+                "outer-commit",
+                "test.outer",
+                &"intent",
+                |_| panic!("wrapper shares replay"),
+            )
+            .unwrap());
+    }
+
+    #[test]
+    fn atomic_operation_in_transaction_rolls_back_outer_mutation_receipt_and_outbox_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(&root.path().join("app.sqlite"), root.path(), None).unwrap();
+        {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &db.conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )
+            .unwrap();
+            db.agent_atomic_operation_in_transaction(&tx, "gui", "outer-rollback", "test.rollback", &"intent", |tx| {
+                tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('rolled-back','true','now')", []).map_err(io_error)?;
+                Ok((true, None))
+            }).unwrap();
+            // A surrounding native operation can still fail after the helper returns.
+        }
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM app_settings WHERE key='rolled-back'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='outer-rollback'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        db.conn.execute_batch("CREATE TRIGGER reject_test_outbox BEFORE INSERT ON agent_change_log BEGIN SELECT RAISE(ABORT,'test outbox failure'); END;").unwrap();
+        {
+            let tx = rusqlite::Transaction::new_unchecked(
+                &db.conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )
+            .unwrap();
+            let error = db.agent_atomic_operation_in_transaction(&tx, "gui", "outer-outbox", "test.outbox", &"intent", |tx| {
+                tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('outbox-rolled-back','true','now')", []).map_err(io_error)?;
+                Ok((true, Some(OperationChange {
+                    object_key: "test-object".into(), scope: Scope::Workspace, revision: "1".into(),
+                })))
+            }).unwrap_err();
+            assert_eq!(error.code, ErrorCode::IoFailed);
+        }
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM app_settings WHERE key='outbox-rolled-back'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM agent_operation_receipts WHERE request_id='outer-outbox'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM agent_change_log WHERE operation='test.outbox'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+
     #[test]
     fn atomic_operation_waits_for_writer_before_reading_receipt_or_applying() {
         let root = tempfile::tempdir().unwrap();

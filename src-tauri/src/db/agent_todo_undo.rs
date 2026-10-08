@@ -185,6 +185,7 @@ fn todo_undo_group_plan(
     }
     let group = planned.groups.remove(0);
     if group.object.kind != ObjectKind::Todo
+        || group.object_key != group.object.key()?
         || group
             .operations
             .iter()
@@ -252,6 +253,198 @@ fn require_no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()>
         }
     }
     Ok(())
+}
+
+const CREATION_UNDO_PREFIX: &str = "creationundo:";
+
+fn creation_group_id(group: &OperationUndoGroup) -> String {
+    format!(
+        "{CREATION_UNDO_PREFIX}{}:{}",
+        group.first().operation_id,
+        group.last().operation_id
+    )
+}
+
+/// Check the complete original chain before any visibility change. The batch
+/// coordinator checks incoming references against its whole selected set.
+pub(super) fn creation_group_check(
+    db: &Database,
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<Option<RecordWithdrawalResult>> {
+    db.operation_binding(binding)?;
+    let first = group.operations.first().ok_or_else(conflict)?;
+    if group.object.kind != ObjectKind::Todo
+        || first.kind != "todo.create"
+        || group
+            .operations
+            .iter()
+            .skip(1)
+            .any(|entry| entry.kind != "todo.update")
+        || group
+            .operations
+            .iter()
+            .any(|entry| entry.object != group.object || entry.run_id != first.run_id)
+    {
+        return Err(conflict());
+    }
+    for entry in &group.operations {
+        let actual = authorize_entry(
+            conn,
+            request,
+            binding,
+            &entry.operation_id,
+            "operation.undo",
+        )?;
+        if actual.object != group.object
+            || actual.run_id != first.run_id
+            || actual.kind != entry.kind
+            || actual.before_revision != entry.before_revision
+            || actual.after_revision != entry.after_revision
+            || actual.before_snapshot_ref != entry.before_snapshot_ref
+            || actual.after_snapshot_ref != entry.after_snapshot_ref
+        {
+            return Err(conflict());
+        }
+    }
+    if group.undo_state == OperationBatchUndoState::Undone {
+        let inverse = first.undo_operation_id.as_deref().ok_or_else(conflict)?;
+        if group
+            .operations
+            .iter()
+            .any(|entry| entry.undo_operation_id.as_deref() != Some(inverse))
+        {
+            return Err(conflict());
+        }
+        let result: RecordWithdrawalResult = previous(conn, inverse, "todo.withdraw")?;
+        if result.operation_id != inverse
+            || result.creation_operation_id != first.operation_id
+            || result.object != group.object
+            || !result.withdrawn
+        {
+            return Err(conflict());
+        }
+        let context: String = conn
+            .query_row(
+                "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+                [inverse],
+                |row| row.get(0),
+            )
+            .map_err(io_error)?;
+        let context: Value = decode(&context)?;
+        if let Some(ids) = context["originalOperationIds"].as_array() {
+            let selected: Vec<&str> = group
+                .operations
+                .iter()
+                .map(|entry| entry.operation_id.as_str())
+                .collect();
+            if ids
+                .iter()
+                .map(Value::as_str)
+                .collect::<Option<Vec<_>>>()
+                .as_deref()
+                != Some(selected.as_slice())
+            {
+                return Err(conflict());
+            }
+        } else if group.operations.len() != 1 {
+            return Err(conflict());
+        }
+        return Ok(Some(result));
+    }
+    if group.undo_state != OperationBatchUndoState::Available || !group.conflicts.is_empty() {
+        return Err(conflict());
+    }
+    for (index, entry) in group.operations.iter().enumerate() {
+        let revision = entry.after_revision.ok_or_else(conflict)?;
+        let snapshot_ref = entry.after_snapshot_ref.as_deref().ok_or_else(conflict)?;
+        retained(conn, snapshot_ref, todo_id(&group.object)?, revision)?;
+        if index == 0 {
+            if entry.before_revision.is_some() || entry.before_snapshot_ref.is_some() {
+                return Err(conflict());
+            }
+        } else {
+            let prior = &group.operations[index - 1];
+            if entry.before_revision != prior.after_revision
+                || entry.before_snapshot_ref != prior.after_snapshot_ref
+            {
+                return Err(conflict());
+            }
+            if entry
+                .before_revision
+                .and_then(|revision| revision.checked_add(1))
+                != Some(revision)
+            {
+                return Err(conflict());
+            }
+        }
+        let (context, result): (String, String) = conn.query_row("SELECT output_context_json,result_json FROM agent_operation_receipts WHERE operation_id=?1", [&entry.operation_id], |row| Ok((row.get(0)?, row.get(1)?))).map_err(io_error)?;
+        let context: Value = decode(&context)?;
+        let result: Value = decode(&result)?;
+        if result["object"] != json!(entry.object)
+            || result["afterRevision"].as_u64() != Some(revision)
+            || result["afterSnapshotRef"].as_str() != Some(snapshot_ref)
+            || result["bodyHash"] != context["afterBodyHash"]
+            || !result["bodyHash"].is_string()
+        {
+            return Err(conflict());
+        }
+    }
+    baseline(conn, group.last())?;
+    require_todo_visible(conn, todo_id(&group.object)?)?;
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT creation_operation_id FROM agent_object_withdrawals WHERE object_key=?1",
+            [&group.object_key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(io_error)?;
+    if existing
+        .as_ref()
+        .is_some_and(|id| id != &first.operation_id)
+    {
+        return Err(conflict());
+    }
+    Ok(None)
+}
+
+/// Called inside the coordinator's reserved native transaction after all group
+/// and incoming dependency checks. The atomic helper finalizes receipt/outbox.
+pub(super) fn creation_group_apply(
+    db: &Database,
+    tx: &Transaction<'_>,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<RecordWithdrawalResult> {
+    let request_id = creation_group_id(group);
+    let original_ids: Vec<&str> = group
+        .operations
+        .iter()
+        .map(|entry| entry.operation_id.as_str())
+        .collect();
+    db.agent_atomic_operation_in_transaction(tx, &request.caller.key(), &request_id, "todo.withdraw", &original_ids, |tx| {
+    if let Some(result) = creation_group_check(db, tx, request, binding, group)? { return Ok((result, None)); }
+    let first = group.first();
+    let key = group.object.key()?;
+    let revision: i64 = tx.query_row("SELECT revision FROM agent_object_withdrawals WHERE object_key=?1", [&key], |row| row.get(0)).optional().map_err(io_error)?.unwrap_or(0);
+    let revision = revision.checked_add(1).filter(|value| *value > 0).ok_or_else(|| AgentError::new(ErrorCode::BudgetExceeded, "Todo withdrawal revision exhausted"))?;
+    let operation_id = random_id();
+    tx.execute("INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,restore_operation_id,revision) VALUES (?1,?2,?3,NULL,?4) ON CONFLICT(object_key) DO UPDATE SET withdrawn_at=excluded.withdrawn_at,restore_operation_id=NULL,revision=excluded.revision", params![key,first.operation_id,Utc::now().to_rfc3339(),revision]).map_err(io_error)?;
+    for entry in &group.operations {
+        let changed = tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL", params![operation_id,entry.operation_id]).map_err(io_error)?;
+        if changed != 1 { return Err(conflict()); }
+    }
+    let cache_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_index_snapshots')", [], |row| row.get(0)).map_err(io_error)?;
+    if cache_exists { tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1", [&key]).map_err(io_error)?; }
+    tx.execute("UPDATE agent_jobs SET state='cancelled',error=NULL WHERE kind='extract' AND dedupe_key=?1 AND state IN ('queued','running')", [format!("source-index:{key}")]).map_err(io_error)?;
+    db.touch_todo_owners(&db.todo_record_unchecked(todo_id(&group.object)?).map_err(|_| conflict())?).map_err(|_| conflict())?;
+    let result = RecordWithdrawalResult { operation_id, creation_operation_id: first.operation_id.clone(), object: group.object.clone(), withdrawn: true, revision: revision as u64 };
+    Ok((result, Some(OperationChange { object_key: key, scope: group.object.scope.clone(), revision: format!("withdrawal:{revision}:withdrawn") })))
+    })
 }
 
 impl Database {
@@ -541,7 +734,29 @@ impl Database {
                 }
                 if !state.1 || expected != u64::try_from(state.3).ok() { return Err(conflict()); }
             }
-            baseline(tx, &entry)?;
+            if withdraw {
+                baseline(tx, &entry)?;
+            } else if let Some(inverse_id) = &entry.undo_operation_id {
+                let context: String = tx.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation='todo.withdraw'", [inverse_id], |row| row.get(0)).map_err(io_error)?;
+                let context: Value = decode(&context)?;
+                if let Some(ids) = context["originalOperationIds"].as_array() {
+                    if ids.first().and_then(Value::as_str) != Some(entry.operation_id.as_str()) { return Err(conflict()); }
+                    for original in ids {
+                        let original_id = original.as_str().ok_or_else(conflict)?;
+                        let original = authorize_entry(tx, request, binding, original_id, permission)?;
+                        if original.object != entry.object || original.undo_operation_id.as_deref() != Some(inverse_id) { return Err(conflict()); }
+                    }
+                    let tail_id = ids.last().and_then(Value::as_str).ok_or_else(conflict)?;
+                    let tail = authorize_entry(tx, request, binding, tail_id, permission)?;
+                    if tail.object != entry.object || tail.undo_operation_id.as_deref() != Some(inverse_id) { return Err(conflict()); }
+                    let (head, _) = baseline(tx, &tail)?;
+                    if context["tailBaseline"] != json!({"revision":head.revision,"snapshotRef":head.snapshot_ref,"bodyHash":head.body_hash}) { return Err(conflict()); }
+                } else {
+                    baseline(tx, &entry)?;
+                }
+            } else {
+                baseline(tx, &entry)?;
+            }
             if withdraw { require_no_incoming(tx, &entry.object)?; }
             let revision = state.as_ref().map_or(Some(1), |state| state.3.checked_add(1)).filter(|revision| *revision > 0).ok_or_else(|| AgentError::new(ErrorCode::BudgetExceeded, "Todo withdrawal revision exhausted"))?;
             let operation_id = random_id();
@@ -600,7 +815,39 @@ pub(crate) fn agent_todo_recovery_receipt_committed(
         if exists {
             return Ok(());
         }
-        let changed = tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?2),target_ref_json=?3,before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),after_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),before_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),after_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),output_context_json=?4,undo_state='unavailable' WHERE caller_id=?5 AND request_id=?6 AND operation=?7 AND NOT EXISTS(SELECT 1 FROM agent_operation_receipts WHERE operation_id=?1)", params![result.operation_id,result.creation_operation_id,encode(&result.object)?,encode(&json!({"creationOperationId":result.creation_operation_id,"withdrawn":result.withdrawn,"withdrawalRevision":result.revision}))?,caller,request_id,operation]).map_err(io_error)?;
+        let mut context = json!({"creationOperationId":result.creation_operation_id,"withdrawn":result.withdrawn,"withdrawalRevision":result.revision});
+        if operation == "todo.withdraw" && request_id.starts_with(CREATION_UNDO_PREFIX) {
+            let mut stmt = tx.prepare("SELECT operation_id,after_revision,after_snapshot_ref FROM agent_operation_receipts WHERE undo_operation_id=?1 AND undo_state='undone' ORDER BY rowid").map_err(io_error)?;
+            let originals = stmt
+                .query_map([&result.operation_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(io_error)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(io_error)?;
+            let first = originals.first().ok_or_else(conflict)?;
+            let tail = originals.last().ok_or_else(conflict)?;
+            if first.0 != result.creation_operation_id
+                || request_id != format!("{CREATION_UNDO_PREFIX}{}:{}", first.0, tail.0)
+            {
+                return Err(conflict());
+            }
+            let tail_entry = read_entry(tx, &tail.0)?.0;
+            let (head, _) = baseline(tx, &tail_entry)?;
+            if head.revision != u64::try_from(tail.1).map_err(|_| conflict())?
+                || head.snapshot_ref != tail.2
+            {
+                return Err(conflict());
+            }
+            context["originalOperationIds"] =
+                json!(originals.iter().map(|entry| &entry.0).collect::<Vec<_>>());
+            context["tailBaseline"] = json!({"revision":head.revision,"snapshotRef":head.snapshot_ref,"bodyHash":head.body_hash});
+        }
+        let changed = tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?2),target_ref_json=?3,before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),after_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),before_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),after_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),output_context_json=?4,undo_state='unavailable' WHERE caller_id=?5 AND request_id=?6 AND operation=?7 AND NOT EXISTS(SELECT 1 FROM agent_operation_receipts WHERE operation_id=?1)", params![result.operation_id,result.creation_operation_id,encode(&result.object)?,encode(&context)?,caller,request_id,operation]).map_err(io_error)?;
         if changed != 1 {
             return Err(AgentError::new(
                 ErrorCode::IoFailed,

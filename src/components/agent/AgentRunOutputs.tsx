@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useAgentReviewPlan, type AgentReviewHandle } from "../../hooks/useAgentReviewPlan";
 import type { AgentOperationEntry, AgentRuntimeOutput, AgentWorkspaceBinding } from "../../lib/agent-types";
+import { groupAgentOperations, type AgentOperationGroup } from "../../lib/agent-operation-groups";
 import { queryKeys } from "../../lib/queryKeys";
 import { agentApi } from "../../services/agentApi";
 import { Button } from "../../ui/components";
@@ -21,7 +22,12 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
   const [complete, setComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoFailures, setUndoFailures] = useState<Record<string, string>>({});
   const mounted = useRef(true);
+  const undoing = useRef(false);
+  const latest = useRef({ runActive, reviewBusy: false });
+  latest.current.runActive = runActive;
   const reading = useRef(false);
   const refreshPending = useRef(false);
   const readVersion = useRef(0);
@@ -106,6 +112,75 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
       if (mounted.current && refreshPending.current) { refreshPending.current = false; void load(); }
     }
   }
+  async function readAllOperations(): Promise<AgentOperationEntry[]> {
+    let next: string | null = null;
+    let all: AgentOperationEntry[] = [];
+    do {
+      const page = await agentApi.operationList(binding, { runId, cursor: next, limit: 50 });
+      if (!mounted.current) return all;
+      all = mergeOperations(all, page.operations);
+      next = page.nextCursor;
+    } while (next);
+    return all;
+  }
+  function invalidateRef(object: AgentOperationEntry["object"]) {
+    if (!mounted.current) return;
+    void queryClient.invalidateQueries({ queryKey: object.scope.kind === "project" ? queryKeys.projectPage(object.scope.projectId) : queryKeys.workspacePage });
+    if (object.kind === "todo") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.todoViews.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.all });
+    }
+    if (object.kind === "file") void queryClient.invalidateQueries({ queryKey: queryKeys.documentVersions(Number(object.id)) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+  }
+  async function undoGroups(selectedObjectKey?: string) {
+    if (undoing.current || latest.current.runActive || latest.current.reviewBusy || changing.current.size) return;
+    undoing.current = true; setUndoBusy(true); setError(null);
+    const version = ++readVersion.current;
+    try {
+      // The visible page is only a preview. Native grouping needs every original receipt.
+      const all = await readAllOperations();
+      if (!mounted.current || version !== readVersion.current || latest.current.runActive || latest.current.reviewBusy || changing.current.size) return;
+      const groups = groupAgentOperations(runId, all).filter(group => group.undo.available > 0 && (!selectedObjectKey || group.objectKey === selectedObjectKey));
+      if (!groups.length) { setOperations(all); setOperationCursor(null); return; }
+      const operationIds = groups.flatMap(group => group.operationIds);
+      if (operationIds.length > 256) throw new Error("本次更改超过 256 条操作记录，无法一次撤销。");
+      const status = await agentApi.statusGet();
+      if (!mounted.current || version !== readVersion.current || latest.current.runActive || latest.current.reviewBusy) return;
+      if (!status.binding || status.binding.workspaceId !== binding.workspaceId || status.binding.generation !== binding.generation) throw new Error("工作区已切换，未撤销旧成果。");
+      const result = await agentApi.operationUndoBatch(binding, { runId, operationIds });
+      if (!mounted.current || version !== readVersion.current) return;
+      const failures: Record<string, string> = {};
+      for (const item of result.results) {
+        const key = groups.find(group => group.operationIds.some(id => item.operationIds.includes(id)))?.objectKey;
+        if (key && item.outcome.status === "failed") failures[key] = agentFailureMessage(item.outcome.error);
+        else if (item.outcome.status === "succeeded") invalidateRef(item.object);
+      }
+      setUndoFailures(previous => {
+        const next = { ...previous };
+        for (const group of groups) delete next[group.objectKey];
+        return { ...next, ...failures };
+      });
+      // A batch result is per object; current receipt states remain authoritative.
+      const actual = await readAllOperations();
+      if (!mounted.current || version !== readVersion.current) return;
+      setOperations(actual); setOperationCursor(null);
+      if (Object.keys(failures).length) setError(`${Object.keys(failures).length} 项撤销未完成，可在下方逐项重试。`);
+    } catch (failure) {
+      if (mounted.current && version === readVersion.current) {
+        setError(agentFailureMessage(failure));
+        // A transport error can arrive after a durable native commit.
+        try {
+          const actual = await readAllOperations();
+          if (mounted.current && version === readVersion.current) { setOperations(actual); setOperationCursor(null); }
+        } catch { /* Keep the original actionable error. */ }
+      }
+    } finally {
+      undoing.current = false;
+      if (mounted.current) setUndoBusy(false);
+    }
+  }
   function invalidateObject(output: AgentRuntimeOutput) {
     const scope = output.object?.scope ?? (output.intent.intent === "record_create" ? output.intent.scope : output.intent.intent === "record_patch" ? output.intent.patch.record.scope : output.intent.intent === "todo_create" ? output.intent.scope : output.intent.intent === "todo_update" || output.intent.intent === "file_update" ? output.intent.target.scope : output.intent.intent === "file_create" ? { kind: "project" as const, projectId: output.intent.projectId } : output.intent.intent === "file_patch" ? output.intent.patch.object.scope : output.intent.intent === "file_restore" ? output.intent.restore.object.scope : null);
     if (!scope || !mounted.current) return;
@@ -119,6 +194,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
     void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
   }
   async function mutation<T>(key: string, output: AgentRuntimeOutput, mutate: (requestId: string) => Promise<T>): Promise<T> {
+    if (undoing.current) throw new Error("正在撤销本次更改，请等待结算后再操作。");
     if (changing.current.has(output.id)) throw new Error("正在保存此成果，请等待结算。");
     changing.current.add(output.id);
     readVersion.current++;
@@ -183,27 +259,45 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
   }
   const review = useAgentReviewPlan({ binding, runId, current: runCurrent, terminal: !runActive, complete,
     outputs, commitOutput: commit, readOutputs: readAllOutputs,
-    applyOutputs: actual => { if (mounted.current) { readVersion.current++; setOutputs(previous => merge(previous, actual)); } },
+    applyOutputs: actual => { if (mounted.current) { if (!undoing.current) readVersion.current++; setOutputs(previous => merge(previous, actual)); } },
   });
+  latest.current.reviewBusy = review.busy;
   useEffect(() => { onReviewChange?.(review.handle); }, [onReviewChange, review.handle]);
   useEffect(() => () => { onReviewChange?.(null); }, [onReviewChange]);
   async function decide(decision: "confirm" | "cancel") {
+    if (undoing.current) return;
     setError(null);
     try { await review.handle?.decide(decision); }
     catch (failure) { if (mounted.current) setError(agentFailureMessage(failure)); }
   }
+  const groups = groupAgentOperations(runId, operations);
+  function groupFor(output: AgentRuntimeOutput) {
+    return output.object ? groups.find(group => JSON.stringify(group.object) === JSON.stringify(output.object)) : undefined;
+  }
+  function creationReceipt(group?: AgentOperationGroup) {
+    return group?.change === "created" ? group.operations.find(entry => ["record.create", "todo.create", "file.create"].includes(entry.kind)) ?? null : null;
+  }
   function recoveryStatus(output: AgentRuntimeOutput) {
-    const operation = operationFor(output);
-    if (operation?.recovery?.withdrawn) return "withdrawn";
-    if (operation?.recovery?.withdrawalRevision != null) return "restored";
-    if (operation?.undoState === "undone") return "undone";
+    const group = groupFor(output);
+    const recovery = creationReceipt(group)?.recovery ?? operationFor(output)?.recovery;
+    if (recovery?.withdrawn) return "withdrawn";
+    if (recovery?.withdrawalRevision != null) return "restored";
+    if (group?.undo.state === "undone" || !group && operationFor(output)?.undoState === "undone") return "undone";
     return null;
   }
-  const saved = outputs.filter(output => output.state === "committed" && !output.fileReceipt?.noChange && !recoveryStatus(output)).length;
-  const unchanged = outputs.filter(output => output.state === "committed" && output.fileReceipt?.noChange && !recoveryStatus(output)).length;
-  const withdrawn = outputs.filter(output => output.state === "committed" && recoveryStatus(output) === "withdrawn").length;
-  const restored = outputs.filter(output => output.state === "committed" && recoveryStatus(output) === "restored").length;
-  const undone = outputs.filter(output => output.state === "committed" && recoveryStatus(output) === "undone").length;
+  const committedObjects = [...new Map(outputs.filter(output => output.state === "committed" && !output.fileReceipt?.noChange && output.object)
+    .map(output => [JSON.stringify(output.object), output] as const)).values()];
+  const ungroupedObjects = committedObjects.filter(output => !groupFor(output));
+  const groupStatus = (group: AgentOperationGroup) => {
+    const recovery = creationReceipt(group)?.recovery;
+    return recovery?.withdrawn ? "withdrawn" : recovery?.withdrawalRevision != null ? "restored"
+      : group.undo.state === "undone" ? "undone" : "saved";
+  };
+  const saved = groups.filter(group => groupStatus(group) === "saved").length + ungroupedObjects.filter(output => !recoveryStatus(output)).length;
+  const unchanged = outputs.filter(output => output.state === "committed" && output.fileReceipt?.noChange).length;
+  const withdrawn = groups.filter(group => groupStatus(group) === "withdrawn").length + ungroupedObjects.filter(output => recoveryStatus(output) === "withdrawn").length;
+  const restored = groups.filter(group => groupStatus(group) === "restored").length + ungroupedObjects.filter(output => recoveryStatus(output) === "restored").length;
+  const undone = groups.filter(group => groupStatus(group) === "undone").length + ungroupedObjects.filter(output => recoveryStatus(output) === "undone").length;
   const cancelled = outputs.filter(output => output.dismissed && output.reviewDecision?.decision === "cancel").length;
   const superseded = outputs.filter(output => output.dismissed && output.reviewDecision?.decision !== "cancel").length;
   const failed = outputs.filter(output => !output.dismissed && output.state !== "committed" && (output.state === "failed" || review.result?.failures.some(failure => failure.outputId === output.id))).length;
@@ -212,10 +306,44 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
   function operationFor(output: AgentRuntimeOutput) {
     return operations.find(entry => entry.requestId === `output:${output.id}:${output.revision}` && ["record.create", "record.patch", "todo.create", "todo.update", "file.create", "file.version.commit"].includes(entry.kind)) ?? null;
   }
+  function latestOutput(group: AgentOperationGroup) {
+    const values = outputs.filter(output => output.state === "committed" && output.object && JSON.stringify(output.object) === JSON.stringify(group.object));
+    return values.reduce<AgentRuntimeOutput | null>((latest, output) => {
+      if (!latest) return output;
+      const position = (value: AgentRuntimeOutput) => operations.findIndex(entry => entry.requestId === `output:${value.id}:${value.revision}`);
+      const a = position(latest); const b = position(output);
+      if (a < 0 || b < 0) return output.ordinal > latest.ordinal ? output : latest;
+      return b > a || b === a && output.ordinal > latest.ordinal ? output : latest;
+    }, null);
+  }
   function card(output: AgentRuntimeOutput, presentation: "link" | "details") {
     const operation = operationFor(output);
-    return <AgentOutputCard key={output.id} binding={binding} output={output} operation={operation} presentation={presentation} reviewCurrent={runCurrent} groupBusy={review.busy} runActive={runActive} failure={review.result?.failures.find(failure => failure.outputId === output.id)?.error}
-      onCommit={async () => { await commit(output); }} onDismiss={() => dismiss(output)} onUndo={() => operation ? undo(output, operation) : Promise.resolve()} onRestore={() => operation ? restore(output, operation) : Promise.resolve()} />;
+    const group = groupFor(output);
+    const recoveryOperation = creationReceipt(group);
+    return <AgentOutputCard key={output.id} binding={binding} output={output} operation={operation} recoveryOperation={recoveryOperation} hideRestore={!!group && latestOutput(group)?.id !== output.id} presentation={presentation} reviewCurrent={runCurrent} groupBusy={review.busy || undoBusy || runActive} runActive={runActive} hideUndo={!!group} failure={review.result?.failures.find(failure => failure.outputId === output.id)?.error}
+      onCommit={async () => { await commit(output); }} onDismiss={() => dismiss(output)} onUndo={() => operation ? undo(output, operation) : Promise.resolve()} onRestore={() => recoveryOperation ? restore(output, recoveryOperation) : operation ? restore(output, operation) : Promise.resolve()} />;
+  }
+  const undoableGroups = groups.filter(group => group.undo.available > 0);
+  function groupLabel(group: AgentOperationGroup) {
+    const kind = group.object.kind === "record" ? "记录" : group.object.kind === "todo" ? "待办" : "文件";
+    const values = outputs.filter(output => output.object && JSON.stringify(output.object) === JSON.stringify(group.object)).sort((a, b) => b.ordinal - a.ordinal);
+    const title = values.map(output => output.intent.intent === "record_create" ? output.intent.title
+      : output.intent.intent === "todo_create" ? output.intent.content
+      : output.intent.intent === "todo_update" ? output.intent.changes.find(change => change.change === "content")?.content
+      : output.intent.intent === "file_create" ? output.intent.safeName : null).find(Boolean);
+    const latest = values[0];
+    const summary = latest?.intent.intent === "record_patch" ? `调整 ${latest.intent.patch.operations.length} 处内容`
+      : latest?.intent.intent === "file_restore" ? "恢复历史版本"
+      : latest?.intent.intent === "file_patch" || latest?.intent.intent === "file_update" ? "更新内容" : null;
+    return `${group.change === "created" ? "创建" : "修改"}${kind}${title ? `“${title.length > 64 ? `${title.slice(0, 64)}…` : title}”` : summary ? `（${summary}）` : ""}`;
+  }
+  const linkedOutputs = groups.map(latestOutput).filter((output): output is AgentRuntimeOutput => !!output);
+  const seenObjects = new Set(linkedOutputs.map(output => JSON.stringify(output.object)));
+  for (const output of outputs) {
+    if (output.state !== "committed" || !output.object || seenObjects.has(JSON.stringify(output.object))) continue;
+    const key = JSON.stringify(output.object);
+    const latest = outputs.filter(value => value.state === "committed" && JSON.stringify(value.object) === key).sort((a, b) => b.ordinal - a.ordinal)[0];
+    linkedOutputs.push(latest); seenObjects.add(key);
   }
   if (!outputs.length && !error) return null;
   return <section className="agent-run-outputs" aria-label="助手操作">
@@ -223,14 +351,23 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
     {review.handle ? <div>
       <p className="agent-message__text">{review.handle.summary}。{review.busy ? "正在处理方案。" : review.handle.confirmed ? "已确认，可继续保存剩余成果。" : "是否确认执行？"}</p>
       <div className="agent-output__actions">
-        <Button size="sm" disabled={review.busy} onClick={() => void decide("confirm")}>{review.busy ? "正在执行…" : review.handle.confirmed ? "重试未保存项" : "确认执行"}</Button>
-        {review.busy ? <Button size="sm" variant="ghost" disabled={review.stopping} onClick={() => { void review.handle?.stop().catch(failure => { if (mounted.current) setError(agentFailureMessage(failure)); }); }}>{review.stopping ? "正在停止…" : "停止剩余项"}</Button>
-          : <Button size="sm" variant="ghost" onClick={() => void decide("cancel")}>取消方案</Button>}
+        <Button size="sm" disabled={review.busy || undoBusy} onClick={() => void decide("confirm")}>{review.busy ? "正在执行…" : review.handle.confirmed ? "重试未保存项" : "确认执行"}</Button>
+        {review.busy ? <Button size="sm" variant="ghost" disabled={review.stopping || undoBusy} onClick={() => { void review.handle?.stop().catch(failure => { if (mounted.current) setError(agentFailureMessage(failure)); }); }}>{review.stopping ? "正在停止…" : "停止剩余项"}</Button>
+          : <Button size="sm" variant="ghost" disabled={undoBusy} onClick={() => void decide("cancel")}>取消方案</Button>}
       </div>
     </div> : null}
-    {statuses.length ? <p className="agent-message__text" role="status">{statuses.join("，")}。</p> : null}
+    {statuses.length ? <p className="agent-message__text" role="status">{operationCursor ? "已显示：" : ""}{statuses.join("，")}。</p> : null}
     {decisions.map(decision => <p className="agent-panel__hint" key={decision.requestId}>{decision.decision === "confirm" ? "已确认" : "已取消"}{decision.text ? `：${decision.text}` : "。"}</p>)}
-    <div className="agent-output__actions">{outputs.filter(output => output.state === "committed").map(output => card(output, "link"))}</div>
+    {groups.length ? <div className="agent-run-outputs__changes">
+      <p className="agent-message__text">{operationCursor ? "本次更改（已显示）：" : "本次更改："}{groups.length} 个对象。</p>
+      <div className="agent-output__actions">{linkedOutputs.map(output => card(output, "link"))}</div>
+      {undoableGroups.length ? <Button size="sm" variant="ghost" disabled={undoBusy || runActive || review.busy || loading} onClick={() => void undoGroups()}>{undoBusy ? "正在撤销…" : "撤销本次更改"}</Button> : null}
+      <details><summary>查看逐项更改（{groups.length}）</summary>{groups.map(group => <div key={group.objectKey} className="agent-output__actions">
+        <span>{groupLabel(group)} · {group.recovery?.withdrawn ? "已撤回" : group.recovery?.withdrawalRevision != null ? "已恢复" : group.undo.state === "undone" ? "已撤销" : group.undo.available ? "可撤销" : "不可撤销"}</span>
+        {group.undo.available ? <Button size="sm" variant="ghost" disabled={undoBusy || runActive || review.busy || loading} onClick={() => void undoGroups(group.objectKey)}>撤销此项</Button> : null}
+        {undoFailures[group.objectKey] ? <span role="alert" className="agent-output__error">{undoFailures[group.objectKey]}</span> : null}
+      </div>)}</details>
+    </div> : <div className="agent-output__actions">{linkedOutputs.map(output => card(output, "link"))}</div>}
     {outputs.length ? <details><summary>查看成果详情（{outputs.length}）</summary>{outputs.map(output => card(output, "details"))}</details> : null}
     {cursor ? <Button size="sm" variant="ghost" disabled={loading || review.busy} onClick={() => void load(true)}>更多操作</Button> : null}
     {operationCursor ? <Button size="sm" variant="ghost" disabled={loading || review.busy} onClick={() => void moreOperations()}>更多操作记录</Button> : null}

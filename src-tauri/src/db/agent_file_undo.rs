@@ -11,7 +11,7 @@ use crate::{
         access::{RequestContext, ScopeGrant},
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
-        operation_batches::{OperationBatchUndoState, OperationUndoBatchInput},
+        operation_batches::{OperationBatchUndoState, OperationUndoBatchInput, OperationUndoGroup},
         operations::{FileUndoResult, OperationEntry, OperationUndoInput},
     },
     file_version_restore::FileVersionRestore,
@@ -30,6 +30,7 @@ CREATE VIEW agent_visible_files AS SELECT d.* FROM documents d WHERE NOT EXISTS 
 "#;
 pub(crate) const FILE_UNDO_REQUEST_PREFIX: &str = "fileundo:";
 pub(crate) const FILE_CHAIN_UNDO_REQUEST_PREFIX: &str = "filechainundo:";
+pub(crate) const FILE_CREATION_UNDO_REQUEST_PREFIX: &str = "creationundo:";
 fn conflict() -> AgentError {
     AgentError::new(
         ErrorCode::UndoConflict,
@@ -211,6 +212,59 @@ fn baseline(conn: &Connection, entry: &OperationEntry) -> AgentResult<String> {
     }
     Ok(hash)
 }
+
+fn visibility_baseline(
+    conn: &Connection,
+    created: &OperationEntry,
+) -> AgentResult<(String, String)> {
+    let Some(inverse_id) = &created.undo_operation_id else {
+        return Ok((
+            baseline(conn, created)?,
+            created.after_snapshot_ref.clone().ok_or_else(conflict)?,
+        ));
+    };
+    let raw: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [inverse_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let context: Value = decode(&raw)?;
+    if context["recovery"] != "file.creation_undo" {
+        return Ok((
+            baseline(conn, created)?,
+            created.after_snapshot_ref.clone().ok_or_else(conflict)?,
+        ));
+    }
+    let tail_id = context["tailOperationId"].as_str().ok_or_else(conflict)?;
+    let (tail, _) = read_entry(conn, tail_id)?;
+    if tail.object != created.object || tail.run_id != created.run_id {
+        return Err(conflict());
+    }
+    let hash = baseline(conn, &tail)?;
+    let metadata = agent_file_creation_metadata(conn, file_id(&created.object)?)?;
+    let created_context: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&created.operation_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let created_context: Value = decode(&created_context)?;
+    if context["tailBodyHash"].as_str() != Some(hash.as_str())
+        || context["tailVersionNumber"].as_u64() != tail.after_revision
+        || context["tailVersionId"].as_str() != tail.after_snapshot_ref.as_deref()
+        || stable_creation_metadata(created_context["afterMetadata"].clone())
+            != stable_creation_metadata(metadata.clone())
+        || ["name", "managedPath", "updatedAt"]
+            .iter()
+            .any(|key| context["tailMetadata"][key] != metadata[*key])
+    {
+        return Err(conflict());
+    }
+    Ok((hash, tail.after_snapshot_ref.ok_or_else(conflict)?))
+}
 fn no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()> {
     let key = object.key()?;
     let id = file_id(object)?;
@@ -235,6 +289,320 @@ fn no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()> {
 fn previous<T: DeserializeOwned>(conn: &Connection, id: &str) -> AgentResult<T> {
     let raw:String=conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE operation_id=?1 AND state='committed'",[id],|r|r.get(0)).map_err(io_error)?;
     decode(&raw)
+}
+
+fn stable_creation_metadata(mut value: Value) -> Value {
+    if let Some(map) = value.as_object_mut() {
+        for key in ["name", "managedPath", "updatedAt", "health"] {
+            map.remove(key);
+        }
+    }
+    value
+}
+
+/// Validate the complete native creation/version chain while the caller owns
+/// the writer boundary. Incoming references are checked by the batch caller.
+pub(super) fn creation_group_check(
+    db: &Database,
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<Option<RecordWithdrawalResult>> {
+    let created = group.first();
+    if created.kind != "file.create"
+        || group.object != created.object
+        || group.operations.is_empty()
+    {
+        return Err(conflict());
+    }
+    let id = file_id(&created.object)?;
+    let mut previous_entry: Option<&OperationEntry> = None;
+    let mut inverse: Option<&str> = None;
+    for (index, original) in group.operations.iter().enumerate() {
+        if original.object != created.object
+            || original.run_id.is_none()
+            || original.run_id != created.run_id
+            || (index == 0 && original.kind != "file.create")
+            || (index > 0 && original.kind != "file.version.commit")
+            || !matches!(original.undo_state.as_str(), "available" | "undone")
+        {
+            return Err(conflict());
+        }
+        let (actual, caller) = read_entry(conn, &original.operation_id)?;
+        if actual.operation_id != original.operation_id
+            || actual.object != original.object
+            || actual.run_id != original.run_id
+            || actual.undo_state != original.undo_state
+            || actual.undo_operation_id != original.undo_operation_id
+            || actual.before_revision != original.before_revision
+            || actual.after_revision != original.after_revision
+            || actual.before_snapshot_ref != original.before_snapshot_ref
+            || actual.after_snapshot_ref != original.after_snapshot_ref
+        {
+            return Err(conflict());
+        }
+        authorize(request, binding, original, &caller, "operation.undo")?;
+        original_authority(conn, request, binding, original)?;
+        if index == 0 {
+            if original.before_revision.is_some()
+                || original.before_snapshot_ref.is_some()
+                || original.after_revision != Some(1)
+            {
+                return Err(conflict());
+            }
+            inverse = original.undo_operation_id.as_deref();
+        } else {
+            let prior = previous_entry.ok_or_else(conflict)?;
+            if original.before_revision != prior.after_revision
+                || original.before_snapshot_ref != prior.after_snapshot_ref
+            {
+                return Err(conflict());
+            }
+            let before = original
+                .before_snapshot_ref
+                .as_deref()
+                .ok_or_else(conflict)?;
+            registered_version(
+                conn,
+                &original.object,
+                before,
+                original.before_revision.ok_or_else(conflict)?,
+            )?;
+        }
+        if original.undo_operation_id.as_deref() != inverse
+            || (original.undo_state == "undone") != inverse.is_some()
+        {
+            return Err(conflict());
+        }
+        let number = original.after_revision.ok_or_else(conflict)?;
+        if index > 0 && original.before_revision.and_then(|n| n.checked_add(1)) != Some(number) {
+            return Err(conflict());
+        }
+        let after = original
+            .after_snapshot_ref
+            .as_deref()
+            .ok_or_else(conflict)?;
+        let (hash, _) = registered_version(conn, &original.object, after, number)?;
+        let (raw, result): (String, String) = conn.query_row(
+            "SELECT output_context_json,result_json FROM agent_operation_receipts WHERE operation_id=?1 AND state='committed'",
+            [&original.operation_id], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).map_err(io_error)?;
+        let context: Value = decode(&raw)?;
+        let result: Value = decode(&result)?;
+        if context["afterBodyHash"].as_str() != Some(hash.as_str())
+            || result["contentHash"].as_str() != Some(hash.as_str())
+            || result["versionNumber"].as_u64() != Some(number)
+            || (index > 0 && (context["noChange"] == true || result["noChange"] == true))
+        {
+            return Err(conflict());
+        }
+        previous_entry = Some(original);
+    }
+    let tail = group.last();
+    let key = created.object.key()?;
+    let state: Option<(String, bool)> = conn.query_row(
+        "SELECT creation_operation_id,withdrawn_at IS NOT NULL FROM agent_object_withdrawals WHERE object_key=?1",
+        [&key], |r| Ok((r.get(0)?,r.get(1)?)),
+    ).optional().map_err(io_error)?;
+    if state.as_ref().is_some_and(|s| s.0 != created.operation_id) {
+        return Err(conflict());
+    }
+    if let Some(inverse_id) = inverse {
+        let raw: String = conn
+            .query_row(
+                "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+                [inverse_id],
+                |r| r.get(0),
+            )
+            .map_err(io_error)?;
+        let context: Value = decode(&raw)?;
+        let ids: Vec<&str> = group
+            .operations
+            .iter()
+            .map(|e| e.operation_id.as_str())
+            .collect();
+        if context["recovery"] != "file.creation_undo"
+            || context["originalOperationIds"] != json!(ids)
+            || context["tailOperationId"].as_str() != Some(tail.operation_id.as_str())
+        {
+            return Err(conflict());
+        }
+        return Ok(Some(previous(conn, inverse_id)?));
+    }
+    if let Some(issue) = group.conflicts.first() {
+        return Err(issue.error.clone());
+    }
+    if state.as_ref().is_some_and(|s| s.1) {
+        return Err(conflict());
+    }
+    let target = db.file_version_recovery_target_hidden(
+        request,
+        binding,
+        &created.object,
+        "operation.undo",
+    )?;
+    let current = agent_file_creation_metadata(conn, id)?;
+    let created_context: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&created.operation_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let created_context: Value = decode(&created_context)?;
+    if stable_creation_metadata(created_context["afterMetadata"].clone())
+        != stable_creation_metadata(current.clone())
+    {
+        return Err(conflict());
+    }
+    let tail_context: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&tail.operation_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let tail_context: Value = decode(&tail_context)?;
+    if current["projectId"] != json!(target.project_id)
+        || current["updatedAt"] != tail_context["afterMetadata"]["updatedAt"]
+        || current["name"] != tail_context["afterMetadata"]["name"]
+        || current["managedPath"] != tail_context["afterMetadata"]["managedPath"]
+    {
+        return Err(conflict());
+    }
+    let (hash, _) = registered_version(
+        conn,
+        &tail.object,
+        tail.after_snapshot_ref.as_deref().ok_or_else(conflict)?,
+        tail.after_revision.ok_or_else(conflict)?,
+    )?;
+    let current_version: i64 = conn
+        .query_row(
+            "SELECT current_version_number FROM documents WHERE id=?1",
+            [id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    if u64::try_from(current_version).ok() != tail.after_revision {
+        return Err(conflict());
+    }
+    let path = Path::new(&target.managed_path);
+    file_versions::relative(&db.workspace_root, path).map_err(|_| conflict())?;
+    if file_versions::checksum(path).map_err(|_| conflict())? != hash {
+        return Err(AgentError::new(
+            ErrorCode::FileChangedUnregistered,
+            "File bytes changed outside the registered version chain",
+        ));
+    }
+    Ok(None)
+}
+
+pub(super) fn creation_group_apply(
+    db: &Database,
+    tx: &Transaction<'_>,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<RecordWithdrawalResult> {
+    if let Some(saved) = creation_group_check(db, tx, request, binding, group)? {
+        return Ok(saved);
+    }
+    let created = group.first();
+    let tail = group.last();
+    let request_id = format!(
+        "{FILE_CREATION_UNDO_REQUEST_PREFIX}{}:{}",
+        created.operation_id, tail.operation_id
+    );
+    let ids: Vec<&str> = group
+        .operations
+        .iter()
+        .map(|entry| entry.operation_id.as_str())
+        .collect();
+    let result = db.agent_atomic_operation_in_transaction(
+        tx,
+        &request.caller.key(),
+        &request_id,
+        "file.withdraw",
+        &ids,
+        |tx| {
+            let target = db.file_version_recovery_target_hidden(request, binding, &created.object, "operation.undo")?;
+            let key = created.object.key()?;
+            let state: Option<(String, i64)> = tx.query_row(
+                "SELECT creation_operation_id,revision FROM agent_object_withdrawals WHERE object_key=?1",
+                [&key], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional().map_err(io_error)?;
+            if state.as_ref().is_some_and(|s| s.0 != created.operation_id) { return Err(conflict()); }
+            let revision = state.as_ref().map_or(Some(1), |s| s.1.checked_add(1))
+                .filter(|value| *value > 0)
+                .ok_or_else(|| AgentError::new(ErrorCode::BudgetExceeded, "File withdrawal revision exhausted"))?;
+            let operation_id = file_versions::token();
+            tx.execute(
+                "INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,restore_operation_id,revision) VALUES (?1,?2,?3,NULL,?4) ON CONFLICT(object_key) DO UPDATE SET withdrawn_at=excluded.withdrawn_at,restore_operation_id=NULL,revision=excluded.revision",
+                params![key, created.operation_id, Utc::now().to_rfc3339(), revision],
+            ).map_err(io_error)?;
+            for original in &group.operations {
+                let changed = tx.execute(
+                    "UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL",
+                    params![operation_id, original.operation_id],
+                ).map_err(io_error)?;
+                if changed != 1 { return Err(conflict()); }
+            }
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='source_index_snapshots' AND type='table')",
+                [], |r| r.get(0),
+            ).map_err(io_error)?;
+            if exists {
+                tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1", [&key]).map_err(io_error)?;
+            }
+            tx.execute(
+                "UPDATE agent_jobs SET state='cancelled',error=NULL WHERE kind='extract' AND dedupe_key=?1 AND state IN ('queued','running')",
+                [format!("source-index:{key}")],
+            ).map_err(io_error)?;
+            tx.execute("UPDATE projects SET updated_at=?1 WHERE id=?2", params![Utc::now().to_rfc3339(), target.project_id]).map_err(io_error)?;
+            let result = RecordWithdrawalResult {
+                operation_id,
+                creation_operation_id: created.operation_id.clone(),
+                object: created.object.clone(),
+                withdrawn: true,
+                revision: revision as u64,
+            };
+            Ok((result, Some(OperationChange {
+                object_key: key,
+                scope: created.object.scope.clone(),
+                revision: format!("withdrawal:{revision}:withdrawn"),
+            })))
+        },
+    )?;
+    // The native visibility hook has finalized this receipt. Attach the group
+    // baseline in the same writer transaction for durable restore and replay.
+    let (tail_hash, _) = registered_version(
+        tx,
+        &tail.object,
+        tail.after_snapshot_ref.as_deref().ok_or_else(conflict)?,
+        tail.after_revision.ok_or_else(conflict)?,
+    )?;
+    let metadata = agent_file_creation_metadata(tx, file_id(&tail.object)?)?;
+    let context = json!({
+        "recovery": "file.creation_undo",
+        "creationOperationId": created.operation_id,
+        "originalOperationIds": ids,
+        "tailOperationId": tail.operation_id,
+        "tailVersionNumber": tail.after_revision,
+        "tailVersionId": tail.after_snapshot_ref,
+        "tailBodyHash": tail_hash,
+        "tailMetadata": metadata,
+        "withdrawn": true,
+        "withdrawalRevision": result.revision,
+    });
+    let changed = tx.execute(
+        "UPDATE agent_operation_receipts SET output_context_json=?1,before_revision=?2,after_revision=?2,before_snapshot_ref=?3,after_snapshot_ref=?3 WHERE operation_id=?4 AND operation='file.withdraw'",
+        params![encode(&context)?, tail.after_revision.map(|n| n as i64), tail.after_snapshot_ref, result.operation_id],
+    ).map_err(io_error)?;
+    if changed != 1 {
+        return Err(conflict());
+    }
+    Ok(result)
 }
 
 fn chain_ids(request_id: &str) -> AgentResult<Option<(&str, &str)>> {
@@ -647,7 +1015,7 @@ impl Database {
  if state.as_ref().is_some_and(|row|row.0!=created.operation_id){return Err(conflict());}
  if withdraw {if let Some(previous_id)=&created.undo_operation_id{return Ok((previous(tx,previous_id)?,None));}if created.undo_state!="available"{return Err(conflict());}}
  else {let row=state.as_ref().ok_or_else(conflict)?;if let Some(previous_id)=&row.2{if expected!=u64::try_from(row.3).ok().and_then(|value|value.checked_sub(1)){return Err(conflict());}return Ok((previous(tx,previous_id)?,None));}if !row.1||expected!=u64::try_from(row.3).ok(){return Err(conflict());}}
- let hash=baseline(tx,&created)?;
+ let (hash,_tail_version)=visibility_baseline(tx,&created)?;
  let path=PathBuf::from(&target.managed_path);file_versions::relative(&self.workspace_root,&path).map_err(|_|conflict())?;
  if file_versions::checksum(&path).map_err(|_|conflict())?!=hash{return Err(AgentError::new(ErrorCode::FileChangedUnregistered,"File bytes changed outside the registered version chain"));}
  if withdraw{no_incoming(tx,&created.object)?;}

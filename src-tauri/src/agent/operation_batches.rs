@@ -1,11 +1,35 @@
 //! GUI batch planning preserves native receipt evidence; it never mutates heads.
-use super::{errors::AgentError, models::ObjectRef, operations::OperationEntry};
+use super::{
+    errors::AgentError,
+    models::ObjectRef,
+    operations::{OperationEntry, OperationUndoResult},
+};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OperationUndoBatchInput {
     pub run_id: String,
     pub operation_ids: Vec<String>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OperationUndoBatchResult {
+    pub run_id: String,
+    pub results: Vec<OperationUndoBatchItem>,
+    pub excluded_no_change_ids: Vec<String>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OperationUndoBatchItem {
+    pub object: ObjectRef,
+    pub operation_ids: Vec<String>,
+    pub outcome: OperationUndoBatchOutcome,
+}
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum OperationUndoBatchOutcome {
+    Succeeded { result: OperationUndoResult },
+    Failed { error: AgentError },
 }
 #[derive(Debug, Clone)]
 pub(crate) struct OperationUndoBatchPlan {

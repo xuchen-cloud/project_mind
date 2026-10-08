@@ -9,12 +9,13 @@ use crate::{
         access::{Caller, RequestContext},
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        operation_batches::{OperationBatchUndoState, OperationUndoGroup},
     },
     record_documents::{RecordCommittedHead, RecordTarget},
 };
 use chrono::Utc;
 use rand::{rngs::OsRng, RngCore};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -92,6 +93,10 @@ struct Creation {
     head: RecordCommittedHead,
     metadata_revision: String,
     undo_operation_id: Option<String>,
+    expected_revision: u64,
+    expected_body_hash: String,
+    expected_metadata: Option<Value>,
+    tail_snapshot: Option<String>,
 }
 fn creation(
     conn: &Connection,
@@ -151,11 +156,55 @@ fn creation(
     if context.get("afterBodyHash").and_then(Value::as_str) != Some(head.body_hash.as_str()) {
         return Err(conflict("Creation body baseline is unavailable"));
     }
+    // A creation followed by same-Run patches is withdrawn at its actual tail.
+    // The inverse receipt retains that baseline for later restore, even after
+    // the conversation has been removed.
+    let tail: Option<Value> = if let Some(id) = &undo_operation_id {
+        let raw: Option<String> = conn.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.withdraw' AND state='committed'", [id], |row| row.get(0)).optional().map_err(io_error)?;
+        raw.map(|raw| decode(&raw)).transpose()?
+    } else {
+        None
+    };
+    let expected_revision = tail
+        .as_ref()
+        .and_then(|v| v["tailRevision"].as_u64())
+        .unwrap_or(head.head_revision);
+    let expected_body_hash = tail
+        .as_ref()
+        .and_then(|v| v["tailBodyHash"].as_str())
+        .unwrap_or(&head.body_hash)
+        .to_owned();
+    let expected_metadata = tail.as_ref().and_then(|v| v.get("tailMetadata")).cloned();
+    let tail_snapshot = tail
+        .as_ref()
+        .and_then(|v| v["tailSnapshotRef"].as_str())
+        .map(str::to_owned);
+    if tail.as_ref().is_some_and(|v| {
+        v["originalOperationIds"]
+            .as_array()
+            .is_some_and(|ids| ids.len() > 1)
+    }) && (expected_metadata.is_none()
+        || tail_snapshot.is_none()
+        || tail
+            .as_ref()
+            .and_then(|v| v["tailBodyHash"].as_str())
+            .is_none()
+        || tail
+            .as_ref()
+            .and_then(|v| v["tailRevision"].as_u64())
+            .is_none())
+    {
+        return Err(conflict("Creation chain withdrawal baseline is incomplete"));
+    }
     Ok(Creation {
         object,
         head,
         metadata_revision,
         undo_operation_id,
+        expected_revision,
+        expected_body_hash,
+        expected_metadata,
+        tail_snapshot,
     })
 }
 
@@ -163,14 +212,34 @@ fn validate_current(conn: &Connection, created: &Creation) -> AgentResult<()> {
     let head = super::record_documents::head_unchecked(conn, &created.head.target)?
         .ok_or_else(|| conflict("Created Record is no longer present"))?;
     let metadata = super::record_documents::metadata_unchecked(conn, &created.head.target)?;
-    if head.head_revision != created.head.head_revision
-        || head.projection.body_hash != created.head.body_hash
-        || metadata.revision != created.metadata_revision
+    if head.head_revision != created.expected_revision
+        || head.projection.body_hash != created.expected_body_hash
+        || (if let Some(expected) = &created.expected_metadata {
+            serde_json::to_value(&metadata).map_err(|_| conflict("Invalid Record metadata"))?
+                != *expected
+        } else {
+            metadata.revision != created.metadata_revision
+        })
         || head.edit_session_id.is_some()
     {
         return Err(conflict(
             "Record changed after its creation; its later work will be retained",
         ));
+    }
+    if let Some(snapshot) = &created.tail_snapshot {
+        let retained: Option<(i64, String)> = conn
+            .query_row(
+                "SELECT head_revision,body_hash FROM record_versions WHERE record_key=?1 AND id=?2",
+                params![created.head.target.key()?, snapshot],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(io_error)?;
+        if !retained.is_some_and(|(revision, hash)| {
+            revision as u64 == created.expected_revision && hash == created.expected_body_hash
+        }) {
+            return Err(conflict("Withdrawn Record tail version is unavailable"));
+        }
     }
     Ok(())
 }
@@ -225,6 +294,194 @@ fn previous(
 ) -> AgentResult<RecordWithdrawalResult> {
     let result:String=conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation=?2 AND state='committed'",params![operation_id,operation],|row|row.get(0)).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::IoFailed,"Committed recovery receipt is missing"))?;
     decode(&result)
+}
+
+/// The batch coordinator calls this under its native writer transaction before
+/// checking incoming references. A replay is resolved from durable receipts
+/// without testing a head that may have changed after successful withdrawal.
+pub(super) fn creation_group_check(
+    db: &Database,
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<Option<RecordWithdrawalResult>> {
+    db.operation_binding(binding)?;
+    if group.object.kind != ObjectKind::Record
+        || group.first().kind != "record.create"
+        || group
+            .operations
+            .iter()
+            .skip(1)
+            .any(|e| e.kind != "record.patch")
+        || group.operations.iter().any(|e| e.object != group.object)
+    {
+        return Err(conflict("Selected receipts are not a created Record chain"));
+    }
+    let input = RecordWithdrawalInput {
+        creation_operation_id: group.first().operation_id.clone(),
+    };
+    let created = creation(conn, request, binding, &input, "operation.undo")?;
+    if created.object != group.object {
+        return Err(conflict("Creation receipt targets another Record"));
+    }
+    let resolved = db
+        .agent_resolve_object(&created.object, &binding.workspace_id)?
+        .ok_or_else(|| conflict("Created Record is no longer present"))?;
+    request.authorize_object(binding, &created.object, &resolved, "operation.undo")?;
+    match group.undo_state {
+        OperationBatchUndoState::Undone => {
+            let id = created
+                .undo_operation_id
+                .as_deref()
+                .ok_or_else(|| conflict("Withdrawal receipt is missing"))?;
+            if group
+                .operations
+                .iter()
+                .any(|e| e.undo_operation_id.as_deref() != Some(id))
+            {
+                return Err(conflict(
+                    "Created Record chain has different inverse receipts",
+                ));
+            }
+            let raw: String = conn.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.withdraw' AND state='committed'", [id], |r| r.get(0)).map_err(io_error)?;
+            let context: Value = decode(&raw)?;
+            let selected: Vec<&str> = group
+                .operations
+                .iter()
+                .map(|e| e.operation_id.as_str())
+                .collect();
+            if context["originalOperationIds"] != json!(selected) {
+                return Err(conflict(
+                    "Withdrawal chain receipt differs from selected originals",
+                ));
+            }
+            let result = previous(conn, id, "record.withdraw")?;
+            if result.object != group.object
+                || result.creation_operation_id != input.creation_operation_id
+                || !result.withdrawn
+            {
+                return Err(conflict("Withdrawal receipt targets another Record"));
+            }
+            return Ok(Some(result));
+        }
+        OperationBatchUndoState::Available => {}
+        _ => return Err(conflict("Created Record chain cannot be withdrawn")),
+    }
+    if let Some(problem) = group.conflicts.first() {
+        return Err(problem.error.clone());
+    }
+    if created.undo_operation_id.is_some() {
+        return Err(conflict("Created Record was already withdrawn"));
+    }
+    let target = &created.head.target;
+    let original_context: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&input.creation_operation_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let original_context: Value = decode(&original_context)?;
+    let tail = group.last();
+    let tail_context: String = conn
+        .query_row(
+            "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+            [&tail.operation_id],
+            |r| r.get(0),
+        )
+        .map_err(io_error)?;
+    let tail_context: Value = decode(&tail_context)?;
+    if tail_context["afterMetadata"]["revision"] != original_context["afterMetadata"]["revision"] {
+        return Err(conflict(
+            "Record metadata changed during the creation chain",
+        ));
+    }
+    let current = super::record_documents::head_unchecked(conn, target)?
+        .ok_or_else(|| conflict("Created Record is no longer present"))?;
+    let metadata = super::record_documents::metadata_unchecked(conn, target)?;
+    if current.head_revision
+        != tail
+            .after_revision
+            .ok_or_else(|| conflict("Tail revision is missing"))?
+        || current.projection.body_hash
+            != tail_context["afterBodyHash"]
+                .as_str()
+                .ok_or_else(|| conflict("Tail body baseline is missing"))?
+        || serde_json::to_value(metadata).map_err(|_| conflict("Invalid Record metadata"))?
+            != tail_context["afterMetadata"]
+        || current.edit_session_id.is_some()
+    {
+        return Err(conflict("Record changed after its creation chain"));
+    }
+    let mut preceding_hash: Option<String> = None;
+    for entry in &group.operations {
+        let after = entry
+            .after_snapshot_ref
+            .as_deref()
+            .ok_or_else(|| conflict("Record version baseline is missing"))?;
+        let (revision, hash): (i64, String) = conn
+            .query_row(
+                "SELECT head_revision,body_hash FROM record_versions WHERE record_key=?1 AND id=?2",
+                params![target.key()?, after],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(io_error)?
+            .ok_or_else(|| conflict("Record version baseline is missing"))?;
+        if Some(revision as u64) != entry.after_revision {
+            return Err(conflict("Record version revision differs from receipt"));
+        }
+        if let Some(before_id) = entry.before_snapshot_ref.as_deref() {
+            let (before_revision, before_hash): (i64, String) = conn.query_row("SELECT head_revision,body_hash FROM record_versions WHERE record_key=?1 AND id=?2", params![target.key()?,before_id], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(io_error)?.ok_or_else(|| conflict("Previous Record version is missing"))?;
+            if Some(before_revision as u64) != entry.before_revision
+                || preceding_hash.as_deref() != Some(before_hash.as_str())
+            {
+                return Err(conflict("Record version chain differs from receipts"));
+            }
+        } else if entry.operation_id != group.first().operation_id {
+            return Err(conflict("Record patch has no previous version"));
+        }
+        preceding_hash = Some(hash);
+    }
+    if preceding_hash.as_deref() != Some(current.projection.body_hash.as_str()) {
+        return Err(conflict("Record tail body differs from history"));
+    }
+    Ok(None)
+}
+
+pub(super) fn creation_group_apply(
+    db: &Database,
+    tx: &Transaction<'_>,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    group: &OperationUndoGroup,
+) -> AgentResult<RecordWithdrawalResult> {
+    let first = group.first();
+    let last = group.last();
+    let request_id = format!("creationundo:{}:{}", first.operation_id, last.operation_id);
+    let payload: Vec<&str> = group
+        .operations
+        .iter()
+        .map(|e| e.operation_id.as_str())
+        .collect();
+    db.agent_atomic_operation_in_transaction(tx, &request.caller.key(), &request_id, "record.withdraw", &payload, |tx| {
+        if let Some(previous) = creation_group_check(db, tx, request, binding, group)? { return Ok((previous, None)); }
+        let key = group.object_key.clone();
+        let state: Option<String> = tx.query_row("SELECT creation_operation_id FROM agent_object_withdrawals WHERE object_key=?1", [&key], |r| r.get(0)).optional().map_err(io_error)?;
+        if state.is_some_and(|id| id != first.operation_id) { return Err(conflict("Another creation owns this recovery state")); }
+        let operation_id = random_id();
+        let revision: i64 = tx.query_row("SELECT COALESCE(MAX(revision),0)+1 FROM agent_object_withdrawals WHERE object_key=?1", [&key], |r| r.get(0)).map_err(io_error)?;
+        tx.execute("INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,restore_operation_id,revision) VALUES (?1,?2,?3,NULL,?4) ON CONFLICT(object_key) DO UPDATE SET withdrawn_at=excluded.withdrawn_at,restore_operation_id=NULL,revision=excluded.revision",params![key,first.operation_id,Utc::now().to_rfc3339(),revision]).map_err(io_error)?;
+        for entry in &group.operations {
+            let changed = tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL", params![operation_id,entry.operation_id]).map_err(io_error)?;
+            if changed != 1 { return Err(conflict("Created Record chain changed during withdrawal")); }
+        }
+        let cache_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_index_snapshots')", [], |r| r.get(0)).map_err(io_error)?;
+        if cache_exists { tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1", [&key]).map_err(io_error)?; }
+        tx.execute("UPDATE agent_jobs SET state='cancelled',error=NULL WHERE kind='extract' AND dedupe_key=?1 AND state IN ('queued','running')", [format!("source-index:{key}")]).map_err(io_error)?;
+        Ok((RecordWithdrawalResult { operation_id, creation_operation_id: first.operation_id.clone(), object: group.object.clone(), withdrawn: true, revision: revision as u64 }, Some(OperationChange { object_key: key, scope: group.object.scope.clone(), revision: format!("withdrawal:{revision}:withdrawn") })))
+    })
 }
 
 impl Database {
@@ -323,7 +580,28 @@ pub(super) fn agent_record_withdrawal_receipt_committed(
         return Ok(());
     }
     let result: RecordWithdrawalResult = decode(result_json)?;
-    tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,target_ref_json=?2,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?6),before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?6),after_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?6),output_context_json=?7,undo_state='unavailable' WHERE caller_id=?3 AND request_id=?4 AND operation=?5 AND NOT EXISTS(SELECT 1 FROM agent_operation_receipts WHERE operation_id=?1)",params![result.operation_id,serde_json::to_string(&result.object).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Invalid recovery object"))?,caller,request_id,operation,result.creation_operation_id,json!({"creationOperationId":result.creation_operation_id,"withdrawn":result.withdrawn,"withdrawalRevision":result.revision}).to_string()]).map_err(io_error)?;
+    let originals: Vec<(String, Option<i64>, Option<String>, String)> = if operation
+        == "record.withdraw"
+    {
+        tx.prepare("SELECT operation_id,after_revision,after_snapshot_ref,output_context_json FROM agent_operation_receipts WHERE undo_operation_id=?1 ORDER BY rowid")
+            .map_err(io_error)?.query_map([&result.operation_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))
+            .map_err(io_error)?.collect::<Result<_,_>>().map_err(io_error)?
+    } else {
+        Vec::new()
+    };
+    let tail = originals.last();
+    let tail_context: Option<Value> = tail.map(|(_, _, _, raw)| decode(raw)).transpose()?;
+    let context = json!({
+        "creationOperationId":result.creation_operation_id,
+        "withdrawn":result.withdrawn,
+        "withdrawalRevision":result.revision,
+        "originalOperationIds":originals.iter().map(|(id,_,_,_)|id).collect::<Vec<_>>(),
+        "tailRevision":tail.and_then(|(_,rev,_,_)|*rev),
+        "tailSnapshotRef":tail.and_then(|(_,_,snapshot,_)|snapshot.as_deref()),
+        "tailBodyHash":tail_context.as_ref().and_then(|v|v["afterBodyHash"].as_str()),
+        "tailMetadata":tail_context.as_ref().and_then(|v|v.get("afterMetadata")),
+    });
+    tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,target_ref_json=?2,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?6),before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?6),after_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?6),output_context_json=?7,undo_state='unavailable' WHERE caller_id=?3 AND request_id=?4 AND operation=?5 AND NOT EXISTS(SELECT 1 FROM agent_operation_receipts WHERE operation_id=?1)",params![result.operation_id,serde_json::to_string(&result.object).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Invalid recovery object"))?,caller,request_id,operation,result.creation_operation_id,context.to_string()]).map_err(io_error)?;
     Ok(())
 }
 
@@ -343,17 +621,17 @@ mod tests {
         source_service::SourceReadTarget,
     };
 
-    struct Fixture {
+    pub(super) struct Fixture {
         _root: tempfile::TempDir,
-        db: Database,
-        request: RequestContext,
-        binding: WorkspaceBinding,
-        input: RecordWithdrawalInput,
-        target: RecordTarget,
+        pub(super) db: Database,
+        pub(super) request: RequestContext,
+        pub(super) binding: WorkspaceBinding,
+        pub(super) input: RecordWithdrawalInput,
+        pub(super) target: RecordTarget,
         session_id: String,
         version_id: String,
     }
-    fn fixture(scope: Scope) -> Fixture {
+    pub(super) fn fixture(scope: Scope) -> Fixture {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("undo.sqlite"), root.path(), None).unwrap();
         db.bind_native_workspace("undo-workspace").unwrap();
@@ -389,7 +667,9 @@ mod tests {
                     "output.stage",
                     "output.commit",
                     "content.create",
+                    "record.patch",
                     "source.read",
+                    "operation.read",
                     "operation.undo",
                     "operation.restore_created",
                 ]
@@ -773,3 +1053,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "agent_record_withdrawals_group_tests.rs"]
+mod group_tests;

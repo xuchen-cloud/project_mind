@@ -14,9 +14,10 @@ import { agentFailureMessage } from "./useAgentConversation";
 
 export interface AgentOutputCardProps {
   binding: AgentWorkspaceBinding; output: AgentRuntimeOutput; operation: AgentOperationEntry | null;
+  recoveryOperation?: AgentOperationEntry | null; hideRestore?: boolean;
   runActive?: boolean;
   presentation?: "standalone" | "link" | "details";
-  reviewCurrent?: boolean; groupBusy?: boolean;
+  reviewCurrent?: boolean; groupBusy?: boolean; hideUndo?: boolean;
   failure?: unknown;
   onCommit: () => Promise<void>; onDismiss: () => Promise<void>; onUndo: () => Promise<void>; onRestore: () => Promise<void>;
 }
@@ -64,7 +65,7 @@ export function outputCandidatePreview(output: AgentRuntimeOutput): string {
 export function AgentOutputCard(props: AgentOutputCardProps) {
   return <OutputCardBody key={`${props.binding.workspaceId}:${props.binding.generation}:${props.output.id}`} {...props} />;
 }
-function OutputCardBody({ binding, output, operation, runActive = false, presentation = "standalone", reviewCurrent = false, groupBusy = false, failure, onCommit, onDismiss, onUndo, onRestore }: AgentOutputCardProps) {
+function OutputCardBody({ binding, output, operation, recoveryOperation, hideRestore = false, runActive = false, presentation = "standalone", reviewCurrent = false, groupBusy = false, hideUndo = false, failure, onCommit, onDismiss, onUndo, onRestore }: AgentOutputCardProps) {
   const navigate = useNavigate();
   const [resolved, setResolved] = useState<InternalReferenceResolveResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +84,9 @@ function OutputCardBody({ binding, output, operation, runActive = false, present
   const objectLabel = isFile ? "文件" : isTodo ? "待办" : "记录";
   const object = output.object ?? (output.intent.intent === "record_patch" ? output.intent.patch.record : output.intent.intent === "todo_update" || output.intent.intent === "file_update" ? output.intent.target : output.intent.intent === "file_patch" ? output.intent.patch.object : output.intent.intent === "file_restore" ? output.intent.restore.object : null);
   const objectIdentity = JSON.stringify(object);
-  const withdrawn = operation?.recovery?.withdrawn ?? false;
-  const restored = !withdrawn && operation?.recovery?.withdrawalRevision != null;
+  const recovery = (recoveryOperation ?? operation)?.recovery;
+  const withdrawn = recovery?.withdrawn ?? false;
+  const restored = !withdrawn && recovery?.withdrawalRevision != null;
   const undone = operation?.undoState === "undone";
   async function checkBinding() {
     const current = (await agentApi.statusGet()).binding;
@@ -195,8 +197,8 @@ function OutputCardBody({ binding, output, operation, runActive = false, present
     <div className="agent-output__actions">
       {canCommit ? <Button size="sm" disabled={busy} onClick={() => void action(onCommit)}>{busy ? "正在执行…" : awaitingReview ? "确认执行" : "重试"}</Button> : null}
       {awaitingReview ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(onDismiss)}>取消</Button> : null}
-      {!noChange && operation?.undoState === "available" && operation.afterRevision != null ? <Button size="sm" variant="ghost" disabled={busy || groupBusy} onClick={() => void action(onUndo)}>{created ? "撤回创建" : "撤销修改"}</Button> : null}
-      {operation?.recovery?.restoreAvailable && operation.recovery.withdrawalRevision != null ? <Button size="sm" disabled={busy || groupBusy} onClick={() => void action(onRestore)}>恢复{objectLabel}</Button> : null}
+      {!hideUndo && !noChange && operation?.undoState === "available" && operation.afterRevision != null ? <Button size="sm" variant="ghost" disabled={busy || groupBusy} onClick={() => void action(onUndo)}>{created ? "撤回创建" : "撤销修改"}</Button> : null}
+      {!hideRestore && recovery?.restoreAvailable && recovery.withdrawalRevision != null ? <Button size="sm" disabled={busy || groupBusy} onClick={() => void action(onRestore)}>恢复{objectLabel}</Button> : null}
       {saved && object && !withdrawn ? <Button size="sm" variant="ghost" disabled={busy || groupBusy} onClick={() => void action(continueDiscussion)}>继续讨论</Button> : null}
     </div>
     <details><summary>查看详情</summary>

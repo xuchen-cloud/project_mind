@@ -68,6 +68,14 @@ it("reads actual operation receipts using bounded run history and receipt identi
   expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_get", { input: { binding, requestId: "receipt-1", data: { operationId: operation.operationId } } });
 });
 
+it("sends one bounded native batch undo command with the supplied request identity", async () => {
+  const data = { runId: output.runId, operationIds: [operation.operationId] };
+  const result = { runId: output.runId, results: [], excludedNoChangeIds: [] };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "batch-undo", ok: true, data: result });
+  expect(await agentApi.operationUndoBatch(binding, data, "batch-undo")).toBe(result);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_undo_batch", { input: { binding, requestId: "batch-undo", data } });
+});
+
 it("undoes a modified Record from its receipt baseline and restores a withdrawn creation with revision checking", async () => {
   const undo: AgentRecordUndoResult = { operationId: "undo-op", originalOperationId: operation.operationId, object: receiptObject,
     head: { target: { scope: context.scope, recordId: 42 }, headRevision: 3, bodyHash: "sha256:restored" }, beforeVersion: "before", afterVersion: "after" };

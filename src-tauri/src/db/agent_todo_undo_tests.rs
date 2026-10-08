@@ -182,6 +182,170 @@ fn undo(f: &Fixture, revision: u64) -> OperationUndoInput {
     }
 }
 
+fn creation_chain() -> (Fixture, OperationUndoBatchInput, TodoSnapshot) {
+    let mut f = fixture(false);
+    creation(&f);
+    f.operation_id = "d".repeat(32);
+    let first = modification(&f);
+    f.before = first;
+    f.operation_id = "e".repeat(32);
+    let tail = modification(&f);
+    let snapshot = todo_revisions::snapshot(&f.db.conn, todo_id(&f.object).unwrap()).unwrap();
+    assert_eq!(tail.revision, f.before.revision + 1);
+    let input = OperationUndoBatchInput {
+        run_id: f.run_id.clone(),
+        operation_ids: ["c".repeat(32), "d".repeat(32), "e".repeat(32)].to_vec(),
+    };
+    (f, input, snapshot)
+}
+
+fn creation_group(f: &Fixture, input: &OperationUndoBatchInput) -> OperationUndoGroup {
+    let plan = super::super::agent_operation_batches::plan(
+        &f.db.conn,
+        &f.request,
+        &f.request.binding,
+        input,
+    )
+    .unwrap();
+    assert_eq!(plan.groups.len(), 1);
+    plan.groups.into_iter().next().unwrap()
+}
+
+#[test]
+fn todo_created_then_updated_twice_withdraws_once_and_restores_tail_identity() {
+    let (mut f, input, before) = creation_chain();
+    let id = todo_id(&f.object).unwrap();
+    let native = todo_revisions::head(&f.db.conn, id).unwrap();
+    let snapshots = count(&f.db, "todo_revision_snapshots");
+    let group = creation_group(&f, &input);
+    assert!(group.conflicts.is_empty());
+    let tx = f.db.conn.unchecked_transaction().unwrap();
+    assert!(
+        creation_group_check(&f.db, &tx, &f.request, &f.request.binding, &group)
+            .unwrap()
+            .is_none()
+    );
+    let withdrawn =
+        creation_group_apply(&f.db, &tx, &f.request, &f.request.binding, &group).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(count(&f.db, "agent_visible_todos"), 0);
+    assert_eq!(count(&f.db, "todo_revision_snapshots"), snapshots);
+    assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), native);
+    assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), before);
+    let context: String =
+        f.db.conn
+            .query_row(
+                "SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",
+                [&withdrawn.operation_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let context: Value = decode(&context).unwrap();
+    assert_eq!(context["originalOperationIds"], json!(input.operation_ids));
+    assert_eq!(context["tailBaseline"]["snapshotRef"], native.snapshot_ref);
+    let repeated_group = creation_group(&f, &input);
+    assert_eq!(
+        creation_group_check(
+            &f.db,
+            &f.db.conn,
+            &f.request,
+            &f.request.binding,
+            &repeated_group
+        )
+        .unwrap()
+        .unwrap()
+        .operation_id,
+        withdrawn.operation_id
+    );
+    f.request.request_id = "restore-chain".into();
+    let restored =
+        f.db.agent_todo_creation_restore(
+            &f.request,
+            &f.request.binding,
+            &RecordRestoreInput {
+                creation_operation_id: "c".repeat(32),
+                expected_withdrawal_revision: withdrawn.revision,
+            },
+        )
+        .unwrap();
+    assert!(!restored.withdrawn);
+    assert_eq!(count(&f.db, "agent_visible_todos"), 1);
+    assert_eq!(todo_revisions::head(&f.db.conn, id).unwrap(), native);
+    assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), before);
+    f.request.request_id = "restore-chain-repeat".into();
+    assert_eq!(
+        f.db.agent_todo_creation_restore(
+            &f.request,
+            &f.request.binding,
+            &RecordRestoreInput {
+                creation_operation_id: "c".repeat(32),
+                expected_withdrawal_revision: withdrawn.revision
+            }
+        )
+        .unwrap()
+        .operation_id,
+        restored.operation_id
+    );
+}
+
+#[test]
+fn todo_creation_chain_rejects_manual_head_and_child_drift() {
+    for changed_head in [true, false] {
+        let (f, input, _) = creation_chain();
+        let id = todo_id(&f.object).unwrap();
+        if changed_head {
+            let body = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+            f.db.todo_update_content(TodoUpdateContentInput {
+                expected_revision: todo_revisions::head(&f.db.conn, id).unwrap().revision,
+                todo_id: id,
+                content: body.content,
+                due_date: body.due_date,
+                tag_ids: body.tag_ids,
+            })
+            .unwrap();
+        } else {
+            f.db.conn
+                .execute(
+                    "UPDATE todo_progresses SET content='manual child drift' WHERE todo_id=?1",
+                    [id],
+                )
+                .unwrap();
+        }
+        let group = creation_group(&f, &input);
+        assert_eq!(
+            creation_group_check(&f.db, &f.db.conn, &f.request, &f.request.binding, &group)
+                .unwrap_err()
+                .code,
+            ErrorCode::UndoConflict
+        );
+        assert_eq!(count(&f.db, "agent_object_withdrawals"), 0);
+    }
+}
+
+#[test]
+fn todo_creation_chain_rolls_back_visibility_and_all_original_links_on_receipt_failure() {
+    let (f, input, _) = creation_chain();
+    let group = creation_group(&f, &input);
+    f.db.conn.execute_batch("CREATE TRIGGER fail_todo_chain_receipt BEFORE INSERT ON agent_change_log WHEN NEW.operation='todo.withdraw' BEGIN SELECT RAISE(ABORT,'forced'); END;").unwrap();
+    let tx = f.db.conn.unchecked_transaction().unwrap();
+    assert_eq!(
+        creation_group_apply(&f.db, &tx, &f.request, &f.request.binding, &group)
+            .unwrap_err()
+            .code,
+        ErrorCode::IoFailed
+    );
+    drop(tx);
+    assert_eq!(count(&f.db, "agent_object_withdrawals"), 0);
+    assert_eq!(count(&f.db, "agent_visible_todos"), 1);
+    for id in input.operation_ids {
+        let entry =
+            f.db.agent_operation_get(&f.request, &f.request.binding, &id)
+                .unwrap();
+        assert_eq!(entry.undo_state, "available");
+        assert!(entry.undo_operation_id.is_none());
+    }
+}
+
 #[test]
 fn todo_undo_restores_actual_fields_tags_children_and_replays_original_receipt() {
     for project in [false, true] {
