@@ -1,6 +1,6 @@
 # AI 工作上下文：产品与开发规格
 
-更新：2026-09-29。状态：已形成开发计划，尚未实现。
+更新：2026-10-08。状态：实施中，基础与部分内部服务已实现，完整助手工作流尚未交付。代码审查快照与后续顺序见[交付计划D2](ai-work-context-delivery.md#delivery-audit)。
 
 本规格定义 Project Mind 的 AI 助手如何理解项目、利用历史知识并直接完成可逆操作。它整合了此前确定的需求；正文按完整产品逻辑组织，不再保留逐轮追加的修订章节。
 
@@ -196,6 +196,6 @@ CLI、MCP与内置助手调用同一业务服务，获得相同范围内的知�
 
 开发时重点验证：QuickNote与Overview隔离；新会话不全量加载；历史问题能定位消息；增量维护不漏变化；自主写入能撤销；人工修改不被旧基线覆盖；HTML修改复用版本；各接入方式执行同一权限和预算。
 
-工程实现从[工程契约目录](ai-work-context-engineering-spec.md)进入。当前确定的是产品与实现契约，尚未修改应用行为；未来新增领域术语与架构决策随对应实现更新CONTEXT和ADR。
+工程实现从[工程契约目录](ai-work-context-engineering-spec.md)进入。已有基础服务、Record版本与部分File/知识服务实现；产品可用性按交付计划和实际验收判断，不能由内部接口存在推定。新增领域术语与架构决策随对应实现更新CONTEXT和ADR。
 
 参考依据见[LLM Wiki渐进披露调研](../technical/llm-wiki-progressive-disclosure-research.md)与[CLI、Open Design、Pi调研](../technical/ai-capability-reference-research.md)。索引优先、知识积累和按需读取采用LLM Wiki思想；本文的作用域、版本、调度和存储是Mind的具体设计。
