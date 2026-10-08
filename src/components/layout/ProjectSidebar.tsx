@@ -60,6 +60,7 @@ import {
   handleRenameKeyDown,
   isInteractiveTarget,
   stopPropagation,
+  useDocumentPreview,
 } from "../document/DocumentSharedComponents";
 
 export interface ProjectSidebarRecordItem {
@@ -194,6 +195,7 @@ export function ProjectSidebar({
   const openRecord = onOpenRecord ?? (() => undefined);
 
   // UI State
+  const openPreview = useDocumentPreview();
   const [localRecordQuery, setLocalRecordQuery] = useState("");
   const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
   const fileQuery = projectFileFilters[project.id]?.query ?? "";
@@ -527,6 +529,7 @@ export function ProjectSidebar({
       return;
     }
 
+    if (openPreview(document)) return;
     void runDesktopAction(desktopApi.openFile(document.managedPath), "打开文件失败", document.managedPath);
   };
 
@@ -562,6 +565,7 @@ export function ProjectSidebar({
         expectedVersionNumber: document.currentVersionNumber,
       });
       if (!result || actionGeneration !== versionActionGeneration.current) return;
+      if (openPreview(document, result.receipt.versionNumber)) return;
       if (!result.versionPath) {
         pushToast({ tone: "info", title: `v${result.receipt.versionNumber} 已登记`, detail: "版本已保存，请刷新文件列表后打开。" });
         return;
@@ -647,7 +651,7 @@ export function ProjectSidebar({
     openTimerRef.current = window.setTimeout(() => {
       openTimerRef.current = null;
       if (onOpenDocument) {
-        onOpenDocument(document);
+        if (!openPreview(document)) onOpenDocument(document);
       } else {
         openDocument(document);
       }
@@ -699,7 +703,7 @@ export function ProjectSidebar({
       event.preventDefault();
       clearPendingOpen();
       if (onOpenDocument) {
-        onOpenDocument(document);
+        if (!openPreview(document)) onOpenDocument(document);
       } else {
         openDocument(document);
       }
@@ -1070,6 +1074,7 @@ export function ProjectSidebar({
                                   <DocumentVersionDropdown
                                     document={document as DocumentRecord}
                                     onOpenVersion={(version) => {
+                                      if (openPreview(document, version.versionNumber)) return;
                                       void runDesktopAction(
                                         desktopApi.openFile(version.managedPath),
                                         "打开版本文件失败",

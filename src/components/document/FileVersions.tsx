@@ -24,10 +24,11 @@ function failureMessage(error: unknown) {
 }
 
 /** Source pages replace each other; comparison reads one bounded complete snapshot per side. */
-export default function FileVersions({ binding, object, title, mimeType, onClose, onRestored, onRegisterCurrent }: {
+export default function FileVersions({ binding, object, title, mimeType, onClose, onRestored, onRegisterCurrent, onPreviewVersion }: {
   binding: AgentWorkspaceBinding; object: AgentObjectRef; title: string; mimeType?: string;
   onClose: () => void; onRestored?: () => void | Promise<unknown>;
   onRegisterCurrent?: (expectedVersionNumber: number) => Promise<unknown>;
+  onPreviewVersion?: (version: FileVersionMetadata) => void;
 }) {
   const [page, setPage] = useState<FileVersionPage | null>(null);
   const [selected, setSelected] = useState<FileVersionMetadata | null>(null);
@@ -118,7 +119,7 @@ export default function FileVersions({ binding, object, title, mimeType, onClose
   }
   const differences = useMemo(() => comparison ? diffLines(comparison.before.text, comparison.after.text) : null, [comparison]);
   return <Dialog open title={`版本历史 · ${title}`} description="查看固定版本原文；恢复会保存为新版本，历史版本仍保留。" onClose={() => { if (!busy) onClose(); }} widthClassName="max-w-5xl" bodyClassName="overflow-hidden" layerClassName="z-40 file-versions"
-    footer={<><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>关闭</Button><Button type="button" variant="primary" disabled={busy || !selected || selected.isCurrent || !selected.contentHash || !page?.currentContentHash} onClick={() => void restore()}>{busy ? "处理中…" : "恢复此版本"}</Button></>}>
+    footer={<><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>关闭</Button>{onPreviewVersion ? <Button type="button" variant="ghost" disabled={busy || !selected || !selected.contentHash} onClick={() => { if (selected) onPreviewVersion(selected); }}>查看此版本</Button> : null}<Button type="button" variant="primary" disabled={busy || !selected || selected.isCurrent || !selected.contentHash || !page?.currentContentHash} onClick={() => void restore()}>{busy ? "处理中…" : "恢复此版本"}</Button></>}>
     {error ? <p role="alert" className="mb-2 text-ui text-danger">{error}</p> : null}
     {notice ? <p role="status" className="mb-2 text-ui text-text-muted">{notice}</p> : null}
     <div className="mb-3 flex flex-wrap items-center gap-2">

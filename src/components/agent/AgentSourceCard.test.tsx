@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentSourceNavigation, AgentSourceRef } from "../../lib/agent-types";
+import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import { AgentSourceCard } from "./AgentSourceCard";
 
-const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn(), restore: vi.fn() }));
+const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn(), restore: vi.fn(), workspaceStatus: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("../../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, sourceResolve: mocks.sourceResolve, operationRestoreCreated: mocks.restore } }));
-vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve, documentListVersions: mocks.versions } }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve, documentListVersions: mocks.versions, workspaceStatusGet: mocks.workspaceStatus } }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.openFile } }));
 const binding = { workspaceId: "w1", generation: "g1" };
 const source: AgentSourceRef = { object: { workspaceId: "w1", scope: { kind: "project", projectId: 7 }, kind: "record", id: "42" },
@@ -14,7 +15,7 @@ const source: AgentSourceRef = { object: { workspaceId: "w1", scope: { kind: "pr
 const navigation: AgentSourceNavigation = { object: source.object, status: "current", recordTarget: { scope: source.object.scope, recordId: 42 },
   currentRevision: source.revision, revisionMatches: true, recordVersion: null, recordVersionId: null, headRevision: 3,
   blockId: source.blockId, blockStatus: "available", voiceRecordId: null, startMs: null, endMs: null, timeStatus: "not_requested" };
-beforeEach(() => { vi.clearAllMocks(); mocks.statusGet.mockResolvedValue({ binding }); mocks.sourceResolve.mockResolvedValue(navigation); mocks.openFile.mockResolvedValue(undefined); });
+beforeEach(() => { vi.clearAllMocks(); closeFilePreview(); mocks.workspaceStatus.mockResolvedValue({ currentWorkspace: { rootPath: "/actual/workspace" } }); mocks.statusGet.mockResolvedValue({ binding }); mocks.sourceResolve.mockResolvedValue(navigation); mocks.openFile.mockResolvedValue(undefined); });
 
 it("restores a withdrawn source then resolves its actual destination again", async () => {
   mocks.sourceResolve.mockRejectedValueOnce(JSON.stringify({ code: "OBJECT_WITHDRAWN", details: { workspaceId: "w1", creationOperationId: "b".repeat(32), withdrawalRevision: 3, restoreAvailable: true } })).mockResolvedValue(navigation);
@@ -161,4 +162,17 @@ it("does not substitute an available current page for a deleted retained Record 
   expect(await screen.findByRole("alert")).toHaveTextContent("保留版本已删除");
   expect(mocks.resolve).not.toHaveBeenCalled();
   expect(mocks.navigate).not.toHaveBeenCalled();
+});
+
+it("opens an HTML source at the exact retained version instead of the current head or desktop browser", async () => {
+  const file = { ...source, object: { ...source.object, kind: "file" as const, id: "51" }, fileVersion: 1, blockId: null, title: "历史网页" };
+  mocks.resolve.mockResolvedValue({ kind: "document", id: 51, label: "页面.htm", scope: "project", projectId: 7, route: "/projects/7?document=51", managedPath: "/head/页面.htm" });
+  mocks.versions.mockResolvedValue([{ id: 2, documentId: 51, versionNumber: 2, managedPath: "/head/页面.htm" }, { id: 1, documentId: 51, versionNumber: 1, managedPath: "/history/页面.htm" }]);
+  render(<AgentSourceCard source={file} binding={binding} />);
+  fireEvent.click(screen.getByRole("button", { name: "历史网页" }));
+  fireEvent.click(screen.getByRole("button", { name: "打开原文" }));
+  await waitFor(() => expect(useFilePreviewStore.getState().request).toEqual({ workspaceRoot: "/actual/workspace", projectId: 7, documentId: 51, title: "页面.htm", versionNumber: 1 }));
+  expect(mocks.openFile).not.toHaveBeenCalled();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+  expect(screen.getByText("旧版 v1 · 当前 v2")).toBeInTheDocument();
 });

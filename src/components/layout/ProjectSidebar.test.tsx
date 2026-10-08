@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { queryKeys } from "../../lib/queryKeys";
+import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
@@ -53,11 +55,13 @@ function renderWithProviders(ui: React.ReactElement) {
     },
   });
 
+  queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 describe("ProjectSidebar", () => {
   beforeEach(() => {
+    closeFilePreview();
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
@@ -88,6 +92,21 @@ describe("ProjectSidebar", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("opens an HTML file from the existing file rail without invoking the desktop opener", async () => {
+    const html = buildDocument({ id: 29, name: "report.htm", baseName: "report.htm", mimeType: "text/html" });
+    const onOpenDocument = vi.fn();
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[html]} onOpenProject={() => undefined} onOpenDocument={onOpenDocument} />);
+    fireEvent.click(screen.getByText("report.htm"));
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toEqual({ workspaceRoot: "/tmp/workspace", projectId: 1, documentId: 29, title: "report.htm" }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+    expect(onOpenDocument).not.toHaveBeenCalled();
+    closeFilePreview();
+    screen.getByRole("button", { name: "report.htm", exact: true }).focus();
+    await userEvent.setup().keyboard("{Enter}");
+    await waitFor(() => expect(useFilePreviewStore.getState().request?.documentId).toBe(29));
+    expect(onOpenDocument).not.toHaveBeenCalled();
   });
 
   it("opens the project overview, navigates records, and toggles collapse", async () => {

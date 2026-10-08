@@ -1,3 +1,5 @@
+import { FilePreviewWorkspace } from "./components/document/FilePreviewWorkspace";
+import { useFilePreviewStore } from "./state/file-preview-store";
 import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
@@ -303,6 +305,17 @@ export function WorkspaceLayout({
   const agentPanelOpen = useAgentPanelStore(state => state.open);
   const agentPanelExpanded = useAgentPanelStore(state => state.expanded);
   const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath;
+  const filePreviewRequest = useFilePreviewStore(state => state.request);
+  const filePreviewVisible = !!filePreviewRequest && filePreviewRequest.workspaceRoot === currentWorkspace?.rootPath;
+  const previousPreviewNavigation = useRef(location.key);
+  useEffect(() => {
+    if (previousPreviewNavigation.current === location.key) return;
+    previousPreviewNavigation.current = location.key;
+    useFilePreviewStore.getState().closePreview();
+  }, [location.key]);
+  useEffect(() => {
+    if (!currentWorkspace && filePreviewRequest) useFilePreviewStore.getState().closePreview();
+  }, [currentWorkspace, filePreviewRequest]);
   useEffect(() => {
     if (!currentWorkspace && agentPanelBinding) useAgentPanelStore.getState().clearWorkspace();
   }, [currentWorkspace, agentPanelBinding]);
@@ -1558,11 +1571,14 @@ export function WorkspaceLayout({
 
         <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
           <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
-            {cachedWorkspaceResidentShell}
-            {cachedProjectResidentShells}
-            {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
-              ? null
-              : mainContent}
+            <div className="h-full min-h-0 overflow-hidden" hidden={filePreviewVisible} inert={filePreviewVisible}>
+              {cachedWorkspaceResidentShell}
+              {cachedProjectResidentShells}
+              {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
+                ? null
+                : mainContent}
+            </div>
+            <FilePreviewWorkspace workspaceRoot={currentWorkspace.rootPath} />
           </main>
           <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} />
         </div>

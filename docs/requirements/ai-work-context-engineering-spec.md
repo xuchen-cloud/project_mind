@@ -473,10 +473,10 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 ## E11 HTML交互稿与隔离预览
 
-1. 用户说“根据这个需求做一个可点击的HTML交互稿”，Agent读项目来源，生成UTF-8 `.html/.htm`（单文件≤2MiB，内联CSS/JS、演示数据），经暂存校验直接`file.create`。File列表显示它，会话显示“已保存 · v1”和预览入口；不要求再点保存。内容仍存现有File，不创建新的“原型”业务实体。
+1. 用户说“根据这个需求做一个可点击的HTML交互稿”，Agent读项目来源，生成UTF-8 `.html/.htm`（单文件≤2MiB，内联CSS/JS、演示数据），经暂存校验形成候选。默认review按E7/E10对本次任务一次会话确认后提交`file.create`；只有用户主动选择的collaborate模式直接提交。实际保存成功后File列表显示它，会话显示“已保存 · v1”和预览入口，不再要求第二次保存确认。内容仍存现有File，不创建新的“原型”业务实体。
 2. 用户在File菜单或预览点击“继续修改”，附加File ID、当前版本/hash及源码来源；预览保持打开。用户说“把筛选改为多选”，Agent读取原始源码、保留无关逻辑，通过`file.patch_text`或`file.update`提交；同File ID生成v2，不另建同名文件。聊天已明确引用唯一HTML时可直接继续，存在多个同名候选才询问目标。
-3. 源码与索引分离：`file.source.read(FileRef,version?,cursor?)`返回未经脚本清洗的UTF-8源码，单页≤24000字符，携带完整hash/字节数/版本/truncated/nextCursor；未读全不得声称已理解全文件。分页固定同一版本，过期返回SOURCE_CHANGED。聊天不默认展开整段代码；源码视图只读，编辑可交给Agent或现有外部编辑流程。
-4. 预览区有“预览/源码”、当前版本、刷新、375/768/1440宽度及自适应选项、“继续修改”和版本历史入口。窄窗口在会话与预览间切换，不挤出三个不可用面板。按实际容器尺寸缩放，标明所选CSS viewport宽度。
+3. 源码与索引分离：复用R07固定版本源读取helper，`file.source.read(FileRef,version,cursor?)`返回未经脚本清洗的UTF-8源码，单页≤24000字符，携带完整hash/字节数/版本、已读范围/complete/nextCursor；未读全不得声称已理解全文件或加载成完整预览。分页固定同一版本/hash，过期返回SOURCE_CHANGED并显式重载，跨对象/版本异步响应丢弃。聊天不默认展开整段代码；源码视图只读，编辑可交给Agent或现有外部编辑流程。
+4. `FileHtmlPreview`接非模态主工作区与现有同scope会话侧栏，不另建聊天或编辑器。有“预览/只读源码”、当前版本、刷新、375/768/1440宽度及自适应选项、“继续修改”和版本历史入口。窄窗口在会话与预览间切换，不挤出三个不可用面板。按实际容器尺寸缩放，标明所选CSS viewport宽度。
 5. 默认预览最新已提交版本，流式token与staging不逐帧重载。新版本提交后显示更新并加载；切换历史预览时固定File Version，后续新版本不得把用户看的旧版替换掉。恢复旧稿走既有`file.version.restore`生成新版本，引用仍可定位旧版。
 6. 首期完整支持单HTML内联样式/脚本、嵌入图片、表单本地校验、弹窗、标签切换、筛选、模拟增删和hash路由。不依赖CDN即可演示。现有含相对资源、外部CDN、fetch/后端或多页路由的HTML仍允许导入、源码修改、版本化保存；预览明确列出未加载依赖，不声称完整支持工程项目。M1不承诺npm安装、打包构建或多文件原子发布。用户需要时可由Agent将可获取且被授权的资源内联为自包含稿，保留前一版。
 7. `file.create`扩展名白名单扩为md/txt/html/htm；扩展名与MIME一致，HTML内容按原始字节保存，不用Record富文本sanitizer删除JS。已有HTML完整替换沿100MiB上传通路；内置生成2MiB限制不限制已有文件版本能力。超过可读/模型预算时明确说明可处理片段。
@@ -484,12 +484,14 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 ### 预览隔离
 
-- 在无应用能力的iframe中执行，设置`sandbox="allow-scripts"`，不加`allow-same-origin`、forms、popups、downloads或top-navigation权限；不把生成HTML注入主应用DOM。首期以srcdoc承载自包含内容；内容拥有opaque origin，不暴露Tauri IPC、连接凭据、Workspace绝对路径或任意文件读取接口。
+开工先复用R07源/版本/restore与R04d～g会话接缝，用实际fixture比较隔离候选再确定单一实现；本节列出必须满足的边界与候选参数，不宣称iframe或原生WebView已验证。前端fixture、真实IPC文件链路、真实模型任务及macOS WebKit/Windows WebView2安装环境分别记录证据，不能互相替代；执行拆分见交付计划R08a～d。
+
+- iframe候选在无应用能力的surface中执行，设置`sandbox="allow-scripts"`，不加`allow-same-origin`、forms、popups、downloads或top-navigation权限；不把生成HTML注入主应用DOM。以srcdoc承载自包含内容并维持opaque origin，不暴露Tauri IPC、连接凭据、Workspace绝对路径或任意文件读取接口；是否满足实际平台约束由fixture与安装环境验证。
 - 预览层附加CSP：`default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`。策略仅作用于预览副本，不修改保存的源文件。内联事件可运行，不开放eval；阻止外部网络、子frame和真实表单提交。同时验证父WebView CSP不会使合法内联交互全部失效，允许脚本的放宽仅用于该隔离surface。
-- iframe sandbox和connect-src本身不能拦截所有frame自身导航。宿主必须对预览surface加网络请求/导航拦截：只允许初始受控内容、data/blob资源和同文档hash变化，拒绝外部URL导航与请求；在实际WebKit/WebView2验证链接、location、meta refresh等路径。若不能可靠约束子frame，则必须使用无应用能力的专用WebView并在其宿主层拦截，不能只靠前端click监听。
+- iframe sandbox和connect-src本身不能拦截所有frame自身导航。宿主必须对预览surface加网络请求/导航拦截：只允许初始受控内容、data/blob资源和同文档hash变化，拒绝外部URL导航与请求；在实际WebKit/WebView2验证链接、location、meta refresh等路径。若不能可靠约束子frame，则验证无应用能力的专用WebView及宿主层拦截候选；未能证明等价边界前不开放预览，不能只靠前端click监听。
 - srcdoc构造时由可信代码把限制策略放在内容前；导入文档的meta不能放宽策略。拦截资源失败显示依赖状态；工具诊断和postMessage都视为不可信数据，即使来源窗口匹配也不能触发文件写入或提升权限。停止、关闭及切版本销毁iframe。
-- HTML不能依靠预览访问本地持久存储或真实业务API；交互状态是本次演示内存。刷新/切版本会重置演示状态，界面如实提示。M0或AI-18最先在实际Tauri/WebKit平台做隔离与内联交互smoke；若平台组合不满足隔离，使用独立且无Tauri capabilities的预览WebView，并维持等价CSP，不能退回有应用权限的主页面。
-- 依据：[MDN iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe)、[MDN CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)。上面的实现参数是本产品选择，须由实际打包平台测试确认。
+- HTML不能依靠预览访问本地持久存储或真实业务API；交互状态是本次演示内存。刷新/切版本会重置演示状态，界面如实提示。M0或AI-18先在实际Tauri/WebKit平台做隔离与内联交互smoke；若iframe候选不能证明隔离，则验证独立且无Tauri capabilities的预览WebView及等价CSP，不把候选fallback视为已经安全，不能退回有应用权限的主页面。
+- 依据：[MDN iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe)、[MDN CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)。候选参数须由实际打包平台测试确认；恢复仍用既有服务及冻结的expectedVersion/hash，隔离选型不改变版本CAS或原始源码保存契约。
 
 <a id="e12"></a>
 

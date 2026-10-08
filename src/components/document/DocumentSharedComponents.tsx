@@ -10,17 +10,37 @@ import {
   type ReactElement,
 } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react";
 
 import { formatDateTime } from "../../lib/formatters";
-import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, TagColorKey } from "../../lib/types";
+import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
 import { tagColorValue } from "../../lib/constants";
+import { queryKeys } from "../../lib/queryKeys";
+import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-store";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import { PopoverPanel, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 
 const FileVersionHistory = lazy(() => import("./FileVersionHistory"));
+
+/** Returns true for handled HTML, including a visible missing-workspace error. */
+export function useDocumentPreview() {
+  const queryClient = useQueryClient();
+  const pushToast = useFeedbackStore(state => state.pushToast);
+  return (document: Pick<DocumentRecord, "id" | "projectId" | "name" | "baseName" | "mimeType">, versionNumber?: number) => {
+    if (!isHtmlPreviewFile(document)) return false;
+    const workspaceRoot = queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+    if (!workspaceRoot) {
+      pushToast({ tone: "error", title: "无法打开文件", detail: "工作区信息尚未就绪，请稍后重试。" });
+      return true;
+    }
+    openFilePreview({ workspaceRoot, projectId: document.projectId, documentId: document.id, title: document.baseName,
+      ...(versionNumber !== undefined ? { versionNumber } : {}) });
+    return true;
+  };
+}
 
 // Helper functions
 export function canRenameDocument(document: DocumentRecord) {

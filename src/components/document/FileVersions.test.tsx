@@ -96,3 +96,15 @@ it("shows binary metadata without fetching text and disables unknown-hash restor
   expect(await screen.findByText(/此格式仅查看版本元数据/)).toBeInTheDocument();
   expect(fileDocumentApi.sourceRead).not.toHaveBeenCalled(); expect(screen.getByRole("button", { name: "恢复此版本" })).toBeDisabled();
 });
+
+it("offers a fixed-version preview only to an explicit preview consumer without restoring bytes", async () => {
+  const onPreviewVersion = vi.fn();
+  const rendered = render(<FileVersions {...props} onPreviewVersion={onPreviewVersion} />);
+  expect(screen.getByRole("button", { name: "查看此版本" })).toBeDisabled();
+  await selectOld();
+  fireEvent.click(screen.getByRole("button", { name: "查看此版本" }));
+  expect(onPreviewVersion).toHaveBeenCalledWith(old);
+  expect(fileDocumentApi.restore).not.toHaveBeenCalled();
+  rendered.rerender(<FileVersions {...props} />);
+  expect(screen.queryByRole("button", { name: "查看此版本" })).not.toBeInTheDocument();
+});

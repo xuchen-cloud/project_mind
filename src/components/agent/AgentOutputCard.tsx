@@ -6,6 +6,7 @@ import { todoPriorityOptionLabel } from "../../lib/todo-priority";
 import { revealAgentObjectPage } from "../../lib/agent-panel-navigation";
 import { agentApi } from "../../services/agentApi";
 import { projectMindApi } from "../../services/projectMindApi";
+import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-store";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { Button, StatusBadge, SurfaceCard } from "../../ui/components";
 import { AgentSourceCard } from "./AgentSourceCard";
@@ -116,12 +117,21 @@ function OutputCardBody({ binding, output, operation, runActive = false, present
   }
   async function openObject() {
     const reference = await resolveObject();
-    if (reference && active.current) { setResolved(reference); navigate(reference.route); revealAgentObjectPage(); }
+    if (!reference || !active.current) return;
+    if (isFile && isHtmlPreviewFile({ name: reference.label })) {
+      const workspace = (await projectMindApi.workspaceStatusGet()).currentWorkspace;
+      if (!workspace || !(await checkBinding())) throw new Error("工作区已切换，未打开旧成果。");
+      if (reference.projectId === null) throw new Error("文件所属项目不可用。");
+      setResolved(reference);
+      openFilePreview({ workspaceRoot: workspace.rootPath, projectId: reference.projectId, documentId: reference.id, title: reference.label });
+      return;
+    }
+    setResolved(reference); navigate(reference.route); revealAgentObjectPage();
   }
   async function continueDiscussion() {
     const reference = await resolveObject();
     if (!reference || !object || !active.current) return;
-    navigate(reference.route);
+    if (!isFile || !isHtmlPreviewFile({ name: reference.label })) navigate(reference.route);
     if (!useAgentPanelStore.getState().setDiscussionTarget(binding, object, reference.label)) {
       throw new Error("请先在此对象所属范围打开助手，再继续讨论。");
     }

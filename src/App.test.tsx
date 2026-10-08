@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { closeFilePreview, openFilePreview, useFilePreviewStore, type FilePreviewRequest } from "./state/file-preview-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -14,6 +16,8 @@ import { queryKeys } from "./lib/queryKeys";
 import { fixtureEditorState } from "./test/recordDocumentFixture";
 import type { RecordTarget } from "./lib/record-document-types";
 import type { ProjectPageData, WorkspacePageData } from "./lib/types";
+vi.mock("./components/document/FileHtmlPreview", () => ({ FileHtmlPreview: ({ request, onClose }: { request: FilePreviewRequest; onClose: () => void }) =>
+  <section aria-label="测试文件预览"><p>{request.title}</p><button onClick={onClose}>关闭预览</button></section> }));
 const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn(), bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
 vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
@@ -247,6 +251,7 @@ describe("workspaceSearchResultRoute", () => {
 
 describe("WorkspaceLayout", () => {
   beforeEach(() => {
+    closeFilePreview();
     vi.resetAllMocks();
     vi.mocked(desktopApi.listenForCloseRequest).mockResolvedValue(() => undefined);
     vi.mocked(desktopApi.listenForWorkspaceLifecycleFlush).mockResolvedValue(
@@ -257,6 +262,47 @@ describe("WorkspaceLayout", () => {
     vi.mocked(isProjectWindow).mockReturnValue(false);
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("keeps the underlying page mounted and its route unchanged when viewing files, and closes files on navigation or workspace change", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const status = { currentWorkspace: { rootPath: "/tmp/workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", displayName: "Test Workspace", createdAt: "now" }, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" };
+    client.setQueryData(queryKeys.workspaceStatus, status);
+    client.setQueryData(queryKeys.projects.all, []);
+    client.setQueryData(queryKeys.workspacePage, { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] });
+    const mounted = vi.fn();
+    function BusinessPage() { useEffect(() => { mounted(); }, []); return <button>原业务页面</button>; }
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [{ path: "workspace", element: <BusinessPage /> }] }], { initialEntries: ["/workspace"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const business = await screen.findByRole("button", { name: "原业务页面" });
+    const request = { workspaceRoot: "/tmp/workspace", projectId: 7, documentId: 51, title: "页面.html" };
+    act(() => openFilePreview(request));
+    expect(await screen.findByRole("region", { name: "测试文件预览" })).toBeVisible();
+    expect(business).not.toBeVisible();
+    expect(mounted).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
+    expect(business).toBeVisible();
+    expect(mounted).toHaveBeenCalledOnce();
+    act(() => openFilePreview(request));
+    await act(async () => { await router.navigate("/workspace?focus=todo-1"); });
+    expect(useFilePreviewStore.getState().request).toBeNull();
+    expect(business).toBeVisible();
+    expect(mounted).toHaveBeenCalledOnce();
+    act(() => openFilePreview(request));
+    act(() => openFilePreview({ ...request, documentId: 52, title: "新页面.html", versionNumber: 2 }));
+    expect(await screen.findByText("新页面.html")).toBeVisible();
+    expect(useFilePreviewStore.getState().request?.documentId).toBe(52);
+    expect(router.state.location.pathname + router.state.location.search).toBe("/workspace?focus=todo-1");
+    // Reopening latest for the same document replaces the fixed-version request without routing.
+    act(() => openFilePreview({ ...request, documentId: 52, title: "新页面.html" }));
+    expect(useFilePreviewStore.getState().request?.versionNumber).toBeUndefined();
+    expect(router.state.location.search).toBe("?focus=todo-1");
+    await act(async () => { await router.navigate("/workspace?focus=record-3"); });
+    expect(useFilePreviewStore.getState().request).toBeNull();
+    act(() => openFilePreview(request));
+    act(() => { client.setQueryData(queryKeys.workspaceStatus, { ...status, currentWorkspace: { ...status.currentWorkspace, rootPath: "/other/workspace" } }); });
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toBeNull());
+    expect(screen.queryByRole("region", { name: "测试文件预览" })).not.toBeInTheDocument();
   });
 
   it("keeps the top-bar search global while a Project is active", async () => {

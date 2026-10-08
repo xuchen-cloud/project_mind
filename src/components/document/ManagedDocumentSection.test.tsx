@@ -3,6 +3,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { queryKeys } from "../../lib/queryKeys";
+import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import type { DocumentRecord, DocumentVersionRecord, ProjectTagRecord } from "../../lib/types";
 
 const documentMutationMocks = vi.hoisted(() => ({
@@ -66,6 +68,7 @@ import { ManagedDocumentSection } from "./ManagedDocumentSection";
 
 describe("ManagedDocumentSection", () => {
   beforeEach(() => {
+    closeFilePreview();
     documentMutationMocks.documentImportMutation.mutate.mockReset();
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentRelocateMutation.mutate.mockReset();
@@ -184,6 +187,20 @@ describe("ManagedDocumentSection", () => {
     expect(
       Array.from(container.querySelectorAll("[id^='document-']")).map((node) => node.id),
     ).toEqual(["document-2", "document-1", "document-3"]);
+  });
+
+  it("opens latest HTML in the workspace and pins a selected historical version", async () => {
+    const html = buildDocument({ id: 9, name: "Page.HTML", baseName: "Page.HTML", mimeType: "text/html", currentVersionNumber: 2, versionCount: 2 });
+    projectMindApiMocks.documentListVersions.mockResolvedValueOnce([{ id: 91, documentId: 9, versionNumber: 1, name: "Page.HTML", sourcePath: "/original/Page.HTML", managedPath: "/history/Page.HTML", createdAt: "2026-04-06T10:00:00.000Z" }]);
+    renderSection([html]);
+    fireEvent.click(document.getElementById("document-9")!);
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toEqual({ workspaceRoot: "/tmp/workspace", projectId: 1, documentId: 9, title: "Page.HTML" }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "选择 Page.HTML 的版本" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /v1/ }));
+    expect(useFilePreviewStore.getState().request?.versionNumber).toBe(1);
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
   });
 
   it("opens the file when clicking the row body", async () => {
@@ -593,6 +610,7 @@ describe("ManagedDocumentSection", () => {
 
 function renderSection(documents: DocumentRecord[]) {
   const queryClient = new QueryClient();
+  queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ManagedDocumentSection

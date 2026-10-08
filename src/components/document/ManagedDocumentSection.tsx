@@ -48,6 +48,7 @@ import {
   handleRenameKeyDown,
   isInteractiveTarget,
   stopPropagation,
+  useDocumentPreview,
 } from "./DocumentSharedComponents";
 
 type LayoutMode = "grid" | "list";
@@ -91,6 +92,7 @@ export function ManagedDocumentSection({
   pageDropMessage,
   onDropFiles,
 }: ManagedDocumentSectionProps) {
+  const openPreview = useDocumentPreview();
   const [dragActive, setDragActive] = useState(false);
   const [editingDocumentId, setEditingDocumentId] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState("");
@@ -322,6 +324,7 @@ export function ManagedDocumentSection({
       return;
     }
 
+    if (openPreview(document)) return;
     void runDesktopAction(
       desktopApi.openFile(document.managedPath),
       "打开文件失败",
@@ -361,6 +364,7 @@ export function ManagedDocumentSection({
         expectedVersionNumber: document.currentVersionNumber,
       });
       if (!result || actionGeneration !== versionActionGeneration.current) return;
+      if (openPreview(document, result.receipt.versionNumber)) return;
       if (!result.versionPath) {
         pushToast({ tone: "info", title: `v${result.receipt.versionNumber} 已登记`, detail: "版本已保存，请刷新文件列表后打开。" });
         return;
@@ -651,7 +655,7 @@ export function ManagedDocumentSection({
                               <DocumentVersionDropdown
                                 document={document}
                                 onOpenVersion={(version) =>
-                                  runDesktopAction(
+                                  openPreview(document, version.versionNumber) || runDesktopAction(
                                     desktopApi.openFile(version.managedPath),
                                     "打开版本文件失败",
                                     version.managedPath,
@@ -702,7 +706,7 @@ export function ManagedDocumentSection({
                               <DocumentVersionDropdown
                                 document={document}
                                 onOpenVersion={(version) =>
-                                  runDesktopAction(
+                                  openPreview(document, version.versionNumber) || runDesktopAction(
                                     desktopApi.openFile(version.managedPath),
                                     "打开版本文件失败",
                                     version.managedPath,

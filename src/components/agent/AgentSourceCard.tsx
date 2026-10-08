@@ -8,6 +8,7 @@ import { revealAgentObjectPage } from "../../lib/agent-panel-navigation";
 import { withdrawnReference, type WithdrawnReference } from "../../lib/withdrawn-reference";
 import { agentApi } from "../../services/agentApi";
 import { desktopApi } from "../../services/desktopApi";
+import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import { Button, DisclosurePresence, StatusBadge, SurfaceCard } from "../../ui/components";
 
@@ -118,6 +119,15 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
           filePath = version.managedPath;
           const latest = Math.max(...versions.map(entry => entry.versionNumber));
           if (active.current && source.fileVersion < latest) setStatus(`旧版 v${source.fileVersion} · 当前 v${latest}`);
+        }
+        if (isHtmlPreviewFile({ name: resolved.label })) {
+          const workspace = (await projectMindApi.workspaceStatusGet()).currentWorkspace;
+          if (!workspace || resolved.projectId === null) throw new Error("文件所属工作区或项目不可用。");
+          if (await stillCurrent()) {
+            openFilePreview({ workspaceRoot: workspace.rootPath, projectId: resolved.projectId, documentId: id, title: resolved.label,
+              ...(source.fileVersion !== null && source.fileVersion !== undefined ? { versionNumber: source.fileVersion } : {}) });
+          }
+          return;
         }
         if (!filePath) throw new Error("文件路径不可用。");
         if (await stillCurrent()) await desktopApi.openFile(filePath);

@@ -1,0 +1,50 @@
+import { useEffect } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { closeFilePreview, isHtmlPreviewFile, openFilePreview, useFilePreviewStore, type FilePreviewRequest } from "../../state/file-preview-store";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
+const mocked = vi.hoisted(() => ({ loaded: vi.fn(), unmounted: vi.fn() }));
+vi.mock("./FileHtmlPreview", () => { mocked.loaded(); return { FileHtmlPreview: ({ request, onClose }: { request: FilePreviewRequest; onClose: () => void }) => {
+  useEffect(() => () => mocked.unmounted(request), []);
+  return <div><p>{request.title} · {request.versionNumber ?? "latest"}</p><button onClick={onClose}>关闭预览</button></div>;
+} }; });
+import { FilePreviewWorkspace } from "./FilePreviewWorkspace";
+const request: FilePreviewRequest = { workspaceRoot: "/workspace", projectId: 7, documentId: 51, title: "页面.html" };
+beforeEach(() => { vi.clearAllMocks(); closeFilePreview(); useAgentPanelStore.getState().clearWorkspace(); });
+afterEach(() => vi.unstubAllGlobals());
+it("loads only a selected preview, pins supplied history, and destroys it on close or workspace switch", async () => {
+  const view = render(<FilePreviewWorkspace workspaceRoot="/workspace" />);
+  expect(mocked.loaded).not.toHaveBeenCalled();
+  act(() => openFilePreview(request));
+  expect(await screen.findByText("页面.html · latest")).toBeInTheDocument();
+  expect(mocked.loaded).toHaveBeenCalledOnce();
+  act(() => openFilePreview({ ...request, versionNumber: 1 }));
+  expect(screen.getByText("页面.html · 1")).toBeInTheDocument();
+  expect(mocked.unmounted).toHaveBeenCalledWith(request);
+  fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
+  expect(useFilePreviewStore.getState().request).toBeNull();
+  expect(screen.queryByText("页面.html · 1")).not.toBeInTheDocument();
+  act(() => openFilePreview(request));
+  view.rerender(<FilePreviewWorkspace workspaceRoot="/another-workspace" />);
+  expect(useFilePreviewStore.getState().request).toBeNull();
+  expect(screen.queryByRole("region", { name: "HTML 文件" })).not.toBeInTheDocument();
+  expect(mocked.unmounted).toHaveBeenCalledTimes(3);
+});
+it("reveals the preview beside wide chat and switches narrow chat to main content without changing its scope or target", () => {
+  const scope = { kind: "project", projectId: 7 } as const;
+  const binding = { workspaceId: "w", generation: "g" };
+  const object = { workspaceId: "w", scope, kind: "file" as const, id: "51" };
+  vi.stubGlobal("innerWidth", 1200);
+  const panel = useAgentPanelStore.getState();
+  panel.openPanel(request.workspaceRoot, scope); panel.toggleExpanded(); panel.setDiscussionTarget(binding, object, request.title);
+  act(() => openFilePreview(request));
+  expect(useAgentPanelStore.getState()).toMatchObject({ open: true, expanded: false, binding: { workspaceRoot: request.workspaceRoot, scope }, discussionTarget: { binding, object } });
+  vi.stubGlobal("innerWidth", 736);
+  act(() => openFilePreview(request));
+  expect(useAgentPanelStore.getState()).toMatchObject({ open: false, binding: { workspaceRoot: request.workspaceRoot, scope }, discussionTarget: { binding, object } });
+});
+it("recognizes supported HTML file names and metadata while leaving other file kinds alone", () => {
+  expect(isHtmlPreviewFile({ baseName: "PAGE.HTML" })).toBe(true);
+  expect(isHtmlPreviewFile({ name: "page.htm" })).toBe(true);
+  expect(isHtmlPreviewFile({ name: "report.pdf", mimeType: "application/pdf" })).toBe(false);
+});

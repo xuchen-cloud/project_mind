@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentOperationEntry, AgentRuntimeOutput } from "../../lib/agent-types";
+import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { AgentOutputCard, type AgentOutputCardProps } from "./AgentOutputCard";
-const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), resolve: vi.fn(), compare: vi.fn(), preview: vi.fn() }));
+const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), resolve: vi.fn(), compare: vi.fn(), preview: vi.fn(), workspaceStatus: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: mocks.statusGet, outputPreview: mocks.preview } }));
-vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve } }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve, workspaceStatusGet: mocks.workspaceStatus } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { versionsCompare: mocks.compare } }));
 vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: () => <div>原始来源</div> }));
 const binding = { workspaceId: "w", generation: "g" };
@@ -20,7 +21,7 @@ const updatedTodo: AgentRuntimeOutput = { ...output, intent: { intent: "todo_upd
 function props(overrides: Partial<AgentOutputCardProps> = {}): AgentOutputCardProps {
   return { binding, output, operation: null, onCommit: vi.fn(async () => {}), onDismiss: vi.fn(async () => {}), onUndo: vi.fn(async () => {}), onRestore: vi.fn(async () => {}), ...overrides };
 }
-beforeEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); useAgentPanelStore.getState().clearWorkspace(); mocks.statusGet.mockResolvedValue({ binding }); mocks.resolve.mockImplementation(async ({ kind, id }: { kind: string; id: number }) => ({ kind, id, label: kind === "todo" ? "实际待办" : "实际记录", scope: "project", projectId: 1, route: kind === "todo" ? `/projects/1?focus=todo-${id}` : `/projects/1/records/${id}` })); });
+beforeEach(() => { vi.resetAllMocks(); closeFilePreview(); mocks.workspaceStatus.mockResolvedValue({ currentWorkspace: { rootPath: "/actual/workspace" } }); vi.unstubAllGlobals(); useAgentPanelStore.getState().clearWorkspace(); mocks.statusGet.mockResolvedValue({ binding }); mocks.resolve.mockImplementation(async ({ kind, id }: { kind: string; id: number }) => ({ kind, id, label: kind === "todo" ? "实际待办" : "实际记录", scope: "project", projectId: 1, route: kind === "todo" ? `/projects/1?focus=todo-${id}` : `/projects/1/records/${id}` })); });
 
 it.each([output, patchOutput, todoOutput, updatedTodo])("confirms %j directly in the message once, then shows inline completion without a dialog or preview", async candidate => {
   let settle!: () => void;
@@ -140,7 +141,8 @@ it.each(fileOutputs)("confirms File intent %j inline and shows the actual saved 
   view.rerender(<AgentOutputCard {...input} output={{ ...candidate, state: "committed", object: fileObject, fileReceipt: { documentId: 41, versionNumber: 3, contentHash: "sha256:saved", noChange: false } }} />);
   expect(screen.getByText(/文件已保存为 v3/)).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", { name: "阶段计划.html" }));
-  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/projects/1?focus=document-41"));
+  await waitFor(() => expect(useFilePreviewStore.getState().request?.documentId).toBe(41));
+  expect(mocks.navigate).not.toHaveBeenCalled();
   expect(mocks.resolve).toHaveBeenCalledWith({ kind: "document", id: 41 });
 });
 
@@ -226,7 +228,8 @@ it.each([
   fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
   await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).toEqual({ binding, object: target, label }));
   expect(mocks.resolve).toHaveBeenCalledWith({ kind, id: Number(target.id) });
-  expect(mocks.navigate).toHaveBeenCalledOnce();
+  if (kind === "document") expect(mocks.navigate).not.toHaveBeenCalled();
+  else expect(mocks.navigate).toHaveBeenCalledOnce();
   expect(useAgentPanelStore.getState().binding?.scope).toEqual(object.scope);
 });
 
@@ -293,4 +296,26 @@ it("keeps narrow expanded chat open when explicitly continuing discussion", asyn
   await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).not.toBeNull());
   expect(useAgentPanelStore.getState().open).toBe(true);
   expect(useAgentPanelStore.getState().expanded).toBe(true);
+});
+
+it("opens the actual HTML output in the main workspace preview without changing the discussion scope", async () => {
+  useAgentPanelStore.getState().openPanel("/actual/workspace", object.scope);
+  useAgentPanelStore.getState().setDiscussionTarget(binding, object, "保留的讨论记录");
+  mocks.resolve.mockResolvedValue({ kind: "document", id: 41, label: "实际页面.html", scope: "project", projectId: 1, route: "/projects/1?document=41" });
+  render(<AgentOutputCard {...props({ output: { ...fileOutputs[0], state: "committed", object: fileObject }, presentation: "link" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "实际页面.html" }));
+  await waitFor(() => expect(useFilePreviewStore.getState().request).toEqual({ workspaceRoot: "/actual/workspace", projectId: 1, documentId: 41, title: "实际页面.html" }));
+  expect(mocks.navigate).not.toHaveBeenCalled();
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(object.scope);
+  expect(useAgentPanelStore.getState().discussionTarget?.object).toEqual(object);
+});
+it("does not open an HTML output when the workspace binding changes during preview metadata lookup", async () => {
+  mocks.resolve.mockResolvedValue({ kind: "document", id: 41, label: "实际页面.html", scope: "project", projectId: 1, route: "/projects/1" });
+  mocks.workspaceStatus.mockImplementation(async () => { mocks.statusGet.mockResolvedValue({ binding: { ...binding, generation: "reopened" } }); return { currentWorkspace: { rootPath: "/actual/workspace" } }; });
+  const view = render(<AgentOutputCard {...props({ output: { ...fileOutputs[0], state: "committed", object: fileObject }, presentation: "link" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "实际页面.html" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("工作区已切换"));
+  expect(useFilePreviewStore.getState().request).toBeNull();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+  view.unmount();
 });
